@@ -122,7 +122,7 @@ public class AppSettingsService
         return setting;
     }
 
-    /** True while scheduled GitHub refresh jobs should stay idle, in local time. */
+    /** True while background GitHub and Jira refresh should stay idle, in local time. */
     public boolean inQuietHours()
     {
         return quietHours().quietAt(clock.instant().atZone(ZoneId.systemDefault()).toLocalTime());

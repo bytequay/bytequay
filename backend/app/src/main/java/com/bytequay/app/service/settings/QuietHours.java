@@ -18,8 +18,8 @@ import java.time.LocalTime;
 import static com.google.common.base.Preconditions.checkArgument;
 
 /**
- * Daily window, in local minutes of day, during which scheduled GitHub
- * refresh jobs stay idle. The window may wrap midnight; an empty window
+ * Daily window, in local minutes of day, during which background GitHub and Jira
+ * refresh stays idle. The window may wrap midnight; an empty window
  * (equal start and end) never pauses anything.
  */
 public record QuietHours(boolean enabled, int startMinute, int endMinute)

@@ -12,10 +12,10 @@
  * limitations under the License.
  */
 import { useState } from 'react';
-import type { AppPreferencesDto, GitHubAccountDto, QuietHoursDto } from '../types';
-import { formatMinuteOfDay, MINUTE_OPTIONS } from './model';
+import type { AppPreferencesDto, GitHubAccountDto } from '../types';
 import UserAvatar from '../UserAvatar';
-import { SelectPill, SettingsCard, SettingsRow, StatusDot, Toggle } from './primitives';
+import { SelectPill, SettingsCard, SettingsRow, StatusDot } from './primitives';
+import { settingsRoute } from './routes';
 
 const REFRESH_MINUTES = [1, 3, 5, 6, 10, 15, 30, 60];
 
@@ -25,19 +25,17 @@ export function refreshLabel(minutes: number): string {
 }
 
 export default function GitHubPage({
-  account, login, quietHours, preferences, copied, error,
-  onSaveToken, onDisconnect, onCopy, onQuietHours, onPreferences,
+  account, login, preferences, copied, error,
+  onSaveToken, onDisconnect, onCopy, onPreferences,
 }: {
   account: GitHubAccountDto | null;
   login: string | null;
-  quietHours: QuietHoursDto | null;
   preferences: AppPreferencesDto;
   copied: boolean;
   error: string | null;
   onSaveToken: (token: string) => void;
   onDisconnect: () => void;
   onCopy: () => void;
-  onQuietHours: (next: QuietHoursDto) => void;
   onPreferences: (next: AppPreferencesDto) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -103,34 +101,6 @@ export default function GitHubPage({
 
       <div className="setw-section"><span className="setw-section-title">Refresh</span></div>
       <SettingsCard>
-        {quietHours !== null && (
-          <SettingsRow title="Quiet hours" subtitle="Pause background refresh overnight">
-            <SelectPill
-              quiet
-              ariaLabel="Quiet hours start"
-              value={String(quietHours.startMinute)}
-              label={formatMinuteOfDay(quietHours.startMinute)}
-              disabled={!quietHours.enabled}
-              options={MINUTE_OPTIONS.map(minute => ({ value: String(minute), label: formatMinuteOfDay(minute) }))}
-              onSelect={minute => onQuietHours({ ...quietHours, startMinute: Number(minute) })}
-            />
-            <span className="setw-row-sub">to</span>
-            <SelectPill
-              quiet
-              ariaLabel="Quiet hours end"
-              value={String(quietHours.endMinute)}
-              label={formatMinuteOfDay(quietHours.endMinute)}
-              disabled={!quietHours.enabled}
-              options={MINUTE_OPTIONS.map(minute => ({ value: String(minute), label: formatMinuteOfDay(minute) }))}
-              onSelect={minute => onQuietHours({ ...quietHours, endMinute: Number(minute) })}
-            />
-            <Toggle
-              on={quietHours.enabled}
-              label="Pause background refresh during quiet hours"
-              onChange={enabled => onQuietHours({ ...quietHours, enabled })}
-            />
-          </SettingsRow>
-        )}
         <SettingsRow title="Refresh interval">
           <SelectPill
             quiet
@@ -142,7 +112,7 @@ export default function GitHubPage({
           />
         </SettingsRow>
       </SettingsCard>
-      <div className="setw-footnote">Pull-request refresh only; desktop notifications are not paused.</div>
+      <div className="setw-footnote">This interval applies to GitHub pull requests. <a href={settingsRoute('general')}>Manage quiet hours in General</a>.</div>
     </div>
   );
 }

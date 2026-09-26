@@ -88,9 +88,12 @@ class TestJiraController
         assertThat(item.at("/issue/completedAt").isNull()).isTrue();
         assertThat(item.path("fetchedAt").asText()).isEqualTo(UPDATED.toString());
         assertThat(item.path("error").isNull()).isTrue();
-        when(jira.detail("connection", "cloud", "10001", true)).thenReturn(detail());
+        when(jira.refreshDetail("connection", "cloud", "10001", false)).thenReturn(detail());
         mvc.perform(post(ISSUE + "/refresh")).andExpect(status().isOk());
-        verify(jira).detail("connection", "cloud", "10001", true);
+        verify(jira).refreshDetail("connection", "cloud", "10001", false);
+        when(jira.refreshDetail("connection", "cloud", "10001", true)).thenReturn(detail());
+        mvc.perform(post(ISSUE + "/refresh").param("automatic", "true")).andExpect(status().isOk());
+        verify(jira).refreshDetail("connection", "cloud", "10001", true);
         mvc.perform(get("/jira/connections")).andExpect(status().isNotFound());
     }
 

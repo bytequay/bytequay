@@ -184,10 +184,10 @@ export default function JiraScreen() {
     catch (cause) { if (request === generation.current) setError(message(cause)); }
     finally { if (request === generation.current) setLoading(false); }
   };
-  const update = (detail: JiraIssueDetail) => {
+  const update = (detail: JiraIssueDetail, refresh = true) => {
     setPage(value => ({ ...value, issues: value.issues.map(issue => issue.id === detail.issue.id && issue.cloudId === detail.issue.cloudId ? detail.issue : issue) }));
     notifyJiraChanged();
-    void reload();
+    void reload(refresh);
   };
   const toggleGoal = async (issue: JiraIssue) => {
     try { update(await window.bridge.setJiraGoal(jiraIssueLocation(issue), !issue.isGoal)); }
@@ -265,7 +265,7 @@ function JiraAssignee({ assignee }: { assignee: JiraIssue['assignee'] }) {
   </span>;
 }
 
-function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }: { location: JiraLocation; sprints: JiraSprint[]; boardId: number | null; onClose: () => void; onChanged: (detail: JiraIssueDetail) => void; onStart: (issue: JiraIssue) => void }) {
+function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }: { location: JiraLocation; sprints: JiraSprint[]; boardId: number | null; onClose: () => void; onChanged: (detail: JiraIssueDetail, refresh?: boolean) => void; onStart: (issue: JiraIssue) => void }) {
   const [detail, setDetail] = useState<JiraIssueDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -300,9 +300,9 @@ function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }:
     let active = true;
     const timer = window.setInterval(() => {
       if (document.hidden) return;
-      void window.bridge.getJiraIssue(location, true).then(value => {
+      void window.bridge.getJiraIssue(location, true, true).then(value => {
         if (!active) return;
-        setDetail(value); onChangedRef.current(value);
+        setDetail(value); onChangedRef.current(value, false);
       }).catch(cause => { if (active) setError(`Unable to refresh ticket: ${message(cause)}`); });
     }, 60_000);
     return () => { active = false; window.clearInterval(timer); };

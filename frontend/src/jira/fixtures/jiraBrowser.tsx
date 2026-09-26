@@ -74,8 +74,8 @@ export async function mountPreview(offline = false, openIssue = true) {
     listJiraConnections: async () => [connection, { ...connection, id: 'other', account: { accountId: 'sam', displayName: 'Sam Rivera', email: 'sam@another.com' }, sites: [{ id: 'other-site', name: 'Engineering', url: 'https://another.atlassian.net' }] }],
     listJiraBoards: async (_connection, _cloud, refresh) => { if (offline && refresh) throw new Error('Jira is offline'); return [{ id: 828, name: 'Connectors', type: 'scrum' }]; },
     listJiraSprints: async (_connection, _cloud, _board, refresh) => { if (offline && refresh) throw new Error('Jira is offline'); return [{ id: 11, name: 'Connector reliability', state: 'active', startDate: null, endDate: null }]; },
-    listJiraIssues: async (query, refresh) => { if (offline && refresh) throw new Error('Jira is offline'); record('issues', query); return { issues: query.completed ? completedIssues() : currentIssues(), fetchedAt: issue.updatedAt, error: null, partial: false }; },
-    getJiraIssue: async (_location, refresh) => { if (offline && refresh) throw new Error('Jira is offline'); return { ...detail, issue }; },
+    listJiraIssues: async (query, refresh) => { if (offline && refresh) throw new Error('Jira is offline'); record('issues', query, refresh); return { issues: query.completed ? completedIssues() : currentIssues(), fetchedAt: issue.updatedAt, error: null, partial: false }; },
+    getJiraIssue: async (location, refresh, automatic) => { if (offline && refresh) throw new Error('Jira is offline'); record('detail', location, refresh, automatic); return { ...detail, issue }; },
     setJiraGoal: async (_location, isGoal) => { issue = { ...issue, isGoal }; return { ...detail, issue }; },
     updateJiraIssue: async (_location, fields, expectedUpdatedAt) => { record('fields', fields, expectedUpdatedAt); issue = { ...issue, labels: fields.labels as string[] }; return { ...detail, issue }; },
     transitionJiraIssue: async (_location, id, fields, expectedUpdatedAt) => { record('transition', id, fields, expectedUpdatedAt); const transition = detail.transitions.find(value => value.id === id); assert(transition !== undefined, 'Known transition required'); issue = { ...issue, status: transition.to }; return { ...detail, issue }; },
@@ -164,6 +164,34 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       await mountPreview(true); await until(() => document.body.textContent?.includes('Jira is offline') ?? false);
       assert(document.querySelectorAll('.jira-ticket').length === 4, 'Cached tickets remain visible after remote refresh fails');
       assert(document.querySelector('.jira-detail h2')?.textContent === jiraIssue.title, 'Cached detail remains available offline');
+    },
+    async 'marks automatic detail refresh and keeps its board update local'() {
+      const interval = window.setInterval;
+      const hidden = Object.getOwnPropertyDescriptor(document, 'hidden');
+      let poll: (() => void) | undefined;
+      window.setInterval = ((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
+        if (delay === 60_000 && typeof handler === 'function') { poll = () => handler(...args); return -1; }
+        return interval(handler, delay, ...args);
+      }) as typeof window.setInterval;
+      Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+      try {
+        await mountPreview(); await settle(); calls.length = 0;
+        assert(poll !== undefined, 'Visible ticket schedules automatic refresh');
+        issue = { ...issue, title: 'Cached ticket updated during quiet hours' };
+        poll(); await until(() => calls.some(call => call.name === 'issues')); await settle();
+        assert(calls.some(call => call.name === 'detail' && call.args[1] === true && call.args[2] === true), 'Timer labels detail request as automatic for the backend quiet-hours check');
+        assert(!calls.some(call => call.name === 'issues' && call.args[1] === true), 'Cached automatic detail never triggers a remote board refresh');
+        assert(document.querySelector('.jira-detail h2')?.textContent === issue.title && document.querySelector('.jira-ticket__title')?.textContent === issue.title, 'Cached detail still updates both visible ticket surfaces');
+        calls.length = 0; button('Refresh ticket').click();
+        await until(() => calls.some(call => call.name === 'issues' && call.args[1] === true)); await settle();
+        assert(calls.some(call => call.name === 'detail' && call.args[1] === true && call.args[2] !== true), 'Explicit ticket refresh remains a manual remote request');
+        calls.length = 0; button('Refresh tickets').click();
+        await until(() => calls.some(call => call.name === 'issues' && call.args[1] === true));
+      }
+      finally {
+        root?.unmount(); root = null; window.setInterval = interval;
+        if (hidden) Object.defineProperty(document, 'hidden', hidden); else Reflect.deleteProperty(document, 'hidden');
+      }
     },
     async 'keeps narrow detail inside the viewport'() {
       await mountPreview(); const detail = document.querySelector('.jira-detail'); assert(detail !== null, 'Detail visible'); const bounds = detail.getBoundingClientRect(); assert(bounds.width > 350 && bounds.right <= window.innerWidth + 1, 'Detail stays within native app');

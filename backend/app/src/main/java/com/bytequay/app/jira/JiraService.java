@@ -14,10 +14,12 @@
 package com.bytequay.app.jira;
 
 import com.bytequay.app.agent.JiraIssueLocks;
+import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.core.store.JiraIssueTaskStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -46,12 +48,15 @@ public class JiraService
     private final JiraConnections connections;
     private final JiraCache cache;
     private final JiraIssueTaskStore tasks;
+    private final ObjectProvider<AppSettingsService> appSettings;
 
-    public JiraService(JiraConnections connections, JiraCache cache, JiraIssueTaskStore tasks)
+    public JiraService(JiraConnections connections, JiraCache cache, JiraIssueTaskStore tasks, ObjectProvider<AppSettingsService> appSettings)
     {
         this.connections = requireNonNull(connections, "connections is null");
         this.cache = requireNonNull(cache, "cache is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
+        // Agent initialization reads Jira context and also depends on settings; resolve settings only for refresh.
+        this.appSettings = requireNonNull(appSettings, "appSettings is null");
     }
 
     public List<JiraDtos.Board> boards(String connectionId, String cloudId, boolean refresh)
@@ -164,6 +169,11 @@ public class JiraService
                         saved.error(), issue.commentsTruncated()))
                 .orElseGet(() -> new JiraDtos.Detail(issue, issue.comments(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(),
                         Optional.empty(), issue.commentsTruncated()));
+    }
+
+    public JiraDtos.Detail refreshDetail(String connectionId, String cloudId, String issueId, boolean automatic)
+    {
+        return detail(connectionId, cloudId, issueId, !automatic || !appSettings.getObject().inQuietHours());
     }
 
     private JiraDtos.Detail refreshDetail(String connectionId, String cloudId, String issueId)
@@ -294,6 +304,9 @@ public class JiraService
     @Scheduled(fixedDelay = 600000, initialDelay = 60000)
     public void poll()
     {
+        if (appSettings.getObject().inQuietHours()) {
+            return;
+        }
         List<String> connected = connections.list().stream().filter(connection -> connection.state().equals("connected")).map(JiraDtos.Connection::id).collect(toImmutableList());
         java.util.Set<String> refreshedBoards = new java.util.HashSet<>();
         for (Scope scope : scopes()) {

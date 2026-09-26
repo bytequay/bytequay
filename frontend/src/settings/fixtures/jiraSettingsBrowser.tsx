@@ -12,12 +12,14 @@
  * limitations under the License.
  */
 
+import { useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import SettingsWindow from '../SettingsWindow';
 import AppSidebar from '../../AppSidebar';
 import { JIRA_CHANGED, type JiraConnection, type JiraTokenRequest } from '../../jira/contracts';
-import type { Bridge } from '../../types';
+import type { Bridge, QuietHoursDto } from '../../types';
+import { settingsLocationFromRoute, settingsRoute, type SettingsSection } from '../routes';
 import { assert, settle } from '../../fixtures/harness';
 import '../../css/base.css';
 import '../../css/settings-window.css';
@@ -35,6 +37,9 @@ let changedEvents = 0;
 let nextRefresh: (value: JiraConnection) => Promise<JiraConnection>;
 let nextToken: (request: JiraTokenRequest, id?: string) => Promise<JiraConnection>;
 let tokenRequests: { request: JiraTokenRequest; id?: string }[] = [];
+let quietHours: QuietHoursDto;
+let quietWrites: QuietHoursDto[] = [];
+let nextQuietSave: (value: QuietHoursDto) => Promise<QuietHoursDto>;
 const originalTimeout = window.setTimeout.bind(window);
 const originalClearTimeout = window.clearTimeout.bind(window);
 const originalNow = Date.now;
@@ -57,6 +62,8 @@ function dispose() { root?.unmount(); root = null; jobs.clear(); window.setTimeo
 
 export async function mountPreview(values: JiraConnection[] = [connected, { ...connected, id: 'personal', account: { accountId: 'personal', displayName: 'Alex Chen', email: 'alex@personal.com' }, sites: [{ id: 'personal-site', name: 'Personal projects', url: 'https://alex.atlassian.net' }] }, pending], configured = true) {
   dispose(); document.body.innerHTML = ''; accounts = values.map(value => ({ ...value })); reads = 0; opened = []; removed = []; refreshIds = []; changedEvents = 0; tokenRequests = []; now = originalNow();
+  quietHours = { enabled: true, startMinute: 1380, endMinute: 420 }; quietWrites = []; nextQuietSave = async value => value;
+  window.location.hash = settingsRoute('jira');
   window.setTimeout = ((handler: TimerHandler, delay = 0, ...args: unknown[]) => {
     if (typeof handler === 'function' && delay >= 2_000 && delay <= 15_000) { const id = nextTimer--; jobs.set(id, { run: () => handler(...args), delay }); return id; }
     return originalTimeout(handler, delay, ...args);
@@ -69,6 +76,9 @@ export async function mountPreview(values: JiraConnection[] = [connected, { ...c
   const fake = {
     getAppVersion: async () => ({ version: '0.4.0' }),
     getAppPreferences: async () => ({ taskRetentionDays: 7, recentRetentionDays: 14, refreshIntervalMinutes: 6, theme: 'SYSTEM' as const }),
+    getQuietHours: async () => ({ ...quietHours }),
+    saveQuietHours: async (value: QuietHoursDto) => { quietWrites.push(value); quietHours = await nextQuietSave(value); return { ...quietHours }; },
+    getGitHubAccount: async () => ({ configured: false, source: 'PERSONAL_ACCESS_TOKEN' as const }),
     getJiraConfig: async () => ({ configured }),
     listJiraConnections: async () => { reads += 1; return accounts.map(value => ({ ...value })); },
     connectJira: async () => { accounts.push({ ...pending }); return { ...pending }; },
@@ -81,7 +91,12 @@ export async function mountPreview(values: JiraConnection[] = [connected, { ...c
   } satisfies Partial<Bridge>;
   window.bridge = fake as Bridge;
   const host = document.createElement('div'); host.className = 'app-shell'; host.style.cssText = 'display:flex;height:100vh;overflow:hidden'; document.body.append(host); root = createRoot(host);
-  const mounted = root; flushSync(() => mounted.render(<><AppSidebar page="settings" browserRailVisible={false} onToggleBrowserRail={() => {}} onNavigate={() => {}} canGoBack={false} canGoForward={false} onBack={() => {}} onForward={() => {}} workspace={null} workspaceTab="home" onWorkspaceTab={() => {}} settings={{ section: 'jira', workspaces: [], workspaceId: null, onSection: () => {}, onWorkspace: () => {}, onExit: () => {} }} /><main className="app-content"><SettingsWindow section="jira" workspace={null} onWorkspacesChanged={() => {}} /></main></>));
+  function SettingsHarness() {
+    const [section, setSection] = useState<SettingsSection>('jira');
+    useEffect(() => { const changed = () => setSection(settingsLocationFromRoute(window.location.hash)?.section ?? 'jira'); window.addEventListener('hashchange', changed); return () => window.removeEventListener('hashchange', changed); }, []);
+    return <><AppSidebar page="settings" browserRailVisible={false} onToggleBrowserRail={() => {}} onNavigate={() => {}} canGoBack={false} canGoForward={false} onBack={() => {}} onForward={() => {}} workspace={null} workspaceTab="home" onWorkspaceTab={() => {}} settings={{ section, workspaces: [], workspaceId: null, onSection: value => { window.location.hash = settingsRoute(value); }, onWorkspace: () => {}, onExit: () => {} }} /><main className="app-content"><SettingsWindow section={section} workspace={null} onWorkspacesChanged={() => {}} /></main></>;
+  }
+  const mounted = root; flushSync(() => mounted.render(<SettingsHarness />));
   await settled();
 }
 
@@ -186,6 +201,33 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(document.body.textContent?.includes('original connection was kept') && row('token-account').textContent?.includes('Connected') && removed.length === 0, 'Replacement failure retains the existing connection');
       nextToken = async () => tokenConnected; changeInput('API token', 'replacement-fixture-token'); await settled(); button('Save replacement').click(); await settled();
       assert(tokenRequests.length === 2 && !document.querySelector('input[type="password"]') && accounts.length === 1, 'Retry replaces the same account without adding a duplicate');
+    },
+    async 'shares confirmed quiet hours through General from both integration pages'() {
+      await mountPreview([], false);
+      const fromJira = document.querySelector<HTMLAnchorElement>(`a[href="${settingsRoute('general')}"]`); assert(fromJira !== null, 'Jira links to General quiet hours'); fromJira.click(); await settled();
+      assert(document.querySelector('h1')?.textContent === 'General' && document.body.textContent?.includes('GitHub and Jira · this Mac’s local time'), 'Quiet hours describe both integrations and the clock they use');
+      assert(button('Quiet hours start').textContent?.includes('11:00 PM') && button('Quiet hours end').textContent?.includes('7:00 AM'), 'Existing saved time boundaries are preserved');
+      assert(document.body.textContent?.includes('Manual refresh'), 'Quiet hours leave manual refresh available');
+      let finish: ((value: QuietHoursDto) => void) | undefined; nextQuietSave = () => new Promise(resolve => { finish = resolve; });
+      button('Quiet hours start').click(); await settled(); button('10:30 PM').click(); await settled();
+      assert(button('Quiet hours start').disabled && button('Pause background refresh during quiet hours').disabled, 'Shared settings wait for the save before allowing another edit');
+      assert(button('Quiet hours start').textContent?.includes('11:00 PM'), 'An unconfirmed save does not display a new persisted value');
+      assert(quietWrites.length === 1 && quietWrites[0].startMinute === 1350 && quietWrites[0].endMinute === 420, 'One shared API updates only the selected boundary');
+      finish?.(quietWrites[0]); await settled();
+      button('GitHub').click(); await settled();
+      assert(!document.querySelector('[aria-label="Quiet hours start"]') && button('Refresh interval').textContent?.includes('6 minutes'), 'GitHub retains only its own refresh interval');
+      const fromGithub = document.querySelector<HTMLAnchorElement>(`a[href="${settingsRoute('general')}"]`); assert(fromGithub !== null, 'GitHub links to the same General setting'); fromGithub.click(); await settled();
+      assert(button('Quiet hours start').textContent?.includes('10:30 PM'), 'The confirmed setting persists across navigation');
+      const pane = document.querySelector('.setw-page'); assert(pane instanceof HTMLElement && pane.scrollWidth <= pane.clientWidth, 'Quiet hours fit a narrow settings pane');
+      button('Jira').click(); await settled(); assert(document.body.textContent?.includes('every 10 minutes'), 'Jira keeps its separate ten-minute refresh cadence');
+    },
+    async 'reports a quiet-hours save failure without changing the saved switch'() {
+      await mountPreview([], false); button('General').click(); await settled();
+      nextQuietSave = async () => { throw new Error('Unable to save quiet hours'); };
+      button('Pause background refresh during quiet hours').click(); await settled();
+      assert(document.querySelector('[role="alert"]')?.textContent?.includes('Unable to save quiet hours'), 'A failed save remains visible');
+      assert(button('Pause background refresh during quiet hours').getAttribute('aria-checked') === 'true' && quietHours.enabled, 'The saved setting is not optimistically overwritten on failure');
+      assert(!button('Pause background refresh during quiet hours').disabled, 'The user can retry a failed save');
     },
   })) {
     try { await test(); results.push({ name }); } catch (cause) { results.push({ name, error: cause instanceof Error ? cause.message : String(cause) }); }

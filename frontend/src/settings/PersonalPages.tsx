@@ -13,8 +13,9 @@
  */
 import { useState } from 'react';
 import { readBrowserDisplayMode, saveBrowserDisplayMode, type BrowserDisplayMode } from '../browserPreferences';
-import type { AppPreferencesDto, AppThemeDto } from '../types';
-import { Segmented, SelectPill, SettingsCard, SettingsRow } from './primitives';
+import type { AppPreferencesDto, AppThemeDto, QuietHoursDto } from '../types';
+import { formatMinuteOfDay, MINUTE_OPTIONS } from './model';
+import { Segmented, SelectPill, SettingsCard, SettingsRow, Toggle } from './primitives';
 
 const RETENTION_DAYS = [3, 7, 14, 30, 90];
 const RECENT_DAYS = [7, 14, 30, 90];
@@ -36,12 +37,15 @@ function daysPill(value: number, choices: number[], ariaLabel: string, onSelect:
   );
 }
 
-export function GeneralPage({ preferences, version, clearing, error, onChange, onClearRecent }: {
+export function GeneralPage({ preferences, quietHours, quietHoursBusy, version, clearing, error, onChange, onQuietHours, onClearRecent }: {
   preferences: AppPreferencesDto;
+  quietHours: QuietHoursDto | null;
+  quietHoursBusy: boolean;
   version: string;
   clearing: boolean;
   error: string | null;
   onChange: (next: AppPreferencesDto) => void;
+  onQuietHours: (next: QuietHoursDto) => void;
   onClearRecent: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
@@ -50,6 +54,21 @@ export function GeneralPage({ preferences, version, clearing, error, onChange, o
     <div className="setw-page">
       <h1>General</h1>
       {error !== null && <div className="setw-error" role="alert">{error}</div>}
+
+      <div className="setw-section"><span className="setw-section-title">Background refresh</span></div>
+      <SettingsCard>
+        {quietHours === null ? <div className="setw-row-empty">Loading quiet hours…</div> : <div className="setw-quiet-hours">
+          <SettingsRow title="Quiet hours" subtitle="GitHub and Jira · this Mac’s local time">
+            <SelectPill quiet ariaLabel="Quiet hours start" value={String(quietHours.startMinute)} label={formatMinuteOfDay(quietHours.startMinute)} disabled={!quietHours.enabled || quietHoursBusy}
+              options={MINUTE_OPTIONS.map(minute => ({ value: String(minute), label: formatMinuteOfDay(minute) }))} onSelect={minute => onQuietHours({ ...quietHours, startMinute: Number(minute) })} />
+            <span className="setw-row-sub">to</span>
+            <SelectPill quiet ariaLabel="Quiet hours end" value={String(quietHours.endMinute)} label={formatMinuteOfDay(quietHours.endMinute)} disabled={!quietHours.enabled || quietHoursBusy}
+              options={MINUTE_OPTIONS.map(minute => ({ value: String(minute), label: formatMinuteOfDay(minute) }))} onSelect={minute => onQuietHours({ ...quietHours, endMinute: Number(minute) })} />
+            <Toggle on={quietHours.enabled} label="Pause background refresh during quiet hours" disabled={quietHoursBusy} onChange={enabled => onQuietHours({ ...quietHours, enabled })} />
+          </SettingsRow>
+        </div>}
+        <div className="setw-foot-row"><span>Manual refresh and desktop notifications remain available during quiet hours.</span></div>
+      </SettingsCard>
 
       <div className="setw-section"><span className="setw-section-title">Tasks</span></div>
       <SettingsCard>

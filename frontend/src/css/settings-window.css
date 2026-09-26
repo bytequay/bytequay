@@ -164,6 +164,9 @@
   flex: none;
 }
 
+.setw-quiet-hours .setw-row { flex-wrap: wrap; }
+.setw-quiet-hours .setw-row-main { min-width: 210px; }
+
 .setw-row-empty {
   padding: 26px 16px;
   text-align: center;

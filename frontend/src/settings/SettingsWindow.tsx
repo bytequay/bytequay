@@ -75,6 +75,9 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   const [account, setAccount] = useState<GitHubAccountDto | null>(null);
   const [login, setLogin] = useState<string | null>(null);
   const [quietHours, setQuietHours] = useState<QuietHoursDto | null>(null);
+  const [quietHoursBusy, setQuietHoursBusy] = useState(false);
+  const quietHoursSaving = useRef(false);
+  const quietHoursRequest = useRef(0);
   const [copied, setCopied] = useState(false);
   const [wsSettings, setWsSettings] = useState<WorkspaceSettingsDto | null>(null);
   const [wsBusy, setWsBusy] = useState(false);
@@ -138,8 +141,14 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   useEffect(() => {
     if (section !== 'github' && section !== 'ws-token') return;
     loadAccount();
-    void window.bridge.getQuietHours().then(setQuietHours).catch(() => {});
   }, [section, loadAccount]);
+
+  useEffect(() => {
+    if (section !== 'general' || quietHoursSaving.current) return;
+    const request = ++quietHoursRequest.current;
+    void window.bridge.getQuietHours().then(value => { if (request === quietHoursRequest.current) setQuietHours(value); }).catch(report);
+    return () => { quietHoursRequest.current += 1; };
+  }, [section, report]);
 
     const workspaceId_ = workspace?.id ?? null;
 
@@ -216,10 +225,20 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
           {section === 'general' && preferences !== null && (
             <GeneralPage
               preferences={preferences}
+              quietHours={quietHours}
+              quietHoursBusy={quietHoursBusy}
               version={version}
               clearing={clearing}
               error={error}
               onChange={savePreferences}
+              onQuietHours={next => {
+                if (quietHoursSaving.current) return;
+                quietHoursSaving.current = true;
+                quietHoursRequest.current += 1;
+                setQuietHoursBusy(true);
+                setError(null);
+                window.bridge.saveQuietHours(next).then(setQuietHours).catch(report).finally(() => { quietHoursSaving.current = false; setQuietHoursBusy(false); });
+              }}
               onClearRecent={() => {
                 setClearing(true);
                 window.bridge.clearRecent()
@@ -305,17 +324,12 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
             <GitHubPage
               account={account}
               login={login}
-              quietHours={quietHours}
               preferences={preferences}
               copied={copied}
               error={error}
               onSaveToken={token => { window.bridge.savePat(token).then(loadAccount).catch(report); }}
               onDisconnect={() => { window.bridge.deleteGitHubToken().then(loadAccount).catch(report); }}
               onCopy={() => copyToken(window.bridge.copyGitHubToken())}
-              onQuietHours={next => {
-                setQuietHours(next);
-                window.bridge.saveQuietHours(next).then(setQuietHours).catch(report);
-              }}
               onPreferences={savePreferences}
             />
           )}

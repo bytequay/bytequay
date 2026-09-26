@@ -55,7 +55,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
     group: 'Personal',
     label: 'General',
     slug: 'general',
-    rows: ['Keep detailed task runtime', 'Keep what you touched', 'Clear history', 'Recent'],
+    rows: ['Background refresh', 'Quiet hours', 'Keep detailed task runtime', 'Keep what you touched', 'Clear history', 'Recent'],
   },
   { section: 'appearance', group: 'Personal', label: 'Appearance', slug: 'appearance', rows: ['Theme'] },
   { section: 'browser', group: 'Personal', label: 'Browser', slug: 'browser', rows: ['Full screen behavior', 'Zoom'] },
@@ -79,7 +79,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
     group: 'Integrations',
     label: 'GitHub',
     slug: 'github',
-    rows: ['Account', 'Quiet hours', 'Refresh interval'],
+    rows: ['Account', 'Refresh interval'],
   },
   { section: 'jira', group: 'Integrations', label: 'Jira', slug: 'jira', rows: ['Accounts', 'Add account', 'Reconnect', 'Sites'] },
   {

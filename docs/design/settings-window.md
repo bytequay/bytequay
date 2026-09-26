@@ -21,6 +21,13 @@ A single scroll container on the right, a category sidebar on the left.
 | Integrations | GitHub, Jira |
 | Workspace | workspace picker, then Repository, Agents, Token, Advanced |
 
+General → Background refresh owns one Quiet hours switch and time range for
+GitHub and Jira, evaluated in the Mac's local time, including overnight ranges.
+Both integration pages link to this shared control. Existing saved quiet hours
+are retained through the same settings API and storage key. Manual refresh
+remains available during quiet hours. GitHub's refresh-interval control remains
+on its integration page; Jira's scheduled interval is ten minutes.
+
 The separate [Development Task Delivery](development-delivery.md#2-settings-and-scope)
 design adds **Agents → Workflow** with default-on Auto commit, Auto draft PR,
 and Auto CI fix settings plus the supported CI provider selection. It also

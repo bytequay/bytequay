@@ -13,14 +13,17 @@
  */
 package com.bytequay.app.jira;
 
+import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.JiraIssueTaskStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -39,7 +42,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -53,14 +58,17 @@ class TestJiraService
     private final JiraConnections remote = mock(JiraConnections.class);
     private final AppSettingsStore settings = mock(AppSettingsStore.class);
     private final JiraIssueTaskStore tasks = mock(JiraIssueTaskStore.class);
+    private final AppSettingsService appSettings = mock(AppSettingsService.class);
+    private final ObjectProvider<AppSettingsService> settingsProvider = mock(ObjectProvider.class);
     private final JiraCache cache = new JiraCache(settings, mapper);
-    private final JiraService jira = new JiraService(remote, cache, tasks);
+    private final JiraService jira = new JiraService(remote, cache, tasks, settingsProvider);
     private final Map<String, String> saved = new HashMap<>();
 
     @BeforeEach
     void setup()
             throws Exception
     {
+        when(settingsProvider.getObject()).thenReturn(appSettings);
         when(settings.get(anyString())).thenAnswer(call -> Optional.ofNullable(saved.get(call.getArgument(0))));
         doAnswer(call -> {
             saved.put(call.getArgument(0), call.getArgument(1));
@@ -99,17 +107,69 @@ class TestJiraService
         JiraIssue issue = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", ticket());
         cache.write("connection.cloud.issue.1001", issue);
         assertThat(jira.issue("connection", "cloud", "1001").title()).isEqualTo("A ticket");
+        verifyNoInteractions(remote, settingsProvider);
+    }
+
+    @Test
+    void scheduledPollingPreservesCacheDuringQuietHoursAndResumesAfterward()
+            throws Exception
+    {
+        saved.put("jira.scopes", """
+                [{"connectionId":"connection","cloudId":"cloud","boardId":82,"sprintId":9,"mine":true,"completed":false}]
+                """);
+        Map<String, String> before = ImmutableMap.copyOf(saved);
+        when(appSettings.inQuietHours()).thenReturn(true);
+        jira.poll();
         verifyNoInteractions(remote);
+        verify(settings, never()).put(anyString(), anyString());
+        assertThat(saved).isEqualTo(before);
+
+        when(appSettings.inQuietHours()).thenReturn(false);
+        when(remote.list()).thenReturn(ImmutableList.of(new JiraDtos.Connection("connection", "connected",
+                ImmutableList.of(new JiraDtos.Site("cloud", "Example", "https://example.atlassian.net")), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), "oauth", Optional.empty())));
+        doReturn(json("{\"values\":[],\"isLast\":true}")).when(remote)
+                .request(eq("connection"), eq("cloud"), startsWith("/rest/agile/"), eq("GET"), any());
+        doReturn(json("{\"issues\":[" + ticket() + "],\"isLast\":true}")).when(remote)
+                .request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any());
+        jira.poll();
+        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false).issues()).extracting(JiraIssue::id).containsExactly("1001");
+        verify(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any());
+    }
+
+    @Test
+    void quietHoursKeepAutomaticDetailCachedButAllowManualRefresh()
+            throws Exception
+    {
+        JiraIssue cached = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", ticket());
+        saved.put("jira.connection.cloud.issue.1001", mapper.writeValueAsString(cached));
+        Map<String, String> before = ImmutableMap.copyOf(saved);
+        when(appSettings.inQuietHours()).thenReturn(true);
+        assertThat(jira.refreshDetail("connection", "cloud", "1001", true).issue()).isEqualTo(cached);
+        verifyNoInteractions(remote);
+        verify(settings, never()).put(anyString(), anyString());
+        assertThat(saved).isEqualTo(before);
+
+        assertThat(jira.refreshDetail("connection", "cloud", "1001", false).fetchedAt()).isPresent();
+        verify(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/1001?"), eq("GET"), any());
+    }
+
+    @Test
+    void automaticDetailRefreshResumesOutsideQuietHours()
+    {
+        when(appSettings.inQuietHours()).thenReturn(false);
+        assertThat(jira.refreshDetail("connection", "cloud", "1001", true).fetchedAt()).isPresent();
+        verify(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/1001?"), eq("GET"), any());
     }
 
     @Test
     void childSearchPreventsTreatingParentStoryAsLeaf()
             throws Exception
     {
-        when(remote.request(eq("connection"), eq("cloud"), org.mockito.ArgumentMatchers.startsWith("/rest/api/3/search/jql"), eq("GET"), any()))
+        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/search/jql"), eq("GET"), any()))
                 .thenReturn(json("{\"issues\":[{\"id\":\"1002\"}]}"));
         assertThat(jira.refreshIssue("connection", "cloud", "1001").hasChildren()).isTrue();
-        when(remote.request(eq("connection"), eq("cloud"), org.mockito.ArgumentMatchers.startsWith("/rest/api/3/search/jql"), eq("GET"), any()))
+        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/search/jql"), eq("GET"), any()))
                 .thenReturn(json("{\"issues\":[]}"));
         assertThat(jira.refreshIssue("connection", "cloud", "1001").hasChildren()).isFalse();
     }
@@ -162,11 +222,11 @@ class TestJiraService
             throws Exception
     {
         String response = "{\"issues\":[" + ticket() + "],\"nextPageToken\":\"next/token\"}";
-        when(remote.request(eq("connection"), eq("cloud"), org.mockito.ArgumentMatchers.startsWith("/rest/software/"), eq("GET"), any()))
+        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any()))
                 .thenReturn(json(response), json("{\"issues\":[],\"isLast\":true}"));
         assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, true).issues()).hasSize(1);
         verify(remote).request(eq("connection"), eq("cloud"), org.mockito.ArgumentMatchers.contains("nextPageToken=next/token"), eq("GET"), any());
-        when(remote.request(eq("connection"), eq("cloud"), org.mockito.ArgumentMatchers.startsWith("/rest/software/"), eq("GET"), any()))
+        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any()))
                 .thenThrow(new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS));
         assertThatThrownBy(() -> jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, true)).isInstanceOf(ResponseStatusException.class);
         assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false).issues()).hasSize(1);
@@ -177,7 +237,7 @@ class TestJiraService
             throws Exception
     {
         List<String> requests = new ArrayList<>();
-        when(remote.request(eq("connection"), eq("cloud"), org.mockito.ArgumentMatchers.startsWith("/rest/software/"), eq("GET"), any()))
+        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any()))
                 .thenAnswer(call -> {
                     requests.add(URLDecoder.decode(call.getArgument(2), StandardCharsets.UTF_8));
                     return requests.size() == 1
@@ -207,7 +267,7 @@ class TestJiraService
             throws Exception
     {
         AtomicInteger pages = new AtomicInteger();
-        when(remote.request(eq("connection"), eq("cloud"), org.mockito.ArgumentMatchers.startsWith("/rest/software/"), eq("GET"), any()))
+        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any()))
                 .thenAnswer(call -> {
                     int page = pages.incrementAndGet();
                     return json("{\"issues\":[" + completedTicket("200" + page) + "],\"nextPageToken\":\"page-" + page + "\"}");
@@ -245,7 +305,7 @@ class TestJiraService
         JsonNode fresh = ticket().deepCopy();
         ((com.fasterxml.jackson.databind.node.ObjectNode) fresh.path("fields")).put("updated", "2026-09-26T02:00:00Z").put("summary", "Already edited");
         cache.write("connection.cloud.issue.1001", JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", fresh));
-        when(remote.request(eq("connection"), eq("cloud"), org.mockito.ArgumentMatchers.startsWith("/rest/software/"), eq("GET"), any()))
+        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any()))
                 .thenReturn(json("{\"issues\":[" + ticket() + "],\"isLast\":true}"));
         assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, true).issues().getFirst().title()).isEqualTo("Already edited");
         assertThat(jira.issue("connection", "cloud", "1001").title()).isEqualTo("Already edited");
@@ -255,7 +315,7 @@ class TestJiraService
     void commentPageLimitReturnsVisiblePartialResult()
             throws Exception
     {
-        when(remote.request(eq("connection"), eq("cloud"), org.mockito.ArgumentMatchers.startsWith("/rest/api/3/issue/1001/comment?"), eq("GET"), any()))
+        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/1001/comment?"), eq("GET"), any()))
                 .thenReturn(json("""
                         {"comments":[{"id":"comment","author":{"accountId":"alice"},"body":{"type":"doc","content":[]},
                         "created":"2026-09-26T01:00:00Z","updated":"2026-09-26T01:00:00Z"}],"total":3000}

@@ -152,9 +152,10 @@ public class JiraController
     }
 
     @PostMapping(ISSUE + "/refresh")
-    public JiraDtos.Detail refreshDetail(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId)
+    public JiraDtos.Detail refreshDetail(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId,
+            @RequestParam(defaultValue = "false") boolean automatic)
     {
-        return jira.detail(connectionId, cloudId, issueId, true);
+        return jira.refreshDetail(connectionId, cloudId, issueId, automatic);
     }
 
     @PatchMapping(ISSUE)

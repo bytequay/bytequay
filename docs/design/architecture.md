@@ -23,6 +23,12 @@ identity bind API access. Browser authorization completes through the settings
 page's bounded polling. Both paths reuse the same Jira service and cache; no
 general connector framework is added.
 
+GitHub jobs and Jira's scheduled and open-ticket polling share the existing
+application quiet-hours policy. General settings owns its enable flag and local
+time range; manual refresh remains independent. Jira automatic detail requests
+are marked at the native API boundary so the backend can serve cached context
+during quiet hours without a second clock or settings policy in the renderer.
+
 Issue-backed development exposes one read-only task-bound context tool through
 the existing provider bridge. The application reads its durable issue association
 and existing local caches; the tool performs no remote issue fetch. Codex and

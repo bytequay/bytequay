@@ -18,6 +18,7 @@ import CopyLinkButton from '../CopyLinkButton';
 import JiraIcon from '../jira/JiraIcon';
 import { jiraAccountLabel, jiraSiteDomain, notifyJiraChanged, type JiraConnection, type JiraTokenRequest } from '../jira/contracts';
 import { Badge, SettingsCard, SettingsRow, StatusDot } from './primitives';
+import { settingsRoute } from './routes';
 
 const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
 
@@ -79,6 +80,7 @@ export default function JiraPage() {
     {connections === null ? <div className="setw-row-empty">Loading accounts…</div> : connections.length === 0 ? tokenForm === null && <SettingsCard><div className="setw-row-empty">No Jira accounts connected. Add your Jira site and personal API token to get started.</div></SettingsCard>
       : connections.map(connection => <JiraAccountCard key={connection.id} connection={connection} busy={busy !== null || tokenForm !== null} onChanged={changed} onReconnect={() => { if (connection.authType === 'api_token') { setError(null); setTokenForm(connection); } else void signIn(connection.id); }} onRemove={() => { void remove(connection.id); }} />)}
     <p className="setw-footnote">Removing an account keeps its development task history.</p>
+    <p className="setw-footnote">Jira sprint and backlog lists refresh every 10 minutes. <a href={settingsRoute('general')}>Manage quiet hours in General</a>.</p>
   </div>;
 }
 

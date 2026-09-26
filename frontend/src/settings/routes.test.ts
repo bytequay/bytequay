@@ -66,7 +66,9 @@ describe('settings routes', () => {
 
   it('matches search on a row title, not only on the page label', () => {
     const github = entryFor('github');
-    expect(matchesSearch(github, 'quiet')).toBe(true);
+    expect(matchesSearch(entryFor('general'), 'quiet')).toBe(true);
+    expect(matchesSearch(entryFor('general'), 'background refresh')).toBe(true);
+    expect(matchesSearch(github, 'quiet')).toBe(false);
     expect(matchesSearch(github, 'GitHub')).toBe(true);
     expect(matchesSearch(github, 'worktree')).toBe(false);
     expect(matchesSearch(github, '  ')).toBe(true);

@@ -15,8 +15,8 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
 
-it('manages personal Jira tokens and browser sign-in in Chromium', async () => {
+it('manages Jira accounts and shared quiet hours in Chromium', async () => {
   const result = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-jira-settings-', entry: 'src/settings/fixtures/jiraSettingsBrowser.tsx', global: 'JiraSettingsTests', styles: true, charset: true, width: 760, height: 950 });
-  expect(result).toHaveLength(10);
+  expect(result).toHaveLength(12);
   expect(result.filter(value => value.error)).toEqual([]);
 }, 30_000);

@@ -15,8 +15,7 @@ import { useState } from 'react';
 import { Chevron } from '../../Chevron';
 import MarkdownBody, { type SuggestionBase } from '../MarkdownBody';
 import { CommentedCodeLine } from '../PullOverview';
-import Avatar from '../../Avatar';
-import { ReviewThreadCard, ReviewThreadMessage } from '../ReviewThreadCard';
+import LocalCard, { LocalCardMessage, ReviewerAvatar } from '../local-review/LocalCard';
 import ReviewComposer from './ReviewComposer';
 import ReviewThread from './ReviewThread';
 import { findingLines } from './contracts';
@@ -130,20 +129,20 @@ export default function ReviewFindingCard({
   return (
     <article className={`agr-finding${withdrawn || finding.state === 'RESOLVED' || finding.outdated ? ' is-muted' : ''}${outgoingBody !== null ? ' is-draft' : ''}`}
       id={`agent-review-finding-${finding.id}`} data-finding-id={finding.id}>
-      <ReviewThreadCard resolved={finding.state === 'RESOLVED'} outdated={finding.outdated} defaultOpen={defaultOpen}
-        privateLabel="Agent finding · Private"
-        location={<>{lines === null
-          ? <span className="pr-local-review__location">Whole change</span>
-          : <code className="pr-local-review__location" title={lines.path}>{shortPath(lines.path)} {lines.range}</code>}
-          {pill.text !== 'Private' && <span className={`agr-pill is-${pill.tone}`}>{pill.text}</span>}</>}
-        code={lines !== null && finding.excerpt.length > 0 && <div>
+      <LocalCard resolved={finding.state === 'RESOLVED'} outdated={finding.outdated} open={defaultOpen}
+        title={lines === null
+          ? <span className="lrc__title">Whole change</span>
+          : <code className="lrc__title" title={lines.path}>{shortPath(lines.path)} {lines.range}</code>}
+        badges={<>{pill.text !== 'Private' && finding.state !== 'RESOLVED' && <span className={`lrc__badge is-${pill.tone}`}>{pill.text}</span>}
+          {finding.severity !== null && <span className={`agr-severity ${severityTone(finding.severity)}`}>{finding.severity}</span>}</>}
+        code={lines !== null && finding.excerpt.length > 0 && <div className="lrc__code">
           <div className="pr-local-review__snapshot">
             {finding.outdated ? 'Recorded code' : 'Reviewed code'} · review <code>{shortSha(finding.validatedHeadSha)}</code>
           </div>
           {finding.excerpt.map((text, index) => <CommentedCodeLine key={lines.startLine + index}
             line={{ lineNumber: completeExcerpt ? lines.startLine + index : null, prefix: lines.side === 'LEFT' ? '-' : ' ', text }} />)}
         </div>}
-        controls={<footer className="agr-finding__controls">
+        controls={(composer !== null || !withdrawn || error !== null) && <footer className={`lrc__foot${composer === null ? '' : ' is-composing'}`}>
           {composer !== null && (
             <ReviewComposer
               repository={review.repo}
@@ -166,44 +165,41 @@ export default function ReviewFindingCard({
               onCancel={close} />
           )}
 
-          {composer === null && !withdrawn && (
-            <div className="agr-actions">
-              <button type="button" className="agr-action" disabled={busy || review.state === 'CLOSED'}
-                onClick={() => openComposer('ask', '')}>Ask reviewer</button>
-              {actions.onRequestFix !== undefined && finding.state === 'OPEN' && <button type="button" className="agr-action" disabled={busy}
-                onClick={() => openComposer('fix', 'Please investigate and address this finding.')}>Request fix</button>}
-              {fixSent && <span className="pr-local-review__note" role="status">Sent to developer</span>}
-              {finding.state === 'OPEN' && (
-                <button type="button" className="agr-action" disabled={busy}
-                  onClick={() => openComposer('resolve', '')}>Resolve locally</button>
-              )}
-              {actions.onNavigate !== undefined && lines !== null && (
-                <button type="button" className="agr-action" onClick={() => actions.onNavigate?.(finding)}>
-                  {projection === 'review' ? 'View in Changes' : 'Open in Summary'}
-                </button>
-              )}
-              <span className="agr-spacer" />
-              {publication.kind === 'publishable' && (
-                <>
-                  <span className="agr-actions__divider" aria-hidden="true" />
-                  <button type="button" className="agr-action" disabled={busy}
-                    title={lines === null ? 'Adds this text to your review summary, which you can edit before submitting' : undefined}
-                    onClick={() => { void actions.onAddToReview(finding); }}>Add to my review</button>
-                  {lines !== null && <button type="button" className="agr-action is-primary" disabled={busy}
-                    onClick={() => openComposer('post', finding.body)}>Post comment now</button>}
-                </>
-              )}
-              {publication.kind === 'blocked' && <span className="agr-actions__blocked">{publication.reason}</span>}
-              {publication.kind === 'draft' && <span className="agr-actions__blocked">In your pending review</span>}
-              {publication.kind === 'inReviewText' && <span className="agr-actions__blocked">In your review summary</span>}
-            </div>
-          )}
-          {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}
+          {composer === null && !withdrawn && <>
+            <button type="button" className="lrc__ask" disabled={busy || review.state === 'CLOSED'}
+              onClick={() => openComposer('ask', '')}>Ask reviewer</button>
+            {actions.onRequestFix !== undefined && finding.state === 'OPEN' && <button type="button" className="lrc__action" disabled={busy}
+              onClick={() => openComposer('fix', 'Please investigate and address this finding.')}>Request fix</button>}
+            {fixSent && <span className="pr-local-review__note" role="status">Sent to developer</span>}
+            {actions.onNavigate !== undefined && lines !== null && (
+              <button type="button" className="lrc__action" onClick={() => actions.onNavigate?.(finding)}>
+                {projection === 'review' ? 'View in Changes' : 'Open in Summary'}
+              </button>
+            )}
+            {finding.state === 'OPEN' && (
+              <button type="button" className="lrc__action" disabled={busy}
+                onClick={() => openComposer('resolve', '')}>Resolve</button>
+            )}
+            {publication.kind === 'publishable' && (
+              <>
+                <span className="agr-actions__divider" aria-hidden="true" />
+                <button type="button" className="lrc__action" disabled={busy}
+                  title={lines === null ? 'Adds this text to your review summary, which you can edit before submitting'
+                    : 'Copies this comment into your pending GitHub review. Nothing is sent until you submit.'}
+                  onClick={() => { void actions.onAddToReview(finding); }}>Add to my review</button>
+                {lines !== null && <button type="button" className="lrc__action is-primary" disabled={busy}
+                  onClick={() => openComposer('post', finding.body)}>Post comment now</button>}
+              </>
+            )}
+            {publication.kind === 'blocked' && <span className="agr-actions__blocked">{publication.reason}</span>}
+            {publication.kind === 'draft' && <span className="agr-actions__blocked">In your pending review</span>}
+            {publication.kind === 'inReviewText' && <span className="agr-actions__blocked">In your review summary</span>}
+          </>}
+          {error && <span className="lrc__error" role="alert">{error}</span>}
         </footer>}>
-        <ReviewThreadMessage timestamp={finding.updatedAt}
-          author={<><Avatar login="Agent" size={22} allowGitHubFallback={false} /><strong>Agent</strong><span>{review.task.laneLabel}</span></>}
-          menu={<>{finding.severity !== null && <span className={`agr-severity ${severityTone(finding.severity)}`}>{finding.severity}</span>}
-            {publication.kind === 'blocked' && publication.reason.startsWith('Publishing unlocks') && <span className="agr-pill is-provisional">Provisional</span>}
+        <LocalCardMessage timestamp={finding.updatedAt} author="Agent review" avatar={<ReviewerAvatar />}
+          tag={<span className="lrc-message__meta">{review.task.laneLabel}</span>}
+          menu={<>{publication.kind === 'blocked' && publication.reason.startsWith('Publishing unlocks') && <span className="agr-pill is-provisional">Provisional</span>}
             <span className="agr-finding__id">{finding.label} · rev {finding.revision}</span></>}>
           <h3 className="agr-finding__title">{finding.title}</h3>
           <MarkdownBody body={finding.body} repository={review.repo} suggestion={suggestion} />
@@ -283,9 +279,9 @@ export default function ReviewFindingCard({
           )}
 
           </div>
-        </ReviewThreadMessage>
+        </LocalCardMessage>
         <ReviewThread review={review} messages={messages} viewerLogin={viewerLogin} viewerAvatarUrl={viewerAvatarUrl} />
-      </ReviewThreadCard>
+      </LocalCard>
     </article>
   );
 }

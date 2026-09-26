@@ -21,7 +21,6 @@ import Toast from '../Toast';
 import type { AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, UserProfileDto } from '../types';
 import AgentReviewTab, { type ReviewNavigationTarget } from './agent-review/AgentReviewTab';
 import CodeTestsTab from './code-tests/CodeTestsTab';
-import TaskReviewSummary from './agent-review/TaskReviewSummary';
 import DevelopmentLearningPanel from '../agents/DevelopmentLearningPanel';
 import DetailSkeleton from './DetailSkeleton';
 import PullRequestTaskActions from './PullRequestTaskActions';
@@ -1144,13 +1143,11 @@ export default function PullsScreen({
               </div>
             )}
             {summaryTabKey !== null && summaryTabKey === reviewKey && <div className="pull-detail__body pull-detail__review" hidden={detailTab !== 'review'}>
-              {codeTask !== null ? <>
-                <DevelopmentLearningPanel task={codeTask} repository={detail.repo} refreshKey={codeTask.version}
-                  refining={codeTask.developmentContinuationUnfinished} disabledReason={codeTask.state === 'OPEN' ? null : 'The development task is closed'}
-                  localReview={localReview} bridge={window.bridge} onSelectCommit={selectCommit} />
-                <TaskReviewSummary task={codeTask} workspaceId={codeTask.workspaceId} active={detailTab === 'review'}
-                onReviewChange={updateReview} onSelectCommit={selectCommit} focusFindingId={focusFindingId} focusReviewCard={reviewCardFocus}
-                onNavigateToChanges={navigateToChanges} /></>
+              {codeTask !== null ? <DevelopmentLearningPanel task={codeTask} repository={detail.repo} refreshKey={codeTask.version}
+                refining={codeTask.developmentContinuationUnfinished} disabledReason={codeTask.state === 'OPEN' ? null : 'The development task is closed'}
+                localReview={localReview} bridge={window.bridge} onSelectCommit={selectCommit}
+                review={{ workspaceId: codeTask.workspaceId, active: detailTab === 'review', onReviewChange: updateReview, onSelectCommit: selectCommit,
+                  focusFindingId, focusReviewCard: reviewCardFocus, onNavigateToChanges: navigateToChanges }} />
                 : <AgentReviewTab detail={detail} workspaceId={workspaceId} viewer={viewer} review={review} onReviewChange={updateReview}
                   ownStream={reviewWorkspace === undefined && detailTab === 'review'} localReview={localReview} onSelectCommit={selectCommit}
                   focusFindingId={focusFindingId} focusReviewCard={reviewCardFocus}

@@ -12,12 +12,15 @@
  * limitations under the License.
  */
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import Avatar from '../Avatar';
+import { relativeTime } from '../relativeTime';
 import type { AgentTaskDto, AgentTurnDto, Bridge, DevelopmentLearningSummaryDto } from '../types';
 import MarkdownBody from '../pulls/MarkdownBody';
-import { ReviewThreadCard, ReviewThreadMessage } from '../pulls/ReviewThreadCard';
 import ReviewComposer from '../pulls/agent-review/ReviewComposer';
+import { CommitEvent, TimelineEvent } from '../pulls/agent-review/SummaryTimeline';
+import { TaskReviewControls, TaskReviewSection, useTaskReview, type TaskReviewOptions } from '../pulls/agent-review/TaskReviewSummary';
+import LocalCard, { LocalCardMessage, SummaryCardTitle } from '../pulls/local-review/LocalCard';
 import LocalReviewThreadCard from '../pulls/local-review/LocalReviewThreadCard';
 import type { useLocalReviewThreads } from '../pulls/local-review/useLocalReviewThreads';
 
@@ -31,8 +34,8 @@ export function developmentLearningCards(summary: DevelopmentLearningSummaryDto)
 type LearningBridge = Pick<Bridge, 'getAgentTask'> & Partial<Pick<Bridge, 'getDevelopmentLearning'>>;
 type LearningThreads = ReturnType<typeof useLocalReviewThreads>;
 
-function LearningCard({ card, turn, repository, disabledReason, onAsk }: {
-  card: ReturnType<typeof developmentLearningCards>[number]; turn: AgentTurnDto; repository: string;
+function LearningCard({ card, sha, turn, repository, disabledReason, onAsk }: {
+  card: ReturnType<typeof developmentLearningCards>[number]; sha?: string; turn: AgentTurnDto; repository: string;
   disabledReason: string | null; onAsk: (body: string) => Promise<void>;
 }) {
   const [composing, setComposing] = useState(false);
@@ -48,35 +51,44 @@ function LearningCard({ card, turn, repository, disabledReason, onAsk }: {
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not send your question.'); }
     finally { setBusy(false); }
   };
-  return <article className={`agr-learning-card agr-learning-card--${card.id === 'purpose' ? 'purpose' : 'commit'}`} data-learning-card={card.id}>
-    <ReviewThreadCard resolved={false} privateLabel="Private"
-      location={<span className="pr-local-review__location agr-learning-card__title">{card.id === 'purpose' ? card.title : 'Review & discussion'}</span>}
-      controls={<footer className={composing ? 'agr-learning-card__reply' : undefined}>
-        {composing ? <ReviewComposer repository={repository} value={body} autoFocus busy={busy} disabledReason={disabledReason}
-          ariaLabel={`Ask the agent about ${card.title.toLowerCase()}`} placeholder="Ask for an explanation or confirmation…"
-          primaryLabel="Ask agent" onChange={setBody} onSubmit={() => { void send(); }} onCancel={close} />
-          : <button type="button" className="pr-thread-reply__open" disabled={disabledReason !== null} title={disabledReason ?? undefined}
-            onClick={() => setComposing(true)}>Ask agent</button>}
-        {error !== null && <span className="pr-thread-reply__error" role="alert">{error}</span>}
-      </footer>}>
-      <ReviewThreadMessage timestamp={turn.endedAt ?? turn.createdAt}
-        author={<><Avatar login="Agent" size={22} allowGitHubFallback={false} /><strong>Developer</strong></>}>
-        <MarkdownBody body={card.body} repository={repository} />
-      </ReviewThreadMessage>
-    </ReviewThreadCard>
-  </article>;
+  return <LocalCard tone={sha === undefined ? 'purpose' : 'commit'} title={<SummaryCardTitle sha={sha} />}
+    controls={<footer className={`lrc__foot${composing ? ' is-composing' : ''}`}>
+      {composing ? <ReviewComposer repository={repository} value={body} autoFocus busy={busy} disabledReason={disabledReason}
+        ariaLabel={`Ask the agent about ${card.title.toLowerCase()}`} placeholder="Ask for an explanation or confirmation…"
+        primaryLabel="Ask agent" onChange={setBody} onSubmit={() => { void send(); }} onCancel={close} />
+        : <button type="button" className="lrc__ask" disabled={disabledReason !== null} title={disabledReason ?? undefined}
+          onClick={() => setComposing(true)}>Ask agent</button>}
+      {error !== null && <span className="lrc__error" role="alert">{error}</span>}
+    </footer>}>
+    <LocalCardMessage timestamp={turn.endedAt ?? turn.createdAt} author="Developer"
+      avatar={<Avatar login="Agent" size={22} allowGitHubFallback={false} />}>
+      <MarkdownBody body={card.body} repository={repository} />
+    </LocalCardMessage>
+  </LocalCard>;
 }
 
-/** Reads the kept report, independently of the conversation's bounded history window. */
-export default function DevelopmentLearningPanel({ task, repository, refreshKey, refining, disabledReason, localReview, bridge, onSelectCommit }: {
+function commitCount(count: number): string {
+  return `${count} ${count === 1 ? 'commit' : 'commits'}`;
+}
+
+/**
+ * A development task's Summary, laid out like a pull request timeline: the kept report's intention and one
+ * card per commit, then the task's own reviewer when the page offers one. Reads the kept report,
+ * independently of the conversation's bounded history window.
+ */
+export default function DevelopmentLearningPanel({ task, repository, refreshKey, refining, disabledReason, localReview, bridge, onSelectCommit, review }: {
   task: AgentTaskDto; repository: string; refreshKey: number; refining: boolean; disabledReason: string | null;
   localReview: LearningThreads; bridge: LearningBridge;
   onSelectCommit?: (sha: string) => void;
+  /** Offers the task's own reviewer; its status and start action sit in the strip above the report. */
+  review?: TaskReviewOptions;
 }) {
   const [turn, setTurn] = useState<AgentTurnDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
+  const reviewer = useTaskReview(task, review);
+  const reviewSection = useRef<HTMLDivElement>(null);
   const read = bridge.getDevelopmentLearning;
   useEffect(() => {
     let current = true;
@@ -88,43 +100,69 @@ export default function DevelopmentLearningPanel({ task, repository, refreshKey,
     return () => { current = false; };
   }, [read, task.id, task.workspaceId, task.version, task.developmentContinuationUnfinished, refreshKey, retry]);
   const summary = turn?.developmentResult?.learningSummary;
+  const written = turn === null ? null : turn.endedAt ?? turn.createdAt;
   const threads = localReview.threads.filter(thread => thread.learningAnchor != null);
   const cards = summary == null ? [] : developmentLearningCards(summary);
   const previous = threads.filter(thread => thread.learningAnchor?.turnId !== turn?.id
     || !cards.some(card => card.id === thread.learningAnchor?.cardId));
   const actions = { ...localReview, disabledReason };
-  const renderCard = (card: ReturnType<typeof developmentLearningCards>[number]) => {
+  const last = summary?.commits.at(-1);
+  const renderCard = (card: ReturnType<typeof developmentLearningCards>[number], sha?: string) => {
     if (turn === null) return null;
     const discussions = threads.filter(thread => thread.learningAnchor?.turnId === turn.id && thread.learningAnchor.cardId === card.id);
-    return discussions.length > 0 ? <article className={`agr-learning-card agr-learning-card--${card.id === 'purpose' ? 'purpose' : 'commit'}`} data-learning-card={card.id}>
-      {discussions.map(thread => <LocalReviewThreadCard key={thread.id} thread={thread} {...actions} />)}
-    </article> : <LearningCard key={`${turn.id}:${card.id}`} card={card} turn={turn} repository={repository} disabledReason={disabledReason}
-      onAsk={async body => {
-        const current = await bridge.getAgentTask(task.id, task.workspaceId);
-        await localReview.createLearning({ taskId: task.id, workspaceId: task.workspaceId, summaryTurnId: turn.id, cardId: card.id,
-          body, expectedTaskVersion: current.version });
-      }} />;
+    return <article className="agr-summary-card" data-learning-card={card.id}>
+      {discussions.length > 0 ? discussions.map(thread => <LocalReviewThreadCard key={thread.id} thread={thread} {...actions} />)
+        : <LearningCard key={`${turn.id}:${card.id}`} card={card} sha={sha} turn={turn} repository={repository} disabledReason={disabledReason}
+          onAsk={async body => {
+            const current = await bridge.getAgentTask(task.id, task.workspaceId);
+            await localReview.createLearning({ taskId: task.id, workspaceId: task.workspaceId, summaryTurnId: turn.id, cardId: card.id,
+              body, expectedTaskVersion: current.version });
+          }} />}
+    </article>;
   };
-  return <section className="agr-learning-cards" aria-label="Development learning summary">
-    {refining && <p className="agt-note" role="status">Refining summary… Updating the intention and commit explanations.</p>}
+  return <section className="agr-summary-page" aria-label="Development summary">
+    <div className="agr-summary-strip">
+      <div className="agr-summary-strip__facts">
+        {refining && <span className="agr-summary-strip__refining" role="status"><span className="agr-spinner" aria-hidden="true" />
+          Refining summary{reviewer.source === null ? '' : ` for ${reviewer.source.headSha.slice(0, 7)}`}…</span>}
+        {summary != null && written !== null && <span title={`Summary written ${new Date(written).toLocaleString()}`}>
+          Summary updated <strong>{relativeTime(written)}</strong></span>}
+        {last !== undefined && <span>covers <strong>{commitCount(summary?.commits.length ?? 0)}</strong> through {onSelectCommit
+          ? <button type="button" className="agr-summary-strip__sha" title="Open this commit's diff in Changes"
+            onClick={() => onSelectCommit(last.sha)}>{last.sha.slice(0, 7)}</button>
+          : <code>{last.sha.slice(0, 7)}</code>}</span>}
+      </div>
+      {review !== undefined && <TaskReviewControls state={reviewer}
+        onShowReview={() => reviewSection.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} />}
+    </div>
     {error !== null && <p className="agt-note" role="alert">{error} <button type="button" className="agt-action" onClick={() => setRetry(value => value + 1)}>Retry</button></p>}
-    {summary == null || turn === null ? <p className="agr-card__empty" role="status">
+    {(summary == null || turn === null) && <p className="agr-card__empty" role="status">
       {loading ? 'Loading learning summary…' : refining ? 'The learning cards will appear when this step finishes.'
         : 'After a turn changes code or commits, the agent will refine the summary here automatically.'}
-    </p> : <>
-      <div className="agr-learning-cards__scope">{summary.commits.length} {summary.commits.length === 1 ? 'commit' : 'commits'} · Updated {new Date(turn.endedAt ?? turn.createdAt).toLocaleString()}</div>
-      {cards[0] !== undefined && renderCard(cards[0])}
-      {cards.length > 1 && <section className="agr-commit-section" aria-label="Commit implementation">
-        <div className="agr-commit-section__head"><h2>Commit implementation</h2></div>
-        <ol className="agr-commit-list">{cards.slice(1).map((card, index) => <li key={card.id}>
-          <h3 className="agr-commit-list__title">{summary.commits[index].title} <code>{summary.commits[index].sha.slice(0, 7)}</code></h3>
-          {onSelectCommit && <button type="button" className="agr-action" onClick={() => onSelectCommit(summary.commits[index].sha)}>View changes</button>}
-          {renderCard(card)}
-        </li>)}</ol>
-      </section>}
-    </>}
-    {previous.length > 0 && <details className="agr-learning-history"><summary>Earlier summary discussions · {previous.length}</summary>
-      {previous.map(thread => <LocalReviewThreadCard key={thread.id} thread={thread} {...actions} />)}
-    </details>}
+    </p>}
+    <div className="agr-timeline">
+      {summary != null && turn !== null && <>
+        <TimelineEvent avatar={<Avatar login="Agent" size={32} allowGitHubFallback={false} />}>
+          <strong>Developer</strong> described the change intention<span className="agr-event__time"> · {relativeTime(written)}</span>
+        </TimelineEvent>
+        {cards[0] !== undefined && renderCard(cards[0])}
+        {summary.commits.map((commit, index) => {
+          // The report names each commit; the working copy adds its message and time when this page reads one.
+          const source = reviewer.source?.commits.find(item => item.sha === commit.sha);
+          return <Fragment key={commit.sha}>
+            <CommitEvent ordinal={index + 1} sha={commit.sha} title={commit.title}
+              body={source?.message?.split('\n').slice(1).join('\n').trim()} time={source?.authoredAt ?? null}
+              onViewChanges={onSelectCommit && (() => onSelectCommit(commit.sha))} />
+            {renderCard(cards[index + 1], commit.sha)}
+          </Fragment>;
+        })}
+      </>}
+      {previous.length > 0 && <details className="agr-learning-history"><summary>Earlier summary discussions · {previous.length}</summary>
+        {previous.map(thread => <LocalReviewThreadCard key={thread.id} thread={thread} {...actions} />)}
+      </details>}
+      {review !== undefined && <div className="agr-summary-page__review" ref={reviewSection}>
+        <TaskReviewSection options={review} state={reviewer} />
+      </div>}
+    </div>
   </section>;
 }

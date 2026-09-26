@@ -161,59 +161,58 @@ export async function run(): Promise<string[]> {
     results.push('Actual review workspace replays compact green cards and preserves ordinary input');
 
     const intention = pane.querySelector<HTMLElement>(`[data-review-card="${current.id}:purpose"]`);
-    const commitList = pane.querySelector<HTMLOListElement>('ol.agr-commit-list');
-    const commitCards = [...pane.querySelectorAll<HTMLElement>('.agr-commit-list > li > .agr-commit-entry')];
-    assert(commitList !== null && getComputedStyle(commitList).listStyleType === 'decimal',
-      'Commits must use a native decimal ordered list');
-    assert(intention?.classList.contains('agr-learning-card--purpose') === true && intention.textContent?.includes('Change intention') === true,
+    const rows = [...pane.querySelectorAll<HTMLElement>('.agr-event:has(.agr-commit__title)')];
+    const commitCards = current.commits.map(commit => pane.querySelector<HTMLElement>(`[data-review-card="${current.id}:commit:${commit.sha}"]`));
+    assert(intention?.querySelector('.lrc.is-purpose') !== null && intention?.textContent?.includes('Change intention') === true,
       'The report must begin with a distinct Change intention card');
-    assert(commitCards.length === current.commits.length && commitCards.every((card, index) =>
-      card.dataset.reviewCard === `${current.id}:commit:${current.commits[index].sha}`),
-    'Every commit must have its own numbered entry in source order');
+    assert(rows.length === current.commits.length && rows.every((row, index) => row.querySelector('.agr-event__ordinal')?.textContent === `${index + 1}.`),
+      'Every commit must have its own numbered timeline event in source order');
     assert(pane.querySelectorAll('[data-review-card]').length === current.commits.length + 1,
       'A report without earlier discussions must contain only the Change intention and per-commit entries');
     for (const section of ['combined-result', 'evidence', 'coverage', 'critical-issues', 'limitations']) {
       assert(pane.querySelector(`[data-review-card="${current.id}:${section}"]`) === null,
         `The normal report must not render a redundant ${section} card`);
     }
-    for (let index = 0; index < commitCards.length; index++) {
+    for (let index = 0; index < rows.length; index++) {
+      const row = rows[index];
       const card = commitCards[index];
-      const item = card.parentElement;
-      const title = card.querySelector<HTMLElement>('.agr-commit-list__title');
-      const body = card.querySelector<HTMLElement>('.agr-commit-list__body');
-      const discussion = card.querySelector<HTMLElement>('.agr-learning-card--commit');
-      assert(item?.tagName === 'LI' && getComputedStyle(item).display === 'list-item',
-        'Every commit must retain its visible native list marker');
-      assert(title !== null && title.textContent?.includes(current.commits[index].message.split('\n')[0]) === true,
-        'Each numbered entry must show its Git commit title');
-      assert(discussion !== null && !discussion.contains(title) && (body === null || !discussion.contains(body)),
-        'Git commit title and body must remain outside the review discussion card');
-      assert(Boolean(title.compareDocumentPosition(discussion) & Node.DOCUMENT_POSITION_FOLLOWING),
-        'Each review discussion card must follow its Git commit content');
+      const title = row.querySelector<HTMLElement>('.agr-commit__title');
+      assert(card !== null && card.querySelector('.lrc.is-commit') !== null, 'Each commit must have its own review card');
+      assert(title !== null && title.textContent === current.commits[index].message.split('\n')[0],
+        'Each numbered event must show its Git commit title');
+      assert(!card.contains(row) && Boolean(row.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING),
+        'Each review discussion card must follow its Git commit event');
+      const more = row.querySelector<HTMLButtonElement>('.agr-commit__more');
       if (index === 0) {
-        assert(body !== null && body.textContent?.includes('Represent a dotted column reference as ordered path segments.') === true
-          && body.textContent.includes('Keep schema lookup in IcebergUtil'), 'The Git commit message body must render in the numbered entry');
-        assert(body.getBoundingClientRect().bottom < discussion.getBoundingClientRect().top,
-          'The commit message body must have visible separation from its discussion card');
-        assert(discussion.textContent?.includes('Design:') === true && discussion.textContent?.includes('Implementation:') === true,
+        assert(more !== null && pane.querySelector('.agr-commit__message') === null, 'The Git commit message body must start folded behind its toggle');
+        more.click();
+        await settle();
+        const body = row.nextElementSibling;
+        assert(body?.classList.contains('agr-commit__message') === true
+          && body.textContent?.includes('Represent a dotted column reference as ordered path segments.') === true
+          && body.textContent.includes('Keep schema lookup in IcebergUtil') && body.getBoundingClientRect().bottom < card.getBoundingClientRect().top,
+        'The toggle must show the Git commit message body between the commit and its card');
+        assert(card.textContent?.includes('Design:') === true && card.textContent?.includes('Implementation:') === true,
           'The agent design and implementation explanation must remain inside the separate review card');
-        assert(!discussion.textContent?.includes('Represent a dotted column reference as ordered path segments.'),
+        assert(!card.textContent?.includes('Represent a dotted column reference as ordered path segments.'),
           'The review card must not duplicate the Git commit message body');
+        more.click();
+        await settle();
       }
-      else assert(body === null, 'A commit without a Git body must not get invented body text');
-      const shell = discussion.querySelector('details');
+      else assert(more === null, 'A commit without a Git body must not offer a message toggle');
+      const shell = card.querySelector('details');
       assert(shell !== null && parseFloat(getComputedStyle(shell).borderTopWidth) > 0,
         'The review discussion below each commit must retain its visible card boundary');
       shell.open = false;
-      assert(title.getBoundingClientRect().height > 0 && (body === null || body.getBoundingClientRect().height > 0),
-        'Collapsing review discussion must leave the Git commit title and body visible');
+      assert(title.getBoundingClientRect().height > 0, 'Collapsing review discussion must leave the Git commit title visible');
       shell.open = true;
-      if (index > 0) assert(card.getBoundingClientRect().top > commitCards[index - 1].getBoundingClientRect().bottom,
-        'The next numbered item must follow the previous commit and its review discussion');
+      const previous = commitCards[index - 1];
+      if (previous) assert(row.getBoundingClientRect().top > previous.getBoundingClientRect().bottom,
+        'The next numbered commit must follow the previous commit and its review discussion');
     }
     const findingsHeading = [...pane.querySelectorAll('h2')].find(heading => heading.textContent === 'Findings');
     const lastCommit = commitCards.at(-1);
-    assert(findingsHeading !== undefined && lastCommit !== undefined && Boolean(lastCommit.compareDocumentPosition(findingsHeading)
+    assert(findingsHeading !== undefined && lastCommit != null && Boolean(lastCommit.compareDocumentPosition(findingsHeading)
       & Node.DOCUMENT_POSITION_FOLLOWING), 'Findings must follow the commit list');
     results.push('Change intention and numbered Git commits with separate review discussion cards lead directly to findings');
 
@@ -233,7 +232,7 @@ export async function run(): Promise<string[]> {
         ancestor = ancestor.parentElement;
       }
       assert(document.activeElement === destination || destination.contains(document.activeElement), `Navigation must focus ${selector} in the right pane; active ${document.activeElement?.outerHTML.slice(0, 200)}`);
-      const summary = destination.querySelector('.agr-commit-list__title') ?? disclosure.querySelector('summary') ?? destination;
+      const summary = disclosure.querySelector('summary') ?? destination;
       const viewport = pane.getBoundingClientRect();
       for (let attempt = 0; attempt < 60; attempt++) {
         const rect = summary.getBoundingClientRect();

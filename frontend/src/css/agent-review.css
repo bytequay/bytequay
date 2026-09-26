@@ -169,41 +169,68 @@
 .agr-banner.is-neutral .agr-banner__chip { color: #57606a; }
 .agr-banner__text { min-width: 200px; flex: 1; color: var(--text-1); font-size: 13px; line-height: 1.5; }
 
-/* Shared private review cards, without the GitHub timeline's indentation. */
 /* Wide windows keep the 864px content column of .pull-request-overview; padding, not max-width, so the scrollbar stays at the edge. */
 .agr-summary { min-height: 0; flex: 1; overflow-y: auto; padding: 18px max(34px, calc((100% - 864px) / 2)) 40px; }
-.agr-learning-cards, .agr-local-comments { display: flex; flex-direction: column; gap: 16px; }
+.agr-local-comments { display: flex; flex-direction: column; gap: 16px; }
 .agr-development-learning { flex: 1; min-height: 0; overflow: auto; padding: 20px; display: flex; flex-direction: column; gap: 24px; }
 .agr-learning-history > summary { padding: 12px 0; cursor: pointer; color: #59636e; }
-.agr-learning-history .pr-thread-row, .agr-learning-history .pr-inline-thread { margin-left: 0; margin-bottom: 12px; }
+.agr-learning-history .lrc { margin: 0 0 12px; }
 .agr-learning-cards__scope { color: #59636e; font-size: 12px; overflow-wrap: anywhere; }
-:is(.agr-learning-card, .agr-finding, .agr-local-comments) :is(.pr-inline-thread, .pr-thread-row) { margin-left: 0; }
-.agr-learning-card__title { font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
-.agr-learning-card__content { padding: 12px 16px 16px; }
-.agr-learning-card__warnings { margin: 0 16px 16px; }
-.agr-learning-card__warnings .markdown-body { padding: 0; }
-.agr-learning-card--purpose > .is-local-review { border: 1px solid #a7cfc1; border-top: 4px solid #2e8065; background: #f2f9f6; }
-.agr-learning-card--purpose > .is-local-review > summary { min-height: 60px; padding: 16px 18px; background: #e6f2ec; color: #245d49; }
-.agr-learning-card--purpose .agr-learning-card__title { font-size: 18px; }
-.agr-learning-card--purpose .pr-thread-comment { background: #f2f9f6; }
-.agr-commit-section { margin-top: 10px; min-width: 0; }
-.agr-commit-section__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; margin-bottom: 12px; }
-.agr-commit-section__head h2 { margin: 0; font-size: 16px; font-weight: 600; }
-.agr-commit-list { margin: 0; padding-left: 24px; list-style: decimal; }
-.agr-commit-list > li { min-width: 0; padding-left: 4px; }
-.agr-commit-list > li + li { margin-top: 28px; }
-.agr-commit-list > li::marker { color: #354e71; font-size: 16px; font-weight: 600; }
-.agr-commit-entry { min-width: 0; }
-.agr-commit-list__title { margin: 0 0 10px; font-size: 16px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
-.agr-commit-list__title code { margin-left: 6px; color: #6e7781; font-family: var(--font-mono); font-size: 12px; font-weight: 400; white-space: nowrap; }
-.agr-commit-list__body { margin-bottom: 14px; }
-.agr-commit-list__body > .markdown-body { padding: 0; }
-.agr-learning-card--commit > .is-local-review { border-color: #c6d3e4; border-left: 3px solid #819ac1; background: #fff; }
-.agr-learning-card--commit > .is-local-review > summary { min-height: 48px; background: #edf2fa; color: #354e71; }
-.agr-learning-card--commit :is(.pr-thread-comment, .pr-thread-row__comments) { background: #fff; }
-.agr-learning-card--commit .pr-local-review__label { border-color: #c6d3e4; background: transparent; color: #526987; }
-.agr-learning-history { border-top: 1px solid #d8dee4; }
-.agr-learning-card--history { margin-bottom: 12px; }
+/* Private cards on the Summary sit in its own column, not under a GitHub timeline's avatar. */
+:is(.agr-summary-card, .agr-finding, .agr-local-comments) .lrc { margin-left: 0; }
+.agr-summary-card__warnings { margin: 12px 0 0; }
+.agr-summary-card__warnings .markdown-body { padding: 0; }
+
+/* The Summary page: a strip that says how fresh the report is and what the reviewer is doing, then a
+   timeline in the pull request timeline's shape, where each event is followed by the card it explains. */
+.pull-detail__review > .agr-summary-page { flex: 1; min-height: 0; overflow-y: auto; padding: 18px max(34px, calc((100% - 864px) / 2)) 48px; }
+.agr-summary-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; padding-bottom: 22px; }
+.agr-summary-strip__facts { display: flex; min-width: 0; flex: 1 1 280px; align-items: center; flex-wrap: wrap; gap: 4px 8px; color: #59636e; font-size: 13px; }
+.agr-summary-strip__facts > * + *::before { margin-right: 8px; color: #d0d7de; content: '·'; }
+.agr-summary-strip__facts strong { color: var(--text-1); font-weight: 600; }
+.agr-summary-strip__refining { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); font-weight: 600; }
+.agr-summary-strip__sha { border: 0; background: none; color: var(--accent); padding: 0; font-family: var(--font-mono); font-size: 12.5px; }
+.agr-summary-strip__sha:hover { text-decoration: underline; }
+.agr-summary-strip__review { display: flex; flex: none; align-items: center; flex-wrap: wrap; gap: 8px; }
+.agr-summary-strip__note { color: #8c959f; font-size: 12.5px; white-space: nowrap; }
+.agr-summary-strip__review .agr-action { min-height: 32px; padding: 0 12px; font-size: 13.5px; }
+.agr-summary-strip__review .agr-summary-strip__start { background: #f6f8fa; padding: 0 14px; font-size: 14px; }
+.agr-summary-strip__status { display: inline-flex; min-height: 32px; align-items: center; gap: 7px; border: 1px solid #d0d7de; border-radius: 6px; color: #59636e; padding: 0 12px; font-size: 13.5px; font-weight: 600; white-space: nowrap; }
+.agr-summary-strip__status.is-warn { border-color: #d4a72c; color: #9a6700; }
+.agr-summary-strip__link { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; color: var(--text-1); padding: 0; font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.agr-summary-strip__link:hover { text-decoration: underline; }
+
+.agr-timeline { position: relative; min-width: 0; }
+.agr-timeline::before { position: absolute; top: 6px; bottom: 6px; left: 15px; width: 2px; background: #e3e6ea; content: ''; }
+.agr-event { position: relative; display: flex; min-height: 32px; align-items: center; flex-wrap: wrap; gap: 8px 12px; color: #59636e; font-size: var(--ui-font-size); line-height: 1.4; }
+.agr-event__avatar { display: inline-grid; width: 32px; height: 32px; flex: none; place-items: center; border-radius: 50%; background: #fff; color: #59636e; box-shadow: 0 0 0 3px #fff; }
+.agr-event__avatar:not(:has(> .avatar)) { width: 30px; height: 30px; border: 1px solid #d0d7de; }
+.agr-event__text { min-width: 0; flex: 1 1 260px; overflow-wrap: anywhere; }
+.agr-event__text > strong { color: var(--text-1); font-weight: 600; }
+.agr-event__ordinal { margin-right: 6px; color: #8c959f; font-weight: 600; }
+.agr-event__time { white-space: nowrap; }
+.agr-event__local { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; border: 1px solid #bfe0da; border-radius: 12px; background: #e8f5f3; color: #1b6a62; padding: 1px 8px; font-size: 12px; font-weight: 600; white-space: nowrap; vertical-align: 1px; }
+.agr-event__actions { display: inline-flex; flex: none; align-items: center; gap: 4px; }
+.agr-event__action { display: inline-flex; min-height: 28px; flex: none; align-items: center; gap: 6px; border: 1px solid #d0d7de; border-radius: 6px; background: #f6f8fa; color: var(--text-1); padding: 0 10px; font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.agr-event__action:hover:not(:disabled) { background: #eef1f4; }
+.agr-event__action:disabled { color: #8c959f; }
+.agr-event__action.is-quiet { color: #59636e; }
+.agr-event__icon { display: inline-grid; width: 28px; height: 28px; place-items: center; border: 0; border-radius: 6px; background: transparent; color: #59636e; }
+.agr-event__icon:hover { background: #f0f1f3; }
+.agr-commit__title { color: var(--text-1); font-weight: 600; }
+.agr-commit__more { height: 18px; margin-left: 8px; border: 0; border-radius: 4px; background: #eaeef2; color: #59636e; padding: 0 5px; font-size: 12px; font-weight: 700; line-height: 1; vertical-align: 2px; }
+.agr-commit__more[aria-expanded="true"] { background: #d0d7de; }
+.agr-commit__sha { margin-left: 10px; color: #59636e; font-family: var(--font-mono); font-size: 13px; white-space: nowrap; }
+.agr-commit__message { position: relative; margin: 8px 0 0 44px; border-radius: 6px; background: #f6f8fa; color: #59636e; padding: 8px 12px; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Each card hangs off the event above it, right of the timeline's line. */
+.agr-timeline :is(.agr-summary-card, .agr-finding) { position: relative; margin: 12px 0 24px 22px; }
+.agr-timeline :is(.agr-banner, .agr-error, .agr-progress, .agr-none, .agr-pending, .agr-card__empty) { position: relative; margin: 12px 0 16px 44px; }
+.agr-timeline > .agr-learning-history, .agr-timeline .agr-pane > .agr-summary > .agr-learning-history { position: relative; margin: 0 0 16px 44px; border-top: 0; }
+.agr-summary-page__review { scroll-margin-top: 12px; }
+.agr-summary-page > .agr-card__empty, .agr-summary-page > .agt-note { margin: 0 0 16px; padding: 0; }
+.agr-pane.is-timeline { display: block; overflow: visible; }
+.agr-pane.is-timeline > .agr-summary { overflow: visible; padding: 0; }
+.agr-pane.is-timeline .agr-progress { border: 1px solid #d8dee4; border-radius: 8px; }
 .agr-review-details { margin-bottom: 16px; border: 1px solid #d8dee4; border-radius: 6px; color: #57606a; font-size: 13px; }
 .agr-review-details > summary { padding: 10px 12px; cursor: pointer; }
 .agr-review-details__body { padding: 0 12px 12px; overflow-wrap: anywhere; }
@@ -238,10 +265,7 @@
 .agr-lesson-evidence input { flex: none; }
 .agr-lesson-reload { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; }
 
-.agr-learning-card__reply, .agr-finding__controls { display: block !important; }
-:is(.agr-learning-card__reply, .agr-finding__controls) > .agr-composer { margin-top: 0; }
-:is(.agr-learning-card, .agr-finding) .pr-thread-comment__author { flex-wrap: wrap; }
-:is(.agr-learning-card, .agr-finding) .pr-thread-comment__menu { flex-wrap: wrap; }
+.lrc__foot > .agr-composer { margin-top: 0; }
 .agr-card__refs { color: #8c959f; font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
 .agr-card__empty { margin: 0; padding: 18px 20px; color: #57606a; font-size: 13.5px; line-height: 1.55; }
 
@@ -263,13 +287,11 @@
 .agr-pending { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; color: #57606a; font-size: 13px; }
 
 .agr-finding { margin-bottom: 12px; }
-.agr-finding.is-draft > details { border-color: #d4a72c; }
+.agr-finding.is-draft > .lrc { border-color: #d4a72c; }
 .agr-finding.is-muted { opacity: 0.85; }
 .agr-finding__id { color: #8c959f; font-family: var(--font-mono); font-size: 11px; }
-.agr-finding__title { margin: 12px 16px 0; font-size: var(--ui-font-size); font-weight: 600; }
-.agr-finding__details { padding: 0 16px 14px; }
+.agr-finding__title { margin: 0 0 4px; font-size: var(--ui-font-size); font-weight: 600; }
 .agr-finding__details:empty { display: none; }
-.agr-finding__controls .agr-actions { margin-top: 0; }
 
 .agr-evidence { margin-top: 12px; }
 .agr-evidence__toggle {
@@ -337,7 +359,6 @@
 .agr-draft__head button { border: 1px solid #d4a72c; border-radius: 6px; background: #fff; color: #9a6700; padding: 2px 9px; font: inherit; font-size: 12px; font-weight: 600; }
 .agr-draft__body > .markdown-body { padding: 8px 12px; font-size: 13.5px; }
 
-.agr-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .agr-actions__divider { width: 1px; height: 18px; margin: 0 2px; background: #e3e3e6; }
 .agr-actions__blocked { color: #8c959f; font-size: 12px; }
 
@@ -359,7 +380,7 @@
 
 /* The app rings focus per component rather than globally; these are this pane's controls,
    including the finding card where it mounts inside the diff. */
-:is(.agr-pane, .agr-empty, .agr-finding, .agr-composer) :is(a, button, summary, textarea):focus-visible {
+:is(.agr-pane, .agr-empty, .agr-finding, .agr-composer, .agr-summary-page) :is(a, button, summary, textarea):focus-visible {
   outline: 2px solid var(--control-strong);
   outline-offset: 2px;
 }

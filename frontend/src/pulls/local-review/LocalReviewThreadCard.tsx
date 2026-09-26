@@ -16,7 +16,8 @@ import Avatar from '../../Avatar';
 import BetterWordsButton from '../BetterWordsButton';
 import MarkdownBody from '../MarkdownBody';
 import MarkdownEditor from '../MarkdownEditor';
-import { ReviewThreadCard, ReviewThreadMessage } from '../ReviewThreadCard';
+import { shortPath } from '../agent-review/model';
+import LocalCard, { LocalCardMessage, SummaryCardTitle } from './LocalCard';
 import type { LocalReviewThreadActions, LocalReviewThreadDto } from './types';
 
 export default function LocalReviewThreadCard({ thread, onReply, onResolve, onRetry, disabledReason: codeDisabledReason, learningDisabledReason,
@@ -25,7 +26,8 @@ export default function LocalReviewThreadCard({ thread, onReply, onResolve, onRe
   showCode?: boolean;
   outdated?: boolean;
 }) {
-  const disabledReason = thread.learningAnchor != null && learningDisabledReason !== undefined ? learningDisabledReason : codeDisabledReason;
+  const learning = thread.learningAnchor ?? null;
+  const disabledReason = learning !== null && learningDisabledReason !== undefined ? learningDisabledReason : codeDisabledReason;
   const [replying, setReplying] = useState(false);
   const [body, setBody] = useState('');
   const [preview, setPreview] = useState(false);
@@ -37,6 +39,7 @@ export default function LocalReviewThreadCard({ thread, onReply, onResolve, onRe
   const prefix = thread.side === 'LEFT' ? 'L' : 'R';
   const start = thread.startLine ?? thread.line;
   const range = start === thread.line ? `${prefix}${thread.line}` : `${prefix}${start}–${prefix}${thread.line}`;
+  const learningSha = learning?.cardId.startsWith('commit:') ? learning.cardId.slice('commit:'.length) : undefined;
   const close = () => { setReplying(false); setBody(''); setPreview(false); setError(null); };
   const mutate = async (action: string, operation: () => Promise<void>) => {
     if (inFlight.current) return;
@@ -51,7 +54,7 @@ export default function LocalReviewThreadCard({ thread, onReply, onResolve, onRe
     if (!body.trim() || disabledReason) return;
     void mutate('reply', () => onReply(thread.id, body.trim()));
   };
-  const controls = replying ? <footer>
+  const controls = replying ? <footer className="lrc__foot is-composing">
     <MarkdownEditor value={body} onChange={setBody} ariaLabel="Reply to local review" placeholder="Reply privately to this thread…"
       repository={thread.repo} preview={preview} onPreviewChange={setPreview} textareaRef={textareaRef} isPrivate
       statusMessage={disabledReason}
@@ -64,12 +67,12 @@ export default function LocalReviewThreadCard({ thread, onReply, onResolve, onRe
       <button className="is-primary" type="button" disabled={busy || !body.trim() || Boolean(disabledReason)} title={disabledReason ?? undefined}
         onClick={reply}>{pending === 'reply' ? 'Replying…' : 'Reply to agent'}</button>
     </MarkdownEditor>
-  </footer> : <footer>
-    <button className="pr-thread-reply__open" type="button" disabled={busy || Boolean(disabledReason)} title={disabledReason ?? undefined}
+  </footer> : <footer className="lrc__foot">
+    <button className="lrc__ask" type="button" disabled={busy || Boolean(disabledReason)} title={disabledReason ?? undefined}
       onClick={() => { setError(null); setPreview(false); setReplying(true); }}>Reply</button>
-    {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}
+    {error && <span className="lrc__error" role="alert">{error}</span>}
     {disabledReason && <span className="pr-local-review__note" role="status">{disabledReason}</span>}
-    <button className="pr-thread-resolve" type="button" disabled={busy}
+    <button className="lrc__action" type="button" disabled={busy}
       onClick={() => { void mutate('resolve', () => onResolve(thread.id, !thread.resolved)); }}>
       {pending === 'resolve' ? 'Saving…' : thread.resolved ? 'Reopen' : 'Resolve'}
     </button>
@@ -79,19 +82,20 @@ export default function LocalReviewThreadCard({ thread, onReply, onResolve, onRe
       <code>{(thread.side === 'LEFT' ? thread.baseSha : thread.headSha)?.slice(0, 8) ?? 'at recorded PR revision'}</code></div>
     <pre>{thread.code}</pre>
   </div> : undefined;
-  return <ReviewThreadCard localId={thread.id} resolved={thread.resolved} outdated={outdated}
-    privateLabel={thread.learningAnchor == null ? undefined : 'Summary · Private'}
-    location={thread.learningAnchor != null ? <span className="pr-local-review__location agr-learning-card__title">{thread.learningAnchor.title}</span>
-      : showCode ? <code className="pr-local-review__location" title={thread.path}>{thread.path}:{range}</code>
-      : <span className="pr-local-review__location">Comment on {start === thread.line ? 'line' : 'lines'} <strong>{range}</strong></span>}
+  return <LocalCard tone={learning === null ? 'local' : learningSha === undefined ? 'purpose' : 'commit'}
+    resolved={thread.resolved} outdated={outdated} attributes={{ 'data-local-review-thread': thread.id }}
+    title={learning !== null ? <SummaryCardTitle sha={learningSha} tooltip={learning.title} />
+      : showCode ? <code className="lrc__title" title={thread.path}>{shortPath(thread.path)}:{range}</code>
+      : <span className="lrc__title">Comment on {start === thread.line ? 'line' : 'lines'} <strong>{range}</strong></span>}
     code={snapshot} controls={controls}>
-    {thread.learningAnchor != null && <ReviewThreadMessage timestamp={thread.createdAt}
-      author={<><Avatar login="Agent" size={22} allowGitHubFallback={false} /><strong>Agent</strong><span>Summary at time of question</span></>}>
-      <MarkdownBody body={thread.learningAnchor.body} repository={thread.repo} />
-    </ReviewThreadMessage>}
-    {thread.messages.map(message => <ReviewThreadMessage key={message.id} timestamp={message.createdAt}
-      author={<><Avatar login={message.author === 'USER' ? 'You' : 'Agent'} size={22} allowGitHubFallback={false} />
-        <strong>{message.author === 'USER' ? 'You' : 'Agent'}</strong></>}
+    {learning !== null && <LocalCardMessage timestamp={thread.createdAt} author="Developer"
+      avatar={<Avatar login="Agent" size={22} allowGitHubFallback={false} />}
+      tag={<span className="lrc-message__meta">Summary at time of question</span>}>
+      <MarkdownBody body={learning.body} repository={thread.repo} />
+    </LocalCardMessage>}
+    {thread.messages.map(message => <LocalCardMessage key={message.id} timestamp={message.createdAt}
+      author={message.author === 'USER' ? 'You' : 'Agent'}
+      avatar={<Avatar login={message.author === 'USER' ? 'You' : 'Agent'} size={22} allowGitHubFallback={false} />}
       menu={message.author === 'USER' && message.deliveryState !== null && message.deliveryState !== 'COMPLETED'
         && <span className="pr-local-review__delivery">{message.deliveryState === 'UNSENT' ? 'Not sent'
           : message.deliveryState.toLowerCase().replaceAll('_', ' ')}</span>}>
@@ -103,8 +107,8 @@ export default function LocalReviewThreadCard({ thread, onReply, onResolve, onRe
           {pending === `retry:${message.id}` ? 'Retrying…' : 'Retry'}
         </button>
       </div>}
-    </ReviewThreadMessage>)}
-  </ReviewThreadCard>;
+    </LocalCardMessage>)}
+  </LocalCard>;
 }
 
 export function localReviewMatchesRevision(thread: LocalReviewThreadDto, baseSha?: string, headSha?: string): boolean {

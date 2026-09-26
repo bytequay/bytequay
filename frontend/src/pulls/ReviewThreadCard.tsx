@@ -15,36 +15,32 @@ import type { ReactNode } from 'react';
 import { CircleCheck } from 'lucide-react';
 import { relativeTime } from '../relativeTime';
 
-export function ReviewThreadCard({ location, resolved, outdated = false, localId, privateLabel, defaultOpen, code, children, controls }: {
+/** A GitHub review thread. Private cards draw `LocalCard` instead and share none of this markup. */
+export function ReviewThreadCard({ location, resolved, outdated = false, defaultOpen, code, children, controls }: {
   location: ReactNode;
   resolved: boolean;
   outdated?: boolean;
-  localId?: string;
-  privateLabel?: string;
   defaultOpen?: boolean;
   code?: ReactNode;
   children: ReactNode;
   controls: ReactNode;
 }) {
-  const local = localId !== undefined || privateLabel !== undefined;
-  const label = local && <span className="pr-local-review__label">{privateLabel ?? 'Local review · Private'}</span>;
-  const old = outdated && <span className="pr-thread-outdated">Outdated</span>;
   if (resolved) {
-    return <details className={`pr-thread-row${local ? ' is-local-review' : ''}`} data-local-review-thread={localId} open={defaultOpen ?? false}>
+    return <details className="pr-thread-row" open={defaultOpen ?? false}>
       <summary>
         <span className="pr-thread-chevron" aria-hidden="true">›</span>
-        {location}{label}{local && old}
+        {location}
         <span className="pr-thread-row__resolved"><CircleCheck size={14} aria-hidden="true" /> Resolved</span>
       </summary>
       <div className="pr-thread-row__comments">
-        {local && code}{children}{controls}
+        {children}{controls}
       </div>
     </details>;
   }
-  return <details className={`pr-inline-thread${local ? ' is-local-review' : ''}`} data-local-review-thread={localId} open={defaultOpen ?? true}>
+  return <details className="pr-inline-thread" open={defaultOpen ?? true}>
     <summary>
       <span className="pr-thread-chevron" aria-hidden="true">›</span>
-      {location}{label}{old}
+      {location}{outdated && <span className="pr-thread-outdated">Outdated</span>}
     </summary>
     {code}{children}{controls}
   </details>;

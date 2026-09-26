@@ -86,17 +86,17 @@ export async function resolveFinding(projection: 'review' | 'changes'): Promise<
   };
   try {
     flushSync(() => root.render(<Surface />));
-    button('Resolve locally').click(); await settle();
+    button('Resolve').click(); await settle();
     assert(document.activeElement === input(), 'Opening resolution must focus its reason input');
     assert(requests.length === 0 && !button('Resolve locally').disabled, 'Opening the input must not resolve; its reason is optional');
     await write('Cancel this reason');
     button('Cancel').click(); await settle();
     assert(card().querySelector('textarea') === null && requests.length === 0, 'Cancelling must leave the finding unchanged');
-    button('Resolve locally').click(); await settle();
+    button('Resolve').click(); await settle();
     assert(input().value === '', 'Cancelled reasons must be cleared');
     input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await settle();
     assert(card().querySelector('textarea') === null && requests.length === 0, 'Escape must cancel without saving');
-    button('Resolve locally').click(); await settle();
+    button('Resolve').click(); await settle();
     await write('  This case is already covered.  ');
     button('Resolve locally').click(); await settle();
     assert(Number(requests.length) === 1 && input().disabled && button('Cancel').disabled,
@@ -114,7 +114,7 @@ export async function resolveFinding(projection: 'review' | 'changes'): Promise<
       && card().textContent?.includes('This case is already covered.') === true, 'Accepted resolution must show the saved reason and close the input');
     assert(!host.textContent?.includes('The review changed; try again.'), 'Successful retry must clear its previous error');
     button('Reopen').click(); await settle();
-    button('Resolve locally').click(); await settle();
+    button('Resolve').click(); await settle();
     assert(input().value === '' && !button('Resolve locally').disabled, 'A reopened finding must allow resolution with no reason');
     button('Resolve locally').click(); await settle();
     assert(requests[2]?.[3] === '', 'Empty optional reason must reach the local resolution API');

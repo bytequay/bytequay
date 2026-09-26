@@ -18,7 +18,8 @@ import type { AgentTaskDto, Bridge } from '../../../types';
 import { parseAgentTask } from '../../../agents/contracts';
 import taskFixture from '../../../agents/fixtures/agent-contracts-v1.json';
 import { assert, changeInput, settle } from '../../../fixtures/harness';
-import TaskReviewSummary from '../TaskReviewSummary';
+import DevelopmentLearningPanel from '../../../agents/DevelopmentLearningPanel';
+import { useLocalReviewThreads } from '../../local-review/useLocalReviewThreads';
 import ReviewSummaryCard from '../ReviewSummaryCard';
 import ReviewFindingCard from '../ReviewFindingCard';
 import { useFindingActions } from '../useFindingActions';
@@ -66,14 +67,23 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       install({ findTaskAgentReview: async () => null, readWorktreeChanges: async () => changes,
         startTaskAgentReview: async (workspaceId, taskId) => { starts.push(`${workspaceId}/${taskId}`); return review; },
         subscribeAgentReview: async () => () => {}, getAgentReview: async () => review });
-      flushSync(() => root.render(<TaskReviewSummary task={task} workspaceId={task.workspaceId} onNavigateToChanges={() => {}} />));
+      function Summary() {
+        const localReview = useLocalReviewThreads(null);
+        return <DevelopmentLearningPanel task={task} repository="" refreshKey={0} refining={false} disabledReason={null} localReview={localReview}
+          bridge={window.bridge} review={{ workspaceId: task.workspaceId, onNavigateToChanges: () => {} }} />;
+      }
+      flushSync(() => root.render(<Summary />));
       await settle();
-      assert(starts.length === 0 && host.textContent?.includes('Uncommitted changes are excluded.') === true,
-        'Opening Summary must not review or include dirty work');
+      const scope = host.querySelector('.agr-summary-strip__note');
+      assert(starts.length === 0 && scope?.textContent === `main → ${head.slice(0, 7)}`
+        && scope.getAttribute('title') === 'Unpushed commits are included. Uncommitted changes are excluded.',
+        'Opening Summary must not review or include dirty work, and must name the committed range beside the button');
+      assert(button('Review changes').closest('.agr-summary-strip') !== null, 'Review changes must sit in the Summary strip, not in a box below the report');
       button('Review changes').click(); await settle();
       assert(Number(starts.length) === 1 && starts[0] === `${task.workspaceId}/${task.id}`, 'Review must target the source developer task');
-      assert(host.textContent?.includes('Reviewer') === true && host.textContent.includes('Change intention'),
-        'The existing review cards must render without PR details');
+      assert(host.querySelector('.agr-event')?.textContent?.includes('Agent review') === true
+        && host.querySelectorAll('.agr-finding .lrc.is-local').length === review.findings.length && host.textContent?.includes('Change intention') === true,
+        'The review must join the timeline as local finding cards, keeping the reviewer\'s report without PR details');
       assert(!host.textContent?.includes('Post comment now'), 'A local-only review must not offer GitHub publication');
     });
     await scenario('Reviewer questions and explicit developer fixes stay in separate conversations', async () => {

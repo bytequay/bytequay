@@ -217,7 +217,7 @@ describe('the same finding in Changes', () => {
   it('offers the same actions and the way back to Summary', () => {
     const html = changes(review);
     expect(html).toContain('Ask reviewer');
-    expect(html).toContain('Resolve locally');
+    expect(html).toContain('>Resolve</button>');
     expect(html).toContain('Add to my review');
     expect(html).toContain('Post comment now');
     expect(html).toContain('Open in Summary');

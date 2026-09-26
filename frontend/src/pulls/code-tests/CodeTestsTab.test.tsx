@@ -118,7 +118,7 @@ describe('CodeTestsTab', () => {
     expect(rule).not.toBeNull();
     // Both Code & Tests hosts size the card through the diff's rule; a second copy is what let them drift apart.
     for (const host of ['.pull-diff-code', '.pull-diff-threads', '.ct-inline-card', '.ct-unplaced__card']) expect(rule?.[1]).toContain(host);
-    for (const card of ['.pr-inline-thread', '.pr-thread-row', '.agr-finding']) expect(rule?.[2]).toContain(card);
+    for (const card of ['.pr-inline-thread', '.pr-thread-row', '.lrc', '.agr-finding']) expect(rule?.[2]).toContain(card);
     expect(rule?.[3]).toMatch(/max-width: 780px/);
     expect(rule?.[3]).toMatch(/margin-left: 0/);
     const agentReview = readFileSync(resolve(process.cwd(), 'src/css/agent-review.css'), 'utf8');

@@ -73,10 +73,11 @@ async function replyAndResolve(): Promise<void> {
     }} />));
   render();
   try {
-    assert(host.querySelector('.pr-inline-thread.is-local-review') !== null && host.textContent?.includes('Local review') === true,
-      'Private threads must use the normal card with a distinct local treatment');
-    assert(host.querySelectorAll('.pr-thread-comment').length === 2 && host.textContent?.includes('You') === true && host.textContent?.includes('Agent') === true,
-      'User and agent messages must share normal comment rows');
+    assert(host.querySelector('.lrc.is-local') !== null && host.querySelector('.lrc__chip')?.textContent === 'Local'
+      && host.querySelector('.pr-inline-thread, .pr-thread-row') === null,
+    'Private threads must use the one local card, never the GitHub thread card');
+    assert(host.querySelectorAll('.lrc-message').length === 2 && host.textContent?.includes('You') === true && host.textContent?.includes('Agent') === true,
+      'User and agent messages must share the local card\'s message rows');
     button(host, 'Reply').click();
     await settle();
     let input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply to local review"]');
@@ -127,20 +128,21 @@ async function replyAndResolve(): Promise<void> {
       'Failed reply must retain the draft and show its error');
     button(host, 'Reply to agent').click();
     await settle();
-    assert(host.querySelector('textarea') === null && host.querySelectorAll('.pr-thread-comment').length === 4,
+    assert(host.querySelector('textarea') === null && host.querySelectorAll('.lrc-message').length === 4,
       'Accepted reply and agent answer must appear in the same saved thread');
     button(host, 'Resolve').click();
     await settle();
-    const resolved = host.querySelector<HTMLDetailsElement>('.pr-thread-row.is-local-review');
-    assert(resolved !== null && !resolved.open && resolved.textContent?.includes('Resolved') === true, 'Resolution must use the normal collapsed card');
+    const resolved = host.querySelector<HTMLDetailsElement>('.lrc');
+    assert(resolved !== null && !resolved.open && resolved.querySelector('.lrc__resolved')?.textContent === 'Resolved', 'Resolution must fold the local card');
     resolved.querySelector('summary')?.click();
     button(host, 'Reopen').click();
     await settle();
-    assert(resolutions === 2 && host.querySelector<HTMLDetailsElement>('.pr-inline-thread')?.open === true, 'The user must be able to reopen a local thread');
+    assert(resolutions === 2 && host.querySelector<HTMLDetailsElement>('.lrc')?.open === true && host.querySelector('.lrc__resolved') === null,
+      'The user must be able to reopen a local thread');
     flushSync(() => root.unmount());
     root = createRoot(host);
     render();
-    assert(host.querySelectorAll('.pr-thread-comment').length === 4, 'Remounting from saved data must retain both sides of the discussion');
+    assert(host.querySelectorAll('.lrc-message').length === 4, 'Remounting from saved data must retain both sides of the discussion');
   }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
@@ -172,7 +174,7 @@ async function savedRetry(): Promise<void> {
     assert(retries === 1 && button(host, 'Retrying…').disabled, 'A retry in flight must not dispatch twice');
     finish();
     await settle();
-    assert(host.querySelectorAll('.pr-thread-comment').length === 1 && host.textContent?.includes('queued') === true
+    assert(host.querySelectorAll('.lrc-message').length === 1 && host.textContent?.includes('queued') === true
       && host.querySelector('[role="alert"]') === null, 'Accepted retry must update delivery state without duplicating user text');
   }
   finally { flushSync(() => root.unmount()); host.remove(); }
@@ -249,7 +251,7 @@ async function independentLearningCards(): Promise<void> {
   };
   render();
   try {
-    assert(section(purposeId).querySelector('.pr-inline-thread.is-local-review') !== null,
+    assert(section(purposeId).querySelector('.lrc.is-purpose') !== null,
       'Learning cards must reuse the development private review card');
     await ask(purposeId, 'Explain the PR goal');
     await ask(commitId, 'Explain this implementation');
@@ -266,7 +268,7 @@ async function independentLearningCards(): Promise<void> {
     assert(commit.textContent?.includes('Answer to Explain this implementation') === true
       && commit.textContent?.includes('Explain the PR goal') === false,
     'The commit must retain only its own user question and agent answer after reload');
-    assert(purpose.querySelectorAll('.pr-thread-comment').length === 3 && commit.querySelectorAll('.pr-thread-comment').length === 3,
+    assert(purpose.querySelectorAll('.lrc-message').length === 3 && commit.querySelectorAll('.lrc-message').length === 3,
       'Each card must display its report, question and answer using shared comment rows');
   }
   finally { flushSync(() => root.unmount()); host.remove(); }
@@ -426,7 +428,7 @@ async function developmentLearningRefresh(): Promise<void> {
     button(card(commitId), 'Ask agent').click();
     await settle();
     const discussion = host.querySelector<HTMLElement>('[data-local-review-thread]');
-    assert(questions === 1 && discussion?.querySelectorAll('.pr-thread-comment').length === 3
+    assert(questions === 1 && discussion?.querySelectorAll('.lrc-message').length === 3
       && discussion.textContent?.includes(summary.commits[0].summary) === true
       && discussion.textContent?.includes('rollback restores the original values') === true,
     'The accepted question must display its saved summary, user message and agent reply in the shared private card');

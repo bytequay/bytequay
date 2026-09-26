@@ -36,7 +36,7 @@ import { canSubmitReview, PullDetailHeader } from '../pulls/PullsScreen';
 import CodeTestsTab from '../pulls/code-tests/CodeTestsTab';
 import WorktreeChanges from '../pulls/code-tests/WorktreeChanges';
 import type { CodeHostRef } from '../pulls/code-tests/contracts';
-import TaskReviewSummary from '../pulls/agent-review/TaskReviewSummary';
+import type { TaskReviewOptions } from '../pulls/agent-review/TaskReviewSummary';
 import {
 laneLabel,
 isDeepSeekKeyLane,
@@ -599,7 +599,8 @@ function SidePanel({
   discussionTurns?: { turnId: string; ordinal: number; synopsis: string }[];
   /** The discussion a transcript footer asked to see, which opens its card. */
   discussionFocus?: { id: string } | null;
-  learning?: React.ReactNode | ((onSelectCommit: (sha: string) => void) => React.ReactNode);
+  /** Renders the Summary; a development task's reviewer comes with it, so it can sit in the Summary's own strip and timeline. */
+  learning?: React.ReactNode | ((onSelectCommit: (sha: string) => void, review?: TaskReviewOptions) => React.ReactNode);
   reviewFocus?: ReviewCardFocus | null;
   /** How many files hold unsaved Code & Tests drafts, so the screen can confirm before they are dropped. */
   onCodeUnsavedChange?: (count: number) => void;
@@ -776,15 +777,17 @@ function SidePanel({
         }} />
     </div>
   ) : null;
+  const taskReview: TaskReviewOptions | undefined = task !== null && task.interactive && workspaceId !== undefined ? {
+    workspaceId, active: tab === 'review', onReviewChange: setReview, onSelectCommit: (sha, snapshot) => selectCommit('review', sha, snapshot),
+    focusFindingId, focusReviewCard: reviewFocus, onNavigateToChanges: navigateToChanges,
+  } : undefined;
   const summaryBody = summaryVisited ? <div className="agr-development-learning" ref={reviewContainer} hidden={tab !== 'review'}>
-    {(typeof learning === 'function' ? learning(sha => selectCommit('task', sha)) : learning) ?? <p className="agr-card__empty">After a turn changes code or commits, the agent will refine the summary here automatically.</p>}
+    {(typeof learning === 'function' ? learning(sha => selectCommit('task', sha), taskReview) : learning) ?? <p className="agr-card__empty">After a turn changes code or commits, the agent will refine the summary here automatically.</p>}
     {localThreads.threads.length > 0 && <section className="agr-local-comments" aria-label="Local review comments">
       <div className="agr-findings__head"><h2>Local review comments</h2><span className="agr-findings__count">{localThreads.threads.length} private discussions</span></div>
       {localThreads.threads.map(thread => <LocalReviewThreadCard key={thread.id} thread={thread} {...localThreads} />)}
     </section>}
-    {task !== null && task.interactive && workspaceId !== undefined ? <TaskReviewSummary task={task} workspaceId={workspaceId}
-      active={tab === 'review'} onReviewChange={setReview} onSelectCommit={(sha, snapshot) => selectCommit('review', sha, snapshot)} focusFindingId={focusFindingId} focusReviewCard={reviewFocus}
-      onNavigateToChanges={navigateToChanges} />
+    {taskReview !== undefined ? null
       : pullRequest !== null && reviewLoading ? <div className="agt-panel__empty" role="status">Loading review cards…</div>
       : reviewError !== null ? <div className="agt-panel__empty" role="alert">{reviewError}
         <button type="button" className="agt-action" onClick={() => setReviewReload(value => value + 1)}>Retry</button>
@@ -1071,7 +1074,8 @@ export function AgentTaskBody({
   discussionFocus?: { id: string } | null;
   onJumpToPassage?: (target: { turnId: string; discussionId?: string }) => void;
   onHoverDiscussion?: (discussionId: string | null) => void;
-  learning?: React.ReactNode | ((onSelectCommit: (sha: string) => void) => React.ReactNode);
+  /** Renders the Summary; a development task's reviewer comes with it, so it can sit in the Summary's own strip and timeline. */
+  learning?: React.ReactNode | ((onSelectCommit: (sha: string) => void, review?: TaskReviewOptions) => React.ReactNode);
   contextActivity?: React.ReactNode;
   reviewFocus?: ReviewCardFocus | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
@@ -2571,7 +2575,7 @@ export default function AgentTaskScreen({
       discussionFocus={discussionFocus}
       onOpenDiscussion={id => { openUtility('discussions'); setDiscussionFocus({ id }); }}
       onJumpToPassage={revealPassage}
-      learning={onSelectCommit => state.task === null ? null : <DevelopmentLearningPanel key={taskId} task={state.task} onSelectCommit={onSelectCommit} repository={workspace === undefined ? '' : `${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
+      learning={(onSelectCommit, review) => state.task === null ? null : <DevelopmentLearningPanel key={taskId} task={state.task} onSelectCommit={onSelectCommit} review={review} repository={workspace === undefined ? '' : `${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
         refreshKey={state.lifecycleEpoch} refining={state.task?.developmentContinuationUnfinished === true && state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY'}
         disabledReason={taskCommentDisabled}
         localReview={localReview} bridge={live()} />}

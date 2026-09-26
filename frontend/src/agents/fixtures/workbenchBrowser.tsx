@@ -16,6 +16,9 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { EditorView } from '@codemirror/view';
 import AgentTaskScreen, { AgentTaskBody } from '../AgentTaskScreen';
+import DevelopmentLearningPanel from '../DevelopmentLearningPanel';
+import type { TaskReviewOptions } from '../../pulls/agent-review/TaskReviewSummary';
+import { useLocalReviewThreads } from '../../pulls/local-review/useLocalReviewThreads';
 import { PullDetailHeader } from '../../pulls/PullsScreen';
 import WorktreeChanges from '../../pulls/code-tests/WorktreeChanges';
 import { initialAgentTaskState } from '../model';
@@ -67,6 +70,12 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
   host.style.cssText = 'width:1400px;height:850px';
   document.body.append(host);
   const root = createRoot(host);
+  // The Summary's own reviewer arrives with the options the side panel passes for an interactive task.
+  const Summary = ({ review }: { review: TaskReviewOptions }) => {
+    const localReview = useLocalReviewThreads(null);
+    return <DevelopmentLearningPanel task={task} repository="owner/repo" refreshKey={0} refining={false} disabledReason={null}
+      localReview={localReview} bridge={window.bridge} review={review} />;
+  };
   const Harness = () => {
     const [tab, setTab] = useState<'pr' | 'files' | 'changes' | 'review' | 'code' | 'agents' | 'discussions'>('review');
     const [linked, setLinked] = useState(false);
@@ -75,8 +84,9 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
       panelOpen panelTab={tab} onSelectPanelTab={setTab} repository="owner/repo" pullRequests={linked ? [publishedPr] : []}
       pullRequestChanges={{ files: publishedFiles, allFiles: publishedFiles, commits: [], loading: false, error: null,
         selectCommit: sha => selectedCommits.push(sha) }}
-      learning={onSelectCommit => <><textarea aria-label="Summary draft" defaultValue="Keep this explanation" />
-        <button type="button" onClick={() => onSelectCommit('published-sha')}>View published commit</button></>} />;
+      learning={(onSelectCommit, review) => <><textarea aria-label="Summary draft" defaultValue="Keep this explanation" />
+        <button type="button" onClick={() => onSelectCommit('published-sha')}>View published commit</button>
+        {review !== undefined && <Summary review={review} />}</>} />;
   };
   const click = (label: string): void => {
     const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent?.trim() === label && !item.closest('[hidden]'));

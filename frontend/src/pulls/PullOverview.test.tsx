@@ -46,8 +46,7 @@ describe('PullOverview', () => {
       localReview={{ threads: [local], onReply: async () => {}, onResolve: async () => {}, onRetry: async () => {} }} />);
     expect(html.indexOf('Earlier public discussion')).toBeLessThan(html.indexOf('Private implementation question'));
     expect(html.indexOf('Private implementation question')).toBeLessThan(html.indexOf('Later public discussion'));
-    expect(html).toContain('is-local-review');
-    expect(html).toContain('data-local-review-thread="local-comment"');
+    expect(html).toContain('<details class="lrc is-local" open="" data-local-review-thread="local-comment">');
     expect(value.recentActivity).toHaveLength(2);
   });
 

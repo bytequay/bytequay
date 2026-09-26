@@ -408,15 +408,17 @@ describe('the summary card', () => {
     expect(summary(review)).not.toContain('Verification warning');
   });
 
-  it('separates Change intention and commit implementation without redundant report cards', () => {
+  it('lays the intention and each commit out as timeline events, each followed by its own card', () => {
     const html = summary(review);
-    expect(html).toContain('Change intention');
-    expect(html).toContain('Commit implementation');
-    expect(html).toContain('agr-learning-card--purpose');
-    expect(html.match(/agr-learning-card--commit/g)).toHaveLength(5);
-    expect(html.match(/agr-commit-list__title/g)).toHaveLength(5);
-    expect(html).toContain('Review &amp; discussion');
-    expect(html).toContain('5 in scope');
+    expect(html).toContain('<strong>Agent review</strong> described the change intention · 5 commits in scope');
+    expect(html).toContain('<details class="lrc is-purpose" open=""');
+    expect(html).toContain('<span class="lrc__title">Change intention</span>');
+    expect(html.match(/class="lrc is-commit"/g)).toHaveLength(5);
+    expect(html.match(/class="agr-commit__title"/g)).toHaveLength(5);
+    expect(html.match(/Design &amp; implementation <code>/g)).toHaveLength(5);
+    // Each commit's event comes right before its card.
+    expect(html.indexOf('<span class="agr-event__ordinal">2.</span>')).toBeLessThan(html.indexOf(`data-review-card="${review.runs[0].id}:commit:${review.runs[0].commits[1].sha}"`));
+    expect(html).not.toContain('Commit implementation');
     expect(html).not.toContain('Combined result');
     expect(html).not.toContain('Critical issues');
     expect(html).not.toContain('Supporting evidence &amp; tests');
@@ -437,8 +439,7 @@ describe('the summary card', () => {
 
   it('keeps the summary discussion private and never publishable', () => {
     const html = summary(review);
-    expect(html).toContain('Private — never published');
-    expect(html).toContain('pr-inline-thread is-local-review');
+    expect(html.match(/Private<\/span><\/summary>/g)).toHaveLength(6);
     expect(html).toContain('Why does the second commit change IcebergUtil');
     expect(html.match(/data-review-card=/g)).toHaveLength(6);
     expect(html).toContain('Ask reviewer');
@@ -471,12 +472,13 @@ describe('the finding card', () => {
   it('separates private actions from the one that reaches GitHub', () => {
     const html = card(review, finding);
     expect(html).toContain('Ask reviewer');
-    expect(html).toContain('Resolve locally');
+    expect(html).toContain('>Resolve</button>');
     expect(html).toContain('View in Changes');
     expect(html).toContain('Add to my review');
     expect(html).toContain('Post comment now');
     // Only the GitHub-bound action carries the primary treatment.
-    expect(html.match(/agr-action is-primary/g) ?? []).toHaveLength(1);
+    expect(html.match(/lrc__action is-primary/g) ?? []).toHaveLength(1);
+    expect(html).toContain('<button type="button" class="lrc__action is-primary">Post comment now</button>');
   });
 
   it('labels the way back differently in each projection but keeps one identity', () => {
@@ -572,11 +574,14 @@ describe('styles', () => {
       .filter(declaration => declaration !== '');
   }
 
-  it('uses the development private review card for summaries and findings', () => {
-    expect(summary(reviewFixture())).toContain('pr-inline-thread is-local-review');
-    expect(card(reviewFixture(), reviewFixture().findings[0])).toContain('pr-inline-thread is-local-review');
-    expect(declarations(':is(.agr-learning-card, .agr-finding, .agr-local-comments) :is(.pr-inline-thread, .pr-thread-row)'))
-      .toContain('margin-left: 0');
+  it('draws summaries and findings with the one private card, never the GitHub thread card', () => {
+    for (const html of [summary(reviewFixture()), card(reviewFixture(), reviewFixture().findings[0])]) {
+      expect(html).toContain('class="lrc is-');
+      expect(html).not.toContain('pr-inline-thread');
+      expect(html).not.toContain('pr-thread-comment');
+    }
+    expect(card(reviewFixture(), reviewFixture().findings[0])).toContain('<details class="lrc is-local" open="">');
+    expect(declarations(':is(.agr-summary-card, .agr-finding, .agr-local-comments) .lrc')).toContain('margin-left: 0');
   });
 
   it('gives only the GitHub-bound action the green primary treatment', () => {
@@ -593,13 +598,14 @@ describe('styles', () => {
 
   it('wraps the strip, banners and action rows so a narrow pane never clips them', () => {
     expect(declarations('.agr-strip')).toContain('flex-wrap: wrap');
-    expect(declarations('.agr-actions')).toContain('flex-wrap: wrap');
+    expect(declarations('.agr-summary-strip')).toContain('flex-wrap: wrap');
+    expect(declarations('.agr-event')).toContain('flex-wrap: wrap');
     expect(declarations('.agr-banner')).toContain('flex-wrap: wrap');
   });
 
   it('rings every control it owns, since the app has no global focus style', () => {
     const ring = declarations(
-      ':is(.agr-pane, .agr-empty, .agr-finding, .agr-composer) :is(a, button, summary, textarea):focus-visible');
+      ':is(.agr-pane, .agr-empty, .agr-finding, .agr-composer, .agr-summary-page) :is(a, button, summary, textarea):focus-visible');
     expect(ring).toContain('outline: 2px solid var(--control-strong)');
     expect(ring).toContain('outline-offset: 2px');
     expect(declarations(':is(.pull-diff-review textarea, .agr-pane .agt-compose__input):focus-visible')).toEqual(['outline: 0']);

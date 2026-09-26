@@ -942,20 +942,74 @@
 .pr-thread-row__resolved { display: inline-flex; align-items: center; gap: 5px; }
 .pr-thread-row__resolved svg { color: #8250df; }
 .pr-thread-row__comments { border-top: 1px solid #d8dee4; background: #fff; }
-.pr-inline-thread.is-local-review, .pr-thread-row.is-local-review { border-color: #c6dcd9; background: #f2f9f7; }
-.pr-inline-thread.is-local-review > summary, .pr-thread-row.is-local-review > summary { display: flex; flex-wrap: wrap; background: #e9f4f1; }
-.is-local-review > summary > .pr-thread-chevron { flex: 0 0 20px; text-align: center; }
-.pr-local-review__location { flex: 1 1 130px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.is-local-review .pr-thread-row__comments, .is-local-review .pr-thread-comment { background: #f2f9f7; }
-.pr-local-review__label { margin-left: auto; border: 1px solid #a9cec5; border-radius: 12px; padding: 1px 7px; color: #246356; font-size: 11px; white-space: nowrap; }
-.pr-local-review__snapshot { margin: 0; border-bottom: 1px solid #d8dee4; padding: 9px 16px; color: #59636e; font-size: 12px; }
+
+/* One private card for every local surface: local review threads, agent findings and summary cards.
+   It shares no markup with the GitHub thread card above, so neither restyles the other. A tone sets
+   the header colors; "local" is the review-comment tone that says the card never reaches GitHub. */
+.lrc {
+  --lrc-bar: #f6f8fa; --lrc-ink: #1f2328; --lrc-icon: #57606a; --lrc-rule: #d8dee4; --lrc-hover: #eff2f5;
+  --lrc-chip: #57606a; --lrc-chip-border: #d0d7de;
+  overflow: hidden; margin-left: 43px; border: 1px solid #d8dee4; border-radius: 12px; background: #fff;
+  color: var(--text-1); font-family: var(--font-sans); font-size: var(--ui-font-size); line-height: 1.4;
+}
+.lrc.is-purpose { --lrc-bar: #effbf2; --lrc-ink: #116329; --lrc-icon: #1a7f37; --lrc-rule: #cfecd7; --lrc-hover: #e6f6ea; }
+.lrc.is-commit { --lrc-bar: #eef6ff; --lrc-ink: #0a3069; --lrc-icon: #0969da; --lrc-rule: #d2e5fa; --lrc-hover: #e3efff; }
+.lrc.is-local {
+  --lrc-bar: #eaf6f4; --lrc-icon: #1b7c72; --lrc-rule: #d3ebe7; --lrc-hover: #e8f5f3; --lrc-chip: #1b6a62; --lrc-chip-border: #bfe0da;
+  border-color: #c5e4df; background: #fbfdfd; box-shadow: 0 1px 0 rgba(31, 35, 40, 0.04);
+}
+.lrc:has(.pr-card-actions.is-open) { overflow: visible; }
+.lrc__head { display: flex; min-height: 40px; align-items: center; flex-wrap: wrap; gap: 6px 10px; background: var(--lrc-bar); color: var(--lrc-ink); padding: 9px 14px; cursor: pointer; list-style: none; }
+.lrc__head::-webkit-details-marker { display: none; }
+.lrc__chevron { flex: none; color: var(--lrc-icon); transition: transform 120ms ease; }
+.lrc[open] > .lrc__head .lrc__chevron { transform: rotate(90deg); }
+.lrc__icon { flex: none; color: var(--lrc-icon); }
+.lrc__title { flex: 1 1 130px; min-width: 0; overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.lrc__title code, code.lrc__title { font-family: var(--font-mono); font-size: 13px; font-weight: 400; }
+.lrc__title code { margin-left: 4px; color: #59636e; }
+.lrc__chip, .lrc__badge, .lrc__resolved { display: inline-flex; flex: none; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; }
+.lrc__chip { border: 1px solid var(--lrc-chip-border); border-radius: 12px; background: #fff; color: var(--lrc-chip); padding: 1px 8px; font-weight: 500; }
+.lrc.is-local .lrc__chip { font-weight: 600; }
+.lrc__resolved { color: #8250df; font-weight: 600; }
+.lrc__badge { border: 1px solid #d0d7de; border-radius: 12px; color: #59636e; padding: 1px 8px; font-weight: 600; }
+.lrc__badge.is-warn { border-color: #d4a72c; background: #fff8c5; color: #9a6700; }
+.lrc__badge.is-ready { border-color: #4ac26b; color: #1a7f37; }
+.lrc__badge.is-danger { border-color: #ff8182; color: #cf222e; }
+/* Each section under the header draws the rule above it, so a folded card shows none. */
+.lrc > :not(summary, .agr-thread), .lrc > .agr-thread > .lrc-message { border-top: 1px solid var(--lrc-rule); }
+.lrc__code .pr-commented-code-line { border-bottom: 0; }
+.lrc__code .pr-local-review__snapshot { border-bottom: 1px solid var(--lrc-rule); }
+.lrc-message { padding: 12px 16px 14px; }
+.lrc-message__head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; color: #59636e; font-size: 12px; }
+.lrc-message__head strong { color: var(--text-1); font-size: var(--ui-font-size); font-weight: 600; }
+.lrc-message__meta { border: 1px solid #d0d7de; border-radius: 10px; padding: 0 7px; font-size: 11.5px; }
+.lrc.is-local .lrc-message__meta { border-color: #bfe0da; color: #1b6a62; font-weight: 600; }
+.lrc-message__menu { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.lrc-message__body { margin-top: 8px; overflow-wrap: anywhere; }
+.lrc-message__body > .markdown-body { padding: 0; }
+.lrc-bot { display: inline-grid; width: 22px; height: 22px; flex: none; place-items: center; border-radius: 6px; background: #24292f; color: #fff; }
+.lrc__foot { display: flex; min-height: 50px; align-items: center; flex-wrap: wrap; gap: 6px; padding: 8px 12px 8px 16px; }
+.lrc__foot.is-composing { display: block; padding: 12px 16px; }
+/* The reply opener reads as the start of a reply, like the GitHub card's, so it takes the free width. */
+.lrc__ask { flex: 1 1 120px; min-width: 120px; border: 0; background: transparent; color: var(--text-1); padding: 6px 0; font: inherit; text-align: left; cursor: text; }
+.lrc__ask:disabled { color: #8c959f; cursor: default; }
+.lrc__action { flex: none; border: 0; border-radius: 6px; background: transparent; color: var(--text-1); padding: 6px 10px; font: inherit; font-weight: 500; white-space: nowrap; }
+.lrc__action:hover:not(:disabled) { background: var(--lrc-hover); }
+.lrc__action:disabled { color: #8c959f; cursor: default; }
+/* Only the action that posts to GitHub is filled. */
+.lrc__action.is-primary { border: 1px solid rgba(31, 35, 40, 0.15); background: #1f883d; color: #fff; font-weight: 600; }
+.lrc__action.is-primary:hover:not(:disabled) { background: #1a7f37; }
+.lrc__error { color: #cf222e; font-size: 12px; }
+.lrc :is(summary, button):focus-visible { outline: 2px solid var(--control-strong); outline-offset: 2px; }
+.lrc > summary:focus-visible { outline-offset: -2px; }
+.pr-local-review__snapshot { margin: 0; padding: 9px 16px; color: #59636e; font-size: 12px; }
 .pr-local-review__snapshot pre { max-height: 180px; overflow: auto; margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 12px; }
 .pr-local-review__note { margin: 0; color: #59636e; font-size: 12px; }
 .pr-local-review__delivery { text-transform: capitalize; font-size: 11px; }
-.pr-local-review__delivery-error { margin: 8px 16px; color: #cf222e; font-size: 12px; }
-.pr-local-review__retry { margin: 8px 16px; }
+.pr-local-review__delivery-error { margin: 8px 0 0; color: #cf222e; font-size: 12px; }
+.pr-local-review__retry { margin: 8px 0 0; }
 .pr-local-review__retry button { border: 1px solid #d0d7de; border-radius: 6px; padding: 4px 9px; color: #24292f; background: #fff; }
-.is-local-review > footer, .is-local-review .pr-thread-row__comments > footer { flex-wrap: wrap; gap: 8px; }
+
 .pr-inline-thread { margin-left: 43px; }
 .pr-inline-thread > summary { overflow: hidden; background: #fff8e6; padding: 9px 14px; white-space: nowrap; }
 .pr-inline-thread[open] > summary { border-bottom: 1px solid #d8dee4; }
@@ -1218,7 +1272,7 @@
 /* Every review card hosted beside code — a diff row, the diff's thread list, or either Code & Tests host — gets the
    same box and the same type, so a finding reads identically wherever it is placed. Each host sets a different
    inherited font: the diff table is monospace at 12px, the Code & Tests hosts sit inside the editor. */
-:is(.pull-diff-code, .pull-diff-threads, .ct-inline-card, .ct-unplaced__card) :is(.pr-inline-thread, .pr-thread-row, .agr-finding) {
+:is(.pull-diff-code, .pull-diff-threads, .ct-inline-card, .ct-unplaced__card) :is(.pr-inline-thread, .pr-thread-row, .lrc, .agr-finding) {
   max-width: 780px; margin-left: 0; font-family: var(--font-sans); font-size: var(--ui-font-size); line-height: 1.4;
 }
 .pull-diff-threads { display: grid; gap: 10px; padding: 12px; background: #f6f8fa; }
@@ -1281,7 +1335,8 @@
   .pull-detail__toolbar { align-items: flex-start; flex-wrap: wrap; }
   .pull-detail__header-actions { margin-left: auto; }
   .pr-thread-row,
-  .pr-inline-thread { margin-left: 34px; }
+  .pr-inline-thread,
+  .lrc { margin-left: 34px; }
 }
 
 /* Addressable wrapper for one timeline group. It must keep a box: the spine is

@@ -88,18 +88,28 @@ review workspace always shows that reviewer's source and shares its one stream.
 The authored PR's **Assign agent** and **View in task** entry points continue to
 use the existing task navigation and ownership checks.
 
-The tab shows independent private cards
-in three visually distinct areas: **Change intention**, **Commit implementation**,
-and **Findings**. Change intention has a larger green card and stronger top border.
-Commit implementation is a native ordered list with visible `1.`, `2.`, `3.`
-markers in source order. Each entry shows the commit's title, short SHA, and
-original message body first. Its separate blue-header, white-body review card
-below contains the agent's explanation and private discussion. Folding that
-review card leaves the commit title and message visible. Findings follow a
-section divider and use the existing
-inline review-comment presentation. Each card retains its own private discussion
-through the shared [Local review comments](agent-service.md#local-review-comments)
-components. Do not generate combined-result, evidence/test, coverage, or
+The tab reads like a pull request timeline. A strip at the top says when the
+kept summary was written and which commits it covers, and holds the reviewer
+control: **Review changes** beside the committed range it would read,
+**Reviewing N commits…** with **Stop** while it runs, then the review's status
+chip with **Review again**. The timeline starts with the developer's
+**Change intention**, then one numbered event per commit in source order: its
+title, a `···` toggle for the Git message body, short SHA, time, and
+**View changes**. Each event is followed by its own private card with the
+agent's explanation and discussion, so folding the card leaves the commit event
+visible. On a development task the reviewer's event follows the commits and
+leads directly to its findings; its own summary cards and Review details fold
+under **Reviewer summary and details**, because the developer's cards already
+explain the change. Reviewing another author's PR shows the reviewer's
+intention and commit cards as that timeline, followed by Findings.
+
+Every private card (change intention with a green header, a commit's design and
+implementation with a blue header, and findings and local review comments in
+the teal **Local** treatment) is the one local card component. It shares no
+markup with the GitHub review thread card, so changing either never restyles
+the other, and every surface that shows private cards follows the local card.
+Each card retains its own private discussion through the shared
+[Local review comments](agent-service.md#local-review-comments) components. Do not generate combined-result, evidence/test, coverage, or
 critical-issues cards. Nonblocking verification warnings, such as cloud tests
 that could not run without external credentials, appear inside the change intention
 card for the displayed run. An accepted review with warnings remains **Finished**

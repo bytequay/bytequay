@@ -57,7 +57,7 @@ describe('Local review conversation projection', () => {
     expect(html).toContain('Can this method be static?');
     expect(html).toContain('private Result result()');
     expect(html).toContain('src/Example.java:R12–R13');
-    expect(html).toContain('is-local-review');
+    expect(html).toContain('class="lrc is-local"');
     expect(html).not.toContain('PRIVATE INTERNAL CONTEXT PROMPT');
   });
 

@@ -605,12 +605,12 @@ content spacing, and actions. **PR** and **WorkBench** are the primary destinati
 Development tasks also expose the learning tab before a PR exists. After a
 successful turn changes code or commits, a dedicated **Refine summary** turn
 updates the change intention and each commit’s design and implementation.
-The intention has a larger green card, followed by a native numbered commit
-list. Each commit title sits above its separate review explanation and
-private discussion card. The PR-owned report also includes the original Git
-commit message above the review card. Comment inputs reuse the code-diff
-review editor's presentation and keep their private handlers.
-Findings remain a separate section. This uses the existing completion coordinator and runs after
+The intention and each commit are numbered timeline events, each followed by
+its own private explanation and discussion card: a green header for the
+intention, a blue one for a commit's design and implementation. A commit's Git
+message body folds behind the `···` toggle on its event. Comment inputs reuse
+the code-diff review editor's presentation and keep their private handlers.
+The task's reviewer follows the commits as its own event, with its findings. This uses the existing completion coordinator and runs after
 accepted delivery work, including source synchronization from CI. It also runs
 with commit/publication automation off. The conversation labels the generated
 request **ByteQuay · Refine summary** and the active step **Refining summary…**.

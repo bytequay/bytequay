@@ -75,6 +75,7 @@ export default function AgentReviewTab({
   onNavigateToChanges,
   focusFindingId, focusReviewCard, onOpenReview,
   mode = 'cards',
+  timeline = false,
   ownStream = true,
   onOpenWorkspace,
   localReview,
@@ -92,6 +93,11 @@ export default function AgentReviewTab({
   focusReviewCard?: ReviewCardFocus | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
   mode?: 'cards' | 'conversation';
+  /**
+   * Cards on a development task's Summary timeline: the page's own strip and review event carry the status and actions,
+   * findings follow directly, and the reviewer's report folds away because the developer's summary already explains the change.
+   */
+  timeline?: boolean;
   /**
    * False for cards beside this review's conversation. Main keeps one stream per renderer and review,
    * so a second subscription would silently stop the conversation's; its reloads keep the shared review current.
@@ -458,9 +464,27 @@ export default function AgentReviewTab({
     }
   });
 
+  const report = <>
+    {run !== null && <ReviewDetails run={run} repository={review.repo} findings={review.findings} />}
+    <ReviewSummaryCard
+      review={review}
+      run={run}
+      onSelectCommit={onSelectCommit}
+      findings={review.findings}
+      viewerLogin={viewer?.login ?? ''}
+      viewerAvatarUrl={viewer?.avatarUrl ?? null}
+      busy={busy || recovery}
+      onAsk={(text, revision, cardId) => run_(async () => {
+        onReviewChange(await window.bridge.askAgentReview(review.id, null, revision, text, cardId));
+      }, 'other', true)}
+      onSelectFinding={finding => {
+        scrollToFinding(finding.id);
+      }} />
+  </>;
+
   return (
-    <div className="agr-pane">
-      {mode === 'cards' && <div className="agr-strip">
+    <div className={`agr-pane${timeline ? ' is-timeline' : ''}`}>
+      {mode === 'cards' && !timeline && <div className="agr-strip">
         <span className={`agr-strip__status is-${status?.tone ?? 'neutral'}`}>
           {status?.busy && <span className="agr-spinner" aria-hidden="true" />}
           <strong>{status?.label}</strong>
@@ -496,7 +520,7 @@ export default function AgentReviewTab({
         )}
       </div>}
 
-      {mode === 'cards' && progress !== null && <section className="agr-progress" aria-label="Review progress">
+      {mode === 'cards' && progress !== null && (!timeline || running || progress.gaps.length > 0) && <section className="agr-progress" aria-label="Review progress">
         <div className="agr-progress__phase"><strong>Review progress</strong><span>{progress.phase}</span></div>
         <div className="agr-progress__facts">{progress.facts.map(fact => <span key={fact}>{fact}</span>)}</div>
         {progress.gaps.length > 0 && <div className="agr-progress__gaps">{progress.gaps.map(gap => <span key={gap}>{gap}</span>)}</div>}
@@ -558,30 +582,16 @@ export default function AgentReviewTab({
             </div>
           )}
 
-          {run !== null && <ReviewDetails run={run} repository={review.repo} findings={review.findings} />}
-          <ReviewSummaryCard
-            review={review}
-            run={run}
-            onSelectCommit={onSelectCommit}
-            findings={review.findings}
-            viewerLogin={viewer?.login ?? ''}
-            viewerAvatarUrl={viewer?.avatarUrl ?? null}
-            busy={busy || recovery}
-            onAsk={(text, revision, cardId) => run_(async () => {
-              onReviewChange(await window.bridge.askAgentReview(review.id, null, revision, text, cardId));
-            }, 'other', true)}
-            onSelectFinding={finding => {
-              scrollToFinding(finding.id);
-            }} />
+          {!timeline && report}
 
-          <div className="agr-findings__head">
+          {!timeline && <div className="agr-findings__head">
             <h2>Findings</h2>
             <span className="agr-findings__count">
               {findings.length === 0
                 ? provisional(review) ? 'none saved' : 'none'
                 : `${findings.length} from this run · ${findings.filter(finding => finding.state === 'OPEN').length} open`}
             </span>
-          </div>
+          </div>}
 
           {findings.length === 0 && status?.status === 'nofindings' && (
             <div className="agr-none">
@@ -623,6 +633,10 @@ export default function AgentReviewTab({
               busy={busy || recovery || findingActions.busy}
               defaultOpen={false} />
           ))}
+          {timeline && <details className="agr-learning-history" open={review.messages.some(message => message.findingId === null) || undefined}>
+            <summary>Reviewer summary and details</summary>
+            {report}
+          </details>}
           <LocalComments localReview={localReview} />
         </div>
       ) : (

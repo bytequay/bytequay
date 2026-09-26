@@ -13,7 +13,7 @@
  */
 import Avatar from '../../Avatar';
 import MarkdownBody from '../MarkdownBody';
-import { ReviewThreadMessage } from '../ReviewThreadCard';
+import { LocalCardMessage, ReviewerAvatar } from '../local-review/LocalCard';
 import SaveReviewLesson from './SaveReviewLesson';
 import type { AgentReviewDto, ReviewMessageDto } from './contracts';
 import { queued } from './model';
@@ -41,14 +41,13 @@ export default function ReviewThread({ review, messages, viewerLogin, viewerAvat
         const mine = message.author === 'USER';
         const sourceRun = review.runs.find(run => run.id === message.runId);
         return (
-          <ReviewThreadMessage key={message.id} timestamp={message.createdAt}
-            author={<><Avatar login={mine ? viewerLogin : 'Agent'} avatarUrl={mine ? viewerAvatarUrl : null}
-              size={22} allowGitHubFallback={false} /><strong>{mine ? 'You' : 'Agent'}</strong></>}
+          <LocalCardMessage key={message.id} timestamp={message.createdAt} author={mine ? 'You' : 'Agent review'}
+            avatar={mine ? <Avatar login={viewerLogin || 'You'} avatarUrl={viewerAvatarUrl} size={22} allowGitHubFallback={false} /> : <ReviewerAvatar />}
             menu={<>{queued(review, message) && (
               <span className="agr-pill is-queued"><Spinner />Queued · runs after the current turn</span>
             )}{sourceRun !== undefined && <SaveReviewLesson review={review} run={sourceRun} message={message} />}</>}>
             <MarkdownBody body={message.body} repository={review.repo} />
-          </ReviewThreadMessage>
+          </LocalCardMessage>
         );
       })}
     </div>

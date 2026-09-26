@@ -3805,12 +3805,9 @@ button.agt-disc-mark:hover {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  transform: translateX(-50%);
-}
-
-/* Once the reader has moved it, it is where they put it rather than centred on the passage. */
-.agt-disc-anchor.is-moved {
-  transform: none;
+  width: max-content;
+  max-width: 100%;
+  user-select: none;
 }
 
 .agt-disc-pill {
@@ -3853,7 +3850,8 @@ button.agt-disc-mark:hover {
   color: var(--disc-fg2);
   font-size: 12.5px;
   box-shadow: 0 6px 18px var(--disc-shadow);
-  max-width: 330px;
+  box-sizing: border-box;
+  max-width: min(356px, 100%);
   text-wrap: pretty;
 }
 
@@ -3875,14 +3873,13 @@ button.agt-disc-mark:hover {
   cursor: pointer;
 }
 
-/* A fixed width, not a percentage: the anchor shrinks to its content, so a percentage here has
-   nothing to resolve against and collapses the composer to the width of its own buttons. */
 .agt-disc-pop {
   display: flex;
   flex-direction: column;
   width: 460px;
-  max-width: calc(100vw - 32px);
-  min-width: 320px;
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: min(320px, 100%);
   min-height: 190px;
   border: 1px solid var(--disc-bd);
   border-radius: 10px;
@@ -3940,6 +3937,7 @@ button.agt-disc-mark:hover {
   min-height: 62px;
   box-sizing: border-box;
   resize: none;
+  user-select: text;
   border: 1px solid var(--disc-bd);
   border-radius: 7px;
   background: var(--disc-bg);

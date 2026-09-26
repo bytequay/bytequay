@@ -13,7 +13,7 @@
  */
 
 
-import React, { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 
 import { DiscussionFooter } from './DiscussionFooter';
 import { renderMarkdownBlocks } from '../markdown';
@@ -23,8 +23,6 @@ import type { TaskDiscussionDto } from './contracts';
 const MINIMUM_QUOTE = 3;
 /** The affordance sits this far below the last selected line. */
 const BELOW = 8;
-/** Within this of the viewport's bottom it flips above the first selected line instead. */
-const EDGE = 44;
 /** How far from the bottom right corner the browser's own resize grip takes a press. */
 const RESIZE_GRIP = 18;
 
@@ -33,10 +31,10 @@ export type SelectedPassage = { turnId: string; quote: string; occurrence: numbe
 /** Why a selection cannot be asked about, when it cannot. */
 type Refusal = 'overruns' | 'streaming' | 'completed';
 
-type Offer =
-  | { kind: 'ask'; left: number; top: number; passage: SelectedPassage }
-  | { kind: 'inert'; left: number; top: number; reason: Refusal }
-  | { kind: 'compose'; left: number; top: number; passage: SelectedPassage };
+type Offer = { left: number; top: number; above: number } & (
+  | { kind: 'ask'; passage: SelectedPassage }
+  | { kind: 'inert'; reason: Refusal }
+  | { kind: 'compose'; passage: SelectedPassage });
 
 const SPEECH = <path d="M2.5 3.6h11v7.2H7l-3.2 2.4v-2.4H2.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />;
 
@@ -77,6 +75,7 @@ export function DiscussableAnswer({ turnId, text, repository, discussions, compl
   // The offer is positioned against the shell, so its coordinates must be measured there too; the
   // rendered blocks sit inset from it, and measuring those puts every offer out by that inset.
   const shell = useRef<HTMLDivElement>(null);
+  const anchor = useRef<HTMLDivElement>(null);
   const [offer, setOffer] = useState<Offer | null>(null);
   const [draft, setDraft] = useState('');
   // A composer the reader moved or resized keeps where they put it until it closes.
@@ -93,28 +92,44 @@ export function DiscussableAnswer({ turnId, text, repository, discussions, compl
   }
 
   const capture = useCallback(() => {
-    setOffer(current => (current?.kind === 'compose' ? current : null));
+    if (offer?.kind === 'compose') return;
+    setOffer(null);
     const selection = window.getSelection();
     const container = answer.current;
     if (selection === null || container === null || selection.rangeCount === 0 || selection.isCollapsed) return;
-    const range = selection.getRangeAt(0);
-    const startsHere = container.contains(range.startContainer);
-    if (!startsHere && !container.contains(range.endContainer)) return;
+    const range = selection.getRangeAt(0).cloneRange();
+    if (!range.intersectsNode(container)) return;
+
+    // Chromium can place the endpoint after the answer (or before the next node's text)
+    // when selecting its last sentence. Only actual text outside the answer is an overrun.
+    let overruns = false;
+    if (!container.contains(range.startContainer)) {
+      const outside = range.cloneRange();
+      outside.setEnd(container, 0);
+      overruns = outside.toString().trim() !== '';
+      range.setStart(container, 0);
+    }
+    if (!container.contains(range.endContainer)) {
+      const outside = range.cloneRange();
+      outside.setStart(container, container.childNodes.length);
+      overruns ||= outside.toString().trim() !== '';
+      range.setEnd(container, container.childNodes.length);
+    }
+    if (range.toString().trim() === '') return;
 
     const rects = [...range.getClientRects()];
     if (rects.length === 0 || shell.current === null) return;
     const frame = shell.current.getBoundingClientRect();
     const last = rects[rects.length - 1];
     const first = rects[0];
-    const flip = last.bottom + BELOW + 30 > window.innerHeight - EDGE;
-    const anchor = flip ? first : last;
     const at = {
-      left: Math.min(Math.max(0, anchor.left + anchor.width / 2 - frame.left), frame.width),
-      top: flip ? first.top - frame.top - 30 - BELOW : last.bottom - frame.top + BELOW,
+      left: last.left + last.width / 2 - frame.left,
+      top: last.bottom - frame.top + BELOW,
+      above: first.top - frame.top - BELOW,
     };
 
     // A discussion belongs to exactly one answer, so a range that leaves it has no anchor.
-    if (!container.contains(range.endContainer) || !startsHere) {
+    if (overruns) {
       setOffer({ kind: 'inert', ...at, reason: 'overruns' });
       return;
     }
@@ -129,7 +144,35 @@ export function DiscussableAnswer({ turnId, text, repository, discussions, compl
     before.setStart(container, 0);
     before.setEnd(range.startContainer, range.startOffset);
     setOffer({ kind: 'ask', ...at, passage: { turnId, quote, occurrence: occurrencesIn(before.toString(), quote) + 1 } });
-  }, [completed, onSelect, streaming, turnId]);
+  }, [completed, offer?.kind, onSelect, streaming, turnId]);
+
+  useLayoutEffect(() => {
+    const popup = anchor.current;
+    const container = shell.current;
+    if (offer === null || popup === null || container === null) return;
+    const position = (): void => {
+      const frame = container.getBoundingClientRect();
+      const viewport = container.closest('.agt-transcript')?.getBoundingClientRect();
+      const box = popup.getBoundingClientRect();
+      const left = Math.max(0, -frame.left);
+      const right = Math.min(frame.width, window.innerWidth - frame.left);
+      const top = Math.max(0, viewport?.top ?? 0) - frame.top + BELOW;
+      const bottom = Math.min(window.innerHeight, viewport?.bottom ?? window.innerHeight) - frame.top - BELOW;
+      const wantedTop = moved?.top ?? (offer.top + box.height <= bottom ? offer.top : offer.above - box.height);
+      // Clamp the whole box, including the wider composer, inside the visible reading pane.
+      popup.style.left = `${Math.max(left, Math.min(moved?.left ?? offer.left - box.width / 2, right - box.width))}px`;
+      popup.style.top = `${Math.max(top, Math.min(wantedTop, bottom - box.height))}px`;
+    };
+    position();
+    const observer = new ResizeObserver(position);
+    observer.observe(container);
+    observer.observe(popup);
+    window.addEventListener('resize', position);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', position);
+    };
+  }, [offer, moved]);
 
   useEffect(() => {
     const dismiss = (event: KeyboardEvent): void => {
@@ -141,7 +184,12 @@ export function DiscussableAnswer({ turnId, text, repository, discussions, compl
     };
     // The pointer is released wherever the drag ended. Selecting backwards ends at the passage's
     // start, which is commonly outside this answer, so an element-scoped listener never sees it.
-    const released = (): void => capture();
+    const released = (event: MouseEvent): void => {
+      // A live range ending after this answer also encloses the newly rendered popup.
+      // Its own buttons must act on the captured passage without selecting their labels.
+      if (event.target instanceof Node && anchor.current?.contains(event.target)) return;
+      capture();
+    };
     document.addEventListener('keydown', dismiss);
     document.addEventListener('mouseup', released);
     return () => {
@@ -220,7 +268,8 @@ export function DiscussableAnswer({ turnId, text, repository, discussions, compl
       <DiscussionFooter discussions={adrift} siblings={discussions} focused={focused} unanchored onOpen={onOpen} onHover={onHover} />
       {offer !== null && (
         <div
-          className={`agt-disc-anchor${moved === null ? '' : ' is-moved'}`}
+          className="agt-disc-anchor"
+          ref={anchor}
           style={{ left: moved?.left ?? offer.left, top: moved?.top ?? offer.top }}
         >
           {offer.kind === 'ask' && (
@@ -241,7 +290,8 @@ export function DiscussableAnswer({ turnId, text, repository, discussions, compl
               </span>
               <span>{REFUSALS[offer.reason].text}</span>
               {REFUSALS[offer.reason].fix !== undefined && (
-                <button className="agt-disc-inert__fix" type="button" onClick={() => trim(answer.current, () => capture())}>
+                <button className="agt-disc-inert__fix" type="button" onMouseDown={event => event.preventDefault()}
+                  onClick={() => trim(answer.current, () => capture())}>
                   {REFUSALS[offer.reason].fix}
                 </button>
               )}

@@ -66,7 +66,13 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
 
   const pill = (): HTMLElement | null => document.querySelector('.agt-disc-pill');
   const ask = async (question: string): Promise<void> => {
-    (pill() as HTMLElement).click();
+    const offered = pill();
+    assert(offered !== null, 'The selection did not offer a discussion');
+    offered.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    offered.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    await settle();
+    assert(pill() === offered, 'Releasing the Ask button replaced it before the click');
+    offered.click();
     await settle();
     const field = document.querySelector('.agt-disc-pop textarea') as HTMLTextAreaElement;
     assert(field !== null, 'The inline composer did not open');
@@ -161,6 +167,118 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     assert(Math.round(after.left - before.left) === 60, `Dragging moved it ${Math.round(after.left - before.left)}px across, not 60`);
     assert(Math.round(after.top - before.top) === 30, `Dragging moved it ${Math.round(after.top - before.top)}px down, not 30`);
   }, results);
+
+  await clear();
+  const sentence = 'Body follows the repository template: Description (root cause and the new key), Additional context (Fixes #31252, test coverage by behavior), and Release notes with a proposed Delta Lake connector entry.';
+  const markdownSentence = sentence.replace('Fixes #31252', '`Fixes #31252`');
+  const edgeHost = document.createElement('div');
+  edgeHost.className = 'agt-transcript';
+  edgeHost.style.cssText = 'position:fixed;left:130px;top:40px;width:540px;height:500px;box-sizing:border-box;overflow:auto;background:white;';
+  document.body.append(edgeHost);
+  const sent: { passage: SelectedPassage; question: string }[] = [];
+  const edgeRoot = createRoot(edgeHost);
+  flushSync(() => edgeRoot.render(<div>
+    <DiscussableAnswer turnId="turn-edge" text={`- ${markdownSentence}\n- ${markdownSentence}`} discussions={[]}
+      onSelect={(passage, question) => sent.push({ passage, question })} />
+    <p className="selection-after">PR #31264</p>
+  </div>));
+  await settle();
+  const edgeAnswer = edgeHost.querySelector('.agt-answer') as HTMLElement;
+  const finalItem = edgeAnswer.querySelector('li:last-child') as HTMLElement;
+  const start = finalItem.firstChild as Text;
+  const after = edgeHost.querySelector('.selection-after')?.firstChild as Text;
+  const selectFinal = (end: Node, offset: number, backwards: boolean): void => {
+    const selection = window.getSelection();
+    assert(selection !== null, 'This browser reports no selection');
+    if (backwards) selection.setBaseAndExtent(end, offset, start, 0);
+    else selection.setBaseAndExtent(start, 0, end, offset);
+    release(document.body);
+  };
+  const assertSent = (question: string): void => {
+    const latest = sent.at(-1);
+    assert(latest?.passage.turnId === 'turn-edge', 'The question belongs to the wrong answer');
+    assert(latest.passage.quote === sentence, `The sentence changed: ${latest.passage.quote}`);
+    assert(latest.passage.occurrence === 2, `The second sentence was sent as occurrence ${latest.passage.occurrence}`);
+    assert(latest.question === question, `The question changed: ${latest.question}`);
+  };
+  const inside = (element: HTMLElement, label: string): void => {
+    const box = element.getBoundingClientRect();
+    const frame = edgeHost.getBoundingClientRect();
+    assert(box.left >= frame.left && box.right <= frame.right,
+      `${label} escapes the transcript horizontally: ${Math.round(box.left)}..${Math.round(box.right)} outside ${Math.round(frame.left)}..${Math.round(frame.right)}`);
+    assert(box.top >= frame.top && box.bottom <= frame.bottom,
+      `${label} escapes the transcript vertically: ${Math.round(box.top)}..${Math.round(box.bottom)} outside ${Math.round(frame.top)}..${Math.round(frame.bottom)}`);
+  };
+
+  await scenario('asks about the last list sentence ending at its outer parent boundary in either direction', async () => {
+    for (const backwards of [false, true]) {
+      await clear();
+      selectFinal(edgeAnswer.parentNode as Node, 1, backwards);
+      await settle();
+      assert(pill() !== null, 'A structural boundary after the answer was treated as foreign text');
+      inside(pill() as HTMLElement, 'Sentence pill');
+      const question = `Explain this sentence ${backwards ? 'backwards' : 'forwards'}?`;
+      await ask(question);
+      assertSent(question);
+    }
+  }, results);
+
+  await clear();
+  await scenario('asks about the last sentence ending at offset zero of adjacent text in either direction', async () => {
+    for (const backwards of [false, true]) {
+      await clear();
+      selectFinal(after, 0, backwards);
+      await settle();
+      assert(pill() !== null, 'An unselected adjacent label prevented asking about the sentence');
+      const question = `Explain the template ${backwards ? 'backwards' : 'forwards'}?`;
+      await ask(question);
+      assertSent(question);
+    }
+  }, results);
+
+  await clear();
+  await scenario('refuses selected adjacent text and trims it with the pointer before asking', async () => {
+    selectFinal(after, after.length, false);
+    await settle();
+    assert(pill() === null, 'Foreign text was accepted as part of the answer');
+    const warning = edgeHost.querySelector('.agt-disc-inert') as HTMLElement | null;
+    assert(warning !== null, 'Foreign text did not explain why it cannot be discussed');
+    inside(warning, 'Selection warning');
+    const fix = warning.querySelector('button') as HTMLButtonElement;
+    assert(!fix.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })),
+      'Pressing Trim must prevent the browser from clearing the selection');
+    release(fix);
+    fix.click();
+    await settle();
+    assert(pill() !== null, 'Trimming the selection did not offer a discussion');
+    await ask('What does this template require?');
+    assertSent('What does this template require?');
+  }, results);
+
+  await clear();
+  await scenario('keeps sentence actions and the composer within an offset narrow transcript near either edge', async () => {
+    edgeHost.style.width = '400px';
+    edgeHost.style.height = '330px';
+    for (const backwards of [false, true]) {
+      await clear();
+      const node = backwards ? finalItem.lastChild as Text : start;
+      const from = backwards ? Math.max(0, node.length - 8) : 0;
+      window.getSelection()?.setBaseAndExtent(node, from, node, backwards ? node.length : 4);
+      edgeHost.scrollTop = edgeHost.scrollHeight;
+      release(document.body);
+      await settle();
+      assert(pill() !== null, 'An edge selection did not offer a discussion');
+      inside(pill() as HTMLElement, 'Edge pill');
+      (pill() as HTMLElement).click();
+      await settle();
+      const composer = edgeHost.querySelector('.agt-disc-pop') as HTMLElement | null;
+      assert(composer !== null, 'The edge composer did not open');
+      inside(composer, 'Edge composer');
+    }
+  }, results);
+  await clear();
+  flushSync(() => edgeRoot.unmount());
+  edgeHost.remove();
 
   await clear();
   await scenario('tints an anchored passage and opens its thread when clicked', async () => {

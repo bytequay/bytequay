@@ -90,6 +90,7 @@ function changes(review: AgentReviewDto | null, navigation: { path: string; side
       agentReview={review === null ? undefined : {
         review,
         viewer,
+        headSha: review.runs[0]?.headSha,
         navigation: navigation === null ? null : { ...navigation, findingId: 'finding-1', token: 1 },
         onReviewChange: () => {},
         onOpenInReview: () => {},
@@ -120,7 +121,7 @@ describe('the pane tab row', () => {
     expect(active(header('overview', null))).toHaveLength(1);
     expect(active(header('files', null))[0]).toContain('WorkBench');
     expect(active(header('files', null))[1]).toContain('Changes');
-    expect(header('files', null)).toContain('Published PR');
+    expect(header('files', null)).not.toContain('Changes source');
   });
 
   it('keeps task utilities at the top level beside the linked PR actions', () => {

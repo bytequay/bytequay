@@ -105,8 +105,14 @@ export async function runMainScreen(keepMounted = false): Promise<string> {
     await settle();
     const choice = host.querySelector<HTMLInputElement>('[aria-label="Select one: one"]');
     assert(choice !== null, 'Main PR page must load its commit picker');
-    assert(host.querySelector<HTMLSelectElement>('[aria-label="Changes source"]')?.value === 'published',
-      'PR-only browsing must default to Published PR in the unified Changes destination');
+    assert(host.querySelector('[aria-label="Changes source"]') === null,
+      'Published Changes must not offer a working-copy source selector');
+    const tabs = host.querySelector('[aria-label="WorkBench views"]')?.getBoundingClientRect();
+    const filesToggle = host.querySelector('.pull-changes__files-toggle')?.getBoundingClientRect();
+    const collapse = host.querySelector('.pull-changes__bulk-toggle')?.getBoundingClientRect();
+    assert(tabs !== undefined && filesToggle !== undefined && collapse !== undefined
+      && filesToggle.top >= tabs.bottom && collapse.top >= tabs.bottom && filesToggle.left < collapse.left,
+      'Changed files and Collapse all must start the separate row beneath WorkBench tabs');
     assert(host.querySelectorAll('.pull-changes__toolbar').length === 1
       && host.querySelector('.pull-changes__toolbar')?.closest('.pull-detail__header') !== null,
       'The published diff must use one shared header toolbar');

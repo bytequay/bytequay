@@ -153,6 +153,86 @@ async function runHook(): Promise<string[]> {
   }
 }
 
+async function runDirectCommitSelection(): Promise<string[]> {
+  const completed: string[] = [];
+  let value: PullRequestChangesSource | null = null;
+  let active = false;
+  let revision = 'initial';
+  let loadedCommits = commits;
+  let historyReady = false;
+  let historyResolve: ((history: DiffCommitDto[]) => void) | null = null;
+  let reads = 0;
+  const comparisons: { base: string | undefined; head: string | undefined; resolve: (files: DiffFileDto[]) => void }[] = [];
+  Object.assign(window, { bridge: {
+    fetchPrDiffFiles: async () => { reads++; return [file(`published-${revision}`)]; },
+    fetchPrDiffCommits: () => historyReady ? Promise.resolve(loadedCommits) : new Promise<DiffCommitDto[]>(resolve => { historyResolve = resolve; }),
+    refreshPrDiffFiles: (_repo, _number, base, head) => new Promise<DiffFileDto[]>(resolve => comparisons.push({ base, head, resolve })),
+  } satisfies Pick<Bridge, 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'refreshPrDiffFiles'> });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const current = (): PullRequestChangesSource => { assert(value !== null, 'Hook must be mounted'); return value; };
+  function Harness(): null {
+    value = usePullRequestChanges({ repo: 'owner/repo', number: 7 }, { active, revision });
+    return null;
+  }
+  const render = () => flushSync(() => root.render(<Harness />));
+  try {
+    render();
+    flushSync(() => current().selectCommit('two'));
+    assert(reads === 0, 'Selecting a commit in a hidden tab must defer the published snapshot read');
+    active = true;
+    render();
+    await settle();
+    assert(current().loading && current().error === null && comparisons.length === 0, 'A first-open commit request must wait for published history');
+    historyReady = true;
+    const resolveHistory = historyResolve as ((history: DiffCommitDto[]) => void) | null;
+    assert(resolveHistory !== null, 'Opening Changes must load the PR commits');
+    resolveHistory(loadedCommits);
+    await settle();
+    assert(comparisons[0]?.base === 'one' && comparisons[0]?.head === 'two', 'A pre-load SHA request must resolve through the published commit parent');
+    assert(current().commitRange?.start === 1 && current().files.length === 0 && current().loading, 'Pending comparison must not display all changes under a selected commit');
+    comparisons[0].resolve([file('published-two')]);
+    await settle();
+    assert(current().files[0]?.filename === 'published-two' && current().allFiles[0]?.filename === 'published-initial', 'Direct selection must retain the complete published snapshot');
+    completed.push('Select a published commit before first opening Changes');
+
+    flushSync(() => current().selectCommit('unpublished'));
+    await settle();
+    assert(Number(comparisons.length) === 1 && current().commitRange === null && current().error?.includes('not available in the published pull request') === true,
+      'An unpublished SHA must show a clear notice without comparing an arbitrary local or historical revision');
+    assert(current().files[0]?.filename === 'published-initial' && !current().loading, 'Unavailable selection may retain only the complete published PR diff');
+    flushSync(() => current().changeCommitRange({ start: 0, end: 0 }));
+    await settle();
+    assert(current().error === null && comparisons[1]?.head === 'one', 'The published commit picker must replace an unavailable direct request');
+    completed.push('Reject unavailable commits and allow a valid published range');
+
+    revision = 'force-pushed';
+    loadedCommits = [{ ...commits[0], sha: 'replacement' }];
+    render();
+    await settle();
+    comparisons[1].resolve([file('obsolete-one')]);
+    await settle();
+    assert(current().commitRange === null && current().files[0]?.filename === 'published-force-pushed' && current().error === null,
+      'Force push must clear the prior range and ignore its delayed comparison');
+    flushSync(() => current().selectCommit('two'));
+    await settle();
+    assert(Number(comparisons.length) === 2 && current().error?.includes('removed by a force push') === true, 'A previously published SHA must not reopen after removal from PR history');
+    completed.push('Reject removed commits after a force push');
+
+    flushSync(() => current().refresh());
+    await settle();
+    assert(current().error === null && current().commitRange === null && current().files[0]?.filename === 'published-force-pushed',
+      'Refresh must clear the unavailable direct selection and restore the current published snapshot');
+    completed.push('Refresh clears unavailable published commit selection');
+    return completed;
+  }
+  finally {
+    flushSync(() => root.unmount());
+    host.remove();
+  }
+}
+
 /** Commit rows sit inside a label, so a real click must prove the message toggle never selects the commit. */
 async function runCommitMessages(): Promise<string> {
   const body = 'Three pipelines shared a custom collector.\n\n    stream.collect(toFragments())\n\nReplace it with toList().';
@@ -211,6 +291,7 @@ async function runCommitMessages(): Promise<string> {
 
 export async function run(): Promise<string[]> {
   const completed = await runHook();
+  completed.push(...await runDirectCommitSelection());
   completed.push(await runCommitMessages());
   completed.push(await runMainScreen());
   completed.push(await runAssignedPrActions());

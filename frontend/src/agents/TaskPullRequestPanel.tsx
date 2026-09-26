@@ -88,6 +88,7 @@ export interface TaskPullRequestChanges {
   files: DiffFileDto[];
   allFiles: DiffFileDto[];
   commits: DiffCommitDto[];
+  selectCommit: (sha: string) => void;
   loading: boolean;
   error: string | null;
 }
@@ -96,6 +97,7 @@ export const NO_PULL_REQUEST_CHANGES: TaskPullRequestChanges = {
   files: [],
   allFiles: [],
   commits: [],
+  selectCommit: () => {},
   loading: false,
   error: null,
 };

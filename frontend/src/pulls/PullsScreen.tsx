@@ -21,7 +21,6 @@ import Toast from '../Toast';
 import type { AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, UserProfileDto } from '../types';
 import AgentReviewTab, { type ReviewNavigationTarget } from './agent-review/AgentReviewTab';
 import CodeTestsTab from './code-tests/CodeTestsTab';
-import WorktreeChanges, { type WorktreePublishedReview } from './code-tests/WorktreeChanges';
 import TaskReviewSummary from './agent-review/TaskReviewSummary';
 import DevelopmentLearningPanel from '../agents/DevelopmentLearningPanel';
 import DetailSkeleton from './DetailSkeleton';
@@ -65,7 +64,6 @@ import { useZoom, ZoomActions, ZoomScrim, type ZoomControls } from '../Zoom';
 
 /** The tabs PullDetailHeader draws itself; hosts add their own through its `agentTab` slot. */
 export type HeaderTab = 'overview' | 'files' | 'changes' | 'review' | 'code';
-export type ChangesSource = 'published' | 'working' | 'reviewed';
 type DetailTab = HeaderTab;
 
 type AgentReviewContext = {
@@ -337,14 +335,18 @@ export default function PullsScreen({
   const [reviewReload, setReviewReload] = useState(0);
   /** Where Changes should scroll, set when a finding asks to be shown at its diff location. */
   const [reviewNavigation, setReviewNavigation] = useState<ReviewNavigationTarget | null>(null);
-  const [reviewedSource, setReviewedSource] = useState(false);
   const [changesToolbar, setChangesToolbar] = useState<HTMLElement | null>(null);
-  const [commitSelection, setCommitSelection] = useState<{ source: 'task' | 'review'; commitSha: string; headSha?: string; baseSha?: string; token: number } | null>(null);
-  const selectCommit = (source: 'task' | 'review', commitSha: string, snapshot?: { headSha: string; baseSha: string }): void => {
+  const selectCommit = (commitSha: string): void => {
     setReviewNavigation(null);
-    setReviewedSource(source === 'review');
-    setCommitSelection(current => ({ source, commitSha, ...snapshot, token: (current?.token ?? 0) + 1 }));
-    setDetailTab('changes');
+    changes.selectCommit(commitSha);
+    setDetailTab('files');
+  };
+  const navigateToChanges = (target: ReviewNavigationTarget): void => {
+    changes.changeCommitRange(null);
+    setReviewNavigation(target);
+    setFocusFindingId(null);
+    setReviewCardFocus(null);
+    setDetailTab('files');
   };
   /** A finding the Changes tab sent back to Agent review, so its card opens and scrolls. */
   const [focusFindingId, setFocusFindingId] = useState<string | null>(null);
@@ -354,7 +356,6 @@ export default function PullsScreen({
   const [detailTab, setDetailTab] = useState<DetailTab>(initialReviewId === undefined ? 'overview' : 'review');
   // Code & Tests stays mounted after its first visit so drafts, open files and runs survive tab switches.
   const [codeTabKey, setCodeTabKey] = useState<string | null>(null);
-  const [changesTabKey, setChangesTabKey] = useState<string | null>(null);
   const [summaryTabKey, setSummaryTabKey] = useState<string | null>(null);
   // Unsaved Code & Tests drafts live only in that tab; leaving the PR or closing the pane asks first.
   const codeUnsaved = useRef(0);
@@ -711,7 +712,7 @@ export default function PullsScreen({
   detailState.current = detail;
   const diffRevision = pullRequestDiffRevision(detail, selectedPr?.headPushedAt);
   const changes = usePullRequestChanges(selectedPr, {
-    active: paneOpen && (detailTab === 'files' || detailTab === 'changes') && detail !== null,
+    active: paneOpen && detailTab === 'files' && detail !== null,
     revision: diffRevision,
   });
   const { files: diffs, commits: diffCommits, commitRange: diffRange, loading: diffLoading } = changes;
@@ -751,13 +752,11 @@ export default function PullsScreen({
   const currentReviewContext = reviewContext?.key === reviewKey ? reviewContext : null;
   // The selection can change without pick() (history, Recent, a route); an open Code & Tests follows it to the new PR.
   if (detailTab === 'code' && codeTabKey !== reviewKey) setCodeTabKey(reviewKey);
-  if (detailTab === 'changes' && changesTabKey !== reviewKey) setChangesTabKey(reviewKey);
   if (detailTab === 'review' && summaryTabKey !== reviewKey) setSummaryTabKey(reviewKey);
   const workspaceId = currentReviewContext?.workspaceId;
   const review = currentReviewContext?.review ?? null;
   const reviewLoading = reviewKey !== null && currentReviewContext === null;
   const reviewError = currentReviewContext?.error ?? null;
-  const showReviewedChanges = review !== null && (reviewedSource || reviewNavigation !== null || commitSelection?.source === 'review');
   const authored = viewerLogin ? (detail?.author ?? selectedPr?.author)?.toLowerCase() === viewerLogin.toLowerCase() : selectedPr?.origin === 'AUTHORED';
   const codeTaskKey = reviewKey === null || workspaceId === undefined ? null : `${reviewKey}@${workspaceId}`;
   const codeTask = reviewWorkspace === undefined && codeTaskLookup !== null && codeTaskLookup.key === codeTaskKey ? codeTaskLookup.task : null;
@@ -767,9 +766,7 @@ export default function PullsScreen({
 
   useEffect(() => {
     setReviewContext(null);
-    setReviewedSource(false);
     setReviewNavigation(null);
-    setCommitSelection(null);
     setFocusFindingId(null);
     setReviewCardFocus(null);
     if (reviewKey === null || selectedPrRepo === undefined || selectedPrNumber === undefined) return;
@@ -813,7 +810,6 @@ export default function PullsScreen({
     setDetailTab('overview');
     setPendingReviewComments([]);
     setReviewNavigation(null);
-    setCommitSelection(null);
     setFocusFindingId(null);
     setReviewCardFocus(null);
   });
@@ -906,35 +902,15 @@ export default function PullsScreen({
   });
 
   const paneShown = paneOpen && (selectedPr !== null || awaitingInitialPr);
-  const publishedReview: WorktreePublishedReview | undefined = selectedPr === null || detail === null ? undefined : {
-    files: changes.allFiles,
-    commits: changes.commits,
-    loading: changes.loading,
-    error: changes.error,
-    options: {
-      repo: detail.repo, number: detail.number, workspaceId,
-      canReview: canSubmitReview(selectedPr, detail),
-      pendingComments: pendingReviewComments,
-      onPendingCommentsChange: setPendingReviewComments,
-      onDetailChange: value => applyPostedDetail(value, 'review'),
-    },
-    threads: {
-      activities: detail.recentActivity, pr: selectedPr, workspaceId,
-      unavailable: detail.unavailableSections.includes('reviewThreads'),
-      onRefresh: refresh, onDetailUpdate: updateSelectedDetail,
-    },
-    localReview,
-    onAskAgent: codeTask !== null ? async comment => {
-      const current = await window.bridge.getAgentTask(codeTask.id, codeTask.workspaceId);
-      await localReview.create(comment, { taskId: current.id, workspaceId: current.workspaceId,
-        repo: detail.repo, number: detail.number, expectedTaskVersion: current.version });
-    } : review?.state !== 'OPEN' || review.number === null ? undefined : async comment => {
-      const current = await window.bridge.getAgentReview(review.id);
-      await localReview.create(comment, { taskId: current.task.id, workspaceId: current.workspaceId,
-        repo: detail.repo, number: detail.number, expectedTaskVersion: current.task.version });
-      updateReview(await window.bridge.getAgentReview(review.id));
-    },
-    onOpenPublished: () => { changes.changeCommitRange(null); setDetailTab('files'); },
+  const askAgent = detail === null ? undefined : codeTask !== null ? async (comment: DiffAgentComment) => {
+    const current = await window.bridge.getAgentTask(codeTask.id, codeTask.workspaceId);
+    await localReview.create(comment, { taskId: current.id, workspaceId: current.workspaceId,
+      repo: detail.repo, number: detail.number, expectedTaskVersion: current.version });
+  } : review?.state !== 'OPEN' || review.number === null ? undefined : async (comment: DiffAgentComment) => {
+    const current = await window.bridge.getAgentReview(review.id);
+    await localReview.create(comment, { taskId: current.task.id, workspaceId: current.workspaceId,
+      repo: detail.repo, number: detail.number, expectedTaskVersion: current.task.version });
+    updateReview(await window.bridge.getAgentReview(review.id));
   };
 
   return (
@@ -1045,7 +1021,7 @@ export default function PullsScreen({
             setDetailTab('review');
             setPaneOpen(true);
           }}
-          focusFindingId={null} onNavigateToChanges={target => { setReviewNavigation(target); setDetailTab('changes'); }} />
+          focusFindingId={null} onNavigateToChanges={navigateToChanges} />
           : <div className="agt-panel__empty" role={reviewError === null ? 'status' : 'alert'}>
             {reviewError ?? 'Loading review conversation…'}
             {reviewError !== null && <button type="button" className="agt-action" onClick={() => setReviewReload(value => value + 1)}>Retry</button>}
@@ -1091,9 +1067,6 @@ export default function PullsScreen({
             review={review}
             onReviewChange={updateReview}
             codeAvailable={codeTabShown || codeTaskLoading}
-            workingCopyAvailable={codeTask !== null}
-            changesSource={detailTab === 'files' ? 'published' : codeTask !== null && !showReviewedChanges ? 'working' : 'reviewed'}
-            onChangesSourceChange={source => { setReviewedSource(source === 'reviewed'); setReviewNavigation(null); setCommitSelection(null); }}
             onChangesToolbar={setChangesToolbar}
             onTab={next => {
               if (next === 'files' && detailTab !== 'files') recordDiffOpened();
@@ -1161,16 +1134,7 @@ export default function PullsScreen({
                     },
                     onDetailChange: value => applyPostedDetail(value, 'review'),
                     localReview,
-                    onAskAgent: codeTask !== null ? async comment => {
-                      const current = await window.bridge.getAgentTask(codeTask.id, codeTask.workspaceId);
-                      await localReview.create(comment, { taskId: current.id, workspaceId: current.workspaceId,
-                        repo: detail.repo, number: detail.number, expectedTaskVersion: current.version });
-                    } : review?.state !== 'OPEN' || review.number === null ? undefined : async comment => {
-                      const current = await window.bridge.getAgentReview(review.id);
-                      await localReview.create(comment, { taskId: current.task.id, workspaceId: current.workspaceId,
-                        repo: detail.repo, number: detail.number, expectedTaskVersion: current.task.version });
-                      updateReview(await window.bridge.getAgentReview(review.id));
-                    },
+                    onAskAgent: askAgent,
                     onOpenFindingInReview: findingId => {
                       setFocusFindingId(findingId);
                       setReviewCardFocus(null);
@@ -1179,35 +1143,21 @@ export default function PullsScreen({
                   }} />
               </div>
             )}
-            {changesTabKey !== null && changesTabKey === reviewKey && <div className="pull-detail__body pull-detail__changes" hidden={detailTab !== 'changes'}>
-              {codeTaskLoading ? <div className="hp-loading" role="status">Loading working copy…</div>
-                : codeTask !== null ? <WorktreeChanges key={showReviewedChanges ? review.id : codeTask.id} selection={commitSelection}
-                    reviewNavigation={reviewNavigation} review={review} onReviewChange={updateReview}
-                    onOpenInReview={findingId => { setFocusFindingId(findingId); setDetailTab('review'); }}
-                    host={showReviewedChanges ? { kind: 'review', reviewId: review.id }
-                    : { kind: 'task', taskId: codeTask.id, workspaceId: codeTask.workspaceId }} active={detailTab === 'changes'} toolbarTarget={changesToolbar} defaultTreeOpen={zoomLayer}
-                    publishedReview={publishedReview} />
-                : review !== null ? <WorktreeChanges host={{ kind: 'review', reviewId: review.id }} active={detailTab === 'changes'} selection={commitSelection}
-                    toolbarTarget={changesToolbar} defaultTreeOpen={zoomLayer} publishedReview={publishedReview}
-                    reviewNavigation={reviewNavigation} review={review} onReviewChange={updateReview}
-                    onOpenInReview={findingId => { setFocusFindingId(findingId); setDetailTab('review'); }} />
-                  : <div className="agr-empty">Start a review in Summary to create a worktree and explore its changes.</div>}
-            </div>}
             {summaryTabKey !== null && summaryTabKey === reviewKey && <div className="pull-detail__body pull-detail__review" hidden={detailTab !== 'review'}>
               {codeTask !== null ? <>
                 <DevelopmentLearningPanel task={codeTask} repository={detail.repo} refreshKey={codeTask.version}
                   refining={codeTask.developmentContinuationUnfinished} disabledReason={codeTask.state === 'OPEN' ? null : 'The development task is closed'}
-                  localReview={localReview} bridge={window.bridge} onSelectCommit={sha => selectCommit('task', sha)} />
+                  localReview={localReview} bridge={window.bridge} onSelectCommit={selectCommit} />
                 <TaskReviewSummary task={codeTask} workspaceId={codeTask.workspaceId} active={detailTab === 'review'}
-                onReviewChange={updateReview} onSelectCommit={(sha, snapshot) => selectCommit('review', sha, snapshot)} focusFindingId={focusFindingId} focusReviewCard={reviewCardFocus}
-                onNavigateToChanges={target => { setCommitSelection(null); setReviewNavigation(target); setFocusFindingId(null); setDetailTab('changes'); }} /></>
+                onReviewChange={updateReview} onSelectCommit={selectCommit} focusFindingId={focusFindingId} focusReviewCard={reviewCardFocus}
+                onNavigateToChanges={navigateToChanges} /></>
                 : <AgentReviewTab detail={detail} workspaceId={workspaceId} viewer={viewer} review={review} onReviewChange={updateReview}
-                  ownStream={reviewWorkspace === undefined && detailTab === 'review'} localReview={localReview} onSelectCommit={(sha, snapshot) => selectCommit('review', sha, snapshot)}
+                  ownStream={reviewWorkspace === undefined && detailTab === 'review'} localReview={localReview} onSelectCommit={selectCommit}
                   focusFindingId={focusFindingId} focusReviewCard={reviewCardFocus}
                   onOpenWorkspace={review === null || reviewWorkspace !== undefined ? undefined : () => {
                     onClose?.(); window.location.hash = workspaceReviewTaskRoute(review.workspaceId, review.id);
                   }}
-                  onNavigateToChanges={target => { setCommitSelection(null); setReviewNavigation(target); setFocusFindingId(null); setDetailTab('changes'); }} />}
+                  onNavigateToChanges={navigateToChanges} />}
             </div>}
             {(detailTab === 'overview' || detailTab === 'files') && <DetailBody
               localReview={localReview}
@@ -1238,18 +1188,8 @@ export default function PullsScreen({
                 onClose?.();
                 window.location.hash = workspaceReviewTaskRoute(review.workspaceId, review.id);
               }}
-              onAskAgent={review?.state !== 'OPEN' || review.number === null ? undefined : async comment => {
-                const current = await window.bridge.getAgentReview(review.id);
-                await localReview.create(comment, { taskId: current.task.id, workspaceId: current.workspaceId,
-                  repo: detail.repo, number: detail.number, expectedTaskVersion: current.task.version });
-                updateReview(await window.bridge.getAgentReview(review.id));
-              }}
-              onNavigateToChanges={target => {
-                setReviewNavigation(target);
-                setFocusFindingId(null);
-                setReviewCardFocus(null);
-                setDetailTab('changes');
-              }}
+              onAskAgent={askAgent}
+              onNavigateToChanges={navigateToChanges}
               onOpenInReview={findingId => {
                 setFocusFindingId(findingId);
                 setReviewCardFocus(null);
@@ -1334,9 +1274,6 @@ export function PullDetailHeader({
   onReviewChange,
   agentTab,
   codeAvailable = true,
-  workingCopyAvailable = false,
-  changesSource,
-  onChangesSourceChange,
   onChangesToolbar,
   onTab,
   onRefresh,
@@ -1359,9 +1296,6 @@ export function PullDetailHeader({
   /** Host destinations drawn after PR and WorkBench. */
   agentTab?: ReactNode;
   codeAvailable?: boolean;
-  workingCopyAvailable?: boolean;
-  changesSource?: ChangesSource;
-  onChangesSourceChange?: (source: ChangesSource) => void;
   onChangesToolbar?: (target: HTMLDivElement | null) => void;
   onTab: (tab: HeaderTab) => void;
   onRefresh: () => Promise<void>;
@@ -1388,12 +1322,8 @@ export function PullDetailHeader({
   const prSelected = tab === 'overview';
   const workbenchSelected = tab !== null && !prSelected;
   const changesSelected = tab === 'files' || tab === 'changes';
-  const publishedSelected = tab === 'files';
-  const source = changesSource ?? (publishedSelected ? 'published' : workingCopyAvailable ? 'working' : 'reviewed');
-  const lastChangesTab = useRef<HeaderTab | null>(null);
   const lastWorkbenchTab = useRef<HeaderTab>('review');
   if (workbenchSelected) lastWorkbenchTab.current = tab;
-  if (changesSelected) lastChangesTab.current = tab;
   const draft = detail?.draft === true;
   const canOpenMerge = pr !== null && detail?.state?.toLowerCase() === 'open';
   const canMerge = canOpenMerge && !draft && detail.viewerCanWrite && !isQueued(detail.recentActivity);
@@ -1495,21 +1425,11 @@ export function PullDetailHeader({
         <nav className="pull-detail__tabs pull-detail__subtabs" aria-label="WorkBench views">
           <button type="button" className={tab === 'review' ? 'is-active' : ''} aria-pressed={tab === 'review'} onClick={() => onTab('review')}><CommentIcon /> Summary</button>
           <button type="button" className={changesSelected ? 'is-active' : ''} aria-pressed={changesSelected}
-            onClick={() => onTab(lastChangesTab.current ?? (pr !== null ? 'files' : 'changes'))}><Diff size={14} aria-hidden="true" /> Changes</button>
+            onClick={() => onTab(pr !== null ? 'files' : 'changes')}><Diff size={14} aria-hidden="true" /> Changes</button>
           <button type="button" className={tab === 'code' ? 'is-active' : ''} aria-pressed={tab === 'code'} onClick={() => onTab('code')} disabled={!codeAvailable}
             title={codeAvailable ? undefined : 'Available when this task has a worktree'}><Code size={14} aria-hidden="true" /> Code &amp; Tests</button>
         </nav>
         {changesSelected && <div className="pull-detail__changes-tools">
-          {(pr !== null || workingCopyAvailable || review !== null) && <select className="pull-detail__changes-source" aria-label="Changes source" value={source}
-            onChange={event => {
-              const next = event.target.value as ChangesSource;
-              onChangesSourceChange?.(next);
-              onTab(next === 'published' ? 'files' : 'changes');
-            }}>
-            {pr !== null && <option value="published">Published PR</option>}
-            {workingCopyAvailable && <option value="working">Working copy</option>}
-            {review !== null && <option value="reviewed">Reviewed changes</option>}
-          </select>}
           <div className="pull-detail__changes-toolbar" ref={onChangesToolbar} />
         </div>}
       </div>}

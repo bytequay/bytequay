@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DiffCommitDto, DiffFileDto, PullRequestDetailDto } from '../types';
 import type { CommitRange } from './PullChanges';
 import { remoteErrorMessage } from './PullOverview';
@@ -46,6 +46,11 @@ interface Selection {
   headSha?: string;
 }
 
+interface CommitSelection {
+  scope: string;
+  commitSha: string;
+}
+
 export interface PullRequestChangesSource {
   files: DiffFileDto[];
   /** The complete PR snapshot, retained while a commit range is selected. */
@@ -55,6 +60,8 @@ export interface PullRequestChangesSource {
   error: string | null;
   commitRange: CommitRange;
   changeCommitRange: (range: CommitRange) => void;
+  /** Selects a published commit, including before the PR history has loaded. */
+  selectCommit: (sha: string) => void;
   /** Re-reads the snapshot after the detail refresh has updated its stored diff. */
   refresh: () => void;
 }
@@ -65,18 +72,27 @@ export function usePullRequestChanges(
   { active = true, revision = null }: { active?: boolean; revision?: string | null } = {},
 ): PullRequestChangesSource {
   const [refreshVersion, setRefreshVersion] = useState(0);
-  const [selection, setSelection] = useState<Selection | null>(null);
+  const [selection, setSelection] = useState<Selection | CommitSelection | null>(null);
   const [history, setHistory] = useState<{ scope: string; commits: DiffCommitDto[]; files: DiffFileDto[] } | null>(null);
   const [result, setResult] = useState<{ key: string; files: DiffFileDto[]; error: string | null } | null>(null);
   const repo = target?.repo ?? null;
   const number = target?.number ?? null;
   const scope = JSON.stringify([repo?.toLowerCase(), number, revision, refreshVersion]);
-  const selected = selection?.scope === scope ? selection : null;
-  const key = JSON.stringify([scope, selected]);
+  const requested = selection?.scope === scope ? selection : null;
+  const commits = history?.scope === scope ? history.commits : NO_COMMITS;
+  const selected = useMemo<Selection | null>(() => {
+    if (requested === null) return null;
+    if ('range' in requested) return requested;
+    const index = commits.findIndex(commit => commit.sha === requested.commitSha);
+    return index < 0 ? null : {
+      scope, range: { start: index, end: index }, baseSha: commits[index].parentSha ?? undefined, headSha: commits[index].sha,
+    };
+  }, [commits, requested, scope]);
+  const missingCommit = requested !== null && 'commitSha' in requested && history?.scope === scope && selected === null;
+  const key = JSON.stringify([scope, requested, selected]);
   // The render invalidates old responses before the following effect has had a chance to clean up.
   const currentKey = useRef(key);
   currentKey.current = key;
-  const commits = history?.scope === scope ? history.commits : NO_COMMITS;
 
   useEffect(() => {
     // Showing the tab again redraws what is already held; only a new pull request, head or commit
@@ -120,15 +136,17 @@ export function usePullRequestChanges(
     });
   }, [commits, scope]);
   const refresh = useCallback(() => setRefreshVersion(version => version + 1), []);
+  const selectCommit = useCallback((commitSha: string) => setSelection({ scope, commitSha }), [scope]);
   const current = result?.key === key ? result : null;
   return {
     files: current?.files ?? [],
     allFiles: history?.scope === scope ? history.files : [],
     commits,
     loading: active && target !== null && current === null,
-    error: current?.error ?? null,
+    error: current?.error ?? (missingCommit ? 'This commit is not available in the published pull request. It may be unpublished or removed by a force push.' : null),
     commitRange: selected?.range ?? null,
     changeCommitRange,
+    selectCommit,
     refresh,
   };
 }

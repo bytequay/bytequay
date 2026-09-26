@@ -17,18 +17,15 @@ discussion. While one shows, WorkBench's views are hidden. Each closes with its
 Existing styling, editors, cards, and the diff viewer are reused.
 When a PR is linked, its refresh, review submission, and merge actions remain
 available in the shared header throughout WorkBench.
-Changes is the single diff destination. Its source picker selects the published
-PR, the task working copy, or a recorded reviewer revision when available.
-Opening Changes defaults to the published diff when a PR exists, so inline
-review comments remain immediately available. Without a PR it opens local
-changes. Explicit source choices and commit/finding navigation retain their
-selected source.
-The published source retains GitHub comment and review actions. Working-copy
-commit views expose those same actions when the commit and its parent belong to
-the published PR. A complete branch comparison also supports them when its
-clean snapshot matches the published diff. Comments retain the displayed commit
-and line anchors. Unpublished or changed local snapshots explain why GitHub
-comments are unavailable and offer **View published PR**.
+Changes is the single diff destination. When a PR is linked, it always shows
+that published PR, including its selectable published commits and existing
+GitHub comment and review actions. There is no source picker. Local edits,
+unpushed commits, and reviewed snapshots never replace the published diff.
+Summary commit links select the matching published commit; an unpublished or
+removed commit shows an explicit notice. Finding links navigate only when the
+displayed revision matches their anchors; otherwise the finding stays readable
+in Summary. Without a PR, Changes shows the task's local changes and commits.
+Code & Tests continues to read the bound worktree independently of the PR.
 
 WorkBench is available before a PR exists. A task with an accessible managed
 worktree can read Changes and Code & Tests regardless of its development or
@@ -43,18 +40,18 @@ workspace, without requiring a PR identity. A review surface identifies its
 reviewer's working copy explicitly; it never silently replaces the developer's
 working copy when a linked review starts.
 
-Changes offers the branch comparison, uncommitted changes, and selectable
-commits. Uncommitted work includes staged, unstaged, and untracked files. The
-comparison displays its base and head. Existing PR-based tasks use their PR
-comparison base; a new development branch uses its recorded starting commit.
-Selecting a commit displays its message, changed files, and first-parent diff
-without checking out another revision. Historical review links retain the
-reviewed base/head and never substitute current working files.
-The source, scope/commit selector, revision, file-list toggle, and diff actions
-share the compact header toolbar. Branch names and full commit messages live
-in a closed-by-default details disclosure so the diff starts immediately below
-navigation. The changed-file sidebar defaults open in zoom/fullscreen and
-closed in the side panel; an explicit user toggle is retained for that mode.
+Before a PR exists, Changes offers the branch comparison, uncommitted changes,
+and selectable local commits. Uncommitted work includes staged, unstaged, and
+untracked files. A development branch uses its recorded starting commit as the
+comparison base. Local review links retain the reviewed base/head. Once a PR is
+linked, Changes uses only its published comparison and commit history.
+Selecting a commit displays its changed files without checking it out.
+
+The file-list toggle and Collapse all start a dedicated toolbar row below the
+Summary, Changes, and Code & Tests tabs, followed by the commit selector and
+diff totals. Local-only comparisons also show folded revision details in this
+row. The changed-file sidebar defaults open in zoom/fullscreen and closed in
+the side panel; an explicit user toggle is retained for that mode.
 
 ## Summary and review
 

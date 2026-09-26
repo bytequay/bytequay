@@ -161,8 +161,10 @@ The original PR view continues to show GitHub data. Changes shows local
 findings at their validated diff locations. A finding there and its card in
 Agent review are projections of the same finding ID and discussion; neither
 copies the other's state. **View in Changes** opens the exact file/range and
-**Open discussion** returns to that finding. Outdated findings open their
-recorded snapshot, not an unrelated line in the latest diff.
+**Open discussion** returns to that finding. For linked PRs, Changes stays on
+the published diff; a finding from another revision offers a return to its saved
+location and discussion in Summary instead of jumping to unrelated current
+lines. Local reviews without a PR can still open their recorded snapshot.
 
 Private review is available for other authors' closed/merged PRs when their
 source can be resolved. Authored PRs can start a private review or use their development WorkBench;

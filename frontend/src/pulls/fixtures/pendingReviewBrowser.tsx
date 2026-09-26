@@ -69,8 +69,9 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     readWorktreeChanges: async (host, request) => {
       assert(host.kind === 'review' && host.reviewId === review.id, 'Reviewed changes must read the separate reviewer worktree');
       reviewedReads++;
-      return { branch: 'reviewer', baseSha: 'base', headSha: 'two', baseLabel: 'master', scope: request.scope,
-        selectedCommit: null, sourceFingerprint: 'reviewed-two', truncated: false, staged: [], unstaged: [], untracked: [], files, commits };
+      return { branch: 'reviewer', baseSha: 'base', headSha: 'local-only', baseLabel: 'master', scope: request.scope,
+        selectedCommit: null, sourceFingerprint: 'local-only', truncated: false, staged: [], unstaged: ['local.txt'], untracked: [],
+        files: [{ filename: 'local.txt', status: 'modified', additions: 1, deletions: 0, patch: '@@ -0,0 +1 @@\n+Unpublished reviewer edit' }], commits: [] };
     },
     getAgentReview: async () => review,
     findAgentReview: async () => review,
@@ -102,13 +103,6 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     return found;
   };
   const named = (text: string) => [...host.querySelectorAll<HTMLButtonElement>('button')].some(entry => entry.textContent?.includes(text));
-  const selectSource = async (value: 'published' | 'reviewed') => {
-    const source = host.querySelector<HTMLSelectElement>('[aria-label="Changes source"]');
-    assert(source !== null, 'Changes must expose its source');
-    source.value = value;
-    source.dispatchEvent(new Event('change', { bubbles: true }));
-    await settle();
-  };
   /** The staged comment counted in the toolbar and drawn on the line it was written on. */
   const staged = async (): Promise<boolean> => {
     for (let attempt = 0; attempt < 30; attempt++) {
@@ -133,8 +127,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     for (let attempt = 0; attempt < 60 && !named('WorkBench'); attempt++) await settle();
     button('WorkBench').click(); await settle();
     button('Changes').click(); await settle();
-    assert(host.querySelector<HTMLSelectElement>('[aria-label="Changes source"]')?.value === 'published',
-      'Opening Changes for a PR must default to the published diff with inline review comments');
+    assert(host.querySelector('[aria-label="Changes source"]') === null,
+      'A linked PR must expose a single Changes view without a source selector');
     for (let attempt = 0; attempt < 30 && host.querySelector('[aria-label="Add a comment on new line 1"]') === null; attempt++) await settle();
     const add = host.querySelector<HTMLButtonElement>('[aria-label="Add a comment on new line 1"]');
     assert(add !== null, 'The diff must offer the inline comment gutter');
@@ -149,14 +143,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     await settle();
     assert(await staged(), 'Adding an inline comment must stage it on the diff');
 
-    await selectSource('reviewed');
-    assert(reviewedReads > 0 && host.querySelector('.pull-detail__changes:not([hidden]) .pull-diff-file') !== null,
-      'The reviewed source must render its real diff before checking shared comments');
-    assert(host.querySelector('[aria-label="Add a comment on new line 1"]') !== null
-      && host.querySelector('.pull-detail__changes:not([hidden])')?.textContent?.includes('Keep this pending review'),
-    'A reviewed snapshot matching the published PR must share its comment gutter and staged comments');
-    await selectSource('published');
-    assert(await staged(), 'Switching diff sources must preserve the staged GitHub review');
+    assert(reviewedReads === 0 && !host.textContent?.includes('Unpublished reviewer edit'),
+      'A different reviewer working copy must not replace the published diff');
 
     button('PR #').click();
     await settle();

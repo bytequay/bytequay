@@ -167,6 +167,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
     return updated;
   };
   let githubWrites = 0;
+  let localReads = 0;
   const posted: Parameters<Bridge['postPrReviewComment']>[] = [];
   const prBridge = {
     findAgentReview: async () => null,
@@ -179,8 +180,11 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
     readWorktreeChanges: async (host, request) => {
       assert(host.kind === 'task' && host.taskId === task.id && host.workspaceId === task.workspaceId,
         'Working changes must read the current task worktree');
-      return { branch: 'feature', baseSha: '0000000', headSha: '2222222', baseLabel: 'main', scope: request.scope,
-        selectedCommit: null, sourceFingerprint: 'working-copy', truncated: false, staged: [], unstaged: [], untracked: [], files: [file], commits };
+      localReads++;
+      return { branch: 'feature', baseSha: '0000000', headSha: 'local-only', baseLabel: 'main', scope: request.scope,
+        selectedCommit: null, sourceFingerprint: 'working-copy', truncated: false, staged: [], unstaged: ['local.txt'], untracked: [],
+        files: [{ filename: 'local.txt', status: 'modified', additions: 1, deletions: 0, patch: '@@ -0,0 +1 @@\n+Unpublished development edit' }],
+        commits: [{ sha: 'local-only', parentSha: '2222222', message: 'Unpushed work', author: 'alice', authoredAt: null }] };
     },
     refreshPrDiffFiles: async (_repo, _number, base, head) => {
       assert(base === '1111111' && head === '2222222', 'Task selection must compare the requested commit'); return [file];
@@ -207,11 +211,15 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
     const attach = host.querySelector<HTMLButtonElement>('[aria-label="Attach an image"]');
     assert(attach !== null && !attach.disabled, 'Fixture must exercise a retained image attachment');
     attach.click(); await settle();
-    const changes = [...host.querySelectorAll<HTMLButtonElement>('button')].find(candidate => candidate.textContent?.trim() === 'Changes');
-    assert(changes !== undefined, 'The associated draft PR must open the task panel');
-    changes.click(); await settle();
-    const source = host.querySelector<HTMLSelectElement>('[aria-label="Changes source"]');
-    assert(source?.value === 'published', 'Clicking Changes must open the published PR directly, even when the task has a working copy');
+    const readsBeforeChanges = localReads;
+    if (mode === 'idle') {
+      button(host, 'View changes').click();
+    }
+    else button(host, 'Changes').click();
+    await settle();
+    assert(host.querySelector('[aria-label="Changes source"]') === null && localReads === readsBeforeChanges
+      && !host.querySelector('.agt-panel .pull-diff-file')?.textContent?.includes('Unpublished development edit'),
+    'Linked Changes must read the published PR without a source selector or another worktree read');
     if (mode === 'published') {
       const add = host.querySelector<HTMLButtonElement>('[aria-label="Add a comment on new line 1"]');
       assert(add !== null, 'The default Changes view must offer the inline comment gutter');
@@ -233,9 +241,15 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
       'Posting a review comment must close its composer while preserving the task draft and avoiding agent dispatch');
       return;
     }
-    const choice = host.querySelector<HTMLInputElement>('[aria-label="Select 2222222: Second"]');
-    assert(choice !== null, 'Task must show its real commit picker');
-    choice.click(); await settle();
+    if (mode === 'idle') {
+      assert(host.querySelector('[aria-label="Deselect 2222222: Second"]') !== null,
+        'A development summary commit must navigate directly to that published commit');
+    }
+    else {
+      const choice = host.querySelector<HTMLInputElement>('[aria-label="Select 2222222: Second"]');
+      assert(choice !== null, 'Task must show its real commit picker');
+      choice.click(); await settle();
+    }
     if (mode === 'queued') {
       turn = { ...turn, state: 'RUNNING', endedAt: null };
       task = { ...task, version: task.version + 1, mutationClaim: { kind: 'TURN', ownerId: turn.id, acquiredAt: '2026-01-01T00:00:00Z' } };

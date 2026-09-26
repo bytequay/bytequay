@@ -251,9 +251,7 @@ export async function run(): Promise<string[]> {
       await verifyTarget(selector);
     };
     button(pane, 'Changes').click(); await settle();
-    const source = pane.querySelector<HTMLSelectElement>('[aria-label="Changes source"]');
-    assert(source !== null, 'Changes must expose its source');
-    source.value = 'published'; source.dispatchEvent(new Event('change', { bubbles: true })); await settle();
+    assert(pane.querySelector('[aria-label="Changes source"]') === null, 'Changes must stay on the published PR without a source selector');
     await open('turn-review', `[data-review-card="${current.id}:purpose"]`);
     button(pane, `PR #${review.number}`).click(); await settle();
     await open('turn-commit', `[data-review-card="${commit.cardId}"]`);

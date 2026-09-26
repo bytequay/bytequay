@@ -21,7 +21,7 @@ import WorktreeChanges from '../../pulls/code-tests/WorktreeChanges';
 import { initialAgentTaskState } from '../model';
 import { createPreviewBridge, previewTask, TASK_BODY_NOOPS } from './previewBridge';
 import type { TaskDiscussionDto } from '../discussions/contracts';
-import type { AgentTaskDto, Bridge } from '../../types';
+import type { AgentTaskDto, Bridge, PullRequestDto } from '../../types';
 import type { CodeHostRef, WorktreeChangesRequest } from '../../pulls/code-tests/contracts';
 import { assert, settle } from '../../fixtures/harness';
 import '../../css/base.css';
@@ -29,6 +29,14 @@ import '../../css/base.css';
 export async function run(keepMounted = false, showChanges = false, zoomChanges = false): Promise<string> {
   const task: AgentTaskDto = { ...previewTask('workspace-1', 'task-1'), interactive: true, checkoutRemovedAt: null, mutationClaim: null };
   const requests: { host: CodeHostRef; request: WorktreeChangesRequest }[] = [];
+  const publishedPr: PullRequestDto = { id: 7, repo: 'owner/repo', number: 7, title: 'Published implementation', author: 'developer',
+    htmlUrl: 'https://github.com/owner/repo/pull/7', createdAt: null, updatedAt: '2026-09-26T00:00:00Z', origin: 'AUTHORED',
+    labels: [], labelColors: null, draft: true, viewedAt: null, reviewedAt: null, handledAction: null, requestedReviewers: [],
+    ciStatus: null, additions: 1, deletions: 0, commentCount: 0, state: 'open', mergeable: null, mergeableState: null,
+    headPushedAt: null, headRef: 'feature' };
+  const publishedFiles = [{ filename: 'published.txt', status: 'added', additions: 1, deletions: 0, patch: '@@ -0,0 +1 @@\n+Published implementation' }];
+  const selectedCommits: string[] = [];
+  let linkPullRequest = () => {};
   let fileReads = 0;
   const bridge = {
     findTaskAgentReview: async () => null,
@@ -61,8 +69,14 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
   const root = createRoot(host);
   const Harness = () => {
     const [tab, setTab] = useState<'pr' | 'files' | 'changes' | 'review' | 'code' | 'agents' | 'discussions'>('review');
+    const [linked, setLinked] = useState(false);
+    linkPullRequest = () => setLinked(true);
     return <AgentTaskBody {...TASK_BODY_NOOPS} models={[]} state={{ ...initialAgentTaskState(), task, connection: 'open' }}
-      panelOpen panelTab={tab} onSelectPanelTab={setTab} repository="owner/repo" learning={<textarea aria-label="Summary draft" defaultValue="Keep this explanation" />} />;
+      panelOpen panelTab={tab} onSelectPanelTab={setTab} repository="owner/repo" pullRequests={linked ? [publishedPr] : []}
+      pullRequestChanges={{ files: publishedFiles, allFiles: publishedFiles, commits: [], loading: false, error: null,
+        selectCommit: sha => selectedCommits.push(sha) }}
+      learning={onSelectCommit => <><textarea aria-label="Summary draft" defaultValue="Keep this explanation" />
+        <button type="button" onClick={() => onSelectCommit('published-sha')}>View published commit</button></>} />;
   };
   const click = (label: string): void => {
     const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent?.trim() === label && !item.closest('[hidden]'));
@@ -78,8 +92,8 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
     click('Changes'); await settle();
     const picker = host.querySelector<HTMLSelectElement>('[aria-label="Change scope or commit"]');
     assert(picker !== null, 'Local Changes must load without PR details');
-    assert(host.querySelector('[aria-label="Changes source"]')?.closest('.pull-detail__header') !== null
-      && picker.closest('.pull-detail__header') !== null, 'Source and scope controls must share the header');
+    assert(host.querySelector('[aria-label="Changes source"]') === null && picker.closest('.pull-detail__header') !== null,
+      'Local Changes must keep its scope control in the header without a source selector');
     assert(host.querySelectorAll('.pull-changes__toolbar').length === 1, 'Changes must have exactly one toolbar');
     assert(host.querySelector('.pull-file-tree') === null, 'A task side panel must start with the changed-file sidebar closed');
     picker.value = 'UNCOMMITTED'; picker.dispatchEvent(new Event('change', { bubbles: true })); await settle();
@@ -120,12 +134,27 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
     assert(bounds !== undefined && bounds.width > 100 && bounds.left >= pane.getBoundingClientRect().left
       && bounds.right <= pane.getBoundingClientRect().right, 'Revision details must fit the narrow panel');
     metadata.open = false;
+    if (!keepMounted) {
+      const localReads = requests.length;
+      flushSync(() => linkPullRequest()); await settle();
+      assert(host.querySelector('.agt-panel .pull-diff-file')?.textContent?.includes('Published implementation') === true
+        && host.querySelector('[aria-label="Change scope or commit"]') === null && requests.length === localReads,
+      'A PR arriving while local Changes is open must immediately show only the published diff');
+      assert(host.querySelector('[aria-label="Changes source"]') === null, 'Published Changes must not offer a source selector');
+      click('Summary'); await settle();
+      click('View published commit'); await settle();
+      assert(selectedCommits.join() === 'published-sha' && host.querySelector('.agt-panel .pull-diff-file')?.textContent?.includes('Published implementation'),
+        'Summary commit links must select the published commit without reopening local Changes');
+      click('Code & Tests'); await settle();
+      assert(host.querySelector('.cm-editor') === editor && view.state.doc.toString() === 'unsaved local\n',
+        'Linking a PR and navigating its changes must preserve the task working-copy draft');
+    }
     if (keepMounted && !showChanges) { click('Code & Tests'); await settle(); }
     if (keepMounted && zoomChanges) {
       const ZoomPreview = () => {
         const [toolbar, setToolbar] = useState<HTMLElement | null>(null);
         return <section className="pull-detail is-zoomed zoom-card is-full">
-          <PullDetailHeader pr={null} detail={null} tab="changes" workingCopyAvailable changesSource="working"
+          <PullDetailHeader pr={null} detail={null} tab="changes"
             onChangesToolbar={setToolbar} onTab={() => {}} onRefresh={async () => {}} refreshing={false}
             onReviewSubmitted={() => {}} pendingComments={[]} onPendingCommentsChange={() => {}}
             zoom={{ full: true, toggle: () => {}, close: () => {} }} />

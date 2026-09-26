@@ -805,10 +805,10 @@ describe('agent task side panel', () => {
     expect(changes).toContain('this task&#x27;s branch has no pull request');
   });
 
-  it('shows review threads on the panel diff once the pull request detail is read', () => {
+  it.each(['files', 'changes'] as const)('shows the published review diff for a linked task on %s', panelTab => {
     const pr = pullRequest(482, 'Fix preview output limit');
     const changes: TaskPullRequestChanges = {
-      allFiles: [],
+      allFiles: [], selectCommit: () => {},
       files: [{
         filename: 'src/Example.java',
         status: 'modified',
@@ -822,13 +822,13 @@ describe('agent task side panel', () => {
     };
     const withoutDetail = renderToStaticMarkup(
       <AgentTaskBody
-        state={state} panelOpen panelTab="files" pullRequests={[pr]}
+        state={state} panelOpen panelTab={panelTab} pullRequests={[pr]}
         onAskAgent={async () => {}}
         pullRequestChanges={changes}
         {...props} />);
     const withDetail = renderToStaticMarkup(
       <AgentTaskBody
-        state={state} panelOpen panelTab="files" pullRequests={[pr]}
+        state={state} panelOpen panelTab={panelTab} pullRequests={[pr]}
         onAskAgent={async () => {}}
         pullRequestChanges={changes}
         pullRequestDetail={{
@@ -842,6 +842,8 @@ describe('agent task side panel', () => {
         {...props} />);
     // Both render the diff; only the one holding a detail can place the thread that is on it.
     expect(withoutDetail).toContain('src/Example.java');
+    expect(withDetail).not.toContain('Changes source');
+    expect(withDetail).not.toContain('Change scope or commit');
     expect(withoutDetail).not.toContain('pr-inline-thread');
     expect(withDetail).toContain('class="is-review-thread is-add"');
     expect(withDetail).toContain('Comment on line <strong>R2</strong>');
@@ -854,7 +856,7 @@ describe('agent task side panel', () => {
       state={state} panelOpen panelTab="files"
       pullRequests={[pullRequest(482, 'Fix preview output limit')]}
       pullRequestChanges={{
-        files: [], allFiles: [], loading: false, error: 'Comparison failed',
+        files: [], allFiles: [], selectCommit: () => {}, loading: false, error: 'Comparison failed',
         commits: [{ sha: 'abcdef1', parentSha: 'abcdef0', message: 'Fix output', author: 'alice', authoredAt: null }],
       }}
       pullRequestCommitRange={{ start: 0, end: 0 }}
@@ -873,7 +875,7 @@ describe('agent task side panel', () => {
       pullRequestChanges={{ files: [{
         filename: 'src/Example.java', status: 'modified', additions: 1, deletions: 0,
         patch: '@@ -1,1 +1,2 @@\n line one\n+line two',
-      }], allFiles: [], commits: [], loading: false, error: null }}
+      }], allFiles: [], selectCommit: () => {}, commits: [], loading: false, error: null }}
       {...props} />);
     expect(markup).toContain('src/Example.java');
     expect(markup).not.toContain('aria-label="Add a comment on new line 2"');

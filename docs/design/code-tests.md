@@ -17,10 +17,11 @@ task, independently of whether that task is interactive or has a PR. An
 explicit review workspace uses the reviewer's working copy; a development
 WorkBench keeps the developer's working copy when a linked review starts.
 
-- **Changes is the diff.** WorkBench Changes uses the shared diff viewer and a
-  source picker for the published GitHub PR, local branch history, uncommitted
-  work, and selected commit snapshots. GitHub comment actions belong to the
-  published PR source.
+- **Changes is the diff.** WorkBench Changes uses the shared diff viewer for
+  the published GitHub PR and its commits whenever a PR is linked, with GitHub
+  comment actions and no source picker. Before PR creation it shows local
+  branch history, uncommitted work, and selected commit snapshots. Code & Tests
+  continues to read the task's working copy.
 - **No worktree, no working copy.** The tab shows why the selected task's
   working copy is unavailable. Opening it never creates a checkout or starts
   review. Historical review source remains readable through the existing

@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import type { AgentTaskDto, Bridge, InlineReviewCommentDto, PullRequestDetailDto } from '../../../types';
+import type { AgentTaskDto, Bridge } from '../../../types';
 import { parseAgentTask } from '../../../agents/contracts';
 import taskFixture from '../../../agents/fixtures/agent-contracts-v1.json';
 import { assert, changeInput, settle } from '../../../fixtures/harness';
@@ -39,14 +39,13 @@ const changes: WorktreeChangesDto = {
   files: [{ filename: 'working.ts', status: 'modified', additions: 1, deletions: 1, patch: '@@ -1 +1 @@\n-old\n+new' }],
 };
 
-export async function run(keepPublishedPreview = false): Promise<{ name: string; error?: string }[]> {
+export async function run(): Promise<{ name: string; error?: string }[]> {
   const results: { name: string; error?: string }[] = [];
   const previous = window.bridge;
   const host = document.createElement('div');
   host.style.cssText = 'width:620px;height:700px;display:flex;flex-direction:column;background:white';
   document.body.append(host);
   const root = createRoot(host);
-  let previewReady = false;
   const task: AgentTaskDto = { ...parseAgentTask(taskFixture.task), id: 'developer-task', state: 'OPEN', interactive: true,
     mutationClaim: null, checkoutRemovedAt: null, developmentContinuationUnfinished: false };
   const review = reviewFixture({ number: null, sourceTaskId: task.id, draft: null, pullRequest: null, messages: [] });
@@ -59,7 +58,7 @@ export async function run(keepPublishedPreview = false): Promise<{ name: string;
   const scenario = async (name: string, run: () => Promise<void>) => {
     try { await run(); results.push({ name }); }
     catch (cause) { results.push({ name, error: cause instanceof Error ? cause.message : String(cause) }); }
-    finally { if (!previewReady) flushSync(() => root.render(null)); }
+    finally { flushSync(() => root.render(null)); }
   };
   try {
     await scenario('Starts a separate local reviewer only after an explicit click, before PR creation', async () => {
@@ -136,73 +135,6 @@ export async function run(keepPublishedPreview = false): Promise<{ name: string;
       assert(!details.open, 'Escape must dismiss the metadata disclosure');
       assert(host.scrollWidth <= host.clientWidth + 1, 'The controls and diff must fit the panel');
     });
-    await scenario('Published commits in Working copy support anchored draft and post comments', async () => {
-      const localSha = 'c'.repeat(40);
-      const localCommit = { ...changes.commits[0], sha: localSha, parentSha: head, message: 'Unpublished follow-up' };
-      const posted: InlineReviewCommentDto[] = [];
-      let pending: InlineReviewCommentDto[] = [];
-      let openedPublished = 0;
-      let appliedDetails = 0;
-      let deferRefresh = false;
-      let refreshResult: ((value: WorktreeChangesDto) => void) | null = null;
-      const source = (scope: WorktreeChangesDto['scope'], commit?: string): WorktreeChangesDto => ({ ...changes, headSha: localSha,
-        scope, selectedCommit: commit ?? null, commits: [...changes.commits, localCommit] });
-      const detail: PullRequestDetailDto = { id: 1, repo: 'owner/repo', number: 7, title: 'Published implementation', htmlUrl: null,
-        state: 'open', draft: false, mergeable: null, mergeableState: null, author: 'developer', authorAvatarUrl: null,
-        createdAt: null, updatedAt: null, mergedAt: null, baseRef: 'main', headRef: 'feature', body: null, labels: [], assignees: [],
-        milestone: null, reviewers: [], additions: 1, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, recentActivity: [],
-        checkRuns: [], unavailableSections: [], viewerCanWrite: true };
-      install({ readWorktreeChanges: async (_host, request) => deferRefresh
-        ? new Promise(resolve => { refreshResult = resolve; }) : source(request.scope, request.commit),
-      getUserProfile: async () => { throw new Error('No profile in fixture'); },
-      postPrReviewComment: async (_repo, _number, comment) => { posted.push(comment); return detail; } });
-      function Surface() {
-        const [comments, setComments] = useState<InlineReviewCommentDto[]>([{ path: 'working.ts', line: 1, side: 'RIGHT', startLine: null,
-          startSide: null, commitId: base, body: 'Draft on another commit' }]);
-        pending = comments;
-        return <WorktreeChanges host={{ kind: 'task', taskId: task.id, workspaceId: task.workspaceId }}
-          selection={{ commitSha: head, token: 1 }} publishedReview={{ files: changes.files, commits: changes.commits, loading: false, error: null,
-            options: { repo: detail.repo, number: detail.number, canReview: true, pendingComments: comments,
-              onPendingCommentsChange: setComments, onDetailChange: () => { appliedDetails++; } },
-            onOpenPublished: () => { openedPublished++; } }} />;
-      }
-      flushSync(() => root.render(<Surface />)); await settle();
-      const openComposer = async () => {
-        const gutter = host.querySelector<HTMLButtonElement>('[aria-label="Select new line 1"]');
-        assert(gutter !== null, 'A published commit selected within Working copy must expose its review gutter');
-        gutter.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await settle();
-        const input = host.querySelector<HTMLTextAreaElement>('.pull-diff-review textarea');
-        assert(input !== null, 'The shared inline review composer must open');
-        changeInput(input, 'Review this published line'); await settle();
-      };
-      assert(!host.textContent?.includes('Draft on another commit'), 'Pending feedback must not project onto another commit’s same line');
-      await openComposer();
-      const composer = host.querySelector<HTMLTextAreaElement>('.pull-diff-review textarea');
-      deferRefresh = true;
-      host.querySelector<HTMLButtonElement>('[aria-label="Refresh changes"]')?.click(); await settle();
-      assert(refreshResult !== null && host.querySelector('.pull-diff-review textarea') === composer && composer?.value === 'Review this published line',
-        'Refreshing a retained immutable diff must not unmount a half-written comment');
-      (refreshResult as (value: WorktreeChangesDto) => void)(source('COMMIT', head)); deferRefresh = false; await settle();
-      if (keepPublishedPreview) { previewReady = true; return; }
-      button('Add to review').click(); await settle();
-      assert(pending.length === 2 && pending[1].commitId === head && pending[1].path === 'working.ts' && pending[1].line === 1,
-        'A draft must preserve the selected published commit anchor and existing drafts');
-      const select = host.querySelector<HTMLSelectElement>('select');
-      assert(select !== null, 'The worktree scope selector must remain available');
-      select.value = `commit:${localSha}`; select.dispatchEvent(new Event('change', { bubbles: true })); await settle();
-      assert(host.querySelector('[aria-label="Select new line 1"]') === null && host.textContent?.includes('This commit is not in the published PR') === true,
-        'An unpublished commit must explain the unavailable review flow without offering a GitHub anchor');
-      button('View Published PR').click(); assert(openedPublished === 1, 'The notice must offer the published source');
-      select.value = `commit:${head}`; select.dispatchEvent(new Event('change', { bubbles: true })); await settle();
-      assert(host.textContent?.includes('Review this published line') === true, 'Returning to a published commit must restore its staged feedback');
-      await openComposer(); button('Post now').click(); await settle();
-      assert(posted.length === 1 && posted[0].commitId === head && appliedDetails === 1,
-        'Post now must use the existing PR action with the exact selected commit and apply the returned detail');
-      select.value = 'UNCOMMITTED'; select.dispatchEvent(new Event('change', { bubbles: true })); await settle();
-      assert(host.querySelector('[aria-label="Select new line 1"]') === null && host.textContent?.includes('Uncommitted changes cannot receive GitHub review comments') === true,
-        'Uncommitted changes must remain readable with a clear publication explanation');
-    });
-    if (previewReady) return results;
     await scenario('Historical commit inspection retains the reviewed head and comparison base', async () => {
       const requests: Parameters<Bridge['readWorktreeChanges']>[1][] = [];
       const run = { ...review.runs[0], headSha: head, mergeBaseSha: base, commits: changes.commits.map(commit => ({
@@ -243,6 +175,6 @@ export async function run(keepPublishedPreview = false): Promise<{ name: string;
     return results;
   }
   finally {
-    if (!previewReady) { flushSync(() => root.unmount()); host.remove(); Object.defineProperty(window, 'bridge', { configurable: true, value: previous }); }
+    flushSync(() => root.unmount()); host.remove(); Object.defineProperty(window, 'bridge', { configurable: true, value: previous });
   }
 }

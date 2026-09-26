@@ -639,7 +639,7 @@ explicit action. Drafts cannot be merged from that dialog.
 The PR tab mounts ByteQuay's existing pull-request detail surface in the panel,
 so the pull request is read beside the conversation without leaving the task. A
 transcript link to that pull request selects the tab instead of navigating, and
-the task route does not change. **WorkBench → Changes → Published PR** shows the same pull request's diff
+the task route does not change. **WorkBench → Changes** shows the same pull request's diff
 with GitHub threads, private local discussions, and agent findings on their
 reviewed lines. **View in Changes** and **Open in Summary** navigate
 the same finding within the panel. Both the panel and full-width surface use the

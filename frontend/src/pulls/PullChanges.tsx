@@ -241,9 +241,19 @@ export function DiffViewer({
     setAllFilesOpen(false);
   }, [files]);
 
-  // Opening a finding's range: the file first, so a single-file view has it mounted, then the row.
-  const navigation = agentReview?.navigation ?? null;
+  // A saved finding's coordinates belong to its validated revision, including when a newer PR is shown.
+  const requestedNavigation = agentReview?.navigation ?? null;
+  const navigationFinding = agentReview?.review.findings.find(finding => finding.id === requestedNavigation?.findingId);
+  const navigationHeadSha = agentReview?.headSha ?? headSha;
+  const navigation = requestedNavigation !== null && commitRange === null && !loading && navigationHeadSha !== undefined
+    && navigationFinding?.validatedHeadSha === navigationHeadSha
+    && files.some(file => file.filename === requestedNavigation.path)
+    && navigationFinding.path === requestedNavigation.path && navigationFinding.side === requestedNavigation.side
+    && navigationFinding.startLine === requestedNavigation.startLine && navigationFinding.endLine === requestedNavigation.endLine
+    ? requestedNavigation : null;
+  const displayedAgentReview = agentReview === undefined ? undefined : { ...agentReview, navigation };
   const navigationToken = navigation?.token ?? null;
+  // Open the file first, so a single-file view has it mounted, then the row.
   useEffect(() => {
     if (navigation === null) return;
     if (!files.some(file => file.filename === navigation.path)) return;
@@ -367,6 +377,10 @@ export function DiffViewer({
         )}
         <div className="pull-changes__scroll" ref={scrollRef}>
           {loading && <div className="pull-changes__loading">Loading selected commits…</div>}
+          {!loading && requestedNavigation !== null && navigation === null && <p className="pull-diff-file__content-error" role="status">
+            This finding does not match the displayed revision. Its saved location and discussion remain in Summary.{' '}
+            <button type="button" className="agr-action" onClick={() => agentReview?.onOpenInReview(requestedNavigation.findingId)}>Open in Summary</button>
+          </p>}
           {reviewThreads?.unavailable && <p className="pull-diff-file__content-error" role="alert">
             Review comments could not be loaded. Refresh the pull request to try again.
           </p>}
@@ -379,7 +393,7 @@ export function DiffViewer({
               headSha={headSha}
               review={review}
               reviewThreads={reviewThreads}
-              agentReview={agentReview}
+              agentReview={displayedAgentReview}
               localReview={localReview}
               onAskAgent={onAskAgent}
               onAskAgentDisabled={onAskAgentDisabled}

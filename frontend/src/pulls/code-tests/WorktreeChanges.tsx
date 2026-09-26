@@ -13,66 +13,14 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, RotateCw } from 'lucide-react';
-import { DiffViewer, type CommitRange, type DiffViewerProps, type ReviewThreads } from '../PullChanges';
-import { parseUnifiedDiff } from '../../diffParse';
-import type { DiffCommitDto, DiffFileDto } from '../../types';
-import type { LocalReviewThreads } from '../local-review/types';
+import { DiffViewer } from '../PullChanges';
 import { remoteErrorMessage } from '../PullOverview';
 import type { ReviewNavigationTarget } from '../agent-review/AgentReviewTab';
 import type { AgentReviewDto } from '../agent-review/contracts';
 import { codeHostKey, type CodeHostRef, type WorktreeChangesDto, type WorktreeChangesRequest } from './contracts';
 import '../../css/workbench-changes.css';
 
-export type WorktreePublishedReview = {
-  files: DiffFileDto[];
-  commits: DiffCommitDto[];
-  loading: boolean;
-  error: string | null;
-  options: NonNullable<DiffViewerProps['review']>;
-  threads?: ReviewThreads;
-  localReview?: LocalReviewThreads;
-  onAskAgent?: DiffViewerProps['onAskAgent'];
-  onAskAgentDisabled?: string | null;
-  onOpenPublished: () => void;
-};
-
-/** Local Git headers differ from GitHub's patch headers; compare the actual displayed rows and their coordinates. */
-function patchRows(file: DiffFileDto) {
-  return parseUnifiedDiff(file.patch?.replace(/\r?\n$/, '')).map(({ oldStart, oldCount, newStart, newCount, rows }) =>
-    ({ oldStart, oldCount, newStart, newCount, rows }));
-}
-
-export function worktreeReviewMapping(data: WorktreeChangesDto, published: Pick<WorktreePublishedReview, 'files' | 'commits' | 'loading' | 'error'>): {
-  range: CommitRange;
-  reason: string | null;
-} {
-  const blocked = (reason: string): { range: CommitRange; reason: string } => ({ range: null, reason });
-  if (published.loading) return blocked('Checking the published PR before enabling review comments.');
-  if (published.error !== null) return blocked('Published PR details could not be verified. Refresh the PR to enable review comments.');
-  if (data.truncated) return blocked('This comparison is incomplete. Review the published PR to comment on its lines.');
-  if (data.scope === 'UNCOMMITTED') return blocked('Uncommitted changes cannot receive GitHub review comments.');
-  if (data.scope === 'COMMIT') {
-    const index = published.commits.findIndex(commit => commit.sha === data.selectedCommit);
-    const local = data.commits.find(commit => commit.sha === data.selectedCommit);
-    if (index >= 0 && local?.parentSha != null && local.parentSha === published.commits[index].parentSha) {
-      return { range: { start: index, end: index }, reason: null };
-    }
-    return blocked('This commit is not in the published PR. Publish it before posting GitHub review comments.');
-  }
-  if (data.scope === 'ALL' && data.staged.length + data.unstaged.length + data.untracked.length > 0) {
-    return blocked('This view includes uncommitted changes. Select a published commit to add GitHub review comments.');
-  }
-  const matchingRevisions = data.headSha === published.commits.at(-1)?.sha && data.baseSha === published.commits[0]?.parentSha;
-  const matchingFiles = data.files.length === published.files.length && data.files.every(file => {
-    const other = published.files.find(candidate => candidate.filename === file.filename);
-    return other !== undefined && file.status === other.status && file.additions === other.additions && file.deletions === other.deletions
-      && JSON.stringify(patchRows(file)) === JSON.stringify(patchRows(other));
-  });
-  return matchingRevisions && matchingFiles ? { range: null, reason: null }
-    : blocked('These changes differ from the published PR. Select a published commit or open Published PR to add review comments.');
-}
-
-export default function WorktreeChanges({ host, active = true, selection, reviewNavigation, review, onReviewChange, onOpenInReview, toolbarTarget, defaultTreeOpen = false, publishedReview }: {
+export default function WorktreeChanges({ host, active = true, selection, reviewNavigation, review, onReviewChange, onOpenInReview, toolbarTarget, defaultTreeOpen = false }: {
   host: CodeHostRef;
   active?: boolean;
   toolbarTarget?: HTMLElement | null;
@@ -82,7 +30,6 @@ export default function WorktreeChanges({ host, active = true, selection, review
   review?: AgentReviewDto | null;
   onReviewChange?: (review: AgentReviewDto) => void;
   onOpenInReview?: (findingId: string) => void;
-  publishedReview?: WorktreePublishedReview;
 }) {
   const [request, setRequest] = useState<WorktreeChangesRequest>({ scope: host.kind === 'review' ? 'COMMITTED' : 'ALL' });
   const [result, setResult] = useState<{ key: string; value: WorktreeChangesDto } | null>(null);
@@ -129,8 +76,6 @@ export default function WorktreeChanges({ host, active = true, selection, review
     return () => window.clearInterval(timer);
   }, [active, request.head, request.scope]);
   const data = result?.key === key ? result.value : null;
-  const mapping = data === null || publishedReview === undefined ? null : worktreeReviewMapping(data, publishedReview);
-  const canPublish = mapping !== null && mapping.reason === null && error === null;
   const commits = data?.commits ?? result?.value.commits ?? [];
   const selected = request.scope === 'COMMIT' ? `commit:${request.commit}` : request.scope;
   const commit = commits.find(item => item.sha === request.commit);
@@ -187,16 +132,7 @@ export default function WorktreeChanges({ host, active = true, selection, review
       <button type="button" onClick={() => setReload(value => value + 1)}>Retry</button>
     </div>}
     {data?.truncated && <div className="ct-banner" role="status">This comparison reached the display limit. Some changes are omitted.</div>}
-    {publishedReview !== undefined && mapping?.reason != null && <div className="ct-banner" role="status">
-      {mapping.reason}<button type="button" onClick={publishedReview.onOpenPublished}>View Published PR</button>
-    </div>}
     <DiffViewer files={data?.files ?? []} loading={data === null && loading}
-      commits={mapping?.reason === null ? publishedReview?.commits : undefined} commitRange={mapping?.reason === null ? mapping.range : undefined}
-      review={canPublish ? publishedReview?.options : undefined} reviewThreads={canPublish ? publishedReview?.threads : undefined}
-      localReview={canPublish ? publishedReview?.localReview : undefined}
-      onAskAgent={canPublish ? publishedReview?.onAskAgent : undefined} onAskAgentDisabled={publishedReview?.onAskAgentDisabled}
-      loadFileContent={canPublish && publishedReview !== undefined ? (path, baseSha, headSha) =>
-        window.bridge.refreshPrDiffFileContent(publishedReview.options.repo, publishedReview.options.number, path, baseSha ?? data?.baseSha, headSha ?? data?.headSha) : undefined}
       toolbarTarget={toolbarTarget} toolbarStart={toolbar} toolbarVisible={active} defaultTreeOpen={defaultTreeOpen}
       agentReview={showFindings ? { review, viewer: null, headSha: data?.headSha, navigation: reviewNavigation ?? null, onReviewChange, onOpenInReview } : undefined} />
   </div>;

@@ -639,9 +639,7 @@
 .pull-detail__tabs .pull-detail__utility-close { min-height: 0; margin: 0 7px 0 -7px; border-radius: 6px; color: #8c959f; padding: 3px; }
 .pull-detail__tabs .pull-detail__utility-close:hover { background: #e3e6ea; color: #24292f; }
 .pull-detail__utility-close svg { width: 14px; height: 14px; }
-.pull-detail__changes-tools { position: relative; display: flex; min-width: 0; flex: 1 1 auto; align-items: center; flex-wrap: wrap; gap: 6px; }
-.pull-detail__changes-source { min-width: 0; max-width: 160px; height: 28px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; color: #24292f; padding: 3px 6px; font: inherit; font-size: var(--font-size-md); }
-.pull-detail__changes-source:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pull-detail__changes-tools { position: relative; display: flex; min-width: 0; flex: 1 1 100%; align-items: center; flex-wrap: wrap; gap: 6px; }
 .pull-detail__changes-toolbar { display: contents; }
 .pull-detail__changes-toolbar:empty { display: none; }
 .pull-detail__changes-toolbar .pull-changes__toolbar { display: contents; }

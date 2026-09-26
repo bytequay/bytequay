@@ -95,7 +95,7 @@ function LocalReviewWorkspace({ review, onReviewChange, onBack, headerAction }: 
     <TaskPaneDivider pane={pane} />
     <section className="pull-detail agt-panel" style={{ width: pane.width }} aria-label="WorkBench">
       <PullDetailHeader pr={null} detail={null} tab={tab} onTab={setTab} review={review} onReviewChange={onReviewChange}
-        changesSource="reviewed" onChangesToolbar={setChangesToolbar}
+        onChangesToolbar={setChangesToolbar}
         onRefresh={async () => onReviewChange(await window.bridge.getAgentReview(review.id))} refreshing={false}
         onReviewSubmitted={() => {}} pendingComments={[]} onPendingCommentsChange={() => {}} />
       <div className="pull-detail__body pull-detail__review" hidden={tab !== 'review'}>

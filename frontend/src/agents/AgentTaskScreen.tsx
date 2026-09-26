@@ -33,7 +33,7 @@ import { useRenameDraft } from '../renameDraft';
 import { remoteErrorMessage } from '../pulls/PullOverview';
 import { canSubmitReview, PullDetailHeader } from '../pulls/PullsScreen';
 import CodeTestsTab from '../pulls/code-tests/CodeTestsTab';
-import WorktreeChanges, { type WorktreePublishedReview } from '../pulls/code-tests/WorktreeChanges';
+import WorktreeChanges from '../pulls/code-tests/WorktreeChanges';
 import type { CodeHostRef } from '../pulls/code-tests/contracts';
 import TaskReviewSummary from '../pulls/agent-review/TaskReviewSummary';
 import {
@@ -612,7 +612,7 @@ function SidePanel({
   onToggleLog?: (choice: string) => void;
 }): React.JSX.Element {
   const codeAvailable = workspaceId !== undefined && task !== null && task.checkoutRemovedAt === null;
-  const tab = requestedTab;
+  const tab = requestedTab === 'changes' && pullRequest !== null ? 'files' : requestedTab;
   // Mounted on first visit and then kept, like the PR page's Code & Tests tab.
   const [codeVisited, setCodeVisited] = useState(false);
   if (tab === 'code' && !codeVisited) setCodeVisited(true);
@@ -628,16 +628,27 @@ function SidePanel({
   const [reviewReload, setReviewReload] = useState(0);
   const [reviewNavigation, setReviewNavigation] = useState<ReviewNavigationTarget | null>(null);
   const [focusFindingId, setFocusFindingId] = useState<string | null>(null);
-  const [reviewedSource, setReviewedSource] = useState(false);
   const [changesToolbar, setChangesToolbar] = useState<HTMLElement | null>(null);
   const [commitSelection, setCommitSelection] = useState<{ source: 'task' | 'review'; commitSha: string; headSha?: string; baseSha?: string; token: number } | null>(null);
   const selectCommit = (source: 'task' | 'review', commitSha: string, snapshot?: { headSha: string; baseSha: string }): void => {
     setReviewNavigation(null);
-    setReviewedSource(source === 'review');
+    if (pullRequest !== null) {
+      setCommitSelection(null);
+      pullRequestChanges.selectCommit(commitSha);
+      onSelectTab('files');
+      return;
+    }
     setCommitSelection(current => ({ source, commitSha, ...snapshot, token: (current?.token ?? 0) + 1 }));
     onSelectTab('changes');
   };
-  const showReviewedChanges = review !== null && (!codeAvailable || reviewedSource || reviewNavigation !== null || commitSelection?.source === 'review');
+  const navigateToChanges = (target: ReviewNavigationTarget): void => {
+    setCommitSelection(null);
+    setReviewNavigation(target);
+    setFocusFindingId(null);
+    if (pullRequest !== null) onPullRequestCommitRangeChange(null);
+    onSelectTab(pullRequest === null ? 'changes' : 'files');
+  };
+  const showReviewedChanges = review !== null && (!codeAvailable || reviewNavigation !== null || commitSelection?.source === 'review');
   const changesHost: CodeHostRef | null = showReviewedChanges ? { kind: 'review', reviewId: review.id }
     : codeAvailable ? { kind: 'task', taskId: task.id, workspaceId } : null;
   const prRepo = pullRequest?.repo;
@@ -704,9 +715,6 @@ function SidePanel({
       detail={pullRequestDetail.detail}
       tab={tab === 'pr' ? 'overview' : tab === 'agents' || tab === 'discussions' ? null : tab}
       codeAvailable={codeAvailable}
-      workingCopyAvailable={codeAvailable}
-      changesSource={tab === 'files' ? 'published' : showReviewedChanges ? 'reviewed' : 'working'}
-      onChangesSourceChange={source => { setReviewedSource(source === 'reviewed'); setReviewNavigation(null); setCommitSelection(null); }}
       onChangesToolbar={setChangesToolbar}
       review={review}
       onReviewChange={setReview}
@@ -733,28 +741,6 @@ function SidePanel({
       ? <div className="agt-muted agt-panel__empty" role="status">Checking for a pull request…</div>
       : null;
   const detail = pullRequestDetail.detail;
-  const publishedReview: WorktreePublishedReview | undefined = detail === null || pullRequest === null ? undefined : {
-    files: pullRequestChanges.allFiles,
-    commits: pullRequestChanges.commits,
-    loading: pullRequestChanges.loading,
-    error: pullRequestChanges.error,
-    options: {
-      repo: pullRequest.repo, number: pullRequest.number, workspaceId,
-      canReview: canSubmitReview(pullRequest, detail),
-      pendingComments: pullRequestPendingComments,
-      onPendingCommentsChange: onPullRequestPendingCommentsChange,
-      onDetailChange: pullRequestDetail.replace,
-    },
-    threads: {
-      activities: detail.recentActivity, pr: pullRequest, workspaceId,
-      unavailable: detail.unavailableSections.includes('reviewThreads'),
-      onRefresh: pullRequestDetail.refresh, onDetailUpdate: pullRequestDetail.update,
-    },
-    localReview: localThreads,
-    onAskAgent: onAskAgentDisabled == null ? onAskAgent : undefined,
-    onAskAgentDisabled,
-    onOpenPublished: () => { onPullRequestCommitRangeChange(null); onSelectTab('files'); },
-  };
   const codeBody = !codeAvailable && tab === 'code' ? <div className="agt-panel__empty">The task&apos;s worktree is unavailable.</div>
     : codeAvailable && (codeVisited || tab === 'code') ? (
     <div className="pull-detail__code" hidden={tab !== 'code'}>
@@ -797,7 +783,7 @@ function SidePanel({
     </section>}
     {task !== null && task.interactive && workspaceId !== undefined ? <TaskReviewSummary task={task} workspaceId={workspaceId}
       active={tab === 'review'} onReviewChange={setReview} onSelectCommit={(sha, snapshot) => selectCommit('review', sha, snapshot)} focusFindingId={focusFindingId} focusReviewCard={reviewFocus}
-      onNavigateToChanges={target => { setCommitSelection(null); setReviewNavigation(target); setFocusFindingId(null); onSelectTab('changes'); }} />
+      onNavigateToChanges={navigateToChanges} />
       : pullRequest !== null && reviewLoading ? <div className="agt-panel__empty" role="status">Loading review cards…</div>
       : reviewError !== null ? <div className="agt-panel__empty" role="alert">{reviewError}
         <button type="button" className="agt-action" onClick={() => setReviewReload(value => value + 1)}>Retry</button>
@@ -805,13 +791,13 @@ function SidePanel({
       : review !== null && <AgentReviewTab detail={detail ?? undefined} workspaceId={workspaceId} viewer={null}
         review={review} onReviewChange={setReview} onSelectCommit={(sha, snapshot) => selectCommit('review', sha, snapshot)} focusFindingId={focusFindingId} ownStream={tab === 'review'}
         onOpenWorkspace={() => { window.location.hash = workspaceReviewTaskRoute(review.workspaceId, review.id); }}
-        onNavigateToChanges={target => { setCommitSelection(null); setReviewNavigation(target); setFocusFindingId(null); onSelectTab('changes'); }} />}
+        onNavigateToChanges={navigateToChanges} />}
   </div> : null;
-  const changesBody = changesVisited ? <div className="pull-detail__changes" hidden={tab !== 'changes'}>
+  const changesBody = pullRequest === null && changesVisited ? <div className="pull-detail__changes" hidden={tab !== 'changes'}>
     {changesHost !== null ? <WorktreeChanges key={changesHost.kind === 'review' ? changesHost.reviewId : changesHost.taskId} selection={commitSelection}
         reviewNavigation={reviewNavigation} review={review} onReviewChange={setReview}
         onOpenInReview={findingId => { setFocusFindingId(findingId); onSelectTab('review'); }}
-        host={changesHost} active={tab === 'changes'} toolbarTarget={changesToolbar} publishedReview={publishedReview} />
+        host={changesHost} active={tab === 'changes'} toolbarTarget={changesToolbar} />
     : <div className="agt-panel__empty">The task&apos;s worktree is unavailable.</div>}
   </div> : null;
   const code = { kept: <>{codeBody}{summaryBody}{changesBody}</>, keptShown: tab === 'code' || tab === 'review' || tab === 'changes' };

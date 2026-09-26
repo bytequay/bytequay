@@ -303,6 +303,40 @@ describe('DiffViewer', () => {
     expect(render(projection, [])).toContain('class="is-review-finding"');
   });
 
+  it('guards finding navigation and highlighting against a different published revision', () => {
+    const review = reviewFixture();
+    const finding = { ...review.findings[0], path: file.filename, side: 'RIGHT' as const, startLine: 96, endLine: 96,
+      validatedHeadSha: commits[2].sha };
+    const navigation = { path: file.filename, side: 'RIGHT' as const, startLine: 96, endLine: 96, findingId: finding.id, token: 1 };
+    const projection: NonNullable<DiffViewerProps['agentReview']> = {
+      review: { ...review, findings: [finding] }, viewer: null, navigation,
+      onReviewChange: () => {}, onOpenInReview: () => {},
+    };
+    const render = (agentReview = projection, displayedCommits = commits, commitRange: DiffViewerProps['commitRange'] = null) => renderToStaticMarkup(
+      <DiffViewer files={[file]} commits={displayedCommits} commitRange={commitRange} agentReview={agentReview} />);
+
+    expect(render()).toContain('is-review-target');
+    expect(render()).not.toContain('This finding does not match');
+    for (const html of [
+      render(projection, commits.slice(0, 2)),
+      render(projection, []),
+      render(projection, commits, { start: 2, end: 2 }),
+      render({ ...projection, navigation: { ...navigation, startLine: 95 } }),
+      render({ ...projection, navigation: { ...navigation, findingId: 'missing-finding' } }),
+    ]) {
+      expect(html).not.toContain('is-review-target');
+      expect(html).toContain('This finding does not match the displayed revision');
+      expect(html).toContain('Its saved location and discussion remain in Summary.');
+      expect(html).toContain('>Open in Summary</button>');
+    }
+
+    // A local review still opens its matching historical snapshot, even after the finding became outdated.
+    const historical: NonNullable<DiffViewerProps['agentReview']> = { ...projection, headSha: finding.validatedHeadSha,
+      review: { ...projection.review, number: null, findings: [{ ...finding, outdated: true }] } };
+    expect(render(historical, [])).toContain('is-review-target');
+    expect(render(historical, [])).not.toContain('This finding does not match');
+  });
+
   it('retains threads for files outside the diff and excludes unrelated timeline events', () => {
     const outside = reviewActivity(101, 'Discussion on a removed file', { path: 'src/Removed.java' });
     const unrelated = { ...reviewActivity(102, 'Unrelated event'), eventType: 'reviewed' };

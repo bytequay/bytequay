@@ -358,6 +358,17 @@ public class DefaultTaskDiscussionService
 
     private void run(AgentTask task, TaskDiscussion discussion, Optional<DiscussionSession> resume)
     {
+        // A resumed conversation already holds the preamble, the premise and the exchange;
+        // sending them again would duplicate the whole thread in its context.
+        String prompt = resume.isPresent() ? lastQuestion(discussion)
+                : DiscussionPrompt.render(discussion.seed(), discussion.anchor().quote(), earlier(discussion), lastQuestion(discussion));
+        Answered answered = converse(task, discussion.providerModel(), resume, prompt, MAXIMUM_RUNTIME);
+        record(discussion.id(), answered.result(), answered.reference());
+    }
+
+    /** One question in a disposable read-only session on the task's worktree; approvals are denied and events discarded. */
+    private Answered converse(AgentTask task, Optional<String> model, Optional<DiscussionSession> resume, String prompt, Duration limit)
+    {
         TaskId scratchId = TaskId.random();
         boolean processMayBeRunning = false;
         AgentSession session = null;
@@ -371,29 +382,25 @@ public class DefaultTaskDiscussionService
                     AgentPermissionPolicy.AUTO,
                     resume.map(reference -> new AgentSessionRef(task.laneId(), reference.contractVersion(), reference.providerValue())),
                     (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                    discussion.providerModel(),
+                    model,
                     Optional.empty(),
                     SessionAccess.READ_ONLY,
                     Optional.empty(),
                     "");
             processMayBeRunning = true;
             session = drivers.require(task.laneId()).open(context, event -> {});
-            // A resumed conversation already holds the preamble, the premise and the exchange;
-            // sending them again would duplicate the whole thread in its context.
-            String prompt = resume.isPresent() ? lastQuestion(discussion)
-                    : DiscussionPrompt.render(discussion.seed(), discussion.anchor().quote(), earlier(discussion), lastQuestion(discussion));
             AgentTurnResult result = session.start(new AgentTurnCommand(
-                    UUID.randomUUID().toString(), prompt, ImmutableList.of(), MAXIMUM_RUNTIME))
+                    UUID.randomUUID().toString(), prompt, ImmutableList.of(), limit))
                     .completion().toCompletableFuture().join();
             AgentSessionRef reference = session.reference();
             session.close();
             session = null;
             processMayBeRunning = false;
-            record(discussion.id(), result, reference, task);
+            return new Answered(result, reference);
         }
         finally {
             if (session != null) {
-                processMayBeRunning = !closed(session, discussion.id());
+                processMayBeRunning = !closed(session, scratchId);
             }
             if (processMayBeRunning) {
                 log.warn("Retaining discussion resources because the provider may still be running for {}", scratchId);
@@ -412,7 +419,7 @@ public class DefaultTaskDiscussionService
     private static List<DiscussionMessage> earlier(TaskDiscussion discussion)
     {
         List<DiscussionMessage> messages = discussion.messages();
-        return messages.isEmpty() ? List.of() : messages.subList(0, messages.size() - 1);
+        return messages.isEmpty() ? ImmutableList.of() : messages.subList(0, messages.size() - 1);
     }
 
     private static String lastQuestion(TaskDiscussion discussion)
@@ -420,7 +427,7 @@ public class DefaultTaskDiscussionService
         return discussion.messages().getLast().body();
     }
 
-    private void record(String discussionId, AgentTurnResult result, AgentSessionRef reference, AgentTask task)
+    private void record(String discussionId, AgentTurnResult result, AgentSessionRef reference)
     {
         String answer = result.finalResponse().orElse("").strip();
         if (result.state() != AgentTurnResult.State.COMPLETED || answer.isEmpty()) {
@@ -456,14 +463,14 @@ public class DefaultTaskDiscussionService
         });
     }
 
-    private static boolean closed(AgentSession session, String discussionId)
+    private static boolean closed(AgentSession session, TaskId scratchId)
     {
         try {
             session.close();
             return true;
         }
         catch (RuntimeException failure) {
-            log.warn("Could not verify the discussion provider stopped for {}", discussionId, failure);
+            log.warn("Could not verify the discussion provider stopped for {}", scratchId, failure);
             return false;
         }
     }
@@ -474,4 +481,6 @@ public class DefaultTaskDiscussionService
      * seed ends with.
      */
     private record Seeded(String text, String answer) {}
+
+    private record Answered(AgentTurnResult result, AgentSessionRef reference) {}
 }

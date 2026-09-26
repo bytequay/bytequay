@@ -13,6 +13,8 @@
  */
 package com.bytequay.agent.cli.codex;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -38,6 +40,12 @@ class TestCodexLaunchProfile
         Path catalog = temporary.resolve("home/deepseek-models.json");
         DeepSeekModelCatalog.prepare(catalog);
         DeepSeekModelCatalog.verify(catalog);
+        JsonNode models = new ObjectMapper().readTree(Files.readString(catalog)).path("models");
+        assertThat(models.size()).isEqualTo(2);
+        for (JsonNode model : models) {
+            assertThat(model.path("slug").asText()).isNotBlank();
+            assertThat(model.path("auto_review_model_override").asText()).isEqualTo(model.path("slug").asText());
+        }
         URI proxy = URI.create("http://127.0.0.1:12345/fixture/");
         CodexLaunchProfile.DeepSeekProfile deepSeek = new CodexLaunchProfile.DeepSeekProfile(catalog, proxy);
         List<String> arguments = CodexLaunchProfile.arguments(
@@ -192,7 +200,10 @@ class TestCodexLaunchProfile
                 "/usr/local/bin/codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), true, ImmutableList.of(), false, false);
 
         assertThat(arguments).containsSequence("-c", "web_search=\"disabled\"");
+        assertThat(arguments).containsSequence("-c", "approvals_reviewer=\"user\"");
         assertThat(arguments).containsSequence("--disable", "guardian_approval");
+        assertThat(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, true))
+                .containsEntry("guardian_approval", false);
         assertThat(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, true, ImmutableList.of(), false, false))
                 .containsEntry("web_search", "disabled");
         for (String feature : List.of("code_mode", "js_repl", "shell_snapshot", "shell_tool", "unified_exec")) {
@@ -261,20 +272,20 @@ class TestCodexLaunchProfile
         for (CodexLaunchProfile.ChildProfile childProfile : CodexLaunchProfile.ChildProfile.values()) {
             List<String> arguments = CodexLaunchProfile.arguments("/usr/local/bin/codex", childProfile, Optional.empty(), false, roots, false, false);
             assertThat(arguments).containsSequence("-c", "approval_policy=\"on-request\"");
-            assertThat(arguments).containsSequence("-c", "approvals_reviewer=\"user\"");
+            assertThat(arguments).containsSequence("-c", "approvals_reviewer=\"auto_review\"");
             assertThat(arguments).containsSequence("-c", "web_search=\"disabled\"");
-            assertThat(arguments).containsSequence("--disable", "guardian_approval");
+            assertThat(arguments).containsSequence("--enable", "guardian_approval");
             assertThat(arguments).containsSequence("-c", "sandbox_workspace_write.network_access=true");
             assertThat(arguments).containsSequence("-c", "sandbox_workspace_write.exclude_tmpdir_env_var=true");
             assertThat(arguments).containsSequence("-c", "sandbox_workspace_write.exclude_slash_tmp=true");
             assertThat(arguments).noneMatch(argument -> argument.startsWith("auto_review.policy="));
             assertThat(CodexLaunchProfile.threadConfig(childProfile, true, false, roots, false, false))
                     .containsEntry("approval_policy", "on-request")
-                    .containsEntry("approvals_reviewer", "user")
+                    .containsEntry("approvals_reviewer", "auto_review")
                     .containsEntry("web_search", "disabled")
                     .containsEntry("sandbox_workspace_write", CodexLaunchProfile.ciSandboxConfig(roots))
                     .doesNotContainKey("auto_review");
-            assertThat(CodexLaunchProfile.expectedFeatures(childProfile, false)).containsEntry("guardian_approval", false);
+            assertThat(CodexLaunchProfile.expectedFeatures(childProfile, false)).containsEntry("guardian_approval", true);
         }
     }
 
@@ -306,6 +317,8 @@ class TestCodexLaunchProfile
     {
         List<String> arguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE,
                 Optional.empty(), false, ImmutableList.of(), false, true);
+        assertThat(arguments).containsSequence("-c", "approvals_reviewer=\"user\"");
+        assertThat(arguments).containsSequence("--disable", "guardian_approval");
         assertThat(arguments).contains("shell_environment_policy.inherit=\"core\"",
                 "shell_environment_policy.ignore_default_excludes=false");
         assertThat(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly())
@@ -314,7 +327,10 @@ class TestCodexLaunchProfile
                         "OPENAI_API_KEY", "CODEX_HOME", "BYTEQUAY_CODEGRAPH_TOKEN");
         assertThat(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, false,
                 ImmutableList.of(), false, true))
-                .containsEntry("shell_environment_policy", CodexLaunchProfile.expectedShellEnvironmentPolicy());
+                .containsEntry("shell_environment_policy", CodexLaunchProfile.expectedShellEnvironmentPolicy())
+                .containsEntry("features", CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false, true));
+        assertThat(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false, true))
+                .containsEntry("guardian_approval", false);
     }
 
     private static void assertCommonIsolation(List<String> arguments)
@@ -323,7 +339,7 @@ class TestCodexLaunchProfile
         // Launching without these would accept whatever the host installation defaults to.
         assertThat(arguments).contains("--strict-config");
         assertThat(arguments).containsSequence("--enable", "skip_host_skill_discovery");
-        assertThat(arguments).containsSequence("--disable", "guardian_approval");
+        assertThat(arguments).containsSequence("--enable", "guardian_approval");
         assertThat(arguments).containsSequence("--disable", "guardianv2");
         assertThat(arguments).containsSequence("--disable", "guardian_ext");
         assertThat(arguments).containsSequence("-c", "web_search=\"live\"");

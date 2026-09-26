@@ -2395,8 +2395,8 @@ function assertLaunchPolicy(response, launchProfile) {
   assert.ok(config && typeof config === "object", "config/read omitted effective config");
   assert.equal(config.web_search, "live", "native web search was not enabled");
   assert.equal(config.approval_policy, "on-request", "native approval policy changed");
-  assert.equal(config.approvals_reviewer, "user", "native approvals no longer route to ByteQuay");
-  assert.equal(config.features?.guardian_approval, false, "native automatic review was enabled");
+  assert.equal(config.approvals_reviewer, "auto_review", "native automatic review was not selected");
+  assert.equal(config.features?.guardian_approval, true, "native automatic review was disabled");
   if (launchProfile.codeGraph === undefined) {
     assert.deepEqual(config.mcp_servers, {}, "isolated launch inherited MCP servers");
   } else {
@@ -2473,8 +2473,8 @@ function assertLaunchPolicy(response, launchProfile) {
   const sessionFlags = sessionFlagLayer.config;
   assert.equal(sessionFlags.web_search, "live", "session flags omitted web-search policy");
   assert.equal(sessionFlags.approval_policy, "on-request", "session flags omitted approval policy");
-  assert.equal(sessionFlags.approvals_reviewer, "user", "session flags omitted ByteQuay approval routing");
-  assert.equal(sessionFlags.features?.guardian_approval, false, "session flags enabled native automatic review");
+  assert.equal(sessionFlags.approvals_reviewer, "auto_review", "session flags omitted native automatic review");
+  assert.equal(sessionFlags.features?.guardian_approval, true, "session flags disabled native automatic review");
   assert.equal(
     sessionFlags.features?.skip_host_skill_discovery,
     true,
@@ -3075,7 +3075,7 @@ function appServerArguments(launchProfile) {
     "--strict-config",
     "--enable",
     "skip_host_skill_discovery",
-    "--disable",
+    "--enable",
     "guardian_approval",
     "-c",
     'cli_auth_credentials_store="file"',
@@ -3084,7 +3084,7 @@ function appServerArguments(launchProfile) {
     "-c",
     'approval_policy="on-request"',
     "-c",
-    'approvals_reviewer="user"',
+    'approvals_reviewer="auto_review"',
     "-c",
     'shell_environment_policy.inherit="core"',
     "-c",

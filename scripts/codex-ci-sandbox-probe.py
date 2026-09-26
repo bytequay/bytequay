@@ -33,6 +33,8 @@ DEPENDENCY_POM = b"<project><modelVersion>4.0.0</modelVersion></project>\n"
 class LocalProvider:
     def __init__(self, output):
         self.requests = []
+        self.main_requests = []
+        self.review_requests = []
         fixture = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -53,25 +55,32 @@ class LocalProvider:
                 payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 fixture.requests.append({"path": self.path, "authorizationPresent": "Authorization" in self.headers, "body": payload})
                 probe.write_json(output / "provider-requests.json", fixture.requests)
-                if self.path != "/v1/responses" or "Authorization" in self.headers or len(fixture.requests) > 3:
+                if self.path != "/v1/responses" or "Authorization" in self.headers or len(fixture.requests) > 4:
                     self.send_error(400)
                     return
-                index = len(fixture.requests)
-                if index == 1:
-                    name = "exec_command"
-                    arguments = {"cmd": "printf unexpected > " + shlex.quote(str(output / "escaped.txt")),
-                                 "sandbox_permissions": "require_escalated", "justification": "Disposable native denial fixture"}
-                elif index == 2:
-                    name = "request_user_input"
-                    arguments = {"questions": [{"id": "fixture", "header": "Fixture", "question": "Continue the fixture?",
-                                                "options": [{"label": "Continue", "description": "Continue."},
-                                                            {"label": "Stop", "description": "Stop."}]}]}
-                if index < 3:
-                    item = {"id": "fc_" + str(index), "type": "function_call", "call_id": "call_" + str(index),
-                            "name": name, "arguments": json.dumps(arguments)}
+                if payload.get("text", {}).get("format", {}).get("type") == "json_schema":
+                    fixture.review_requests.append(payload)
+                    item = {"id": "msg_review", "type": "message", "role": "assistant", "status": "completed",
+                            "content": [{"type": "output_text", "text": json.dumps({"outcome": "deny"}), "annotations": []}]}
                 else:
-                    item = {"id": "msg_fixture", "type": "message", "role": "assistant", "status": "completed",
-                            "content": [{"type": "output_text", "text": "Local fixture completed.", "annotations": []}]}
+                    fixture.main_requests.append(payload)
+                    index = len(fixture.main_requests)
+                    if index == 1:
+                        name = "exec_command"
+                        arguments = {"cmd": "printf unexpected > " + shlex.quote(str(output / "escaped.txt")),
+                                     "sandbox_permissions": "require_escalated", "justification": "Disposable native denial fixture"}
+                    elif index == 2:
+                        name = "request_user_input"
+                        arguments = {"questions": [{"id": "fixture", "header": "Fixture", "question": "Continue the fixture?",
+                                                    "options": [{"label": "Continue", "description": "Continue."},
+                                                                {"label": "Stop", "description": "Stop."}]}]}
+                    if index < 3:
+                        item = {"id": "fc_" + str(index), "type": "function_call", "call_id": "call_" + str(index),
+                                "name": name, "arguments": json.dumps(arguments)}
+                    else:
+                        item = {"id": "msg_fixture", "type": "message", "role": "assistant", "status": "completed",
+                                "content": [{"type": "output_text", "text": "Local fixture completed.", "annotations": []}]}
+                index = len(fixture.requests)
                 response = {"id": "resp_fixture_" + str(index), "object": "response", "created_at": int(time.time()),
                             "status": "completed", "model": "fixture-model", "output": [item],
                             "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}}
@@ -102,9 +111,10 @@ def verify_config(app, workspace, roots, phase):
     flags = [layer["config"] for layer in result["layers"] if layer["name"]["type"] == "sessionFlags"]
     probe.require(len(flags) == 1, "Expected one sessionFlags config layer")
     for config in (result["config"], flags[0]):
-        probe.require(config["approval_policy"] == "on-request" and config["approvals_reviewer"] == "user", "Unexpected approval policy")
+        probe.require(config["approval_policy"] == "on-request" and config["approvals_reviewer"] == "auto_review", "Unexpected approval policy")
         probe.require(config["web_search"] == "disabled", "Web search became available")
-        for name in ("guardian_approval", "multi_agent", "multi_agent_v2"):
+        probe.require(config["features"]["guardian_approval"] is True, "Native approval reviewer is disabled")
+        for name in ("multi_agent", "multi_agent_v2"):
             probe.require(config["features"][name] is False, "Unexpected enabled feature: " + name)
         proxy = config["features"]["network_proxy"]
         probe.require((proxy["enabled"] if isinstance(proxy, dict) else proxy) is False,
@@ -155,19 +165,19 @@ def main():
     before = {path: path.read_bytes() if path.exists() else None for path in protected}
     policy = {"type": "workspaceWrite", "writableRoots": roots, "networkAccess": True,
               "excludeTmpdirEnvVar": True, "excludeSlashTmp": True}
-    thread_config = {"web_search": "disabled", "features": {"guardian_approval": False, "multi_agent": False,
+    thread_config = {"web_search": "disabled", "features": {"guardian_approval": True, "multi_agent": False,
                                                               "multi_agent_v2": False, "network_proxy": False},
                      "sandbox_workspace_write": {"writable_roots": roots, "network_access": True,
                                                  "exclude_tmpdir_env_var": True, "exclude_slash_tmp": True}}
     with LocalProvider(output) as provider:
         arguments = [str(Path(options.codex).absolute()), "app-server", "--listen", "stdio://", "--strict-config",
-                     "--enable", "skip_host_skill_discovery", "--disable", "guardian_approval", "--disable", "multi_agent",
+                     "--enable", "skip_host_skill_discovery", "--enable", "guardian_approval", "--disable", "multi_agent",
                      "--disable", "multi_agent_v2", "--disable", "network_proxy"]
         config = {"model_provider": "fixture", "model": "fixture-model", "model_providers.fixture.name": "Local CI fixture",
                   "model_providers.fixture.base_url": "http://127.0.0.1:" + str(provider.server.server_port) + "/v1",
                   "model_providers.fixture.wire_api": "responses", "model_providers.fixture.requires_openai_auth": False,
                   "model_providers.fixture.supports_websockets": False, "model_providers.fixture.request_max_retries": 0,
-                  "approval_policy": "on-request", "approvals_reviewer": "user", "sandbox_mode": "workspace-write",
+                  "approval_policy": "on-request", "approvals_reviewer": "auto_review", "sandbox_mode": "workspace-write",
                   "shell_environment_policy.inherit": "none", "shell_environment_policy.set.PATH": environment["PATH"],
                   "shell_environment_policy.set.GIT_CONFIG_GLOBAL": "/dev/null", "shell_environment_policy.set.GIT_CONFIG_NOSYSTEM": "1",
                   **thread_config}
@@ -226,22 +236,19 @@ def main():
                                                       "timeoutMs": 15000, "outputBytesCap": 5000}, "restricted-network")["result"]
             probe.require(restricted["exitCode"] != 0, "Restricted sandbox unexpectedly fetched a dependency artifact")
             start = {"cwd": str(workspace), "model": "fixture-model", "modelProvider": "fixture", "approvalPolicy": "on-request",
-                     "approvalsReviewer": "user", "sandbox": "workspace-write", "config": thread_config}
+                     "approvalsReviewer": "auto_review", "sandbox": "workspace-write", "config": thread_config}
             started = app.request("thread/start", {**start, "ephemeral": False}, "thread-start")["result"]
             thread_id = started["thread"]["id"]
             turn = app.request("turn/start", {"threadId": thread_id, "input": [{"type": "text", "text": "Run the local denial fixture."}],
-                                               "cwd": str(workspace), "approvalPolicy": "on-request", "approvalsReviewer": "user",
+                                               "cwd": str(workspace), "approvalPolicy": "on-request", "approvalsReviewer": "auto_review",
                                                "sandboxPolicy": policy}, "turn-start")["result"]["turn"]["id"]
             deadline = time.monotonic() + 15
-            approvals = []
             while True:
-                probe.require(time.monotonic() < deadline, "Fixture turn did not complete after approval response")
+                probe.require(time.monotonic() < deadline, "Fixture turn did not complete after native review")
                 event = app.incoming.get(timeout=max(0.01, deadline - time.monotonic()))
                 probe.require(not event.get("closed"), "App Server closed during fixture turn")
                 if event.get("method") == "item/commandExecution/requestApproval":
-                    probe.require(event["params"]["turnId"] == turn, "Approval belongs to another turn")
-                    approvals.append(event)
-                    app.send({"id": event["id"], "result": {"decision": "decline"}})
+                    raise RuntimeError("Native reviewer unexpectedly forwarded an approval to ByteQuay")
                 elif event.get("method") == "turn/completed" and event["params"]["turn"]["id"] == turn:
                     completed = event["params"]["turn"]
                     break
@@ -250,15 +257,16 @@ def main():
             probe.require(completed["status"] == "completed", "Fixture turn failed")
             resumed = app.request("thread/resume", {**start, "threadId": thread_id}, "thread-resume")["result"]
             for response in (started, resumed):
-                probe.require(response["approvalPolicy"] == "on-request" and response["approvalsReviewer"] == "user", "Thread approval binding changed")
+                probe.require(response["approvalPolicy"] == "on-request" and response["approvalsReviewer"] == "auto_review", "Thread approval binding changed")
                 probe.require(response["sandbox"] == {**policy, "writableRoots": roots[1:]}, "Thread sandbox binding changed")
             verify_config(app, workspace, roots, "resumed-config")
-            probe.require(len(approvals) == 1, "Expected one ByteQuay-routed command approval")
-            probe.require(len(provider.requests) == 3, "Expected three local provider requests")
-            tool_names = {tool.get("name") for tool in provider.requests[0]["body"]["tools"]}
+            probe.require(len(provider.main_requests) == 3 and len(provider.review_requests) == 1,
+                          "Expected three task requests and one native review")
+            tool_names = {tool.get("name") for tool in provider.main_requests[0]["tools"]}
             probe.require(not tool_names.intersection({"spawn_agent", "web_search", "web"}), "Child agents or web tools became available")
-            outputs = {item["call_id"]: item["output"] for item in provider.requests[-1]["body"]["input"] if item.get("type") == "function_call_output"}
-            probe.require("rejected by user" in outputs["call_1"], "Escalated command was not denied by the approval response")
+            outputs = {item["call_id"]: item["output"] for item in provider.main_requests[-1]["input"] if item.get("type") == "function_call_output"}
+            probe.require("denied" in outputs["call_1"].lower() or "rejected" in outputs["call_1"].lower(),
+                          "Escalated command was not denied by the native reviewer")
             probe.require("request_user_input is unavailable in Default mode" in outputs["call_2"], "Human input was not rejected locally")
             probe.require(not (output / "escaped.txt").exists(), "Escalated command executed")
 
@@ -302,7 +310,8 @@ def main():
                 probe.require((path.read_bytes() if path.exists() else None) == before[path], "Rebase changed protected metadata: " + str(path))
     print("PASS: exact Git roots permit edits and commits; shared refs/config/hooks, CI logs and outside writes stay protected; "
           "curl and JVM fetch a local dependency inside CI while a restricted command remains offline; "
-          "on-request/user survives start/turn/resume, escalation is routed and denied, human input is unavailable, and child agents are disabled; "
+          "on-request/auto_review survives start/turn/resume, native review denies escalation without a ByteQuay card, "
+          "human input is unavailable, and child agents are disabled; "
           "a detached rebase conflict can be staged with no writable branch refs and remains open for ByteQuay.", flush=True)
 
 

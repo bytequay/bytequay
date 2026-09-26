@@ -40,8 +40,9 @@ class TestAgentCommandPolicy
                 "whole shell chain",
                 "without exposing their values",
                 "native denials still apply",
-                "one-time ByteQuay approval request",
-                "ByteQuay checks concrete file-write requests");
+                "reviewer approves it",
+                "ByteQuay checks",
+                "requests it receives");
         assertThat(AgentCommandPolicy.instructions()).startsWith("## ByteQuay Development Scope").doesNotContain("Automatic Approval Scope", "sandbox weakening");
         assertThat(AgentCommandPolicy.reviewInstructions()).startsWith("## ByteQuay Private Review Scope").doesNotContain("Automatic Approval Scope");
     }

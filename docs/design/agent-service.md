@@ -22,9 +22,11 @@ task completed. Broader live delivery checks remain open:
   defaults, issue starts, PR assignment, web search, images, CodeGraph, and
   subagents remain outside this change.
 - DeepSeek and subscription Codex use one `AgentPermissionPolicy`-based Codex
-  launch permission calculation. Attended tasks get the same sandbox,
-  ByteQuay approval routing, shell and Git permissions; CI gets the same
-  `on-request` approval and validated Git roots. A task-scoped loopback MCP bridge exposes the existing
+  launch permission calculation. Attended tasks get the same sandbox, shell,
+  and Git permissions; CI gets the same `on-request` approval and validated Git
+  roots. Development and CI turns in both Codex-backed lanes use native
+  automatic review; ByteQuay checks only requests it receives.
+  A task-scoped loopback MCP bridge exposes the existing
   fixed tools while ByteQuay holds the broker bearer. Accepted automation
   authorizes only the existing scoped program-owned writes.
 
@@ -2256,7 +2258,9 @@ App Server's default environment is rooted at its own working directory.
 Attended `AUTO` also permits the provider's ordinary `/tmp` and `$TMPDIR`
 writes. Full `AUTO` and CI turns can write the validated Maven, Gradle, and npm
 caches (section 8.1); other policies retain their temporary-directory exclusions.
-Writes outside those roots request ByteQuay approval in full worktree turns.
+Writes outside those roots require approval in full worktree turns; development
+and CI turns in both Codex-backed lanes first use native automatic review, and
+ByteQuay handles any provider request it receives.
 Measured against codex-cli
 0.151.0 with no environment registered: an in-worktree write landed with zero
 approvals, and a write to a path under `$HOME` produced an approval request and
@@ -3435,18 +3439,24 @@ does not select a different permission decision.
 `CodexLaunchProfile` maps the decision to App Server sandbox and approval
 settings for both Codex-backed lanes; the Claude adapter maps it to Claude's
 native sandbox and Auto mode, with its existing MCP callback for
-escalations. Provider requests that reach ByteQuay are checked against its
-verified file-write roots before unresolved requests become approval cards. These native mechanisms
-remain different and keep their provider-specific safety checks. DeepSeek adds
-no narrower filesystem, shell, Git, or reviewer policy. Delivery and CI actions use the existing task-scoped
-authorization and verification boundaries.
+escalations. ByteQuay validates provider requests it receives and automatically
+grants concrete file writes within verified roots; unresolved requests become
+approval cards.
+These native mechanisms remain different and keep their provider-specific
+safety checks. DeepSeek adds no narrower filesystem, shell, Git, or reviewer
+policy.
+Delivery and CI actions use the existing task-scoped authorization and
+verification boundaries.
 
 `AgentCommandPolicy` owns provider-independent development and private-review
 instructions and restrictions in `agent-spi`. Codex supplies the instructions
-to the agent and uses its sandbox with `on-request` approvals routed to
-ByteQuay; it has no separate automatic reviewer. Claude supplies them to its
-native permission mode and MCP permission callback. Both adapters translate
-the shared scope to provider settings. Interactive development permissions use
+to the agent and uses its sandbox with `on-request` approvals. Full
+Codex-backed turns outside private review, including CI, use native automatic
+review before any provider request reaches ByteQuay. Private-review command
+escalations go to ByteQuay so its review guard can refuse prohibited commands.
+Claude supplies the instructions to its native permission mode and MCP
+permission callback. Both adapters translate the shared scope to provider
+settings. Interactive development permissions use
 no ByteQuay shell parser or second command approval engine.
 
 - Task-required local Git commands may operate wherever the existing
@@ -3580,7 +3590,9 @@ The connection and task sequence is:
 4. Call `thread/start` with canonical `cwd`, the selected default model,
    the compatibility-tested wire value for on-request approval
    (`approvalPolicy: "on-request"` in the v0.151 reference schema),
-   `approvalsReviewer: "user"`, the generated per-thread config override, and
+   `approvalsReviewer: "auto_review"` for full turns outside private review in
+   both Codex-backed lanes (`"user"` for private review), the generated
+   per-thread config override, and
    legacy `sandbox: "workspace-write"`. No `environments` are selected: the
    process default is rooted at the process working directory, which is this
    task's worktree. After start, page
@@ -3593,7 +3605,7 @@ The connection and task sequence is:
    child profile. A stale idle session must first close with a verified process
    stop. Start a new thread when no session reference exists; otherwise call
    `thread/resume` with the stored `threadId`, the same config and sandbox ceiling, and
-   `approvalsReviewer: "user"`. Repeat the
+   same selected `approvalsReviewer`. Repeat the
    effective-capability checks and never infer a session ID from provider
    files. Relaunching at the turn boundary is deliberate: changing the task
    default between turns cannot reuse a process configured for the previous
@@ -3603,7 +3615,7 @@ The connection and task sequence is:
    `{"type": "localImage", "path": "<validated-task-blob>"}` items. App Server's `image`
    input is URL-based and is outside the first local-upload release. Apply the
    turn's snapshotted model, reasoning effort, service tier, `approvalPolicy`,
-   `approvalsReviewer: "user"`, canonical `cwd`, and structured
+   selected `approvalsReviewer`, canonical `cwd`, and structured
    `sandboxPolicy` with `type: "workspaceWrite"` and validated writable roots.
    Full `AUTO` and CI turns set `networkAccess: true` so Maven, Gradle, and
    other builds can fetch dependencies. Read-only, text-only, and cherry-pick
@@ -3623,8 +3635,9 @@ The connection and task sequence is:
    approval, and the user's later builds may use the artifacts it writes. CI
    retains its exact Git roots and never receives a broader Git write grant.
    Text-only turns receive no cache roots. Other access outside the permitted
-   roots requests ByteQuay approval in full worktree turns. The
-   thread's persisted `selectedCapabilityRoots` remains empty. Store the returned `turn.id` as the
+   roots requires approval in full worktree turns; both full Codex-backed
+   tasks use native review first, then ByteQuay checks any request it receives.
+   The thread's persisted `selectedCapabilityRoots` remains empty. Store the returned `turn.id` as the
    `ProviderTurnRef`. Never add
    arbitrary `.git` paths as writable roots: attended development and
    cherry-pick use only the validated linked-worktree Git roots shared with CI.
@@ -3772,14 +3785,21 @@ Readiness verifies that ordinary built-in tool execution works within the
 selected writable roots and approval boundary. The
 App Server control process still needs provider traffic; ByteQuay supplies the
 selected provider configuration but does not claim that the command sandbox
-enforces a destination allowlist for that control traffic. Attended and CI
-worktree turns use `on-request` approval with reviewer `user` at process,
-thread, and turn scope. Native approval requests reach ByteQuay's task approval
-callback. ByteQuay shows the command, file change, or requested structured
-permissions and sends only the decision for that request. A structured
+enforces a destination allowlist for that control traffic. Full worktree turns
+outside private review in both Codex-backed lanes, including CI, use
+`on-request` approval with reviewer `auto_review` at process, thread, and turn
+scope. Codex's native
+reviewer handles eligible escalations first. An approval
+continues execution; a denial or aborted review returns to Codex and does not
+automatically create a ByteQuay card. ByteQuay validates provider requests it
+receives and automatically grants concrete file writes within verified roots;
+unresolved requests become user approval cards. ByteQuay shows the command,
+file change, or requested
+structured permissions and sends only the decision for that request. A structured
 permissions approval grants exactly the requested object for the current turn;
-it does not create a persistent task-wide permission. Private review retains
-its separate task instructions and remote-write guard. Text-only and read-only
+it does not create a persistent task-wide permission. Private review uses
+reviewer `user` and disables `guardian_approval`, so command escalations reach
+ByteQuay's remote-write guard before any user card. Text-only and read-only
 turns retain `never`, read-only sandbox, and no command network.
 
 The shared development command policy requires direct explicit authorization
@@ -3788,12 +3808,17 @@ processes receive no GitHub credential variables or SSH agent socket. ByteQuay
 owns authenticated GitHub operations through its broker. Commands that are
 already allowed inside the worktree and permitted cache roots do not request
 approval; the sandbox does not enforce application-level GitHub rules on such
-commands. Commands requiring an exception wait for a user decision, including
-CI repair turns. Unsupported or malformed provider requests fail closed.
-Classic `guardian_approval`, experimental `guardianv2`, and `guardian_ext` are
-disabled; the removed native automatic-review policy is not launched. Provider
-review notifications, if emitted by a future compatible App Server, remain
-ordinary redacted activity events rather than approval decisions.
+commands. Unsupported or malformed provider requests fail closed.
+Full turns outside private review in both Codex-backed lanes, including CI,
+enable `guardian_approval` with Codex's built-in reviewer policy; experimental
+`guardianv2` and `guardian_ext` remain disabled.
+Native review notifications are redacted activity events, not ByteQuay approval
+decisions.
+DeepSeek's isolated model catalog sets `auto_review_model_override` to each
+model's own ID. An offline fake-provider escalation probe and a saved-key
+DeepSeek Flash smoke test both approved a harmless escalated command without a
+user approval callback. The saved-key test used a disposable worktree and
+kept the key in ByteQuay's local proxy.
 
 Full `AUTO` and CI worktree turns can fetch build dependencies and write the
 validated `$HOME/.m2`, `$HOME/.gradle`, and `$HOME/.npm` cache roots. Only
@@ -4305,8 +4330,8 @@ process exit.
 | Incremental command output | Native `item/commandExecution/outputDelta` when emitted; missing deltas and a null terminal aggregate produce no invented log | Not guaranteed for Bash; terminal tool results are authoritative |
 | Hook lifecycle | Not advertised in the first-release strict profile; `hooks/list` must be empty | Available with `--include-hook-events` |
 | Nested agent activity | V1 `collabAgentToolCall` spawn edges and V2 `subAgentActivity` paths | CLI 2.1.219+ Agent invocation ownership, forwarded `parent_tool_use_id`, and native task terminal events; execution IDs do not represent resumable sessions |
-| Interactive approvals | App Server JSON-RPC approval requests for attended tasks | ByteQuay MCP permission-prompt tool |
-| CI repairs | `CI_AUTOFIX`, `on-request` approval with scoped local Git writes | `CI_AUTOFIX`, unattended policy and task sandbox |
+| Interactive approvals | Native auto-review for full turns outside private review; private-review escalations reach ByteQuay's command guard; remaining App Server requests reach ByteQuay | ByteQuay MCP permission-prompt tool |
+| CI repairs | `CI_AUTOFIX`, `on-request` approval with scoped local Git writes and native review for both Codex-backed lanes | `CI_AUTOFIX`, unattended policy and task sandbox |
 | Image input | Local uploads become model-gated `localImage {path}` inputs; URL `image` is deferred | Capability-gated; hidden when the current CLI/model cannot accept it |
 | Text attachments | Validated task-owned file paths in text input; logs are not inlined | Exact read-only paths inside the task runtime directory |
 | Steering | Stable `turn/steer` against the expected active turn | Unsupported until a native safe equivalent exists |

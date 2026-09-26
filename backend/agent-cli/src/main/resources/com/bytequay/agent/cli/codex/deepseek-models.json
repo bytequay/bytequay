@@ -2,6 +2,7 @@
   "models": [
     {
       "slug": "deepseek-flash",
+      "auto_review_model_override": "deepseek-flash",
       "display_name": "DeepSeek Flash",
       "description": "DeepSeek text model for attended local coding tasks.",
       "visibility": "list",
@@ -37,6 +38,7 @@
     },
     {
       "slug": "deepseek-v4-pro",
+      "auto_review_model_override": "deepseek-v4-pro",
       "display_name": "DeepSeek V4 Pro",
       "description": "DeepSeek text model for attended local coding tasks.",
       "visibility": "list",

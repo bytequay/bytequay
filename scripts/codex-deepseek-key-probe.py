@@ -36,6 +36,7 @@ class FakeResponses:
     def __init__(self, output, workspace, escalation=None, command=None, mcp=False):
         self.requests = []
         self.main_requests = []
+        self.review_requests = []
         self.proxy_requests = 0
         self.mcp_calls = []
         self.escalation = escalation
@@ -61,11 +62,14 @@ class FakeResponses:
                     return
                 review = payload.get("text", {}).get("format", {}).get("type") == "json_schema"
                 if review:
-                    self.send_error(400, "Unexpected automatic review request")
-                    return
-                fixture.main_requests.append(payload)
+                    probe.require(payload.get("model") == "deepseek-flash", "Auto-review did not use the DeepSeek model")
+                    fixture.review_requests.append(payload)
+                    item = {"id": "msg_review", "type": "message", "role": "assistant", "status": "completed",
+                            "content": [{"type": "output_text", "text": json.dumps({"outcome": "allow"}), "annotations": []}]}
+                else:
+                    fixture.main_requests.append(payload)
                 index = len(fixture.main_requests)
-                if index == 1:
+                if not review and index == 1:
                     names = {tool.get("name") for tool in payload.get("tools", [])}
                     probe.require("exec_command" in names, "Expected Codex model-facing shell tool")
                     changed = shlex.quote(str(workspace / "changed.txt"))
@@ -77,14 +81,14 @@ class FakeResponses:
                         arguments.update({"sandbox_permissions": "require_escalated", "justification": "Run a disposable fixture command"})
                     item = {"id": "fc_fixture", "type": "function_call", "call_id": "call_fixture",
                             "name": "exec_command", "arguments": json.dumps(arguments)}
-                elif index == 2 and fixture.mcp:
+                elif not review and index == 2 and fixture.mcp:
                     namespace = next((tool for tool in payload.get("tools", []) if tool.get("name") == "mcp__bytequay"), None)
                     probe.require(namespace is not None and MCP_TOOL in json.dumps(namespace),
                                   "Expected model-facing ByteQuay development tool; got " + repr(namespace))
                     item = {"id": "fc_mcp", "type": "function_call", "call_id": "call_mcp",
                             "namespace": "mcp__bytequay", "name": MCP_TOOL,
                             "arguments": json.dumps({"readyForDelivery": False})}
-                else:
+                elif not review:
                     item = {"id": "msg_fixture", "type": "message", "role": "assistant", "status": "completed",
                             "content": [{"type": "output_text", "text": "Local fixture completed.", "annotations": []}]}
                 response = {"id": "resp_fixture_" + str(len(fixture.requests)), "object": "response", "created_at": int(time.time()),
@@ -274,10 +278,10 @@ def main():
             provider.command_suffix = ("; /usr/bin/curl -fsS http://127.0.0.1:" + str(provider.proxy.server_port)
                                        + provider.proxy_base + "maven/fixture.pom -o dependency.pom"
                                        + " && printf 'FETCH_OK\\n'")
-        reviewer = "user"
+        reviewer = "auto_review"
         shell_env = SHELL_ENV
         arguments = [str(Path(options.codex).absolute()), "app-server", "--listen", "stdio://", "--strict-config",
-                     "--enable", "skip_host_skill_discovery", "--disable", "guardian_approval",
+                     "--enable", "skip_host_skill_discovery", "--enable", "guardian_approval",
                      "--disable", "multi_agent", "--disable", "multi_agent_v2", "--disable", "network_proxy"]
         config = {"cli_auth_credentials_store": "ephemeral", "model_provider": "deepseek", "model": "deepseek-flash",
                   "model_catalog_json": str(catalog), "model_providers.deepseek.name": "DeepSeek",
@@ -291,10 +295,10 @@ def main():
                   "shell_environment_policy.ignore_default_excludes": False,
                   "shell_environment_policy.experimental_use_profile": False,
                   "shell_environment_policy.include_only": shell_env,
-                  "sandbox_workspace_write.network_access": True}
+                  "sandbox_workspace_write.network_access": True,
+                  "approval_policy": "on-request", "approvals_reviewer": reviewer}
         if ci:
-            config.update({"approval_policy": "on-request", "approvals_reviewer": "user",
-                           "sandbox_workspace_write.writable_roots": roots,
+            config.update({"sandbox_workspace_write.writable_roots": roots,
                            "sandbox_workspace_write.exclude_tmpdir_env_var": True,
                            "sandbox_workspace_write.exclude_slash_tmp": True})
         if provider.mcp:
@@ -314,10 +318,12 @@ def main():
             probe.require(effective["default_permissions"] is None and not any(
                 name.startswith("bytequay-deepseek") for name in (effective["permissions"] or {})),
                 "DeepSeek inherited a separate permission profile")
+            probe.require(effective["approval_policy"] == "on-request" and effective["approvals_reviewer"] == reviewer
+                          and effective["features"]["guardian_approval"] is True,
+                          "DeepSeek did not enable native automatic review")
             if ci:
                 sandbox = effective["sandbox_workspace_write"]
-                probe.require(effective["approval_policy"] == "on-request" and effective["approvals_reviewer"] == "user"
-                              and sandbox["writable_roots"] == roots and sandbox["network_access"] is True
+                probe.require(sandbox["writable_roots"] == roots and sandbox["network_access"] is True
                               and sandbox["exclude_tmpdir_env_var"] and sandbox["exclude_slash_tmp"],
                               "DeepSeek CI permission configuration differs from Codex CI")
             else:
@@ -340,14 +346,14 @@ def main():
                                                                "requires_openai_auth": False, "supports_websockets": False,
                                                                "request_max_retries": 0}},
                              "web_search": "disabled" if ci else "live",
-                             "features": {"skip_host_skill_discovery": True, "guardian_approval": False,
+                             "features": {"skip_host_skill_discovery": True, "guardian_approval": True,
                                           "multi_agent": False, "multi_agent_v2": False, "network_proxy": False},
                              "shell_environment_policy": {"inherit": "core", "include_only": shell_env,
                                                           "ignore_default_excludes": False,
                                                           "experimental_use_profile": False},
                              "sandbox_workspace_write": {"network_access": True}}
             if ci:
-                thread_config.update({"approval_policy": "on-request", "approvals_reviewer": "user",
+                thread_config.update({"approval_policy": "on-request", "approvals_reviewer": reviewer,
                                       "sandbox_workspace_write": {"writable_roots": roots, "network_access": True,
                                                                   "exclude_tmpdir_env_var": True, "exclude_slash_tmp": True}})
             sandbox_policy = {"type": "workspaceWrite", "writableRoots": roots if ci else [str(workspace)],
@@ -374,14 +380,14 @@ def main():
                            "sandboxPolicy": sandbox_policy}
             turn = app.request("turn/start", turn_params, "turn-start")["result"]["turn"]["id"]
             deadline = time.monotonic() + 20
-            approvals = set()
             while not any(item.get("method") == "turn/completed" and item["params"]["turn"]["id"] == turn for item in app.notifications):
-                for item in app.notifications:
-                    if item.get("method") == "item/commandExecution/requestApproval" and item.get("id") not in approvals:
-                        approvals.add(item["id"])
-                        app.send({"id": item["id"], "result": {"decision": options.escalate_read or ("accept" if options.mode == "commit" else "decline")}})
+                probe.require(not any(item.get("method") == "item/commandExecution/requestApproval" for item in app.notifications),
+                              "Native automatic review sent a command approval to the user")
                 probe.require(time.monotonic() < deadline, "Fixture turn did not complete")
                 time.sleep(0.01)
+            probe.require(not any(item.get("method") == "item/commandExecution/requestApproval" for item in app.notifications)
+                          and len(provider.review_requests) == (1 if options.mode == "commit" else 0),
+                          "Native automatic review did not handle the fixture escalation")
             completed = next(item["params"]["turn"] for item in app.notifications if item.get("method") == "turn/completed" and item["params"]["turn"]["id"] == turn)
             probe.require(completed["status"] == "completed", "Fixture turn failed")
             expected_requests = 3 if provider.mcp else 2

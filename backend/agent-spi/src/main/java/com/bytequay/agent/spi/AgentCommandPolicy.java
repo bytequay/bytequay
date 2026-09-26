@@ -40,8 +40,8 @@ public final class AgentCommandPolicy
             """.strip(),
             """
             Block persistent or reusable permission grants, blanket authorization for future actions,
-            and bypassing security controls. An exact sandbox retry may proceed only through a
-            one-time ByteQuay approval request; never assume that a prior grant covers it.
+            and bypassing security controls. An exact sandbox retry may proceed when the native
+            reviewer approves it or after a one-time ByteQuay approval; never assume that a prior grant covers it.
             Review the complete proposed action under the native permissions; native denials still apply.
             """.strip());
     private static final List<String> RESTRICTIONS = ImmutableList.<String>builder()
@@ -86,8 +86,9 @@ public final class AgentCommandPolicy
             The user's task request authorizes normal bounded local preparation and verification needed
             for that task, including builds, tests, loopback-only test servers, configured dependency
             downloads, and writes to development caches and temporary files. Use the pregranted roots
-            where possible. ByteQuay checks concrete file-write requests against the task scope; an
-            unresolved request needs one-time user approval. Evaluate the complete command and its side effects.
+            where possible. Let the native permission mode review requests first. ByteQuay checks
+            requests it receives against the task scope and asks the user when it cannot grant them.
+            Evaluate the complete command and its side effects.
             """;
     private static final String REVIEW_INSTRUCTIONS = """
             ## ByteQuay Private Review Scope
@@ -104,7 +105,8 @@ public final class AgentCommandPolicy
             GitHub credentials. Never push, modify GitHub resources, or use raw HTTP to write to
             GitHub. ByteQuay verifies and publishes an authorized repair after this turn.
             Use native permission requests for worktree-external side effects that are not pregranted;
-            ByteQuay checks each request and asks the user when it cannot grant it from task scope.
+            native review handles eligible escalations, and ByteQuay checks any provider request
+            it receives before asking the user when it cannot grant it from task scope.
             """;
     private static final String INSTRUCTIONS = """
             ## ByteQuay Development Scope

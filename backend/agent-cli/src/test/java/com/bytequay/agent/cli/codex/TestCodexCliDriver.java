@@ -148,7 +148,7 @@ class TestCodexCliDriver
         RunningTurn turn = resumed.start(command("complete"));
         JsonNode startedThread = supervisor.servers().getFirst().threadRequests().getFirst();
         assertThat(startedThread.path("model").asText()).isEqualTo("gpt-5");
-        assertThat(startedThread.path("approvalsReviewer").asText()).isEqualTo("user");
+        assertThat(startedThread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
         assertThat(startedThread.path("config").path("web_search").asText()).isEqualTo("live");
         assertThat(startedThread.path("config").has("auto_review")).isFalse();
         assertThat(startedThread.path("ephemeral").asBoolean()).isFalse();
@@ -160,14 +160,14 @@ class TestCodexCliDriver
 
         JsonNode resumedThread = resumedServer.threadRequests().getFirst();
         assertThat(resumedThread.path("model").asText()).isEqualTo("gpt-5");
-        assertThat(resumedThread.path("approvalsReviewer").asText()).isEqualTo("user");
+        assertThat(resumedThread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
         assertThat(resumedThread.path("config").has("auto_review")).isFalse();
         assertThat(resumedThread.path("config").path("sandbox_workspace_write").path("network_access").asBoolean()).isTrue();
         assertThat(resumedThread.path("config").path("mcp_servers")).isEmpty();
 
         JsonNode startedTurn = resumedServer.turnRequests().getFirst();
         assertThat(startedTurn.path("approvalPolicy").asText()).isEqualTo("on-request");
-        assertThat(startedTurn.path("approvalsReviewer").asText()).isEqualTo("user");
+        assertThat(startedTurn.path("approvalsReviewer").asText()).isEqualTo("auto_review");
         assertThat(Path.of(startedTurn.path("cwd").asText())).isEqualTo(worktree.toRealPath());
         assertThat(startedTurn.path("sandboxPolicy").path("type").asText()).isEqualTo("workspaceWrite");
         assertThat(startedTurn.path("sandboxPolicy").path("writableRoots"))
@@ -240,17 +240,17 @@ class TestCodexCliDriver
                 AppServerProcess server = supervisor.servers().getLast();
                 JsonNode thread = server.threadRequests().getFirst();
                 assertThat(thread.path("approvalPolicy").asText()).isEqualTo("on-request");
-                assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("user");
+                assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
                 assertThat(thread.path("config").path("web_search").asText()).isEqualTo("disabled");
                 assertThat(thread.path("developerInstructions").asText()).contains("ByteQuay CI Repair Scope", "Never push");
-                assertThat(thread.path("config").path("features").path("guardian_approval").asBoolean()).isFalse();
+                assertThat(thread.path("config").path("features").path("guardian_approval").asBoolean()).isTrue();
                 assertThat(thread.path("config").path("features").path("multi_agent").asBoolean()).isFalse();
                 assertThat(thread.path("config").path("features").path("multi_agent_v2").asBoolean()).isFalse();
                 assertThat(thread.path("config").path("features").path("hooks").asBoolean()).isFalse();
                 assertThat(thread.path("config").has("mcp_servers")).isFalse();
                 JsonNode request = server.turnRequests().getFirst();
                 assertThat(request.path("approvalPolicy").asText()).isEqualTo("on-request");
-                assertThat(request.path("approvalsReviewer").asText()).isEqualTo("user");
+                assertThat(request.path("approvalsReviewer").asText()).isEqualTo("auto_review");
                 JsonNode sandbox = request.path("sandboxPolicy");
                 assertThat(sandbox.path("writableRoots")).isEqualTo(objectMapper.valueToTree(ciWritableRoots(context.worktree())));
                 assertThat(sandbox.path("networkAccess").asBoolean()).isTrue();
@@ -367,7 +367,7 @@ class TestCodexCliDriver
     {
         Map<String, String> overrides = ImmutableMap.of(
                 "approval_policy", "{\"approval_policy\":\"never\"}",
-                "approvals_reviewer", "{\"approvals_reviewer\":\"auto_review\"}",
+                "approvals_reviewer", "{\"approvals_reviewer\":\"user\"}",
                 "writable roots", "{\"sandbox_workspace_write\":{\"writable_roots\":[\"/\"]}}",
                 "web_search", "{\"web_search\":\"live\"}");
         for (Map.Entry<String, String> override : overrides.entrySet()) {
@@ -1041,6 +1041,7 @@ class TestCodexCliDriver
         server.emit("""
                 {"id":96,"method":"item/commandExecution/requestApproval","params":{
                 "additionalPermissions":{"network":{"enabled":true}},"command":"curl example.com",
+                "reason":"Need known-secret to download Maven dependencies",
                 "itemId":"exec-permission","startedAtMs":1786884871463,
                 "threadId":"thread-1","turnId":"%s"}}
                 """.formatted(server.activeTurn()));
@@ -1096,6 +1097,10 @@ class TestCodexCliDriver
         assertThat(server.result(104).has("scope")).isFalse();
         assertThat(approvals.stream().map(ProviderApprovalRequest::providerRequestId).toList())
                 .containsExactlyInAnyOrder("93", "96", "99", "100", "104");
+        assertThat(approvals.stream().filter(request -> request.providerRequestId().equals("96"))
+                .findFirst().orElseThrow().detail())
+                .contains("Reason: Need [REDACTED] to download Maven dependencies")
+                .doesNotContain("known-secret");
         assertThat(approvals.stream().map(ProviderApprovalRequest::detail).toList())
                 .anySatisfy(detail -> assertThat(detail).contains("network", "enabled"))
                 .anySatisfy(detail -> assertThat(detail).contains("Network approval", "example.com"))
@@ -1509,15 +1514,15 @@ class TestCodexCliDriver
             assertThat(wrongEffectiveProfile.server().threadRequests()).isEmpty();
         }
 
-        ScriptedProcessSupervisor enabledNativeReviewer = new ScriptedProcessSupervisor(objectMapper);
-        ObjectNode enabledFeatures = objectMapper.valueToTree(
+        ScriptedProcessSupervisor disabledNativeReviewer = new ScriptedProcessSupervisor(objectMapper);
+        ObjectNode disabledFeatures = objectMapper.valueToTree(
                 CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.V1, false));
-        enabledFeatures.put("guardian_approval", true);
-        enabledNativeReviewer.configBody = objectMapper.createObjectNode().set("features", enabledFeatures).toString();
-        assertThatThrownBy(() -> driver(enabledNativeReviewer).open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
+        disabledFeatures.put("guardian_approval", false);
+        disabledNativeReviewer.configBody = objectMapper.createObjectNode().set("features", disabledFeatures).toString();
+        assertThatThrownBy(() -> driver(disabledNativeReviewer).open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("guardian_approval");
-        assertThat(enabledNativeReviewer.server().threadRequests()).isEmpty();
+        assertThat(disabledNativeReviewer.server().threadRequests()).isEmpty();
 
         ScriptedProcessSupervisor wrongSessionFlags = new ScriptedProcessSupervisor(objectMapper);
         ArrayNode layers = objectMapper.createArrayNode();
@@ -2819,6 +2824,8 @@ class TestCodexCliDriver
                 assertThat(thread.path("config").has("auto_review")).isFalse();
                 assertThat(supervisor.serverArgv().getLast())
                         .noneMatch(argument -> argument.startsWith("auto_review.policy="));
+                assertThat(supervisor.serverArgv().getLast()).containsSequence("--disable", "guardian_approval");
+                assertThat(thread.path("config").path("features").path("guardian_approval").asBoolean()).isFalse();
                 assertThat(supervisor.serverArgv().getLast()).contains("mcp_servers.bytequay.default_tools_approval_mode=\"approve\"");
                 assertThat(thread.path("config").path("features").path("multi_agent_v2").asBoolean()).isFalse();
                 assertThat(thread.path("config").path("features").path("hooks").asBoolean()).isFalse();
@@ -2842,7 +2849,7 @@ class TestCodexCliDriver
                 assertThat(server.turnRequests()).isEmpty();
                 ObjectNode wrongScope = (ObjectNode) objectMapper.readTree(admittedConfig);
                 ObjectNode wrongFeatures = objectMapper.valueToTree(
-                        CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false));
+                        CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false, true));
                 wrongFeatures.put("guardian_approval", true);
                 wrongScope.set("features", wrongFeatures);
                 supervisor.configBody = wrongScope.toString();
@@ -3892,9 +3899,11 @@ class TestCodexCliDriver
         private ObjectNode launchConfig()
                 throws IOException
         {
+            boolean review = hasArguments("--enable", "hooks")
+                    || (!textOnlyProfile() && hasArguments("--disable", "guardian_approval"));
             ObjectNode config = objectMapper.valueToTree(
                     CodexLaunchProfile.threadConfig(childProfile(), false, textOnlyProfile(), ciWritableRoots(),
-                            allowsGitHubCommands() && !hasArguments("--enable", "hooks"), hasArguments("--enable", "hooks")));
+                            allowsGitHubCommands() && !review, review));
             for (String argument : argv) {
                 for (String key : ImmutableList.of("approval_policy", "approvals_reviewer")) {
                     String prefix = key + "=";

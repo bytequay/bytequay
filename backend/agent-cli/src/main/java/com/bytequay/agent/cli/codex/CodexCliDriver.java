@@ -132,7 +132,7 @@ import static java.util.stream.Collectors.joining;
  *
  * <pre>
  *   onNotification --&gt; eventMapper --&gt; AgentEventSink --&gt; agent-core (sequenced, then SSE)
- *   onRequest      --&gt; approval request --&gt; agent-core --&gt; user --&gt; JSON-RPC response
+ *   onRequest      --&gt; ByteQuay permission check --&gt; unresolved user approval --&gt; JSON-RPC response
  * </pre>
  */
 public final class CodexCliDriver
@@ -1160,7 +1160,7 @@ public final class CodexCliDriver
 
         private String approvalsReviewer()
         {
-            return "user";
+            return context.textOnly() || permissionScope.review() ? "user" : "auto_review";
         }
 
         private Map<String, Object> sandboxPolicy(Path worktree)
@@ -2066,6 +2066,8 @@ public final class CodexCliDriver
                     }
                 }
                 StringBuilder requested = new StringBuilder(rawCommand);
+                approval.params().reason().filter(value -> !value.isBlank())
+                        .ifPresent(value -> requested.append("\nReason: ").append(value));
                 approval.params().additionalPermissions().ifPresent(value -> requested.append("\nAdditional permissions: ").append(value));
                 approval.params().networkApprovalContext().ifPresent(value -> requested.append("\nNetwork approval: ").append(value));
                 detail = sessionRedactor.redact(requested.toString());

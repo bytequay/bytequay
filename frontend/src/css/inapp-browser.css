@@ -49,7 +49,7 @@
 .inapp-browser__nav-btn {
   appearance: none;
   background: transparent;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: var(--radius-md);
   width: 28px;
   height: 28px;
@@ -60,11 +60,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.1s, border-color 0.1s, color 0.1s;
+  transition: background 0.1s, color 0.1s;
 }
 .inapp-browser__nav-btn:hover:not(:disabled) {
   background: var(--accent-a7);
-  border-color: var(--accent-a40);
   color: var(--accent);
 }
 .inapp-browser__nav-btn:disabled {
@@ -153,7 +152,10 @@
 .inapp-browser__start p { font-size: var(--font-size-sm); line-height: 1.7; margin-top: 20px; overflow-wrap: anywhere; }
 .inapp-browser__start .web-address__error { text-align: left; }
 .inapp-browser__slot .inapp-browser__start { margin: 10vh auto; }
-@media (max-width: 1120px) { .inapp-browser__popout .inapp-browser__action-label { display: none; } }
+@media (max-width: 1120px) {
+  .inapp-browser__popout { border: 0; }
+  .inapp-browser__popout .inapp-browser__action-label { display: none; }
+}
 
 .app-surfaces { margin-left: var(--browser-rail-width); }
 .browser-workspace.is-web-rail-hidden > .browser-rail { display: none; }

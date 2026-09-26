@@ -219,14 +219,14 @@
   width: 30px;
   height: 30px;
   box-sizing: border-box;
-  border: 1px solid #d0d7de;
+  border: 0;
   border-radius: 7px;
-  background: #ffffff;
+  background: transparent;
   cursor: pointer;
   color: #57606a;
 }
 
-.cmt-refresh:hover { background: #f6f8fa; }
+.cmt-refresh:hover { background: #f0f1f3; }
 .cmt-refresh:disabled { cursor: default; }
 .cmt-refresh .is-spinning { animation: bq-spin 1s linear infinite; }
 

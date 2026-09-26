@@ -399,6 +399,8 @@
 .pull-detail__review-count { display: inline-grid; min-width: 20px; height: 20px; place-items: center; border-radius: 999px; background: #116329; padding: 0 6px; color: #fff; font-size: 11px; line-height: 1; }
 .pull-detail__toolbar .pull-detail__header-actions button { min-height: 32px; border-radius: 9px; padding: 5px 11px; font-size: var(--font-size-md); }
 .pull-detail__toolbar .pull-detail__header-actions button.pull-detail__icon-action { width: 32px; justify-content: center; padding: 5px; }
+.pull-detail__header-actions button.pull-detail__icon-action { border-color: transparent; background: transparent; }
+.pull-detail__header-actions button.pull-detail__icon-action:hover { background: #f0f1f3; }
 .pull-detail__icon-action.is-refreshing { cursor: wait; }
 .pull-detail__header-actions button.pull-detail__merge-action:disabled {
   cursor: default;

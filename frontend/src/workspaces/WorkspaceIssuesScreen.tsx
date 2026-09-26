@@ -458,7 +458,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
             <div className="pull-detail__title-row">
               <h1>{linkIssueNumbers(selected.title, repository, true)} {selected.isGoal && <GoalBadge />}</h1>
               <div className="pull-detail__header-actions">
-                <button type="button" title="Refresh" aria-label="Refresh" disabled={detailLoading}
+                <button className="pull-detail__icon-action" type="button" title="Refresh" aria-label="Refresh" disabled={detailLoading}
                   onClick={() => { void loadDetail(selected.number, true); }}><RefreshIcon /></button>
                 {overlay
                   ? <ZoomActions {...zoom} label="issue details" className="pull-detail__icon-action" />

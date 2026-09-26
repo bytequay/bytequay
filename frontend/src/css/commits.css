@@ -1761,6 +1761,7 @@
   font-size: var(--ui-font-size);
   color: var(--text-1);
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .cmt-composer { padding: 10px 14px 8px; border-top: 1px solid #d0d7de; background: #ffffff; }

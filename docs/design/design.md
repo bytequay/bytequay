@@ -66,6 +66,11 @@ historical checkpoint evidence and explicitly deferred future work.
   selected turn, one thread per passage, a reply-count footer in the transcript
   and a task side-panel tab. A discussion is not an agent task and never enters
   the task's own conversation, event log, outbox or stream.
+- [Review Triage](review-triage.md) specifies a read-only task discussion that
+  checks other people's review comments on a task's own pull request and
+  returns one private verdict per comment, started by an opt-in watcher or an
+  Ask agent click, never replying on GitHub or editing code. How its
+  conversation is displayed is still open.
 - [Repository Context](repository-context.md) defines shared workspace knowledge,
   user-saved lessons, and source-linked input for the existing review flow.
   Start with its overall flow; its [temporary checklist](repository-context-impl-tmp.md)
@@ -80,8 +85,7 @@ historical checkpoint evidence and explicitly deferred future work.
   tracks the phased delivery.
 - [CI Autofix Service](ci-autofix-service.md) specifies a user-started,
   bounded watch/fix/commit/push loop for pending or failing GitHub Actions checks. Review
-  comment triage is intentionally outside that service and will be designed
-  separately.
+  comment triage is outside that service; see [Review Triage](review-triage.md).
 - [Development Task Delivery](development-delivery.md) defines approved default-on
   commit, draft-PR, and CI-fix settings after development turns. The agent
   commits and publishes; ByteQuay verifies the result, coordinates the existing

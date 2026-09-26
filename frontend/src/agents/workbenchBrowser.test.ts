@@ -19,3 +19,10 @@ it('keeps local WorkBench views and drafts when switching destinations in Chromi
     global: 'WorkbenchTests', styles: true, charset: true, width: 1450, height: 950 });
   expect(result).toContain('unsaved code before a PR exists');
 }, 30_000);
+
+it('opens Discussions from the conversation as a tab that closes in Chromium', async () => {
+  const result = await runBrowserFixture<string>({ prefix: 'bytequay-workbench-utility-', entry: 'src/agents/fixtures/workbenchBrowser.tsx',
+    global: 'WorkbenchTests', styles: true, charset: true, width: 1450, height: 950,
+    body: "const results = await window.webContents.executeJavaScript('WorkbenchTests.utilityTabs()');" });
+  expect(result).toContain('closes back to the covered view');
+}, 30_000);

@@ -650,7 +650,10 @@ worktree; a question is already in flight; the seed exceeds the budget.
 
 The frontend adds a **Discussions** tab to the task side panel. The tab belongs
 in the shared panel-tab slot rather than either header's fixed list, because the
-panel header is replaced when the task has a pull request.
+panel header is replaced when the task has a pull request. It appears at the top
+level, beside PR and WorkBench, only once the reader asks about a passage or
+opens a thread from the transcript, and it closes with its ×; opening a thread
+again restores it.
 
 ### 8.1 Where a footer sits
 

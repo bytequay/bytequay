@@ -21,7 +21,8 @@ CircleX,
 ListChecks,
 MessageCircle,
 PanelRight,
-TriangleAlert
+TriangleAlert,
+X
 } from 'lucide-react';
 import React,{ useCallback,useEffect,useReducer,useRef,useState } from 'react';
 import { Chevron } from '../Chevron';
@@ -142,6 +143,8 @@ type TaskPullRequestDetail
 export { TurnView,type AttachmentPreview } from './AgentConversation';
 
 type PanelTab = 'pr' | 'files' | 'changes' | 'review' | 'code' | 'agents' | 'discussions';
+/** Panel tabs that exist only once the conversation opens them, and close on their own ×. */
+type UtilityTab = Extract<PanelTab, 'agents' | 'discussions'>;
 
 interface AgentTaskScreenProps {
   workspaceId: string;
@@ -547,7 +550,7 @@ function SidePanel({
   onPullRequestCommitRangeChange, onPullRequestPendingCommentsChange, workspaceId, branch, repository,
   activityChoice, onOpenAgent, onCloseAgent, onToggleActivity, onDecide, onSelectTab, onOpenPullRequest,
   onAskAgent, onAskAgentDisabled, localReview, learning, reviewFocus, onCodeUnsavedChange,
-  width, showAgents, logChoice = null, onToggleLog = () => {}, historyUnloaded = false, onLoadEarlier = () => {}, historyLoading = false,
+  width, showAgents, utilityTabs, onCloseUtility, logChoice = null, onToggleLog = () => {}, historyUnloaded = false, onLoadEarlier = () => {}, historyLoading = false,
 }: {
   agents: AgentNode[];
   historyUnloaded?: boolean;
@@ -601,6 +604,9 @@ function SidePanel({
   onCodeUnsavedChange?: (count: number) => void;
   width: number;
   showAgents: boolean;
+  /** The Subagents and Discussions tabs the conversation opened, in the order it opened them. */
+  utilityTabs: UtilityTab[];
+  onCloseUtility: (tab: UtilityTab) => void;
   /** The agent whose log the user opened, or "!thread" for one they folded; live agents open by default. */
   logChoice?: string | null;
   onToggleLog?: (choice: string) => void;
@@ -678,22 +684,21 @@ function SidePanel({
   const done = agents.filter((agent) => agent.status !== 'running');
   const labels = Object.fromEntries(agents.map((agent) => [agent.threadId, agent.label]));
   const agentCount = agents.length + expiredChildren.length;
-  const agentTab = (
-    <>
-      {showAgents && (
-        <button type="button" className={tab === 'agents' ? 'is-active' : ''} aria-pressed={tab === 'agents'} onClick={() => onSelectTab('agents')}>
-          <Bot aria-hidden="true" /> Subagents
-          {agentCount > 0 && <span className="agt-chip">{agentCount}</span>}
+  const shownUtilities = utilityTabs.filter(utility => (utility === 'agents' ? showAgents : discussions !== undefined));
+  const agentTab = shownUtilities.length === 0 ? undefined : shownUtilities.map(utility => {
+    const label = utility === 'agents' ? 'Subagents' : 'Discussions';
+    const count = utility === 'agents' ? agentCount : discussions?.discussions.length ?? 0;
+    return (
+      <span key={utility} className={`pull-detail__utility${tab === utility ? ' is-active' : ''}`}>
+        <button type="button" className={tab === utility ? 'is-active' : ''} aria-pressed={tab === utility} onClick={() => onSelectTab(utility)}>
+          {utility === 'agents' ? <Bot aria-hidden="true" /> : <MessageCircle aria-hidden="true" />} {label}
+          {count > 0 && <span className="agt-chip">{count}</span>}
         </button>
-      )}
-      {discussions !== undefined && (
-        <button type="button" className={tab === 'discussions' ? 'is-active' : ''} aria-pressed={tab === 'discussions'} onClick={() => onSelectTab('discussions')}>
-          <MessageCircle aria-hidden="true" /> Discussions
-          {discussions.discussions.length > 0 && <span className="agt-chip">{discussions.discussions.length}</span>}
-        </button>
-      )}
-    </>
-  );
+        <button type="button" className="pull-detail__utility-close" aria-label={`Close ${label}`} title={`Close ${label}`}
+          onClick={() => onCloseUtility(utility)}><X aria-hidden="true" /></button>
+      </span>
+    );
+  });
   const tabs = <PullDetailHeader
       pr={pullRequest}
       detail={pullRequestDetail.detail}
@@ -1048,6 +1053,8 @@ export function AgentTaskBody({
   onOpenAgent = () => {},
   onCloseAgent = () => {},
   onSelectPanelTab = () => {},
+  utilityTabs = [],
+  onCloseUtility = () => {},
   onOpenPullRequest,
   onSteer: steer = () => {},
   onQueue = () => {},
@@ -1156,6 +1163,9 @@ export function AgentTaskBody({
   /** The repository a pull request from this task targets, named in the no-pull-request state. */
   repository?: string | null;
   onSelectPanelTab?: (tab: PanelTab) => void;
+  /** The Subagents and Discussions tabs the conversation opened; none until it opens one. */
+  utilityTabs?: UtilityTab[];
+  onCloseUtility?: (tab: UtilityTab) => void;
   onOpenPullRequest?: (number: number) => void;
   /** Asks ByteQuay to publish the task's committed work as a draft pull request; absent in a static render. */
   logChoice?: string | null;
@@ -1518,6 +1528,8 @@ export function AgentTaskBody({
             onOpenPullRequest={onOpenPullRequest}
             width={sidePanel.width}
             showAgents={supportsNestedAgents}
+            utilityTabs={utilityTabs}
+            onCloseUtility={onCloseUtility}
             logChoice={logChoice}
             onToggleLog={onToggleLog}
           />
@@ -1640,6 +1652,15 @@ export default function AgentTaskScreen({
   const [ciPollingError, setCiPollingError] = useState<string | null>(null);
   const [openAgent, setOpenAgent] = useState<string | null>(null);
   const [panelTab, setPanelTab] = useState<PanelTab>('review');
+  const [utilityTabs, setUtilityTabs] = useState<UtilityTab[]>([]);
+  // The view a Subagents or Discussions tab covers, shown again when that tab closes.
+  const coveredTab = useRef<PanelTab>('review');
+  if (panelTab !== 'agents' && panelTab !== 'discussions') coveredTab.current = panelTab;
+  const openUtility = (tab: UtilityTab): void => {
+    setUtilityTabs(open => (open.includes(tab) ? open : [...open, tab]));
+    setPanelChoice(true);
+    setPanelTab(tab);
+  };
   // A fresh object per request: asking for the same discussion twice opens its card again.
   const [discussionFocus, setDiscussionFocus] = useState<{ id: string } | null>(null);
   const [reviewFocus, setReviewFocus] = useState<ReviewCardFocus | null>(null);
@@ -2557,10 +2578,10 @@ export default function AgentTaskScreen({
       localReview={localReview}
       discussions={discussions}
       onSelectPassage={(passage, question) => {
-        void discussions.open({ ...passage, question }).then(() => { setPanelChoice(true); setPanelTab('discussions'); });
+        void discussions.open({ ...passage, question }).then(() => openUtility('discussions'));
       }}
       discussionFocus={discussionFocus}
-      onOpenDiscussion={id => { setPanelChoice(true); setPanelTab('discussions'); setDiscussionFocus({ id }); }}
+      onOpenDiscussion={id => { openUtility('discussions'); setDiscussionFocus({ id }); }}
       onJumpToPassage={revealPassage}
       learning={onSelectCommit => state.task === null ? null : <DevelopmentLearningPanel key={taskId} task={state.task} onSelectCommit={onSelectCommit} repository={workspace === undefined ? '' : `${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
         refreshKey={state.lifecycleEpoch} refining={state.task?.developmentContinuationUnfinished === true && state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY'}
@@ -2654,9 +2675,14 @@ export default function AgentTaskScreen({
         else withCodeDrafts(() => setPanelChoice(false));
       }}
       onCodeUnsavedChange={trackCodeUnsaved}
-      onOpenAgent={(threadId) => { setPanelChoice(true); setPanelTab('agents'); setOpenAgent(threadId); }}
+      onOpenAgent={(threadId) => { openUtility('agents'); setOpenAgent(threadId); }}
       onCloseAgent={() => setOpenAgent(null)}
       onSelectPanelTab={(tab) => { setPanelTab(tab); setOpenAgent(null); }}
+      utilityTabs={utilityTabs}
+      onCloseUtility={(tab) => {
+        setUtilityTabs(open => open.filter(item => item !== tab));
+        if (panelTab === tab) { setPanelTab(coveredTab.current); setOpenAgent(null); }
+      }}
       logChoice={logChoice}
       onToggleLog={setLogChoice}
       onOpenPullRequest={onOpenPullRequest}

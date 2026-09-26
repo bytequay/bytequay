@@ -15,11 +15,12 @@ import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { EditorView } from '@codemirror/view';
-import { AgentTaskBody } from '../AgentTaskScreen';
+import AgentTaskScreen, { AgentTaskBody } from '../AgentTaskScreen';
 import { PullDetailHeader } from '../../pulls/PullsScreen';
 import WorktreeChanges from '../../pulls/code-tests/WorktreeChanges';
 import { initialAgentTaskState } from '../model';
-import { previewTask, TASK_BODY_NOOPS } from './previewBridge';
+import { createPreviewBridge, previewTask, TASK_BODY_NOOPS } from './previewBridge';
+import type { TaskDiscussionDto } from '../discussions/contracts';
 import type { AgentTaskDto, Bridge } from '../../types';
 import type { CodeHostRef, WorktreeChangesRequest } from '../../pulls/code-tests/contracts';
 import { assert, settle } from '../../fixtures/harness';
@@ -138,5 +139,57 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
   }
   finally {
     if (!keepMounted) { flushSync(() => root.unmount()); host.remove(); Object.assign(window, { bridge: originalBridge }); }
+  }
+}
+
+/** The whole task screen, because opening and closing a utility tab is the wrapper's state, not the body's. */
+export async function utilityTabs(): Promise<string> {
+  const bridge = createPreviewBridge('workspace-1');
+  const answer = bridge.events.find(event => event.type === 'assistant_message' && event.payload.phase === 'FINAL');
+  assert(answer?.turnId != null, 'The fixture must hold a finished answer');
+  const at = '2026-08-20T10:02:00Z';
+  const discussion: TaskDiscussionDto = { id: 'd1', taskId: answer.taskId, turnId: answer.turnId, quote: 'authentication regression',
+    occurrence: 1, resolved: false, pending: false, providerLane: 'codex', version: 1, createdAt: at, updatedAt: at,
+    messages: [{ id: 'm1', author: 'USER', body: 'Which one?', createdAt: at, error: null },
+      { id: 'm2', author: 'AGENT', body: 'The token refresh.', createdAt: at, error: null }] };
+  // Only an interactive task has discussions, and its Summary asks the page bridge for a review.
+  const getTask = bridge.getAgentTask;
+  bridge.getAgentTask = async (taskId, workspaceId) => ({ ...await getTask(taskId, workspaceId), interactive: true });
+  bridge.listTaskDiscussions = async () => [discussion];
+  const originalBridge = window.bridge;
+  Object.defineProperty(window, 'bridge', { configurable: true, value: { ...bridge, findTaskAgentReview: async (): Promise<null> => null } });
+  const host = document.createElement('div');
+  host.style.cssText = 'width:1400px;height:850px';
+  document.body.append(host);
+  const root = createRoot(host);
+  const footer = async (): Promise<HTMLButtonElement> => {
+    for (let frame = 0; frame < 60; frame++) {
+      const row = host.querySelector<HTMLButtonElement>('.agt-disc-row');
+      if (row !== null) return row;
+      await settle();
+    }
+    throw new Error('The answer never showed its discussion footer');
+  };
+  const panel = () => host.querySelector('.agt-panel')?.getAttribute('aria-label');
+  const tab = () => host.querySelector('[aria-label="Task destinations"]')?.textContent?.includes('Discussions') === true;
+  try {
+    flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={answer.taskId} bridge={bridge} onBack={() => {}} />));
+    await footer();
+    host.querySelector<HTMLButtonElement>('[aria-label="Show or hide the side panel"]')?.click(); await settle();
+    assert(panel() === 'Summary' && !tab(), 'The panel must not show a Discussions tab the conversation never opened');
+    (await footer()).click(); await settle();
+    assert(panel() === 'Discussions' && tab(), 'A discussion footer must open its tab');
+    assert(host.querySelector('[aria-label="WorkBench views"]') === null, 'A top-level utility tab must not keep showing the WorkBench views');
+    [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'WorkBench')?.click(); await settle();
+    assert(panel() === 'Summary' && tab(), 'An opened tab must stay while another view shows');
+    (await footer()).click(); await settle();
+    host.querySelector<HTMLButtonElement>('[aria-label="Close Discussions"]')?.click(); await settle();
+    assert(panel() === 'Summary' && !tab(), 'Closing the showing tab must remove it and return to the view it covered');
+    (await footer()).click(); await settle();
+    assert(panel() === 'Discussions' && tab(), 'The footer must reopen a closed tab');
+    return 'Discussions opens from the conversation and closes back to the covered view';
+  }
+  finally {
+    flushSync(() => root.unmount()); host.remove(); Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge });
   }
 }

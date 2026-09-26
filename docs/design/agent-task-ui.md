@@ -619,8 +619,10 @@ The tab keeps the last completed report while the update runs; it has no manual
 cards and preserve the original summary snapshot when newer reports replace
 the cards. Earlier summary discussions remain accessible below the current
 report. An explanation or summary refresh never releases a pending decision.
-**Subagents**, with its total count, remains available when the development
-provider supports nested activity. Refresh, **Submit review**, and the checks/merge
+**Subagents**, with its total count, opens as a closable top-level tab beside
+PR and WorkBench when a subagent chip in the conversation is clicked, on
+providers that support nested activity.
+Refresh, **Submit review**, and the checks/merge
 button remain in the toolbar. An author can submit a comment review on their
 own PR, without approval or request-changes choices. **Open full width** shows
 the same pull request in a dialog over 90% of the window, dimming the task

@@ -608,7 +608,7 @@ describe('agent task side panel', () => {
     expect(render({ interactive: false })).toContain('Code &amp; Tests');
   });
 
-  it('keeps Discussions beside the other tabs once the task has a pull request', () => {
+  it('keeps an opened Discussions tab beside PR and WorkBench, with or without a pull request', () => {
     const discussions: TaskDiscussions = {
       discussions: [],
       error: null,
@@ -620,18 +620,22 @@ describe('agent task side panel', () => {
       retry: async () => undefined,
     };
     // The panel header is replaced when a task has a pull request, so a tab registered in that
-    // header's own list would vanish here. This asserts it lives in the shared slot instead.
+    // header's own list would vanish here. This asserts it lives in the shared top-level slot instead.
+    const destinations = (markup: string) => markup.match(/aria-label="Task destinations">([^]*?)<\/nav>/)?.[1] ?? '';
     const withPullRequest = renderToStaticMarkup(
-      <AgentTaskBody state={state} panelOpen panelTab="agents" discussions={discussions}
+      <AgentTaskBody state={state} panelOpen panelTab="review" discussions={discussions} utilityTabs={['discussions']}
         pullRequests={[pullRequest(482, 'Fix preview output limit')]} {...props} />);
-    expect(withPullRequest).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?Discussions/);
+    expect(destinations(withPullRequest)).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?Discussions/);
+    expect(destinations(withPullRequest)).toContain('aria-label="Close Discussions"');
 
     const withoutPullRequest = renderToStaticMarkup(
-      <AgentTaskBody state={state} panelOpen panelTab="agents" discussions={discussions} pullRequests={[]} {...props} />);
-    expect(withoutPullRequest).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?Discussions/);
+      <AgentTaskBody state={state} panelOpen panelTab="review" discussions={discussions} utilityTabs={['discussions']} pullRequests={[]} {...props} />);
+    expect(destinations(withoutPullRequest)).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?Discussions/);
 
-    // No hook, no tab: a screen that never asked for discussions must not grow one.
-    expect(renderToStaticMarkup(<AgentTaskBody state={state} panelOpen pullRequests={[]} {...props} />))
+    // Until the conversation opens it there is no tab, and no hook means none can be opened.
+    expect(renderToStaticMarkup(<AgentTaskBody state={state} panelOpen discussions={discussions} pullRequests={[]} {...props} />))
+      .not.toContain('Discussions');
+    expect(renderToStaticMarkup(<AgentTaskBody state={state} panelOpen utilityTabs={['discussions']} pullRequests={[]} {...props} />))
       .not.toContain('Discussions');
   });
 
@@ -697,9 +701,13 @@ describe('agent task side panel', () => {
 
   it('keeps the subagent list unchanged under its own tab', () => {
     const markup = renderToStaticMarkup(
-      <AgentTaskBody state={state} panelOpen panelTab="agents" pullRequests={[]} {...props} />);
+      <AgentTaskBody state={state} panelOpen panelTab="agents" utilityTabs={['agents']} pullRequests={[]} {...props} />);
     expect(markup).toContain('aria-label="Subagents"');
     expect(markup).toMatch(/<button[^>]*aria-pressed="true"[^>]*>[^]*?Subagents/);
+    expect(markup.match(/aria-label="Task destinations">([^]*?)<\/nav>/)?.[1]).toContain('aria-label="Close Subagents"');
+    // Subagents is a destination of its own, so WorkBench steps back and its views are not shown.
+    expect(markup.split('<button').find(part => part.includes('WorkBench'))).toContain('aria-pressed="false"');
+    expect(markup).not.toContain('Code &amp; Tests');
     expect(markup).toContain('No active subagents');
     // The top-level PR destination has no number until a pull request exists.
     expect(markup).toContain(' PR<');
@@ -770,7 +778,7 @@ describe('agent task side panel', () => {
       capabilities: { ...CAPABILITIES, nestedAgentActivity: false },
     };
     const markup = renderToStaticMarkup(
-      <AgentTaskBody state={claudeState} panelOpen panelTab="agents" pullRequests={[]} {...props} />);
+      <AgentTaskBody state={claudeState} panelOpen panelTab="agents" utilityTabs={['agents']} pullRequests={[]} {...props} />);
 
     expect(markup).toContain('aria-label="Pull request"');
     expect(markup).not.toContain('Subagents');

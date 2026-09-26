@@ -1357,7 +1357,7 @@ export function PullDetailHeader({
   /** The open Agent review, when the pull request has one; its status rides on the tab. */
   review?: AgentReviewDto | null;
   onReviewChange?: (review: AgentReviewDto) => void;
-  /** Host utilities shown beside the WorkBench views. */
+  /** Host destinations drawn after PR and WorkBench. */
   agentTab?: ReactNode;
   codeAvailable?: boolean;
   workingCopyAvailable?: boolean;
@@ -1387,13 +1387,13 @@ export function PullDetailHeader({
   const pendingCommentCount = pendingComments.length + pendingDraftCount(review?.draft ?? null);
   const reviewChip = review === null ? null : reviewStatus(review);
   const prSelected = tab === 'overview';
-  const workbenchSelected = !prSelected;
+  const workbenchSelected = tab !== null && !prSelected;
   const changesSelected = tab === 'files' || tab === 'changes';
   const publishedSelected = tab === 'files';
   const source = changesSource ?? (publishedSelected ? 'published' : workingCopyAvailable ? 'working' : 'reviewed');
   const lastChangesTab = useRef<HeaderTab | null>(null);
   const lastWorkbenchTab = useRef<HeaderTab>('review');
-  if (tab !== null && workbenchSelected) lastWorkbenchTab.current = tab;
+  if (workbenchSelected) lastWorkbenchTab.current = tab;
   if (changesSelected) lastChangesTab.current = tab;
   const draft = detail?.draft === true;
   const canOpenMerge = pr !== null && detail?.state?.toLowerCase() === 'open';
@@ -1446,6 +1446,7 @@ export function PullDetailHeader({
               {reviewChip.busy && <span className="agr-spinner" aria-hidden="true" />}{reviewChip.chip}
             </span>}
           </button>
+          {agentTab}
         </nav>
         <div className="pull-detail__header-actions">
           {zoom
@@ -1499,7 +1500,6 @@ export function PullDetailHeader({
           <button type="button" className={tab === 'code' ? 'is-active' : ''} aria-pressed={tab === 'code'} onClick={() => onTab('code')} disabled={!codeAvailable}
             title={codeAvailable ? undefined : 'Available when this task has a worktree'}><Code size={14} aria-hidden="true" /> Code &amp; Tests</button>
         </nav>
-        {agentTab !== undefined && <nav className="pull-detail__tabs pull-detail__utilities" aria-label="WorkBench utilities">{agentTab}</nav>}
         {changesSelected && <div className="pull-detail__changes-tools">
           {(pr !== null || workingCopyAvailable || review !== null) && <select className="pull-detail__changes-source" aria-label="Changes source" value={source}
             onChange={event => {

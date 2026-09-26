@@ -640,13 +640,15 @@ function TurnFooter({ turn, durable, models }: {
   );
 }
 
-export function TurnView({ turn, repository, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, localReview, discussions, reviewRequests, issueSource, jiraSource, onOpenReview, onOpenDiscussion, onSelectPassage, focusedDiscussion, onHoverDiscussion, latest = false, children }: {
+export function TurnView({ turn, repository, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, localReview, discussions, reviewRequests, issueSource, jiraSource, onOpenReview, onOpenDiscussion, onSelectPassage, discussionBusy = false, focusedDiscussion, onHoverDiscussion, latest = false, children }: {
   localReview?: LocalReviewThreads;
   discussions?: TaskDiscussionDto[];
   onOpenDiscussion?: (discussionId: string) => void;
   focusedDiscussion?: string | null;
   onHoverDiscussion?: (discussionId: string | null) => void;
-  onSelectPassage?: (passage: SelectedPassage, question: string) => void;
+  onSelectPassage?: (passage: SelectedPassage, question: string) => Promise<unknown>;
+  /** Another discussion on the task is being answered. */
+  discussionBusy?: boolean;
   reviewRequests?: readonly ReviewRequest[];
   issueSource?: AgentIssueSourceDto | null;
   jiraSource?: JiraTaskSource | null;
@@ -778,6 +780,7 @@ export function TurnView({ turn, repository, first, open, now, models, durableTu
             streaming={!turn.answer.complete}
             discussions={(discussions ?? []).filter(discussion => discussion.turnId === turn.turnId)}
             focused={focusedDiscussion}
+            busy={discussionBusy}
             onSelect={onSelectPassage}
             onOpen={onOpenDiscussion}
             onHover={onHoverDiscussion}
@@ -1006,7 +1009,7 @@ export function AgentConversation({
   turns, repository, durableTurns, models, now, scroll, connection, running, activeTurn, activeTurnId = activeTurn?.id, waiting, gap = false, pendingMessage = null,
   activityChoice, turnChoice, onToggleTurn, onToggleActivity, onDecide,
   previews = {}, agentLabels = {}, pendingApprovals = [], generatedTurnIds, generatedBranch,
-  onOpenAgent, children, transcriptFooter, localReview, discussions, reviewRequests, issueSource, jiraSource, onOpenReview, onOpenDiscussion, onSelectPassage, focusedDiscussion, onHoverDiscussion, label = 'Task transcript',
+  onOpenAgent, children, transcriptFooter, localReview, discussions, reviewRequests, issueSource, jiraSource, onOpenReview, onOpenDiscussion, onSelectPassage, discussionBusy, focusedDiscussion, onHoverDiscussion, label = 'Task transcript',
 }: {
   turns: TranscriptTurn[];
   /** `owner/repo` a bare `#1234` in the transcript refers to. */
@@ -1041,7 +1044,9 @@ export function AgentConversation({
   onOpenDiscussion?: (discussionId: string) => void;
   focusedDiscussion?: string | null;
   onHoverDiscussion?: (discussionId: string | null) => void;
-  onSelectPassage?: (passage: SelectedPassage, question: string) => void;
+  onSelectPassage?: (passage: SelectedPassage, question: string) => Promise<unknown>;
+  /** Another discussion on the task is being answered. */
+  discussionBusy?: boolean;
   reviewRequests?: readonly ReviewRequest[];
   issueSource?: AgentIssueSourceDto | null;
   jiraSource?: JiraTaskSource | null;
@@ -1098,7 +1103,7 @@ export function AgentConversation({
               previews={previews} agentLabels={agentLabels} onToggle={() => onToggleTurn(id, !open)}
               onToggleActivity={onToggleActivity} onDecide={onDecide} onOpenAgent={onOpenAgent}
               localReview={localReview} discussions={discussions} onOpenDiscussion={onOpenDiscussion} onSelectPassage={onSelectPassage}
-              focusedDiscussion={focusedDiscussion} onHoverDiscussion={onHoverDiscussion}
+              discussionBusy={discussionBusy} focusedDiscussion={focusedDiscussion} onHoverDiscussion={onHoverDiscussion}
               reviewRequests={reviewRequests} issueSource={issueSource} jiraSource={jiraSource} onOpenReview={onOpenReview} latest={reserve}
               generatedRequest={turn.turnId !== null && generatedTurnIds?.has(turn.turnId)} generatedBranch={generatedBranch}>
               {latest && liveActivity}

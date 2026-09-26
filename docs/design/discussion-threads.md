@@ -267,7 +267,7 @@ public interface TaskDiscussionService
      * @throws IllegalArgumentException when the quote does not occur in the stored
      *         final answer of {@code command.turnId()}
      * @throws AgentConflictException when the task has no live worktree, when a
-     *         question is already in flight for this discussion, or when the task
+     *         question is already in flight for this task, or when the task
      *         already holds {@code MAX_DISCUSSIONS_PER_TASK} discussions
      * @throws InvalidAgentRequestException when the seed exceeds the context budget
      */
@@ -287,6 +287,8 @@ public interface TaskDiscussionService
     /**
      * Re-runs a question whose answer failed, in place: the recorded question keeps its
      * identity and its error is cleared, so a retry never appends a second copy of it.
+     * A trailing question that has no error and is not in flight, one a restart
+     * orphaned, is re-run the same way.
      */
     TaskDiscussionView retry(String workspaceId, String taskId, String discussionId, String messageId);
 
@@ -357,6 +359,9 @@ public record TaskDiscussionView(
             Optional<String> error) {}
 }
 ```
+
+`open` claims the task's slot (section 7) before it creates a discussion, so a
+question refused on a busy task leaves no row.
 
 Nothing else belongs on the view. `label` is presentation, derived in the renderer
 from `quote` and `occurrence`. A reply count is `messages.size()`. Askability is
@@ -507,7 +512,7 @@ because the index is inside the hash. Normalization is versioned by
 nothing: changing it silently orphans every stored `quoteHash`, so a change to
 this list is a change to stored data and must be treated as one.
 
-The discussion's context is bounded by `MAX_SEED_CHARACTERS = 1_000_000`, a
+The discussion's context is bounded by `MAX_SEED_CHARACTERS = 1_200_000`, a
 character budget standing in for the 300,000-token limit and declared on
 `TaskDiscussion`. No provider reports a context window and ByteQuay does not
 own hidden context content, so the bound is enforced before the session opens
@@ -551,8 +556,9 @@ Five separations, each load-bearing:
    while the task runs. On the Codex lane this means a second App Server
    process on the same task id and worktree, which amends the accepted
    one-App-Server-per-task rule: at most one turn-bearing App Server plus at
-   most one read-only discussion session per task. `docs/design/agent-service.md`
-   §Runtime shape carries the same amendment.
+   most one read-only discussion session per task. The per-task in-flight
+   guard of section 7 enforces that limit. `docs/design/agent-service.md`
+   §1 carries the same amendment.
 5. **A discarding event sink.** Usage samples and every event that reaches the
    JSONL log, outbox or stream are written only from the task turn service's
    event route; the remaining metrics writes all require a turn row, which a
@@ -605,10 +611,11 @@ restart and a durable running row would be a lie needing a recovery sweep; no
 separate request or event records, because there is one canonical event
 sequence per task and a discussion is not a second transcript.
 
-In-flight is therefore in-memory: the service impl holds a
-`Set<String>` of discussion ids with a question in flight, added before the
-virtual thread starts and removed in its `finally`. A restart clears it, which
-is correct — the answer thread is gone too.
+In-flight is therefore in-memory: the service impl holds a per-task map from
+task id to the discussion ids with a question in flight. Claiming a task's slot
+refuses while any discussion on it is answering; the slot is taken before the
+question is recorded and released in the answer thread's `finally`. A restart
+clears it, which is correct — the answer thread is gone too.
 
 Scratch resources are allocated **per question** and deleted in a `finally`,
 the shape `DefaultAgentTaskTitleService.generate` already uses: allocate under
@@ -743,10 +750,12 @@ none changes a route or a stored field.
   mention ordinal — `INVALID_TABLE_PROPERTY · 2nd mention` — from `occurrence`
   on the view. The transcript separates repeats by position, but only when they
   fall in different blocks, and the panel has no position at all.
-- **Asking while a question is in flight.** The backend refusal stands. The
-  client disables Ask while the view reports `pending` and keeps the draft, so
-  the refusal is unreachable rather than displayed. No client-side queue: a
-  timer over a backend refusal misfires whenever a poll misses the transition.
+- **Asking while a question is in flight.** The backend refuses per task. The
+  client disables Ask while any discussion on the task reports `pending` and
+  keeps the draft, so the refusal is unreachable rather than displayed. No
+  client-side queue: a timer over a backend refusal misfires whenever a poll
+  misses the transition. Retry also shows on a trailing question that was
+  interrupted and is not pending.
 - **A quote spanning more than one block.** No block contains the whole passage,
   so the footer falls back to the end of the answer, with a muted label and the
   title `This passage spans more than one block`. It is an ordinary reading
@@ -775,10 +784,10 @@ none changes a route or a stored field.
 | --- | --- |
 | Quote is not in the stored answer | Refuse. A client may not assert what the agent said. |
 | The same passage is submitted twice | The existing discussion is returned and asked. |
-| A question is already in flight | Refuse without losing the draft. |
+| A question is already in flight on the task | Refuse without losing the draft. |
 | The provider session cannot be resumed | Discard the reference, re-seed with every prior message, ask once. |
 | A question fails | Record the reason on that question; the discussion stays usable. |
-| The application restarts mid-question | The question has neither an answer nor an error, the read route reports the discussion as not pending, and it renders as unanswered; asking again is the remedy. The provider process is not closed by the registry, so the session runner closes it in a `finally` and, when it cannot, retains its scratch directory and logs that the process may still be running. |
+| The application restarts mid-question | The question has neither an answer nor an error, the read route reports the discussion as not pending, and it renders as unanswered; Retry is the remedy. The provider process is not closed by the registry, so the session runner closes it in a `finally` and, when it cannot, retains its scratch directory and logs that the process may still be running. |
 | The worktree has been removed | Asking is refused; every recorded message stays readable. |
 | The seed exceeds the budget | Refuse and name an earlier turn as the remedy. |
 | The quote is under three characters | Refuse as a stray selection. |

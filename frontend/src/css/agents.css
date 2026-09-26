@@ -3970,6 +3970,12 @@ button.agt-disc-mark:hover {
   flex: 1;
 }
 
+.agt-disc-pop__refusal {
+  min-width: 0;
+  color: #cf222e;
+  font-size: 12px;
+}
+
 .agt-disc-pop__cancel,
 .agt-disc-pop__ask {
   flex: none;

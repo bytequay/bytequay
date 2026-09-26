@@ -16,7 +16,7 @@
 import React from 'react';
 
 import { relativeTime } from '../../relativeTime';
-import type { TaskDiscussionDto } from './contracts';
+import type { DiscussionMessageDto, TaskDiscussionDto } from './contracts';
 
 /** The label budget, before the row's own pixel-width ellipsis. */
 const BUDGET = 48;
@@ -98,9 +98,14 @@ export function replyCount(discussion: TaskDiscussionDto): number {
   return discussion.messages.filter(message => message.author === 'AGENT').length;
 }
 
-function failed(discussion: TaskDiscussionDto): boolean {
+/** The question Retry re-runs: a trailing question that failed, or one orphaned by a restart. */
+export function retryTarget(discussion: TaskDiscussionDto): DiscussionMessageDto | null {
   const last = discussion.messages.at(-1);
-  return last !== undefined && last.error !== null;
+  return last !== undefined && last.author === 'USER' && (last.error !== null || !discussion.pending) ? last : null;
+}
+
+function failed(discussion: TaskDiscussionDto): boolean {
+  return retryTarget(discussion) !== null && !discussion.pending;
 }
 
 /**

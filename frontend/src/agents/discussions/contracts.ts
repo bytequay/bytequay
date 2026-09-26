@@ -45,6 +45,9 @@ export type AskDiscussionRequest = DiscussionQuery & { discussionId: string; que
 export type ResolveDiscussionRequest = DiscussionQuery & { discussionId: string; resolved: boolean; expectedVersion: number };
 export type RetryDiscussionRequest = DiscussionQuery & { discussionId: string; messageId: string };
 
+/** Why a question cannot be sent while another discussion on the task is being answered. */
+export const ANSWERING_ELSEWHERE = 'The agent is answering another question on this task';
+
 function object(value: unknown): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('Invalid discussion');
   return value as Record<string, unknown>;

@@ -135,9 +135,14 @@ class TestDefaultTaskDiscussionService
     void refusesRetryingAQuestionThatIsNotWaitingForOne()
     {
         when(tasks.getInteractive("w1", TASK)).thenReturn(task());
-        DiscussionMessage answered = new DiscussionMessage("m1", DiscussionMessage.Author.USER, "why?", NOW, Optional.empty());
-        when(store.find("d1")).thenReturn(Optional.of(discussion("d1", List.of(answered))));
+        DiscussionMessage question = new DiscussionMessage("m1", DiscussionMessage.Author.USER, "why?", NOW, Optional.of("The provider stopped"));
+        DiscussionMessage answer = new DiscussionMessage("m2", DiscussionMessage.Author.AGENT, "Because.", NOW, Optional.empty());
+        when(store.find("d1")).thenReturn(Optional.of(discussion("d1", ImmutableList.of(question, answer))));
 
+        // An answered thread has nothing to retry, and a question that is not the last one was answered after all.
+        assertThatThrownBy(() -> service.retry("w1", TASK.toString(), "d1", "m2"))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("not waiting to be retried");
         assertThatThrownBy(() -> service.retry("w1", TASK.toString(), "d1", "m1"))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("not waiting to be retried");

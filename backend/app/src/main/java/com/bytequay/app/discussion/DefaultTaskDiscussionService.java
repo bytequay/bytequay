@@ -42,6 +42,7 @@ import com.bytequay.core.discussion.DiscussionSession;
 import com.bytequay.core.discussion.TaskDiscussion;
 import com.bytequay.core.discussion.TaskDiscussionStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,11 +57,12 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -85,9 +87,10 @@ public class DefaultTaskDiscussionService
     private final AgentDriverRegistry drivers;
     private final TaskLogStore logStore;
     private final Clock clock;
-    // In flight is not durable: after a restart nothing is running, and a persisted running row
-    // would be a lie needing a recovery sweep. The read route projects this set instead.
-    private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
+    // One slot per task holds the ids of the discussions its one read-only session is answering. In
+    // flight is not durable: after a restart nothing is running, and a persisted running row would be
+    // a lie needing a recovery sweep. The read route projects this map instead.
+    private final ConcurrentMap<String, Set<String>> answering = new ConcurrentHashMap<>();
     private final Executor answers;
 
     @Autowired
@@ -130,9 +133,10 @@ public class DefaultTaskDiscussionService
         checkArgument(normalized.length() >= DiscussionQuotes.MINIMUM_QUOTE_CHARACTERS, "Select more of the passage to discuss it");
 
         String hash = DiscussionQuotes.hash(command.quote(), command.occurrence());
-        Optional<TaskDiscussion> existing = store.findByAnchor(command.taskId(), command.turnId(), hash);
-        TaskDiscussion discussion = existing.orElseGet(() -> create(task, command, hash));
-        return submit(task, discussion, command.question());
+        return claimed(task, slot -> {
+            TaskDiscussion discussion = store.findByAnchor(task.id().toString(), command.turnId(), hash).orElseGet(() -> create(task, command, hash));
+            return submit(task, discussion, command.question(), slot);
+        });
     }
 
     @Override
@@ -140,55 +144,54 @@ public class DefaultTaskDiscussionService
     {
         requireNonNull(command, "command is null");
         AgentTask task = askableTask(command.workspaceId(), command.taskId());
-        TaskDiscussion discussion = store.find(command.discussionId())
-                .filter(found -> found.taskId().equals(command.taskId()))
-                .orElseThrow(() -> new AgentConflictException("This discussion no longer exists"));
-        return submit(task, discussion, command.question());
+        return claimed(task, slot -> submit(task, discussion(task, command.discussionId()), command.question(), slot));
     }
 
     @Override
     public TaskDiscussionView retry(String workspaceId, String taskId, String discussionId, String messageId)
     {
         AgentTask task = askableTask(workspaceId, taskId);
-        TaskDiscussion discussion = store.find(discussionId)
-                .filter(found -> found.taskId().equals(taskId))
-                .orElseThrow(() -> new AgentConflictException("This discussion no longer exists"));
-        List<DiscussionMessage> messages = discussion.messages();
-        DiscussionMessage last = messages.isEmpty() ? null : messages.getLast();
-        if (last == null || !last.id().equals(messageId) || last.error().isEmpty()) {
-            throw new AgentConflictException("That question is not waiting to be retried");
-        }
-        return dispatch(task, discussion.update(
-                discussion.resolved(),
-                ImmutableList.<DiscussionMessage>builder()
-                        .addAll(messages.subList(0, messages.size() - 1))
-                        .add(new DiscussionMessage(last.id(), last.author(), last.body(), last.createdAt(), Optional.empty()))
-                        .build(),
-                discussion.sessionReference(),
-                clock.instant()));
+        return claimed(task, slot -> {
+            TaskDiscussion discussion = discussion(task, discussionId);
+            List<DiscussionMessage> messages = discussion.messages();
+            DiscussionMessage last = messages.isEmpty() ? null : messages.getLast();
+            // The claim refuses a question in flight, so a trailing question without an error is one a restart orphaned.
+            if (last == null || !last.id().equals(messageId) || last.author() != DiscussionMessage.Author.USER) {
+                throw new AgentConflictException("That question is not waiting to be retried");
+            }
+            return dispatch(task, discussion.update(
+                    discussion.resolved(),
+                    ImmutableList.<DiscussionMessage>builder()
+                            .addAll(messages.subList(0, messages.size() - 1))
+                            .add(new DiscussionMessage(last.id(), last.author(), last.body(), last.createdAt(), Optional.empty()))
+                            .build(),
+                    discussion.sessionReference(),
+                    clock.instant()), slot);
+        });
     }
 
     @Override
     public TaskDiscussionView resolve(String workspaceId, String taskId, String discussionId, boolean resolved, long expectedVersion)
     {
-        tasks.getInteractive(requireNonNull(workspaceId, "workspaceId is null"), TaskId.valueOf(taskId));
-        TaskDiscussion discussion = store.find(discussionId)
-                .filter(found -> found.taskId().equals(taskId))
-                .orElseThrow(() -> new AgentConflictException("This discussion no longer exists"));
+        AgentTask task = tasks.getInteractive(requireNonNull(workspaceId, "workspaceId is null"), TaskId.valueOf(taskId));
+        TaskDiscussion discussion = discussion(task, discussionId);
         if (discussion.version() != expectedVersion) {
             throw new AgentConflictException("This discussion changed while you were reading it");
         }
         TaskDiscussion updated = store.update(discussion.update(
                 resolved, discussion.messages(), discussion.sessionReference(), clock.instant()));
-        return TaskDiscussionView.of(updated, inFlight.contains(updated.id()));
+        return TaskDiscussionView.of(updated, pending(updated));
     }
 
     @Override
     public List<TaskDiscussionView> list(String workspaceId, String taskId)
     {
-        tasks.getInteractive(requireNonNull(workspaceId, "workspaceId is null"), TaskId.valueOf(taskId));
-        return store.listByTask(taskId).stream()
-                .map(discussion -> TaskDiscussionView.of(discussion, inFlight.contains(discussion.id())))
+        AgentTask task = tasks.getInteractive(requireNonNull(workspaceId, "workspaceId is null"), TaskId.valueOf(taskId));
+        // Also read the slot before the rows: an answer stored and released between the two would
+        // otherwise show its question as neither pending nor answered, which reads as a failure.
+        Set<String> before = ImmutableSet.copyOf(answering.getOrDefault(task.id().toString(), ImmutableSet.of()));
+        return store.listByTask(task.id().toString()).stream()
+                .map(discussion -> TaskDiscussionView.of(discussion, before.contains(discussion.id()) || pending(discussion)))
                 .collect(toImmutableList());
     }
 
@@ -201,9 +204,53 @@ public class DefaultTaskDiscussionService
         return task;
     }
 
+    private TaskDiscussion discussion(AgentTask task, String discussionId)
+    {
+        return store.find(discussionId)
+                .filter(found -> found.taskId().equals(task.id().toString()))
+                .orElseThrow(() -> new AgentConflictException("This discussion no longer exists"));
+    }
+
+    /** Runs {@code work} holding the task's slot; work that throws before an answer job starts gives the slot back. */
+    private TaskDiscussionView claimed(AgentTask task, Function<Set<String>, TaskDiscussionView> work)
+    {
+        Set<String> slot = claim(task);
+        try {
+            return work.apply(slot);
+        }
+        catch (RuntimeException failure) {
+            release(task, slot);
+            throw failure;
+        }
+    }
+
+    /**
+     * One read-only session per task, whichever discussion it answers. Keyed by the canonical id, because a path id is parsed
+     * leniently and another spelling of it must not claim a second slot.
+     */
+    private Set<String> claim(AgentTask task)
+    {
+        Set<String> slot = ConcurrentHashMap.newKeySet();
+        if (answering.putIfAbsent(task.id().toString(), slot) != null) {
+            throw new AgentConflictException("This task is already answering a question");
+        }
+        return slot;
+    }
+
+    /** Releases only this slot: two slots holding the same ids are equal sets, so the map's own remove could drop a newer claim. */
+    private void release(AgentTask task, Set<String> slot)
+    {
+        answering.computeIfPresent(task.id().toString(), (key, current) -> current == slot ? null : current);
+    }
+
+    private boolean pending(TaskDiscussion discussion)
+    {
+        return answering.getOrDefault(discussion.taskId(), ImmutableSet.of()).contains(discussion.id());
+    }
+
     private TaskDiscussion create(AgentTask task, OpenDiscussionCommand command, String hash)
     {
-        if (store.listByTask(command.taskId()).size() >= MAXIMUM_DISCUSSIONS_PER_TASK) {
+        if (store.listByTask(task.id().toString()).size() >= MAXIMUM_DISCUSSIONS_PER_TASK) {
             throw new AgentConflictException("This task already holds the most discussions it can");
         }
         Seeded seeded = seed(task.id(), TurnId.valueOf(command.turnId()));
@@ -211,7 +258,7 @@ public class DefaultTaskDiscussionService
         Instant now = clock.instant();
         return store.insertOrGet(new TaskDiscussion(
                 UUID.randomUUID().toString(),
-                command.taskId(),
+                task.id().toString(),
                 new DiscussionAnchor(command.turnId(), command.quote().strip(), command.occurrence(), hash),
                 seeded.text(),
                 task.laneId().value(),
@@ -254,8 +301,7 @@ public class DefaultTaskDiscussionService
                     String answer = ((AgentEventPayload.AssistantMessage) envelope.payload()).text();
                     append(seed, "[agent]", answer);
                     if (anchored) {
-                        checkState(seed.length() <= TaskDiscussion.MAX_SEED_CHARACTERS,
-                                "This task's history is too long to discuss; start from an earlier turn");
+                        requireSeedBudget(seed, "This task's history is too long to discuss; start from an earlier turn");
                         return new Seeded(seed.toString().stripTrailing(), answer);
                     }
                 }
@@ -264,6 +310,14 @@ public class DefaultTaskDiscussionService
                 throw new AgentUnavailableException("That turn has no recorded answer to discuss");
             }
             afterSequence = page.getLast().sequence();
+        }
+    }
+
+    /** Not checkState: the seed is rendered on the request thread, and an unmapped IllegalStateException reaches the client as a bare 500. */
+    private static void requireSeedBudget(StringBuilder seed, String reason)
+    {
+        if (seed.length() > TaskDiscussion.MAX_SEED_CHARACTERS) {
+            throw new AgentConflictException(reason);
         }
     }
 
@@ -284,7 +338,7 @@ public class DefaultTaskDiscussionService
     }
 
     /** Records the question, then answers it on a virtual thread so the caller is not held. */
-    private TaskDiscussionView submit(AgentTask task, TaskDiscussion discussion, String question)
+    private TaskDiscussionView submit(AgentTask task, TaskDiscussion discussion, String question, Set<String> slot)
     {
         Instant now = clock.instant();
         return dispatch(task, discussion.update(
@@ -294,30 +348,24 @@ public class DefaultTaskDiscussionService
                         .add(new DiscussionMessage(UUID.randomUUID().toString(), DiscussionMessage.Author.USER, question, now, Optional.empty()))
                         .build(),
                 discussion.sessionReference(),
-                now));
+                now), slot);
     }
 
-    /** Stores the pending state and schedules the answer, refusing a second question in flight. */
-    private TaskDiscussionView dispatch(AgentTask task, TaskDiscussion pending)
+    /**
+     * Stores the pending state and schedules the answer, which gives the task's slot back when it
+     * ends. The id enters the slot before the row shows the question.
+     */
+    private TaskDiscussionView dispatch(AgentTask task, TaskDiscussion pending, Set<String> slot)
     {
-        if (!inFlight.add(pending.id())) {
-            throw new AgentConflictException("This discussion is still answering your last question");
-        }
-        TaskDiscussion asked;
-        try {
-            asked = store.update(pending);
-        }
-        catch (RuntimeException failure) {
-            inFlight.remove(pending.id());
-            throw failure;
-        }
+        slot.add(pending.id());
+        TaskDiscussion asked = store.update(pending);
         String discussionId = asked.id();
         answers.execute(() -> {
             try {
                 answer(task, discussionId);
             }
             finally {
-                inFlight.remove(discussionId);
+                release(task, slot);
             }
         });
         return TaskDiscussionView.of(asked, true);

@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest';
 
 import { DiscussableAnswer, blockOf, markPassage } from './DiscussableAnswer';
 import { renderMarkdownBlocks } from '../markdown';
-import { DiscussionFooter, discussionLabel, replyCount } from './DiscussionFooter';
+import { DiscussionFooter, discussionLabel, replyCount, retryTarget } from './DiscussionFooter';
 import { DiscussionCard, DiscussionsPanel } from './DiscussionsPanel';
 import type { TaskDiscussionDto } from './contracts';
 import type { TaskDiscussions } from './useTaskDiscussions';
@@ -119,6 +119,17 @@ describe('a footer row', () => {
     ] }))).toBe(1);
   });
 
+  it('retries a failed or orphaned trailing question, but not one in flight', () => {
+    const asked = discussion().messages[0];
+    const failed = { ...asked, error: 'The agent timed out' };
+    expect(retryTarget(discussion({ messages: [failed] }))).toEqual(failed);
+    // A restart leaves the question neither pending nor failed; Retry is what answers it.
+    expect(retryTarget(discussion())).toEqual(asked);
+    expect(retryTarget(discussion({ pending: true }))).toBeNull();
+    expect(retryTarget(discussion({ messages: [asked, { ...asked, id: 'm2', author: 'AGENT', body: 'because' }] }))).toBeNull();
+    expect(renderToStaticMarkup(<DiscussionFooter discussions={[discussion()]} siblings={[]} />)).toContain('couldn’t answer');
+  });
+
   it('reads as answering while a question is in flight', () => {
     const markup = renderToStaticMarkup(
       <DiscussionFooter discussions={[discussion({ pending: true })]} siblings={[]} />);
@@ -165,8 +176,8 @@ describe('a footer row', () => {
 });
 
 describe('the panel', () => {
-  const stub = (disabledReason: string | null): TaskDiscussions => ({
-    discussions: [discussion()], error: null, disabledReason,
+  const stub = (disabledReason: string | null, busy = false): TaskDiscussions => ({
+    discussions: [discussion()], busy, error: null, disabledReason,
     refresh: async () => {}, open: async () => discussion(), ask: async () => {},
     resolve: async () => {}, retry: async () => {},
   });
@@ -175,6 +186,15 @@ describe('the panel', () => {
     const html = renderToStaticMarkup(
       <DiscussionCard discussion={discussion()} siblings={[]} discussions={stub(null)} open onToggle={() => {}} />);
     expect(html).toContain('>Reply<');
+  });
+
+  it('holds Retry while another question on the task is answering, and names an interruption', () => {
+    const html = renderToStaticMarkup(
+      <DiscussionCard discussion={discussion()} siblings={[]} discussions={stub(null, true)} open onToggle={() => {}} />);
+    expect(html).toContain('The answer was interrupted.');
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*title="The agent is answering another question on this task"[^>]*>Retry<\/button>/);
+    expect(renderToStaticMarkup(<DiscussionCard discussion={discussion()} siblings={[]} discussions={stub(null)} open onToggle={() => {}} />))
+      .toMatch(/<button type="button">Retry<\/button>/);
   });
 
   it('says why instead, once the files are released', () => {

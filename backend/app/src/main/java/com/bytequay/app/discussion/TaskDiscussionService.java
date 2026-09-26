@@ -34,7 +34,7 @@ public interface TaskDiscussionService
      * @throws IllegalArgumentException when the quote does not occur in the stored final answer of
      *         the named turn, or is too short to anchor
      * @throws com.bytequay.agent.core.AgentConflictException when the task has no live worktree,
-     *         when a question is already in flight for this discussion, or when the task already
+     *         when a question is already in flight for this task, or when the task already
      *         holds {@link #MAXIMUM_DISCUSSIONS_PER_TASK} discussions
      */
     TaskDiscussionView open(OpenDiscussionCommand command);

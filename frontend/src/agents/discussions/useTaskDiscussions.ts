@@ -31,6 +31,8 @@ export type DiscussionBridgePort = {
 
 export type TaskDiscussions = {
   discussions: TaskDiscussionDto[];
+  /** A question is in flight on any discussion of the task, and the backend answers one at a time. */
+  busy: boolean;
   error: string | null;
   /** Absent while the task can still be asked; a reason once its files are released. */
   disabledReason: string | null;
@@ -121,8 +123,10 @@ export function useTaskDiscussions(query: DiscussionQuery | null, options: {
     }
   }, [accept, live]);
 
+  const all = snapshot.key === key ? snapshot.discussions : EMPTY;
   return {
-    discussions: snapshot.key === key ? snapshot.discussions : EMPTY,
+    discussions: all,
+    busy: all.some(discussion => discussion.pending),
     error,
     disabledReason: options.disabledReason ?? null,
     refresh,

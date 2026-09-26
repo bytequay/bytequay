@@ -15,10 +15,10 @@
 
 import React, { useEffect, useState } from 'react';
 
-import { discussionLabel, replyCount } from './DiscussionFooter';
+import { discussionLabel, replyCount, retryTarget } from './DiscussionFooter';
 import { relativeTime } from '../../relativeTime';
 import { renderMarkdown } from '../markdown';
-import type { DiscussionMessageDto, TaskDiscussionDto } from './contracts';
+import { ANSWERING_ELSEWHERE, type DiscussionMessageDto, type TaskDiscussionDto } from './contracts';
 import type { TaskDiscussions } from './useTaskDiscussions';
 
 const JUMP = (
@@ -36,9 +36,8 @@ const LOCK = (
 );
 
 function status(discussion: TaskDiscussionDto): { label: string; kind: string; dot: boolean } | null {
-  const last = discussion.messages.at(-1);
   if (discussion.pending) return { label: 'Waiting', kind: 'is-waiting', dot: true };
-  if (last !== undefined && last.error !== null) return { label: 'Failed', kind: 'is-failed', dot: false };
+  if (retryTarget(discussion) !== null) return { label: 'Failed', kind: 'is-failed', dot: false };
   if (discussion.resolved) return { label: 'Done', kind: 'is-done', dot: false };
   return null;
 }
@@ -85,12 +84,13 @@ export function DiscussionCard({ discussion, repository, siblings, discussions, 
   const pill = status(discussion);
   const label = discussionLabel(discussion, siblings);
   const replies = replyCount(discussion);
-  const failure = discussion.messages.findLast(message => message.error !== null);
+  const failure = discussion.pending ? null : retryTarget(discussion);
+  const blocked = discussions.busy ? ANSWERING_ELSEWHERE : undefined;
   const asked = discussion.messages.find(message => message.author === 'USER');
 
   const send = async (): Promise<void> => {
     const question = draft.trim();
-    if (question === '' || busy) return;
+    if (question === '' || busy || discussions.busy) return;
     setBusy(true);
     try {
       await discussions.ask(discussion.id, question);
@@ -149,10 +149,10 @@ export function DiscussionCard({ discussion, repository, siblings, discussions, 
             )}
           </div>
 
-          {failure !== undefined && failure.error !== null && (
+          {failure !== null && (
             <div className="agt-disc-fail" role="alert">
-              <span>{failure.error}</span>
-              <button type="button" disabled={busy || readOnly !== null}
+              <span>{failure.error ?? 'The answer was interrupted.'}</span>
+              <button type="button" disabled={busy || readOnly !== null || discussions.busy} title={blocked}
                 onClick={() => { void discussions.retry(discussion.id, failure.id); }}>Retry</button>
             </div>
           )}
@@ -176,8 +176,8 @@ export function DiscussionCard({ discussion, repository, siblings, discussions, 
                 <div className="agt-disc-reply__foot">
                   <span className="agt-disc-reply__private">{LOCK}Private · reads code, never writes</span>
                   <button className="agt-disc-reply__cancel" type="button" onClick={() => { setDraft(''); setReplying(false); }}>Cancel</button>
-                  <button className="agt-disc-reply__ask" type="button" disabled={busy || discussion.pending || draft.trim() === ''}
-                    onClick={() => { void send(); }}>Ask</button>
+                  <button className="agt-disc-reply__ask" type="button" disabled={busy || discussions.busy || draft.trim() === ''}
+                    title={blocked} onClick={() => { void send(); }}>Ask</button>
                 </div>
               </div>
             ) : (

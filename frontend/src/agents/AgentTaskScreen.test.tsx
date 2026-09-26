@@ -625,6 +625,7 @@ describe('agent task side panel', () => {
   it('keeps an opened Discussions tab beside PR and WorkBench, with or without a pull request', () => {
     const discussions: TaskDiscussions = {
       discussions: [],
+      busy: false,
       error: null,
       disabledReason: null,
       refresh: async () => undefined,

@@ -1068,7 +1068,7 @@ export function AgentTaskBody({
   onAskAgentDisabled?: string | null;
   localReview?: LocalReviewThreads;
   discussions?: TaskDiscussions;
-  onSelectPassage?: (passage: SelectedPassage, question: string) => void;
+  onSelectPassage?: (passage: SelectedPassage, question: string) => Promise<unknown>;
   onOpenDiscussion?: (discussionId: string) => void;
   /** The discussion a transcript footer asked to see, which opens its card in the panel. */
   discussionFocus?: { id: string } | null;
@@ -1358,7 +1358,7 @@ export function AgentTaskBody({
       <AgentConversation
         turns={turns} repository={repository} durableTurns={state.turns} models={models} now={now} scroll={scroll}
         localReview={localReview} onOpenReview={onOpenReview} issueSource={state.task?.issueSource} jiraSource={state.task?.jiraSource}
-        discussions={discussions?.discussions} onSelectPassage={onSelectPassage} onOpenDiscussion={onOpenDiscussion}
+        discussions={discussions?.discussions} discussionBusy={discussions?.busy} onSelectPassage={onSelectPassage} onOpenDiscussion={onOpenDiscussion}
         generatedBranch={state.task?.generatedBranch}
         connection={state.connection} running={status === 'running'} activeTurn={state.turn} activeTurnId={state.turn?.id ?? state.latestTurnId}
         waiting={waiting} gap={state.gap} pendingMessage={state.pendingMessage} activityChoice={activityChoice} turnChoice={turnChoice}
@@ -2569,9 +2569,7 @@ export default function AgentTaskScreen({
       onAskAgentDisabled={agentCommentDisabled}
       localReview={localReview}
       discussions={discussions}
-      onSelectPassage={(passage, question) => {
-        void discussions.open({ ...passage, question }).then(() => openUtility('discussions'));
-      }}
+      onSelectPassage={(passage, question) => discussions.open({ ...passage, question }).then(() => openUtility('discussions'))}
       discussionFocus={discussionFocus}
       onOpenDiscussion={id => { openUtility('discussions'); setDiscussionFocus({ id }); }}
       onJumpToPassage={revealPassage}

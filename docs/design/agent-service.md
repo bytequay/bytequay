@@ -696,8 +696,10 @@ ByteQuay launches one task-owned App Server per active turn, never more than one
 turn-bearing process for a task, with that task's worktree as its working
 directory. A read-only task discussion is the one process that may join it: at
 most one of those runs alongside, on the same task identity and worktree, and it
-accepts no turn, holds no worktree mutation claim, and writes nothing. It verifies the
-process stopped at turn completion; a later turn resumes the durable provider
+accepts no turn, holds no worktree mutation claim, and writes nothing. A
+per-task in-flight guard enforces that limit across all of a task's
+discussions. ByteQuay verifies the process stopped at turn completion; a later
+turn resumes the durable provider
 thread in a new matching-profile process. Under `workspace-write` App Server's
 default environment is rooted at that directory, so every active turn gets a
 separate execution-process and worktree boundary without registering an

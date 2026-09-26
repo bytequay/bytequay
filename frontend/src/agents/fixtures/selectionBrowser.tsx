@@ -61,7 +61,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   document.body.append(host);
   const selected: SelectedPassage[] = [];
   flushSync(() => createRoot(host).render(
-    <DiscussableAnswer turnId="turn-10" text={ANSWER} discussions={[]} onSelect={passage => selected.push(passage)} />));
+    <DiscussableAnswer turnId="turn-10" text={ANSWER} discussions={[]} onSelect={async passage => selected.push(passage)} />));
   await settle();
 
   const pill = (): HTMLElement | null => document.querySelector('.agt-disc-pill');
@@ -179,7 +179,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const edgeRoot = createRoot(edgeHost);
   flushSync(() => edgeRoot.render(<div>
     <DiscussableAnswer turnId="turn-edge" text={`- ${markdownSentence}\n- ${markdownSentence}`} discussions={[]}
-      onSelect={(passage, question) => sent.push({ passage, question })} />
+      onSelect={async (passage, question) => sent.push({ passage, question })} />
     <p className="selection-after">PR #31264</p>
   </div>));
   await settle();
@@ -330,6 +330,44 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     const top = mark.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
     assert(Math.abs(top - 72) <= 8, `The passage landed ${Math.round(top)}px below the top, not the 72 it asks for`);
     scroller.remove();
+  }, results);
+
+  await clear();
+  await scenario('keeps the question and says why while the task cannot take it', async () => {
+    const busyHost = document.createElement('div');
+    document.body.append(busyHost);
+    const busyRoot = createRoot(busyHost);
+    const render = (busy: boolean): void => flushSync(() => busyRoot.render(
+      <DiscussableAnswer turnId="turn-busy" text="A passage asked about while another answer runs." discussions={[]} busy={busy}
+        onSelect={async () => { throw new Error("Error invoking remote method 'agent:discussions:open': Error: This task is already answering a question"); }} />));
+    try {
+      render(true);
+      await settle();
+      const text = busyHost.querySelector('.agt-md p')?.firstChild;
+      assert(text instanceof Text, 'The busy answer did not render');
+      window.getSelection()?.setBaseAndExtent(text, 2, text, 9);
+      release(document.body);
+      await settle();
+      (busyHost.querySelector('.agt-disc-pill') as HTMLElement).click();
+      await settle();
+      const field = busyHost.querySelector('.agt-disc-pop textarea') as HTMLTextAreaElement;
+      changeInput(field, 'why?');
+      await settle();
+      const send = busyHost.querySelector('.agt-disc-pop__ask') as HTMLButtonElement;
+      assert(send.disabled && send.title === 'The agent is answering another question on this task', 'Ask stayed open while the task was busy');
+      render(false);
+      await settle();
+      assert(!send.disabled, 'Ask stayed disabled once the task was free');
+      send.click();
+      await settle();
+      assert(busyHost.querySelector('.agt-disc-pop') !== null && field.value === 'why?', 'A refused question lost its composer or its draft');
+      const reason = busyHost.querySelector('.agt-disc-pop__refusal')?.textContent;
+      assert(reason === 'This task is already answering a question', `The refusal read "${reason ?? ''}"`);
+    }
+    finally {
+      flushSync(() => busyRoot.unmount());
+      busyHost.remove();
+    }
   }, results);
 
   return results;

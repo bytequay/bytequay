@@ -16,8 +16,9 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 
 import { DiscussionFooter } from './DiscussionFooter';
+import { remoteErrorMessage } from '../../pulls/PullOverview';
 import { renderMarkdownBlocks } from '../markdown';
-import type { TaskDiscussionDto } from './contracts';
+import { ANSWERING_ELSEWHERE, type TaskDiscussionDto } from './contracts';
 
 /** Below this a selection is a stray click rather than a passage; the service refuses it too. */
 const MINIMUM_QUOTE = 3;
@@ -55,7 +56,7 @@ const REFUSALS: Record<Refusal, { text: string; fix?: string }> = {
  * eye is still on the sentence; every question after it belongs to the thread and is asked in the
  * panel. A footer hangs under the block holding its passage rather than at the end of the answer.
  */
-export function DiscussableAnswer({ turnId, text, repository, discussions, completed = false, streaming = false, focused, onSelect, onOpen, onHover }: {
+export function DiscussableAnswer({ turnId, text, repository, discussions, completed = false, streaming = false, busy = false, focused, onSelect, onOpen, onHover }: {
   turnId: string | null;
   text: string;
   /** `owner/repo` a bare `#1234` in the answer refers to. */
@@ -65,9 +66,12 @@ export function DiscussableAnswer({ turnId, text, repository, discussions, compl
   completed?: boolean;
   /** This answer is still being written, so it has nothing stable to anchor to. */
   streaming?: boolean;
+  /** Another discussion on the task is being answered; the backend takes one question at a time. */
+  busy?: boolean;
   /** The discussion whose passage the reader is pointing at, from the transcript or the panel. */
   focused?: string | null;
-  onSelect?: (passage: SelectedPassage, question: string) => void;
+  /** Settles once the question is recorded; a rejection keeps the composer and its draft open. */
+  onSelect?: (passage: SelectedPassage, question: string) => Promise<unknown>;
   onOpen?: (discussionId: string) => void;
   onHover?: (discussionId: string | null) => void;
 }): React.ReactElement {
@@ -78,6 +82,8 @@ export function DiscussableAnswer({ turnId, text, repository, discussions, compl
   const anchor = useRef<HTMLDivElement>(null);
   const [offer, setOffer] = useState<Offer | null>(null);
   const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
   // A composer the reader moved or resized keeps where they put it until it closes.
   const [moved, setMoved] = useState<{ left: number; top: number } | null>(null);
   const [sized, setSized] = useState<CSSProperties>({});
@@ -201,6 +207,7 @@ export function DiscussableAnswer({ turnId, text, repository, discussions, compl
   const place = (next: Offer | null): void => {
     setMoved(null);
     setSized({});
+    setRefusal(null);
     setOffer(next);
   };
 
@@ -232,12 +239,22 @@ export function DiscussableAnswer({ turnId, text, repository, discussions, compl
     setSized({ width: box.width, height: box.height });
   };
 
-  const ask = (passage: SelectedPassage): void => {
+  const ask = async (passage: SelectedPassage): Promise<void> => {
     const question = draft.trim();
-    if (question === '') return;
-    onSelect?.(passage, question);
-    setDraft('');
-    place(null);
+    if (question === '' || busy || sending || onSelect === undefined) return;
+    setSending(true);
+    setRefusal(null);
+    try {
+      await onSelect(passage, question);
+      setDraft('');
+      place(null);
+    }
+    catch (failure) {
+      setRefusal(remoteErrorMessage(failure));
+    }
+    finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -312,13 +329,14 @@ export function DiscussableAnswer({ turnId, text, repository, discussions, compl
                   value={draft}
                   onChange={event => setDraft(event.target.value)}
                   onKeyDown={event => {
-                    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) ask(offer.passage);
+                    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void ask(offer.passage);
                   }}
                 />
                 <div className="agt-disc-pop__actions">
-                  <span />
+                  <span className="agt-disc-pop__refusal" role="alert">{refusal}</span>
                   <button className="agt-disc-pop__cancel" type="button" onClick={() => { setDraft(''); place(null); }}>Cancel</button>
-                  <button className="agt-disc-pop__ask" type="button" disabled={draft.trim() === ''} onClick={() => ask(offer.passage)}>Ask</button>
+                  <button className="agt-disc-pop__ask" type="button" disabled={draft.trim() === '' || busy || sending}
+                    title={busy ? ANSWERING_ELSEWHERE : undefined} onClick={() => { void ask(offer.passage); }}>Ask</button>
                 </div>
               </div>
             </div>

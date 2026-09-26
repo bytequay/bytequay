@@ -785,22 +785,16 @@ public class GitHubPullRequestReadClient
     }
 
     public List<PrReviewState> fetchPrReviews(String pat, PullRequestRef pr) {
-        try {
-            List<GitHubReview> reviews = paginator.paginate(
-                    pat,
-                    "/repos/{owner}/{repo}/pulls/{number}/reviews",
-                    new ParameterizedTypeReference<List<GitHubReview>>() {},
-                    pr.owner(),
-                    pr.repo(),
-                    pr.number());
-            return reviews.stream()
-                    .filter(r -> r.user() != null)
-                    .map(GitHubReview::toReviewState)
-                    .collect(toImmutableList());
-        }
-        catch (RestClientResponseException e) {
-            return ImmutableList.of();
-        }
+        return paginator.paginate(
+                        pat,
+                        "/repos/{owner}/{repo}/pulls/{number}/reviews",
+                        new ParameterizedTypeReference<List<GitHubReview>>() {},
+                        pr.owner(),
+                        pr.repo(),
+                        pr.number()).stream()
+                .filter(r -> r.user() != null)
+                .map(GitHubReview::toReviewState)
+                .collect(toImmutableList());
     }
 
     /**

@@ -298,6 +298,20 @@ class TestGitHubPullRequestOverviewClient
     }
 
     @Test
+    void failedReviewFetchThrowsInsteadOfReportingNoReviews()
+    {
+        Fixture fixture = fixture();
+        fixture.api().expect(requestTo(
+                        "https://api.github.test/repos/owner/repo/pulls/42/reviews?per_page=100&page=1"))
+                .andRespond(withStatus(HttpStatus.BAD_GATEWAY));
+
+        // An empty list would read as "no reviews" and sweep the cached rows.
+        assertThatThrownBy(() -> fixture.client().fetchPrReviews("pat", PULL_REQUEST))
+                .isInstanceOfSatisfying(ResponseStatusException.class, e -> assertThat(e.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY));
+        fixture.verify();
+    }
+
+    @Test
     void datesCommitEventsByCommitterTime()
     {
         Fixture fixture = fixture();

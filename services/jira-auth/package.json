@@ -1,0 +1,11 @@
+{
+  "name": "@bytequay/jira-auth",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24 <25" },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test broker.test.mjs",
+    "test:browser": "../../frontend/node_modules/.bin/electron browser.test.cjs"
+  }
+}

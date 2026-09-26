@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.credential;
 
 import com.bytequay.core.domain.ModelApiKey;
+import com.bytequay.core.store.JiraConnectionStore;
 import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
@@ -48,6 +49,12 @@ class TestSqliteWorkspaceCredentialStores
 
     @Autowired
     private SqliteCredentialStore credentials;
+
+    @Autowired
+    private SqliteJiraConnectionStore jiraConnections;
+
+    @Autowired
+    private JiraConnectionJpaRepository jiraConnectionRows;
 
     @Autowired
     private ModelApiKeyJpaRepository apiKeyRows;
@@ -85,6 +92,23 @@ class TestSqliteWorkspaceCredentialStores
 
         workspaceCredentials.delete("ws-1");
         assertThat(workspaceCredentials.getSecret("ws-1")).isEmpty();
+    }
+
+    @Test
+    void personalJiraTokenUsesEncryptedStorageWithoutChangingExistingColumns()
+    {
+        JiraConnectionStore.Connection connection = new JiraConnectionStore.Connection("personal-jira", "https://example.atlassian.net", "jira-personal-secret", "{}");
+        jiraConnections.save(connection);
+        jiraConnectionRows.flush();
+        entityManager.clear();
+        assertThat(jiraConnections.find(connection.id())).contains(connection);
+        JiraConnectionEntity row = jiraConnectionRows.findById(connection.id()).orElseThrow();
+        assertThat(row.getBrokerUrl()).isEqualTo(connection.authUrl());
+        assertThat(row.getCiphertext()).doesNotContain("jira-personal-secret");
+        assertThat(row.getStateJson()).doesNotContain("jira-personal-secret");
+        assertThat(connection.toString()).doesNotContain("jira-personal-secret");
+        jiraConnections.delete(connection.id());
+        assertThat(jiraConnections.find(connection.id())).isEmpty();
     }
 
     @Test

@@ -62,7 +62,7 @@ class TestJiraController
     {
         JiraDtos.Connection connection = new JiraDtos.Connection("connection", "connected",
                 ImmutableList.of(new JiraDtos.Site("cloud", "Example", "https://example.atlassian.net")), Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.of(new JiraDtos.Account("account", "Alice", Optional.empty())), Optional.empty());
+                Optional.of(new JiraDtos.Account("account", "Alice", Optional.empty())), Optional.empty(), "oauth", Optional.empty());
         when(connections.list()).thenReturn(ImmutableList.of(connection));
         JsonNode list = mapper.readTree(mvc.perform(get("/api/jira/connections")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(list.at("/0/sites/0/id").asText()).isEqualTo("cloud");
@@ -102,7 +102,7 @@ class TestJiraController
         JsonNode config = mapper.readTree(mvc.perform(get("/api/jira/config")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(config.path("configured").asBoolean()).isTrue();
         JiraDtos.Connection pending = new JiraDtos.Connection("connection", "pending", ImmutableList.of(), Optional.of("https://broker.example/oauth/start"),
-                Optional.of("ABCD1234"), Optional.empty(), Optional.empty(), Optional.empty());
+                Optional.of("ABCD1234"), Optional.empty(), Optional.empty(), Optional.empty(), "oauth", Optional.empty());
         when(connections.connect()).thenReturn(pending);
         when(connections.reconnect("connection")).thenReturn(pending);
         mvc.perform(post("/api/jira/connections")).andExpect(status().isOk());
@@ -122,6 +122,30 @@ class TestJiraController
         mvc.perform(post(SITE + "/issues/refresh").param("boardId", "7").param("mine", "false").param("completed", "true")).andExpect(status().isOk());
         verify(jira).issues("connection", "cloud", 7, Optional.of(8L), true, true, false);
         verify(jira).issues("connection", "cloud", 7, Optional.empty(), false, true, true);
+    }
+
+    @Test
+    void bindsTokenSetupAndReplacementWithoutExposingTheSecret()
+            throws Exception
+    {
+        JiraDtos.Connection connected = new JiraDtos.Connection("connection", "connected",
+                ImmutableList.of(new JiraDtos.Site("cloud", "Example", "https://example.atlassian.net")), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.of(new JiraDtos.Account("account", "Alice", Optional.empty())), Optional.empty(), "api_token", Optional.of("alice@example.com"));
+        JiraController.Token request = new JiraController.Token("https://example.atlassian.net", "alice@example.com", "private-token-secret");
+        when(connections.connectToken(request.siteUrl(), request.email(), request.token())).thenReturn(connected);
+        when(connections.replaceToken("connection", request.siteUrl(), request.email(), request.token())).thenReturn(connected);
+        String created = mvc.perform(post("/api/jira/connections/token").contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(request)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(created).contains("api_token", "alice@example.com").doesNotContain(request.token());
+        String replaced = mvc.perform(put("/api/jira/connections/connection/token").contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(request)))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(replaced).doesNotContain(request.token());
+        assertThat(request.toString()).doesNotContain(request.token());
+        verify(connections).replaceToken("connection", request.siteUrl(), request.email(), request.token());
+        String malformed = mvc.perform(post("/api/jira/connections/token").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":{\"private-token-secret\":true}}"))
+                .andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
+        assertThat(malformed).contains("Invalid Jira request body").doesNotContain("private-token-secret");
     }
 
     @Test

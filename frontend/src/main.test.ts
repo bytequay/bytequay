@@ -323,6 +323,11 @@ it('routes Jira reads and versioned writes through the authenticated native API'
   expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/jira/config', expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
   await desktop.handlers.get('jira:connect')?.({});
   expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/jira/connections', expect.objectContaining({ method: 'POST', headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  const token = { siteUrl: 'https://example.atlassian.net', email: 'alex@example.com', token: 'fixture-token' };
+  await desktop.handlers.get('jira:token:connect')?.({}, token);
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/jira/connections/token', expect.objectContaining({ method: 'POST', body: JSON.stringify(token), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  await desktop.handlers.get('jira:token:replace')?.({}, 'connection/one', token);
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/jira/connections/connection%2Fone/token', expect.objectContaining({ method: 'PUT', body: JSON.stringify(token), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
   await desktop.handlers.get('jira:reconnect')?.({}, 'connection/one');
   expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/jira/connections/connection%2Fone/reconnect', expect.objectContaining({ method: 'POST', headers: { 'X-ByteQuay-Session': 'test-session' } }));
   await desktop.handlers.get('jira:issues')?.({}, { ...location, boardId: 828, sprintId: 11, mine: true }, true);

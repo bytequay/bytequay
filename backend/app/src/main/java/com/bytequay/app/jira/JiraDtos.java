@@ -19,6 +19,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 /** Native Jira HTTP projections, containing no authentication secrets. */
 public final class JiraDtos
 {
@@ -27,11 +29,16 @@ public final class JiraDtos
     public record Site(String id, String name, String url) {}
 
     public record Connection(String id, String state, List<Site> sites,
-            Optional<String> authorizationUrl, Optional<String> pairingCode, Optional<String> error, Optional<Account> account, Optional<String> duplicateOf)
+            Optional<String> authorizationUrl, Optional<String> pairingCode, Optional<String> error, Optional<Account> account, Optional<String> duplicateOf,
+            String authType, Optional<String> tokenEmail)
     {
         public Connection
         {
             sites = ImmutableList.copyOf(sites);
+            // Existing saved OAuth connections predate the explicit authentication type.
+            authType = authType == null ? "oauth" : authType;
+            checkArgument(authType.equals("oauth") || authType.equals("api_token"), "Invalid Jira authentication type");
+            tokenEmail = tokenEmail == null ? Optional.empty() : tokenEmail;
         }
     }
 

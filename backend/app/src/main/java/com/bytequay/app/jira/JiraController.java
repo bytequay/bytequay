@@ -13,7 +13,11 @@
  */
 package com.bytequay.app.jira;
 
+import com.google.common.collect.ImmutableMap;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,6 +26,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
@@ -46,6 +51,14 @@ public class JiraController
         this.jira = requireNonNull(jira, "jira is null");
     }
 
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Map<String, String> invalidBody()
+    {
+        // JSON binding failures can otherwise echo a submitted API token.
+        return ImmutableMap.of("message", "Invalid Jira request body.");
+    }
+
     @GetMapping("/config")
     public Config config()
     {
@@ -62,6 +75,18 @@ public class JiraController
     public JiraDtos.Connection connect()
     {
         return connections.connect();
+    }
+
+    @PostMapping("/connections/token")
+    public JiraDtos.Connection connectToken(@RequestBody Token request)
+    {
+        return connections.connectToken(request.siteUrl(), request.email(), request.token());
+    }
+
+    @PutMapping("/connections/{connectionId}/token")
+    public JiraDtos.Connection replaceToken(@PathVariable String connectionId, @RequestBody Token request)
+    {
+        return connections.replaceToken(connectionId, request.siteUrl(), request.email(), request.token());
     }
 
     @PostMapping("/connections/{connectionId}/refresh")
@@ -169,6 +194,15 @@ public class JiraController
     }
 
     public record Config(boolean configured) {}
+
+    public record Token(String siteUrl, String email, String token)
+    {
+        @Override
+        public String toString()
+        {
+            return "JiraTokenRequest[redacted]";
+        }
+    }
 
     public record Edit(Instant expectedUpdatedAt, Map<String, Object> fields) {}
 

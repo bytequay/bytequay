@@ -31,7 +31,7 @@ let issue: JiraIssue;
 let detail: JiraIssueDetail;
 let commentFails = true;
 let taskRequest: CreateAgentTaskRequest | null = null;
-const connection: JiraConnection = { id: 'connection', account: { accountId: 'alex', displayName: 'Alex Chen', email: 'alex@example.com' }, duplicateOf: null, state: 'connected', sites: [{ id: 'site', name: 'Engineering', url: 'https://example.atlassian.net' }], authorizationUrl: null, pairingCode: null, error: null };
+const connection: JiraConnection = { id: 'connection', authType: 'oauth', tokenEmail: null, account: { accountId: 'alex', displayName: 'Alex Chen', email: 'alex@example.com' }, duplicateOf: null, state: 'connected', sites: [{ id: 'site', name: 'Engineering', url: 'https://example.atlassian.net' }], authorizationUrl: null, pairingCode: null, error: null };
 const record = (name: string, ...args: unknown[]) => { calls.push({ name, args }); };
 const button = (label: string, scope: ParentNode = document): HTMLButtonElement => {
   const found = [...scope.querySelectorAll<HTMLButtonElement>('button')].find(value => value.getAttribute('aria-label') === label || value.textContent?.trim() === label);

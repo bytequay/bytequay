@@ -101,8 +101,8 @@ class TestJiraConnections
         assertThat(connected.account()).isEmpty();
         assertThat(connected.pairingCode()).contains("ABCD1234");
         assertThat(cache.encode(connected)).doesNotContain(SECRET, "brokerUrl");
-        assertThat(records.get("connection").brokerUrl()).isEqualTo("https://broker.example");
-        assertThat(records.get("connection").pairingToken()).isEqualTo(SECRET);
+        assertThat(records.get("connection").authUrl()).isEqualTo("https://broker.example");
+        assertThat(records.get("connection").credential()).isEqualTo(SECRET);
     }
 
     @Test
@@ -136,8 +136,8 @@ class TestJiraConnections
         assertThat(pending.state()).isEqualTo("pending");
         assertThat(pending.account()).contains(ACCOUNT);
         assertThat(pending.sites()).containsExactly(SITE);
-        assertThat(records.get("connection").brokerUrl()).isEqualTo("https://original.example");
-        assertThat(records.get("connection").pairingToken()).isEqualTo(SECRET);
+        assertThat(records.get("connection").authUrl()).isEqualTo("https://original.example");
+        assertThat(records.get("connection").credential()).isEqualTo(SECRET);
         assertThatThrownBy(() -> connections.site("connection", "cloud")).hasMessageContaining("Reconnect");
         verify(store, never()).delete(anyString());
     }
@@ -313,7 +313,7 @@ class TestJiraConnections
     private void put(String id, String brokerUrl, String state, Optional<JiraDtos.Account> account, List<JiraDtos.Site> sites)
     {
         records.put(id, new JiraConnectionStore.Connection(id, brokerUrl, SECRET,
-                cache.encode(new JiraDtos.Connection(id, state, sites, Optional.empty(), Optional.empty(), Optional.empty(), account, Optional.empty()))));
+                cache.encode(new JiraDtos.Connection(id, state, sites, Optional.empty(), Optional.empty(), Optional.empty(), account, Optional.empty(), "oauth", Optional.empty()))));
     }
 
     private static URI statusUri(String id)

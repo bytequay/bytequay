@@ -16,7 +16,7 @@ package com.bytequay.core.store;
 import java.util.List;
 import java.util.Optional;
 
-/** Jira pairing credentials are encrypted by the persistence adapter and never returned to the renderer. */
+/** Jira credentials are encrypted by the persistence adapter and never returned to the renderer. */
 public interface JiraConnectionStore
 {
     List<String> ids();
@@ -27,7 +27,7 @@ public interface JiraConnectionStore
 
     void delete(String id);
 
-    record Connection(String id, String brokerUrl, String pairingToken, String stateJson)
+    record Connection(String id, String authUrl, String credential, String stateJson)
     {
         @Override
         public String toString()

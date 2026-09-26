@@ -16,14 +16,15 @@ import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import SettingsWindow from '../SettingsWindow';
 import AppSidebar from '../../AppSidebar';
-import { JIRA_CHANGED, type JiraConnection } from '../../jira/contracts';
+import { JIRA_CHANGED, type JiraConnection, type JiraTokenRequest } from '../../jira/contracts';
 import type { Bridge } from '../../types';
 import { assert, settle } from '../../fixtures/harness';
 import '../../css/base.css';
 import '../../css/settings-window.css';
 
-const connected: JiraConnection = { id: 'work', state: 'connected', account: { accountId: 'alex', displayName: 'Alex Chen', email: 'alex@company.com' }, sites: [{ id: 'engineering', name: 'Engineering', url: 'https://company.atlassian.net' }], authorizationUrl: null, pairingCode: null, error: null, duplicateOf: null };
-const pending: JiraConnection = { id: 'new', state: 'pending', account: null, sites: [], authorizationUrl: 'https://auth.example.test/start/new', pairingCode: 'ABCD1234', error: null, duplicateOf: null };
+const connected: JiraConnection = { id: 'work', authType: 'oauth', tokenEmail: null, state: 'connected', account: { accountId: 'alex', displayName: 'Alex Chen', email: 'alex@company.com' }, sites: [{ id: 'engineering', name: 'Engineering', url: 'https://company.atlassian.net' }], authorizationUrl: null, pairingCode: null, error: null, duplicateOf: null };
+const pending: JiraConnection = { id: 'new', authType: 'oauth', tokenEmail: null, state: 'pending', account: null, sites: [], authorizationUrl: 'https://auth.example.test/start/new', pairingCode: 'ABCD1234', error: null, duplicateOf: null };
+const tokenConnected: JiraConnection = { ...connected, id: 'token-account', authType: 'api_token', tokenEmail: 'alex@company.com' };
 let root: Root | null = null;
 let accounts: JiraConnection[] = [];
 let reads = 0;
@@ -32,6 +33,8 @@ let removed: string[] = [];
 let refreshIds: string[] = [];
 let changedEvents = 0;
 let nextRefresh: (value: JiraConnection) => Promise<JiraConnection>;
+let nextToken: (request: JiraTokenRequest, id?: string) => Promise<JiraConnection>;
+let tokenRequests: { request: JiraTokenRequest; id?: string }[] = [];
 const originalTimeout = window.setTimeout.bind(window);
 const originalClearTimeout = window.clearTimeout.bind(window);
 const originalNow = Date.now;
@@ -43,6 +46,8 @@ const button = (label: string, scope: ParentNode = document) => {
   assert(result !== undefined, `Missing button: ${label}`); return result;
 };
 const row = (id: string) => { const value = document.querySelector(`[data-connection-id="${id}"]`); assert(value !== null, `Missing account: ${id}`); return value; };
+const input = (label: string) => { const element = [...document.querySelectorAll('label')].find(value => value.textContent === label); const result = document.getElementById(element?.htmlFor ?? ''); assert(result instanceof HTMLInputElement, `Missing input: ${label}`); return result; };
+function changeInput(label: string, value: string) { const element = input(label); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(element, value); element.dispatchEvent(new Event('input', { bubbles: true })); }
 async function settled() { await settle(); await settle(); }
 async function advancePoll(by?: number) {
   const entry = jobs.entries().next().value; assert(entry !== undefined, 'A pending sign-in should schedule a check');
@@ -51,7 +56,7 @@ async function advancePoll(by?: number) {
 function dispose() { root?.unmount(); root = null; jobs.clear(); window.setTimeout = originalTimeout; window.clearTimeout = originalClearTimeout; Date.now = originalNow; }
 
 export async function mountPreview(values: JiraConnection[] = [connected, { ...connected, id: 'personal', account: { accountId: 'personal', displayName: 'Alex Chen', email: 'alex@personal.com' }, sites: [{ id: 'personal-site', name: 'Personal projects', url: 'https://alex.atlassian.net' }] }, pending], configured = true) {
-  dispose(); document.body.innerHTML = ''; accounts = values.map(value => ({ ...value })); reads = 0; opened = []; removed = []; refreshIds = []; changedEvents = 0; now = originalNow();
+  dispose(); document.body.innerHTML = ''; accounts = values.map(value => ({ ...value })); reads = 0; opened = []; removed = []; refreshIds = []; changedEvents = 0; tokenRequests = []; now = originalNow();
   window.setTimeout = ((handler: TimerHandler, delay = 0, ...args: unknown[]) => {
     if (typeof handler === 'function' && delay >= 2_000 && delay <= 15_000) { const id = nextTimer--; jobs.set(id, { run: () => handler(...args), delay }); return id; }
     return originalTimeout(handler, delay, ...args);
@@ -59,12 +64,16 @@ export async function mountPreview(values: JiraConnection[] = [connected, { ...c
   window.clearTimeout = (id?: number) => { if (id !== undefined) jobs.delete(id); originalClearTimeout(id); };
   Date.now = () => now;
   nextRefresh = async value => ({ ...connected, id: value.id });
+  nextToken = async (request, id) => ({ ...tokenConnected, id: id ?? tokenConnected.id, tokenEmail: request.email });
+  const saveToken = async (request: JiraTokenRequest, id?: string) => { tokenRequests.push({ request, id }); const value = await nextToken(request, id); accounts = [...accounts.filter(account => account.id !== value.id), value]; return value; };
   const fake = {
     getAppVersion: async () => ({ version: '0.4.0' }),
     getAppPreferences: async () => ({ taskRetentionDays: 7, recentRetentionDays: 14, refreshIntervalMinutes: 6, theme: 'SYSTEM' as const }),
     getJiraConfig: async () => ({ configured }),
     listJiraConnections: async () => { reads += 1; return accounts.map(value => ({ ...value })); },
     connectJira: async () => { accounts.push({ ...pending }); return { ...pending }; },
+    connectJiraToken: (request: JiraTokenRequest) => saveToken(request),
+    replaceJiraToken: (id: string, request: JiraTokenRequest) => saveToken(request, id),
     reconnectJira: async (id: string) => { const previous = accounts.find(value => value.id === id); assert(previous !== undefined, 'Reconnect keeps the existing ID'); const value: JiraConnection = { ...previous, state: 'pending' as const, error: null, authorizationUrl: `https://auth.example.test/start/${id}/new`, pairingCode: 'WXYZ5678' }; accounts = accounts.map(account => account.id === id ? value : account); return value; },
     refreshJiraConnection: async (id: string) => { refreshIds.push(id); const existing = accounts.find(value => value.id === id); assert(existing !== undefined, 'Poll existing account'); const value = await nextRefresh(existing); accounts = accounts.map(account => account.id === id ? value : account); return value; },
     disconnectJira: async (id: string) => { removed.push(id); accounts = accounts.filter(value => value.id !== id).map(value => ({ ...value, duplicateOf: null as string | null })); },
@@ -82,7 +91,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   for (const [name, test] of Object.entries({
     async 'adds an account in the browser and completes without a manual check'() {
       await mountPreview([]); assert(document.querySelector('[aria-label="Settings navigation"] .is-active')?.textContent === 'Jira', 'Jira lives in the shared Settings navigation'); assert(!document.querySelector('input[type="url"]'), 'No service URL is requested');
-      button('Add account').click(); await settled(); assert(opened[0] === pending.authorizationUrl, 'Add account opens system browser');
+      button('Sign in with browser').click(); await settled(); assert(opened[0] === pending.authorizationUrl, 'Browser sign-in opens system browser');
       assert(row('new').textContent?.includes('ABCD1234'), 'Pairing code remains visible');
       button('Reopen sign-in', row('new')).click(); await settled(); assert(opened.length === 2, 'Closed browser can reopen the same sign-in');
       const before = reads; await advancePoll();
@@ -140,11 +149,43 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       const before = changedEvents; root?.unmount(); root = null; finish?.({ ...connected, id: 'new' }); await settled();
       assert(changedEvents === before, 'Manual result cannot restore a card after navigation');
     },
-    async 'shows an unavailable installation without inventing a working sign-in'() {
-      await mountPreview([connected], false); assert(button('Add account').disabled, 'Missing service disables new sign-in');
-      assert(document.body.textContent?.includes('not available in this installation'), 'Configuration limitation is readable');
-      assert(!button('Reconnect', row('work')).disabled, 'An existing account may reconnect through its saved service');
-      assert(opened.length === 0 && !document.querySelector('.jira-settings input'), 'No credentials or server URL requested');
+    async 'connects a personal token without a configured browser sign-in service'() {
+      await mountPreview([connected], false); assert(!button('Add account').disabled, 'A personal token does not require the sign-in service');
+      assert(!document.body.textContent?.includes('Sign in with browser') && !document.body.textContent?.includes('not available in this installation'), 'Unavailable browser sign-in does not block token entry');
+      assert(!button('Reconnect', row('work')).disabled, 'An existing OAuth account keeps its saved service');
+      button('Add account').click(); await settled();
+      changeInput('Jira site', 'https://company.atlassian.net'); changeInput('Atlassian account email', 'alex@company.com'); changeInput('API token', 'fixture-token'); await settled();
+      assert(input('API token').type === 'password' && !document.body.textContent?.includes('fixture-token'), 'Token is masked and absent from readable page text');
+      const page = document.querySelector('.jira-settings'); assert(page instanceof HTMLElement && page.scrollWidth <= page.clientWidth, 'Token form fits the settings pane');
+      let finish: ((value: JiraConnection) => void) | undefined; nextToken = () => new Promise(resolve => { finish = resolve; });
+      button('Connect account').click(); await settled();
+      assert(input('API token').value === '' && input('API token').disabled && button('Cancel').disabled, 'Submit clears the token immediately and disables the form while validating');
+      document.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await settled();
+      assert(tokenRequests.length === 1 && tokenRequests[0].request.token === 'fixture-token', 'Only one explicit submit sends the entered token');
+      finish?.(tokenConnected); await settled();
+      assert(row('token-account').textContent?.includes('API token') && row('token-account').textContent?.includes('company.atlassian.net'), 'Verified token account and site appear');
+      assert(!document.querySelector('input[type="password"]') && opened.length === 0 && refreshIds.length === 0 && jobs.size === 0, 'Connecting a token neither opens OAuth nor schedules refresh');
+    },
+    async 'clears a cancelled token and links directly to personal token creation'() {
+      await mountPreview([], false); button('Add account').click(); await settled(); changeInput('API token', 'cancelled-fixture-token'); await settled();
+      button('Create API token').click(); await settled(); assert(opened[0] === 'https://id.atlassian.com/manage-profile/security/api-tokens', 'Creation opens the account token page');
+      button('Cancel').click(); await settled(); button('Add account').click(); await settled();
+      assert(input('API token').value === '' && tokenRequests.length === 0, 'Cancelling discards the secret without submitting it');
+      assert(document.body.textContent?.includes('stored encrypted on this Mac') && document.body.textContent?.includes('does not refresh automatically'), 'Local storage and manual replacement are explained');
+      const permissions = document.querySelector<HTMLDetailsElement>('.jira-token-form details'); assert(permissions !== null && !permissions.open, 'Required token permissions stay compact by default');
+      permissions.querySelector('summary')?.click(); await settled();
+      assert(permissions.open && permissions.textContent?.includes('Create API token with scopes') && permissions.querySelectorAll('li').length === 9, 'Expandable help explains Jira token creation and all required permissions');
+    },
+    async 'retains the original account after a failed token replacement and allows retry'() {
+      await mountPreview([tokenConnected], false); button('Replace token', row('token-account')).click(); await settled();
+      assert(input('Jira site').readOnly && input('Jira site').value === 'https://company.atlassian.net', 'Replacement keeps the bound site');
+      assert(input('Atlassian account email').value === 'alex@company.com' && input('API token').value === '', 'Replacement prefills email but never retrieves the saved token');
+      nextToken = async () => { throw new Error('The selected account did not match. Your original connection was kept.'); };
+      changeInput('API token', 'wrong-account-fixture-token'); await settled(); button('Save replacement').click(); await settled();
+      assert(tokenRequests[0].id === tokenConnected.id && input('API token').value === '' && !input('API token').disabled, 'Failed replacement clears its secret and keeps the form editable');
+      assert(document.body.textContent?.includes('original connection was kept') && row('token-account').textContent?.includes('Connected') && removed.length === 0, 'Replacement failure retains the existing connection');
+      nextToken = async () => tokenConnected; changeInput('API token', 'replacement-fixture-token'); await settled(); button('Save replacement').click(); await settled();
+      assert(tokenRequests.length === 2 && !document.querySelector('input[type="password"]') && accounts.length === 1, 'Retry replaces the same account without adding a duplicate');
     },
   })) {
     try { await test(); results.push({ name }); } catch (cause) { results.push({ name, error: cause instanceof Error ? cause.message : String(cause) }); }

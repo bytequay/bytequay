@@ -12,11 +12,11 @@
  * limitations under the License.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { ExternalLink, LoaderCircle, Plus } from 'lucide-react';
 import CopyLinkButton from '../CopyLinkButton';
 import JiraIcon from '../jira/JiraIcon';
-import { jiraAccountLabel, jiraSiteDomain, notifyJiraChanged, type JiraConnection } from '../jira/contracts';
+import { jiraAccountLabel, jiraSiteDomain, notifyJiraChanged, type JiraConnection, type JiraTokenRequest } from '../jira/contracts';
 import { Badge, SettingsCard, SettingsRow, StatusDot } from './primitives';
 
 const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
@@ -26,6 +26,7 @@ export default function JiraPage() {
   const [connections, setConnections] = useState<JiraConnection[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [tokenForm, setTokenForm] = useState<JiraConnection | 'new' | null>(null);
   const live = useRef(true);
   const listRequest = useRef(0);
   const reloadConnections = useCallback(() => {
@@ -61,16 +62,57 @@ export default function JiraPage() {
     catch (cause) { if (live.current) setError(message(cause)); }
     finally { if (live.current) setBusy(null); }
   };
+  const saveToken = async (request: JiraTokenRequest) => {
+    listRequest.current += 1; setBusy('token'); setError(null);
+    try {
+      const connection = tokenForm === 'new' || tokenForm === null ? await window.bridge.connectJiraToken(request) : await window.bridge.replaceJiraToken(tokenForm.id, request);
+      if (live.current) { changed(connection, true); setTokenForm(null); }
+    }
+    finally { if (live.current) setBusy(null); }
+  };
   return <div className="setw-page jira-settings">
     <h1><JiraIcon size={26} />Jira</h1>
     <p className="jira-settings__intro">Connect your Atlassian accounts to see sprint tickets, update fields, and start development in ByteQuay.</p>
     {error && <div className="setw-error" role="alert">{error}<button type="button" className="setw-link" onClick={load}>Retry</button></div>}
-    {configured === false && <div className="jira-settings__notice" role="status">Jira sign-in is not available in this installation yet. Your ByteQuay administrator needs to enable it before you can add an account.</div>}
-    <div className="setw-section"><span className="setw-section-title">Accounts</span><button type="button" className="setw-btn-primary" disabled={configured !== true || busy !== null} onClick={() => { void signIn(); }}><Plus size={14} />{busy === 'add' ? 'Opening sign-in…' : 'Add account'}</button></div>
-    {connections === null ? <div className="setw-row-empty">Loading accounts…</div> : connections.length === 0 ? <SettingsCard><div className="setw-row-empty">No Jira accounts connected. Sign in using your browser to get started.</div></SettingsCard>
-      : connections.map(connection => <JiraAccountCard key={connection.id} connection={connection} busy={busy !== null} onChanged={changed} onReconnect={() => { void signIn(connection.id); }} onRemove={() => { void remove(connection.id); }} />)}
-    <p className="setw-footnote">Sign-in opens in your browser. ByteQuay checks automatically while this page is open. Removing an account keeps its development task history.</p>
+    <div className="setw-section jira-settings__toolbar"><span className="setw-section-title">Accounts</span>{configured && <button type="button" className="setw-btn" disabled={busy !== null || tokenForm !== null} onClick={() => { void signIn(); }}>{busy === 'add' ? 'Opening sign-in…' : 'Sign in with browser'}</button>}<button type="button" className="setw-btn-primary" disabled={busy !== null || tokenForm !== null} onClick={() => { setError(null); setTokenForm('new'); }}><Plus size={14} />Add account</button></div>
+    {tokenForm !== null && <JiraTokenForm key={tokenForm === 'new' ? 'new' : tokenForm.id} connection={tokenForm === 'new' ? null : tokenForm} busy={busy !== null} onSave={saveToken} onCancel={() => setTokenForm(null)} />}
+    {connections === null ? <div className="setw-row-empty">Loading accounts…</div> : connections.length === 0 ? tokenForm === null && <SettingsCard><div className="setw-row-empty">No Jira accounts connected. Add your Jira site and personal API token to get started.</div></SettingsCard>
+      : connections.map(connection => <JiraAccountCard key={connection.id} connection={connection} busy={busy !== null || tokenForm !== null} onChanged={changed} onReconnect={() => { if (connection.authType === 'api_token') { setError(null); setTokenForm(connection); } else void signIn(connection.id); }} onRemove={() => { void remove(connection.id); }} />)}
+    <p className="setw-footnote">Removing an account keeps its development task history.</p>
   </div>;
+}
+
+function JiraTokenForm({ connection, busy, onSave, onCancel }: { connection: JiraConnection | null; busy: boolean; onSave: (request: JiraTokenRequest) => Promise<void>; onCancel: () => void }) {
+  const id = useId();
+  const [siteUrl, setSiteUrl] = useState(connection?.sites[0]?.url ?? '');
+  const [email, setEmail] = useState(connection?.tokenEmail ?? '');
+  const [token, setToken] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const submitting = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const submit = async () => {
+    if (submitting.current) return;
+    submitting.current = true; setError(null);
+    const request = { siteUrl: siteUrl.trim(), email: email.trim(), token: token.trim() };
+    setToken('');
+    try { await onSave(request); }
+    catch (cause) { if (mounted.current) setError(message(cause)); }
+    finally { submitting.current = false; }
+  };
+  return <SettingsCard><form className="jira-token-form" aria-labelledby={`${id}-title`} onSubmit={event => { event.preventDefault(); void submit(); }}>
+    <h2 id={`${id}-title`}>{connection ? 'Replace API token' : 'Connect with an API token'}</h2>
+    <label htmlFor={`${id}-site`}>Jira site</label>
+    <input id={`${id}-site`} className="setw-input" type="url" placeholder="https://your-team.atlassian.net" pattern="https://[a-zA-Z0-9\-]+\.atlassian\.net/?" required autoFocus={!connection} readOnly={connection !== null} disabled={busy} value={siteUrl} onChange={event => setSiteUrl(event.target.value)} />
+    <label htmlFor={`${id}-email`}>Atlassian account email</label>
+    <input id={`${id}-email`} className="setw-input" type="email" autoComplete="username" required disabled={busy} value={email} onChange={event => setEmail(event.target.value)} />
+    <div className="jira-token-form__label"><label htmlFor={`${id}-token`}>API token</label><button type="button" className="setw-link" title="Create a personal API token in your Atlassian account" onClick={() => { void window.bridge.openExternal('https://id.atlassian.com/manage-profile/security/api-tokens').catch(cause => setError(message(cause))); }}>Create API token <ExternalLink size={12} aria-hidden="true" /></button></div>
+    <input id={`${id}-token`} className="setw-input setw-mono" type="password" autoComplete="new-password" spellCheck={false} required autoFocus={connection !== null} disabled={busy} value={token} onChange={event => setToken(event.target.value)} aria-describedby={`${id}-note`} />
+    <p id={`${id}-note`} className="setw-footnote">Your token is stored encrypted on this Mac. It does not refresh automatically; replace it here when it expires.</p>
+    <details className="jira-token-form__permissions"><summary>Required token permissions</summary><p>Choose <strong>Create API token with scopes</strong> in Atlassian, select <strong>Jira</strong>, then add these permissions:</p><ul>{['read:jira-user', 'read:jira-work', 'write:jira-work', 'read:board-scope:jira-software', 'read:project:jira', 'read:sprint:jira-software', 'write:sprint:jira-software', 'read:issue-details:jira', 'read:jql:jira'].map(scope => <li key={scope}><code>{scope}</code></li>)}</ul></details>
+    {error && <div className="setw-error" role="alert">{error}</div>}
+    <div className="jira-token-form__actions"><button type="button" className="setw-btn" disabled={busy} onClick={() => { setToken(''); onCancel(); }}>Cancel</button><button type="submit" className="setw-btn-primary" disabled={busy || !siteUrl.trim() || !email.trim() || !token.trim()}>{busy ? 'Connecting…' : connection ? 'Save replacement' : 'Connect account'}</button></div>
+  </form></SettingsCard>;
 }
 
 function JiraAccountCard({ connection, busy, onChanged, onReconnect, onRemove }: { connection: JiraConnection; busy: boolean; onChanged: (value: JiraConnection) => void; onReconnect: () => void; onRemove: () => void }) {
@@ -118,8 +160,8 @@ function JiraAccountCard({ connection, busy, onChanged, onReconnect, onRemove }:
   const status = pending ? 'Waiting for sign-in' : connection.state === 'connected' ? 'Connected' : 'Needs attention';
   return <section className="jira-account" aria-label={`${label} Jira connection`} data-connection-id={connection.id}>
     <SettingsCard>
-      <SettingsRow title={<><span className="jira-account__avatar">{account?.displayName.trim().split(/\s+/).map(part => part[0]).filter(Boolean).slice(0, 2).join('') || <JiraIcon size={20} />}</span>{label}</>} subtitle={account?.email ?? (account ? undefined : 'Identity will appear after sign-in')} badge={<span className="jira-account__status" role="status"><StatusDot tone={pending ? 'idle' : connection.state === 'connected' ? 'ok' : 'warn'} />{status}</span>}>
-        <button type="button" className="setw-btn" disabled={busy || checking} onClick={onReconnect}>Reconnect</button>
+      <SettingsRow title={<><span className="jira-account__avatar">{account?.displayName.trim().split(/\s+/).map(part => part[0]).filter(Boolean).slice(0, 2).join('') || <JiraIcon size={20} />}</span>{label}</>} subtitle={connection.tokenEmail ?? account?.email ?? (account ? undefined : 'Identity will appear after sign-in')} badge={<><span className="jira-account__status" role="status"><StatusDot tone={pending ? 'idle' : connection.state === 'connected' ? 'ok' : 'warn'} />{status}</span>{connection.authType === 'api_token' && <Badge>API token</Badge>}</>}>
+        <button type="button" className="setw-btn" disabled={busy || checking} onClick={onReconnect}>{connection.authType === 'api_token' ? 'Replace token' : 'Reconnect'}</button>
         <button type="button" className="setw-btn is-quiet" disabled={busy || checking} onClick={() => setConfirmRemove(value => !value)}>Remove</button>
       </SettingsRow>
       {connection.sites.length > 0 && <div className="jira-account__sites" aria-label={`Sites for ${jiraAccountLabel(connection)}`}>{connection.sites.map(site => <div key={site.id}><strong>{site.name}</strong><span>{jiraSiteDomain(site)}</span></div>)}</div>}

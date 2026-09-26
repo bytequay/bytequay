@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { JiraLocation, JiraQuery } from './jira/contracts';
+import type { JiraLocation, JiraQuery, JiraTokenRequest } from './jira/contracts';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -1685,6 +1685,8 @@ function registerIpc(): void {
   ipcMain.handle('jira:reconnect', (_event, id: string) => backendJson(`${backendBase()}/api/jira/connections/${encodeURIComponent(id)}/reconnect`, { method: 'POST', headers: agentHeaders() }));
   ipcMain.handle('jira:connections', () => backendJson(`${backendBase()}/api/jira/connections`, { headers: agentHeaders() }));
   ipcMain.handle('jira:connect', () => backendJson(`${backendBase()}/api/jira/connections`, { method: 'POST', headers: agentHeaders() }));
+  ipcMain.handle('jira:token:connect', (_event, request: JiraTokenRequest) => backendJson(`${backendBase()}/api/jira/connections/token`, jsonInit('POST', request, agentHeaders())));
+  ipcMain.handle('jira:token:replace', (_event, id: string, request: JiraTokenRequest) => backendJson(`${backendBase()}/api/jira/connections/${encodeURIComponent(id)}/token`, jsonInit('PUT', request, agentHeaders())));
   ipcMain.handle('jira:connection:refresh', (_event, id: string) => backendJson(`${backendBase()}/api/jira/connections/${encodeURIComponent(id)}/refresh`, { method: 'POST', headers: agentHeaders() }));
   ipcMain.handle('jira:disconnect', (_event, id: string) => backendVoid(`${backendBase()}/api/jira/connections/${encodeURIComponent(id)}`, { method: 'DELETE', headers: agentHeaders() }));
   ipcMain.handle('jira:boards', (_event, connectionId: string, cloudId: string, refresh: boolean) =>

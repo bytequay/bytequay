@@ -217,7 +217,7 @@ export default function JiraScreen() {
       <button type="button" className="bq-iconbtn" aria-label="Refresh tickets" title="Refresh tickets" disabled={loading || boardId === null} onClick={() => { void refreshSprint(); }}><RefreshCw size={17} className={loading ? 'jira-spin' : ''} /></button>
     </header>
     {!site && <div className="jira-connect"><h2>Connect your Jira account</h2><p>Add an Atlassian account in Settings to choose a site and board.</p><button type="button" className="bq-button" onClick={() => { window.location.hash = settingsRoute('jira'); }}>Open Jira settings</button></div>}
-    {site && connection?.state !== 'connected' && <div className="jira-notice">{connection?.state === 'pending' ? 'Jira sign-in is waiting to finish.' : 'This Jira account needs attention.'} Manage accounts in Settings to reconnect.</div>}
+    {site && connection?.state !== 'connected' && <div className="jira-notice">{connection?.state === 'pending' ? 'Jira sign-in is waiting to finish.' : 'This Jira account needs attention.'} Manage accounts in Settings to {connection?.authType === 'api_token' ? 'replace the API token' : 'reconnect'}.</div>}
     {error && <div className="ws-error" role="alert">{error}</div>}
     {site && <><nav className="jira-views" aria-label="Jira views">
       <button type="button" aria-current={view === 'current' ? 'page' : undefined} onClick={() => { setView('current'); setStatus(''); }}>Current sprint</button>

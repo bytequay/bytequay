@@ -25,7 +25,9 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -57,14 +59,31 @@ public class JiraHttpClient
 
     public JsonNode request(URI uri, String method, Optional<String> token, Optional<Object> body)
     {
+        return authorizedRequest(uri, method, token.map(value -> "Bearer " + credential(value)), body);
+    }
+
+    public JsonNode basicRequest(URI uri, String method, String email, String token, Optional<Object> body)
+    {
+        if (email == null || email.contains(":")) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Jira credential response was invalid.");
+        }
+        String encoded = Base64.getEncoder().encodeToString((credential(email) + ":" + credential(token)).getBytes(StandardCharsets.UTF_8));
+        return authorizedRequest(uri, method, Optional.of("Basic " + encoded), body);
+    }
+
+    private static String credential(String value)
+    {
+        if (value == null || value.isEmpty() || value.length() > 16384 || !value.chars().allMatch(character -> character > 32 && character < 127)) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Jira credential response was invalid.");
+        }
+        return value;
+    }
+
+    private JsonNode authorizedRequest(URI uri, String method, Optional<String> authorization, Optional<Object> body)
+    {
         try {
             HttpRequest.Builder request = HttpRequest.newBuilder(uri).timeout(timeout).header("Accept", "application/json");
-            token.ifPresent(value -> {
-                if (value.isEmpty() || !value.chars().allMatch(character -> character > 32 && character < 127)) {
-                    throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Jira credential response was invalid.");
-                }
-                request.header("Authorization", "Bearer " + value);
-            });
+            authorization.ifPresent(value -> request.header("Authorization", value));
             if (body.isPresent()) {
                 request.header("Content-Type", "application/json");
             }

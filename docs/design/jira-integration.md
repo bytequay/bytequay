@@ -10,8 +10,9 @@ unsupported fields and administration.
 
 The first release includes:
 
-- Connect a Jira Cloud account through the system browser; choose a site, board
-  and active/future sprint or backlog. Assigned to me is the default filter.
+- Connect a Jira Cloud account with a personal API token, or through the system
+  browser when OAuth is configured; choose a site, board and active/future sprint
+  or backlog. Assigned to me is the default filter.
 - Switch between list and status-grouped board views. The default board shows
   To do, In progress, In review and Done together, with Jira's actual status on
   each card. Review is a display group for an in-progress status whose name
@@ -72,34 +73,60 @@ cannot duplicate the launch. Removing a connection does not delete task history.
 
 `read_issue_context` resolves the task-bound source. It returns accepted metadata
 and locally cached ticket/comment context, with stale/missing-cache limitations.
-It never retrieves an OAuth token or calls Jira. Ticket text and comments are
+It never retrieves a credential or calls Jira. Ticket text and comments are
 source material, not instructions. Jira credentials and app secrets never enter
-agent prompts, tools, transcript metadata or the renderer.
+agent prompts, tools or transcript metadata. The renderer handles a personal API
+token only while submitting the local settings form; saved credentials are never
+returned to it.
 
 ## Authentication and hosting
 
-Use one distributed Atlassian OAuth 2.0 (3LO) integration. A small hosted
-`services/jira-auth` service owns the client secret and rotating refresh tokens.
-They cannot safely live in a shipped desktop binary. ByteQuay holds an encrypted
-pairing credential locally and requests short-lived access tokens from this
-service. The renderer receives only connection status, authorized sites and the
-one-time browser pairing information, plus the authenticated account's ID, name
-and optional email. Identity comes from Atlassian's User Identity API, never a
-user-entered label or a browser cookie.
-
 Settings → Integrations → Jira owns account management. The native Jira page
 links there rather than maintaining a second connection editor. Add account
-opens the system browser and shows a pairing code. The settings page checks
-pending sign-in automatically with bounded, non-overlapping polling; a completed
-or failed attempt stops the loop. Browser denial and expiry remain visible, and
-leaving settings cancels its polling without deleting a saved connection.
+opens a native form for the Jira site URL, Atlassian email and personal API token.
+This personal setup requires no OAuth app registration or hosted service. Create
+a scoped Jira token in [Atlassian account settings](https://id.atlassian.com/manage-profile/security/api-tokens).
+The scopes used by the supported reads and writes are `read:jira-user`,
+`read:jira-work`, `write:jira-work`, `read:board-scope:jira-software`,
+`read:project:jira`, `read:sprint:jira-software`, `write:sprint:jira-software`,
+`read:issue-details:jira` and `read:jql:jira`.
 
-The app uses a distributor-configured HTTPS authentication origin. Release
-packaging embeds the public origin from `BYTEQUAY_JIRA_AUTH_URL`; a runtime
-override supports local deployments. The backend exposes only whether new
-connections are configured. A build without an origin offers an explicit
-unavailable state instead of requesting a service URL from ordinary users.
-Existing connections retain their original service origin for reconnect/removal.
+The sidecar accepts only a canonical HTTPS `*.atlassian.net` site origin. It
+discovers the cloud ID through `/_edge/tenant_info` without credentials, then
+verifies the account through `/rest/api/3/myself` using email/token Basic auth at
+the fixed `https://api.atlassian.com/ex/jira/{cloudId}` gateway. Site discovery
+never receives the token, and credentialed requests never follow redirects.
+The encrypted SQLite connection store holds the credential; public connection
+data includes its authentication type, login email and verified account/site
+identity. No token appears in responses, exception text or stored public state.
+The settings form clears its password field on submission and cancellation.
+
+Personal tokens cannot refresh automatically. Replace token verifies the new
+credential against the same account and site before changing the saved secret;
+a failed replacement leaves the previous connection intact. Authentication
+failures offer replacement, while permission failures retain the credential.
+Removing a token connection deletes the local credential; users revoke the
+token separately in Atlassian settings. Tokens remain subject to organization
+policies and administrator visibility. This path is a personal setup, not a
+claim of compliance with Atlassian's distributed Cloud-app requirements.
+
+When a distributor configures OAuth, Sign in with browser remains available.
+The separate hosted `services/jira-auth` service owns the client secret and
+rotating refresh tokens, which cannot safely live in a shipped desktop binary.
+ByteQuay stores an encrypted pairing credential locally and requests short-lived
+access tokens from this service. OAuth identity comes from Atlassian's User
+Identity API; personal-token identity comes from Jira's authenticated account
+endpoint. Neither path extracts browser cookies or trusts a user-entered name.
+
+OAuth opens the system browser and shows a pairing code. Settings checks pending
+sign-in automatically with bounded, non-overlapping polling; completion or
+failure stops the loop. Browser denial and expiry remain visible, and leaving
+settings cancels polling without deleting a saved connection. Release packaging
+embeds the HTTPS authentication origin from `BYTEQUAY_JIRA_AUTH_URL`; a runtime
+override supports local deployments. The backend exposes whether browser sign-in
+is configured. A build without an origin still supports personal tokens.
+Existing OAuth connections retain their original service origin for reconnect
+and removal.
 
 Each connection binds one authenticated account and its authorized site set.
 Multiple accounts and multiple sites are supported. The site picker identifies
@@ -117,12 +144,12 @@ are serialized and persisted atomically. Tokens are encrypted at rest and all
 remote errors are sanitized. Jira calls use the fixed Atlassian gateway origin;
 remote redirects are not followed with credentials.
 
-The broker is a separate deployment, not another local sidecar. Its
+The optional OAuth broker is a separate deployment, not another local sidecar. Its
 [setup guide](../../services/jira-auth/README.md) describes app registration,
 scopes, HTTPS callback, secret storage, single-instance storage, revocation and
 operational limits. Local protocol tests do not prove tenant consent: release
-acceptance still needs a configured OAuth app/domain and an authorized real Jira
-Cloud account. No API token collection is part of the product UI.
+acceptance for browser sign-in still needs a configured OAuth app/domain and an
+authorized real Jira Cloud account. Token authentication has no broker dependency.
 
 ## Cache, edits and reconciliation
 
@@ -173,13 +200,15 @@ Offline tests cover source admission/retry, cross-workspace uniqueness, persiste
 rollback, cache-only agent access, paginated issue reads, stale-edit rejection,
 field conversion, comment retry protection, rich-text links, completed-history
 pagination and scope, completion-date selection, reopened-ticket membership,
-authenticated transport bounds and OAuth pairing/rotation. Frontend tests and a
+authenticated transport bounds, token validation/replacement, credential
+redaction and OAuth pairing/rotation. Frontend tests and a
 fixture exercise connection, list/board/detail, comments, Goal and Start/View
 task states, completed-history membership, and date grouping across time zones,
 daylight saving and week/year boundaries. Repository backend and frontend gates
 run from the isolated Jira worktree.
 
-Live acceptance remains a separate step: consent on an authorized site; board
+Live acceptance remains a separate step: token authentication or OAuth consent
+on an authorized site; board
 and sprint selection; edit/transition validation in a test project; comment
 round-trip; development start and task reopen; revoked/expired permissions; and
 company app-access policies. The implementation must not imply these live checks

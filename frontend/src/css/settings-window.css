@@ -655,8 +655,21 @@
 /* Jira keeps account consent and site identity together in the integration settings. */
 .jira-settings h1 { display: flex; align-items: center; gap: 10px; }
 .jira-settings__intro { color: var(--text-3); font-size: 13px; line-height: 1.6; margin: -10px 0 24px; }
-.jira-settings__notice { padding: 13px 16px; margin-bottom: 22px; border: 1px solid var(--border); border-radius: 10px; color: var(--text-2); background: var(--bg-hover); font-size: 13px; line-height: 1.5; }
+.jira-settings__toolbar { flex-wrap: wrap; }
 .jira-settings .setw-btn-primary { display: inline-flex; align-items: center; gap: 6px; }
+.jira-token-form { display: grid; gap: 9px; padding: 16px; }
+.jira-token-form h2 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
+.jira-token-form label { font-size: 12.5px; font-weight: 500; }
+.jira-token-form .setw-input { width: 100%; min-width: 0; }
+.jira-token-form .setw-input:read-only { background: var(--bg-hover); color: var(--text-3); }
+.jira-token-form .setw-footnote { margin: 0; line-height: 1.5; }
+.jira-token-form__label, .jira-token-form__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.jira-token-form__label { justify-content: space-between; }
+.jira-token-form__label .setw-link { display: inline-flex; align-items: center; gap: 5px; }
+.jira-token-form__actions { justify-content: flex-end; margin-top: 8px; }
+.jira-token-form__permissions { font-size: 12px; line-height: 1.5; color: var(--text-2); }
+.jira-token-form__permissions summary { cursor: pointer; }
+.jira-token-form__permissions p, .jira-token-form__permissions ul { margin: 8px 0 0; }
 .jira-account { margin-bottom: 16px; }
 .jira-account .setw-row-sub { margin-left: 38px; }
 .jira-account .setw-row-title { flex-wrap: wrap; }

@@ -23,10 +23,12 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -70,9 +72,39 @@ class TestJiraHttpClient
             JiraHttpClient client = new JiraHttpClient(new ObjectMapper(), Duration.ofSeconds(3));
             assertThatThrownBy(() -> client.request(uri(server, "/redirect"), "GET", Optional.of("secret-token"), Optional.empty()))
                     .isInstanceOf(ResponseStatusException.class).hasMessageContaining("HTTP 302");
+            assertThatThrownBy(() -> client.basicRequest(uri(server, "/redirect"), "GET", "alice@example.com", "secret-token", Optional.empty()))
+                    .isInstanceOf(ResponseStatusException.class).hasMessageContaining("HTTP 302");
             assertThat(redirected).hasValue(0);
             assertThatThrownBy(() -> client.request(uri(server, "/error"), "GET", Optional.empty(), Optional.empty()))
                     .isInstanceOf(ResponseStatusException.class).hasMessageContaining("HTTP 401").hasMessageNotContaining("sensitive-token");
+            assertThatThrownBy(() -> client.basicRequest(uri(server, "/error"), "GET", "alice@example.com", "secret-token", Optional.empty()))
+                    .isInstanceOf(ResponseStatusException.class).hasMessageContaining("HTTP 401").hasMessageNotContaining("sensitive-token");
+        }
+        finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void sendsEncodedBasicCredentialsAndRejectsHeaderInjection()
+            throws Exception
+    {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        AtomicReference<String> authorization = new AtomicReference<>();
+        server.createContext("/myself", exchange -> {
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            exchange.sendResponseHeaders(204, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            JiraHttpClient client = new JiraHttpClient(new ObjectMapper(), Duration.ofSeconds(3));
+            client.basicRequest(uri(server, "/myself"), "GET", "alice@example.com", "token-with:punctuation", Optional.empty());
+            assertThat(authorization.get()).isEqualTo("Basic " + Base64.getEncoder().encodeToString("alice@example.com:token-with:punctuation".getBytes(StandardCharsets.UTF_8)));
+            assertThatThrownBy(() -> client.basicRequest(uri(server, "/myself"), "GET", "alice:other@example.com", "secret", Optional.empty()))
+                    .isInstanceOf(ResponseStatusException.class).hasMessageNotContaining("secret");
+            assertThatThrownBy(() -> client.basicRequest(uri(server, "/myself"), "GET", "alice@example.com", "secret\r\ninjection", Optional.empty()))
+                    .isInstanceOf(ResponseStatusException.class).hasMessageNotContaining("secret");
         }
         finally {
             server.stop(0);

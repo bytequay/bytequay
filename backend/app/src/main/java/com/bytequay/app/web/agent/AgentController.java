@@ -57,6 +57,7 @@ import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.agent.JiraDevelopmentService;
 import com.bytequay.app.agent.LocalReviewSessionService;
+import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.context.RepositoryContextService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -66,7 +67,6 @@ import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.web.DevelopmentAutomationDto;
 import com.bytequay.app.web.ci.CiAutofixHttpModels;
 import com.bytequay.app.workspace.ManagedWorktreeService;
-import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorktreeChanges;
 import com.bytequay.core.ci.CiAutofixRun;
@@ -75,9 +75,7 @@ import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
-import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hasher;
@@ -112,14 +110,12 @@ import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Consumer;
-import java.util.stream.Stream;
 
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Comparator.comparing;
-import static java.util.Comparator.comparingInt;
 import static java.util.Objects.requireNonNull;
 
 @RestController
@@ -143,11 +139,9 @@ public class AgentController
     private final AppSettingsService appSettings;
     private final AgentResourceService resourceService;
     private final RecentTouchRecorder recent;
-    private final PullRequestStore pullRequests;
     private final PullRequestTaskStore pullRequestTasks;
     private final ManagedWorktreeService worktrees;
     private final PullRequestService pullRequestCatalog;
-    private final WorkspaceStore workspaces;
     private final CiAutofixStore ciRuns;
     private final CiAutofixService ci;
     private final AgentTaskStartupProgress startupProgress;
@@ -156,6 +150,7 @@ public class AgentController
     private final IssueDevelopmentService issueDevelopment;
     private final JiraDevelopmentService jiraDevelopment;
     private final RepositoryContextService repositoryContext;
+    private final TaskPullRequestOwnership ownership;
 
     public AgentController(
             AgentTaskService taskService,
@@ -170,11 +165,9 @@ public class AgentController
             ModelSettingsService modelSettings,
             AgentResourceService resourceService,
             RecentTouchRecorder recent,
-            PullRequestStore pullRequests,
             PullRequestTaskStore pullRequestTasks,
             ManagedWorktreeService worktrees,
             PullRequestService pullRequestCatalog,
-            WorkspaceStore workspaces,
             AppSettingsService appSettings,
             CiAutofixStore ciRuns,
             CiAutofixService ci,
@@ -183,7 +176,8 @@ public class AgentController
             AgentStreamRegistry streams,
             IssueDevelopmentService issueDevelopment,
             JiraDevelopmentService jiraDevelopment,
-            RepositoryContextService repositoryContext)
+            RepositoryContextService repositoryContext,
+            TaskPullRequestOwnership ownership)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.taskCreator = requireNonNull(taskCreator, "taskCreator is null");
@@ -197,11 +191,9 @@ public class AgentController
         this.modelSettings = requireNonNull(modelSettings, "modelSettings is null");
         this.resourceService = requireNonNull(resourceService, "resourceService is null");
         this.recent = requireNonNull(recent, "recent is null");
-        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.pullRequestTasks = requireNonNull(pullRequestTasks, "pullRequestTasks is null");
         this.worktrees = requireNonNull(worktrees, "worktrees is null");
         this.pullRequestCatalog = requireNonNull(pullRequestCatalog, "pullRequestCatalog is null");
-        this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
         this.ciRuns = requireNonNull(ciRuns, "ciRuns is null");
         this.ci = requireNonNull(ci, "ci is null");
@@ -211,6 +203,7 @@ public class AgentController
         this.issueDevelopment = requireNonNull(issueDevelopment, "issueDevelopment is null");
         this.jiraDevelopment = requireNonNull(jiraDevelopment, "jiraDevelopment is null");
         this.repositoryContext = requireNonNull(repositoryContext, "repositoryContext is null");
+        this.ownership = requireNonNull(ownership, "ownership is null");
     }
 
     /**
@@ -223,13 +216,8 @@ public class AgentController
         Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi = ciRuns.listByParentTaskId(task.id().toString()).stream()
                 .max(comparing(CiAutofixRun::createdAt))
                 .map(run -> CiAutofixHttpModels.development(run, ci.canMessage(run)));
-        Optional<InteractiveAgentHttpContract.TaskPullRequestResponse> pullRequest = assignedPullRequests(task)
-                .flatMap(prs -> prs.stream().findFirst())
-                .map(pr -> new InteractiveAgentHttpContract.TaskPullRequestResponse(pr.number(), pr.title(), pr.state(), pr.draft()))
-                .or(() -> task.taskWorktree()
-                        .flatMap(worktree -> workspaces.findById(worktree.workspaceId())
-                                .map(workspace -> pullRequests.findByHeadRef(workspace.monitoredRepository().fullName(), worktree.generatedBranch()))
-                                .flatMap(InteractiveAgentHttpContract::taskPullRequest)));
+        Optional<InteractiveAgentHttpContract.TaskPullRequestResponse> pullRequest = ownership.linkedPullRequest(task)
+                .map(pr -> new InteractiveAgentHttpContract.TaskPullRequestResponse(pr.number(), pr.title(), pr.state(), pr.draft()));
         return InteractiveAgentHttpContract.task(task, metrics, developmentCi, pullRequest, issueDevelopment.source(task.id().toString()).map(source ->
                 new InteractiveAgentHttpContract.IssueSourceResponse(source.issue(), source.initialTurnId(), source.instructions())),
                 jiraDevelopment.source(task.id().toString()).map(source ->
@@ -463,9 +451,7 @@ public class AgentController
             @RequestParam String workspaceId)
     {
         AgentTask task = taskService.getInteractive(workspaceId, TaskId.valueOf(taskId));
-        return assignedPullRequests(task).orElseGet(() -> task.taskWorktree()
-                .map(worktree -> taskPullRequests(taskPullRequestRepository(workspaceId), worktree, taskBranches(worktree)))
-                .orElse(ImmutableList.of()));
+        return ownership.pullRequests(task);
     }
 
     /** What each listed task's live checkout holds, by task id; a checkout that cannot be read is absent. */
@@ -492,50 +478,19 @@ public class AgentController
             var assignment = pullRequestTasks.findByTaskId(taskId);
             if (assignment.isPresent()) {
                 var pr = assignment.orElseThrow();
-                pullRequestCatalog.observeWorkspacePullRequest(taskPullRequestRepository(workspaceId), pr.number());
-                return assignedPullRequests(task).orElseThrow();
+                pullRequestCatalog.observeWorkspacePullRequest(ownership.repository(workspaceId), pr.number());
+                return ownership.assignedPullRequests(task).orElseThrow();
             }
             return task.taskWorktree().map(worktree -> {
-                List<String> branches = taskBranches(worktree);
-                RepoRef repository = taskPullRequestRepository(workspaceId);
+                List<String> branches = ownership.branches(worktree);
+                RepoRef repository = ownership.repository(workspaceId);
                 branches.forEach(branch -> pullRequestCatalog.syncRepositoryBranch(repository, worktree.physicalRepository().owner(), branch));
-                return taskPullRequests(repository, worktree, branches);
+                return ownership.branchPullRequests(repository, worktree, branches);
             }).orElse(ImmutableList.of());
         }
         finally {
             lock.unlock();
         }
-    }
-
-    private Optional<List<PullRequest>> assignedPullRequests(AgentTask task)
-    {
-        return pullRequestTasks.findByTaskId(task.id().toString())
-                .map(pr -> pullRequests.findIdByRepoAndNumber(pr.repo(), pr.number()).flatMap(pullRequests::findById).stream().collect(toImmutableList()));
-    }
-
-    private List<String> taskBranches(TaskWorktree worktree)
-    {
-        return Stream.concat(Stream.of(worktree.generatedBranch()), worktrees.currentBranch(worktree).stream())
-                .distinct()
-                .collect(toImmutableList());
-    }
-
-    /** A task owns the physical fork; pull requests live in the workspace's monitored repository. */
-    private RepoRef taskPullRequestRepository(String workspaceId)
-    {
-        return workspaces.findById(workspaceId)
-                .orElseThrow(() -> WorkspaceException.notFound(workspaceId))
-                .monitoredRepository();
-    }
-
-    /** A renamed branch can share a common name with another author's fork, so a current-branch match counts only for the user's own pull request. */
-    private List<PullRequest> taskPullRequests(RepoRef repository, TaskWorktree worktree, List<String> branches)
-    {
-        return branches.stream()
-                .flatMap(branch -> pullRequests.findByHeadRef(repository.fullName(), branch).stream()
-                        .filter(pr -> branch.equals(worktree.generatedBranch()) || pr.origin() == PullRequest.Origin.AUTHORED))
-                .sorted(comparingInt(PullRequest::number).reversed())
-                .collect(toImmutableList());
     }
 
     /**

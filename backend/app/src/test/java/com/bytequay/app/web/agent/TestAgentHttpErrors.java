@@ -55,6 +55,7 @@ import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.agent.JiraDevelopmentService;
 import com.bytequay.app.agent.LocalReviewSessionService;
+import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -163,11 +164,9 @@ class TestAgentHttpErrors
                 mock(ModelSettingsService.class),
                 mock(AgentResourceService.class),
                 mock(RecentTouchRecorder.class),
-                mock(PullRequestStore.class),
                 mock(PullRequestTaskStore.class),
                 new ManagedWorktreeService(new WorkspacePaths(System.getProperty("java.io.tmpdir")), mock(WorkspaceStore.class), git),
                 mock(PullRequestService.class),
-                mock(WorkspaceStore.class),
                 appSettings,
                 ciRuns,
                 ci,
@@ -176,7 +175,8 @@ class TestAgentHttpErrors
                 new AgentStreamRegistry(),
                 mock(IssueDevelopmentService.class),
                 mock(JiraDevelopmentService.class),
-                repositoryContext);
+                repositoryContext,
+                mock(TaskPullRequestOwnership.class));
         mvc = standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

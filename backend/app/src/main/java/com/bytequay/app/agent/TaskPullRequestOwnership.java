@@ -17,15 +17,25 @@ import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.app.workspace.ManagedWorktreeService;
+import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Component;
 
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Stream;
+
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Comparator.comparingInt;
 import static java.util.Objects.requireNonNull;
 
-/** Whether a pull request belongs to an interactive task, for the surfaces that act on the task's worktree for that pull request. */
+/** Which pull requests belong to an interactive task, for the surfaces that act on the task's worktree for that pull request. */
 @Component
 public class TaskPullRequestOwnership
 {
@@ -64,14 +74,75 @@ public class TaskPullRequestOwnership
                 || worktrees.currentBranch(worktree).filter(branch -> headBranchOf(repo, number, branch, open, true)).isPresent();
     }
 
-    private boolean headBranchOf(String repo, int number, String branch, boolean open, boolean authored)
+    /**
+     * The assigned pull request, else the stored rows on the generated branch and on the worktree's current branch (that one only
+     * when {@code AUTHORED}), newest number first; empty without a worktree. What {@code GET /agent/tasks/{taskId}/pull-requests} serves.
+     */
+    public List<PullRequest> pullRequests(AgentTask task)
     {
-        return pullRequests.findByHeadRef(repo, branch).stream()
-                .anyMatch(pr -> pr.number() == number && (!open || isOpen(pr)) && (!authored || pr.origin() == PullRequest.Origin.AUTHORED));
+        return assignedPullRequests(task).orElseGet(() -> task.taskWorktree()
+                .map(worktree -> branchPullRequests(repository(worktree.workspaceId()), worktree, branches(worktree)))
+                .orElse(ImmutableList.of()));
+    }
+
+    /** The pull request the task links: the assigned one, else the newest live one on the generated branch. What the task response names. */
+    public Optional<PullRequest> linkedPullRequest(AgentTask task)
+    {
+        return assignedPullRequests(task).flatMap(assigned -> assigned.stream().findFirst())
+                .or(() -> task.taskWorktree().flatMap(worktree -> workspaces.findById(worktree.workspaceId())
+                        .flatMap(workspace -> newestLive(pullRequests.findByHeadRef(workspace.monitoredRepository().fullName(), worktree.generatedBranch())))));
+    }
+
+    public Optional<List<PullRequest>> assignedPullRequests(AgentTask task)
+    {
+        return assignments.findByTaskId(task.id().toString())
+                .map(pr -> pullRequests.findIdByRepoAndNumber(pr.repo(), pr.number()).flatMap(pullRequests::findById).stream().collect(toImmutableList()));
+    }
+
+    public List<String> branches(TaskWorktree worktree)
+    {
+        return Stream.concat(Stream.of(worktree.generatedBranch()), worktrees.currentBranch(worktree).stream())
+                .distinct()
+                .collect(toImmutableList());
+    }
+
+    /** A task owns the physical fork; pull requests live in the workspace's monitored repository. */
+    public RepoRef repository(String workspaceId)
+    {
+        return workspaces.findById(workspaceId)
+                .orElseThrow(() -> WorkspaceException.notFound(workspaceId))
+                .monitoredRepository();
+    }
+
+    /** A renamed branch can share a common name with another author's fork, so a current-branch match counts only for the user's own pull request. */
+    public List<PullRequest> branchPullRequests(RepoRef repository, TaskWorktree worktree, List<String> branches)
+    {
+        return branches.stream()
+                .flatMap(branch -> pullRequests.findByHeadRef(repository.fullName(), branch).stream()
+                        .filter(pr -> branch.equals(worktree.generatedBranch()) || pr.origin() == PullRequest.Origin.AUTHORED))
+                .sorted(comparingInt(PullRequest::number).reversed())
+                .collect(toImmutableList());
     }
 
     private static boolean isOpen(PullRequest pullRequest)
     {
         return "open".equalsIgnoreCase(pullRequest.state());
+    }
+
+    /**
+     * An open pull request is the one the task works on; without one, the merged one is what it delivered. A closed, unmerged
+     * row is never linked. Within each state the newest number wins.
+     */
+    static Optional<PullRequest> newestLive(List<PullRequest> pullRequests)
+    {
+        Comparator<PullRequest> newest = comparingInt(PullRequest::number);
+        return pullRequests.stream().filter(pr -> !"merged".equals(pr.state()) && !"closed".equals(pr.state())).max(newest)
+                .or(() -> pullRequests.stream().filter(pr -> "merged".equals(pr.state())).max(newest));
+    }
+
+    private boolean headBranchOf(String repo, int number, String branch, boolean open, boolean authored)
+    {
+        return pullRequests.findByHeadRef(repo, branch).stream()
+                .anyMatch(pr -> pr.number() == number && (!open || isOpen(pr)) && (!authored || pr.origin() == PullRequest.Origin.AUTHORED));
     }
 }

@@ -35,12 +35,10 @@ import com.bytequay.app.web.DevelopmentAutomationDto;
 import com.bytequay.app.web.ci.CiAutofixHttpModels;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.JiraIssueSource;
-import com.bytequay.core.domain.PullRequest;
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
@@ -48,7 +46,6 @@ import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static java.util.Comparator.comparingInt;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -115,18 +112,6 @@ final class InteractiveAgentHttpContract
                 task.localReviewHead(),
                 issueSource,
                 jiraSource);
-    }
-
-    /**
-     * The pull request a task's list row names, from its generated branch's stored rows: the newest
-     * open one, else the newest merged one, the same rule the task's own panel reads by.
-     */
-    static Optional<TaskPullRequestResponse> taskPullRequest(List<PullRequest> pullRequests)
-    {
-        Comparator<PullRequest> newest = comparingInt(PullRequest::number);
-        return pullRequests.stream().filter(pr -> !"merged".equals(pr.state()) && !"closed".equals(pr.state())).max(newest)
-                .or(() -> pullRequests.stream().filter(pr -> "merged".equals(pr.state())).max(newest))
-                .map(pr -> new TaskPullRequestResponse(pr.number(), pr.title(), pr.state(), pr.draft()));
     }
 
     /**

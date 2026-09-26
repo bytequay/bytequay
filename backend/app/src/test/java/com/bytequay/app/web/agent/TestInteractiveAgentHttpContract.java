@@ -34,13 +34,11 @@ import com.bytequay.app.agent.IssueSourceInput;
 import com.bytequay.app.agent.JiraSourceInput;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.JiraIssueSource;
-import com.bytequay.core.domain.PullRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -389,27 +387,5 @@ class TestInteractiveAgentHttpContract
         assertThat(json.path("developmentResult").path("learningSummary").isNull()).isTrue();
         assertThat(json.path("developmentOrigin").path("kind").asText()).isEqualTo("AUTO_COMMIT");
         assertThat(json.path("developmentOrigin").path("parentUserTurnId").asText()).isEqualTo(turn.developmentOrigin().orElseThrow().parentUserTurnId().toString());
-    }
-
-    @Test
-    void namesTheOpenPullRequestElseTheMergedOneAndNeverAClosedOne()
-    {
-        PullRequest merged = pullRequest(40, "merged", false);
-        PullRequest olderOpen = pullRequest(41, "open", false);
-        PullRequest draft = pullRequest(43, "open", true);
-        PullRequest closed = pullRequest(44, "closed", false);
-
-        assertThat(InteractiveAgentHttpContract.taskPullRequest(ImmutableList.of(merged, olderOpen, draft, closed)))
-                .contains(new InteractiveAgentHttpContract.TaskPullRequestResponse(43, "Change 43", "open", true));
-        assertThat(InteractiveAgentHttpContract.taskPullRequest(ImmutableList.of(closed, merged)))
-                .contains(new InteractiveAgentHttpContract.TaskPullRequestResponse(40, "Change 40", "merged", false));
-        assertThat(InteractiveAgentHttpContract.taskPullRequest(ImmutableList.of(closed))).isEmpty();
-    }
-
-    private static PullRequest pullRequest(int number, String state, boolean draft)
-    {
-        return new PullRequest(number, "owner/repo", number, "Change " + number, "owner", "https://github.com/owner/repo/pull/" + number, Instant.EPOCH, Instant.EPOCH,
-                PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), draft, null, null, null, ImmutableList.of(), null, 1, 1, 0,
-                state, null, null, null, null, Instant.EPOCH, "owner/branch", null, null, null, null);
     }
 }

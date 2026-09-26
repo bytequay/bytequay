@@ -103,6 +103,45 @@ class TestTaskPullRequestOwnership
         verify(pullRequests, never()).findByHeadRef("other/repo", worktree.generatedBranch());
     }
 
+    @Test
+    void theTaskPullRequestsAreTheAssignedOneElseItsBranchesNewestFirst()
+    {
+        when(pullRequests.findByHeadRef("owner/repo", worktree.generatedBranch())).thenReturn(ImmutableList.of(pullRequest(7, "closed", PullRequest.Origin.OTHER)));
+        when(pullRequests.findByHeadRef("owner/repo", "renamed")).thenReturn(ImmutableList.of(pullRequest(9, "open", PullRequest.Origin.AUTHORED),
+                pullRequest(11, "open", PullRequest.Origin.OTHER)));
+
+        // Another author's pull request on the current branch is left out; the generated branch keeps any origin.
+        assertThat(ownership.pullRequests(task)).extracting(PullRequest::number).containsExactly(9, 7);
+
+        when(assignments.findByTaskId(taskId.toString())).thenReturn(Optional.of(new PullRequestTask(taskId.toString(), "workspace", "owner/repo", 3, "context")));
+        when(pullRequests.findIdByRepoAndNumber("owner/repo", 3)).thenReturn(Optional.of(3L));
+        when(pullRequests.findById(3L)).thenReturn(Optional.of(pullRequest(3, "open", PullRequest.Origin.OTHER)));
+
+        assertThat(ownership.pullRequests(task)).extracting(PullRequest::number).containsExactly(3);
+    }
+
+    @Test
+    void theNewestLivePullRequestIsTheOpenOneElseTheMergedOneAndNeverAClosedOne()
+    {
+        PullRequest merged = pullRequest(40, "merged", PullRequest.Origin.AUTHORED);
+        PullRequest olderOpen = pullRequest(41, "open", PullRequest.Origin.AUTHORED);
+        PullRequest open = pullRequest(43, "open", PullRequest.Origin.AUTHORED);
+        PullRequest closed = pullRequest(44, "closed", PullRequest.Origin.AUTHORED);
+
+        assertThat(TaskPullRequestOwnership.newestLive(ImmutableList.of(merged, olderOpen, open, closed))).contains(open);
+        assertThat(TaskPullRequestOwnership.newestLive(ImmutableList.of(closed, merged))).contains(merged);
+        assertThat(TaskPullRequestOwnership.newestLive(ImmutableList.of(closed))).isEmpty();
+    }
+
+    @Test
+    void aTaskWithoutAWorktreeHasNoBranchPullRequests()
+    {
+        AgentTask released = AgentTask.created(taskId, Optional.of("workspace"), true, "Task", AgentLaneId.CODEX_CLI, new RepositoryIdentity("owner", "repo"),
+                Path.of("/managed/worktrees", taskId.toString()), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
+
+        assertThat(ownership.pullRequests(released)).isEmpty();
+    }
+
     private PullRequest pullRequest(int number, String state, PullRequest.Origin origin)
     {
         return new PullRequest(number, "owner/repo", number, "Task", "owner", "https://github.com/owner/repo/pull/" + number, NOW, NOW, origin,

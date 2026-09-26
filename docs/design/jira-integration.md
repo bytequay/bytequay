@@ -153,8 +153,10 @@ authorized real Jira Cloud account. Token authentication has no broker dependenc
 
 ## Cache, edits and reconciliation
 
-Local reads use persisted cached projections. Explicit refresh and a bounded
-periodic poll update the watched sprint scopes. Completed history has a separate
+Local reads use persisted cached projections. Background polling updates watched
+sprint scopes every 10 minutes, starting one minute after startup. The Jira
+page's Refresh tickets button requests an immediate update without waiting for
+the next poll. Completed history has a separate
 cache and uses the enhanced board issues endpoint with a Done-category filter
 across sprints. History refreshes on request and stays out of watched scopes and
 Needs attention. Jira board filters and mapped-status rules still bound the

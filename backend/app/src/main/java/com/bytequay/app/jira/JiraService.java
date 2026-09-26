@@ -291,7 +291,7 @@ public class JiraService
         return ImmutableList.copyOf(result.values());
     }
 
-    @Scheduled(fixedDelay = 120000, initialDelay = 60000)
+    @Scheduled(fixedDelay = 600000, initialDelay = 60000)
     public void poll()
     {
         List<String> connected = connections.list().stream().filter(connection -> connection.state().equals("connected")).map(JiraDtos.Connection::id).collect(toImmutableList());

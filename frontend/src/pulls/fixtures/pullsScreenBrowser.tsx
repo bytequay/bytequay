@@ -359,6 +359,7 @@ export async function runOpenReviewWorkspaceStream(): Promise<string> {
 export async function runReviewSheet(): Promise<string> {
   const draft: ReviewDraftDto = { repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', version: 4, updatedAt: '2026-09-06T16:20:00Z',
     items: [{ id: 'item-1', source: 'AGENT_FINDING', findingId: 'finding-1', findingRevision: 1, path: 'src/Finding.java', side: 'RIGHT',
+      commitId: reviewFixture().findings[0].validatedHeadSha,
       line: 12, startLine: null, body: 'Promoted finding text', included: true, published: false, publication: null }] };
   const review = reviewFixture({ draft });
   const detail: PullRequestDetailDto = {
@@ -373,13 +374,22 @@ export async function runReviewSheet(): Promise<string> {
   const calls: string[] = [];
   const events: string[] = [];
   let closed = false;
+  let publicationProblem: string | null = null;
+  let diffHead = review.observedHeadSha;
+  const addedCommits: Array<string | null> = [];
   const bridge = {
+    saveReviewDraft: async (_repo, _number, version, body, event) => {
+      calls.push(`save v${version} ${event} "${body}"`);
+      return { ...draft, body, event, version: version + 1 };
+    },
     addReviewDraftComment: async (_repo, _number, version, comment) => {
       calls.push(`add v${version} ${comment.path}:${comment.line} ${comment.body}`);
+      addedCommits.push(comment.commitId);
       return { ...draft, version: version + 1 };
     },
     submitReviewDraft: async (_repo, _number, version, body, event) => {
       calls.push(`draft v${version} ${event} "${body}"`);
+      if (publicationProblem !== null) throw new Error(`Error invoking remote method 'review:draft:submit': Error: ${publicationProblem}`);
     },
     submitReview: async (_prId, _repo, _number, event, body, comments) => {
       calls.push(`plain ${event} "${body}" ${(comments ?? []).map(comment => comment.path).join(',')}`);
@@ -391,10 +401,10 @@ export async function runReviewSheet(): Promise<string> {
       { filename: 'src/Finding.java', status: 'modified', additions: 1, deletions: 0, patch: '@@ -1,2 +10,3 @@\n a\n b\n+int findingLine = 12;' },
       { filename: 'src/Written.java', status: 'modified', additions: 1, deletions: 0, patch: '@@ -1,2 +1,3 @@\n a\n b\n+int writtenLine = 3;' },
     ],
-    fetchPrDiffCommits: async () => [{ sha: review.observedHeadSha ?? 'head', parentSha: null, message: null, author: null, authoredAt: null }],
+    fetchPrDiffCommits: async () => [{ sha: diffHead ?? 'head', parentSha: null, message: null, author: null, authoredAt: null }],
     getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0, following: 0,
       bio: null, location: null, company: null, email: null }),
-  } satisfies Pick<Bridge, 'addReviewDraftComment' | 'submitReviewDraft' | 'submitReview' | 'getAgentReview' | 'fetchPullRequestDetailByRef'
+  } satisfies Pick<Bridge, 'saveReviewDraft' | 'addReviewDraftComment' | 'submitReviewDraft' | 'submitReview' | 'getAgentReview' | 'fetchPullRequestDetailByRef'
     | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'getUserProfile'>;
   const originalBridge = window.bridge;
   Object.assign(window, { bridge });
@@ -425,18 +435,48 @@ export async function runReviewSheet(): Promise<string> {
     host.querySelector<HTMLInputElement>('input[type="radio"]')?.click();
     await settle();
     await submit();
-    assert(calls.every(call => call === 'reload') && host.querySelector('[role="alert"]')?.textContent?.includes('selected commits') === true,
-      `A comment written on selected commits must not be moved onto the current head: ${calls.join(' | ')}`);
+    assert(closed && addedCommits.join(',') === 'older-commit' && !calls.some(call => call.startsWith('plain ')),
+      `Selected-commit comments join the reserved draft with their original commit beside agent findings: ${calls.join(' | ')}`);
 
     calls.length = 0;
+    addedCommits.length = 0;
+    closed = false;
     mount([written]);
     host.querySelector<HTMLInputElement>('input[type="radio"]')?.click();
     await settle();
     await submit();
-    assert(closed && calls.join(' | ') === 'add v4 src/Written.java:3 Written comment text | draft v5 COMMENT "" | reload | detail',
+    assert(closed && calls.join(' | ') === 'save v4 COMMENT "" | add v5 src/Written.java:3 Written comment text | draft v6 COMMENT "" | reload | detail',
       `Added findings must go out through the draft with the written comments, not the plain review: ${calls.join(' | ')}`);
     assert(events.includes('pending 0') && events.includes('submitted COMMENT') && events.includes('review'),
       `Submitting must clear written comments and refresh the review and pull request: ${events.join(' | ')}`);
+    assert(addedCommits[0] === written.commitId, 'Written comments keep their displayed commit when joining the durable draft');
+
+    calls.length = 0;
+    closed = false;
+    diffHead = 'newer-commit';
+    mount([]);
+    await settle();
+    const olderFinding = host.querySelector('.pr-review-sheet__pending > .pr-inline-thread');
+    assert(olderFinding?.querySelector('.pr-commented-code-line') === null
+      && olderFinding?.textContent?.includes(`commit ${draft.items[0].commitId?.slice(0, 7)}`) === true,
+    'An older finding shows its saved commit and never previews current code at the old line number');
+    await submit();
+    assert(closed && calls.some(call => call.startsWith('draft ')), 'An advanced head does not block the pinned finding draft');
+
+    calls.length = 0;
+    events.length = 0;
+    closed = false;
+    publicationProblem = 'Comment publication is uncertain; check GitHub before retrying';
+    mount([], { ...review, draft: { ...draft, body: 'Keep my review summary.' } });
+    await submit();
+    assert(!closed && host.querySelector('[role="alert"]')?.textContent === publicationProblem
+      && host.querySelector<HTMLTextAreaElement>('textarea')?.value === 'Keep my review summary.'
+      && !host.querySelector<HTMLButtonElement>('.pr-review-sheet__footer .is-primary')?.disabled
+      && host.querySelector('.pr-review-sheet__pending')?.textContent?.includes('Promoted finding text') === true,
+    'A publication failure keeps the summary and pending comments editable and shows the useful error without the Electron wrapper');
+    assert(!events.some(event => event.startsWith('submitted ')), 'A refused review must not be reported as submitted');
+    publicationProblem = null;
+    diffHead = review.observedHeadSha;
 
     // No added findings, so the comments go out as plain reviews — one per commit they were
     // written on, because GitHub anchors a whole review at a single commit.

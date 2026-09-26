@@ -409,7 +409,8 @@ class TestSqliteReviewStores
                 OptionalInt.empty(),
                 "Name this after what it returns.",
                 true,
-                Optional.empty());
+                Optional.empty(),
+                Optional.of("a".repeat(40)));
         ReviewDraftItem promoted = new ReviewDraftItem(
                 "item-2",
                 ReviewDraftItem.Source.AGENT_FINDING,
@@ -421,7 +422,8 @@ class TestSqliteReviewStores
                 OptionalInt.of(118),
                 "The published counter is never incremented.",
                 false,
-                Optional.of(publication));
+                Optional.of(publication),
+                Optional.of("a".repeat(40)));
         ReviewDraft draft = ReviewDraft.empty("ByteQuay/Sample", 7, NOW)
                 .withReview("Close, but the counter is wrong.", "REQUEST_CHANGES", NOW.plusSeconds(1))
                 .withItems(ImmutableList.of(manual, promoted), NOW.plusSeconds(2));
@@ -435,6 +437,28 @@ class TestSqliteReviewStores
         assertThat(stored.items()).containsExactly(manual, promoted);
         assertThat(stored.items().get(0).published()).isFalse();
         assertThat(stored.items().get(1).published()).isTrue();
+    }
+
+    @Test
+    void readsRetainedDraftItemsWithoutACommitWithoutLosingUserText()
+    {
+        ReviewDraftItem item = new ReviewDraftItem("item-retained", ReviewDraftItem.Source.MANUAL, Optional.empty(), OptionalInt.empty(), REVIEW_TOOLS,
+                "RIGHT", 42, OptionalInt.empty(), "User-edited wording", true, Optional.empty(), Optional.of(HEAD_SHA));
+        ReviewDraft saved = draftStore.save(ReviewDraft.empty("bytequay/sample", 7, NOW)
+                .withReview("Retained summary", "REQUEST_CHANGES", NOW).withItems(ImmutableList.of(item), NOW));
+        entityManager.createNativeQuery("UPDATE pr_review_draft SET items_json = json_remove(items_json, '$[0].commitId') WHERE id = :id")
+                .setParameter("id", saved.id()).executeUpdate();
+        entityManager.clear();
+
+        ReviewDraft retained = draftStore.find("bytequay/sample", 7).orElseThrow();
+
+        assertThat(retained.body()).isEqualTo("Retained summary");
+        assertThat(retained.event()).isEqualTo("REQUEST_CHANGES");
+        assertThat(retained.items()).singleElement().satisfies(value -> {
+            assertThat(value.body()).isEqualTo("User-edited wording");
+            assertThat(value.line()).isEqualTo(42);
+            assertThat(value.commitId()).isEmpty();
+        });
     }
 
     @Test

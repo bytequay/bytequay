@@ -262,7 +262,7 @@ this is not a second task engine:
 
 | Record | Required facts |
 | --- | --- |
-| Review | Workspace and logical PR identity, physical repository/head-branch identity, agent task ID, latest completed run, latest observed remote scope (head, base tip, and merge base, or explicitly unknown), follow-up execution enabled/paused, optimistic version, explicit closure |
+| Review | Workspace and logical PR identity, physical repository/head-branch identity, agent task ID, latest completed run, latest observed PR head, follow-up execution enabled/paused, optimistic version, explicit closure |
 | Run | Review ID, full/incremental scope, frozen base tip and merge base, head SHA, prior successful reviewed head if any, turn IDs, ordered assignments, latest investigation, optional context snapshot with sealed contributions and immutable delivery bindings, accepted result/coverage, terminal outcome |
 | Assignment | Consecutive number, investigation/validation/evidence-collection kind, reporting-repair attempt, immutable report when sealed |
 | Investigation | Change map, distinct assessed changed-file paths, captured supporting context refs, numbered hypotheses, evidence-request answers, latest validation conclusions |
@@ -270,7 +270,7 @@ this is not a second task engine:
 | Summary | Run ID, revision, purpose, actual commit explanations |
 | Finding | Stable ID, origin run ID, current anchor, title/body, copied evidence, current revision, local resolution/withdrawal and reason, last validated head SHA and outdated flag; current-run validation binds the exact finding revision |
 | Discussion message | Stable ID, review and summary-card/finding target, author, body, target revision/run, correlated task input/turn or reply, delivery outcome |
-| Outgoing draft/publication | PR/account-owned draft usable without Agent Review; stable item ID, MANUAL or AGENT_FINDING source, optional finding ID/revision, frozen location, user-editable body/version, inclusion, review body/event, exact publication attempt/payload and returned remote identities |
+| Outgoing draft/publication | PR/account-owned draft usable without Agent Review; stable item ID, MANUAL or AGENT_FINDING source, optional finding ID/revision, reviewed PR commit SHA and frozen location, user-editable body/version, inclusion, review body/event, exact publication attempt/payload and returned remote identities |
 | Local run | Task (a review's runs are its task's runs), ordinal, USER or AGENT initiator, class/method/command scope and selector, source head/local paths/fingerprint at start, status from runner facts only, bounded output and per-test results |
 
 These are logical records, not a mandate for one table per row. Reuse existing
@@ -335,20 +335,19 @@ must say what was changed and be checked against the original snapshot.
 
 ### Updating the mapped branch
 
-An active review of an open PR must observe the remote head, base tip, and merge
-base as one scope. The existing PR-detail refresh event reports only the head;
-extend that observation with a read-only base-tip resolution and merge-base
-calculation, or report scope freshness as unknown. An unchanged observed head
-alone cannot establish that the base is unchanged. Show when any observed part
-differs from the accepted run's frozen scope, including a changed base with an
-unchanged head. Retained closed/merged runs stay bound to their historical
-scope. Refresh does not move the checkout or start another review. Only an
-explicit user **Update review** or **Resume** action may synchronize it. Fetch
-the newest head and base for that action; never interrupt an active
-investigation or move its worktree beneath it.
-When the head is unchanged but the base tip or merge base changed, keep the
-verified worktree head and start a full review against the newly frozen scope.
-That unchanged-head worktree is not a merged-result checkout: interactions with
+An active review observes the PR's remote head through the existing detail
+refresh event. Show newer PR commits as information about the reviewed version;
+they do not prevent publishing comments on their original reviewed commit.
+Advancement of the merge target branch, such as another PR merging into master,
+does not invalidate the review or its outgoing comments. Retained closed/merged
+runs stay bound to their historical scope. Refresh does not move the checkout
+or start another review. Only an explicit user **Update review** or **Resume**
+action may synchronize it; never interrupt an active investigation or move its
+worktree beneath it.
+An explicit update can capture the current base tip and merge base as source
+context and start a full review when that context changed. This analysis choice
+does not change the commit or location of any existing outgoing comment. An
+unchanged-head worktree is not a merged-result checkout: interactions with
 changed base code need source or executable evidence, or remain unresolved.
 
 Before syncing, require the existing task execution boundary to exclude turn
@@ -1162,8 +1161,9 @@ including binary changes and paths reverted out of the overall publication diff.
 Unchanged files already assessed in that predecessor can be reused, while
 changed dependencies can still require their reinspection.
 Assessed files in the new investigation describe work actually performed in
-that run, not inherited reads. The overall PR diff remains the publication
-anchor space; the incremental delta alone is not that space.
+that run, not inherited reads. The PR diff captured for that run remains the
+anchor space for comments on its reviewed commit; the incremental delta alone
+is not that space.
 
 Use a full review when there is no successful predecessor, ancestry cannot
 be proved, history was rewritten, or the base/merge base changed. Full-scope
@@ -1171,19 +1171,23 @@ selection does not authorize unsafe worktree replacement (Section 4). An
 unchanged head or identical PR patch does not establish that the reviewed
 behavior is unchanged when the base tree or a relevant dependency changed.
 
-Treat anchor mapping and semantic reassessment as separate checks. Deterministic
-mapping and source validation may recover a finding's location in the current
-diff, but do not establish that its trigger, violated contract, or consequence
-still holds. The agent reads each carried OPEN finding's exact prior body and
+Keep a carried finding's anchor and validated commit together while it awaits
+reassessment. Do not automatically move its line numbers to a newer diff.
+Locating the corresponding code in the new tree does not establish that its
+trigger, violated contract, or consequence still holds. The agent reads each
+carried OPEN finding's exact prior body and
 evidence, includes it as a numbered investigation candidate, then rereads
 current source and relevant dependencies. It saves a supported revision with
-current-run evidence or withdraws the claim with an explanation and current-run
+current-run evidence and a current anchor, advancing the validated commit and
+anchor together, or withdraws the claim with an explanation and current-run
 evidence references; a user RESOLVED finding remains resolved. A finding from an
-earlier reviewed tree remains pending and is not
-publishable until the agent reassesses it against the current frozen head, base,
-and relevant source dependencies with evidence. An ambiguous/missing mapping is
-outdated and also needs re-anchoring. If dependency evidence is unavailable,
-retain the finding as unresolved rather than treating its mapped line as proof.
+earlier reviewed tree may remain pending for analysis of the newer tree. That
+status does not block the user's comment on the earlier reviewed commit. An
+ambiguous/missing mapping is outdated for the new analysis and needs
+re-anchoring before the agent claims support at the new head. If dependency
+evidence is unavailable, retain the finding as unresolved rather than treating
+its mapped line as proof. Existing outgoing comments retain their original
+commit, location, and user-edited text.
 If the user reopens a pending finding, explicit Update or Resume starts its
 reassessment even when the observed head and base have not changed again.
 Disappearance from an agent's new report is not resolution. Ask the agent to
@@ -1226,29 +1230,37 @@ the outgoing review body. That prose is not a finding-backed inline draft and
 does not carry a finding-specific send-time reassessment gate. It still belongs
 to the user's exact final preview and direct submit action.
 
-Before publication, obtain a fresh remote scope for the exact PR/account:
-head, base tip, merge base, and the overall publication diff. A locally cached
-head or a previously displayed draft is not a fresh remote check. Validate
-each inline item's body, revision and diff location against that scope; validate
-the exact review prose and event as part of the final preview. For a
-finding-backed inline draft, compare the current scope with its last accepted
-review and its last validated head/outdated state. A changed scope or finding
-revision requires evidence-backed semantic reassessment and renewed user
-confirmation, not best-effort line guessing. A
-current mapped anchor without that reassessment is not eligible. A manual draft
-needs deterministic location revalidation and renewed user confirmation after
-a scope change, but no agent reassessment.
-Derive GitHub path, side, line/range, and commit parameters in code.
+Bind each inline comment to the PR commit whose diff the user reviewed.
+Snapshot that commit SHA together with the path, side, line/range and body when
+adding an agent finding or manual comment to the draft. Publication retains
+those identities; it never substitutes today's PR head for an older comment.
+A merge into the target branch, a new PR head, an ongoing later review, or an
+outdated finding flag does not impose a publication gate on that snapshot.
+Source revisions may be shown for the user's recheck without silently rewriting
+or blocking their frozen comment. Resolved/withdrawn findings remain excluded.
+Adding a new finding still requires an accepted review at its validated commit;
+an unfinished later review cannot authorize a new provisional finding.
+
+Derive GitHub path, side, line/range, and commit parameters from the exact
+selected snapshot. Validate destination ownership, body, side and positive
+line/range values, and the exact review prose/event. Do not fetch or compare
+the target branch tip or merge base before publication. Do not remap comments
+onto the current head or reject them merely because newer code changed their
+original locations. Send the explicit reviewed commit SHA and let GitHub
+validate that commit's location or display the comment as outdated. Surface
+GitHub's actual validation failures without claiming a successful post.
 Resolve the PR's local ID and repository/number together server-side; reject
-a mixed-PR or mixed-head batch. Apply the common PR and location guards to
-manual draft comments in the same outgoing review as promoted agent findings.
+cross-PR data. GitHub anchors a review at one commit, so split a mixed-commit
+draft into one review per commit. Send the user's review body/event once, with
+the final group; use the cached current-head group last when it is included.
+Preceding groups carry COMMENT and no review body. Persist
+each successful group before proceeding so a partial failure cannot repost it.
 Publication requests identify the prepared preview, local draft/item IDs,
 expected versions, and the user's chosen review text/event, not raw
 agent-generated GitHub fields.
-For a manual comment created in a selected commit-range view, require a
-deterministic mapping to the current overall PR publication diff and confirm
-that location before inclusion; otherwise keep it local and non-publishable.
-Never hoist one item's commit SHA over a mixed-snapshot batch.
+Manual comments from a selected commit-range view keep that selected commit
+and its line numbers. Never hoist one item's commit SHA over another item's
+snapshot or move the line numbers onto the current head.
 
 Atomically reserve the exact local publication payload before sending. Resolve,
 withdraw, edits, and duplicate clicks must not race that reservation. A
@@ -1261,14 +1273,14 @@ action.
 
 Add an application-prepared final preview for both send routes. It must contain
 the exact payload to be reserved: destination PR/account, review body and event,
-included item bodies, and resolved locations and revisions. Bind the user's
+included item bodies, and frozen commits and locations. Bind the user's
 Submit review or Post comment now action to that preview and its draft version.
-Immediately before reservation, recheck the remote scope and derive the payload
-again. If the scope, input, or derived location differs, refuse the send, show a
-refreshed preview, and require a new direct user action. A preview assembled
-only from renderer-held comments, or a draft-version check against a cached
-head, does not meet this authorization boundary. Saving a draft or approving an
-earlier version grants no send authority.
+Immediately before reservation, recheck the local draft version, destination
+ownership and user resolution state. If the selected body, commit or location
+differs from the prepared preview, refuse the send, show the updated preview,
+and require a new direct user action. Remote head/base advancement alone does
+not change a frozen payload. Saving a draft or approving an earlier version
+grants no send authority.
 
 Single Post comment now and batch Submit review use the same item reservation.
 If the finding already has a draft item, preview that user-edited body and

@@ -59,7 +59,6 @@ import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
-import com.bytequay.core.review.ReviewAnchor;
 import com.bytequay.core.review.ReviewCandidateValidation;
 import com.bytequay.core.review.ReviewCommit;
 import com.bytequay.core.review.ReviewConflictException;
@@ -112,6 +111,7 @@ public class DefaultAgentReviewService
 
     private final AgentReviewStore store;
     private final ReviewDraftStore drafts;
+    private final ReviewPublicationService publications;
     private final AgentTaskService tasks;
     private final AgentTurnService turns;
     private final AgentTurnStore turnStore;
@@ -138,6 +138,7 @@ public class DefaultAgentReviewService
     public DefaultAgentReviewService(
             AgentReviewStore store,
             ReviewDraftStore drafts,
+            ReviewPublicationService publications,
             AgentTaskService tasks,
             AgentTurnService turns,
             AgentTurnStore turnStore,
@@ -162,6 +163,7 @@ public class DefaultAgentReviewService
     {
         this.store = requireNonNull(store, "store is null");
         this.drafts = requireNonNull(drafts, "drafts is null");
+        this.publications = requireNonNull(publications, "publications is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
@@ -936,19 +938,11 @@ public class DefaultAgentReviewService
         AgentTurn turn;
         try {
             run = context.prepareRun(review, run, workspace, previous);
-            ReviewDiffAnchors anchors = ReviewDiffAnchors.of(snapshot.diff());
             for (ReviewFinding finding : findings) {
                 if (finding.state() == ReviewFinding.State.WITHDRAWN) {
                     continue;
                 }
-                if (finding.anchor().isEmpty()) {
-                    // A finding about the whole pull request has no lines to lose, but its claim still needs reassessment.
-                    store.updateFinding(finding.pendingReassessment(now));
-                    continue;
-                }
-                Optional<ReviewAnchor> mapped = anchors.remap(finding.anchor().orElseThrow());
-                store.updateFinding(mapped.map(anchor -> relocated(finding, anchor, now))
-                        .orElseGet(() -> finding.pendingReassessment(now)));
+                store.updateFinding(finding.pendingReassessment(now));
             }
             String login = credentials.resolveGitHubCredential().profile().login();
             turn = startAssignment(run, new StartAgentTurnCommand(
@@ -970,41 +964,6 @@ public class DefaultAgentReviewService
         if (!current.turnIds().contains(turn.id().toString())) {
             store.updateRun(current.withTurn(turn.id().toString(), Instant.now(clock)));
         }
-    }
-
-    private static ReviewFinding relocated(ReviewFinding finding, ReviewAnchor anchor, Instant now)
-    {
-        return new ReviewFinding(
-                finding.id(),
-                finding.reviewId(),
-                finding.runId(),
-                finding.ordinal(),
-                finding.title(),
-                finding.body(),
-                finding.severity(),
-                Optional.of(anchor),
-                finding.evidence(),
-                finding.revision(),
-                finding.state(),
-                finding.stateReason(),
-                finding.validatedHeadSha(),
-                true,
-                finding.version(),
-                finding.createdAt(),
-                now);
-    }
-
-    /** Re-reads the remote scope before a user sends a finding from an accepted run. */
-    boolean currentScopeMatches(ReviewRun run)
-    {
-        AgentReview review = requireReview(run.reviewId());
-        refresh.refreshAllDetail(review.repo(), review.number());
-        WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(review.workspaceId());
-        Snapshot current = snapshot(workspace, review.repo(), review.number());
-        return run.headSha().equals(current.headSha())
-                && run.baseRef().equals(current.baseRef())
-                && run.baseSha().equals(current.baseSha())
-                && run.mergeBaseSha().equals(current.mergeBaseSha());
     }
 
     /**
@@ -1120,7 +1079,7 @@ public class DefaultAgentReviewService
                 queued,
                 pendingApprovals,
                 runs.stream().flatMap(run -> run.turnIds().stream()).collect(toImmutableList()),
-                drafts.find(review.repo(), review.number()),
+                drafts.find(review.repo(), review.number()).map(ignored -> publications.draft(review.repo(), review.number())),
                 pullRequests.findStored(review.repo(), review.number()));
     }
 

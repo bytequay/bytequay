@@ -21,7 +21,7 @@ import ReviewComposer from './ReviewComposer';
 import ReviewThread from './ReviewThread';
 import { findingLines } from './contracts';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
-import { askLabel, findingPill, findingPublication, messagesFor, shortPath, shortSha } from './model';
+import { askLabel, draftCommentCommit, draftItemFor, findingPill, findingPublication, messagesFor, shortPath, shortSha } from './model';
 
 export type FindingActions = {
   onAsk: (finding: ReviewFindingDto, message: string) => Promise<void>;
@@ -30,6 +30,7 @@ export type FindingActions = {
   onAddToReview: (finding: ReviewFindingDto) => Promise<void>;
   onPostNow: (finding: ReviewFindingDto, body: string) => Promise<void>;
   onEditDraft: (finding: ReviewFindingDto, body: string) => Promise<void>;
+  onRemoveFromReview: (finding: ReviewFindingDto) => Promise<void>;
   /** Opens the finding at its diff location, or returns to its card from Changes; absent when there is nowhere to go. */
   onNavigate?: (finding: ReviewFindingDto) => void;
 };
@@ -76,7 +77,10 @@ export default function ReviewFindingCard({
   const pill = findingPill(review, finding);
   const publication = findingPublication(review, finding);
   const messages = messagesFor(review, finding.id);
-  const item = publication.kind === 'draft' || publication.kind === 'published' ? publication.item : null;
+  const item = draftItemFor(review.draft, finding.id);
+  const itemCommit = item === null ? null : draftCommentCommit(item, review.findings);
+  const reviewText = finding.path === null && review.draft?.body.includes(finding.body.trim()) ? review.draft.body : null;
+  const outgoingBody = reviewText ?? (item !== null && !item.published ? item.body : null);
   // Null for a finding about the whole pull request, such as a commit message: it has no code, no suggestion and no line to post on.
   const lines = findingLines(finding);
   const suggestion: SuggestionBase | undefined = lines !== null && lines.side === 'RIGHT'
@@ -103,7 +107,7 @@ export default function ReviewFindingCard({
   };
   const submit = async () => {
     const body = text.trim();
-    if (busy || (body === '' && composer !== 'resolve')) return;
+    if (busy || (body === '' && composer !== 'resolve' && !(composer === 'draft' && reviewText !== null))) return;
     setError(null);
     try {
       if (composer === 'ask') await actions.onAsk(finding, body);
@@ -114,9 +118,14 @@ export default function ReviewFindingCard({
     }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not send your message.'); }
   };
+  const remove = async () => {
+    setError(null);
+    try { await actions.onRemoveFromReview(finding); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not remove this comment.'); }
+  };
 
   return (
-    <article className={`agr-finding${withdrawn || finding.state === 'RESOLVED' || finding.outdated ? ' is-muted' : ''}${publication.kind === 'draft' ? ' is-draft' : ''}`}
+    <article className={`agr-finding${withdrawn || finding.state === 'RESOLVED' || finding.outdated ? ' is-muted' : ''}${outgoingBody !== null ? ' is-draft' : ''}`}
       id={`agent-review-finding-${finding.id}`} data-finding-id={finding.id}>
       <ReviewThreadCard resolved={finding.state === 'RESOLVED'} outdated={finding.outdated} defaultOpen={defaultOpen}
         privateLabel="Agent finding · Private"
@@ -139,15 +148,15 @@ export default function ReviewFindingCard({
               suggestion={composer === 'post' ? suggestion : composer === 'draft' ? draftSuggestion : undefined}
               autoFocus
               busy={busy}
-              allowEmpty={composer === 'resolve'}
+              allowEmpty={composer === 'resolve' || (composer === 'draft' && reviewText !== null)}
               placeholder={composer === 'resolve' ? 'Why are you resolving this finding locally? (optional)'
-                : composer === 'ask' ? 'Ask the agent about this finding…' : 'Comment text (edits here never change the finding)'}
-              ariaLabel={composer === 'resolve' ? 'Resolution reason (optional)' : composer === 'ask' ? 'Ask the agent about this finding' : 'Outgoing comment text'}
+                : composer === 'ask' ? 'Ask the agent about this finding…' : reviewText !== null ? 'Your review summary…' : 'Comment text (edits here never change the finding)'}
+              ariaLabel={composer === 'resolve' ? 'Resolution reason (optional)' : composer === 'ask' ? 'Ask the agent about this finding' : reviewText !== null ? 'Review summary text' : 'Outgoing comment text'}
               primaryLabel={composer === 'resolve' ? 'Resolve locally' : composer === 'ask' ? askLabel(review) : composer === 'post' ? 'Post now' : 'Save'}
               outgoing={composer === 'ask' || composer === 'resolve'
                 ? null
                 : composer === 'post' && lines !== null
-                  ? `Posts to GitHub on ${shortPath(lines.path, 28)} ${lines.range} · the head is re-checked on send`
+                  ? `Posts to GitHub on ${shortPath(lines.path, 28)} ${lines.range} at reviewed commit ${shortSha(finding.validatedHeadSha)}`
                   : 'Your outgoing text; the agent never sees these edits'}
               onChange={setText}
               onSubmit={() => { void submit(); }}
@@ -235,20 +244,25 @@ export default function ReviewFindingCard({
             <div className="agr-notice is-outdated">
               <span aria-hidden="true">⚠</span>
               <span>
-                This finding needs reassessment against the current review scope. A matching line alone does not confirm
-                the claim; its location may also need a new anchor. It cannot be published yet.
+                This finding describes an earlier reviewed commit. Its comment stays attached to that commit and may
+                appear outdated on GitHub. Reassessment can check whether the finding still applies to the latest code.
               </span>
             </div>
           )}
-          {item !== null && !item.published && (
+          {outgoingBody !== null && (
             <div className="agr-draft">
               <div className="agr-draft__head">
-                Outgoing comment · in your pending review
+                {reviewText !== null ? 'Outgoing review summary' : 'Outgoing comment · in your pending review'}
+                {item !== null && itemCommit !== null && <span className="agr-draft__note">
+                  · {shortPath(item.path, 28)} · commit {shortSha(itemCommit)}
+                </span>}
                 <span className="agr-spacer" />
                 <span className="agr-draft__note">Editing this never changes the finding</span>
-                <button type="button" disabled={busy} onClick={() => openComposer('draft', item.body)}>Edit</button>
+                <button type="button" disabled={busy} onClick={() => openComposer('draft', outgoingBody)}>Edit</button>
+                <button type="button" disabled={busy} title={reviewText !== null ? "Remove this finding's text from your review summary" : undefined}
+                  onClick={() => { void remove(); }}>Remove</button>
               </div>
-              <div className="agr-draft__body"><MarkdownBody body={item.body} repository={review.repo} suggestion={draftSuggestion} /></div>
+              <div className="agr-draft__body"><MarkdownBody body={outgoingBody} repository={review.repo} suggestion={draftSuggestion} /></div>
             </div>
           )}
           {item !== null && item.published && (

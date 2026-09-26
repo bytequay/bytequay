@@ -16,6 +16,7 @@ import {
   askLabel,
   askQueues,
   draftItemFor,
+  draftCommentCommit,
   findingPill,
   findingPublication,
   latestRun,
@@ -52,6 +53,7 @@ function draftItem(overrides: Partial<ReviewDraftDto['items'][number]> = {}): Re
     source: 'AGENT_FINDING',
     findingId: 'finding-1',
     findingRevision: 1,
+    commitId: reviewFixture().findings[0].validatedHeadSha,
     path: 'a.java',
     side: 'RIGHT',
     line: 131,
@@ -352,27 +354,49 @@ describe('publication eligibility', () => {
     expect(publication).toMatchObject({ reason: 'Publishing unlocks when validation and complete coverage are accepted' });
   });
 
-  it('blocks an earlier finding while the latest scope is active or incomplete', () => {
+  it('does not promote a new hypothesis merely because an earlier accepted run shares its head', () => {
+    const latest: AgentReviewDto['runs'][number] = { ...review.runs[0], id: 'run-2', state: 'RUNNING', summary: null, coverage: null };
+    const hypothesis = { ...finding, runId: latest.id };
+    expect(findingPublication({ ...review, runs: [...review.runs, latest], findings: [hypothesis] }, hypothesis))
+      .toMatchObject({ kind: 'blocked', reason: 'Publishing unlocks when validation and complete coverage are accepted' });
+  });
+
+  it('recognizes exact accepted validation after a finding is reassessed at a newer commit', () => {
+    const reassessed = { ...finding, validatedHeadSha: 'e'.repeat(40) };
+    const validated: AgentReviewDto['runs'][number] = { ...review.runs[0], id: 'run-2', headSha: reassessed.validatedHeadSha,
+      steps: [{ number: 1, kind: 'VALIDATE', repair: false, investigation: null, validation: { investigationStep: 1,
+        candidates: [{ candidate: 1, outcome: 'SUPPORTED', conclusion: 'Verified at the new commit', evidenceRefs: [], counterevidence: '',
+          findingId: finding.id, findingRevision: finding.revision, request: null }], coverage: review.runs[0].coverage, newCandidates: [] } }] };
+    const accepted = { ...review, runs: [...review.runs, validated], findings: [reassessed] };
+    expect(findingPublication(accepted, reassessed)).toEqual({ kind: 'publishable' });
+    expect(findingPublication(accepted, { ...reassessed, revision: 2 }).kind).toBe('blocked');
+  });
+
+  it('keeps a pinned outgoing comment editable after its source finding is reassessed', () => {
+    const changed = { ...finding, runId: 'run-2', revision: 2, validatedHeadSha: 'e'.repeat(40), outdated: true };
+    const item = draftItem();
+    const carrying = reviewFixture({ findings: [changed], draft: draft([item]), runs: [...review.runs,
+      { ...review.runs[0], id: 'run-2', state: 'RUNNING', summary: null, coverage: null, headSha: changed.validatedHeadSha }] });
+    expect(findingPublication(carrying, changed)).toEqual({ kind: 'draft', item });
+  });
+
+  it('keeps an accepted earlier finding publishable while a newer run is active or incomplete', () => {
     for (const state of ['RUNNING', 'INCOMPLETE'] as const) {
       const latest: AgentReviewDto['runs'][number] = { ...review.runs[0], id: 'run-2', state, summary: null, coverage: null };
       const attempted: AgentReviewDto = { ...review, runs: [...review.runs, latest] };
       if (state === 'INCOMPLETE') expect(shownRun(attempted)?.id).toBe('run-1');
-      expect(findingPublication(attempted, finding)).toEqual({
-        kind: 'blocked', reason: 'Publishing unlocks when validation and complete coverage are accepted',
-      });
+      expect(findingPublication(attempted, finding)).toEqual({ kind: 'publishable' });
     }
   });
 
-  it('requires the accepted latest scope and observed head to match the finding review head', () => {
+  it('preserves publication at the reviewed commit after the head or base moves', () => {
     const newHead = '5e17b02a1b2c3d4e5f60718293a4b5c6d7e8f905';
     const acceptedLater: AgentReviewDto = { ...review, observedHeadSha: newHead, runs: [...review.runs,
       { ...review.runs[0], id: 'run-2', state: 'ACCEPTED', headSha: newHead }] };
-    expect(findingPublication(acceptedLater, finding)).toEqual({
-      kind: 'blocked', reason: 'This finding needs an accepted review of the current scope before publication',
-    });
-    expect(findingPublication({ ...review, observedHeadSha: newHead }, finding)).toEqual({
-      kind: 'blocked', reason: 'The pull request head changed; update the review before publishing',
-    });
+    expect(findingPublication(acceptedLater, finding)).toEqual({ kind: 'publishable' });
+    expect(findingPublication({ ...review, observedHeadSha: newHead }, finding)).toEqual({ kind: 'publishable' });
+    expect(findingPublication({ ...review, runs: [...review.runs, { ...review.runs[0], id: 'run-2', baseSha: 'e'.repeat(40) }] }, finding))
+      .toEqual({ kind: 'publishable' });
   });
 
   it('excludes a locally resolved finding and offers it back through Reopen', () => {
@@ -389,10 +413,10 @@ describe('publication eligibility', () => {
     expect(openFindings(withFindings(withdrawn))).toHaveLength(0);
   });
 
-  it('blocks a finding awaiting reassessment', () => {
+  it('keeps a historically accepted finding publishable while awaiting reassessment', () => {
     const outdated = { ...finding, outdated: true };
     expect(findingPublication(withFindings(outdated), outdated))
-      .toEqual({ kind: 'blocked', reason: 'Not publishable until reassessed' });
+      .toEqual({ kind: 'publishable' });
     expect(findingPill(withFindings(outdated), outdated)).toEqual({ text: 'Needs reassessment', tone: 'warn' });
   });
 
@@ -430,6 +454,13 @@ describe('publication eligibility', () => {
     expect(draftItemFor(pending, 'finding-1')?.id).toBe('item-1');
     expect(draftItemFor(pending, 'finding-9')).toBeNull();
     expect(draftItemFor(null, 'finding-1')).toBeNull();
+  });
+
+  it('recovers an unpinned agent comment commit only from its unchanged source revision', () => {
+    expect(draftCommentCommit(draftItem({ commitId: null }), review.findings)).toBe(finding.validatedHeadSha);
+    expect(draftCommentCommit(draftItem({ commitId: null, findingRevision: 2 }), review.findings)).toBeNull();
+    expect(draftCommentCommit(draftItem({ commitId: 'original-commit' }), [{ ...finding, validatedHeadSha: 'new-head' }])).toBe('original-commit');
+    expect(draftCommentCommit(draftItem({ source: 'MANUAL', findingId: null, findingRevision: null, commitId: null }), [])).toBeNull();
   });
 });
 

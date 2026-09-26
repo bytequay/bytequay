@@ -593,6 +593,7 @@
   padding: 16px 22px;
 }
 .pr-merge-sheet__footer button,
+.pr-review-sheet__content > button.pr-better-words,
 .pr-review-sheet__footer button {
   display: inline-flex;
   min-height: 34px;
@@ -608,8 +609,10 @@
 }
 .pr-merge-sheet__footer button.is-primary,
 .pr-review-sheet__footer button.is-primary { border-color: #1a7f37; background: #1f883d; color: #fff; }
+.pr-review-sheet__content > button.pr-better-words,
 .pr-review-sheet__footer button { font-size: var(--font-size-md); }
 .pr-merge-sheet__footer button:disabled,
+.pr-review-sheet__content > button.pr-better-words:disabled,
 .pr-review-sheet__footer button:disabled { opacity: 0.6; }
 .pr-merge-sheet h2,
 .pr-review-sheet h2,
@@ -958,6 +961,7 @@
 .pr-thread-reply__actions button:disabled { opacity: 0.45; }
 .pr-comment-editor { padding: 10px 16px 14px; }
 .pr-thread-reply__actions button.pr-better-words,
+.pr-review-sheet__content > button.pr-better-words,
 .pr-composer > footer button.pr-better-words {
   margin-right: auto;
   border-color: #d0d7de;
@@ -966,6 +970,7 @@
   font-weight: 500;
 }
 .pr-thread-reply__actions button.pr-better-words.is-discard,
+.pr-review-sheet__content > button.pr-better-words.is-discard,
 .pr-composer > footer button.pr-better-words.is-discard { color: #cf222e; }
 
 .pr-checks { margin-top: 4px; }

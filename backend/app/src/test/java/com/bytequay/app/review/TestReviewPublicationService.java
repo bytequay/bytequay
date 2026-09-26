@@ -78,7 +78,6 @@ class TestReviewPublicationService
 
     private InMemoryReviewDraftStore drafts;
     private InMemoryAgentReviewStore reviews;
-    private DefaultAgentReviewService agentReviews;
     private PullRequestService pullRequests;
     private DefaultReviewPublicationService service;
 
@@ -87,10 +86,8 @@ class TestReviewPublicationService
     {
         drafts = new InMemoryReviewDraftStore();
         reviews = new InMemoryAgentReviewStore();
-        agentReviews = mock(DefaultAgentReviewService.class);
-        when(agentReviews.currentScopeMatches(any(ReviewRun.class))).thenReturn(true);
         pullRequests = mock(PullRequestService.class);
-        service = new DefaultReviewPublicationService(drafts, reviews, agentReviews, pullRequests, Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new DefaultReviewPublicationService(drafts, reviews, pullRequests, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
@@ -139,11 +136,6 @@ class TestReviewPublicationService
         assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID))
                 .isInstanceOf(ReviewConflictException.class)
                 .hasMessageContaining("The agent withdrew this finding");
-
-        reviews.put(open.pendingReassessment(NOW));
-        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID))
-                .isInstanceOf(ReviewConflictException.class)
-                .hasMessageContaining("needs reassessment");
 
         assertThat(service.draft(REPO, NUMBER).items()).isEmpty();
         verifyNoInteractions(pullRequests);
@@ -215,9 +207,6 @@ class TestReviewPublicationService
         ReviewFinding pending = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case")
                 .pendingReassessment(NOW);
         reviews.put(pending);
-        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID))
-                .isInstanceOf(ReviewConflictException.class).hasMessageContaining("needs reassessment");
-
         reviews.put(pending.revised("Null guard", "Guard the null case", Optional.of("medium"), pending.anchor(),
                 ImmutableList.of(new ReviewEvidence("E1", "Frozen source", "reviewed head", "return value;", "Confirmed the null path")), REVIEWED_HEAD, NOW));
         ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
@@ -278,55 +267,50 @@ class TestReviewPublicationService
         Map<String, String> reasons = service.ineligible(REPO, NUMBER).stream()
                 .collect(toImmutableMap(ReviewPublicationService.Ineligible::itemId, ReviewPublicationService.Ineligible::reason));
 
-        assertThat(reasons).hasSize(4).doesNotContainKey(manualItem);
+        assertThat(reasons).hasSize(2).doesNotContainKeys(manualItem, outdatedItem, revisedItem);
         assertThat(reasons.get(resolvedItem)).contains("You resolved this finding locally");
         assertThat(reasons.get(withdrawnItem)).contains("The agent withdrew this finding");
-        assertThat(reasons.get(outdatedItem)).contains("needs reassessment");
-        assertThat(reasons.get(revisedItem)).contains("The agent revised this finding after you added it");
         verifyNoInteractions(pullRequests);
     }
 
     @Test
-    void publishItemRefusesAHeadDifferentFromTheReviewedHead()
+    void anUpdatedBaseAndNewerPullRequestHeadDoNotRetargetTheDraft()
     {
-        reviews.put(finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case"));
-        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
+        ReviewFinding original = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case");
+        reviews.put(original.pendingReassessment(NOW));
         when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
-        assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft)))
-                .isInstanceOf(ReviewConflictException.class).hasMessageContaining("head changed");
-        verify(pullRequests).findHeadSha(REPO, NUMBER);
-        verifyNoMoreInteractions(pullRequests);
-        assertThat(service.draft(REPO, NUMBER).items().getFirst().publication()).isEmpty();
-    }
-
-    @Test
-    void publishItemRefusesABaseChangeWithAnUnchangedHead()
-    {
-        reviews.put(finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case"));
         ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
-        when(agentReviews.currentScopeMatches(any(ReviewRun.class))).thenReturn(false);
+        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(detail());
 
-        assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft)))
-                .isInstanceOf(ReviewConflictException.class).hasMessageContaining("head or base changed");
+        service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft));
 
-        verifyNoInteractions(pullRequests);
-        assertThat(service.draft(REPO, NUMBER).items().getFirst().publication()).isEmpty();
+        ArgumentCaptor<InlineReviewComment> sent = ArgumentCaptor.captor();
+        verify(pullRequests).createReviewComment(eq(REPO), eq(NUMBER), sent.capture());
+        assertThat(sent.getValue().commitId()).isEqualTo(REVIEWED_HEAD);
+        assertThat(sent.getValue().line()).isEqualTo(131);
+        verifyNoMoreInteractions(pullRequests);
     }
 
     @Test
-    void submitRefusesTheEntireBatchWhenAnAgentFindingHasAnOlderHead()
+    void submitGroupsEachOriginalCommitAndPlacesTheCurrentHeadVerdictLast()
     {
         reviews.put(finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case"));
-        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/Main.java", 12, "Rename this"));
+        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/Main.java", 12, "Rename this").withCommitId(CURRENT_HEAD));
         draft = service.addFinding(REPO, NUMBER, draft.version(), REVIEW_ID, FINDING_ID);
         when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
-        long version = draft.version();
+        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any())).thenReturn(detail());
 
-        assertThatThrownBy(() -> service.submit(REPO, NUMBER, version, "Please fix these", "COMMENT"))
-                .isInstanceOf(ReviewConflictException.class).hasMessageContaining("head changed");
-        assertThat(service.draft(REPO, NUMBER).items()).allMatch(item -> item.publication().isEmpty());
-        verify(pullRequests).findHeadSha(REPO, NUMBER);
-        verifyNoMoreInteractions(pullRequests);
+        service.submit(REPO, NUMBER, draft.version(), "Please fix these", "REQUEST_CHANGES");
+
+        ArgumentCaptor<String> events = ArgumentCaptor.captor();
+        ArgumentCaptor<String> bodies = ArgumentCaptor.captor();
+        ArgumentCaptor<List<InlineReviewComment>> comments = ArgumentCaptor.captor();
+        verify(pullRequests, times(2)).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), events.capture(), bodies.capture(), comments.capture());
+        assertThat(events.getAllValues()).containsExactly("COMMENT", "REQUEST_CHANGES");
+        assertThat(bodies.getAllValues()).containsExactly("", "Please fix these");
+        assertThat(comments.getAllValues().getFirst()).singleElement().satisfies(item -> assertThat(item.commitId()).isEqualTo(REVIEWED_HEAD));
+        assertThat(comments.getAllValues().getLast()).singleElement().satisfies(item -> assertThat(item.commitId()).isEqualTo(CURRENT_HEAD));
     }
 
     @Test
@@ -352,18 +336,22 @@ class TestReviewPublicationService
     }
 
     @Test
-    void publishItemRefusesAnAnchorMovedAfterTheDraftWasAdded()
+    void aLaterFindingRevisionAndMovedAnchorDoNotRewriteTheUserDraft()
     {
         ReviewFinding original = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case");
         reviews.put(original);
         ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
-        reviews.put(new ReviewFinding(original.id(), original.reviewId(), original.runId(), original.ordinal(), original.title(), original.body(),
-                original.severity(), Optional.of(new ReviewAnchor("src/Service.java", "RIGHT", 119, 132, ImmutableList.of())), original.evidence(),
-                original.revision(), original.state(), original.stateReason(), original.validatedHeadSha(), false, original.version(), original.createdAt(), NOW));
+        reviews.put(original.revised("New title", "Different wording", Optional.empty(),
+                Optional.of(new ReviewAnchor("src/Service.java", "RIGHT", 119, 132, ImmutableList.of())), ImmutableList.of(), CURRENT_HEAD, NOW));
+        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(detail());
 
-        assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft)))
-                .isInstanceOf(ReviewConflictException.class).hasMessageContaining("lines changed");
-        verifyNoInteractions(pullRequests);
+        service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft));
+
+        ArgumentCaptor<InlineReviewComment> sent = ArgumentCaptor.captor();
+        verify(pullRequests).createReviewComment(eq(REPO), eq(NUMBER), sent.capture());
+        assertThat(sent.getValue().commitId()).isEqualTo(REVIEWED_HEAD);
+        assertThat(sent.getValue().body()).isEqualTo("Guard the null case");
+        assertThat(sent.getValue().line()).isEqualTo(131);
     }
 
     @Test
@@ -499,9 +487,89 @@ class TestReviewPublicationService
         assertThat(service.draft(REPO, NUMBER)).isEqualTo(published.draft());
     }
 
+    @Test
+    void partialGroupedFailureKeepsSuccessfulItemsAndReleasesOnlyUnsentItems()
+    {
+        String middle = "c".repeat(40);
+        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 1, "First"));
+        draft = service.addManual(REPO, NUMBER, draft.version(), manual("src/B.java", 2, "Second").withCommitId(middle));
+        draft = service.addManual(REPO, NUMBER, draft.version(), manual("src/C.java", 3, "Third").withCommitId(CURRENT_HEAD));
+        when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
+        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any()))
+                .thenReturn(detail()).thenThrow(new IllegalStateException("Reply lost"));
+        long version = draft.version();
+
+        assertThatThrownBy(() -> service.submit(REPO, NUMBER, version, "Final summary", "APPROVE")).hasMessage("Reply lost");
+
+        ReviewDraft after = service.draft(REPO, NUMBER);
+        assertThat(after.items().get(0).publication()).hasValueSatisfying(value -> assertThat(value.state()).isEqualTo(ReviewPublication.State.PUBLISHED));
+        assertThat(after.items().get(1).publication()).hasValueSatisfying(value -> assertThat(value.state()).isEqualTo(ReviewPublication.State.UNCERTAIN));
+        assertThat(after.items().get(2).publication()).isEmpty();
+        assertThat(after.body()).isEqualTo("Final summary");
+        assertThatThrownBy(() -> service.submit(REPO, NUMBER, after.version(), after.body(), after.event())).hasMessageContaining("unknown outcome");
+        verify(pullRequests, times(2)).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq(""), any());
+    }
+
+    @Test
+    void reservedItemsCannotBeChangedAndNewerReviewTextSurvivesSubmission()
+    {
+        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 1, "First"));
+        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any())).thenAnswer(invocation -> {
+            ReviewDraft sending = service.draft(REPO, NUMBER);
+            String itemId = lastItemId(sending);
+            assertThatThrownBy(() -> service.editItem(REPO, NUMBER, sending.version(), itemId, "Changed", true)).hasMessageContaining("being sent");
+            assertThatThrownBy(() -> service.removeItem(REPO, NUMBER, sending.version(), itemId)).hasMessageContaining("being sent");
+            service.saveReview(REPO, NUMBER, sending.version(), "Next review notes", "REQUEST_CHANGES");
+            return detail();
+        });
+
+        service.submit(REPO, NUMBER, draft.version(), "Submitted notes", "COMMENT");
+
+        ReviewDraft after = service.draft(REPO, NUMBER);
+        assertThat(after.items().getFirst().body()).isEqualTo("First");
+        assertThat(after.body()).isEqualTo("Next review notes");
+        assertThat(after.event()).isEqualTo("REQUEST_CHANGES");
+    }
+
+    @Test
+    void aLegacyManualDraftIsPinnedWhenPreviewedAndNotRetargetedAfterAPush()
+    {
+        ReviewDraftItem old = new ReviewDraftItem("old", Source.MANUAL, Optional.empty(), OptionalInt.empty(), "src/A.java", "RIGHT", 1,
+                OptionalInt.empty(), "User wording", true, Optional.empty(), Optional.empty());
+        drafts.save(ReviewDraft.empty(REPO, NUMBER, NOW).withItems(ImmutableList.of(old), NOW));
+        when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(REVIEWED_HEAD));
+        ReviewDraft preview = service.draft(REPO, NUMBER);
+        assertThat(preview.items().getFirst().commitId()).contains(REVIEWED_HEAD);
+        when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
+        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any())).thenReturn(detail());
+
+        service.submit(REPO, NUMBER, preview.version(), "", "COMMENT");
+
+        ArgumentCaptor<List<InlineReviewComment>> sent = ArgumentCaptor.captor();
+        verify(pullRequests).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq(""), sent.capture());
+        assertThat(sent.getValue()).singleElement().satisfies(item -> assertThat(item.commitId()).isEqualTo(REVIEWED_HEAD));
+    }
+
+    @Test
+    void anEarlierAcceptedRunDoesNotCertifyANewSameHeadFinding()
+    {
+        ReviewFinding original = finding(FINDING_ID, 1, "src/A.java", 1, 1, "Provisional claim");
+        ReviewFinding provisional = new ReviewFinding(original.id(), original.reviewId(), "running-run", original.ordinal(), original.title(), original.body(),
+                original.severity(), original.anchor(), original.evidence(), original.revision(), original.state(), original.stateReason(),
+                original.validatedHeadSha(), false, original.version(), original.createdAt(), original.updatedAt());
+        reviews.put(provisional);
+
+        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID)).hasMessageContaining("accepted review of its source revision");
+        verifyNoInteractions(pullRequests);
+    }
+
     private static ReviewDraftItem manual(String path, int line, String body)
     {
-        return new ReviewDraftItem("new", Source.MANUAL, Optional.empty(), OptionalInt.empty(), path, "RIGHT", line, OptionalInt.empty(), body, true, Optional.empty());
+        return new ReviewDraftItem("new", Source.MANUAL, Optional.empty(), OptionalInt.empty(), path, "RIGHT", line, OptionalInt.empty(), body,
+                true, Optional.empty(), Optional.of(REVIEWED_HEAD));
     }
 
     private static ReviewFinding finding(String id, int ordinal, String path, int startLine, int endLine, String body)

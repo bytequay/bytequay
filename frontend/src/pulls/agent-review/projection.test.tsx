@@ -152,7 +152,7 @@ describe('the pane tab row', () => {
         repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', version: 1,
         updatedAt: '2026-09-06T16:30:00Z',
         items: [{
-          id: 'item-1', source: 'AGENT_FINDING', findingId: 'finding-1', findingRevision: 1,
+          id: 'item-1', source: 'AGENT_FINDING', findingId: 'finding-1', findingRevision: 1, commitId: reviewFixture().findings[0].validatedHeadSha,
           path: 'a.java', side: 'RIGHT', line: 131, startLine: 118, body: 'text',
           included: true, published: false, publication: null,
         }],

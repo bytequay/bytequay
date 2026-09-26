@@ -213,6 +213,7 @@ export type ReviewDraftItemDto = {
   source: 'MANUAL' | 'AGENT_FINDING';
   findingId: string | null;
   findingRevision: number | null;
+  commitId: string | null;
   path: string;
   side: ReviewSide;
   line: number;
@@ -582,6 +583,7 @@ export function parseReviewDraft(value: unknown): ReviewDraftDto {
         source: oneOf(draftItem.source, ['MANUAL', 'AGENT_FINDING'] as const, 'comment source'),
         findingId: optionalText(draftItem.findingId),
         findingRevision: optionalCount(draftItem.findingRevision),
+        commitId: optionalText(draftItem.commitId),
         path: text(draftItem.path, 'comment path'),
         side: oneOf(draftItem.side, ['LEFT', 'RIGHT'] as const, 'comment side'),
         line: count(draftItem.line, 'comment line'),

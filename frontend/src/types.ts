@@ -1791,7 +1791,7 @@ export type Bridge = {
     repo: string,
     number: number,
     expectedVersion: number,
-    comment: { path: string; side: ReviewSide; line: number; startLine: number | null; body: string },
+    comment: { path: string; side: ReviewSide; line: number; startLine: number | null; body: string; commitId: string | null },
   ) => Promise<ReviewDraftDto>;
   addReviewDraftFinding: (
     repo: string,
@@ -1809,7 +1809,8 @@ export type Bridge = {
     included: boolean,
   ) => Promise<ReviewDraftDto>;
   removeReviewDraftComment: (repo: string, number: number, expectedVersion: number, itemId: string) => Promise<ReviewDraftDto>;
-  /** Publishes one previewed comment; the backend revalidates the head and payload first. */
+  saveReviewDraft: (repo: string, number: number, expectedVersion: number, body: string, event: ReviewEvent) => Promise<ReviewDraftDto>;
+  /** Publishes one previewed comment at its saved commit; the backend validates the payload first. */
   publishReviewDraftComment: (repo: string, number: number, expectedVersion: number, itemId: string) => Promise<void>;
   submitReviewDraft: (repo: string, number: number, expectedVersion: number, body: string, event: ReviewEvent) => Promise<void>;
   /** Why each pending comment cannot be sent right now; an eligible one is absent. */

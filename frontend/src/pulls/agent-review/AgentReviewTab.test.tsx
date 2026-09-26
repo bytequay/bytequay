@@ -61,7 +61,7 @@ function card(review: AgentReviewDto, finding: ReviewFindingDto, projection: 're
       defaultOpen
       actions={{
         onAsk: async () => {}, onResolve: async () => {}, onReopen: async () => {},
-        onAddToReview: async () => {}, onPostNow: async () => {}, onEditDraft: async () => {},
+        onAddToReview: async () => {}, onPostNow: async () => {}, onEditDraft: async () => {}, onRemoveFromReview: async () => {},
         onNavigate: () => {},
       }} />);
 }
@@ -223,6 +223,8 @@ describe('banners', () => {
     const html = tab(reviewFixture({ observedHeadSha: '5e17b02a1b2c3d4e' }));
     expect(html).toContain('New commits');
     expect(html).toContain('d9a0c41 → 5e17b02');
+    expect(html).toContain('Finding comments stay attached to their reviewed commit');
+    expect(card(reviewFixture({ observedHeadSha: '5e17b02a1b2c3d4e' }), reviewFixture().findings[0])).toContain('Post comment now');
   });
 
   it('says a stopped review keeps its discussion open', () => {
@@ -473,14 +475,13 @@ describe('the finding card', () => {
     expect(html).toContain('Excluded from publication');
   });
 
-  it('shows an outdated finding its recorded snapshot and refuses publication', () => {
+  it('keeps an earlier accepted finding publishable at its recorded commit', () => {
     const outdated = { ...finding, outdated: true };
     const html = card(reviewFixture({ findings: [outdated] }), outdated);
-    expect(html).toContain('A matching line alone does not confirm');
+    expect(html).toContain('Its comment stays attached to that commit');
     expect(html).toContain('pr-commented-code-line');
     expect(html).toContain('resolveNestedFieldId');
-    expect(html).toContain('Not publishable until reassessed');
-    expect(html).not.toContain('Post comment now');
+    expect(html).toContain('Post comment now');
   });
 
   it('shows a withdrawn finding without any action', () => {
@@ -495,7 +496,7 @@ describe('the finding card', () => {
   it('shows the outgoing draft inside the card, never as a second pending clone', () => {
     const withDraft = reviewFixture({
       draft: draftWith([{
-        id: 'item-1', source: 'AGENT_FINDING', findingId: 'finding-1', findingRevision: 1,
+        id: 'item-1', source: 'AGENT_FINDING', findingId: 'finding-1', findingRevision: 1, commitId: finding.validatedHeadSha,
         path: finding.path, side: 'RIGHT', line: 131, startLine: 118,
         body: 'Could this match the full path instead?', included: true, published: false, publication: null,
       }]),
@@ -512,7 +513,7 @@ describe('the finding card', () => {
   it('keeps a published finding’s thread private and links the remote comment', () => {
     const published = reviewFixture({
       draft: draftWith([{
-        id: 'item-1', source: 'AGENT_FINDING', findingId: 'finding-1', findingRevision: 1,
+        id: 'item-1', source: 'AGENT_FINDING', findingId: 'finding-1', findingRevision: 1, commitId: finding.validatedHeadSha,
         path: finding.path, side: 'RIGHT', line: 131, startLine: 118, body: 'sent', included: true, published: true,
         publication: {
           state: 'PUBLISHED', remoteReviewId: 2201456, remoteCommentId: 9911,

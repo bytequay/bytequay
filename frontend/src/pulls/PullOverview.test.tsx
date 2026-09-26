@@ -21,6 +21,7 @@ import { EMPTY_TIMELINE_PAYLOAD as emptyPayload } from './model';
 import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, canUpdateComment, commentedCodeLines, CommentEditor, displayedMetadataPickerOptions, groupTimelineActivities, githubActionsJobId, isViewerComment, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, remoteErrorMessage, replaceMention, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
 import { relativeTime } from '../relativeTime';
 import PullsScreen, { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
+import { reviewFixture } from './agent-review/fixtures/review';
 
 
 /** New lines 41 (context) through 44, as GitHub records a thread's diff_hunk. */
@@ -339,6 +340,98 @@ describe('PullOverview', () => {
 
     expect(html).toContain('class="pr-sheet-overlay"');
     expect(html).toContain('class="pr-review-sheet" role="dialog"');
+    expect(html).toContain('class="pr-better-words" type="button" disabled=""');
+    expect(html).toContain('>Better words</button>');
+    expect(html).toContain('</textarea><button class="pr-better-words"');
+    expect(html.split('<footer class="pr-review-sheet__footer">')[1]).not.toContain('pr-better-words');
+  });
+
+  it('restores whole-PR review prose and the saved verdict in the submit sheet', () => {
+    const review = reviewFixture();
+    review.draft = { repo: 'owner/repo', number: 42, body: 'Clarify the cancellation commit message.',
+      event: 'REQUEST_CHANGES', items: [], version: 7, updatedAt: review.createdAt };
+    const html = renderToStaticMarkup(<ReviewDialog pr={{ ...pullRequest(), origin: 'OTHER' }} detail={detail()}
+      review={review} onClose={() => {}} onReviewSubmitted={() => {}} />);
+
+    expect(html).toContain('>Clarify the cancellation commit message.</textarea>');
+    expect(html).toContain('<input type="radio" name="review-event" checked=""/><span><strong>Request Changes</strong>');
+    expect(html).toContain('class="pr-better-words" type="button" aria-busy="false"');
+  });
+
+  it('submits body-only findings through the durable draft and reloads its cleared prose', async () => {
+    const review = reviewFixture();
+    review.draft = { repo: 'owner/repo', number: 42, body: 'Clarify the cancellation commit message.',
+      event: 'COMMENT', items: [], version: 7, updatedAt: review.createdAt };
+    const cleared = { ...review, draft: { ...review.draft, body: '', version: 9 } };
+    const saveReviewDraft = vi.fn(async () => ({ ...review.draft, version: 8 }));
+    const submitReviewDraft = vi.fn(async () => {});
+    const submitReview = vi.fn();
+    const onReviewChange = vi.fn();
+    const onClose = vi.fn();
+    vi.stubGlobal('window', { bridge: { saveReviewDraft, submitReviewDraft, submitReview,
+      getAgentReview: vi.fn(async () => cleared), fetchPullRequestDetailByRef: vi.fn(async () => detail()) } });
+    try {
+      const controls = captureReviewControls({ pr: pullRequest(), detail: detail(), review,
+        onReviewChange, onClose, onReviewSubmitted: () => {} });
+      controls.submit();
+      await vi.waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+      expect(saveReviewDraft).toHaveBeenCalledWith('owner/repo', 42, 7, review.draft.body, 'COMMENT');
+      expect(submitReviewDraft).toHaveBeenCalledWith('owner/repo', 42, 8, review.draft.body, 'COMMENT');
+      expect(submitReview).not.toHaveBeenCalled();
+      expect(onReviewChange).toHaveBeenCalledWith(cleared);
+    }
+    finally { vi.unstubAllGlobals(); }
+  });
+
+  it.each([false, true])('saves changed draft verdict on dismissal and keeps a stale sheet open (conflict: %s)', async conflict => {
+    const review = reviewFixture();
+    review.draft = { repo: 'owner/repo', number: 42, body: 'Keep these review words.',
+      event: 'APPROVE', items: [], version: 7, updatedAt: review.createdAt };
+    const saved = { ...review, draft: { ...review.draft, event: 'COMMENT' as const, version: 8 } };
+    const saveReviewDraft = vi.fn(async () => {
+      if (conflict) throw new Error('Review draft changed');
+      return saved.draft;
+    });
+    const getAgentReview = vi.fn(async () => saved);
+    const onClose = vi.fn();
+    vi.stubGlobal('window', { bridge: { saveReviewDraft, getAgentReview } });
+    try {
+      const controls = captureReviewControls({ pr: pullRequest(), detail: detail(), review,
+        onClose, onReviewSubmitted: () => {} });
+      controls.close();
+      await vi.waitFor(() => expect(getAgentReview).toHaveBeenCalledOnce());
+      expect(saveReviewDraft).toHaveBeenCalledWith('owner/repo', 42, 7, review.draft.body, 'COMMENT');
+      expect(onClose).toHaveBeenCalledTimes(conflict ? 0 : 1);
+    }
+    finally { vi.unstubAllGlobals(); }
+  });
+
+  it.each(['A review summary.', ''])('preserves selected-commit comments with review prose %j', async body => {
+    const review = reviewFixture();
+    review.draft = { repo: 'owner/repo', number: 42, body,
+      event: 'COMMENT', items: [], version: 7, updatedAt: review.createdAt };
+    const selected: InlineReviewCommentDto = { path: 'Example.java', side: 'RIGHT', line: 10,
+      startLine: null, startSide: null, commitId: 'old-head', body: 'An earlier commit comment.' };
+    const saveReviewDraft = vi.fn(async () => ({ ...review.draft, version: 8 }));
+    const submitReview = vi.fn(async () => detail());
+    const addReviewDraftComment = vi.fn(async () => ({ ...review.draft, version: 9 }));
+    const submitReviewDraft = vi.fn(async () => {});
+    const onPendingCommentsChange = vi.fn();
+    const onClose = vi.fn();
+    vi.stubGlobal('window', { bridge: { saveReviewDraft, addReviewDraftComment, submitReview, submitReviewDraft,
+      getAgentReview: vi.fn(async () => review), fetchPullRequestDetailByRef: vi.fn(async () => detail()) } });
+    try {
+      captureReviewControls({ pr: pullRequest(), detail: detail(), review, pendingComments: [selected],
+        onPendingCommentsChange, onClose, onReviewSubmitted: () => {} }).submit();
+      await vi.waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+      expect(submitReview).not.toHaveBeenCalled();
+      expect(addReviewDraftComment).toHaveBeenCalledWith('owner/repo', 42, 8, {
+        path: selected.path, side: selected.side, line: selected.line, startLine: selected.startLine, body: selected.body, commitId: 'old-head',
+      });
+      expect(onPendingCommentsChange).toHaveBeenCalledWith([]);
+      expect(submitReviewDraft).toHaveBeenCalledWith('owner/repo', 42, 9, body, 'COMMENT');
+    }
+    finally { vi.unstubAllGlobals(); }
   });
 
   it('limits an authored pull request review to a comment', () => {
@@ -1449,6 +1542,21 @@ describe('PullOverview', () => {
     }, 'bob')).toBe(false);
   });
 });
+
+function captureReviewControls(props: Parameters<typeof ReviewDialog>[0]): { submit: () => void; close: () => void } {
+  let controls: { submit: () => void; close: () => void };
+  function CaptureDialog() {
+    const view = ReviewDialog(props);
+    const footer = view.props.children.props.children.find((child: ReactElement) => child.type === 'footer');
+    controls = {
+      submit: footer.props.children.find((child: ReactElement<{ className?: string }>) => child && child.props.className === 'is-primary').props.onClick,
+      close: footer.props.children.find((child: ReactElement<{ children?: unknown }>) => child && child.props.children === 'Cancel').props.onClick,
+    };
+    return view;
+  }
+  renderToStaticMarkup(<CaptureDialog />);
+  return controls;
+}
 
 function captureMergeSubmit(props: Parameters<typeof MergeDialog>[0], action: 'ready' | 'merge' = 'merge'): () => void {
   let submit: () => void;

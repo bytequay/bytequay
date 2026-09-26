@@ -429,6 +429,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('review:draft:edit', repo, number, expectedVersion, itemId, body, included),
   removeReviewDraftComment: (repo, number, expectedVersion, itemId) =>
     ipcRenderer.invoke('review:draft:remove', repo, number, expectedVersion, itemId),
+  saveReviewDraft: (repo, number, expectedVersion, body, event) =>
+    ipcRenderer.invoke('review:draft:save', repo, number, expectedVersion, body, event),
   publishReviewDraftComment: (repo, number, expectedVersion, itemId) =>
     ipcRenderer.invoke('review:draft:publish', repo, number, expectedVersion, itemId),
   submitReviewDraft: (repo, number, expectedVersion, body, event) =>

@@ -30,7 +30,7 @@ import static java.util.Objects.requireNonNull;
  *        request, such as a commit message or the description, which has no lines
  * @param validatedHeadSha the head at which the agent last supported this claim with evidence;
  *        mapping its anchor to a later head does not advance that verification
- * @param outdated whether the finding needs reassessment or a new anchor before publication
+ * @param outdated whether the finding needs reassessment or a new anchor for a later review
  */
 public record ReviewFinding(
         String id,

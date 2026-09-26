@@ -344,7 +344,8 @@ public class ReviewController
                 request.startLine() == null ? OptionalInt.empty() : OptionalInt.of(request.startLine()),
                 request.body(),
                 true,
-                Optional.empty());
+                Optional.empty(),
+                Optional.ofNullable(request.commitId()));
         return ReviewHttpModels.draft(publications.addManual(repo, number, required(request.expectedVersion(), "expectedVersion"), item));
     }
 

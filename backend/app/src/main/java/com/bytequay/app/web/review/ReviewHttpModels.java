@@ -205,6 +205,7 @@ final class ReviewHttpModels
                 item.source().name(),
                 item.findingId(),
                 item.findingRevision(),
+                item.commitId(),
                 item.path(),
                 item.side(),
                 item.line(),
@@ -363,6 +364,7 @@ final class ReviewHttpModels
             String source,
             Optional<String> findingId,
             OptionalInt findingRevision,
+            Optional<String> commitId,
             String path,
             String side,
             int line,
@@ -400,7 +402,8 @@ final class ReviewHttpModels
             Integer line,
             Integer startLine,
             String body,
-            Boolean included) {}
+            Boolean included,
+            String commitId) {}
 
     record PromoteFindingRequest(Long expectedVersion, String reviewId, String findingId) {}
 

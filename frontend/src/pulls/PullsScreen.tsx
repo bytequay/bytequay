@@ -25,11 +25,12 @@ import DetailSkeleton from './DetailSkeleton';
 import PullRequestTaskActions from './PullRequestTaskActions';
 import type { ReviewCardFocus } from '../agents/ReviewRequestCard';
 import type { AgentReviewDto, ReviewDraftItemDto, ReviewEvent } from './agent-review/contracts';
-import { pendingDraftCount, reviewStatus } from './agent-review/model';
+import { draftCommentCommit, pendingDraftCount, reviewStatus } from './agent-review/model';
 import { useLocalReviewThreads } from './local-review/useLocalReviewThreads';
 import type { LocalReviewThreads } from './local-review/types';
 import PullChanges, { type CommitRange, type DiffAgentComment } from './PullChanges';
 import MarkdownBody from './MarkdownBody';
+import BetterWordsButton from './BetterWordsButton';
 import PullOverview, { commentedCodeLines, CommentedCodeLine, isQueued, mergePullRequestWriteDetail, remoteErrorMessage, useViewer, type PullDetailUpdater } from './PullOverview';
 import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
 import UserAvatar from '../UserAvatar';
@@ -1501,29 +1502,82 @@ export function ReviewDialog({
   ) => void;
   onClose: () => void;
 }) {
-  const [body, setBody] = useState('');
+  const [body, setBody] = useState(review?.draft?.body ?? '');
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const savedDraft = useRef(review?.draft ?? null);
+  const edited = useRef(false);
+  const inFlight = useRef(false);
   const authored = pr.origin === 'AUTHORED';
-  const [selectedEvent, setEvent] = useState<ReviewEvent>(authored ? 'COMMENT' : 'APPROVE');
+  const [selectedEvent, setEvent] = useState<ReviewEvent>(authored ? 'COMMENT' : review?.draft?.event ?? 'APPROVE');
   const event = authored ? 'COMMENT' : selectedEvent;
   const [submitting, setSubmitting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [unsavedClose, setUnsavedClose] = useState(false);
+  const busy = submitting || saving;
   const [error, setError] = useState<string | null>(null);
   const promoted = review?.draft?.items.filter(item => item.included && !item.published) ?? [];
   const bodyRequired = event !== 'APPROVE' && pendingComments.length === 0 && promoted.length === 0;
-  const failed = (value: unknown) => setError(value instanceof Error ? value.message : String(value));
+  const failed = useCallback((value: unknown) => setError(remoteErrorMessage(value)), []);
 
   // A draft write can leave the draft changed even when it fails, so the sheet re-reads it.
-  const reloadReview = () => {
+  const reloadReview = useCallback(() => {
     if (review !== null) void window.bridge.getAgentReview(review.id).then(onReviewChange, () => {});
-  };
+  }, [review, onReviewChange]);
 
-  const removePromoted = async (itemId: string) => {
-    if (!review?.draft) return;
+  useEffect(() => {
+    const incoming = review?.draft;
+    const saved = savedDraft.current;
+    if (incoming && saved === null && !edited.current) {
+      savedDraft.current = incoming;
+      setBody(incoming.body);
+      setEvent(authored ? 'COMMENT' : incoming.event);
+    }
+    // Item edits can advance the version; another editor's review prose must still conflict.
+    if (incoming && saved && incoming.version >= saved.version && incoming.body === saved.body && incoming.event === saved.event) savedDraft.current = incoming;
+  }, [review?.draft, authored]);
+
+  const close = useCallback(async () => {
+    if (inFlight.current) return;
+    const draft = savedDraft.current;
+    if (draft === null || (body === draft.body && event === draft.event)) {
+      onClose();
+      return;
+    }
+    inFlight.current = true;
+    setSaving(true);
+    setUnsavedClose(false);
     setError(null);
     try {
-      await window.bridge.removeReviewDraftComment(detail.repo, detail.number, review.draft.version, itemId);
+      savedDraft.current = await window.bridge.saveReviewDraft(detail.repo, detail.number, draft.version, body, event);
+      reloadReview();
+      onClose();
     }
     catch (value) {
       failed(value);
+      setUnsavedClose(true);
+      reloadReview();
+    }
+    finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
+  }, [body, event, detail.repo, detail.number, onClose, reloadReview, failed]);
+
+  const removePromoted = async (itemId: string) => {
+    if (!review?.draft || inFlight.current) return;
+    inFlight.current = true;
+    setSaving(true);
+    setError(null);
+    try {
+      const updated = await window.bridge.removeReviewDraftComment(detail.repo, detail.number, savedDraft.current?.version ?? review.draft.version, itemId);
+      if (updated.body === savedDraft.current?.body && updated.event === savedDraft.current.event) savedDraft.current = updated;
+    }
+    catch (value) {
+      failed(value);
+    }
+    finally {
+      inFlight.current = false;
+      setSaving(false);
     }
     reloadReview();
   };
@@ -1534,7 +1588,8 @@ export function ReviewDialog({
       comment,
       remove: () => onPendingCommentsChange(pendingComments.filter((_, commentIndex) => commentIndex !== index)),
     })),
-    ...promoted.map(item => ({ key: item.id, comment: item, remove: () => { void removePromoted(item.id); } })),
+    ...promoted.map(item => ({ key: item.id, comment: { ...item, commitId: draftCommentCommit(item, review?.findings ?? []) },
+      remove: () => { void removePromoted(item.id); } })),
   ];
   const viewer = useViewer(outgoing.length > 0);
   const [snapshot, setSnapshot] = useState<{ files: DiffFileDto[]; headSha: string | null } | null>(null);
@@ -1551,40 +1606,43 @@ export function ReviewDialog({
 
   // Line numbers of a comment written on selected commits belong to that range, not to the stored diff.
   const codeLines = (comment: InlineReviewCommentDto | ReviewDraftItemDto) => {
-    if (snapshot === null || ('commitId' in comment && comment.commitId !== null && comment.commitId !== snapshot.headSha)) return [];
+    if (snapshot === null || comment.commitId === null || comment.commitId !== snapshot.headSha) return [];
     const file = snapshot.files.find(value => value.filename === comment.path);
     return file ? commentedCodeLines(file.patch, comment.side, comment.startLine, comment.line) : [];
   };
 
   useEffect(() => {
-    const close = (keyboardEvent: KeyboardEvent) => {
+    const keyDown = (keyboardEvent: KeyboardEvent) => {
       if (keyboardEvent.defaultPrevented || keyboardEvent.key !== 'Escape') return;
       keyboardEvent.preventDefault();
-      if (!submitting) onClose();
+      void close();
     };
-    document.addEventListener('keydown', close);
-    return () => document.removeEventListener('keydown', close);
-  }, [onClose, submitting]);
+    document.addEventListener('keydown', keyDown);
+    return () => document.removeEventListener('keydown', keyDown);
+  }, [close]);
 
   const submit = async () => {
-    if (submitting || detail.state?.toLowerCase() !== 'open' || (bodyRequired && !body.trim())) return;
+    if (inFlight.current || detail.state?.toLowerCase() !== 'open' || (bodyRequired && !body.trim())) return;
+    inFlight.current = true;
     setSubmitting(true);
     setError(null);
     try {
-      if (review?.draft && promoted.length > 0) {
+      if (review?.draft) {
         // Added findings can only leave through the draft, which reserves each one so Post comment
-        // now cannot send it again. Written comments join the draft to share the review, but the
-        // draft sends everything against the current head, where a comment written on selected
-        // commits would land on the wrong lines.
-        if (pendingComments.some(comment => comment.commitId !== null && comment.commitId !== review.observedHeadSha)) {
-          throw new Error('Comments written on selected commits cannot be sent with agent findings. Remove them or write them on all changes.');
-        }
-        let version = review.draft.version;
-        for (const [index, comment] of pendingComments.entries()) {
-          version = (await window.bridge.addReviewDraftComment(detail.repo, detail.number, version, {
-            path: comment.path, side: comment.side, line: comment.line, startLine: comment.startLine, body: comment.body,
-          })).version;
-          onPendingCommentsChange(pendingComments.slice(index + 1));
+        // now cannot send it again. Written comments retain their commits in the same draft;
+        // the backend sends one reserved batch per commit.
+        const draft = savedDraft.current;
+        if (draft === null) throw new Error('The review draft loaded after you started editing. Close and reopen to review its latest text.');
+        savedDraft.current = await window.bridge.saveReviewDraft(detail.repo, detail.number, draft.version, body, event);
+        let remaining = pendingComments;
+        let version = savedDraft.current.version;
+        for (const comment of remaining) {
+          savedDraft.current = await window.bridge.addReviewDraftComment(detail.repo, detail.number, version, {
+            path: comment.path, side: comment.side, line: comment.line, startLine: comment.startLine, body: comment.body, commitId: comment.commitId,
+          });
+          version = savedDraft.current.version;
+          remaining = remaining.filter(value => value !== comment);
+          onPendingCommentsChange(remaining);
         }
         await window.bridge.submitReviewDraft(detail.repo, detail.number, version, body.trim(), event);
         reloadReview();
@@ -1622,37 +1680,45 @@ export function ReviewDialog({
     catch (value) {
       failed(value);
       setSubmitting(false);
-      if (promoted.length > 0) reloadReview();
+      if (review?.draft) reloadReview();
+    }
+    finally {
+      inFlight.current = false;
     }
   };
 
   return (
     <div className="pr-sheet-overlay" onMouseDown={mouseEvent => {
-      if (mouseEvent.target === mouseEvent.currentTarget && !submitting) onClose();
+      if (mouseEvent.target === mouseEvent.currentTarget) void close();
     }}>
     <section className="pr-review-sheet" role="dialog" aria-modal="true" aria-labelledby="pr-review-title">
       <div className="pr-review-sheet__header">
         <h2 id="pr-review-title">Submit review</h2>
-        <button type="button" aria-label="Close review dialog" disabled={submitting} onClick={onClose}>×</button>
+        <button type="button" aria-label="Close review dialog" disabled={busy} onClick={() => { void close(); }}>×</button>
       </div>
       <div className="pr-review-sheet__content">
         <textarea
+          ref={bodyRef}
           autoFocus
+          disabled={busy}
           value={body}
           placeholder="Leave a comment on this pull request…"
           aria-label="Review comment"
-          onChange={change => setBody(change.target.value)} />
+          onChange={change => { edited.current = true; setBody(change.target.value); }} />
+        <BetterWordsButton text={body} textareaRef={bodyRef} repository={detail.repo} workspaceId={review?.workspaceId}
+          disabled={busy} onError={value => setError(value === null ? null : remoteErrorMessage(value))} />
         {outgoing.length > 0 && (
           <div className="pr-review-sheet__pending">
             {outgoing.map(({ key, comment, remove }) => {
               const lines = codeLines(comment);
               return <ReviewThreadCard key={key} resolved={false} controls={null}
-                location={<code title={comment.path}>{comment.path}</code>}
+                location={<><code title={comment.path}>{comment.path}</code>
+                  {comment.commitId !== null && <span> · commit {comment.commitId.slice(0, 7)}</span>}</>}
                 code={lines.map((line, index) => <CommentedCodeLine key={line.lineNumber ?? index} line={line} />)}>
                 <ReviewThreadMessage timestamp={null}
                   author={<>{viewer && <UserAvatar login={viewer.login} avatarUrl={viewer.avatarUrl} size={22} showLogin />}
                     <span className="pull-diff-pending__badge">Pending</span></>}
-                  menu={<button className="pr-review-sheet__remove" type="button" disabled={submitting} onClick={remove}>Remove</button>}>
+                  menu={<button className="pr-review-sheet__remove" type="button" disabled={busy} onClick={remove}>Remove</button>}>
                   <MarkdownBody body={comment.body} repository={detail.repo} />
                 </ReviewThreadMessage>
               </ReviewThreadCard>;
@@ -1660,26 +1726,30 @@ export function ReviewDialog({
           </div>
         )}
         <ReviewChoice
+          disabled={busy}
           checked={event === 'COMMENT'}
           title="Comment"
           description="Submit general feedback without explicit approval."
-          onChange={() => setEvent('COMMENT')} />
+          onChange={() => { edited.current = true; setEvent('COMMENT'); }} />
         {!authored && <ReviewChoice
+          disabled={busy}
           checked={event === 'APPROVE'}
           title="Approve"
           description="Submit feedback and approve merging these changes."
-          onChange={() => setEvent('APPROVE')} />}
+          onChange={() => { edited.current = true; setEvent('APPROVE'); }} />}
         {!authored && <ReviewChoice
+          disabled={busy}
           checked={event === 'REQUEST_CHANGES'}
           title="Request Changes"
           description="Submit feedback that must be addressed before merging."
-          onChange={() => setEvent('REQUEST_CHANGES')} />}
+          onChange={() => { edited.current = true; setEvent('REQUEST_CHANGES'); }} />}
         {error && <div className="pr-review-sheet__error" role="alert">{error}</div>}
       </div>
       <footer className="pr-review-sheet__footer">
-        <button type="button" disabled={submitting} onClick={onClose}>Cancel</button>
+        {unsavedClose && <button type="button" disabled={busy} onClick={() => { reloadReview(); onClose(); }}>Close without saving</button>}
+        <button type="button" disabled={busy} onClick={() => { void close(); }}>Cancel</button>
         <button className="is-primary" type="button"
-          disabled={submitting || (bodyRequired && !body.trim())}
+          disabled={busy || (bodyRequired && !body.trim())}
           onClick={() => { void submit(); }}>
           {submitting ? 'Submitting…' : 'Submit review'}
         </button>
@@ -1689,15 +1759,16 @@ export function ReviewDialog({
   );
 }
 
-function ReviewChoice({ checked, title, description, onChange }: {
+function ReviewChoice({ checked, title, description, disabled = false, onChange }: {
   checked: boolean;
   title: string;
   description: string;
+  disabled?: boolean;
   onChange: () => void;
 }) {
   return (
     <label className="pr-review-choice">
-      <input type="radio" name="review-event" checked={checked} onChange={onChange} />
+      <input type="radio" name="review-event" checked={checked} disabled={disabled} onChange={onChange} />
       <span><strong>{title}</strong><small>{description}</small></span>
     </label>
   );

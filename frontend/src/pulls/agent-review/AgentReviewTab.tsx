@@ -536,8 +536,8 @@ export default function AgentReviewTab({
             <div className="agr-banner is-warn">
               <span className="agr-banner__chip">New commits</span>
               <div className="agr-banner__text">
-                Commits were pushed since this review ({shortSha(run?.headSha ?? '')} → {shortSha(review.observedHeadSha ?? '')}).
-                Findings below refer to the reviewed version.
+                Commits were pushed since this review ({shortSha(currentRun?.headSha ?? '')} → {shortSha(review.observedHeadSha ?? '')}).
+                {' '}Finding comments stay attached to their reviewed commit.
               </div>
               <button type="button" className="agr-action is-primary" disabled={busy || recovery || localRun} title={localRunReason}
                 onClick={() => { void run_(async () => onReviewChange(await window.bridge.updateAgentReview(review.id))); }}>Update review</button>

@@ -100,11 +100,14 @@ export function provisional(review: AgentReviewDto): boolean {
   return run !== null && (run.state !== 'ACCEPTED' || !completeCoverage(run));
 }
 
+function liveScope(review: AgentReviewDto): boolean {
+  return review.state === 'OPEN' && (review.pullRequest === null || review.pullRequest.state.toLowerCase() === 'open');
+}
+
 export function newCommits(review: AgentReviewDto): boolean {
   const run = shownRun(review);
-  return run !== null
-    && review.observedHeadSha !== null
-    && review.observedHeadSha !== run.headSha;
+  const head = review.observedHeadSha;
+  return liveScope(review) && run !== null && head !== null && head !== run.headSha;
 }
 
 export function reviewStatus(review: AgentReviewDto): ReviewStatusView {
@@ -257,6 +260,11 @@ export function draftItemFor(draft: ReviewDraftDto | null, findingId: string): R
   return draft?.items.find(item => item.findingId === findingId) ?? null;
 }
 
+export function draftCommentCommit(item: ReviewDraftItemDto, findings: ReviewFindingDto[]): string | null {
+  return item.commitId ?? (item.source === 'AGENT_FINDING'
+    ? findings.find(finding => finding.id === item.findingId && finding.revision === item.findingRevision)?.validatedHeadSha ?? null : null);
+}
+
 type FindingPublication =
   | { kind: 'publishable' }
   | { kind: 'inReviewText' }
@@ -267,26 +275,21 @@ type FindingPublication =
 /**
  * What the finding's outgoing state is, and why it cannot be published when it cannot.
  *
- * <p>Publishing is refused until the latest scope is accepted at the finding's reviewed head, or
- * when the current pull request head has moved. The backend checks again at send time.
+ * Publishing requires an accepted source for the finding. Comments stay anchored at that
+ * reviewed commit even when a newer PR head or base is available.
  */
 export function findingPublication(review: AgentReviewDto, finding: ReviewFindingDto): FindingPublication {
   const item = draftItemFor(review.draft, finding.id);
   if (item !== null && item.published) return { kind: 'published', item };
   if (finding.state === 'WITHDRAWN') return { kind: 'blocked', reason: 'The agent withdrew this finding' };
   if (finding.state === 'RESOLVED') return { kind: 'blocked', reason: 'Excluded from publication' };
-  if (finding.outdated) return { kind: 'blocked', reason: 'Not publishable until reassessed' };
-  const latest = latestRun(review);
-  if (latest === null || latest.state !== 'ACCEPTED' || !completeCoverage(latest)) {
+  if (item !== null) return { kind: 'draft', item };
+  const accepted = review.runs.some(run => run.state === 'ACCEPTED' && completeCoverage(run) && run.headSha === finding.validatedHeadSha
+    && (run.id === finding.runId || run.steps.some(step => step.validation?.candidates.some(candidate => candidate.outcome === 'SUPPORTED'
+      && candidate.findingId === finding.id && candidate.findingRevision === finding.revision))));
+  if (!accepted) {
     return { kind: 'blocked', reason: 'Publishing unlocks when validation and complete coverage are accepted' };
   }
-  if (latest.headSha !== finding.validatedHeadSha) {
-    return { kind: 'blocked', reason: 'This finding needs an accepted review of the current scope before publication' };
-  }
-  if (review.observedHeadSha !== null && review.observedHeadSha !== finding.validatedHeadSha) {
-    return { kind: 'blocked', reason: 'The pull request head changed; update the review before publishing' };
-  }
-  if (item !== null) return { kind: 'draft', item };
   // A finding about the whole pull request has no line to comment on: it joins the review's own text instead of becoming an item.
   if (finding.path === null && review.draft !== null && review.draft.body.includes(finding.body.trim())) return { kind: 'inReviewText' };
   return { kind: 'publishable' };
@@ -299,7 +302,8 @@ export function findingPill(review: AgentReviewDto, finding: ReviewFindingDto): 
   if (finding.state === 'RESOLVED') return { text: 'Resolved locally', tone: 'neutral' };
   if (publication.kind === 'published') return { text: 'Published', tone: 'ready' };
   if (finding.outdated) return { text: 'Needs reassessment', tone: 'warn' };
-  if (publication.kind === 'draft' || publication.kind === 'inReviewText') return { text: 'Pending · in your review', tone: 'warn' };
+  if (draftItemFor(review.draft, finding.id) !== null
+    || (finding.path === null && review.draft?.body.includes(finding.body.trim()))) return { text: 'Pending · in your review', tone: 'warn' };
   return { text: 'Private', tone: 'neutral' };
 }
 

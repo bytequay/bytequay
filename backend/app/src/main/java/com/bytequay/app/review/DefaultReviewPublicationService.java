@@ -19,6 +19,7 @@ import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewAnchor;
+import com.bytequay.core.review.ReviewCandidateValidation;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewDraft;
 import com.bytequay.core.review.ReviewDraftItem;
@@ -37,8 +38,10 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -60,7 +63,6 @@ public class DefaultReviewPublicationService
 
     private final ReviewDraftStore drafts;
     private final AgentReviewStore reviews;
-    private final DefaultAgentReviewService agentReviews;
     private final PullRequestService pullRequests;
     private final Clock clock;
     private final Striped<Lock> locks = Striped.lock(32);
@@ -68,13 +70,11 @@ public class DefaultReviewPublicationService
     public DefaultReviewPublicationService(
             ReviewDraftStore drafts,
             AgentReviewStore reviews,
-            DefaultAgentReviewService agentReviews,
             PullRequestService pullRequests,
             Clock clock)
     {
         this.drafts = requireNonNull(drafts, "drafts is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
-        this.agentReviews = requireNonNull(agentReviews, "agentReviews is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
@@ -82,7 +82,25 @@ public class DefaultReviewPublicationService
     @Override
     public ReviewDraft draft(String repo, int number)
     {
-        return stored(repo, number);
+        return locked(repo, number, () -> {
+            ReviewDraft draft = stored(repo, number);
+            if (draft.items().stream().noneMatch(item -> item.commitId().isEmpty() && item.publication().isEmpty())) {
+                return draft;
+            }
+            Optional<String> head = draft.items().stream().anyMatch(item -> item.source() == ReviewDraftItem.Source.MANUAL && item.commitId().isEmpty())
+                    ? pullRequests.findHeadSha(repo, number) : Optional.empty();
+            List<ReviewDraftItem> items = draft.items().stream().map(item -> {
+                if (item.commitId().isPresent() || item.publication().isPresent()) {
+                    return item;
+                }
+                Optional<String> commit = item.source() == ReviewDraftItem.Source.MANUAL ? head
+                        : item.findingId().flatMap(reviews::findFinding)
+                                .filter(finding -> item.findingRevision().equals(OptionalInt.of(finding.revision())))
+                                .map(ReviewFinding::validatedHeadSha);
+                return commit.map(item::withCommitId).orElse(item);
+            }).collect(toImmutableList());
+            return items.equals(draft.items()) ? draft : drafts.save(draft.withItems(items, now()));
+        });
     }
 
     @Override
@@ -105,7 +123,8 @@ public class DefaultReviewPublicationService
                     item.startLine(),
                     body(item.body()),
                     true,
-                    Optional.empty());
+                    Optional.empty(),
+                    item.commitId().or(() -> pullRequests.findHeadSha(repo, number)));
             return drafts.save(draft.withItems(append(draft.items(), manual), now()));
         });
     }
@@ -144,7 +163,8 @@ public class DefaultReviewPublicationService
                     anchor.startLine() == anchor.endLine() ? OptionalInt.empty() : OptionalInt.of(anchor.startLine()),
                     body(finding.body()),
                     true,
-                    Optional.empty());
+                    Optional.empty(),
+                    Optional.of(finding.validatedHeadSha()));
             return drafts.save(draft.withItems(append(draft.items(), item), now()));
         });
     }
@@ -155,6 +175,9 @@ public class DefaultReviewPublicationService
         return locked(repo, number, () -> {
             ReviewDraft draft = expect(repo, number, expectedVersion);
             ReviewDraftItem item = requireItem(draft, itemId);
+            if (item.publication().filter(value -> value.state() == ReviewPublication.State.RESERVED).isPresent()) {
+                throw new ReviewConflictException("This comment is being sent; wait for the result before changing it");
+            }
             if (item.published()) {
                 throw new ReviewConflictException("This comment was already posted to GitHub");
             }
@@ -169,6 +192,9 @@ public class DefaultReviewPublicationService
         return locked(repo, number, () -> {
             ReviewDraft draft = expect(repo, number, expectedVersion);
             ReviewDraftItem item = requireItem(draft, itemId);
+            if (item.publication().filter(value -> value.state() == ReviewPublication.State.RESERVED).isPresent()) {
+                throw new ReviewConflictException("This comment is being sent; wait for the result before changing it");
+            }
             if (item.published()) {
                 throw new ReviewConflictException("A posted comment cannot be removed from here; remote changes need a separate action on GitHub");
             }
@@ -189,17 +215,15 @@ public class DefaultReviewPublicationService
         Reservation reservation = locked(repo, number, () -> {
             ReviewDraft draft = expect(repo, number, expectedVersion);
             ReviewDraftItem item = requireItem(draft, itemId);
-            requireSendable(repo, number, ImmutableList.of(item), Optional.empty());
-            requireCurrentScope(ImmutableList.of(item));
-            String head = headSha(repo, number);
-            requireSendable(repo, number, ImmutableList.of(item), Optional.of(head));
+            requireSendable(repo, number, ImmutableList.of(item));
+            item = bindCommit(repo, number, item);
             String attemptId = UUID.randomUUID().toString();
             ReviewDraft reserved = drafts.save(draft.withItems(replace(draft.items(), reserve(item, attemptId)), now()));
-            return new Reservation(attemptId, reserved, ImmutableList.of(item), head);
+            return new Reservation(attemptId, reserved, ImmutableList.of(item));
         });
         PullRequestDetail detail;
         try {
-            detail = pullRequests.createReviewComment(repo, number, comment(reservation.items().getFirst(), reservation.headSha()));
+            detail = pullRequests.createReviewComment(repo, number, comment(reservation.items().getFirst()));
         }
         catch (RuntimeException failure) {
             return releaseAfterFailure(repo, number, reservation, failure);
@@ -214,11 +238,12 @@ public class DefaultReviewPublicationService
         String text = body == null ? "" : body.strip();
         Reservation reservation = locked(repo, number, () -> {
             ReviewDraft draft = expect(repo, number, expectedVersion);
+            if (draft.items().stream().anyMatch(item -> item.publication().filter(value -> value.state() != ReviewPublication.State.PUBLISHED).isPresent())) {
+                throw new ReviewConflictException("An earlier send is in flight or has an unknown outcome; check it on GitHub before submitting again");
+            }
             List<ReviewDraftItem> sending = draft.items().stream().filter(item -> item.included() && !item.published()).collect(toImmutableList());
-            requireSendable(repo, number, sending, Optional.empty());
-            requireCurrentScope(sending);
-            String head = headSha(repo, number);
-            requireSendable(repo, number, sending, Optional.of(head));
+            requireSendable(repo, number, sending);
+            sending = sending.stream().map(item -> bindCommit(repo, number, item)).collect(toImmutableList());
             if (sending.isEmpty() && text.isEmpty() && !chosen.equals("APPROVE")) {
                 throw new ReviewInvalidRequestException("Add a comment or review text before submitting");
             }
@@ -226,19 +251,63 @@ public class DefaultReviewPublicationService
             List<ReviewDraftItem> items = new ArrayList<>(draft.items());
             sending.forEach(item -> items.set(indexOf(items, item.id()), reserve(item, attemptId)));
             ReviewDraft reserved = drafts.save(draft.withReview(text, chosen, now()).withItems(items, now()));
-            return new Reservation(attemptId, reserved, sending, head);
+            return new Reservation(attemptId, reserved, sending);
         });
-        List<InlineReviewComment> comments = reservation.items().stream().map(item -> comment(item, reservation.headSha())).collect(toImmutableList());
-        PullRequestDetail detail;
-        try {
-            detail = pullRequests.submitReview(repo, number, prId(repo, number), chosen, text, comments);
+        Map<String, List<ReviewDraftItem>> groups = new LinkedHashMap<>();
+        for (ReviewDraftItem item : reservation.items()) {
+            groups.computeIfAbsent(item.commitId().orElseThrow(), ignored -> new ArrayList<>()).add(item);
         }
-        catch (RuntimeException failure) {
-            return releaseAfterFailure(repo, number, reservation, failure);
+        pullRequests.findHeadSha(repo, number).filter(groups::containsKey).ifPresent(head -> {
+            List<ReviewDraftItem> current = groups.remove(head);
+            groups.put(head, current);
+        });
+        List<List<ReviewDraftItem>> batches = new ArrayList<>(groups.values());
+        if (batches.isEmpty()) {
+            batches.add(ImmutableList.of());
+        }
+        List<String> published = new ArrayList<>();
+        List<String> notices = new ArrayList<>();
+        for (int index = 0; index < batches.size(); index++) {
+            List<ReviewDraftItem> batch = batches.get(index);
+            boolean last = index == batches.size() - 1;
+            Reservation group = new Reservation(reservation.attemptId(), reservation.draft(), batch);
+            PullRequestDetail detail;
+            try {
+                detail = pullRequests.submitReview(repo, number, prId(repo, number), last ? chosen : "COMMENT", last ? text : "",
+                        batch.stream().map(this::comment).collect(toImmutableList()));
+            }
+            catch (RuntimeException failure) {
+                releaseUnsent(repo, number, reservation, batches.subList(index + 1, batches.size()).stream().flatMap(List::stream).collect(toImmutableList()));
+                return releaseAfterFailure(repo, number, group, failure);
+            }
+            Publication result = locked(repo, number, () -> settle(repo, number, group, remoteReviewId(detail), detail));
+            published.addAll(result.publishedItemIds());
+            result.uncertainReason().ifPresent(notices::add);
         }
         return locked(repo, number, () -> {
-            Publication published = settle(repo, number, reservation, remoteReviewId(detail), detail);
-            return new Publication(drafts.save(published.draft().withReview("", ReviewDraft.DEFAULT_EVENT, now())), published.publishedItemIds(), published.uncertainReason());
+            ReviewDraft current = stored(repo, number);
+            if (current.body().equals(text) && current.event().equals(chosen)) {
+                current = drafts.save(current.withReview("", ReviewDraft.DEFAULT_EVENT, now()));
+            }
+            return new Publication(current, ImmutableList.copyOf(published), notices.isEmpty() ? Optional.empty() : Optional.of(String.join("\n", notices)));
+        });
+    }
+
+    private void releaseUnsent(String repo, int number, Reservation reservation, List<ReviewDraftItem> unsent)
+    {
+        if (unsent.isEmpty()) {
+            return;
+        }
+        locked(repo, number, () -> {
+            ReviewDraft draft = stored(repo, number);
+            List<ReviewDraftItem> items = new ArrayList<>(draft.items());
+            for (ReviewDraftItem item : unsent) {
+                int index = indexOf(items, item.id());
+                if (index >= 0 && items.get(index).publication().filter(value -> value.attemptId().equals(reservation.attemptId())).isPresent()) {
+                    items.set(index, items.get(index).withPublication(Optional.empty()));
+                }
+            }
+            return drafts.save(draft.withItems(items, now()));
         });
     }
 
@@ -248,10 +317,14 @@ public class DefaultReviewPublicationService
         ReviewDraft draft = stored(repo, number);
         List<Ineligible> blocked = new ArrayList<>();
         for (ReviewDraftItem item : draft.items()) {
+            if (item.publication().filter(value -> value.state() == ReviewPublication.State.RESERVED).isPresent()) {
+                blocked.add(new Ineligible(item.id(), "This comment is being sent; wait for the result"));
+                continue;
+            }
             if (item.published()) {
                 continue;
             }
-            reason(repo, number, item, Optional.empty()).ifPresent(reason -> blocked.add(new Ineligible(item.id(), reason)));
+            reason(repo, number, item).ifPresent(reason -> blocked.add(new Ineligible(item.id(), reason)));
         }
         return ImmutableList.copyOf(blocked);
     }
@@ -273,7 +346,7 @@ public class DefaultReviewPublicationService
                 continue;
             }
             ReviewDraftItem item = items.get(index);
-            Optional<Remote> remote = match(detail, item);
+            Optional<Remote> remote = match(detail, item, remoteReviewId);
             if (remote.isEmpty()) {
                 ambiguous.add(item.id());
             }
@@ -318,14 +391,20 @@ public class DefaultReviewPublicationService
     }
 
     /** The remote comment for one sent item, only when path, line and body identify it unambiguously. */
-    private Optional<Remote> match(PullRequestDetail detail, ReviewDraftItem item)
+    private Optional<Remote> match(PullRequestDetail detail, ReviewDraftItem item, OptionalLong reviewId)
     {
+        if (reviewId.isEmpty()) {
+            return Optional.empty();
+        }
         List<Remote> matches = detail.recentActivity().stream()
                 .filter(activity -> "review_thread".equals(activity.eventType()) && activity.payload() != null)
                 .filter(activity -> item.path().equals(activity.payload().path()))
-                .filter(activity -> Objects.equals(activity.payload().line(), item.line()))
+                .filter(activity -> Objects.equals(activity.payload().outdated() ? activity.payload().originalLine() : activity.payload().line(), item.line()))
+                .filter(activity -> Objects.equals(activity.payload().side(), item.side()))
+                .filter(activity -> Objects.equals(activity.payload().outdated() ? activity.payload().originalStartLine() : activity.payload().startLine(),
+                        item.startLine().isPresent() ? item.startLine().getAsInt() : null))
                 .flatMap(activity -> activity.payload().comments().stream()
-                        .filter(comment -> comment.githubId() != null && item.body().equals(comment.body()))
+                        .filter(comment -> comment.githubId() != null && Objects.equals(comment.reviewId(), reviewId.getAsLong()) && item.body().equals(comment.body()))
                         .map(comment -> new Remote(comment.githubId(), Optional.ofNullable(comment.htmlUrl()))))
                 .collect(toImmutableList());
         return matches.size() == 1 ? Optional.of(matches.getFirst()) : Optional.empty();
@@ -340,10 +419,10 @@ public class DefaultReviewPublicationService
                 .orElse(OptionalLong.empty());
     }
 
-    private void requireSendable(String repo, int number, List<ReviewDraftItem> items, Optional<String> headSha)
+    private void requireSendable(String repo, int number, List<ReviewDraftItem> items)
     {
         for (ReviewDraftItem item : items) {
-            reason(repo, number, item, headSha).ifPresent(reason -> {
+            reason(repo, number, item).ifPresent(reason -> {
                 throw new ReviewConflictException(reason);
             });
         }
@@ -358,22 +437,8 @@ public class DefaultReviewPublicationService
         }
     }
 
-    private void requireCurrentScope(List<ReviewDraftItem> items)
-    {
-        items.stream().flatMap(item -> item.findingId().stream())
-                .map(id -> reviews.findFinding(id).orElseThrow())
-                .map(ReviewFinding::reviewId)
-                .distinct()
-                .forEach(reviewId -> {
-                    ReviewRun accepted = reviews.listRuns(reviewId).getLast();
-                    if (!agentReviews.currentScopeMatches(accepted)) {
-                        throw new ReviewConflictException("The pull request head or base changed; update the review before publishing");
-                    }
-                });
-    }
-
     /** Why one item is not publishable, from the finding it was promoted from. */
-    private Optional<String> reason(String repo, int number, ReviewDraftItem item, Optional<String> currentHead)
+    private Optional<String> reason(String repo, int number, ReviewDraftItem item)
     {
         if (item.findingId().isEmpty()) {
             return Optional.empty();
@@ -389,29 +454,14 @@ public class DefaultReviewPublicationService
         if (value.state() == ReviewFinding.State.WITHDRAWN) {
             return Optional.of("The agent withdrew this finding");
         }
-        if (value.outdated()) {
-            return Optional.of("This finding needs reassessment before publication");
-        }
-        Optional<String> reviewProblem = acceptedReviewProblem(repo, number, value);
+        Optional<String> reviewProblem = acceptedReviewProblem(repo, number, value, item.commitId().orElse(value.validatedHeadSha()));
         if (reviewProblem.isPresent()) {
             return reviewProblem;
         }
-        if (currentHead.filter(head -> !head.equals(value.validatedHeadSha())).isPresent()) {
-            return Optional.of("The pull request head changed since this finding was reviewed; update the review before publishing");
-        }
-        if (item.findingRevision().isPresent() && item.findingRevision().getAsInt() != value.revision()) {
+        if (item.commitId().isEmpty() && item.findingRevision().isPresent() && item.findingRevision().getAsInt() != value.revision()) {
             return Optional.of("The agent revised this finding after you added it; recheck the comment text before sending");
         }
-        if (value.anchor().isEmpty() || !matchesAnchor(item, value.anchor().orElseThrow())) {
-            return Optional.of("The finding's lines changed after you added it; add the current finding again before publishing");
-        }
         return Optional.empty();
-    }
-
-    private static boolean matchesAnchor(ReviewDraftItem item, ReviewAnchor anchor)
-    {
-        return item.path().equals(anchor.path()) && item.side().equals(anchor.side()) && item.line() == anchor.endLine()
-                && (item.startLine().isPresent() ? item.startLine().getAsInt() : item.line()) == anchor.startLine();
     }
 
     private static void requirePromotable(ReviewFinding finding)
@@ -422,12 +472,9 @@ public class DefaultReviewPublicationService
         if (finding.state() == ReviewFinding.State.WITHDRAWN) {
             throw new ReviewConflictException("The agent withdrew this finding");
         }
-        if (finding.outdated()) {
-            throw new ReviewConflictException("This finding needs reassessment before adding it to your review");
-        }
     }
 
-    private InlineReviewComment comment(ReviewDraftItem item, String headSha)
+    private InlineReviewComment comment(ReviewDraftItem item)
     {
         return new InlineReviewComment(
                 item.path(),
@@ -436,13 +483,15 @@ public class DefaultReviewPublicationService
                 item.side(),
                 item.startLine().isPresent() ? item.startLine().getAsInt() : null,
                 item.startLine().isPresent() ? item.side() : null,
-                headSha);
+                item.commitId().orElseThrow());
     }
 
-    private String headSha(String repo, int number)
+    private ReviewDraftItem bindCommit(String repo, int number, ReviewDraftItem item)
     {
-        return pullRequests.findHeadSha(repo, number)
-                .orElseThrow(() -> new ReviewConflictException("The pull request head is unknown; refresh the pull request before publishing"));
+        if (item.commitId().isPresent()) {
+            return item;
+        }
+        throw new ReviewConflictException("The comment's original commit is unknown; reopen the review preview before submitting");
     }
 
     private long prId(String repo, int number)
@@ -459,12 +508,21 @@ public class DefaultReviewPublicationService
 
     private void requireAcceptedReview(String repo, int number, ReviewFinding finding)
     {
-        acceptedReviewProblem(repo, number, finding).ifPresent(reason -> {
+        acceptedReviewProblem(repo, number, finding, finding.validatedHeadSha()).ifPresent(reason -> {
             throw new ReviewConflictException(reason);
         });
+        boolean validated = reviews.listRuns(finding.reviewId()).stream()
+                .filter(run -> run.state() == ReviewRun.State.ACCEPTED && run.headSha().equals(finding.validatedHeadSha()))
+                .anyMatch(run -> run.id().equals(finding.runId()) || run.steps().stream().flatMap(step -> step.validation().stream())
+                        .flatMap(validation -> validation.candidates().stream())
+                        .anyMatch(candidate -> candidate.outcome() == ReviewCandidateValidation.Outcome.SUPPORTED
+                                && candidate.findingId().equals(Optional.of(finding.id())) && candidate.findingRevision().equals(Optional.of(finding.revision()))));
+        if (!validated) {
+            throw new ReviewConflictException("This finding needs an accepted review of its source revision before adding it");
+        }
     }
 
-    private Optional<String> acceptedReviewProblem(String repo, int number, ReviewFinding finding)
+    private Optional<String> acceptedReviewProblem(String repo, int number, ReviewFinding finding, String commit)
     {
         Optional<AgentReview> owner = reviews.findReview(finding.reviewId())
                 .filter(review -> review.repo().equalsIgnoreCase(DefaultAgentReviewService.normalize(repo)) && review.number() == number);
@@ -472,9 +530,8 @@ public class DefaultReviewPublicationService
             return Optional.of("This finding belongs to a different pull request");
         }
         List<ReviewRun> runs = reviews.listRuns(finding.reviewId());
-        if (runs.isEmpty() || runs.getLast().state() != ReviewRun.State.ACCEPTED
-                || !runs.getLast().headSha().equals(finding.validatedHeadSha())) {
-            return Optional.of("This finding needs an accepted review of the current scope before publication");
+        if (runs.stream().noneMatch(run -> run.state() == ReviewRun.State.ACCEPTED && run.headSha().equals(commit))) {
+            return Optional.of("This finding needs an accepted review of its source commit before publication");
         }
         return Optional.empty();
     }
@@ -564,7 +621,7 @@ public class DefaultReviewPublicationService
         return Instant.now(clock);
     }
 
-    private record Reservation(String attemptId, ReviewDraft draft, List<ReviewDraftItem> items, String headSha) {}
+    private record Reservation(String attemptId, ReviewDraft draft, List<ReviewDraftItem> items) {}
 
     private record Remote(long commentId, Optional<String> url) {}
 }

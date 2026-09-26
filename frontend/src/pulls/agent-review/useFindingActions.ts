@@ -91,8 +91,24 @@ export function useFindingActions({
     }, true),
     onEditDraft: (finding, body) => guard(async () => {
       const item = review.draft?.items.find(candidate => candidate.findingId === finding.id) ?? null;
-      if (item === null) return;
-      await window.bridge.editReviewDraftComment(review.repo, review.number, draftVersion(), item.id, body, item.included);
+      if (item !== null) {
+        await window.bridge.editReviewDraftComment(review.repo, review.number, draftVersion(), item.id, body, item.included);
+      }
+      else if (finding.path === null && review.draft !== null) {
+        await window.bridge.saveReviewDraft(review.repo, review.number, draftVersion(), body, review.draft.event);
+      }
+      else return;
+      await reload();
+    }, true),
+    onRemoveFromReview: finding => guard(async () => {
+      const item = review.draft?.items.find(candidate => candidate.findingId === finding.id) ?? null;
+      if (item !== null) {
+        await window.bridge.removeReviewDraftComment(review.repo, review.number, draftVersion(), item.id);
+      }
+      else if (finding.path === null && review.draft !== null) {
+        await window.bridge.saveReviewDraft(review.repo, review.number, draftVersion(), review.draft.body.replace(finding.body.trim(), '').trim(), review.draft.event);
+      }
+      else return;
       await reload();
     }, true),
     onNavigate,

@@ -21,7 +21,7 @@ const body = 'Guard the empty value.\n\n```suggestion\n    return input.orElseTh
 const finding: ReviewFindingDto = { ...reviewFixture().findings[0], startLine: 118, endLine: 119, range: 'R118–R119', body,
   excerpt: ['    Value result = input.get();', '    return result;'] };
 const draftItem: ReviewDraftItemDto = { id: 'draft-suggestion', source: 'AGENT_FINDING', findingId: finding.id,
-  findingRevision: finding.revision, path: finding.path, side: 'RIGHT', line: finding.endLine, startLine: finding.startLine,
+  findingRevision: finding.revision, commitId: finding.validatedHeadSha, path: finding.path, side: 'RIGHT', line: finding.endLine, startLine: finding.startLine,
   body, included: true, published: false, publication: null };
 
 function render(value = finding, item?: ReviewDraftItemDto, projection: 'review' | 'changes' = 'review') {
@@ -31,7 +31,7 @@ function render(value = finding, item?: ReviewDraftItemDto, projection: 'review'
   return renderToStaticMarkup(<ReviewFindingCard review={review} finding={value} projection={projection}
     viewerLogin="reviewer" viewerAvatarUrl={null} actions={{
       onAsk: async () => {}, onResolve: async () => {}, onReopen: async () => {}, onAddToReview: async () => {},
-      onPostNow: async () => {}, onEditDraft: async () => {}, onNavigate: () => {},
+      onPostNow: async () => {}, onEditDraft: async () => {}, onRemoveFromReview: async () => {}, onNavigate: () => {},
     }} />);
 }
 
@@ -49,11 +49,11 @@ describe('finding suggestions', () => {
     expect(html).not.toContain('<span>suggestion</span>');
   });
 
-  it('uses the recorded code for an outdated finding, which remains blocked from publication', () => {
+  it('publishes an accepted earlier finding at the recorded code and commit', () => {
     const html = render({ ...finding, outdated: true });
     expect(html).toContain('Recorded code');
     expect(html).toContain('md-suggestion__row is-del');
-    expect(html).not.toContain('Post comment now');
+    expect(html).toContain('Post comment now');
   });
 
   it('keeps suggestions on deleted lines as ordinary code, like GitHub review comments', () => {
@@ -86,8 +86,12 @@ describe('finding suggestions', () => {
         repo: 'trinodb/trino', number: 30304, body: `Thanks.\n\n${whole.body}`, event: 'COMMENT', items: [], version: 2, updatedAt: whole.updatedAt,
       } })}
       actions={{ onAsk: async () => {}, onResolve: async () => {}, onReopen: async () => {}, onAddToReview: async () => {},
-        onPostNow: async () => {}, onEditDraft: async () => {}, onNavigate: () => {} }} />);
+        onPostNow: async () => {}, onEditDraft: async () => {}, onRemoveFromReview: async () => {}, onNavigate: () => {} }} />);
     expect(inSummary).toContain('In your review summary');
+    expect(inSummary).toContain('Outgoing review summary');
+    expect(inSummary).toContain('>Edit</button>');
+    expect(inSummary).toContain('>Remove</button>');
+    expect(inSummary).toContain('<p>Thanks.</p>');
     expect(inSummary).not.toContain('Add to my review');
   });
 

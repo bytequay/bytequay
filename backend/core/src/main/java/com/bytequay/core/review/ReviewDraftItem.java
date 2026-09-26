@@ -35,7 +35,8 @@ public record ReviewDraftItem(
         OptionalInt startLine,
         String body,
         boolean included,
-        Optional<ReviewPublication> publication)
+        Optional<ReviewPublication> publication,
+        Optional<String> commitId)
 {
     public ReviewDraftItem
     {
@@ -50,6 +51,8 @@ public record ReviewDraftItem(
         startLine.ifPresent(value -> checkArgument(value > 0 && value <= line, "invalid line range"));
         requireNonNull(body, "body is null");
         requireNonNull(publication, "publication is null");
+        requireNonNull(commitId, "commitId is null");
+        commitId.ifPresent(value -> checkArgument(!value.isBlank(), "commitId is blank"));
         checkArgument((source == Source.AGENT_FINDING) == findingId.isPresent(), "findingId and source disagree");
     }
 
@@ -60,17 +63,22 @@ public record ReviewDraftItem(
 
     public ReviewDraftItem withBody(String updatedBody)
     {
-        return new ReviewDraftItem(id, source, findingId, findingRevision, path, side, line, startLine, updatedBody, included, publication);
+        return new ReviewDraftItem(id, source, findingId, findingRevision, path, side, line, startLine, updatedBody, included, publication, commitId);
     }
 
     public ReviewDraftItem withIncluded(boolean updatedIncluded)
     {
-        return new ReviewDraftItem(id, source, findingId, findingRevision, path, side, line, startLine, body, updatedIncluded, publication);
+        return new ReviewDraftItem(id, source, findingId, findingRevision, path, side, line, startLine, body, updatedIncluded, publication, commitId);
     }
 
     public ReviewDraftItem withPublication(Optional<ReviewPublication> updatedPublication)
     {
-        return new ReviewDraftItem(id, source, findingId, findingRevision, path, side, line, startLine, body, included, updatedPublication);
+        return new ReviewDraftItem(id, source, findingId, findingRevision, path, side, line, startLine, body, included, updatedPublication, commitId);
+    }
+
+    public ReviewDraftItem withCommitId(String updatedCommitId)
+    {
+        return new ReviewDraftItem(id, source, findingId, findingRevision, path, side, line, startLine, body, included, publication, Optional.of(updatedCommitId));
     }
 
     public enum Source

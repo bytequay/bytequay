@@ -79,6 +79,7 @@ import com.bytequay.core.review.ReviewAnchor;
 import com.bytequay.core.review.ReviewCandidateValidation;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewCoverage;
+import com.bytequay.core.review.ReviewDraft;
 import com.bytequay.core.review.ReviewDraftStore;
 import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewEvidenceAnswer;
@@ -1440,6 +1441,8 @@ class TestDefaultAgentReviewService
                 .thenReturn(ok(NEW_HEAD + FIELD + "Alice" + FIELD + "Address review\n"));
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD)).thenReturn(ok(""));
         when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false));
+        when(fixture.pullRequests.getPullRequestDiffFiles(REPO, NUMBER, null, null))
+                .thenReturn(ImmutableList.of(new DiffFile("src/App.java", "modified", 1, 0, "@@ -1,2 +11,3 @@\n context\n+added\n")));
         TurnId updateTurn = TurnId.valueOf("55555555-5555-4555-8555-555555555555");
         when(fixture.turns.start(any(StartAgentTurnCommand.class))).thenReturn(AgentTurn.accepted(updateTurn, TASK_ID, "review-update", SETTINGS, NOW));
 
@@ -1453,6 +1456,13 @@ class TestDefaultAgentReviewService
         ReviewFinding pending = fixture.store.findFinding(originalFinding.id()).orElseThrow();
         assertThat(pending.outdated()).isTrue();
         assertThat(pending.validatedHeadSha()).isEqualTo(HEAD);
+        assertThat(pending.anchor()).isEqualTo(originalFinding.anchor());
+        ReviewAnchor reassessedAnchor = new ReviewAnchor("src/App.java", "RIGHT", 12, 12, ImmutableList.of("added"));
+        ReviewFinding reassessed = fixture.store.updateFinding(pending.revised(pending.title(), pending.body(), pending.severity(),
+                Optional.of(reassessedAnchor), pending.evidence(), incremental.headSha(), NOW));
+        assertThat(reassessed.validatedHeadSha()).isEqualTo(NEW_HEAD);
+        assertThat(reassessed.anchor()).contains(reassessedAnchor);
+        assertThat(reassessed.outdated()).isFalse();
         verify(fixture.tasks, times(1)).create(any(CreateAgentTaskCommand.class));
         verify(fixture.completions, never()).complete(any(CompleteAgentTaskCommand.class));
     }
@@ -1470,8 +1480,6 @@ class TestDefaultAgentReviewService
         String newerBase = "3".repeat(40);
         when(fixture.git.run(REPOSITORY, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}")).thenReturn(ok(newerBase));
         when(fixture.git.run(REPOSITORY, "merge-base", HEAD, newerBase)).thenReturn(ok(MERGE_BASE));
-
-        assertThat(fixture.service.currentScopeMatches(first)).isFalse();
 
         fixture.service.update(reviewId);
 
@@ -1801,6 +1809,21 @@ class TestDefaultAgentReviewService
         when(fixture.pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.of(stored));
 
         assertThat(fixture.service.start(WORKSPACE, REPO, NUMBER).pullRequest()).contains(stored);
+    }
+
+    @Test
+    void projectionPreparesTheExistingDraftBeforeShowingItsPreview()
+    {
+        Fixture fixture = new Fixture();
+        ReviewDraft saved = ReviewDraft.empty(REPO, NUMBER, NOW).withReview("User notes", "COMMENT", NOW);
+        ReviewDraft prepared = saved.withVersion(1);
+        when(fixture.drafts.find(REPO, NUMBER)).thenReturn(Optional.of(saved));
+        when(fixture.publications.draft(REPO, NUMBER)).thenReturn(prepared);
+
+        AgentReviewProjection projection = fixture.service.start(WORKSPACE, REPO, NUMBER);
+
+        assertThat(projection.draft()).contains(prepared);
+        verify(fixture.publications).draft(REPO, NUMBER);
     }
 
     @Test
@@ -2373,6 +2396,7 @@ class TestDefaultAgentReviewService
     {
         private final AgentReviewStore store = spy(new InMemoryReviewStore());
         private final ReviewDraftStore drafts = mock(ReviewDraftStore.class);
+        private final ReviewPublicationService publications = mock(ReviewPublicationService.class);
         private final AgentTaskService tasks = mock(AgentTaskService.class);
         private final AgentTurnService turns = mock(AgentTurnService.class);
         private final AgentTurnStore turnStore = mock(AgentTurnStore.class);
@@ -2401,6 +2425,7 @@ class TestDefaultAgentReviewService
             service = new DefaultAgentReviewService(
                     store,
                     drafts,
+                    publications,
                     tasks,
                     turns,
                     turnStore,

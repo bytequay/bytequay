@@ -28,11 +28,15 @@ import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.app.agent.TaskPullRequestOwnership;
+import com.bytequay.app.service.ai.BetterWordsService;
 import com.bytequay.core.discussion.DiscussionAnchor;
 import com.bytequay.core.discussion.DiscussionMessage;
 import com.bytequay.core.discussion.DiscussionQuotes;
 import com.bytequay.core.discussion.TaskDiscussion;
 import com.bytequay.core.discussion.TaskDiscussionStore;
+import com.bytequay.core.store.PrDetailStore;
+import com.bytequay.core.store.PullRequestStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
@@ -65,7 +69,8 @@ class TestDefaultTaskDiscussionService
     private final TaskLogStore logStore = mock(TaskLogStore.class);
 
     private final DefaultTaskDiscussionService service = new DefaultTaskDiscussionService(
-            store, tasks, resources, drivers, logStore, Clock.fixed(NOW, ZoneOffset.UTC));
+            store, tasks, resources, drivers, logStore, Clock.fixed(NOW, ZoneOffset.UTC), mock(TaskPullRequestOwnership.class),
+            new ReviewCommentReader(mock(PullRequestStore.class), mock(PrDetailStore.class)), mock(BetterWordsService.class));
 
     @Test
     void refusesAskingOnceTheWorktreeIsReleasedAfterCompletion()
@@ -177,7 +182,8 @@ class TestDefaultTaskDiscussionService
                 id,
                 TASK.toString(),
                 new DiscussionAnchor("turn-10", "INVALID_TABLE_PROPERTY", 1, DiscussionQuotes.hash("INVALID_TABLE_PROPERTY", 1)),
-                "--- conversation so far ---\n\n[agent]\n" + ANSWER,
+                Optional.empty(),
+                Optional.of("--- conversation so far ---\n\n[agent]\n" + ANSWER),
                 "claude",
                 Optional.empty(),
                 Optional.empty(),

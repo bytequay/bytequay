@@ -250,6 +250,14 @@ export function createPreviewBridge(
       record('retryTaskDiscussion', request);
       throw new Error('This preview has no discussions');
     },
+    askTaskDiscussionComment: async request => {
+      record('askTaskDiscussionComment', request);
+      throw new Error('This preview has no discussions');
+    },
+    draftTaskDiscussionReply: async request => {
+      record('draftTaskDiscussionReply', request);
+      throw new Error('This preview has no discussions');
+    },
     listLocalReviewComments: async query => {
       record('listLocalReviewComments', query);
       return [];

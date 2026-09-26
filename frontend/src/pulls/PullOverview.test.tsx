@@ -15,13 +15,14 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { LocalReviewThreadDto } from './local-review/types';
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
+import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelineCommentDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
 import { EMPTY_TIMELINE_PAYLOAD as emptyPayload } from './model';
 import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, canUpdateComment, commentedCodeLines, CommentEditor, displayedMetadataPickerOptions, groupTimelineActivities, githubActionsJobId, isViewerComment, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, remoteErrorMessage, replaceMention, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
 import { relativeTime } from '../relativeTime';
 import PullsScreen, { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 import { reviewFixture } from './agent-review/fixtures/review';
+import type { PrivateThreads } from './PrivateThread';
 
 
 /** New lines 41 (context) through 44, as GitHub records a thread's diff_hunk. */
@@ -285,6 +286,50 @@ describe('PullOverview', () => {
 
     expect(commentPr).toHaveBeenCalledWith('owner/repo', 42, 'Looks good to me');
     expect(onDetailChange).toHaveBeenCalledWith(updated);
+  });
+
+  describe('private threads', () => {
+    const comment = (githubId: number | null, body: string, inReplyToId: number | null = null): PullTimelineCommentDto => ({
+      githubId, actor: 'dave', actorAvatarUrl: null, actorBot: false, timestamp: '2026-08-20T09:30:00Z', body, htmlUrl: null,
+      reviewId: 72, inReplyToId, reactions: [],
+    });
+    const value = (): PullRequestDetailDto => ({ ...detail(), recentActivity: [
+      { actor: 'bob', eventType: 'commented', timestamp: '2026-08-20T09:10:00Z', body: 'Issue comment', githubId: 71, payload: emptyPayload },
+      { actor: 'carol', eventType: 'reviewed', timestamp: '2026-08-20T09:20:00Z', body: 'Review body', githubId: 72, payload: emptyPayload },
+      { actor: 'dave', eventType: 'review_thread', timestamp: '2026-08-20T09:30:00Z', body: null, githubId: 74, payload: { ...emptyPayload,
+        comments: [comment(73, 'Root comment'), comment(75, 'Reply in the middle', 73), comment(null, 'Unkeyed reply', 73)] } },
+    ] });
+    const threads = (forward: string | null = null): PrivateThreads => ({
+      threads: new Map(), busy: false, disabledReason: null, forward, show: true,
+      ask: async () => {}, resolve: async () => {}, retry: async () => {}, draftReply: async () => '', drafts: new Map(), setForward: () => {}, setShow: () => {}, setDraft: () => {},
+    });
+    const render = (privateThreads?: PrivateThreads) => renderToStaticMarkup(
+      <PullOverview pr={pullRequest()} detail={value()} onRefresh={async () => {}} privateThreads={privateThreads} />);
+
+    it('renders none of it without the task screen', () => {
+      const html = render();
+      expect(html).not.toContain('Ask agent');
+      expect(html).not.toContain('pr-private-');
+    });
+
+    it('offers Ask agent on every keyed comment, right before its menu', () => {
+      const html = render(threads());
+      expect(html.match(/>Ask agent</g)).toHaveLength(4);
+      expect(html.match(/>Ask agent<\/button><div class="pr-card-actions/g)).toHaveLength(4);
+      // The review body and the issue comment carry it in their card header; the description does not.
+      expect(html.match(/<div class="pr-card__menu">(?:(?!<\/header>).)*?>Ask agent</gs)).toHaveLength(2);
+      const description = html.slice(html.indexOf('pr-card pr-description'), html.indexOf('</article>', html.indexOf('pr-card pr-description')));
+      expect(description).not.toContain('Ask agent');
+    });
+
+    it('brings one comment forward in its own place', () => {
+      const html = render(threads('review_comment:75'));
+      expect(html.match(/Back to comment/g)).toHaveLength(1);
+      expect(html.indexOf('Root comment')).toBeLessThan(html.indexOf('Back to comment'));
+      expect(html.indexOf('Back to comment')).toBeLessThan(html.indexOf('Unkeyed reply'));
+      expect(html).toContain('on dave’s comment · only the agent sees this');
+      expect(html.match(/>Ask agent</g)).toHaveLength(4);
+    });
   });
 
   it('wires reactions only to supported pull request targets', () => {

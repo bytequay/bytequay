@@ -16,7 +16,8 @@ package com.bytequay.app.discussion;
 import java.util.List;
 
 /**
- * Private, read-only discussions about a quoted passage of a completed assistant answer.
+ * Private, read-only discussions about a quoted passage of a completed assistant answer, or, as a
+ * private thread, about one review comment on the task's pull request.
  *
  * <p>A discussion is not an agent task and not a turn on one. It runs as its own provider
  * conversation, so its questions never enter the task's conversation, event log, outbox or stream.
@@ -59,8 +60,27 @@ public interface TaskDiscussionService
     List<TaskDiscussionView> list(String workspaceId, String taskId);
 
     /**
-     * A task holds at most this many discussions. Each owns one persisted provider conversation, so
+     * Asks about one comment of a pull request the task owns. A blank question asks for the summary;
+     * a blank question on a thread that already has messages returns it unchanged. Creates the
+     * comment's thread on first use. Returns once the question is recorded.
+     *
+     * @throws com.bytequay.agent.core.AgentConflictException when the task's files were released, the
+     *         task does not own the pull request, the task is already answering, its history is too long
+     *         to ask about, or it holds {@link #MAXIMUM_COMMENT_THREADS_PER_TASK} threads
+     * @throws IllegalArgumentException when the key is not in that pull request's cached detail
+     * @throws com.bytequay.agent.spi.AgentUnavailableException when the task has no answered turn yet
+     */
+    TaskDiscussionView askComment(AskCommentCommand command);
+
+    /** Drafts a GitHub reply from one comment thread; stores nothing and posts nothing. */
+    String draftReply(String workspaceId, String taskId, String discussionId);
+
+    /**
+     * A task holds at most this many passage discussions. Each owns one persisted provider conversation, so
      * the bound covers provider-side transcripts on disk as well as rows.
      */
     int MAXIMUM_DISCUSSIONS_PER_TASK = 50;
+
+    /** Counted apart from passage discussions, so neither kind uses up the other's cap. */
+    int MAXIMUM_COMMENT_THREADS_PER_TASK = 100;
 }

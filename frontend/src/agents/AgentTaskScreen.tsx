@@ -137,6 +137,7 @@ PullRequestStateIcon,
 samePullRequest,
 TaskChangesView,
 TaskPullRequestView,
+privateThreadSource,
 taskPullRequest,
 type TaskPullRequestChanges,
 type TaskPullRequestDetail
@@ -693,6 +694,8 @@ function SidePanel({
       .finally(() => { if (active) setReviewLoading(false); });
     return () => { active = false; };
   }, [workspaceId, prRepo, prNumber, reviewReload, task?.id, task?.interactive]);
+  const privateThreads = discussions === undefined || pullRequest === null || task?.interactive !== true ? undefined
+    : privateThreadSource(discussions, pullRequest);
   const active = activeAgents(agents);
   const done = agents.filter((agent) => agent.status !== 'running');
   const labels = Object.fromEntries(agents.map((agent) => [agent.threadId, agent.label]));
@@ -820,7 +823,7 @@ function SidePanel({
         {pullRequest === null
           ? pullRequestNotice === null && <NoPullRequestView branch={branch} repository={repository} onCheck={onRefreshPullRequests} checking={pullRequestLoading} />
           : (
-            <TaskPullRequestView localReview={localThreads}
+            <TaskPullRequestView localReview={localThreads} privateThreads={privateThreads}
               key={`${pullRequest.repo.toLowerCase()}#${pullRequest.number}`}
               pr={pullRequest}
               workspaceId={workspaceId}

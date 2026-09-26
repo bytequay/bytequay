@@ -698,8 +698,10 @@ directory. A read-only task discussion is the one process that may join it: at
 most one of those runs alongside, on the same task identity and worktree, and it
 accepts no turn, holds no worktree mutation claim, and writes nothing. A
 per-task in-flight guard enforces that limit across all of a task's
-discussions. ByteQuay verifies the process stopped at turn completion; a later
-turn resumes the durable provider
+discussions. A private thread on a review comment is such a discussion, and a
+batch summary of review comments runs as one such session
+([Review Triage](review-triage.md)). ByteQuay verifies the process stopped at
+turn completion; a later turn resumes the durable provider
 thread in a new matching-profile process. Under `workspace-write` App Server's
 default environment is rooted at that directory, so every active turn gets a
 separate execution-process and worktree boundary without registering an
@@ -727,8 +729,9 @@ Phase one observes App Server's native command, file, web, and other built-in
 tool execution through the task-owned process and worktree. The Codex lane
 registers no ByteQuay business MCP or dynamic tools and does not use
 `--code-mode-host`; product tools and workflows, including commit integration,
-require a separate later design. Claude's task-scoped permission callback is
-only an approval transport adapter, not a product tool.
+require a separate later design. [Review Triage](review-triage.md) is an
+approved read-only workflow that registers no tool. Claude's task-scoped
+permission callback is only an approval transport adapter, not a product tool.
 
 The [CodeGraph Service](codegraph-service.md) is the one narrow later
 exception to this baseline: behind its own isolation gate, ByteQuay exposes

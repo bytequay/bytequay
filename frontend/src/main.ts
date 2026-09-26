@@ -43,7 +43,7 @@ import {
   parseDevelopmentAutomation,
   parseModelSettings,
 } from './agents/contracts';
-import { parseTaskDiscussion, parseTaskDiscussions, type AskDiscussionRequest, type DiscussionQuery, type OpenDiscussionRequest, type ResolveDiscussionRequest, type RetryDiscussionRequest } from './agents/discussions/contracts';
+import { parseDiscussionReplyDraft, parseTaskDiscussion, parseTaskDiscussions, type AskCommentDiscussionRequest, type AskDiscussionRequest, type DiscussionQuery, type DraftDiscussionReplyRequest, type OpenDiscussionRequest, type ResolveDiscussionRequest, type RetryDiscussionRequest } from './agents/discussions/contracts';
 import { parseLocalReviewThread, parseLocalReviewThreads, type CreateDevelopmentLearningCommentRequest, type CreateLocalReviewRequest, type LocalReviewQuery, type ReplyLocalReviewRequest, type ResolveLocalReviewRequest, type RetryLocalReviewRequest } from './pulls/local-review/contracts';
 import { parseDevelopmentContextActivity } from './agents/contextActivity';
 import { parseAgentHistoryPage, parseAgentPendingApprovals } from './agents/events';
@@ -702,6 +702,15 @@ function registerIpc(): void {
     const { taskId, workspaceId, discussionId, messageId } = request;
     return parseTaskDiscussion(await backendJson(discussionUrl(taskId, workspaceId,
       `/${encodeURIComponent(discussionId)}/messages/${encodeURIComponent(messageId)}/retry`), jsonInit('POST', {}, agentHeaders(true))));
+  });
+  ipcMain.handle('agent:discussions:ask-comment', async (_event, request: AskCommentDiscussionRequest) => {
+    const { taskId, workspaceId, ...body } = request;
+    return parseTaskDiscussion(await backendJson(discussionUrl(taskId, workspaceId, '/comments'), jsonInit('POST', body, agentHeaders(true))));
+  });
+  ipcMain.handle('agent:discussions:draft-reply', async (_event, request: DraftDiscussionReplyRequest) => {
+    const { taskId, workspaceId, discussionId } = request;
+    return parseDiscussionReplyDraft(await backendJson(discussionUrl(taskId, workspaceId, `/${encodeURIComponent(discussionId)}/reply-draft`),
+      jsonInit('POST', {}, agentHeaders(true))));
   });
   ipcMain.handle('agent:local-review:list', async (_event, query: LocalReviewQuery) => {
     const url = 'taskId' in query ? localReviewUrl(query.taskId, query.workspaceId)

@@ -625,6 +625,7 @@ describe('agent task side panel', () => {
   it('keeps an opened Discussions tab beside PR and WorkBench, with or without a pull request', () => {
     const discussions: TaskDiscussions = {
       discussions: [],
+      commentThreads: [],
       busy: false,
       error: null,
       disabledReason: null,
@@ -633,6 +634,8 @@ describe('agent task side panel', () => {
       ask: async () => undefined,
       resolve: async () => undefined,
       retry: async () => undefined,
+      askComment: () => Promise.reject(new Error('This test never asks about a comment')),
+      draftReply: () => Promise.reject(new Error('This test never drafts a reply')),
     };
     // The panel header is replaced when a task has a pull request, so a tab registered in that
     // header's own list would vanish here. This asserts it lives in the shared top-level slot instead.

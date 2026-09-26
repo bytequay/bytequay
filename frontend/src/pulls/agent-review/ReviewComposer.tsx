@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { ReactNode } from 'react';
 import type { SuggestionBase } from '../MarkdownBody';
 import MarkdownEditor from '../MarkdownEditor';
 
@@ -27,6 +28,7 @@ export default function ReviewComposer({
   disabledReason = null,
   autoFocus = false,
   allowEmpty = false,
+  secondary,
   onChange,
   onSubmit,
   onCancel,
@@ -44,6 +46,8 @@ export default function ReviewComposer({
   disabledReason?: string | null;
   autoFocus?: boolean;
   allowEmpty?: boolean;
+  /** Takes the Cancel button's place; Escape still cancels. */
+  secondary?: ReactNode;
   onChange: (value: string) => void;
   onSubmit: () => void;
   onCancel: () => void;
@@ -66,7 +70,7 @@ export default function ReviewComposer({
       autoFocus={autoFocus}
       onSubmit={() => { if (ready) onSubmit(); }}
       onCancel={onCancel}>
-      <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
+      {secondary ?? <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>}
       <button type="button" className="is-primary" disabled={!ready} title={disabledReason ?? undefined} onClick={onSubmit}>
         {primaryLabel}
       </button>

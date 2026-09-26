@@ -13,12 +13,12 @@
  */
 
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { remoteErrorMessage } from '../../pulls/PullOverview';
 import type {
-  AskDiscussionRequest, DiscussionQuery, OpenDiscussionRequest, ResolveDiscussionRequest,
-  RetryDiscussionRequest, TaskDiscussionDto,
+  AskCommentDiscussionRequest, AskDiscussionRequest, DiscussionQuery, DraftDiscussionReplyRequest, OpenDiscussionRequest,
+  ResolveDiscussionRequest, RetryDiscussionRequest, TaskDiscussionDto,
 } from './contracts';
 
 export type DiscussionBridgePort = {
@@ -27,10 +27,15 @@ export type DiscussionBridgePort = {
   askTaskDiscussion: (request: AskDiscussionRequest) => Promise<TaskDiscussionDto>;
   resolveTaskDiscussion: (request: ResolveDiscussionRequest) => Promise<TaskDiscussionDto>;
   retryTaskDiscussion: (request: RetryDiscussionRequest) => Promise<TaskDiscussionDto>;
+  askTaskDiscussionComment: (request: AskCommentDiscussionRequest) => Promise<TaskDiscussionDto>;
+  draftTaskDiscussionReply: (request: DraftDiscussionReplyRequest) => Promise<string>;
 };
 
 export type TaskDiscussions = {
+  /** Passage discussions only. */
   discussions: TaskDiscussionDto[];
+  /** Private threads on the task's pull-request comments. */
+  commentThreads: TaskDiscussionDto[];
   /** A question is in flight on any discussion of the task, and the backend answers one at a time. */
   busy: boolean;
   error: string | null;
@@ -41,9 +46,19 @@ export type TaskDiscussions = {
   ask: (discussionId: string, question: string) => Promise<void>;
   resolve: (discussionId: string, resolved: boolean, expectedVersion: number) => Promise<void>;
   retry: (discussionId: string, messageId: string) => Promise<void>;
+  askComment: (request: Omit<AskCommentDiscussionRequest, keyof DiscussionQuery>) => Promise<TaskDiscussionDto>;
+  draftReply: (discussionId: string) => Promise<string>;
 };
 
 const EMPTY: TaskDiscussionDto[] = [];
+
+/** The single filter point: passage surfaces must never see a private thread. */
+export function splitDiscussions(list: TaskDiscussionDto[]): { discussions: TaskDiscussionDto[]; commentThreads: TaskDiscussionDto[] } {
+  return {
+    discussions: list.filter(discussion => discussion.comment === null),
+    commentThreads: list.filter(discussion => discussion.comment !== null),
+  };
+}
 
 /**
  * Every discussion on one task, polled while the screen is open.
@@ -124,8 +139,10 @@ export function useTaskDiscussions(query: DiscussionQuery | null, options: {
   }, [accept, live]);
 
   const all = snapshot.key === key ? snapshot.discussions : EMPTY;
+  // The screen re-renders far more often than a poll lands; hand down the same lists between polls.
+  const split = useMemo(() => splitDiscussions(all), [all]);
   return {
-    discussions: all,
+    ...split,
     busy: all.some(discussion => discussion.pending),
     error,
     disabledReason: options.disabledReason ?? null,
@@ -139,6 +156,13 @@ export function useTaskDiscussions(query: DiscussionQuery | null, options: {
     },
     retry: async (discussionId, messageId) => {
       await write((bridge, target) => bridge.retryTaskDiscussion({ ...target, discussionId, messageId }));
+    },
+    askComment: request => write((bridge, target) => bridge.askTaskDiscussionComment({ ...target, ...request })),
+    // No row comes back, so nothing is accepted and the hook's error stays the thread's own concern.
+    draftReply: async discussionId => {
+      const target = latest.current.query;
+      if (target === null) throw new Error('This task is no longer open.');
+      return live().draftTaskDiscussionReply({ ...target, discussionId });
     },
   };
 }

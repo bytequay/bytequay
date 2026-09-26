@@ -36,6 +36,8 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
  * @param occurrence which appearance of the quote in that answer, 1-based; the footer places
  *         itself with it, and the panel tells apart two threads whose labels are otherwise
  *         byte-identical
+ * @param comment the review comment a private thread is about, without its snapshot; a private
+ *         thread's turn id, quote and occurrence carry its anchor's values, which clients ignore
  * @param pending a question is in flight. It is the only way to tell a running question from one
  *         orphaned by a restart, which must render as unanswered: both are a trailing question
  *         with no answer and no error
@@ -48,6 +50,7 @@ public record TaskDiscussionView(
         String turnId,
         String quote,
         int occurrence,
+        Optional<Comment> comment,
         boolean resolved,
         boolean pending,
         String providerLane,
@@ -69,6 +72,8 @@ public record TaskDiscussionView(
      */
     public record Message(String id, Author author, String body, Instant createdAt, Optional<String> error) {}
 
+    public record Comment(String repo, int number, String key) {}
+
     static TaskDiscussionView of(TaskDiscussion discussion, boolean pending)
     {
         return new TaskDiscussionView(
@@ -77,6 +82,7 @@ public record TaskDiscussionView(
                 discussion.anchor().turnId(),
                 discussion.anchor().quote(),
                 discussion.anchor().occurrence(),
+                discussion.comment().map(comment -> new Comment(comment.repo(), comment.number(), comment.key())),
                 discussion.resolved(),
                 pending,
                 discussion.providerLane(),

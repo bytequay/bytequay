@@ -35,12 +35,19 @@ import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.SessionAccess;
+import com.bytequay.app.agent.TaskPullRequestOwnership;
+import com.bytequay.app.service.ai.BetterWordsService;
 import com.bytequay.core.discussion.DiscussionAnchor;
 import com.bytequay.core.discussion.DiscussionMessage;
 import com.bytequay.core.discussion.DiscussionQuotes;
 import com.bytequay.core.discussion.DiscussionSession;
+import com.bytequay.core.discussion.ReviewCommentAnchor;
 import com.bytequay.core.discussion.TaskDiscussion;
 import com.bytequay.core.discussion.TaskDiscussionStore;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.util.RawValue;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
@@ -62,6 +69,8 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.function.Function;
 
+import static com.bytequay.app.discussion.DiscussionPrompt.SUMMARY_REQUEST;
+import static com.bytequay.app.discussion.DiscussionPrompt.isSummaryRequest;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -80,6 +89,7 @@ public class DefaultTaskDiscussionService
     private static final Logger log = LoggerFactory.getLogger(DefaultTaskDiscussionService.class);
     private static final Duration MAXIMUM_RUNTIME = Duration.ofMinutes(3);
     private static final int EVENT_PAGE_SIZE = 1000;
+    private static final int MAXIMUM_REPLY_CONTEXT_CHARACTERS = 20_000;
 
     private final TaskDiscussionStore store;
     private final AgentTaskService tasks;
@@ -87,6 +97,9 @@ public class DefaultTaskDiscussionService
     private final AgentDriverRegistry drivers;
     private final TaskLogStore logStore;
     private final Clock clock;
+    private final TaskPullRequestOwnership ownership;
+    private final ReviewCommentReader comments;
+    private final BetterWordsService writer;
     // One slot per task holds the ids of the discussions its one read-only session is answering. In
     // flight is not durable: after a restart nothing is running, and a persisted running row would be
     // a lie needing a recovery sweep. The read route projects this map instead.
@@ -100,9 +113,12 @@ public class DefaultTaskDiscussionService
             AgentResourceService resources,
             AgentDriverRegistry drivers,
             TaskLogStore logStore,
-            Clock clock)
+            Clock clock,
+            TaskPullRequestOwnership ownership,
+            ReviewCommentReader comments,
+            BetterWordsService writer)
     {
-        this(store, tasks, resources, drivers, logStore, clock, Executors.newVirtualThreadPerTaskExecutor());
+        this(store, tasks, resources, drivers, logStore, clock, ownership, comments, writer, Executors.newVirtualThreadPerTaskExecutor());
     }
 
     /** Lets a test run the answer on the calling thread rather than waiting on a virtual one. */
@@ -113,6 +129,9 @@ public class DefaultTaskDiscussionService
             AgentDriverRegistry drivers,
             TaskLogStore logStore,
             Clock clock,
+            TaskPullRequestOwnership ownership,
+            ReviewCommentReader comments,
+            BetterWordsService writer,
             Executor answers)
     {
         this.answers = requireNonNull(answers, "answers is null");
@@ -122,6 +141,9 @@ public class DefaultTaskDiscussionService
         this.drivers = requireNonNull(drivers, "drivers is null");
         this.logStore = requireNonNull(logStore, "logStore is null");
         this.clock = requireNonNull(clock, "clock is null");
+        this.ownership = requireNonNull(ownership, "ownership is null");
+        this.comments = requireNonNull(comments, "comments is null");
+        this.writer = requireNonNull(writer, "writer is null");
     }
 
     @Override
@@ -135,7 +157,7 @@ public class DefaultTaskDiscussionService
         String hash = DiscussionQuotes.hash(command.quote(), command.occurrence());
         return claimed(task, slot -> {
             TaskDiscussion discussion = store.findByAnchor(task.id().toString(), command.turnId(), hash).orElseGet(() -> create(task, command, hash));
-            return submit(task, discussion, command.question(), slot);
+            return submit(task, discussion, command.question(), slot, Optional.empty());
         });
     }
 
@@ -144,7 +166,7 @@ public class DefaultTaskDiscussionService
     {
         requireNonNull(command, "command is null");
         AgentTask task = askableTask(command.workspaceId(), command.taskId());
-        return claimed(task, slot -> submit(task, discussion(task, command.discussionId()), command.question(), slot));
+        return claimed(task, slot -> submit(task, discussion(task, command.discussionId()), command.question(), slot, Optional.empty()));
     }
 
     @Override
@@ -166,7 +188,7 @@ public class DefaultTaskDiscussionService
                             .add(new DiscussionMessage(last.id(), last.author(), last.body(), last.createdAt(), Optional.empty()))
                             .build(),
                     discussion.sessionReference(),
-                    clock.instant()), slot);
+                    clock.instant()), slot, Optional.empty());
         });
     }
 
@@ -193,6 +215,54 @@ public class DefaultTaskDiscussionService
         return store.listByTask(task.id().toString()).stream()
                 .map(discussion -> TaskDiscussionView.of(discussion, before.contains(discussion.id()) || pending(discussion)))
                 .collect(toImmutableList());
+    }
+
+    @Override
+    public TaskDiscussionView askComment(AskCommentCommand command)
+    {
+        requireNonNull(command, "command is null");
+        AgentTask task = askableTask(command.workspaceId(), command.taskId());
+        // A private thread writes nothing to GitHub, so a merged or closed pull request still takes questions.
+        if (!ownership.owns(task, command.repo(), command.number(), false)) {
+            throw new AgentConflictException("This pull request is not this task's");
+        }
+        return claimed(task, slot -> {
+            Optional<TaskDiscussion> existing = store.findByAnchor(task.id().toString(), ReviewCommentAnchor.TURN, ReviewCommentAnchor.hash(command.key()));
+            checkArgument(existing.flatMap(TaskDiscussion::comment)
+                    .filter(comment -> !comment.repo().equalsIgnoreCase(command.repo()) || comment.number() != command.number())
+                    .isEmpty(), "That comment is not in this pull request");
+            if (command.question().isBlank() && existing.filter(thread -> !thread.messages().isEmpty()).isPresent()) {
+                release(task, slot);
+                return TaskDiscussionView.of(existing.orElseThrow(), false);
+            }
+            TaskDiscussion thread;
+            Optional<String> history = Optional.empty();
+            if (existing.isPresent()) {
+                thread = existing.orElseThrow();
+            }
+            else {
+                ReviewCommentAnchor comment = comments.find(command.repo(), command.number(), command.key())
+                        .orElseThrow(() -> new IllegalArgumentException("That comment is not in this pull request"));
+                requireCommentThreadRoom(store.listByTask(task.id().toString()));
+                // Rendered before anything is stored, so a task with no answer yet leaves no thread behind.
+                history = Optional.of(seed(task.id(), Optional.empty()).text());
+                thread = store.insertOrGet(commentThread(UUID.randomUUID().toString(), task, comment, ImmutableList.of(), clock.instant()));
+            }
+            return submit(task, thread, command.question().isBlank() ? SUMMARY_REQUEST : command.question(), slot, history);
+        });
+    }
+
+    @Override
+    public String draftReply(String workspaceId, String taskId, String discussionId)
+    {
+        AgentTask task = askableTask(workspaceId, taskId);
+        TaskDiscussion thread = discussion(task, discussionId);
+        ReviewCommentAnchor comment = thread.comment()
+                .orElseThrow(() -> new IllegalArgumentException("Only a private thread on a review comment can draft a reply"));
+        if (thread.messages().stream().noneMatch(message -> message.author() == DiscussionMessage.Author.AGENT)) {
+            throw new AgentConflictException("Ask the agent before drafting a reply");
+        }
+        return writer.draftReply(replyContext(comment, thread.messages()), comment.repo(), task.workspaceId());
     }
 
     private AgentTask askableTask(String workspaceId, String taskId)
@@ -250,17 +320,18 @@ public class DefaultTaskDiscussionService
 
     private TaskDiscussion create(AgentTask task, OpenDiscussionCommand command, String hash)
     {
-        if (store.listByTask(task.id().toString()).size() >= MAXIMUM_DISCUSSIONS_PER_TASK) {
+        if (store.listByTask(task.id().toString()).stream().filter(discussion -> discussion.comment().isEmpty()).count() >= MAXIMUM_DISCUSSIONS_PER_TASK) {
             throw new AgentConflictException("This task already holds the most discussions it can");
         }
-        Seeded seeded = seed(task.id(), TurnId.valueOf(command.turnId()));
+        Seeded seeded = seed(task.id(), Optional.of(TurnId.valueOf(command.turnId())));
         checkArgument(DiscussionQuotes.occursIn(command.quote(), seeded.answer()), "That passage is not in the answer being discussed");
         Instant now = clock.instant();
         return store.insertOrGet(new TaskDiscussion(
                 UUID.randomUUID().toString(),
                 task.id().toString(),
                 new DiscussionAnchor(command.turnId(), command.quote().strip(), command.occurrence(), hash),
-                seeded.text(),
+                Optional.empty(),
+                Optional.of(seeded.text()),
                 task.laneId().value(),
                 task.defaults().model(),
                 Optional.empty(),
@@ -271,49 +342,79 @@ public class DefaultTaskDiscussionService
                 0));
     }
 
+    private static void requireCommentThreadRoom(List<TaskDiscussion> existing)
+    {
+        if (existing.stream().filter(discussion -> discussion.comment().isPresent()).count() >= MAXIMUM_COMMENT_THREADS_PER_TASK) {
+            throw new AgentConflictException("This task already holds the most private threads it can");
+        }
+    }
+
+    private static TaskDiscussion commentThread(String id, AgentTask task, ReviewCommentAnchor comment, List<DiscussionMessage> messages, Instant now)
+    {
+        return new TaskDiscussion(id, task.id().toString(), comment.anchor(), Optional.of(comment), Optional.empty(), task.laneId().value(), task.defaults().model(),
+                Optional.empty(), messages, false, now, now, 0);
+    }
+
     /**
-     * Renders the task's conversation through {@code upTo}, the completed turn being discussed, as the
-     * starting context a discussion inherits; that turn's own final answer is the last thing in it.
+     * Renders the task's conversation as the starting context a discussion inherits: through
+     * {@code upTo}, the completed turn a passage discussion quotes, or through the latest root final
+     * answer when empty. That answer is the last thing in it.
      *
      * <p>Only the reader's messages and the root thread's final answers are kept. Streaming deltas,
      * tool calls, tool output, plans and activity are excluded: they are the overwhelming majority of
      * the volume and the discussion can read the repository instead. Bodies are carried verbatim as the
      * markdown they already are.
      *
-     * <p>The result is snapshotted when a discussion is created and never recomputed, because the task
-     * runtime log is deleted after its retention period while the thread outlives it.
+     * <p>A passage discussion snapshots the result when it is created, because the task runtime log is
+     * deleted after its retention period while the thread outlives it. A comment thread renders it again
+     * for every run without a session, which asking allows only while the worktree, and so the log, lives.
      *
-     * @throws AgentUnavailableException when that turn has no recorded final answer, which is the
-     *         only honest response to an anchor this task's history cannot support
+     * @throws AgentUnavailableException when that turn, or the task, has no recorded final answer, which
+     *         is the only honest response to a premise this task's history cannot support
      */
-    private Seeded seed(TaskId taskId, TurnId upTo)
+    private Seeded seed(TaskId taskId, Optional<TurnId> upTo)
     {
         StringBuilder seed = new StringBuilder("--- conversation so far ---\n");
+        int latestLength = 0;
+        String latestAnswer = null;
         long afterSequence = 0;
         while (true) {
             List<AgentEventEnvelope> page = logStore.readAfter(taskId, afterSequence, EVENT_PAGE_SIZE);
             for (AgentEventEnvelope envelope : page) {
-                boolean anchored = envelope.turnId().filter(upTo::equals).isPresent();
                 if (envelope.payload() instanceof AgentEventPayload.UserMessage message) {
                     append(seed, "[user]", message.text());
                 }
                 else if (isRootAnswer(envelope)) {
                     String answer = ((AgentEventPayload.AssistantMessage) envelope.payload()).text();
                     append(seed, "[agent]", answer);
-                    if (anchored) {
+                    if (upTo.isEmpty()) {
+                        // The history only grows, so a cut that is already over budget stays over it.
+                        requireSeedBudget(seed, "This task's history is too long to ask about");
+                        latestLength = seed.length();
+                        latestAnswer = answer;
+                    }
+                    else if (envelope.turnId().filter(upTo.orElseThrow()::equals).isPresent()) {
                         requireSeedBudget(seed, "This task's history is too long to discuss; start from an earlier turn");
                         return new Seeded(seed.toString().stripTrailing(), answer);
                     }
                 }
             }
             if (page.size() < EVENT_PAGE_SIZE) {
-                throw new AgentUnavailableException("That turn has no recorded answer to discuss");
+                break;
             }
             afterSequence = page.getLast().sequence();
         }
+        if (upTo.isPresent()) {
+            throw new AgentUnavailableException("That turn has no recorded answer to discuss");
+        }
+        if (latestAnswer == null) {
+            throw new AgentUnavailableException("Waiting for the agent's first answer");
+        }
+        seed.setLength(latestLength);
+        return new Seeded(seed.toString().stripTrailing(), latestAnswer);
     }
 
-    /** Not checkState: the seed is rendered on the request thread, and an unmapped IllegalStateException reaches the client as a bare 500. */
+    /** Not checkState: the history is rendered on the request thread too, and an unmapped IllegalStateException reaches the client as a bare 500. */
     private static void requireSeedBudget(StringBuilder seed, String reason)
     {
         if (seed.length() > TaskDiscussion.MAX_SEED_CHARACTERS) {
@@ -338,7 +439,7 @@ public class DefaultTaskDiscussionService
     }
 
     /** Records the question, then answers it on a virtual thread so the caller is not held. */
-    private TaskDiscussionView submit(AgentTask task, TaskDiscussion discussion, String question, Set<String> slot)
+    private TaskDiscussionView submit(AgentTask task, TaskDiscussion discussion, String question, Set<String> slot, Optional<String> history)
     {
         Instant now = clock.instant();
         return dispatch(task, discussion.update(
@@ -348,21 +449,21 @@ public class DefaultTaskDiscussionService
                         .add(new DiscussionMessage(UUID.randomUUID().toString(), DiscussionMessage.Author.USER, question, now, Optional.empty()))
                         .build(),
                 discussion.sessionReference(),
-                now), slot);
+                now), slot, history);
     }
 
     /**
      * Stores the pending state and schedules the answer, which gives the task's slot back when it
      * ends. The id enters the slot before the row shows the question.
      */
-    private TaskDiscussionView dispatch(AgentTask task, TaskDiscussion pending, Set<String> slot)
+    private TaskDiscussionView dispatch(AgentTask task, TaskDiscussion pending, Set<String> slot, Optional<String> history)
     {
         slot.add(pending.id());
         TaskDiscussion asked = store.update(pending);
         String discussionId = asked.id();
         answers.execute(() -> {
             try {
-                answer(task, discussionId);
+                answer(task, discussionId, history);
             }
             finally {
                 release(task, slot);
@@ -371,14 +472,14 @@ public class DefaultTaskDiscussionService
         return TaskDiscussionView.of(asked, true);
     }
 
-    private void answer(AgentTask task, String discussionId)
+    private void answer(AgentTask task, String discussionId, Optional<String> history)
     {
         TaskDiscussion discussion = store.find(discussionId).orElse(null);
         if (discussion == null) {
             return;
         }
         try {
-            run(task, discussion, discussion.sessionReference());
+            run(task, discussion, discussion.sessionReference(), history);
         }
         catch (RuntimeException failure) {
             if (discussion.sessionReference().isEmpty()) {
@@ -390,7 +491,7 @@ public class DefaultTaskDiscussionService
             // read, not the thread: the same renderer carries the premise and every prior message.
             log.info("Discussion {} lost its provider conversation; re-seeding", discussionId, failure);
             try {
-                run(task, discussion, Optional.empty());
+                run(task, discussion, Optional.empty(), Optional.empty());
             }
             catch (RuntimeException reseeded) {
                 log.warn("Discussion {} could not be answered after re-seeding", discussionId, reseeded);
@@ -404,12 +505,19 @@ public class DefaultTaskDiscussionService
         return failure.getMessage() == null ? "The answer could not be produced" : failure.getMessage();
     }
 
-    private void run(AgentTask task, TaskDiscussion discussion, Optional<DiscussionSession> resume)
+    /**
+     * Answers the discussion's last question.
+     *
+     * @param history the task history the caller already rendered for a run without a session
+     */
+    private void run(AgentTask task, TaskDiscussion discussion, Optional<DiscussionSession> resume, Optional<String> history)
     {
         // A resumed conversation already holds the preamble, the premise and the exchange;
         // sending them again would duplicate the whole thread in its context.
-        String prompt = resume.isPresent() ? lastQuestion(discussion)
-                : DiscussionPrompt.render(discussion.seed(), discussion.anchor().quote(), earlier(discussion), lastQuestion(discussion));
+        String prompt = resume.isPresent() ? lastQuestion(discussion) : discussion.comment()
+                .map(comment -> DiscussionPrompt.renderComments(history.orElseGet(() -> seed(task.id(), Optional.empty()).text()),
+                        ImmutableList.of(comment.snapshot()), earlier(discussion), lastQuestion(discussion)))
+                .orElseGet(() -> DiscussionPrompt.render(discussion.seed().orElseThrow(), discussion.anchor().quote(), earlier(discussion), lastQuestion(discussion)));
         Answered answered = converse(task, discussion.providerModel(), resume, prompt, MAXIMUM_RUNTIME);
         record(discussion.id(), answered.result(), answered.reference());
     }
@@ -482,14 +590,26 @@ public class DefaultTaskDiscussionService
             fail(discussionId, result.terminalReason().orElse("The answer could not be produced"));
             return;
         }
-        store.find(discussionId).ifPresent(discussion -> store.update(discussion.update(
-                discussion.resolved(),
-                ImmutableList.<DiscussionMessage>builder()
-                        .addAll(discussion.messages())
-                        .add(new DiscussionMessage(UUID.randomUUID().toString(), DiscussionMessage.Author.AGENT, answer, clock.instant(), Optional.empty()))
-                        .build(),
-                Optional.of(new DiscussionSession(reference.contractVersion(), reference.providerValue())),
-                clock.instant())));
+        store.find(discussionId).ifPresent(discussion -> {
+            String body = answer;
+            if (discussion.comment().isPresent() && isSummaryRequest(discussion.messages().getLast())) {
+                try {
+                    body = CommentSummary.parse(answer, 1).getFirst();
+                }
+                catch (IllegalArgumentException invalid) {
+                    fail(discussionId, invalid.getMessage());
+                    return;
+                }
+            }
+            store.update(discussion.update(
+                    discussion.resolved(),
+                    ImmutableList.<DiscussionMessage>builder()
+                            .addAll(discussion.messages())
+                            .add(new DiscussionMessage(UUID.randomUUID().toString(), DiscussionMessage.Author.AGENT, body, clock.instant(), Optional.empty()))
+                            .build(),
+                    Optional.of(new DiscussionSession(reference.contractVersion(), reference.providerValue())),
+                    clock.instant()));
+        });
     }
 
     /** Marks the question that failed, and forgets a session that may be the reason it did. */
@@ -520,6 +640,27 @@ public class DefaultTaskDiscussionService
         catch (RuntimeException failure) {
             log.warn("Could not verify the discussion provider stopped for {}", scratchId, failure);
             return false;
+        }
+    }
+
+    /**
+     * The comment and the visible thread as JSON data for the writing assistant, dropping the oldest
+     * messages until it fits. The hidden summary request is left out; a summary goes in as its JSON text.
+     */
+    private static String replyContext(ReviewCommentAnchor comment, List<DiscussionMessage> messages)
+    {
+        List<DiscussionMessage> visible = messages.stream().filter(message -> !isSummaryRequest(message)).collect(toImmutableList());
+        for (int first = 0; ; first++) {
+            ObjectNode context = JsonNodeFactory.instance.objectNode();
+            context.putRawValue("comment", new RawValue(comment.snapshot()));
+            ArrayNode thread = context.putArray("thread");
+            visible.subList(first, visible.size()).forEach(message -> thread.addObject()
+                    .put("from", message.author() == DiscussionMessage.Author.USER ? "you" : "agent")
+                    .put("text", message.body()));
+            String json = context.toString();
+            if (json.length() <= MAXIMUM_REPLY_CONTEXT_CHARACTERS || first == visible.size()) {
+                return json;
+            }
         }
     }
 

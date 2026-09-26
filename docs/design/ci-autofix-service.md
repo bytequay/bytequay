@@ -7,8 +7,9 @@
 > [Managed Worktree Service](worktree-service.md). Verification evidence for
 > the current flow is recorded in [Implementation status](#12-implementation-status).
 
-This document designs CI Autofix only. Review-comment triage is a different,
-read-only service and is not covered here.
+This document designs CI Autofix only. Review-comment triage runs as
+read-only private task discussions, designed in
+[Review Triage](review-triage.md), and is not covered here.
 
 ## Development handoff
 

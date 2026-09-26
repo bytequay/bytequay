@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web.agent;
 
+import com.bytequay.app.discussion.AskCommentCommand;
 import com.bytequay.app.discussion.AskDiscussionCommand;
 import com.bytequay.app.discussion.OpenDiscussionCommand;
 import com.bytequay.app.discussion.TaskDiscussionService;
@@ -52,6 +53,19 @@ public class TaskDiscussionController
                 workspaceId, taskId, request.turnId(), request.quote(), request.occurrence(), request.question()));
     }
 
+    @PostMapping("/agent/tasks/{taskId}/discussions/comments")
+    public TaskDiscussionView askComment(@PathVariable String taskId, @RequestParam String workspaceId, @RequestBody AskComment request)
+    {
+        return discussions.askComment(new AskCommentCommand(workspaceId, taskId, request.repo(), request.number(), request.key(), request.question()));
+    }
+
+    /** Only drafts: the text reaches GitHub solely through the user's own Comment on the thread's reply editor. */
+    @PostMapping("/agent/tasks/{taskId}/discussions/{id}/reply-draft")
+    public ReplyDraft draftReply(@PathVariable String taskId, @PathVariable String id, @RequestParam String workspaceId)
+    {
+        return new ReplyDraft(discussions.draftReply(workspaceId, taskId, id));
+    }
+
     @PostMapping("/agent/tasks/{taskId}/discussions/{id}/messages")
     public TaskDiscussionView ask(@PathVariable String taskId, @PathVariable String id,
             @RequestParam String workspaceId, @RequestBody Ask request)
@@ -78,4 +92,8 @@ public class TaskDiscussionController
     public record Ask(String question) {}
 
     public record Resolve(boolean resolved, long expectedVersion) {}
+
+    public record AskComment(String repo, int number, String key, String question) {}
+
+    public record ReplyDraft(String text) {}
 }

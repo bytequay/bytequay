@@ -40,6 +40,8 @@ import MarkdownBody, { GitHubReferenceLink, linkIssueNumbers, toggleMarkdownTask
 import { EMPTY_TIMELINE_PAYLOAD } from './model';
 import { PullRequestIcon } from './PullRowItem';
 import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
+import { PrivateThreadControls, PrivateThreadForward, PrivateThreadTab, privateThreadKey, withMention, type PrivateThreads } from './PrivateThread';
+import type { TaskDiscussionDto } from '../agents/discussions/contracts';
 
 type Activity = PullRequestDetailDto['recentActivity'][number];
 const LABEL_EVENT_TYPES = new Set(['labeled', 'unlabeled']);
@@ -78,12 +80,14 @@ export function isViewerComment(actor: string | null | undefined, viewerLogin: s
   return Boolean(actor && viewerLogin && actor.toLowerCase() === viewerLogin.toLowerCase());
 }
 
-export default function PullOverview({ pr, detail, contributorsWorkspaceId, localReview, taskActions, onRefresh, onDetailUpdate = () => {}, onDetailChange = () => { void onRefresh(); } }: {
+export default function PullOverview({ pr, detail, contributorsWorkspaceId, localReview, privateThreads, taskActions, onRefresh, onDetailUpdate = () => {}, onDetailChange = () => { void onRefresh(); } }: {
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
   contributorsWorkspaceId?: string;
   taskActions?: ReactNode;
   localReview?: LocalReviewThreads;
+  /** The task screen's private threads on this pull request's comments; every other surface passes none. */
+  privateThreads?: PrivateThreads;
   onRefresh: () => Promise<void>;
   onDetailUpdate?: PullDetailUpdater;
   onDetailChange?: (detail: PullRequestDetailDto) => void;
@@ -164,7 +168,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, loca
         ) : item.kind === 'remote' ? (
           <div className="pr-timeline__slot" key={item.key}
             id={item.activities[0].githubId === null ? undefined : `pr-activity-${item.activities[0].githubId}`}>
-            <TimelineItem activities={item.activities} viewerLogin={viewerLogin}
+            <TimelineItem activities={item.activities} viewerLogin={viewerLogin} privateThreads={privateThreads}
               pr={pr} workspaceId={contributorsWorkspaceId} onRefresh={onRefresh} onDetailUpdate={onDetailUpdate}
               onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))} />
           </div>
@@ -700,9 +704,10 @@ function DescriptionCard({ pr, detail, fallbackAuthor, fallbackUrl, onDetailUpda
   );
 }
 
-function TimelineItem({ activities, viewerLogin, pr, workspaceId, onRefresh, onDetailUpdate, onQuote }: {
+function TimelineItem({ activities, viewerLogin, privateThreads, pr, workspaceId, onRefresh, onDetailUpdate, onQuote }: {
   activities: Activity[];
   viewerLogin?: string;
+  privateThreads?: PrivateThreads;
   pr: PullRequestDto;
   workspaceId?: string;
   onRefresh: () => Promise<void>;
@@ -711,15 +716,16 @@ function TimelineItem({ activities, viewerLogin, pr, workspaceId, onRefresh, onD
 }) {
   const activity = activities[0];
   if (activity.eventType === 'reviewed' && activities.some(item => item.eventType === 'review_thread')) {
-    return <ReviewGroup activities={activities} viewerLogin={viewerLogin} pr={pr} workspaceId={workspaceId} onRefresh={onRefresh}
-      onDetailUpdate={onDetailUpdate} onQuote={onQuote} />;
+    return <ReviewGroup activities={activities} viewerLogin={viewerLogin} privateThreads={privateThreads} pr={pr} workspaceId={workspaceId}
+      onRefresh={onRefresh} onDetailUpdate={onDetailUpdate} onQuote={onQuote} />;
   }
   if (activity.eventType === 'review_thread') {
-    return <ReviewThread activity={activity} viewerLogin={viewerLogin} pr={pr} workspaceId={workspaceId} onRefresh={onRefresh}
-      onDetailUpdate={onDetailUpdate} />;
+    return <ReviewThread activity={activity} viewerLogin={viewerLogin} privateThreads={privateThreads} pr={pr} workspaceId={workspaceId}
+      onRefresh={onRefresh} onDetailUpdate={onDetailUpdate} />;
   }
   if (activity.eventType === 'commented' || activity.eventType === 'reviewed') {
-    return <CommentCard activity={activity} viewerLogin={viewerLogin} pr={pr} onDetailUpdate={onDetailUpdate} onQuote={onQuote} />;
+    return <CommentCard activity={activity} viewerLogin={viewerLogin} privateThreads={privateThreads} pr={pr}
+      onDetailUpdate={onDetailUpdate} onQuote={onQuote} />;
   }
   if (activity.eventType === 'committed') return <CommitEvent activity={activity} />;
   return <CompactEvent activities={activities} />;
@@ -801,9 +807,10 @@ function CommitEvent({ activity }: { activity: Activity }) {
   );
 }
 
-function CommentCard({ activity, viewerLogin, pr, onDetailUpdate, onQuote }: {
+function CommentCard({ activity, viewerLogin, privateThreads, pr, onDetailUpdate, onQuote }: {
   activity: Activity;
   viewerLogin?: string;
+  privateThreads?: PrivateThreads;
   pr: PullRequestDto;
   onDetailUpdate: PullDetailUpdater;
   onQuote: (body: string) => void;
@@ -824,6 +831,9 @@ function CommentCard({ activity, viewerLogin, pr, onDetailUpdate, onQuote }: {
     (reactions, onlyIf) => onDetailUpdate(pr.repo, pr.number, current =>
       updatePullReactionDetail(current, 'issue_comment', activity.githubId, reactions, onlyIf)),
   );
+  // The backend resolves review: keys from the same reviewed event this card renders.
+  const threadKey = privateThreads === undefined || body === null || commentId === null ? null
+    : privateThreadKey(activity.eventType === 'reviewed' ? 'review' : 'issue_comment', commentId);
   const header = (
     <CardHeader
       actor={actor}
@@ -832,6 +842,7 @@ function CommentCard({ activity, viewerLogin, pr, onDetailUpdate, onQuote }: {
       timestamp={activity.timestamp}
       badge={reviewBadge(state)}
       reaction={reaction}
+      privateControls={privateThreads !== undefined && threadKey !== null && <PrivateThreadControls threads={privateThreads} threadKey={threadKey} />}
       actions={body ? {
         link: activity.payload.htmlUrl ?? pr.htmlUrl,
         markdown: body,
@@ -843,8 +854,17 @@ function CommentCard({ activity, viewerLogin, pr, onDetailUpdate, onQuote }: {
   if (!body) {
     return <article className="pr-card pr-review-event">{header}</article>;
   }
+  if (privateThreads !== undefined && threadKey !== null && privateThreads.forward === threadKey) {
+    return (
+      <div className="pr-card pr-private-card">
+        <PrivateThreadForward threads={privateThreads} threadKey={threadKey} author={actor} avatarUrl={activity.payload.actorAvatarUrl}
+          timestamp={activity.timestamp} body={body} repository={pr.repo} viewerLogin={viewerLogin} />
+      </div>
+    );
+  }
   return (
     <article className="pr-card pr-comment-card">
+      {privateThreads !== undefined && threadKey !== null && <PrivateThreadTab threads={privateThreads} threadKey={threadKey} />}
       {header}
       {editDraft !== null && commentId !== null
         ? <CommentEditor pr={pr} target={activity.eventType === 'reviewed' ? 'review' : 'issue_comment'} commentId={commentId}
@@ -855,9 +875,10 @@ function CommentCard({ activity, viewerLogin, pr, onDetailUpdate, onQuote }: {
   );
 }
 
-function ReviewGroup({ activities, viewerLogin, pr, workspaceId, onRefresh, onDetailUpdate, onQuote }: {
+function ReviewGroup({ activities, viewerLogin, privateThreads, pr, workspaceId, onRefresh, onDetailUpdate, onQuote }: {
   activities: Activity[];
   viewerLogin?: string;
+  privateThreads?: PrivateThreads;
   pr: PullRequestDto;
   workspaceId?: string;
   onRefresh: () => Promise<void>;
@@ -878,10 +899,10 @@ function ReviewGroup({ activities, viewerLogin, pr, workspaceId, onRefresh, onDe
         {badge && <span className={`pr-review-badge ${badge.className}`}>{badge.text}</span>}
       </div>
       {review.body?.trim() && (
-        <CommentCard activity={review} viewerLogin={viewerLogin} pr={pr} onDetailUpdate={onDetailUpdate} onQuote={onQuote} />
+        <CommentCard activity={review} viewerLogin={viewerLogin} privateThreads={privateThreads} pr={pr} onDetailUpdate={onDetailUpdate} onQuote={onQuote} />
       )}
       {activities.slice(1).map(thread => (
-        <ReviewThread key={thread.githubId ?? `${thread.timestamp}-${thread.payload.path}`} activity={thread}
+        <ReviewThread key={thread.githubId ?? `${thread.timestamp}-${thread.payload.path}`} activity={thread} privateThreads={privateThreads}
           viewerLogin={viewerLogin} pr={pr} workspaceId={workspaceId} onRefresh={onRefresh} onDetailUpdate={onDetailUpdate} />
       ))}
     </section>
@@ -910,9 +931,10 @@ export function updateReviewThreadResolution(
   };
 }
 
-export function ReviewThread({ activity, viewerLogin, pr, workspaceId, onRefresh, onDetailUpdate, showCode = true }: {
+export function ReviewThread({ activity, viewerLogin, privateThreads, pr, workspaceId, onRefresh, onDetailUpdate, showCode = true }: {
   activity: Activity;
   viewerLogin?: string;
+  privateThreads?: PrivateThreads;
   pr: PullRequestDto;
   workspaceId?: string;
   onRefresh: () => Promise<void>;
@@ -929,6 +951,9 @@ export function ReviewThread({ activity, viewerLogin, pr, workspaceId, onRefresh
   // Held here rather than in ThreadComment: resolving re-parents the comments, which remounts them.
   const [edit, setEdit] = useState<{ commentId: number; draft: string } | null>(null);
   const [error, setError] = useState('');
+  const [drafting, setDrafting] = useState(false);
+  // The editor holds the agent's draft; nothing reaches GitHub until the user presses Comment.
+  const [drafted, setDrafted] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const resolutionInFlight = useRef(false);
   const targetLine = payload.line ?? payload.originalLine;
@@ -961,6 +986,7 @@ export function ReviewThread({ activity, viewerLogin, pr, workspaceId, onRefresh
     setPreview(false);
     setReplying(false);
     setPosting(false);
+    setDrafted(false);
     await onRefresh();
   };
   const changeResolution = async () => {
@@ -987,18 +1013,52 @@ export function ReviewThread({ activity, viewerLogin, pr, workspaceId, onRefresh
     resolutionInFlight.current = false;
     setChangingResolution(false);
   };
+  const focusReply = () => requestAnimationFrame(() => {
+    textareaRef.current?.focus();
+    textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
   const quoteReply = (quotedBody: string) => {
     setBody(current => appendQuotedReply(current, quotedBody));
     setPreview(false);
     setError('');
     setReplying(true);
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    });
+    focusReply();
   };
-  const controls = replying ? (
+  const draftWithAgent = async (thread: TaskDiscussionDto, author: string) => {
+    if (privateThreads === undefined || drafting) return;
+    privateThreads.setForward(null);
+    setDrafting(true);
+    setError('');
+    try {
+      const text = await privateThreads.draftReply(thread);
+      // The draft can take many seconds; if the user started typing elsewhere meanwhile, the caret stays there.
+      const active = document.activeElement;
+      const typingElsewhere = active !== textareaRef.current && active instanceof HTMLElement
+        && (active.isContentEditable || active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement);
+      setBody(current => withMention(current, text, author));
+      setReplying(true);
+      setPreview(false);
+      setDrafted(true);
+      if (!typingElsewhere) focusReply();
+    }
+    catch (failure) {
+      setError(remoteErrorMessage(failure));
+    }
+    finally {
+      setDrafting(false);
+    }
+  };
+  const discard = () => { setReplying(false); setBody(''); setPreview(false); setError(''); setDrafted(false); };
+  const controls = drafting ? (
+    <footer className="pr-thread-draft" role="status">
+      <LoaderCircle className="pr-task-spinner" size={14} aria-hidden="true" /> Agent is drafting a reply from your private thread…
+    </footer>
+  ) : replying ? (
     <footer className="pr-thread-reply">
+      {drafted && <div className="pr-thread-draft__head">
+        <span className="pr-thread-draft__badge">Draft · not posted</span>
+        <span>Written by the agent from your private thread. Edit it before you post.</span>
+      </div>}
       <div className="pr-thread-reply__tabs" role="group" aria-label="Reply editor mode">
         <button className={!preview ? 'is-active' : ''} type="button" aria-pressed={!preview}
           onClick={() => {
@@ -1009,22 +1069,24 @@ export function ReviewThread({ activity, viewerLogin, pr, workspaceId, onRefresh
           onClick={() => setPreview(true)}>Preview</button>
       </div>
       {preview && <MarkdownBody body={body || 'Nothing to preview.'} repository={pr.repo} suggestion={suggestion} />}
-      <textarea ref={textareaRef} autoFocus hidden={preview} aria-label="Reply to review thread" value={body} rows={4}
+      <textarea ref={textareaRef} autoFocus={!drafted} hidden={preview} aria-label="Reply to review thread" value={body} rows={4}
         placeholder="Reply to this thread…" onChange={event => setBody(event.target.value)}
         onKeyDown={event => {
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
             event.preventDefault();
-            void submit();
+            // An agent draft posts only by the Comment click, never by the private composer's send key.
+            if (!drafted) void submit();
           }
         }} />
       {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}
       <div className="pr-thread-reply__actions">
+        {drafted && <span className="pr-thread-draft__note">Posts to GitHub as you</span>}
         <BetterWordsButton text={body} textareaRef={textareaRef} repository={pr.repo} workspaceId={workspaceId}
           disabled={preview || posting}
           onError={failure => setError(failure === null ? '' : remoteErrorMessage(failure))} />
-        <button type="button" onClick={() => { setReplying(false); setBody(''); setPreview(false); setError(''); }}>Cancel</button>
+        <button type="button" onClick={discard}>{drafted ? 'Discard' : 'Cancel'}</button>
         <button className="is-primary" type="button" disabled={posting || !body.trim()}
-          onClick={() => { void submit(); }}>{posting ? 'Replying…' : 'Reply'}</button>
+          onClick={() => { void submit(); }}>{drafted ? posting ? 'Commenting…' : 'Comment' : posting ? 'Replying…' : 'Reply'}</button>
       </div>
     </footer>
   ) : (
@@ -1043,13 +1105,18 @@ export function ReviewThread({ activity, viewerLogin, pr, workspaceId, onRefresh
       code={commentedLines.map((line, index) => <CommentedCodeLine key={line.lineNumber ?? index} line={line} />)} controls={controls}>
       {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl} suggestion={suggestion}
         viewerLogin={viewerLogin} pr={pr} onDetailUpdate={onDetailUpdate} onQuote={quoteReply} edit={edit} onEditChange={setEdit}
+        privateThreads={privateThreads}
+        onDraftReply={rootCommentId === undefined || rootCommentId === null ? undefined
+          : thread => { void draftWithAgent(thread, displayActor(comment.actor ?? '')); }}
         key={comment.githubId ?? comment.timestamp} />)}
     </ReviewThreadCard>
   );
 }
 
-function ThreadComment({ comment, fallbackUrl, suggestion, viewerLogin, pr, onDetailUpdate, onQuote, edit, onEditChange }: {
+function ThreadComment({ comment, fallbackUrl, suggestion, viewerLogin, pr, onDetailUpdate, onQuote, edit, onEditChange, privateThreads, onDraftReply }: {
   comment: PullTimelineCommentDto;
+  privateThreads?: PrivateThreads;
+  onDraftReply?: (thread: TaskDiscussionDto) => void;
   fallbackUrl: string;
   suggestion?: SuggestionBase;
   viewerLogin?: string;
@@ -1072,12 +1139,20 @@ function ThreadComment({ comment, fallbackUrl, suggestion, viewerLogin, pr, onDe
     (reactions, onlyIf) => onDetailUpdate(pr.repo, pr.number, current =>
       updatePullReactionDetail(current, 'review_comment', comment.githubId, reactions, onlyIf)),
   );
+  const threadKey = privateThreads === undefined || commentId === null || !comment.body ? null : privateThreadKey('review_comment', commentId);
+  if (privateThreads !== undefined && threadKey !== null && privateThreads.forward === threadKey) {
+    return <PrivateThreadForward threads={privateThreads} threadKey={threadKey} author={displayActor(comment.actor ?? 'github')}
+      avatarUrl={comment.actorAvatarUrl} timestamp={comment.timestamp} body={comment.body ?? ''} repository={pr.repo}
+      viewerLogin={viewerLogin} onDraftReply={onDraftReply} />;
+  }
   return (
     <ReviewThreadMessage timestamp={comment.timestamp} author={<>
         <UserAvatar login={comment.actor ?? 'github'} avatarUrl={comment.actorAvatarUrl} size={22} showLogin />
         {comment.actorBot && <span className="pr-bot">Bot</span>}
       </>}
-      menu={<>{reaction && <ReactionPicker action={reaction} />}{comment.body && <CardActionsMenu actions={{
+      menu={<>{reaction && <ReactionPicker action={reaction} />}
+        {privateThreads !== undefined && threadKey !== null && <PrivateThreadControls threads={privateThreads} threadKey={threadKey} />}
+        {comment.body && <CardActionsMenu actions={{
           link: comment.htmlUrl ?? fallbackUrl,
           markdown: comment.body,
           onQuote: () => onQuote(comment.body ?? ''),
@@ -1089,6 +1164,7 @@ function ThreadComment({ comment, fallbackUrl, suggestion, viewerLogin, pr, onDe
           draft={editDraft} onDraftChange={draft => onEditChange({ commentId, draft })}
           onDetailUpdate={onDetailUpdate} onClose={() => onEditChange(null)} />
         : <MarkdownBody body={comment.body} repository={pr.repo} suggestion={suggestion} />)}
+      {privateThreads !== undefined && threadKey !== null && <PrivateThreadTab threads={privateThreads} threadKey={threadKey} />}
     </ReviewThreadMessage>
   );
 }
@@ -1307,13 +1383,15 @@ type CardActions = {
   onEdit?: () => void;
 };
 
-export function CardHeader({ actor, avatarUrl, bot = false, timestamp, badge, reaction, actions }: {
+export function CardHeader({ actor, avatarUrl, bot = false, timestamp, badge, reaction, privateControls, actions }: {
   actor: string;
   avatarUrl?: string | null;
   bot?: boolean;
   timestamp: string | null;
   badge?: { text: string; className: string } | null;
   reaction?: ReactionAction;
+  /** Rendered between the reaction picker and the actions menu. */
+  privateControls?: ReactNode;
   actions?: CardActions;
 }) {
   return (
@@ -1322,8 +1400,9 @@ export function CardHeader({ actor, avatarUrl, bot = false, timestamp, badge, re
       {bot && <span className="pr-bot">Bot</span>}
       {timestamp && <><span>·</span><time>{relativeTime(timestamp)}</time></>}
       {badge && <span className={`pr-review-badge ${badge.className}`}>{badge.text}</span>}
-      {(reaction || actions) && <div className="pr-card__menu">
+      {(reaction || privateControls || actions) && <div className="pr-card__menu">
         {reaction && <ReactionPicker action={reaction} />}
+        {privateControls}
         {actions && <CardActionsMenu actions={actions} />}
       </div>}
     </header>

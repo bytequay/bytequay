@@ -42,6 +42,8 @@ export type AgentBridgePort = Pick<Bridge,
   | 'askTaskDiscussion'
   | 'resolveTaskDiscussion'
   | 'retryTaskDiscussion'
+  | 'askTaskDiscussionComment'
+  | 'draftTaskDiscussionReply'
   | 'listLocalReviewComments'
   | 'createLocalReviewComment'
   | 'replyLocalReviewComment'

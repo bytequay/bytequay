@@ -1,7 +1,9 @@
 # Discussion Threads
 
 A discussion thread is a short, private, read-only conversation about one
-quoted passage of a completed assistant answer in an agent task. The reader
+quoted passage of a completed assistant answer in an agent task or, as a
+private thread, about one review comment on the task's pull request, as
+defined in [Review Triage](review-triage.md). The reader
 highlights part of an answer, asks about it, and receives a brief reply in a
 thread folded under that answer. The task's own conversation is never touched.
 
@@ -103,26 +105,30 @@ sends, and it is the only recovery a lost provider session has.
 package com.bytequay.core.discussion;
 
 /**
- * One private discussion about a quoted passage of a completed assistant answer.
+ * One private discussion about a quoted passage of a completed assistant answer, or,
+ * as a private thread, about one review comment on the task's pull request.
  *
  * <p>The whole aggregate is persisted as a single JSON payload, so adding a field
- * needs no schema change. {@code seed} is captured when the discussion is created
- * and never recomputed, so the re-seed after a lost provider session reproduces the
- * original premise, and so the thread stays readable after the task's runtime
- * history is deleted.
+ * needs no schema change. A passage discussion's {@code seed} is captured when it is
+ * created and never recomputed, so the re-seed after a lost provider session
+ * reproduces the original premise, and so the thread stays readable after the
+ * task's runtime history is deleted. A private thread stores no seed.
  *
  * @param id             opaque assigned identifier
  * @param taskId         the task whose answer is being discussed
- * @param anchor         the quoted passage this discussion belongs to
- * @param seed           the rendered task history through the anchored turn
+ * @param anchor         the quoted passage this discussion belongs to; a private
+ *                       thread's is derived from its comment
+ * @param comment        the review comment a private thread is about; absent on a
+ *                       passage discussion
+ * @param seed           the rendered task history through the anchored turn; present
+ *                       on passage discussions only
  * @param providerLane   the lane the conversation runs on, fixed at creation
  * @param providerModel  the model the conversation runs on, fixed at creation
  * @param providerModel  the model the conversation runs on, read from the task's
  *                       defaults and fixed at creation so a later default change
  *                       does not switch the thread mid-conversation
- * @param sessionReference the provider conversation to resume, recorded as soon as
- *                       the driver reports it — on the Claude lane before the first
- *                       process starts — and cleared after a failed resume
+ * @param sessionReference the provider conversation to resume, recorded after a
+ *                       completed answer and cleared after a failed resume
  * @param messages       questions and answers in order, oldest first
  * @param resolved       whether the reader has completed this thread
  * @param createdAt      when the discussion was opened
@@ -133,7 +139,8 @@ public record TaskDiscussion(
         String id,
         String taskId,
         DiscussionAnchor anchor,
-        String seed,
+        Optional<ReviewCommentAnchor> comment,
+        Optional<String> seed,
         String providerLane,
         Optional<String> providerModel,
         Optional<DiscussionSession> sessionReference,
@@ -153,7 +160,9 @@ public record TaskDiscussion(
         checkArgument(id.matches("[A-Za-z0-9._:-]{1,100}"), "Invalid discussion id");
         checkArgument(!taskId.isBlank(), "Task is required");
         checkArgument(!providerLane.isBlank(), "Lane is required");
-        checkArgument(seed.length() <= MAX_SEED_CHARACTERS, "Seed exceeds the context budget");
+        checkArgument(seed.isPresent() != comment.isPresent(), "A passage discussion stores its seed; a comment thread renders it per run");
+        checkArgument(comment.map(value -> value.anchor().equals(anchor)).orElse(true), "Comment anchor mismatch");
+        checkArgument(seed.map(text -> text.length() <= MAX_SEED_CHARACTERS).orElse(true), "Seed exceeds the context budget");
         checkArgument(version >= 0, "Invalid version");
         messages = ImmutableList.copyOf(messages);
         checkArgument(messages.size() <= 100, "Discussion is full");
@@ -181,6 +190,7 @@ public record TaskDiscussion(
  *
  * @param turnId     the completed turn whose final answer was quoted
  * @param quote      the highlighted text as rendered, verified against that answer
+ *                   on a passage discussion
  * @param occurrence which appearance of {@code quote} in that answer was highlighted,
  *                   1-based; the client knows it from the selection's position
  * <p>No label is stored: the reader-facing label is presentation, derived in the
@@ -211,6 +221,10 @@ public record DiscussionMessage(
 /** The provider conversation a discussion resumes, as the driver reported it. The lane is {@code TaskDiscussion.providerLane}. */
 public record DiscussionSession(int contractVersion, String providerValue) {}
 ```
+
+A private thread's `DiscussionAnchor` records its comment's values: the turn
+`review-comment`, the comment key as `quote`, occurrence 1, and the key's hash.
+`ReviewCommentAnchor` is specified in [Review Triage](review-triage.md) §4.1.
 
 ### 4.2 Storage port
 
@@ -268,7 +282,7 @@ public interface TaskDiscussionService
      *         final answer of {@code command.turnId()}
      * @throws AgentConflictException when the task has no live worktree, when a
      *         question is already in flight for this task, or when the task
-     *         already holds {@code MAX_DISCUSSIONS_PER_TASK} discussions
+     *         already holds {@code MAX_DISCUSSIONS_PER_TASK} passage discussions
      * @throws InvalidAgentRequestException when the seed exceeds the context budget
      */
     TaskDiscussionView open(OpenDiscussionCommand command);
@@ -294,6 +308,15 @@ public interface TaskDiscussionService
 
     /** Every discussion on one task, for the transcript footers and the panel. */
     List<TaskDiscussionView> list(String workspaceId, String taskId);
+
+    /** Asks about one review comment in its private thread, creating the thread on first use. */
+    TaskDiscussionView askComment(AskCommentCommand command);
+
+    /** Summarizes new review comments in one read-only session, one private thread each. */
+    void summarize(String workspaceId, String taskId, List<ReviewCommentAnchor> comments);
+
+    /** Drafts a GitHub reply from one private thread. Stores nothing and posts nothing. */
+    String draftReply(String workspaceId, String taskId, String discussionId);
 }
 
 /**
@@ -340,6 +363,7 @@ public record TaskDiscussionView(
         String turnId,
         String quote,
         int occurrence,
+        Optional<Comment> comment,
         boolean resolved,
         boolean pending,
         String providerLane,
@@ -357,13 +381,20 @@ public record TaskDiscussionView(
      */
     public record Message(String id, Author author, String body, Instant createdAt,
             Optional<String> error) {}
+
+    /** The review comment a private thread is about, without its snapshot. */
+    public record Comment(String repo, int number, String key) {}
 }
 ```
 
 `open` claims the task's slot (section 7) before it creates a discussion, so a
-question refused on a busy task leaves no row.
+question refused on a busy task leaves no row. `askComment`, `summarize` and
+`draftReply` serve private threads and are specified in
+[Review Triage](review-triage.md).
 
-Nothing else belongs on the view. `label` is presentation, derived in the renderer
+Nothing else belongs on the view. `comment` is present only on a private
+thread, whose `turnId`, `quote` and `occurrence` carry its anchor's values and
+are ignored by clients. `label` is presentation, derived in the renderer
 from `quote` and `occurrence`. A reply count is `messages.size()`. Askability is
 `AgentTaskDto.checkoutRemovedAt`, which the task screen already holds. The panel's
 group header reads `TranscriptTurn.ordinal` and the answer text for a loaded turn, and
@@ -411,7 +442,9 @@ are not flattened: the agent wrote them as markdown, models read markdown
 natively, and flattening would destroy code blocks. Only the envelope around
 them is ByteQuay's.
 
-The seed is captured once, at creation, and never recomputed.
+A passage discussion's seed is captured once, at creation, and never
+recomputed. A private thread stores no seed: each run without a provider
+session renders the task history again.
 
 ### 5.1 Prompt format
 
@@ -465,8 +498,10 @@ explanation.
 ```
 
 A label is a line containing exactly `[user]`, `[agent]`, `[reader]` or `[you]`.
-Inherited content is the agent's own prior output rather than foreign input, so
-a body reproducing a label line is a cosmetic collision, not a trust boundary.
+In a passage discussion, inherited content is the agent's own prior output
+rather than foreign input, so a body reproducing a label line is a cosmetic
+collision, not a trust boundary. A private thread carries foreign review text,
+which its own prompt holds inside a JSON envelope.
 
 ### 5.2 Matching the quote
 
@@ -596,7 +631,9 @@ One Hibernate-owned table, `task_discussion`, structurally the same as
 `quote_hash`, `payload`, and the version; the whole aggregate lives in the JSON
 payload. There is no Flyway and no migration history.
 
-A task holds at most `MAX_DISCUSSIONS_PER_TASK = 50`, checked in `open`. Under
+A task holds at most `MAX_DISCUSSIONS_PER_TASK = 50` passage discussions,
+checked in `open`; private threads have their own cap of 100
+([Review Triage](review-triage.md)). Under
 this design each discussion owns one persisted provider conversation, so the
 cap bounds provider-side transcripts on disk as well as rows; the analogous
 review-thread cap of 500 is far more generous because a review thread starts no
@@ -628,7 +665,7 @@ the installation's life.
 
 ## 8. Surface
 
-Three routes under the existing `/agent` prefix. There is no `/api` namespace in
+The routes sit under the existing `/agent` prefix. There is no `/api` namespace in
 this controller family, and no new event stream.
 
 ```
@@ -637,7 +674,12 @@ POST /agent/tasks/{taskId}/discussions?workspaceId=                   { turnId, 
 POST /agent/tasks/{taskId}/discussions/{id}/messages?workspaceId=     { question }
 PATCH /agent/tasks/{taskId}/discussions/{id}?workspaceId=             { resolved, expectedVersion }
 POST /agent/tasks/{taskId}/discussions/{id}/messages/{messageId}/retry?workspaceId=
+POST /agent/tasks/{taskId}/discussions/comments?workspaceId=          { repo, number, key, question }
+POST /agent/tasks/{taskId}/discussions/{id}/reply-draft?workspaceId=  -> { text }
 ```
+
+The last two serve private threads: `askComment` and `draftReply` of
+[Review Triage](review-triage.md) §4.5.
 
 Every route resolves the task through `taskService.getInteractive(workspaceId, id)`
 as its first statement, which is what refuses an absent, internal or
@@ -661,6 +703,10 @@ panel header is replaced when the task has a pull request. It appears at the top
 level, beside PR and WorkBench, only once the reader asks about a passage or
 opens a thread from the transcript, and it closes with its ×; opening a thread
 again restores it.
+
+Transcript footers, the Discussions panel and its tab count show only
+discussions without `comment`. Private threads show in the task's
+pull-request tab ([Review Triage](review-triage.md) §8).
 
 ### 8.1 Where a footer sits
 
@@ -710,8 +756,8 @@ Recorded from the built surfaces, so a later change can tell what was deliberate
 
 ```text
 frontend/src/agents/discussions/
-    contracts.ts          the DTO and the five requests, each field parsed and validated
-    useTaskDiscussions.ts the polling hook and the five writes
+    contracts.ts          the DTO and the seven requests, each field parsed and validated
+    useTaskDiscussions.ts the polling hook and its writes
     DiscussableAnswer.tsx one answer, its selection affordance, its footers
     DiscussionFooter.tsx  the reply-count rows, the label, the reply count
     DiscussionsPanel.tsx  the tab body: the card, the composers
@@ -722,9 +768,10 @@ it reads as on screen; `renderMarkdown` wraps it, so every existing caller is
 unchanged. Blocks carry no durable identity — a block is addressed only for the
 duration of one render, for the same reason no block ordinal is stored.
 
-Five bridge methods cross the IPC boundary — list, open, ask, resolve, retry —
-and they are named in `AgentBridgePort`, so a fixture rendering the task screen
-must supply them rather than failing at run time on a bridge that lacks them.
+Seven bridge methods cross the IPC boundary — list, open, ask, resolve, retry,
+and the private-thread pair ask-comment and draft-reply — and they are named in
+`AgentBridgePort`, so a fixture rendering the task screen must supply them
+rather than failing at run time on a bridge that lacks them.
 
 The hook polls every three seconds, because a discussion answers on a thread the
 renderer cannot observe. Each write returns the updated discussion and is
@@ -791,7 +838,7 @@ none changes a route or a stored field.
 | The worktree has been removed | Asking is refused; every recorded message stays readable. |
 | The seed exceeds the budget | Refuse and name an earlier turn as the remedy. |
 | The quote is under three characters | Refuse as a stray selection. |
-| The task already holds 50 discussions | Refuse. Nothing is evicted automatically. |
+| The task already holds 50 passage discussions | Refuse. Nothing is evicted automatically. |
 
 ## 10. Safety invariants
 
@@ -843,7 +890,7 @@ Each step compiles and passes the project gates on its own.
     reader highlighted, and a discussion on a different appearance of the same
     text is a separate thread.
 11. A seed over budget is refused with an actionable message, never shortened,
-    and the fifty-first discussion on a task is refused.
+    and the fifty-first passage discussion on a task is refused.
 12. The first-question prompt and the re-seed prompt are produced by one
     renderer: given the same discussion, the re-seed output equals the original
     envelope with the intervening messages appended.

@@ -188,7 +188,7 @@ export async function utilityTabs(): Promise<string> {
   assert(answer?.turnId != null, 'The fixture must hold a finished answer');
   const at = '2026-08-20T10:02:00Z';
   const discussion: TaskDiscussionDto = { id: 'd1', taskId: answer.taskId, turnId: answer.turnId, quote: 'authentication regression',
-    occurrence: 1, resolved: false, pending: false, providerLane: 'codex', version: 1, createdAt: at, updatedAt: at,
+    occurrence: 1, resolved: false, pending: false, providerLane: 'codex', version: 1, createdAt: at, updatedAt: at, comment: null,
     messages: [{ id: 'm1', author: 'USER', body: 'Which one?', createdAt: at, error: null },
       { id: 'm2', author: 'AGENT', body: 'The token refresh.', createdAt: at, error: null }] };
   // Only an interactive task has discussions, and its Summary asks the page bridge for a review.

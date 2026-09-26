@@ -20,8 +20,8 @@ import { DiscussableAnswer, blockOf, markPassage } from './DiscussableAnswer';
 import { renderMarkdownBlocks } from '../markdown';
 import { DiscussionFooter, discussionLabel, replyCount, retryTarget } from './DiscussionFooter';
 import { DiscussionCard, DiscussionsPanel } from './DiscussionsPanel';
-import type { TaskDiscussionDto } from './contracts';
-import type { TaskDiscussions } from './useTaskDiscussions';
+import { parseTaskDiscussion, type TaskDiscussionDto } from './contracts';
+import { splitDiscussions, type TaskDiscussions } from './useTaskDiscussions';
 
 const ANSWER = [
   'It throws INVALID_TABLE_PROPERTY with the joined path.',
@@ -35,7 +35,7 @@ const ANSWER = [
 function discussion(over: Partial<TaskDiscussionDto> = {}): TaskDiscussionDto {
   return {
     id: 'd1', taskId: 't1', turnId: 'turn-10', quote: 'INVALID_TABLE_PROPERTY', occurrence: 1,
-    resolved: false, pending: false, providerLane: 'claude', version: 0,
+    resolved: false, pending: false, providerLane: 'claude', version: 0, comment: null,
     createdAt: '2026-09-21T00:00:00Z', updatedAt: '2026-09-21T00:00:00Z',
     messages: [{ id: 'm1', author: 'USER', body: 'why?', createdAt: '2026-09-21T00:00:00Z', error: null }],
     ...over,
@@ -177,9 +177,9 @@ describe('a footer row', () => {
 
 describe('the panel', () => {
   const stub = (disabledReason: string | null, busy = false): TaskDiscussions => ({
-    discussions: [discussion()], busy, error: null, disabledReason,
+    discussions: [discussion()], commentThreads: [], busy, error: null, disabledReason,
     refresh: async () => {}, open: async () => discussion(), ask: async () => {},
-    resolve: async () => {}, retry: async () => {},
+    resolve: async () => {}, retry: async () => {}, askComment: async () => discussion(), draftReply: async () => '',
   });
 
   it('offers a reply while the task still holds its files', () => {
@@ -223,5 +223,23 @@ describe('the panel', () => {
     const html = renderToStaticMarkup(<DiscussionsPanel discussions={stub(null)} turns={turns} />);
     expect(html).toContain('TURN 3');
     expect(html).toContain('It throws with the joined path.');
+  });
+});
+
+describe('private threads beside passage discussions', () => {
+  const thread = discussion({ id: 'c1', turnId: 'review-comment', quote: 'review_comment:7',
+    comment: { repo: 'o/r', number: 12, key: 'review_comment:7' } });
+
+  it('parses the comment a private thread is about, and nothing for a passage', () => {
+    const wire = { ...thread, messages: [...thread.messages] };
+    expect(parseTaskDiscussion(wire).comment).toEqual({ repo: 'o/r', number: 12, key: 'review_comment:7' });
+    expect(parseTaskDiscussion({ ...wire, comment: null }).comment).toBeNull();
+    expect(() => parseTaskDiscussion({ ...wire, comment: { repo: 'o/r', number: '12', key: 'review_comment:7' } })).toThrow();
+  });
+
+  it('keeps private threads off every passage surface', () => {
+    const split = splitDiscussions([discussion(), thread]);
+    expect(split.discussions.map(item => item.id)).toEqual(['d1']);
+    expect(split.commentThreads.map(item => item.id)).toEqual(['c1']);
   });
 });

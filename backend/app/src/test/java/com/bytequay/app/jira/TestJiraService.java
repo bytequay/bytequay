@@ -17,16 +17,22 @@ import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.JiraIssueTaskStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -158,12 +164,78 @@ class TestJiraService
         String response = "{\"issues\":[" + ticket() + "],\"nextPageToken\":\"next/token\"}";
         when(remote.request(eq("connection"), eq("cloud"), org.mockito.ArgumentMatchers.startsWith("/rest/software/"), eq("GET"), any()))
                 .thenReturn(json(response), json("{\"issues\":[],\"isLast\":true}"));
-        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, true).issues()).hasSize(1);
+        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, true).issues()).hasSize(1);
         verify(remote).request(eq("connection"), eq("cloud"), org.mockito.ArgumentMatchers.contains("nextPageToken=next/token"), eq("GET"), any());
         when(remote.request(eq("connection"), eq("cloud"), org.mockito.ArgumentMatchers.startsWith("/rest/software/"), eq("GET"), any()))
                 .thenThrow(new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS));
-        assertThatThrownBy(() -> jira.issues("connection", "cloud", 82, Optional.of(9L), true, true)).isInstanceOf(ResponseStatusException.class);
-        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, false).issues()).hasSize(1);
+        assertThatThrownBy(() -> jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, true)).isInstanceOf(ResponseStatusException.class);
+        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false).issues()).hasSize(1);
+    }
+
+    @Test
+    void completedHistoryUsesBoardScopeAndDoesNotRegisterPollingOrAttention()
+            throws Exception
+    {
+        List<String> requests = new ArrayList<>();
+        when(remote.request(eq("connection"), eq("cloud"), org.mockito.ArgumentMatchers.startsWith("/rest/software/"), eq("GET"), any()))
+                .thenAnswer(call -> {
+                    requests.add(URLDecoder.decode(call.getArgument(2), StandardCharsets.UTF_8));
+                    return requests.size() == 1
+                            ? json("{\"issues\":[" + completedTicket("2001") + "],\"nextPageToken\":\"next/token\"}")
+                            : json("{\"issues\":[" + completedTicket("2002") + "],\"isLast\":true}");
+                });
+        JiraDtos.IssuePage result = jira.issues("connection", "cloud", 82, Optional.of(9L), true, true, true);
+        assertThat(result.issues()).extracting(JiraIssue::id).containsExactly("2001", "2002");
+        assertThat(result.partial()).isFalse();
+        assertThat(requests).allSatisfy(path -> {
+            assertThat(path).startsWith("/rest/software/1.0/board/82/issue?").doesNotContain("/sprint/");
+            assertThat(path).contains("statusCategory = Done AND assignee = currentUser()", "ORDER BY statusCategoryChangedDate DESC, resolved DESC", "resolutiondate");
+        });
+        assertThat(requests.get(1)).contains("nextPageToken=next/token");
+        assertThat(jira.issues("connection", "cloud", 82, Optional.of(45L), true, true, false).issues()).hasSize(2);
+        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false).issues()).isEmpty();
+        assertThat(saved).doesNotContainKey("jira.scopes");
+        assertThat(jira.attention()).isEmpty();
+        jira.poll();
+        assertThat(requests).hasSize(2);
+        jira.issues("connection", "cloud", 82, Optional.empty(), false, true, true);
+        assertThat(requests.getLast()).contains("statusCategory = Done").doesNotContain("assignee =");
+    }
+
+    @Test
+    void completedHistoryShowsPageLimitAndDropsReopenedCachedTickets()
+            throws Exception
+    {
+        AtomicInteger pages = new AtomicInteger();
+        when(remote.request(eq("connection"), eq("cloud"), org.mockito.ArgumentMatchers.startsWith("/rest/software/"), eq("GET"), any()))
+                .thenAnswer(call -> {
+                    int page = pages.incrementAndGet();
+                    return json("{\"issues\":[" + completedTicket("200" + page) + "],\"nextPageToken\":\"page-" + page + "\"}");
+                });
+        JiraDtos.IssuePage result = jira.issues("connection", "cloud", 82, Optional.empty(), true, true, true);
+        assertThat(result.partial()).isTrue();
+        assertThat(result.issues()).hasSize(20);
+        assertThat(pages).hasValue(20);
+        ObjectNode reopened = (ObjectNode) ticket();
+        reopened.put("id", "2001");
+        ((ObjectNode) reopened.path("fields")).put("updated", "2026-09-26T02:00:00Z");
+        cache.write("connection.cloud.issue.2001", JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", reopened));
+        JiraDtos.IssuePage cached = jira.issues("connection", "cloud", 82, Optional.empty(), true, true, false);
+        assertThat(cached.partial()).isTrue();
+        assertThat(cached.issues()).hasSize(19).noneMatch(issue -> issue.id().equals("2001"));
+        assertThat(jira.issue("connection", "cloud", "2001").completedAt()).isEmpty();
+    }
+
+    private JsonNode completedTicket(String id)
+            throws Exception
+    {
+        ObjectNode ticket = (ObjectNode) ticket();
+        ticket.put("id", id);
+        ObjectNode fields = (ObjectNode) ticket.path("fields");
+        ((ObjectNode) fields.path("status").path("statusCategory")).put("key", "done");
+        fields.put("resolutiondate", "2026-09-25T01:00:00Z");
+        fields.put("statuscategorychangedate", "2026-09-26T00:00:00Z");
+        return ticket;
     }
 
     @Test
@@ -175,7 +247,7 @@ class TestJiraService
         cache.write("connection.cloud.issue.1001", JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", fresh));
         when(remote.request(eq("connection"), eq("cloud"), org.mockito.ArgumentMatchers.startsWith("/rest/software/"), eq("GET"), any()))
                 .thenReturn(json("{\"issues\":[" + ticket() + "],\"isLast\":true}"));
-        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, true).issues().getFirst().title()).isEqualTo("Already edited");
+        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, true).issues().getFirst().title()).isEqualTo("Already edited");
         assertThat(jira.issue("connection", "cloud", "1001").title()).isEqualTo("Already edited");
     }
 

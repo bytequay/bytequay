@@ -41,7 +41,7 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class JiraService
 {
-    private static final String FIELDS = "summary,description,issuetype,status,assignee,labels,priority,parent,subtasks,updated,duedate";
+    private static final String FIELDS = "summary,description,issuetype,status,assignee,labels,priority,parent,subtasks,updated,duedate,resolutiondate,statuscategorychangedate";
     private static final int MAX_PAGES = 20;
     private final JiraConnections connections;
     private final JiraCache cache;
@@ -79,12 +79,14 @@ public class JiraService
         return cache.read(key, JiraDtos.Sprint[].class).map(ImmutableList::copyOf).orElseGet(ImmutableList::of);
     }
 
-    public JiraDtos.IssuePage issues(String connectionId, String cloudId, long boardId, Optional<Long> sprintId, boolean mine, boolean refresh)
+    public JiraDtos.IssuePage issues(String connectionId, String cloudId, long boardId, Optional<Long> sprintId, boolean mine, boolean completed, boolean refresh)
     {
-        Scope scope = new Scope(segment(connectionId), segment(cloudId), boardId, sprintId, mine);
+        Scope scope = new Scope(segment(connectionId), segment(cloudId), boardId, completed ? Optional.empty() : sprintId, mine, completed);
         checkArgument(boardId > 0 && sprintId.map(id -> id > 0).orElse(true), "Invalid board or sprint id");
         if (refresh) {
-            remember(scope);
+            if (!completed) {
+                remember(scope);
+            }
             return refreshScope(scope);
         }
         return page(scope);
@@ -93,7 +95,8 @@ public class JiraService
     private synchronized JiraDtos.IssuePage refreshScope(Scope scope)
     {
         String siteUrl = connections.site(scope.connectionId(), scope.cloudId()).url();
-        String path = "/rest/software/1.0/board/" + scope.boardId() + scope.sprintId().map(id -> "/sprint/" + id + "/issue").orElse("/backlog");
+        String path = "/rest/software/1.0/board/" + scope.boardId()
+                + (scope.completed() ? "/issue" : scope.sprintId().map(id -> "/sprint/" + id + "/issue").orElse("/backlog"));
         List<JiraIssue> result = new ArrayList<>();
         Optional<String> next = Optional.empty();
         boolean partial = false;
@@ -101,14 +104,20 @@ public class JiraService
             Map<String, Object> params = new LinkedHashMap<>();
             params.put("maxResults", 100);
             params.put("fields", FIELDS);
-            if (scope.mine()) {
+            if (scope.completed()) {
+                params.put("jql", "statusCategory = Done" + (scope.mine() ? " AND assignee = currentUser()" : "") + " ORDER BY statusCategoryChangedDate DESC, resolved DESC");
+            }
+            else if (scope.mine()) {
                 params.put("jql", "assignee = currentUser()");
             }
             next.ifPresent(token -> params.put("nextPageToken", token));
             JsonNode response = get(scope.connectionId(), scope.cloudId(), query(path, params));
             for (JsonNode item : nodes(response.path("issues"))) {
                 JiraIssue issue = JiraMapping.issue(scope.connectionId(), scope.cloudId(), siteUrl, item);
-                result.add(saveIssue(issue, false, true));
+                JiraIssue saved = saveIssue(issue, false, true);
+                if (!scope.completed() || "done".equals(saved.status().category())) {
+                    result.add(saved);
+                }
             }
             Optional<String> token = JiraMapping.text(response, "nextPageToken");
             if (token.isEmpty() || response.path("isLast").asBoolean()) {
@@ -268,7 +277,7 @@ public class JiraService
     {
         Map<String, JiraIssue> result = new LinkedHashMap<>();
         for (Scope scope : scopes()) {
-            if (!scope.mine() || scope.sprintId().isEmpty() || connections.list()
+            if (scope.completed() || !scope.mine() || scope.sprintId().isEmpty() || connections.list()
                     .stream().noneMatch(connection -> connection.id().equals(scope.connectionId()) && connection.state().equals("connected"))) {
                 continue;
             }
@@ -288,7 +297,7 @@ public class JiraService
         List<String> connected = connections.list().stream().filter(connection -> connection.state().equals("connected")).map(JiraDtos.Connection::id).collect(toImmutableList());
         java.util.Set<String> refreshedBoards = new java.util.HashSet<>();
         for (Scope scope : scopes()) {
-            if (!connected.contains(scope.connectionId())) {
+            if (scope.completed() || !connected.contains(scope.connectionId())) {
                 continue;
             }
             try {
@@ -296,7 +305,7 @@ public class JiraService
                 if (refreshedBoards.add(board)) {
                     for (JiraDtos.Sprint sprint : sprints(scope.connectionId(), scope.cloudId(), scope.boardId(), true)) {
                         if (sprint.state().equals("active")) {
-                            Scope active = new Scope(scope.connectionId(), scope.cloudId(), scope.boardId(), Optional.of(sprint.id()), true);
+                            Scope active = new Scope(scope.connectionId(), scope.cloudId(), scope.boardId(), Optional.of(sprint.id()), true, false);
                             remember(active);
                             if (!active.equals(scope)) {
                                 refreshScope(active);
@@ -426,7 +435,8 @@ public class JiraService
     {
         JiraDtos.IssuePage page = cache.read(scope.key(), JiraDtos.IssuePage.class).orElseGet(() -> new JiraDtos.IssuePage(ImmutableList.of(), Optional.empty(),
                 Optional.empty(), false));
-        List<JiraIssue> issues = page.issues().stream().map(item -> issue(item.connectionId(), item.cloudId(), item.id())).collect(toImmutableList());
+        List<JiraIssue> issues = page.issues().stream().map(item -> issue(item.connectionId(), item.cloudId(), item.id()))
+                .filter(issue -> !scope.completed() || "done".equals(issue.status().category())).collect(toImmutableList());
         return new JiraDtos.IssuePage(issues, page.fetchedAt(), page.error(), page.partial());
     }
 
@@ -475,11 +485,12 @@ public class JiraService
         return siteKey(connectionId, cloudId) + ".issue." + segment(issueId);
     }
 
-    private record Scope(String connectionId, String cloudId, long boardId, Optional<Long> sprintId, boolean mine)
+    private record Scope(String connectionId, String cloudId, long boardId, Optional<Long> sprintId, boolean mine, boolean completed)
     {
         String key()
         {
-            return siteKey(connectionId, cloudId) + ".scope." + boardId + "." + sprintId.map(String::valueOf).orElse("backlog") + "." + mine;
+            return siteKey(connectionId, cloudId) + ".scope." + boardId + "."
+                    + (completed ? "completed" : sprintId.map(String::valueOf).orElse("backlog")) + "." + mine;
         }
     }
 

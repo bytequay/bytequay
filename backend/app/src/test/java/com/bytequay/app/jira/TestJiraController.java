@@ -72,20 +72,34 @@ class TestJiraController
         mvc.perform(post(SITE + "/boards/refresh")).andExpect(status().isOk());
         verify(jira).boards("connection", "cloud", false);
         verify(jira).boards("connection", "cloud", true);
-        when(jira.issues("connection", "cloud", 7, Optional.of(8L), true, false))
+        when(jira.issues("connection", "cloud", 7, Optional.of(8L), true, false, false))
                 .thenReturn(new JiraDtos.IssuePage(ImmutableList.of(detail().issue()), Optional.of(UPDATED), Optional.empty(), false));
         mvc.perform(get(SITE + "/issues").param("boardId", "7").param("sprintId", "8")).andExpect(status().isOk());
-        verify(jira).issues("connection", "cloud", 7, Optional.of(8L), true, false);
+        verify(jira).issues("connection", "cloud", 7, Optional.of(8L), true, false, false);
         when(jira.detail("connection", "cloud", "10001", false)).thenReturn(detail());
         JsonNode item = mapper.readTree(mvc.perform(get(ISSUE)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(item.at("/issue/updatedAt").asText()).isEqualTo(UPDATED.toString());
         assertThat(item.at("/issue/assignee").isNull()).isTrue();
+        assertThat(item.at("/issue/completedAt").isNull()).isTrue();
         assertThat(item.path("fetchedAt").asText()).isEqualTo(UPDATED.toString());
         assertThat(item.path("error").isNull()).isTrue();
         when(jira.detail("connection", "cloud", "10001", true)).thenReturn(detail());
         mvc.perform(post(ISSUE + "/refresh")).andExpect(status().isOk());
         verify(jira).detail("connection", "cloud", "10001", true);
         mvc.perform(get("/jira/connections")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void completedQueryReachesBothReadAndRefreshRoutes()
+            throws Exception
+    {
+        JiraDtos.IssuePage page = new JiraDtos.IssuePage(ImmutableList.of(detail().issue()), Optional.of(UPDATED), Optional.empty(), false);
+        when(jira.issues("connection", "cloud", 7, Optional.of(8L), true, true, false)).thenReturn(page);
+        when(jira.issues("connection", "cloud", 7, Optional.empty(), false, true, true)).thenReturn(page);
+        mvc.perform(get(SITE + "/issues").param("boardId", "7").param("sprintId", "8").param("completed", "true")).andExpect(status().isOk());
+        mvc.perform(post(SITE + "/issues/refresh").param("boardId", "7").param("mine", "false").param("completed", "true")).andExpect(status().isOk());
+        verify(jira).issues("connection", "cloud", 7, Optional.of(8L), true, true, false);
+        verify(jira).issues("connection", "cloud", 7, Optional.empty(), false, true, true);
     }
 
     @Test
@@ -139,7 +153,7 @@ class TestJiraController
     {
         JiraIssue issue = new JiraIssue("connection", "cloud", "10001", "APP-7", "https://example.atlassian.net/browse/APP-7", "Selection", "Body",
                 "Story", new JiraDtos.Status("3", "In progress", "indeterminate"), Optional.empty(), ImmutableList.of(), Optional.empty(), Optional.empty(), false, false,
-                UPDATED, Optional.empty(), Optional.empty(), ImmutableList.of(), false);
+                UPDATED, Optional.empty(), Optional.empty(), ImmutableList.of(), false, Optional.empty());
         return new JiraDtos.Detail(issue, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.of(UPDATED), Optional.empty(), false);
     }
 }

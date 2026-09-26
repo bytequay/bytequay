@@ -13,7 +13,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, CircleDot, ExternalLink, Flag, Columns3, List, LoaderCircle, MessageSquare, Play, RefreshCw, SquareCheck, X } from 'lucide-react';
+import { ArrowLeft, Bookmark, Bug, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, ExternalLink, Flag, Columns3, List, LoaderCircle, MessageSquare, Minus, Play, RefreshCw, SquareCheck, UserRound, X, Zap } from 'lucide-react';
 import MarkdownBody from '../pulls/MarkdownBody';
 import { relativeTime } from '../relativeTime';
 import { TaskComposer, StartingAgentTask, useAgentTaskCreation } from '../agents/AgentTasksView';
@@ -21,6 +21,8 @@ import type { WorkspaceDto } from '../types';
 import { workspaceAgentTaskRoute } from '../workspaces/model';
 import { settingsRoute } from '../settings/routes';
 import { jiraIssueLocation, jiraLocation, jiraRoute, notifyJiraChanged, type JiraBoard, type JiraConnection, type JiraField, type JiraIssue, type JiraIssueDetail, type JiraIssuePage, type JiraLocation, type JiraSprint } from './contracts';
+import JiraIcon from './JiraIcon';
+import { completedGroups, JIRA_WORKFLOW_GROUPS, jiraWorkflowGroup } from './presentation';
 import './jira.css';
 
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -51,7 +53,8 @@ export default function JiraScreen() {
   const [sprints, setSprints] = useState<JiraSprint[]>([]);
   const [sprintId, setSprintId] = useState<number | null>(null);
   const [mine, setMine] = useState(true);
-  const [layout, setLayout] = useState<'list' | 'board'>('list');
+  const [layout, setLayout] = useState<'list' | 'board'>('board');
+  const [view, setView] = useState<'current' | 'completed'>('current');
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('');
   const [page, setPage] = useState<JiraIssuePage>(emptyPage);
@@ -139,7 +142,7 @@ export default function JiraScreen() {
     if (!actualConnectionId || !actualCloudId || boardId === null) return;
     const request = ++generation.current;
     setLoading(true);
-    const scope = { connectionId: actualConnectionId, cloudId: actualCloudId, boardId, sprintId, mine };
+    const scope = { connectionId: actualConnectionId, cloudId: actualCloudId, boardId, sprintId, mine, completed: view === 'completed' };
     if (refresh) {
       try {
         const cached = await window.bridge.listJiraIssues(scope);
@@ -155,10 +158,11 @@ export default function JiraScreen() {
     }
     catch (cause) { if (request === generation.current) setError(message(cause)); }
     finally { if (request === generation.current) setLoading(false); }
-  }, [actualConnectionId, actualCloudId, boardId, sprintId, mine]);
+  }, [actualConnectionId, actualCloudId, boardId, sprintId, mine, view]);
   useEffect(() => { setPage(emptyPage); void reload(); return () => { generation.current += 1; }; }, [reload]);
   const refreshSprint = async () => {
     if (boardId === null) return;
+    if (view === 'completed') { await reload(); return; }
     const request = ++generation.current;
     setLoading(true);
     try {
@@ -183,42 +187,74 @@ export default function JiraScreen() {
     catch (cause) { setError(message(cause)); }
   };
   const open = (issue: JiraIssue) => { window.location.hash = jiraRoute(jiraIssueLocation(issue)); };
-  const shown = page.issues.filter(issue => (!status || issue.status.id === status) && `${issue.key} ${issue.title} ${issue.labels.join(' ')}`.toLowerCase().includes(query.toLowerCase()));
+  const shown = page.issues.filter(issue => (view !== 'completed' || issue.status.category === 'done') && (!status || issue.status.id === status) && `${issue.key} ${issue.title} ${issue.labels.join(' ')}`.toLowerCase().includes(query.toLowerCase()));
   const statuses = [...new Map(page.issues.map(issue => [issue.status.id, issue.status])).values()];
-  const card = (issue: JiraIssue) => <article key={issue.id} className={`jira-ticket${selected?.issueId === issue.id ? ' is-selected' : ''}`}>
-    <button className="jira-ticket__title" type="button" onClick={() => open(issue)}><CircleDot size={15} /><strong>{issue.title}</strong></button>
-    <div className="jira-ticket__meta"><span>{issue.key}</span><span>{issue.type}</span><span className={`jira-status is-${issue.status.category}`}>{issue.status.name}</span></div>
-    {issue.parent && <button type="button" className="jira-parent" onClick={() => { window.location.hash = jiraRoute({ ...jiraIssueLocation(issue), issueId: issue.parent?.id ?? '' }); }}>{issue.parent.key} · {issue.parent.title}</button>}
-    {issue.labels.length > 0 && <div className="jira-labels">{issue.labels.map(label => <span key={label}>{label}</span>)}</div>}
-    <div className="jira-ticket__meta"><span>{issue.assignee?.displayName ?? 'Unassigned'}</span><span>·</span><time dateTime={issue.updatedAt}>{relativeTime(issue.updatedAt)}</time>
-      <JiraIssueActions issue={issue} onGoal={() => { void toggleGoal(issue); }} onStart={() => setLaunch(issue)} /></div>
+  const workflowGroups = [...JIRA_WORKFLOW_GROUPS, ...new Set(shown.map(jiraWorkflowGroup).filter(value => !JIRA_WORKFLOW_GROUPS.some(group => group === value)))];
+  const history = completedGroups(shown);
+  const card = (issue: JiraIssue) => <article key={issue.id} className={`jira-ticket${selected?.issueId === issue.id ? ' is-selected' : ''}`} aria-label={`${issue.key}: ${issue.title}`}>
+    <button className="jira-ticket__title" type="button" onClick={() => open(issue)}><strong>{issue.title}</strong></button>
+    <div className="jira-ticket__tags"><span className={`jira-status is-${issue.status.category}`}>{issue.status.name}</span>{issue.labels.map(label => <span className="jira-ticket__label" key={label}>{label}</span>)}</div>
+    {issue.parent && <button type="button" className="jira-parent" title={`${issue.parent.key} · ${issue.parent.title}`} onClick={() => { window.location.hash = jiraRoute({ ...jiraIssueLocation(issue), issueId: issue.parent?.id ?? '' }); }}><Zap size={12} />{issue.parent.title}</button>}
+    <div className="jira-ticket__footer"><button type="button" className="jira-ticket__key" onClick={() => open(issue)}><JiraTypeIcon type={issue.type} /><span>{issue.key}</span></button>
+      <span className="jira-spacer" /><JiraPriority priority={issue.priority} /><JiraAssignee key={issue.assignee?.accountId ?? 'unassigned'} assignee={issue.assignee} />
+    </div>
+    <div className="jira-ticket__time">{view === 'completed' ? issue.completedAt !== null && Number.isFinite(Date.parse(issue.completedAt))
+      ? <time dateTime={issue.completedAt} title={new Date(issue.completedAt).toLocaleString()}>Completed {new Date(issue.completedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</time>
+      : 'Completion date unavailable'
+      : <time dateTime={issue.updatedAt} title={new Date(issue.updatedAt).toLocaleString()}>Updated {relativeTime(issue.updatedAt)}</time>}<span className="jira-spacer" /><JiraIssueActions issue={issue} onGoal={() => { void toggleGoal(issue); }} onStart={() => setLaunch(issue)} /></div>
   </article>;
   return <div className="jira-screen">
-    <header className="jira-header"><div><h1>My sprint</h1><p>Your Jira tickets, ready for development.</p></div><span className="jira-spacer" />
+    <header className="jira-header"><div><h1><JiraIcon size={25} />Jira</h1><p>Your sprint, development, and completed work.</p></div><span className="jira-spacer" />
+      {site && boardId !== null && <button type="button" className="bq-button jira-open-board" onClick={() => { void window.bridge.openInAppBrowser(`${site.url.replace(/\/$/, '')}/secure/RapidBoard.jspa?rapidView=${boardId}`); }}>Open board in Jira <ExternalLink size={14} /></button>}
       <button type="button" className="bq-button" onClick={() => setSettings(value => !value)}>Connections</button>
-      <button type="button" className="bq-iconbtn" aria-label="Refresh sprint" title="Refresh sprint" disabled={loading || boardId === null} onClick={() => { void refreshSprint(); }}><RefreshCw size={17} className={loading ? 'jira-spin' : ''} /></button>
+      <button type="button" className="bq-iconbtn" aria-label="Refresh tickets" title="Refresh tickets" disabled={loading || boardId === null} onClick={() => { void refreshSprint(); }}><RefreshCw size={17} className={loading ? 'jira-spin' : ''} /></button>
     </header>
     {(settings || connections.length === 0 || !site) && <JiraConnections connections={connections} onChanged={applyConnections} />}
     {error && <div className="ws-error" role="alert">{error}</div>}
-    {site && <><div className="jira-toolbar">
+    {site && <><nav className="jira-views" aria-label="Jira views">
+      <button type="button" aria-current={view === 'current' ? 'page' : undefined} onClick={() => { setView('current'); setStatus(''); }}>Current sprint</button>
+      <button type="button" aria-current={view === 'completed' ? 'page' : undefined} onClick={() => { setView('completed'); setStatus(''); }}>Completed</button>
+    </nav><div className="jira-toolbar">
       <select aria-label="Jira site" value={`${actualConnectionId}/${actualCloudId}`} onChange={event => { const [c, s] = event.target.value.split('/'); setConnectionId(c); setCloudId(s); setSelected(null); setLaunch(null); window.location.hash = jiraRoute(); }}>
         {connections.flatMap(value => value.sites.map(item => <option key={`${value.id}/${item.id}`} value={`${value.id}/${item.id}`}>{item.name}</option>))}</select>
       <select aria-label="Jira board" value={boardId ?? ''} onChange={event => { setBoardId(Number(event.target.value)); setStatus(''); try { localStorage.setItem(`bytequay:jira-board:${actualConnectionId}/${actualCloudId}`, event.target.value); } catch { /* Optional view preference. */ } }}><option value="" disabled>Select board</option>{boards.map(board => <option value={board.id} key={board.id}>{board.name}</option>)}</select>
-      <select aria-label="Sprint" value={sprintId ?? ''} onChange={event => setSprintId(event.target.value === '' ? null : Number(event.target.value))}><option value="">Backlog</option>{sprints.map(sprint => <option value={sprint.id} key={sprint.id}>{sprint.name}{sprint.state === 'active' ? ' · Active' : ''}</option>)}</select>
+      {view === 'current' && <select aria-label="Sprint" value={sprintId ?? ''} onChange={event => setSprintId(event.target.value === '' ? null : Number(event.target.value))}><option value="">Backlog</option>{sprints.map(sprint => <option value={sprint.id} key={sprint.id}>{sprint.name}{sprint.state === 'active' ? ' · Active' : ''}</option>)}</select>}
       <label className="jira-mine"><input type="checkbox" checked={mine} onChange={event => setMine(event.target.checked)} />Assigned to me</label>
-      <span className="jira-spacer" /><div className="jira-layout" role="group" aria-label="Ticket layout"><button className="bq-iconbtn" type="button" aria-label="List view" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><List size={16} /></button><button className="bq-iconbtn" type="button" aria-label="Board view" aria-pressed={layout === 'board'} onClick={() => setLayout('board')}><Columns3 size={16} /></button></div>
+      <span className="jira-spacer" />{view === 'current' && <div className="jira-layout" role="group" aria-label="Ticket layout"><button className="bq-iconbtn" type="button" aria-label="List view" aria-pressed={layout === 'list'} onClick={() => setLayout('list')}><List size={16} /></button><button className="bq-iconbtn" type="button" aria-label="Board view" aria-pressed={layout === 'board'} onClick={() => setLayout('board')}><Columns3 size={16} /></button></div>}
     </div><div className="jira-toolbar jira-toolbar--secondary"><input type="search" aria-label="Search tickets" placeholder="Search tickets" value={query} onChange={event => setQuery(event.target.value)} />
       <select aria-label="Filter status" value={status} onChange={event => setStatus(event.target.value)}><option value="">All statuses</option>{statuses.map(value => <option value={value.id} key={value.id}>{value.name}</option>)}</select>
       <span className="jira-muted">{shown.length} tickets{page.fetchedAt && ` · Updated ${relativeTime(page.fetchedAt)}`}</span>
     </div>
-    {page.partial && <div className="jira-notice">Only part of this sprint is loaded. Open Jira to see all tickets.</div>}
-    <div className={`jira-content${selected !== null ? ' has-detail' : ''}`}><div className={`jira-items is-${layout}`} aria-busy={loading}>
-      {layout === 'board' ? statuses.filter(value => !status || status === value.id).map(value => <section className="jira-column" key={value.id}><h2>{value.name}<span>{shown.filter(issue => issue.status.id === value.id).length}</span></h2>{shown.filter(issue => issue.status.id === value.id).map(card)}</section>) : shown.map(card)}
-      {shown.length === 0 && <div className="jira-empty">{loading ? <><LoaderCircle size={18} className="jira-spin" /> Loading tickets…</> : page.fetchedAt === null ? 'Select a board and sprint to load tickets.' : 'No tickets match this view.'}</div>}
+    {view === 'completed' && <p className="jira-history-scope">Completed tickets matching this board, across sprints{mine ? ', assigned to you' : ''}. Jira’s board filters and mapped statuses apply.</p>}
+    {page.partial && <div className="jira-notice">Only part of this {view === 'completed' ? 'completed view' : 'sprint'} is loaded. Open Jira to see all matching tickets.</div>}
+    <div className={`jira-content${selected !== null ? ' has-detail' : ''}`}><div className={`jira-items is-${view === 'completed' ? 'history' : layout}`} aria-busy={loading}>
+      {view === 'completed' ? history.map(group => <section className="jira-history-group" key={group.label}><h2>{group.label}<span>{group.issues.length}</span></h2><div className="jira-history__items">{group.issues.map(card)}</div></section>)
+        : layout === 'board' ? workflowGroups.map(group => <section className="jira-column" key={group}><h2>{group}<span>{shown.filter(issue => jiraWorkflowGroup(issue) === group).length}</span></h2>{shown.filter(issue => jiraWorkflowGroup(issue) === group).map(card)}{!shown.some(issue => jiraWorkflowGroup(issue) === group) && <p className="jira-column__empty">No tickets</p>}</section>) : shown.map(card)}
+      {shown.length === 0 && <div className="jira-empty">{loading ? <><LoaderCircle size={18} className="jira-spin" /> Loading tickets…</> : page.fetchedAt === null ? 'Select a board to load tickets.' : 'No tickets match this view.'}</div>}
     </div>{selected && <JiraDetail key={`${selected.connectionId}/${selected.cloudId}/${selected.issueId}`} location={selected} boardId={selected.connectionId === actualConnectionId && selected.cloudId === actualCloudId ? boardId : null} sprints={selected.connectionId === actualConnectionId && selected.cloudId === actualCloudId ? sprints : []} onClose={() => { window.location.hash = jiraRoute(); }} onChanged={update} onStart={setLaunch} />}</div></>}
     {!site && selected && <JiraDetail key={`${selected.connectionId}/${selected.cloudId}/${selected.issueId}`} location={selected} boardId={selected.connectionId === actualConnectionId && selected.cloudId === actualCloudId ? boardId : null} sprints={selected.connectionId === actualConnectionId && selected.cloudId === actualCloudId ? sprints : []} onClose={() => { window.location.hash = jiraRoute(); }} onChanged={update} onStart={setLaunch} />}
     {launch && <JiraLaunch issue={launch} onClose={() => setLaunch(null)} />}
   </div>;
+}
+
+function JiraTypeIcon({ type }: { type: string }) {
+  const name = type.toLowerCase();
+  const Icon = name === 'bug' ? Bug : name === 'story' ? Bookmark : name === 'epic' ? Zap : /^(task|sub-task|subtask)$/.test(name) ? SquareCheck : JiraIcon;
+  return <span className={`jira-type is-${name.replace(/[^a-z]/g, '')}`} title={type} aria-label={type}><Icon size={15} /></span>;
+}
+function JiraPriority({ priority }: { priority: JiraIssue['priority'] }) {
+  if (priority === null) return null;
+  const name = priority.name.toLowerCase();
+  const Icon = /^(highest|critical|blocker)$/.test(name) ? ChevronsUp : name === 'high' ? ChevronUp : name === 'low' ? ChevronDown : name === 'lowest' ? ChevronsDown : Minus;
+  const level = /^(highest|critical|blocker|high)$/.test(name) ? 'high' : /^(low|lowest)$/.test(name) ? 'low' : 'neutral';
+  return <span className={`jira-priority is-${level}`} title={`Priority: ${priority.name}`} aria-label={`Priority: ${priority.name}`}><Icon size={16} /><span>{priority.name}</span></span>;
+}
+function JiraAssignee({ assignee }: { assignee: JiraIssue['assignee'] }) {
+  const name = assignee?.displayName ?? 'Unassigned';
+  const initials = name.trim().split(/\s+/).map(part => part[0]).filter(Boolean);
+  return <span className="jira-assignee" title={`Assignee: ${name}`} aria-label={`Assignee: ${name}`}>
+    {assignee ? <span>{initials.length > 1 ? `${initials[0]}${initials[initials.length - 1]}` : initials[0]}</span> : <UserRound size={14} />}
+  </span>;
 }
 
 function JiraConnections({ connections, onChanged }: { connections: JiraConnection[]; onChanged: (values: JiraConnection[]) => void }) {

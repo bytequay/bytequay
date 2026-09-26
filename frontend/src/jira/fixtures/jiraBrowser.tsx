@@ -16,7 +16,7 @@ import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import JiraScreen from '../JiraScreen';
 import { jiraDetail, jiraIssue } from './jira';
-import { jiraRoute, type JiraConnection, type JiraIssue, type JiraIssueDetail } from '../contracts';
+import { jiraRoute, type JiraConnection, type JiraIssue, type JiraIssueDetail, type JiraQuery } from '../contracts';
 import type { Bridge, CreateAgentTaskRequest, WorkspaceDto } from '../../types';
 import { createPreviewBridge, previewTask } from '../../agents/fixtures/previewBridge';
 import { assert, settle } from '../../fixtures/harness';
@@ -45,6 +45,25 @@ function choose(element: HTMLSelectElement, value: string) { Object.getOwnProper
 function edit(element: HTMLInputElement | HTMLTextAreaElement, value: string) { Object.getOwnPropertyDescriptor(element instanceof HTMLInputElement ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype, 'value')?.set?.call(element, value); element.dispatchEvent(new Event('input', { bubbles: true })); }
 async function until(condition: () => boolean) { for (let i = 0; i < 45 && !condition(); i++) await settle(); assert(condition(), 'UI did not settle'); }
 
+function currentIssues(): JiraIssue[] {
+  return [issue,
+    { ...issue, id: '1008', key: 'ENG-1008', title: 'Improve schema discovery for catalog listings', priority: { id: '2', name: 'Expedite' }, type: 'Task', status: { id: 'progress', name: 'In progress', category: 'indeterminate' } },
+    { ...issue, id: '1009', key: 'ENG-1009', title: 'Preserve timestamps when reading Iceberg metadata', type: 'Bug', priority: { id: '9', name: 'Low' }, assignee: { accountId: 'sam', displayName: 'Sam Rivera', avatarUrl: null }, status: { id: 'review', name: 'Awaiting review', category: 'indeterminate' } },
+    { ...issue, id: '1010', key: 'ENG-1010', title: 'Handle empty partitions during schema inference', type: 'Task', status: { id: 'done', name: 'Resolved', category: 'done' }, completedAt: new Date().toISOString() }];
+}
+function completedIssues(): JiraIssue[] {
+  const now = new Date();
+  const date = (days: number) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + days, 10).toISOString();
+  return [
+    ['2001', 'Keep schema discovery stable for empty catalogs', date(0)],
+    ['2002', 'Restore retry handling for expired credentials', date(-1)],
+    ['2003', 'Use consistent timestamp precision in query results', date(-3)],
+    ['2004', 'Reduce metadata calls when listing partitions', date(-8)],
+    ['2005', 'Preserve catalog identifiers when names contain spaces', date(-30)],
+    ['2006', 'Migrate legacy connector configuration', null],
+  ].map(([id, title, completedAt]) => ({ ...issue, id: id ?? '', key: `ENG-${id}`, title: title ?? '', status: { id: 'done', name: 'Resolved', category: 'done' }, completedAt }));
+}
+
 export async function mountPreview(offline = false) {
   root?.unmount(); document.body.innerHTML = ''; calls.length = 0; taskRequest = null; commentFails = true;
   issue = { ...jiraIssue }; detail = jiraDetail(issue);
@@ -55,7 +74,7 @@ export async function mountPreview(offline = false) {
     listJiraConnections: async () => [connection],
     listJiraBoards: async (_connection, _cloud, refresh) => { if (offline && refresh) throw new Error('Jira is offline'); return [{ id: 828, name: 'Connectors', type: 'scrum' }]; },
     listJiraSprints: async (_connection, _cloud, _board, refresh) => { if (offline && refresh) throw new Error('Jira is offline'); return [{ id: 11, name: 'Connector reliability', state: 'active', startDate: null, endDate: null }]; },
-    listJiraIssues: async (query, refresh) => { if (offline && refresh) throw new Error('Jira is offline'); record('issues', query); return { issues: [issue, { ...issue, id: '1008', key: 'ENG-1008', title: 'Improve schema discovery for catalog listings', status: { id: 'progress', name: 'In progress', category: 'indeterminate' } }], fetchedAt: issue.updatedAt, error: null, partial: false }; },
+    listJiraIssues: async (query, refresh) => { if (offline && refresh) throw new Error('Jira is offline'); record('issues', query); return { issues: query.completed ? completedIssues() : currentIssues(), fetchedAt: issue.updatedAt, error: null, partial: false }; },
     getJiraIssue: async (_location, refresh) => { if (offline && refresh) throw new Error('Jira is offline'); return { ...detail, issue }; },
     setJiraGoal: async (_location, isGoal) => { issue = { ...issue, isGoal }; return { ...detail, issue }; },
     updateJiraIssue: async (_location, fields, expectedUpdatedAt) => { record('fields', fields, expectedUpdatedAt); issue = { ...issue, labels: fields.labels as string[] }; return { ...detail, issue }; },
@@ -70,7 +89,7 @@ export async function mountPreview(offline = false) {
   window.bridge = fake as unknown as Bridge;
   const host = document.createElement('div'); host.style.height = '100vh'; document.body.append(host); root = createRoot(host);
   const mounted = root; flushSync(() => mounted.render(<JiraScreen />));
-  await until(() => document.querySelector('.jira-detail h2') !== null && document.querySelectorAll('.jira-ticket').length === 2 && select('Sprint').value === '11');
+  await until(() => document.querySelector('.jira-detail h2') !== null && document.querySelectorAll('.jira-ticket').length === 4 && select('Sprint').value === '11');
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
@@ -79,7 +98,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     async 'loads current sprint and edits supported fields'() {
       await mountPreview();
       assert(calls.some(call => call.name === 'issues' && (call.args[0] as { sprintId: number; mine: boolean }).sprintId === 11 && (call.args[0] as { mine: boolean }).mine), 'Active sprint must use the assigned-to-me filter');
-      button('Board view').click(); await settle(); assert(document.querySelectorAll('.jira-column').length === 2, 'Board columns use real Jira statuses');
+      button('Board view').click(); await settle(); assert(document.querySelectorAll('.jira-column').length === 4, 'Board keeps all workflow groups visible');
       button('Edit fields').click(); await settle();
       const labels = document.querySelector<HTMLInputElement>('input[placeholder="Comma-separated labels"]'); assert(labels !== null, 'Label editor exists'); edit(labels, 'connectors, regression, regression'); await settle();
       button('Save changes').click(); await until(() => calls.some(call => call.name === 'fields'));
@@ -112,9 +131,29 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(created.jiraSource?.updatedAt === '2026-09-26T09:00:00Z', 'Launch uses the deliberately refreshed source');
       assert(!created.message.includes('https://'), 'User prompt does not direct remote ticket fetching');
     },
+    async 'shows Jira card metadata and completed board history'() {
+      await mountPreview();
+      assert(document.querySelector('.jira-header h1')?.textContent === 'Jira', 'Native page is named Jira');
+      const columns = [...document.querySelectorAll('.jira-column h2')].map(value => value.firstChild?.textContent);
+      assert(JSON.stringify(columns) === '["To do","In progress","In review","Done"]', 'All four groups are visible together');
+      assert(document.querySelector('.jira-column .jira-status') !== null && document.body.textContent?.includes('Awaiting review'), 'Actual workflow status survives grouping');
+      const card = document.querySelector('.jira-ticket'); assert(card !== null, 'Card exists');
+      assert(card.querySelector('.jira-ticket__title')?.textContent === jiraIssue.title, 'Card title leads');
+      assert(card.querySelector('[aria-label="Priority: High"]') !== null && card.querySelector('[aria-label="Assignee: Alex Chen"]')?.textContent === 'AC', 'Card exposes priority and assigned person');
+      assert(document.querySelector('[aria-label="Priority: Expedite"]')?.classList.contains('is-neutral') ?? false, 'Tenant-specific priority ID never defines severity');
+      button('Open board in Jira').click(); await settle(); assert(calls.some(call => call.name === 'browser' && call.args[0] === 'https://example.atlassian.net/secure/RapidBoard.jspa?rapidView=828'), 'Open board uses the selected site and board');
+      button('Completed').click(); await until(() => document.querySelectorAll('.jira-history-group').length > 0);
+      assert(calls.some(call => call.name === 'issues' && (call.args[0] as JiraQuery).completed && (call.args[0] as JiraQuery).boardId === 828), 'Completed requests board history across sprint boundaries');
+      const groups = [...document.querySelectorAll('.jira-history-group h2')].map(value => value.firstChild?.textContent);
+      assert(groups.includes('Today') && groups.includes('Yesterday') && groups.includes('Earlier') && groups.includes('Completion date unavailable'), 'Completion groups expose recent and unknown dates');
+      assert(document.querySelectorAll('.jira-ticket').length === 6 && !document.querySelector('.jira-items button[title="Use agent to develop"]'), 'Completed cards do not offer new development');
+      button('Current sprint').click(); await until(() => document.querySelectorAll('.jira-column').length === 4);
+      button('List view').click(); await settle(); assert(document.querySelector('.jira-items.is-list') !== null, 'List remains available');
+      button('ENG-1009').click(); await until(() => window.location.hash.includes('issueId=1009'));
+    },
     async 'keeps cached tickets visible offline'() {
       await mountPreview(true); await until(() => document.body.textContent?.includes('Jira is offline') ?? false);
-      assert(document.querySelectorAll('.jira-ticket').length === 2, 'Cached tickets remain visible after remote refresh fails');
+      assert(document.querySelectorAll('.jira-ticket').length === 4, 'Cached tickets remain visible after remote refresh fails');
       assert(document.querySelector('.jira-detail h2')?.textContent === jiraIssue.title, 'Cached detail remains available offline');
     },
     async 'keeps narrow detail inside the viewport'() {

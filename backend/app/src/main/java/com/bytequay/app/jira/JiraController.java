@@ -96,16 +96,16 @@ public class JiraController
 
     @GetMapping(SITE + "/issues")
     public JiraDtos.IssuePage issues(@PathVariable String connectionId, @PathVariable String cloudId, @RequestParam long boardId,
-            @RequestParam Optional<Long> sprintId, @RequestParam(defaultValue = "true") boolean mine)
+            @RequestParam Optional<Long> sprintId, @RequestParam(defaultValue = "true") boolean mine, @RequestParam(defaultValue = "false") boolean completed)
     {
-        return jira.issues(connectionId, cloudId, boardId, sprintId, mine, false);
+        return jira.issues(connectionId, cloudId, boardId, sprintId, mine, completed, false);
     }
 
     @PostMapping(SITE + "/issues/refresh")
     public JiraDtos.IssuePage refreshIssues(@PathVariable String connectionId, @PathVariable String cloudId, @RequestParam long boardId,
-            @RequestParam Optional<Long> sprintId, @RequestParam(defaultValue = "true") boolean mine)
+            @RequestParam Optional<Long> sprintId, @RequestParam(defaultValue = "true") boolean mine, @RequestParam(defaultValue = "false") boolean completed)
     {
-        return jira.issues(connectionId, cloudId, boardId, sprintId, mine, true);
+        return jira.issues(connectionId, cloudId, boardId, sprintId, mine, completed, true);
     }
 
     @GetMapping(ISSUE)

@@ -114,6 +114,7 @@ public class IssueContextBridgeResolverImpl
         cached.ifPresent(issue -> {
             metadata.put("updatedAt", issue.updatedAt().toString());
             metadata.put("key", issue.key());
+            metadata.set("completedAt", objectMapper.valueToTree(issue.completedAt().map(Instant::toString)));
             metadata.put("type", issue.type());
             metadata.set("issueStatus", objectMapper.valueToTree(issue.status()));
             metadata.set("assignee", objectMapper.valueToTree(issue.assignee()));

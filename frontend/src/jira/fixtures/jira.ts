@@ -19,7 +19,7 @@ export const jiraIssue: JiraIssue = {
   type: 'Story', status: { id: 'todo', name: 'To do', category: 'new' },
   assignee: { accountId: 'me', displayName: 'Alex Chen', avatarUrl: null }, labels: ['connectors'], priority: { id: '2', name: 'High' },
   parent: { id: '1000', key: 'ENG-1000', title: 'Connector reliability' }, hasChildren: false, isGoal: false,
-  updatedAt: '2026-09-26T08:00:00Z', dueDate: null, task: null,
+  updatedAt: '2026-09-26T08:00:00Z', completedAt: null, dueDate: null, task: null,
 };
 export function jiraDetail(issue: JiraIssue = jiraIssue): JiraIssueDetail {
   return { issue, comments: [{ id: 'c1', author: { accountId: 'reviewer', displayName: 'Sam Rivera', avatarUrl: null }, body: 'Please preserve the existing null handling.', created: issue.updatedAt, updated: issue.updatedAt }],

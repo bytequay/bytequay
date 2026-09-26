@@ -20,5 +20,5 @@ it('edits Jira fields, preserves failed replies and starts a source-bound task i
     prefix: 'bytequay-jira-', entry: 'src/jira/fixtures/jiraBrowser.tsx', global: 'JiraTests', styles: true, charset: true, width: 1280, height: 920,
   });
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-  expect(results).toHaveLength(5);
+  expect(results).toHaveLength(6);
 }, 30_000);

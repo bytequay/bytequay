@@ -24,7 +24,7 @@ public record JiraIssue(
         String connectionId, String cloudId, String id, String key, String url, String title, String body,
         String type, JiraDtos.Status status, Optional<JiraDtos.Person> assignee, List<String> labels,
         Optional<JiraDtos.Choice> priority, Optional<JiraDtos.Parent> parent, boolean hasChildren, boolean isGoal,
-        Instant updatedAt, Optional<String> dueDate, Optional<JiraDtos.TaskLink> task, List<JiraDtos.Comment> comments, boolean commentsTruncated)
+        Instant updatedAt, Optional<String> dueDate, Optional<JiraDtos.TaskLink> task, List<JiraDtos.Comment> comments, boolean commentsTruncated, Optional<Instant> completedAt)
 {
     public JiraIssue
     {
@@ -35,18 +35,18 @@ public record JiraIssue(
     public JiraIssue withComments(List<JiraDtos.Comment> values, boolean truncated)
     {
         return new JiraIssue(connectionId, cloudId, id, key, url, title, body, type, status, assignee, labels,
-                priority, parent, hasChildren, isGoal, updatedAt, dueDate, task, values, truncated);
+                priority, parent, hasChildren, isGoal, updatedAt, dueDate, task, values, truncated, completedAt);
     }
 
     public JiraIssue withChildren(boolean children)
     {
         return new JiraIssue(connectionId, cloudId, id, key, url, title, body, type, status, assignee, labels,
-                priority, parent, children, isGoal, updatedAt, dueDate, task, comments, commentsTruncated);
+                priority, parent, children, isGoal, updatedAt, dueDate, task, comments, commentsTruncated, completedAt);
     }
 
     public JiraIssue withMetadata(boolean goal, Optional<JiraDtos.TaskLink> link)
     {
         return new JiraIssue(connectionId, cloudId, id, key, url, title, body, type, status, assignee, labels,
-                priority, parent, hasChildren, goal, updatedAt, dueDate, link, comments, commentsTruncated);
+                priority, parent, hasChildren, goal, updatedAt, dueDate, link, comments, commentsTruncated, completedAt);
     }
 }

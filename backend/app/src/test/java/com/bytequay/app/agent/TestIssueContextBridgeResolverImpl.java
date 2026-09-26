@@ -104,12 +104,13 @@ class TestIssueContextBridgeResolverImpl
         when(jiraSources.findByTaskId(taskId.toString())).thenReturn(Optional.of(new JiraIssueTask(taskId.toString(), "workspace", source, "Implement Jira scope", NOW)));
         JiraDtos.Person author = new JiraDtos.Person("account", "Alice", Optional.empty());
         when(jira.issue("connection", "cloud", "10001")).thenReturn(new JiraIssue("connection", "cloud", "10001", "APP-7", source.url(),
-                "Changed Jira title", "Changed Jira body", "Story", new JiraDtos.Status("3", "In progress", "indeterminate"), Optional.of(author),
+                "Changed Jira title", "Changed Jira body", "Story", new JiraDtos.Status("3", "Done", "done"), Optional.of(author),
                 ImmutableList.of("bug"), Optional.empty(), Optional.empty(), false, false, NOW.plusSeconds(1), Optional.empty(), Optional.empty(),
-                ImmutableList.of(new JiraDtos.Comment("comment-1", author, "x".repeat(2_500), NOW.toString(), NOW.toString())), true));
+                ImmutableList.of(new JiraDtos.Comment("comment-1", author, "x".repeat(2_500), NOW.toString(), NOW.toString())), true, Optional.of(NOW)));
         IssueContextBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
         JsonNode context = mapper.readTree(bridge.read().get());
         assertThat(context.at("/acceptedIssue/body").asText()).isEqualTo(source.body());
+        assertThat(context.at("/cachedMetadata/completedAt").asText()).isEqualTo(NOW.toString());
         assertThat(context.at("/cachedMetadata/labels/0").asText()).isEqualTo("bug");
         assertThat(context.at("/cachedMetadata/differsFromAcceptedDescription").asBoolean()).isTrue();
         assertThat(context.at("/cachedTimeline/truncated").asBoolean()).isTrue();

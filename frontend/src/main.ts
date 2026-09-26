@@ -1692,6 +1692,7 @@ function registerIpc(): void {
   ipcMain.handle('jira:issues', (_event, query: JiraQuery, refresh: boolean) => {
     const params = new URLSearchParams({ boardId: String(query.boardId), mine: String(query.mine) });
     if (query.sprintId !== null) params.set('sprintId', String(query.sprintId));
+    if (query.completed) params.set('completed', 'true');
     return backendJson(`${jiraSitePath(query.connectionId, query.cloudId)}/issues${refresh ? '/refresh' : ''}?${params}`, { method: refresh ? 'POST' : 'GET', headers: agentHeaders() });
   });
   ipcMain.handle('jira:issue', (_event, location: JiraLocation, refresh: boolean) =>

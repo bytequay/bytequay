@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import JiraIcon from '../jira/JiraIcon';
 import { useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -188,7 +189,7 @@ export default function AttentionList({
         {visible.map(item => {
           const kind = ATTENTION_KINDS[item.kind];
           const activity = attentionActivity(item);
-          const Icon = KIND_ICONS[item.kind];
+          const Icon = item.jira ? JiraIcon : KIND_ICONS[item.kind];
           const [owner, repo] = item.repo.split('/');
           return (
             <div

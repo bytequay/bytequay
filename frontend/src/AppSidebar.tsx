@@ -18,6 +18,7 @@ import {
   Sparkles, Sun, Tags, TriangleAlert,
 } from 'lucide-react';
 import Avatar from './Avatar';
+import JiraIcon from './jira/JiraIcon';
 import RepoAvatar from './RepoAvatar';
 import type { WorkspaceDto } from './types';
 import { useResizablePane } from './useResizablePane';
@@ -72,7 +73,7 @@ type NavItem = { page: AppPage; label: string; icon: ReactNode };
 
 const GLOBAL_NAV_ITEMS: NavItem[] = [
   { page: 'home', label: 'Home', icon: <HomeIcon /> },
-  { page: 'jira', label: 'My sprint', icon: <ListChecks size={16} strokeWidth={1.7} aria-hidden="true" /> },
+  { page: 'jira', label: 'Jira', icon: <JiraIcon size={16} /> },
   { page: 'recent', label: 'Recent', icon: <History size={16} strokeWidth={1.7} aria-hidden="true" /> },
 ];
 

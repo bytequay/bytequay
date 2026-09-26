@@ -193,6 +193,6 @@ class TestJiraDevelopmentService
     {
         return new JiraIssue("connection", "cloud", "10001", "APP-7", SOURCE.url(), title, SOURCE.body(), "Story",
                 new JiraDtos.Status("3", "In progress", category), Optional.empty(), ImmutableList.of("bug"), Optional.empty(), Optional.empty(), children, false,
-                updatedAt, Optional.empty(), Optional.empty(), ImmutableList.of(), false);
+                updatedAt, Optional.empty(), Optional.empty(), ImmutableList.of(), false, Optional.empty());
     }
 }

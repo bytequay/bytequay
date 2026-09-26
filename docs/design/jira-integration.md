@@ -3,16 +3,31 @@
 ## Product boundary
 
 Jira Cloud is the source of truth for ticket content, comments, sprint membership,
-assignee, labels and workflow. ByteQuay provides a native My sprint page, cached
-source context and its existing development task flow. The Jira browser page
-remains available through Open in Jira for unsupported fields and administration.
+assignee, labels and workflow. ByteQuay provides a native Jira page with current
+sprint and completed views, cached source context and its existing development
+task flow. The Jira browser page remains available through Open in Jira for
+unsupported fields and administration.
 
 The first release includes:
 
 - Connect a Jira Cloud account through the system browser; choose a site, board
   and active/future sprint or backlog. Assigned to me is the default filter.
-- Switch between list and status-grouped board views. Open a ticket beside the
-  list, read its description and comments, and refresh saved information.
+- Switch between list and status-grouped board views. The default board shows
+  To do, In progress, In review and Done together, with Jira's actual status on
+  each card. Review is a display group for an in-progress status whose name
+  contains “review”; it is not a fourth Jira category or a new transition.
+  Unknown categories retain their actual status name. Open a ticket beside the
+  board or list, read its description and comments, and refresh saved information.
+- Use a distinct Jira source icon across navigation, attention and task source
+  cards. Ticket cards place the title first, labels/parent below it, and the issue
+  type/key, priority and assignee in the footer. Unknown custom priorities retain
+  their names without inferring rank from tenant-specific IDs. Assignee initials
+  show the full name on hover.
+- Browse Completed separately from the selected sprint. This view includes
+  currently Done tickets across sprints that match the selected board and its
+  mapped statuses, with the Assigned to me filter preserved. Group tickets into
+  Today, Yesterday, This week, Last week and Earlier using local calendar dates;
+  show missing completion dates in a separate group.
 - Edit summary, labels, assignee, priority and due date when Jira permits them;
   move tickets to an active/future sprint or backlog; choose an available Jira
   transition and supply supported required fields. Additional field types use
@@ -86,8 +101,24 @@ Cloud account. No API token collection is part of the product UI.
 ## Cache, edits and reconciliation
 
 Local reads use persisted cached projections. Explicit refresh and a bounded
-periodic poll update the watched scopes. Cache records are namespaced by
-connection and cloud ID; source identity and Goal/task association additionally
+periodic poll update the watched sprint scopes. Completed history has a separate
+cache and uses the enhanced board issues endpoint with a Done-category filter
+across sprints. History refreshes on request and stays out of watched scopes and
+Needs attention. Jira board filters and mapped-status rules still bound the
+result; the board endpoint excludes Scrum epics. Pagination remains bounded and
+partial results are identified in the UI.
+
+A completion date is meaningful only while the ticket's current status category
+is Done. Prefer Jira's status-category change date, then its resolution date.
+Some workflows retain an old resolution when a ticket is reopened, which is why
+resolution is the fallback. Never substitute the last-updated timestamp. A
+reopened ticket leaves the completed view; this list represents current completed
+work, not an event ledger of every completion or a claim of software delivery.
+Date buckets are mutually exclusive and use local midnight/Monday boundaries.
+Future timestamps and missing dates have explicit groups.
+
+Cache records are namespaced by connection and cloud ID; source identity and
+Goal/task association additionally
 use immutable cloud/issue IDs. A failed refresh retains the prior result and
 reports that it is stale. Page limits and unsupported metadata are visible
 limitations rather than an assertion that the result is complete.
@@ -114,10 +145,13 @@ implement the full Atlassian document editor.
 
 Offline tests cover source admission/retry, cross-workspace uniqueness, persistence
 rollback, cache-only agent access, paginated issue reads, stale-edit rejection,
-field conversion, comment retry protection, rich-text links, authenticated
-transport bounds and OAuth pairing/rotation. Frontend tests and a fixture exercise
-connection, list/board/detail, comments, Goal and Start/View task states. Repository
-backend and frontend gates run from the isolated Jira worktree.
+field conversion, comment retry protection, rich-text links, completed-history
+pagination and scope, completion-date selection, reopened-ticket membership,
+authenticated transport bounds and OAuth pairing/rotation. Frontend tests and a
+fixture exercise connection, list/board/detail, comments, Goal and Start/View
+task states, completed-history membership, and date grouping across time zones,
+daylight saving and week/year boundaries. Repository backend and frontend gates
+run from the isolated Jira worktree.
 
 Live acceptance remains a separate step: consent on an authorized site; board
 and sprint selection; edit/transition validation in a test project; comment

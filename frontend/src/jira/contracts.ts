@@ -22,7 +22,7 @@ export type JiraIssue = {
   id: string; key: string; url: string; connectionId: string; cloudId: string; title: string; body: string;
   type: string; status: JiraStatus; assignee: JiraUser | null; labels: string[];
   priority: { id: string; name: string } | null; parent: { id: string; key: string; title: string } | null;
-  hasChildren: boolean; isGoal: boolean; updatedAt: string; dueDate: string | null;
+  hasChildren: boolean; isGoal: boolean; updatedAt: string; completedAt: string | null; dueDate: string | null;
   task: { id: string; workspaceId: string } | null;
 };
 export type JiraField = { id: string; name: string; required: boolean; schemaType: string; allowedValues: { id: string; name: string }[] };
@@ -37,7 +37,7 @@ export type JiraIssuePage = { issues: JiraIssue[]; fetchedAt: string | null; par
 export type JiraSourceRequest = { connectionId: string; cloudId: string; issueId: string; key: string; title: string; body: string; updatedAt: string };
 export type JiraTaskSource = JiraSourceRequest & { url: string; initialTurnId: string | null; instructions: string };
 export type JiraLocation = { connectionId: string; cloudId: string; issueId: string };
-export type JiraQuery = { connectionId: string; cloudId: string; boardId: number; sprintId: number | null; mine: boolean };
+export type JiraQuery = { connectionId: string; cloudId: string; boardId: number; sprintId: number | null; mine: boolean; completed?: boolean };
 export type JiraBridge = {
   listJiraConnections: () => Promise<JiraConnection[]>;
   connectJira: (brokerUrl: string) => Promise<JiraConnection>;

@@ -14,10 +14,11 @@
 
 import { useId, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { CircleDot, ExternalLink } from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import { anchorPanel, previewMarkdown, useHoverCard } from '../ReferenceCard';
 import MarkdownBody from '../pulls/MarkdownBody';
 import { jiraRoute, type JiraTaskSource } from './contracts';
+import JiraIcon from './JiraIcon';
 import './jira.css';
 
 type Source = Pick<JiraTaskSource, 'connectionId' | 'cloudId' | 'issueId' | 'key' | 'title' | 'body'>;
@@ -35,7 +36,7 @@ export function JiraSourceAttachment({ source }: { source: Source }) {
         if (event.key === 'Escape') hover.close();
         if (event.key === 'ArrowDown') { event.preventDefault(); hover.show(event.currentTarget, 0); requestAnimationFrame(() => document.getElementById(id)?.querySelector('button')?.focus()); }
       }}>
-      <CircleDot size={15} aria-hidden="true" /><strong>{source.key}</strong><span>{source.title}</span>
+      <JiraIcon size={15} aria-hidden="true" /><strong>{source.key}</strong><span>{source.title}</span>
     </button>
     <button type="button" className="agt-headbtn" title="View ticket" aria-label={`View ticket ${source.key}`} onClick={open}><ExternalLink size={14} /></button>
     {hover.anchor && createPortal(<div id={id} className="jira-source-preview" role="dialog" aria-label={`Ticket ${source.key}`}
@@ -48,7 +49,7 @@ export function JiraSourceAttachment({ source }: { source: Source }) {
 }
 export function JiraRequestCard({ source, attachments }: { source: JiraTaskSource; attachments?: ReactNode }) {
   return <div className="agt-issue-request"><div className="agt-user__request">
-    <CircleDot aria-hidden="true" /><span className="agt-user__request-action">Start development</span>
+    <JiraIcon aria-hidden="true" /><span className="agt-user__request-action">Start development</span>
     <span className="agt-user__request-head" title={source.title}>{source.key}</span>
   </div>{attachments}</div>;
 }

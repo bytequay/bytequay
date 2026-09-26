@@ -22,6 +22,7 @@ import { createBroker, readConfig, SCOPES } from './broker.mjs';
 
 const CLOUD_ID = 'ea477bbe-0874-4dc8-9d58-31d7954a8e9c';
 const OTHER_CLOUD = '8b584b41-6f28-4c73-9cde-79c53c96e22a';
+const ACCOUNT = { accountId: 'atlassian-account-1', displayName: 'Example User', email: 'user@example.com' };
 const environment = directory => ({
   JIRA_AUTH_PUBLIC_URL: 'http://127.0.0.1:8080', JIRA_AUTH_ALLOW_LOCALHOST: 'true',
   ATLASSIAN_CLIENT_ID: 'test-client', ATLASSIAN_CLIENT_SECRET: 'test-client-secret',
@@ -36,6 +37,7 @@ async function fixture(t) {
   const fixture = {
     directory, tokens, reads, advance: milliseconds => { instant += milliseconds; }, refreshFailure: false, resourcesFailure: false, redirect: false,
     resources: [{ id: CLOUD_ID, url: 'https://example.atlassian.net', name: 'Example Jira', scopes: ['read:jira-work'] }],
+    profile: { account_id: ACCOUNT.accountId, name: ACCOUNT.displayName, email: ACCOUNT.email },
   };
   const oauth = createServer(async (request, response) => {
     const json = value => { response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify(value)); };
@@ -61,6 +63,10 @@ async function fixture(t) {
       if (fixture.resourcesFailure) { response.statusCode = 503; json({ error: 'secret-resource-detail' }); }
       else json(fixture.resources);
     }
+    else if (request.url === '/me') {
+      assert.match(request.headers.authorization, /^Bearer access-secret-\d+$/);
+      json(fixture.profile);
+    }
     else { response.statusCode = 404; json({ error: 'Unexpected endpoint' }); }
   });
   fixture.oauthOrigin = await listen(oauth);
@@ -76,6 +82,10 @@ async function fixture(t) {
   fixture.api = (connection, suffix = '', options = {}) => fixture.request(`/v1/connections/${connection.id}${suffix}`, {
     ...options, headers: { Authorization: `Bearer ${connection.pairingToken}`, 'Content-Type': 'application/json', ...options.headers },
   });
+  fixture.reconnect = async connection => {
+    const result = await fixture.api(connection, '/reconnect', { method: 'POST', body: '{}' });
+    assert.equal(result.status, 200); return { ...connection, ...await result.json() };
+  };
   fixture.startBrowser = async connection => {
     const path = new URL(connection.authorizationUrl);
     const result = await fixture.request(path.pathname + path.search);
@@ -124,7 +134,8 @@ test('pairs once, persists encrypted credentials, survives restart, and disconne
   const status = await f.api(connection);
   assert.equal(status.headers.get('cache-control'), 'no-store');
   assert.equal(status.headers.get('access-control-allow-origin'), null);
-  assert.deepEqual(await status.json(), { id: connection.id, state: 'connected', sites: [{ id: CLOUD_ID, url: 'https://example.atlassian.net', name: 'Example Jira' }] });
+  assert.deepEqual(await status.json(), { id: connection.id, state: 'connected', account: ACCOUNT,
+    sites: [{ id: CLOUD_ID, url: 'https://example.atlassian.net', name: 'Example Jira' }] });
   const bytes = await readFile(join(f.directory, `${connection.id}.enc`));
   for (const secret of [connection.pairingToken, connection.pairingCode, 'access-secret', 'refresh-secret', 'test-client-secret']) assert.ok(!bytes.includes(Buffer.from(secret)));
   const record = await f.decrypt(connection);
@@ -138,6 +149,94 @@ test('pairs once, persists encrypted credentials, survives restart, and disconne
   assert.equal(value.refreshToken, undefined);
   assert.equal((await f.api(connection, '', { method: 'DELETE' })).status, 204);
   assert.equal((await f.api(connection)).status, 404);
+});
+
+test('reconnect keeps the paired ID and credential, replaces accepted site access and survives restart', async t => {
+  const f = await fixture(t); const { connection } = await f.connect();
+  const before = await f.decrypt(connection);
+  const reconnect = await f.reconnect(connection);
+  assert.equal(reconnect.id, connection.id);
+  assert.notEqual(reconnect.authorizationUrl, connection.authorizationUrl);
+  assert.notEqual(reconnect.pairingCode, connection.pairingCode);
+  assert.equal((await (await f.api(connection)).json()).account, null);
+  assert.equal((await f.decrypt(connection)).pairHash, before.pairHash);
+  assert.equal((await f.api(connection, '/token', { method: 'POST', body: JSON.stringify({ cloudId: CLOUD_ID }) })).status, 401);
+  const browser = await f.startBrowser(reconnect);
+  f.resources = [{ id: OTHER_CLOUD, url: 'https://other.atlassian.net', name: 'Other site', scopes: ['read:jira-work'] }];
+  delete f.profile.email;
+  assert.equal((await f.finishBrowser(browser)).status, 200);
+  await f.restart();
+  const status = await (await f.api(connection)).json();
+  assert.deepEqual(status.account, { accountId: ACCOUNT.accountId, displayName: ACCOUNT.displayName });
+  assert.deepEqual(status.sites.map(site => site.id), [OTHER_CLOUD]);
+  assert.equal(status.state, 'connected'); assert.equal(status.error, undefined);
+  assert.equal((await f.decrypt(connection)).tokens.refreshToken, 'refresh-secret-2');
+});
+
+test('wrong account, denial, expiration and interrupted reconnect preserve the original authorization', async t => {
+  const f = await fixture(t); const { connection } = await f.connect();
+  const before = await f.decrypt(connection);
+  const unchanged = async message => {
+    const status = await (await f.api(connection)).json();
+    assert.equal(status.state, 'connected'); assert.match(status.error, message); assert.deepEqual(status.account, ACCOUNT);
+    const record = await f.decrypt(connection);
+    assert.deepEqual(record.tokens, before.tokens); assert.deepEqual(record.sites, before.sites);
+    assert.equal(record.stateHash, undefined); assert.equal(record.browserHash, undefined);
+  };
+  let browser = await f.startBrowser(await f.reconnect(connection));
+  f.profile.account_id = 'different-account';
+  const mismatch = await f.finishBrowser(browser);
+  assert.equal(mismatch.status, 409); assert.match(await mismatch.text(), /original Atlassian account/);
+  await unchanged(/original Atlassian account/);
+  assert.equal((await f.finishBrowser(browser)).status, 400);
+  browser = await f.startBrowser(await f.reconnect(connection));
+  assert.equal((await f.finishBrowser(browser, 'error=access_denied')).status, 400);
+  await unchanged(/not completed/);
+  browser = await f.startBrowser(await f.reconnect(connection));
+  f.advance(10 * 60_000);
+  assert.equal((await f.finishBrowser(browser)).status, 410);
+  await unchanged(/expired/);
+  await f.reconnect(connection);
+  const interrupted = await f.decrypt(connection); interrupted.inFlight = true; await f.writeRecord(interrupted);
+  await f.restart(); await unchanged(/interrupted/);
+});
+
+test('reconnect requires desktop authentication and new pairing, and cannot silently bind an unidentified old account', async t => {
+  const f = await fixture(t); const { connection } = await f.connect();
+  const request = { method: 'POST', body: '{}' };
+  assert.equal((await f.api(connection, '/reconnect', { ...request, headers: { Authorization: `Bearer ${'x'.repeat(43)}` } })).status, 401);
+  assert.equal((await f.api(connection, '/reconnect', { ...request, headers: { Origin: f.config.publicOrigin } })).status, 403);
+  assert.equal((await f.api(connection, '/reconnect', { method: 'POST', body: '{"accountId":"injected"}' })).status, 400);
+  const first = await f.reconnect(connection); const browser = await f.startBrowser(first);
+  const second = await f.reconnect(connection);
+  assert.equal((await f.finishBrowser(browser)).status, 400);
+  const next = await f.startBrowser(second);
+  assert.equal((await f.finishBrowser({ ...next, cookie: browser.cookie })).status, 403);
+  assert.equal((await f.finishBrowser(next)).status, 200);
+  const old = await f.decrypt(connection); delete old.account; await f.writeRecord(old);
+  const result = await f.api(connection, '/reconnect', request);
+  assert.equal(result.status, 409); assert.equal((await result.json()).code, 'ACCOUNT_IDENTITY_REQUIRED');
+  assert.deepEqual((await f.decrypt(connection)).tokens, old.tokens);
+});
+
+test('identity must be authenticated and bounded; duplicate accounts keep separate pairing credentials and grants', async t => {
+  const f = await fixture(t);
+  const first = await f.connect(); const second = await f.connect();
+  assert.notEqual(first.connection.id, second.connection.id);
+  const firstRecord = await f.decrypt(first.connection); const secondRecord = await f.decrypt(second.connection);
+  assert.notEqual(firstRecord.pairHash, secondRecord.pairHash);
+  assert.notEqual(firstRecord.tokens.refreshToken, secondRecord.tokens.refreshToken);
+  assert.deepEqual(firstRecord.account, secondRecord.account);
+  assert.equal((await f.api({ ...first.connection, pairingToken: second.connection.pairingToken })).status, 401);
+  for (const profile of [null, { account_id: '', name: 'User' }, { account_id: 'x', name: 'x'.repeat(257) }]) {
+    f.profile = profile;
+    const connection = await f.create(); const browser = await f.startBrowser(connection);
+    assert.equal((await f.finishBrowser(browser)).status, 502);
+    const status = await (await f.api(connection)).json();
+    assert.equal(status.state, 'error'); assert.equal(status.account, null);
+    assert.equal((await f.decrypt(connection)).tokens, undefined);
+  }
+  assert.ok(SCOPES.includes('read:me'));
 });
 
 test('copied links, missing browser binding, wrong codes and CSRF cannot complete OAuth', async t => {

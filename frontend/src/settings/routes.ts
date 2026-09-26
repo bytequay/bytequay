@@ -22,6 +22,7 @@ export type SettingsSection =
   | 'workflow'
   | 'code-graph'
   | 'github'
+  | 'jira'
   | 'ws-repository'
   | 'ws-agents'
   | 'ws-context'
@@ -80,6 +81,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
     slug: 'github',
     rows: ['Account', 'Quiet hours', 'Refresh interval'],
   },
+  { section: 'jira', group: 'Integrations', label: 'Jira', slug: 'jira', rows: ['Accounts', 'Add account', 'Reconnect', 'Sites'] },
   {
     section: 'ws-repository',
     group: 'Workspace',

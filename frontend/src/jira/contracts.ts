@@ -13,7 +13,7 @@
  */
 
 export type JiraSite = { id: string; name: string; url: string };
-export type JiraConnection = { id: string; brokerUrl: string; state: string; sites: JiraSite[]; authorizationUrl: string | null; pairingCode: string | null; error: string | null };
+export type JiraConnection = { id: string; state: 'pending' | 'connected' | 'error'; account: { accountId: string; displayName: string; email: string | null } | null; sites: JiraSite[]; authorizationUrl: string | null; pairingCode: string | null; error: string | null; duplicateOf: string | null };
 export type JiraBoard = { id: number; name: string; type: string };
 export type JiraSprint = { id: number; name: string; state: string; startDate: string | null; endDate: string | null };
 export type JiraUser = { accountId: string; displayName: string; avatarUrl: string | null };
@@ -39,8 +39,10 @@ export type JiraTaskSource = JiraSourceRequest & { url: string; initialTurnId: s
 export type JiraLocation = { connectionId: string; cloudId: string; issueId: string };
 export type JiraQuery = { connectionId: string; cloudId: string; boardId: number; sprintId: number | null; mine: boolean; completed?: boolean };
 export type JiraBridge = {
+  getJiraConfig: () => Promise<{ configured: boolean }>;
   listJiraConnections: () => Promise<JiraConnection[]>;
-  connectJira: (brokerUrl: string) => Promise<JiraConnection>;
+  connectJira: () => Promise<JiraConnection>;
+  reconnectJira: (id: string) => Promise<JiraConnection>;
   refreshJiraConnection: (id: string) => Promise<JiraConnection>;
   disconnectJira: (id: string) => Promise<void>;
   listJiraBoards: (connectionId: string, cloudId: string, refresh?: boolean) => Promise<JiraBoard[]>;
@@ -71,3 +73,10 @@ export function jiraIssueLocation(issue: JiraIssue): JiraLocation {
 }
 export const JIRA_CHANGED = 'bytequay:jira-changed';
 export function notifyJiraChanged(): void { window.dispatchEvent(new Event(JIRA_CHANGED)); }
+
+export function jiraSiteDomain(site: JiraSite): string {
+  try { return new URL(site.url).hostname; } catch { return site.name; }
+}
+export function jiraAccountLabel(connection: JiraConnection): string {
+  return connection.account?.email ?? connection.account?.displayName ?? `Account ${connection.id.slice(0, 8)}`;
+}

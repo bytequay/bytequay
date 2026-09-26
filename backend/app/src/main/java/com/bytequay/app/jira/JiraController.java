@@ -46,6 +46,12 @@ public class JiraController
         this.jira = requireNonNull(jira, "jira is null");
     }
 
+    @GetMapping("/config")
+    public Config config()
+    {
+        return new Config(connections.configured());
+    }
+
     @GetMapping("/connections")
     public List<JiraDtos.Connection> connections()
     {
@@ -53,15 +59,21 @@ public class JiraController
     }
 
     @PostMapping("/connections")
-    public JiraDtos.Connection connect(@RequestBody Connect request)
+    public JiraDtos.Connection connect()
     {
-        return connections.connect(request.brokerUrl());
+        return connections.connect();
     }
 
     @PostMapping("/connections/{connectionId}/refresh")
     public JiraDtos.Connection refreshConnection(@PathVariable String connectionId)
     {
         return connections.refresh(connectionId);
+    }
+
+    @PostMapping("/connections/{connectionId}/reconnect")
+    public JiraDtos.Connection reconnect(@PathVariable String connectionId)
+    {
+        return connections.reconnect(connectionId);
     }
 
     @DeleteMapping("/connections/{connectionId}")
@@ -156,7 +168,7 @@ public class JiraController
         return jira.attention();
     }
 
-    public record Connect(String brokerUrl) {}
+    public record Config(boolean configured) {}
 
     public record Edit(Instant expectedUpdatedAt, Map<String, Object> fields) {}
 

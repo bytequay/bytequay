@@ -68,6 +68,8 @@ jobs:
       # backend build step here.
       - name: Build Mac installers (DMG + ZIP)
         working-directory: frontend
+        env:
+          BYTEQUAY_JIRA_AUTH_URL: ${{ vars.BYTEQUAY_JIRA_AUTH_URL }}
         run: npm run make
 
       # Surface what was produced before the upload step in case we

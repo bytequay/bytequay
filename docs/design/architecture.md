@@ -12,6 +12,14 @@ run heads; SQLite adds that nullable field through Hibernate. Dirty or busy
 worktrees remain untouched, and the derived projection reports why catch-up is
 pending or blocked. No scheduler, sync job, or additional lifecycle is added.
 
+Jira account management lives in application HTTP/services and the existing
+encrypted SQLite connection store. A separate hosted `services/jira-auth`
+process holds Atlassian OAuth secrets and rotating grants. The desktop's
+configured origin, pairing credential and verified account/site identity bind
+API access. Browser authorization completes through the settings page's bounded
+polling; reconnect preserves connection identity. This service is deployed
+separately from the localhost sidecar and is not a general connector framework.
+
 Issue-backed development exposes one read-only task-bound context tool through
 the existing provider bridge. The application reads its durable issue association
 and existing local caches; the tool performs no remote issue fetch. Codex and

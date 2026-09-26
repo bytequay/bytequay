@@ -48,6 +48,7 @@ const SETTINGS_ICONS: Record<SettingsSection, ReactNode> = {
   workflow: <ListChecks size={16} strokeWidth={1.7} aria-hidden="true" />,
   skills: <SquareLibrary size={16} strokeWidth={1.7} aria-hidden="true" />,
   'code-graph': <Network size={16} strokeWidth={1.7} aria-hidden="true" />,
+  jira: <JiraIcon size={16} />,
   github: <CircleUser size={16} strokeWidth={1.7} aria-hidden="true" />,
   'ws-repository': <Tags size={16} strokeWidth={1.7} aria-hidden="true" />,
   'ws-agents': <Bot size={16} strokeWidth={1.7} aria-hidden="true" />,

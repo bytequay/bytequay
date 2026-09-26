@@ -60,12 +60,17 @@ class TestJiraController
     void usesApiPrefixAndSeparatesCachedReadsFromExplicitRefresh()
             throws Exception
     {
-        JiraDtos.Connection connection = new JiraDtos.Connection("connection", "https://broker.example", "connected",
-                ImmutableList.of(new JiraDtos.Site("cloud", "Example", "https://example.atlassian.net")), Optional.empty(), Optional.empty(), Optional.empty());
+        JiraDtos.Connection connection = new JiraDtos.Connection("connection", "connected",
+                ImmutableList.of(new JiraDtos.Site("cloud", "Example", "https://example.atlassian.net")), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.of(new JiraDtos.Account("account", "Alice", Optional.empty())), Optional.empty());
         when(connections.list()).thenReturn(ImmutableList.of(connection));
         JsonNode list = mapper.readTree(mvc.perform(get("/api/jira/connections")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
         assertThat(list.at("/0/sites/0/id").asText()).isEqualTo("cloud");
         assertThat(list.at("/0/authorizationUrl").isNull()).isTrue();
+        assertThat(list.at("/0/account/accountId").asText()).isEqualTo("account");
+        assertThat(list.at("/0/account/email").isNull()).isTrue();
+        assertThat(list.at("/0/duplicateOf").isNull()).isTrue();
+        assertThat(list.get(0).has("brokerUrl")).isFalse();
         when(jira.boards("connection", "cloud", false)).thenReturn(ImmutableList.of(new JiraDtos.Board(7, "Product", "scrum")));
         when(jira.boards("connection", "cloud", true)).thenReturn(ImmutableList.of());
         mvc.perform(get(SITE + "/boards")).andExpect(status().isOk());
@@ -87,6 +92,23 @@ class TestJiraController
         mvc.perform(post(ISSUE + "/refresh")).andExpect(status().isOk());
         verify(jira).detail("connection", "cloud", "10001", true);
         mvc.perform(get("/jira/connections")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void configAndSignInRoutesTakeNoRendererOrigin()
+            throws Exception
+    {
+        when(connections.configured()).thenReturn(true);
+        JsonNode config = mapper.readTree(mvc.perform(get("/api/jira/config")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(config.path("configured").asBoolean()).isTrue();
+        JiraDtos.Connection pending = new JiraDtos.Connection("connection", "pending", ImmutableList.of(), Optional.of("https://broker.example/oauth/start"),
+                Optional.of("ABCD1234"), Optional.empty(), Optional.empty(), Optional.empty());
+        when(connections.connect()).thenReturn(pending);
+        when(connections.reconnect("connection")).thenReturn(pending);
+        mvc.perform(post("/api/jira/connections")).andExpect(status().isOk());
+        verify(connections).connect();
+        mvc.perform(post("/api/jira/connections/connection/reconnect")).andExpect(status().isOk());
+        verify(connections).reconnect("connection");
     }
 
     @Test

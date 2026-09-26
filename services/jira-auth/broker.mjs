@@ -18,7 +18,7 @@ import { isIP } from 'node:net';
 import { join, resolve } from 'node:path';
 
 export const SCOPES = [
-  'offline_access', 'read:jira-work', 'write:jira-work', 'read:jira-user',
+  'offline_access', 'read:me', 'read:jira-work', 'write:jira-work', 'read:jira-user',
   'read:board-scope:jira-software', 'read:project:jira',
   'read:sprint:jira-software', 'write:sprint:jira-software', 'read:issue-details:jira', 'read:jql:jira',
 ];
@@ -164,19 +164,21 @@ export async function createBroker(config, { now = Date.now } = {}) {
     locks.set(id, next);
     try { return await next; } finally { if (locks.get(id) === next) locks.delete(id); }
   };
-  const fail = async (record, message) => {
-    record.state = 'error'; record.error = message;
-    delete record.tokens; delete record.stateHash; delete record.codeHash; delete record.browserHash; delete record.inFlight;
+  const fail = async (record, message, retainAuthorization = false) => {
+    record.state = retainAuthorization && record.tokens ? 'connected' : 'error'; record.error = message;
+    if (!retainAuthorization) delete record.tokens;
+    delete record.stateHash; delete record.codeHash; delete record.browserHash; delete record.inFlight;
     await store.save(record);
   };
+  const failAuthorization = (record, message) => fail(record, message, true);
   const expired = record => now() - record.updatedAt > RETENTION
-    || (record.state !== 'connected' && now() > record.authExpiresAt + 24 * 60 * 60_000);
+    || (!record.tokens && record.state !== 'connected' && now() > record.authExpiresAt + 24 * 60 * 60_000);
   await store.start();
   try {
     for (const id of store.ids) {
       const record = await store.read(id);
       if (expired(record)) await store.remove(id);
-      else if (record.inFlight) await fail(record, 'The previous connection request was interrupted. Reconnect Jira in ByteQuay.');
+      else if (record.inFlight) await fail(record, 'The previous connection request was interrupted. Reconnect Jira in ByteQuay.', record.state === 'pending');
     }
   }
   catch { await store.close(); throw new Error('Cannot read Jira auth storage. Check the encryption key and data directory.'); }
@@ -205,6 +207,12 @@ export async function createBroker(config, { now = Date.now } = {}) {
         || (token.token_type !== undefined && (typeof token.token_type !== 'string' || token.token_type.toLowerCase() !== 'bearer'))) throw upstream();
     return { accessToken: token.access_token, refreshToken: token.refresh_token, expiresAt: now() + token.expires_in * 1000 };
   };
+  const accountFor = async token => {
+    const profile = await remoteJson(`${config.apiOrigin}/me`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+    const text = (value, limit) => typeof value === 'string' && value.trim().length > 0 && value.length <= limit && !/[\x00-\x1f\x7f]/.test(value);
+    if (!text(profile?.account_id, 256) || !text(profile.name, 256)) throw upstream();
+    return { accountId: profile.account_id, displayName: profile.name, ...(text(profile.email, 320) ? { email: profile.email } : {}) };
+  };
   const sitesFor = async token => {
     const resources = await remoteJson(`${config.apiOrigin}/oauth/token/accessible-resources`, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
     if (!Array.isArray(resources) || resources.length > 200) throw upstream();
@@ -230,7 +238,7 @@ export async function createBroker(config, { now = Date.now } = {}) {
   const pending = async (record, state) => {
     if (record.state !== 'pending' || !equal(record.stateHash, hash(state))) throw new Problem(400, 'INVALID_STATE', 'This connection link is invalid or has already been used.');
     if (now() >= record.authExpiresAt) {
-      await fail(record, 'The connection link expired. Start connecting again in ByteQuay.');
+      await failAuthorization(record, 'The connection link expired. Start connecting again in ByteQuay.');
       throw new Problem(410, 'AUTH_EXPIRED', record.error);
     }
   };
@@ -240,6 +248,16 @@ export async function createBroker(config, { now = Date.now } = {}) {
   };
   const send = (response, status, body) => { response.writeHead(status, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(body)); };
   const page = (response, status, message, form) => { response.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8' }); response.end(html(message, form)); };
+  const beginAuthorization = async record => {
+    const pairingCode = randomBytes(4).toString('hex').toUpperCase();
+    const state = `${record.id}.${random()}`;
+    Object.assign(record, { state: 'pending', codeHash: hash(pairingCode), stateHash: hash(state),
+      authExpiresAt: now() + AUTH_TTL, attempts: 0, updatedAt: now() });
+    delete record.browserHash; delete record.inFlight; delete record.error;
+    await store.save(record);
+    return { id: record.id, state: 'pending', account: null, sites: record.sites, pairingCode,
+      authorizationUrl: `${config.publicOrigin}/oauth/start?state=${state}` };
+  };
 
   const server = createServer({ maxHeaderSize: 8192, requestTimeout: 20_000, headersTimeout: 10_000 }, async (request, response) => {
     response.setHeader('Cache-Control', 'no-store');
@@ -273,11 +291,8 @@ export async function createBroker(config, { now = Date.now } = {}) {
             lastCleanup = now();
           }
           if (store.ids.size >= MAX_CONNECTIONS) throw new Problem(503, 'CAPACITY', 'The connection service is at capacity.');
-          const id = randomUUID(); const pairingToken = random(); const pairingCode = randomBytes(4).toString('hex').toUpperCase();
-          const state = `${id}.${random()}`;
-          await store.save({ id, state: 'pending', pairHash: hash(pairingToken), codeHash: hash(pairingCode), stateHash: hash(state),
-            authExpiresAt: now() + AUTH_TTL, attempts: 0, sites: [], updatedAt: now() });
-          return { id, pairingToken, pairingCode, authorizationUrl: `${config.publicOrigin}/oauth/start?state=${state}` };
+          const pairingToken = random();
+          return { ...await beginAuthorization({ id: randomUUID(), pairHash: hash(pairingToken), sites: [] }), pairingToken };
         });
         createTail = create;
         return send(response, 201, await create);
@@ -304,7 +319,7 @@ export async function createBroker(config, { now = Date.now } = {}) {
             const code = form.get('code')?.toUpperCase() ?? '';
             if (form.getAll('code').length !== 1 || !/^[A-F0-9]{8}$/.test(code) || !equal(record.codeHash, hash(code))) {
               record.attempts++;
-              if (record.attempts >= 5) await fail(record, 'Too many incorrect connection codes. Start connecting again in ByteQuay.');
+              if (record.attempts >= 5) await failAuthorization(record, 'Too many incorrect connection codes. Start connecting again in ByteQuay.');
               else await store.save(record);
               throw new Problem(400, 'INVALID_CODE', 'The connection code is incorrect. Open the link from ByteQuay and try again.');
             }
@@ -325,30 +340,43 @@ export async function createBroker(config, { now = Date.now } = {}) {
             const code = url.searchParams.get('code');
             if (url.searchParams.has('error')) throw new Problem(400, 'AUTH_DENIED', 'Atlassian sign-in was not completed. Start connecting again in ByteQuay.');
             if (!code || code.length > 2048 || url.searchParams.getAll('code').length !== 1) throw invalid();
-            record.tokens = await exchange({ grant_type: 'authorization_code', code, redirect_uri: `${config.publicOrigin}/oauth/callback` });
-            record.sites = await sitesFor(record.tokens.accessToken);
-            if (!record.sites.length) throw new Problem(403, 'NO_JIRA_SITES', 'No Jira sites were authorized. Check app access with your Jira administrator.');
+            const tokens = await exchange({ grant_type: 'authorization_code', code, redirect_uri: `${config.publicOrigin}/oauth/callback` });
+            const account = await accountFor(tokens.accessToken);
+            if (record.account && record.account.accountId !== account.accountId) {
+              throw new Problem(409, 'ACCOUNT_MISMATCH', 'Sign in with the original Atlassian account to reconnect. Use Add account in ByteQuay to connect a different account.');
+            }
+            const sites = await sitesFor(tokens.accessToken);
+            if (!sites.length) throw new Problem(403, 'NO_JIRA_SITES', 'No Jira sites were authorized. Check app access with your Jira administrator.');
+            record.tokens = tokens; record.account = account; record.sites = sites;
             record.state = 'connected'; record.updatedAt = now();
             delete record.inFlight; delete record.browserHash;
             await store.save(record);
             return page(response, 200, 'Jira is connected. Return to ByteQuay to choose your site and board. You can close this page.');
           }
-          catch (error) { await fail(record, error instanceof Problem ? error.message : 'Connection could not be saved. Reconnect Jira in ByteQuay.'); throw error; }
+          catch (error) { await failAuthorization(record, error instanceof Problem ? error.message : 'Connection could not be saved. Reconnect Jira in ByteQuay.'); throw error; }
         });
       }
-      const match = url.pathname.match(/^\/v1\/connections\/([a-f0-9-]+)(\/token)?$/);
+      const match = url.pathname.match(/^\/v1\/connections\/([a-f0-9-]+)(\/token|\/reconnect)?$/);
       if (!match || !ID.test(match[1]) || url.search) throw new Problem(404, 'NOT_FOUND', 'Endpoint not found.');
       return await serial(match[1], async () => {
         const record = await store.read(match[1]);
         await authorize(request, record);
         if (!match[2] && request.method === 'DELETE') { await store.remove(record.id); response.writeHead(204); response.end(); return; }
+        if (match[2] === '/reconnect' && request.method === 'POST') {
+          if (Object.keys(await jsonBody(request)).length) throw invalid();
+          if (!record.account && (record.tokens || record.sites.length)) {
+            throw new Problem(409, 'ACCOUNT_IDENTITY_REQUIRED', 'Remove this connection and add the account again to verify its Atlassian identity.');
+          }
+          return send(response, 200, await beginAuthorization(record));
+        }
         if (record.inFlight || now() - record.updatedAt > RETENTION) {
           await fail(record, 'The Jira session must be connected again in ByteQuay.');
           throw reconnect();
         }
-        if (record.state === 'pending' && now() >= record.authExpiresAt) await fail(record, 'The connection link expired. Start connecting again in ByteQuay.');
-        if (!match[2] && request.method === 'GET') return send(response, 200, { id: record.id, state: record.state, sites: record.sites, ...(record.error ? { error: record.error } : {}) });
-        if (match[2] && request.method === 'POST') {
+        if (record.state === 'pending' && now() >= record.authExpiresAt) await failAuthorization(record, 'The connection link expired. Start connecting again in ByteQuay.');
+        if (!match[2] && request.method === 'GET') return send(response, 200, { id: record.id, state: record.state, sites: record.sites,
+          account: record.state === 'pending' ? null : record.account ?? null, ...(record.error ? { error: record.error } : {}) });
+        if (match[2] === '/token' && request.method === 'POST') {
           const body = await jsonBody(request);
           if (!ID.test(body.cloudId) || Object.keys(body).some(key => key !== 'cloudId')) throw invalid();
           if (record.state !== 'connected') throw reconnect();

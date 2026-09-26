@@ -31,7 +31,7 @@ let issue: JiraIssue;
 let detail: JiraIssueDetail;
 let commentFails = true;
 let taskRequest: CreateAgentTaskRequest | null = null;
-const connection: JiraConnection = { id: 'connection', brokerUrl: 'https://auth.example.com', state: 'CONNECTED', sites: [{ id: 'site', name: 'Engineering', url: 'https://example.atlassian.net' }], authorizationUrl: null, pairingCode: null, error: null };
+const connection: JiraConnection = { id: 'connection', account: { accountId: 'alex', displayName: 'Alex Chen', email: 'alex@example.com' }, duplicateOf: null, state: 'connected', sites: [{ id: 'site', name: 'Engineering', url: 'https://example.atlassian.net' }], authorizationUrl: null, pairingCode: null, error: null };
 const record = (name: string, ...args: unknown[]) => { calls.push({ name, args }); };
 const button = (label: string, scope: ParentNode = document): HTMLButtonElement => {
   const found = [...scope.querySelectorAll<HTMLButtonElement>('button')].find(value => value.getAttribute('aria-label') === label || value.textContent?.trim() === label);
@@ -64,14 +64,14 @@ function completedIssues(): JiraIssue[] {
   ].map(([id, title, completedAt]) => ({ ...issue, id: id ?? '', key: `ENG-${id}`, title: title ?? '', status: { id: 'done', name: 'Resolved', category: 'done' }, completedAt }));
 }
 
-export async function mountPreview(offline = false) {
+export async function mountPreview(offline = false, openIssue = true) {
   root?.unmount(); document.body.innerHTML = ''; calls.length = 0; taskRequest = null; commentFails = true;
   issue = { ...jiraIssue }; detail = jiraDetail(issue);
-  window.location.hash = jiraRoute({ connectionId: 'connection', cloudId: 'site', issueId: issue.id });
+  window.location.hash = openIssue ? jiraRoute({ connectionId: 'connection', cloudId: 'site', issueId: issue.id }) : jiraRoute();
   const preview = createPreviewBridge('workspace');
   const fake = {
     ...preview,
-    listJiraConnections: async () => [connection],
+    listJiraConnections: async () => [connection, { ...connection, id: 'other', account: { accountId: 'sam', displayName: 'Sam Rivera', email: 'sam@another.com' }, sites: [{ id: 'other-site', name: 'Engineering', url: 'https://another.atlassian.net' }] }],
     listJiraBoards: async (_connection, _cloud, refresh) => { if (offline && refresh) throw new Error('Jira is offline'); return [{ id: 828, name: 'Connectors', type: 'scrum' }]; },
     listJiraSprints: async (_connection, _cloud, _board, refresh) => { if (offline && refresh) throw new Error('Jira is offline'); return [{ id: 11, name: 'Connector reliability', state: 'active', startDate: null, endDate: null }]; },
     listJiraIssues: async (query, refresh) => { if (offline && refresh) throw new Error('Jira is offline'); record('issues', query); return { issues: query.completed ? completedIssues() : currentIssues(), fetchedAt: issue.updatedAt, error: null, partial: false }; },
@@ -89,7 +89,7 @@ export async function mountPreview(offline = false) {
   window.bridge = fake as unknown as Bridge;
   const host = document.createElement('div'); host.style.height = '100vh'; document.body.append(host); root = createRoot(host);
   const mounted = root; flushSync(() => mounted.render(<JiraScreen />));
-  await until(() => document.querySelector('.jira-detail h2') !== null && document.querySelectorAll('.jira-ticket').length === 4 && select('Sprint').value === '11');
+  await until(() => (!openIssue || document.querySelector('.jira-detail h2') !== null) && document.querySelectorAll('.jira-ticket').length === 4 && select('Sprint').value === '11');
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
@@ -150,6 +150,15 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       button('Current sprint').click(); await until(() => document.querySelectorAll('.jira-column').length === 4);
       button('List view').click(); await settle(); assert(document.querySelector('.jira-items.is-list') !== null, 'List remains available');
       button('ENG-1009').click(); await until(() => window.location.hash.includes('issueId=1009'));
+    },
+    async 'remembers a valid account and site while source links retain their binding'() {
+      await mountPreview(); const sites = select('Jira site');
+      assert(sites.options[0].text.includes('alex@example.com') && sites.options[1].text.includes('sam@another.com') && sites.options[1].text.includes('another.atlassian.net'), 'Same-name sites identify account and domain');
+      choose(sites, 'other/other-site'); await until(() => select('Jira site').value === 'other/other-site' && window.location.hash === '#/jira');
+      await mountPreview(false, false); assert(select('Jira site').value === 'other/other-site', 'Ordinary navigation restores the selected site');
+      await mountPreview(); assert(select('Jira site').value === 'connection/site', 'Task and source deep links override remembered site');
+      button('Manage accounts').click(); await until(() => window.location.hash === '#/settings/integrations/jira');
+      assert(!document.body.textContent?.includes('Authentication service URL'), 'Jira page links to the shared account settings');
     },
     async 'keeps cached tickets visible offline'() {
       await mountPreview(true); await until(() => document.body.textContent?.includes('Jira is offline') ?? false);

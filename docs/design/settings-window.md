@@ -18,7 +18,7 @@ A single scroll container on the right, a category sidebar on the left.
 | --- | --- |
 | Personal | General, Appearance |
 | Agents | Models, Skills, Code graph |
-| Integrations | GitHub |
+| Integrations | GitHub, Jira |
 | Workspace | workspace picker, then Repository, Agents, Token, Advanced |
 
 The separate [Development Task Delivery](development-delivery.md#2-settings-and-scope)
@@ -191,6 +191,14 @@ and it needs explicit approval before it ships.
 hardcodes the words "personal access token" even for a token imported from the
 `gh` CLI, because `AccountResponse` carries no source; exposing the source is a
 backend DTO change. Refresh interval is net-new: no setting exists.
+
+**Integrations → Jira** — connected Atlassian accounts, authorized Jira site
+names/domains, connection status, browser sign-in, reconnect and removal. The
+Jira page's Connections button opens this same settings route. Sign-in completes
+through bounded polling while the page is open; a pairing code binds browser
+approval to the desktop. The authentication service origin is configured by
+the app distributor rather than entered as an ordinary user setting. See
+[Jira integration](jira-integration.md) for identity and credential boundaries.
 
 **Workspace → Repository / Agents / Token / Advanced** — as today, plus the
 per-agent-type override on Agents. `Remove` on an UPSTREAM remote calls a

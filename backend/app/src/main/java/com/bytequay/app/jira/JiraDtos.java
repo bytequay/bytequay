@@ -26,14 +26,16 @@ public final class JiraDtos
 
     public record Site(String id, String name, String url) {}
 
-    public record Connection(String id, String brokerUrl, String state, List<Site> sites,
-            Optional<String> authorizationUrl, Optional<String> pairingCode, Optional<String> error)
+    public record Connection(String id, String state, List<Site> sites,
+            Optional<String> authorizationUrl, Optional<String> pairingCode, Optional<String> error, Optional<Account> account, Optional<String> duplicateOf)
     {
         public Connection
         {
             sites = ImmutableList.copyOf(sites);
         }
     }
+
+    public record Account(String accountId, String displayName, Optional<String> email) {}
 
     public record Board(long id, String name, String type) {}
 

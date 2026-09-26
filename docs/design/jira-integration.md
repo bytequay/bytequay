@@ -83,7 +83,33 @@ Use one distributed Atlassian OAuth 2.0 (3LO) integration. A small hosted
 They cannot safely live in a shipped desktop binary. ByteQuay holds an encrypted
 pairing credential locally and requests short-lived access tokens from this
 service. The renderer receives only connection status, authorized sites and the
-one-time browser pairing information.
+one-time browser pairing information, plus the authenticated account's ID, name
+and optional email. Identity comes from Atlassian's User Identity API, never a
+user-entered label or a browser cookie.
+
+Settings → Integrations → Jira owns account management. The native Jira page
+links there rather than maintaining a second connection editor. Add account
+opens the system browser and shows a pairing code. The settings page checks
+pending sign-in automatically with bounded, non-overlapping polling; a completed
+or failed attempt stops the loop. Browser denial and expiry remain visible, and
+leaving settings cancels its polling without deleting a saved connection.
+
+The app uses a distributor-configured HTTPS authentication origin. Release
+packaging embeds the public origin from `BYTEQUAY_JIRA_AUTH_URL`; a runtime
+override supports local deployments. The backend exposes only whether new
+connections are configured. A build without an origin offers an explicit
+unavailable state instead of requesting a service URL from ordinary users.
+Existing connections retain their original service origin for reconnect/removal.
+
+Each connection binds one authenticated account and its authorized site set.
+Multiple accounts and multiple sites are supported. The site picker identifies
+the account and domain, and remembers valid selections. A reconnect preserves
+the connection ID, task links and local preferences; approving a different
+account cannot silently replace that identity. Equivalent account/site-set
+connections are reported as duplicates within the local installation. They are
+not automatically merged or deleted: OAuth grants and rotating credentials stay
+separate, including resource-restricted grants. Ticket identity remains the
+cloud/issue pair while API writes and cached access remain connection-scoped.
 
 The service uses browser-bound, expiring, one-use state plus a code displayed in
 ByteQuay. Authenticated desktop endpoints accept no browser Origin. Refreshes

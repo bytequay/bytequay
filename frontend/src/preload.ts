@@ -43,8 +43,10 @@ function streamSubscriber(prefix: 'agent' | 'review'): Bridge['subscribeAgentTas
 }
 
 const bridge: Bridge = {
+  getJiraConfig: () => ipcRenderer.invoke('jira:config'),
   listJiraConnections: () => ipcRenderer.invoke('jira:connections'),
-  connectJira: brokerUrl => ipcRenderer.invoke('jira:connect', brokerUrl),
+  connectJira: () => ipcRenderer.invoke('jira:connect'),
+  reconnectJira: id => ipcRenderer.invoke('jira:reconnect', id),
   refreshJiraConnection: id => ipcRenderer.invoke('jira:connection:refresh', id),
   disconnectJira: id => ipcRenderer.invoke('jira:disconnect', id),
   listJiraBoards: (connectionId, cloudId, refresh) => ipcRenderer.invoke('jira:boards', connectionId, cloudId, refresh),

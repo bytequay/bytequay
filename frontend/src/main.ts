@@ -1681,8 +1681,10 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/api/workspaces`, jsonInit('POST', command)));
   const jiraSitePath = (connectionId: string, cloudId: string) => `${backendBase()}/api/jira/connections/${encodeURIComponent(connectionId)}/sites/${encodeURIComponent(cloudId)}`;
   const jiraIssuePath = (location: JiraLocation) => `${jiraSitePath(location.connectionId, location.cloudId)}/issues/${encodeURIComponent(location.issueId)}`;
+  ipcMain.handle('jira:config', () => backendJson(`${backendBase()}/api/jira/config`, { headers: agentHeaders() }));
+  ipcMain.handle('jira:reconnect', (_event, id: string) => backendJson(`${backendBase()}/api/jira/connections/${encodeURIComponent(id)}/reconnect`, { method: 'POST', headers: agentHeaders() }));
   ipcMain.handle('jira:connections', () => backendJson(`${backendBase()}/api/jira/connections`, { headers: agentHeaders() }));
-  ipcMain.handle('jira:connect', (_event, brokerUrl: string) => backendJson(`${backendBase()}/api/jira/connections`, jsonInit('POST', { brokerUrl }, agentHeaders())));
+  ipcMain.handle('jira:connect', () => backendJson(`${backendBase()}/api/jira/connections`, { method: 'POST', headers: agentHeaders() }));
   ipcMain.handle('jira:connection:refresh', (_event, id: string) => backendJson(`${backendBase()}/api/jira/connections/${encodeURIComponent(id)}/refresh`, { method: 'POST', headers: agentHeaders() }));
   ipcMain.handle('jira:disconnect', (_event, id: string) => backendVoid(`${backendBase()}/api/jira/connections/${encodeURIComponent(id)}`, { method: 'DELETE', headers: agentHeaders() }));
   ipcMain.handle('jira:boards', (_event, connectionId: string, cloudId: string, refresh: boolean) =>

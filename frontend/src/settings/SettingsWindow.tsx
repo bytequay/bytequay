@@ -35,6 +35,7 @@ import WorkflowPage from './WorkflowPage';
 import CodeGraphPage from './CodeGraphPage';
 import RepositoryContextPage from './RepositoryContextPage';
 import GitHubPage from './GitHubPage';
+import JiraPage from './JiraPage';
 import { AppearancePage, BrowserPage, GeneralPage } from './PersonalPages';
 import {
   WorkspaceAdvancedPage,
@@ -299,6 +300,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               }}
             />
           )}
+          {section === 'jira' && <JiraPage />}
           {section === 'github' && preferences !== null && (
             <GitHubPage
               account={account}

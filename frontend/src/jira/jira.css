@@ -105,10 +105,7 @@
 .jira-notice { background: #fff8c5; color: #7d4e00; border-radius: 7px; font-size: 12px; padding: 10px; margin: 10px 0; }
 .jira-connect { margin: 0 26px 20px; border: 1px solid var(--border, #d8dee4); padding: 20px; border-radius: 12px; }
 .jira-connect h2 { margin-top: 0; font-size: 18px; }
-.jira-connect form { display: flex; align-items: end; gap: 10px; margin-top: 18px; }
-.jira-connect form label { flex: 1; }
-.jira-connection { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding-block: 14px; border-bottom: 1px solid var(--border, #d8dee4); font-size: 12px; }
-.jira-pairing-code { font: 600 16px monospace; letter-spacing: 2px; }
+.jira-connect > button { margin-top: 14px; }
 .jira-launch::backdrop { background: #00000035; }
 .jira-launch { color: var(--text-1); width: min(760px, 100%); max-height: 90vh; overflow: auto; border: 1px solid var(--border, #d8dee4); border-radius: 16px; padding: 24px; background: var(--bg-base); box-shadow: 0 15px 80px #0003; }
 .jira-launch header { display: flex; align-items: center; justify-content: space-between; }

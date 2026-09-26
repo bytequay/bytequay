@@ -28,15 +28,18 @@ app.on('window-all-closed', () => {});
   const { createBroker, readConfig } = await import(pathToFileURL(join(__dirname, 'broker.mjs')));
   let broker, source, upstream, window;
   try {
+    let accountId = 'browser-account';
     upstream = createServer((request, response) => {
       const url = new URL(request.url, 'http://localhost');
       if (url.pathname === '/authorize') {
         assert.equal(request.headers.referer, undefined, 'Do not disclose broker state URLs to the OAuth provider');
+        assert.ok(url.searchParams.get('scope').split(' ').includes('read:me'));
         response.writeHead(303, { Location: `${source}/oauth/callback?state=${url.searchParams.get('state')}&code=browser-accepted` });
         response.end(); return;
       }
       response.setHeader('Content-Type', 'application/json');
       if (url.pathname === '/oauth/token') response.end(JSON.stringify({ access_token: 'test-access', refresh_token: 'test-refresh', expires_in: 3600, token_type: 'bearer' }));
+      else if (url.pathname === '/me') response.end(JSON.stringify({ account_id: accountId, name: 'Browser User' }));
       else if (url.pathname === '/oauth/token/accessible-resources') response.end(JSON.stringify([{ id: '12345678-1234-1234-1234-123456789abc', url: 'https://example.atlassian.net', name: 'Example', scopes: ['read:jira-work'] }]));
       else { response.statusCode = 404; response.end('{}'); }
     });
@@ -49,16 +52,30 @@ app.on('window-all-closed', () => {});
     source = config.publicOrigin = `http://127.0.0.1:${broker.server.address().port}`;
     const connection = await fetch(source + '/v1/connections', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(response => response.json());
     window = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true, nodeIntegration: false, partition: 'jira-broker-test' } });
-    await window.loadURL(connection.authorizationUrl);
-    await window.webContents.executeJavaScript(`document.querySelector('input').value=${JSON.stringify(connection.pairingCode)}; document.querySelector('form').requestSubmit()`);
-    let state = 'pending';
-    for (let attempt = 0; attempt < 50 && state === 'pending'; attempt++) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-      state = (await fetch(source + `/v1/connections/${connection.id}`, { headers: { Authorization: `Bearer ${connection.pairingToken}` } }).then(response => response.json())).state;
-    }
-    assert.equal(state, 'connected', 'The real browser form must reach the OAuth callback');
+    const complete = async attempt => {
+      await window.loadURL(attempt.authorizationUrl);
+      await window.webContents.executeJavaScript(`document.querySelector('input').value=${JSON.stringify(attempt.pairingCode)}; document.querySelector('form').requestSubmit()`);
+      let status = { state: 'pending' };
+      for (let count = 0; count < 50 && status.state === 'pending'; count++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        status = await fetch(source + `/v1/connections/${connection.id}`, { headers: { Authorization: `Bearer ${connection.pairingToken}` } }).then(response => response.json());
+      }
+      assert.equal(status.state, 'connected', 'The real browser form must reach the OAuth callback');
+      assert.equal(status.account.accountId, 'browser-account');
+      return status;
+    };
+    await complete(connection);
     assert.match(await window.webContents.executeJavaScript('document.body.innerText'), /Jira is connected/);
-    console.log('Chromium pairing form → OAuth redirect → callback: PASS');
+    const reconnect = () => fetch(source + `/v1/connections/${connection.id}/reconnect`, {
+      method: 'POST', headers: { Authorization: `Bearer ${connection.pairingToken}`, 'Content-Type': 'application/json' }, body: '{}',
+    }).then(response => response.json());
+    accountId = 'another-browser-account';
+    assert.match((await complete(await reconnect())).error, /original Atlassian account/);
+    assert.match(await window.webContents.executeJavaScript('document.body.innerText'), /original Atlassian account/);
+    accountId = 'browser-account';
+    assert.equal((await complete(await reconnect())).error, undefined);
+    assert.match(await window.webContents.executeJavaScript('document.body.innerText'), /Jira is connected/);
+    console.log('Chromium pairing, account identity, rejected account switch and reconnect: PASS');
   }
   finally {
     window?.destroy();

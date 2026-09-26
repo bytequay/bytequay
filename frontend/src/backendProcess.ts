@@ -17,6 +17,8 @@ import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 
+declare const __BYTEQUAY_JIRA_AUTH_URL__: string;
+
 const PORT_MESSAGE = 'BYTEQUAY_BACKEND_PORT=';
 
 const MIN_JAVA_VERSION = 25;
@@ -142,6 +144,7 @@ export function spawnBackend(): void {
     env: {
       ...process.env,
       BYTEQUAY_DESKTOP_SESSION_TOKEN: desktopSessionToken,
+      BYTEQUAY_JIRA_AUTH_URL: process.env.BYTEQUAY_JIRA_AUTH_URL ?? (typeof __BYTEQUAY_JIRA_AUTH_URL__ === 'string' ? __BYTEQUAY_JIRA_AUTH_URL__ : ''),
       BYTEQUAY_CODEGRAPH_HOME: path.join(process.resourcesPath, 'codegraph'),
     },
   });

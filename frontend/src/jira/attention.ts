@@ -34,7 +34,7 @@ export function useJiraAttention(): { items: AttentionItem[]; error: string | nu
     const reload = () => {
       const current = ++request;
       void window.bridge.listJiraAttention().then(issues => { if (active && current === request) { setItems(jiraAttentionItems(issues)); setError(null); } })
-        .catch(() => { if (active && current === request) setError('Jira work items could not be loaded. Open My sprint to retry.'); });
+        .catch(() => { if (active && current === request) setError('Jira work items could not be loaded. Open Jira to retry.'); });
     };
     reload();
     window.addEventListener(JIRA_CHANGED, reload);

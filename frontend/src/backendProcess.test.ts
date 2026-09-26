@@ -71,6 +71,24 @@ describe('backend port discovery', () => {
     expect(backend.backendBase()).toBe(`http://127.0.0.1:${port}`);
   });
 
+  it.each([
+    { runtime: undefined, expected: 'https://auth.example.test' },
+    { runtime: 'https://override.example.test', expected: 'https://override.example.test' },
+    { runtime: '', expected: '' },
+  ])('passes the packaged Jira service default with deliberate runtime override $runtime', async ({ runtime, expected }) => {
+    vi.stubGlobal('__BYTEQUAY_JIRA_AUTH_URL__', 'https://auth.example.test');
+    vi.stubEnv('BYTEQUAY_JIRA_AUTH_URL', runtime ?? '');
+    if (runtime === undefined) delete process.env.BYTEQUAY_JIRA_AUTH_URL;
+    const backend = await import('./backendProcess'); backend.spawnBackend();
+    expect(mocks.spawn.mock.calls[0]?.[2].env.BYTEQUAY_JIRA_AUTH_URL).toBe(expected);
+  });
+  it('leaves Jira unavailable when neither build nor runtime provides a service', async () => {
+    vi.stubEnv('BYTEQUAY_JIRA_AUTH_URL', '');
+    delete process.env.BYTEQUAY_JIRA_AUTH_URL;
+    const backend = await import('./backendProcess'); backend.spawnBackend();
+    expect(mocks.spawn.mock.calls[0]?.[2].env.BYTEQUAY_JIRA_AUTH_URL).toBe('');
+  });
+
   it('uses the development launcher port without spawning Java', async () => {
     mocks.app.isPackaged = false;
     vi.stubEnv('BYTEQUAY_BACKEND_PORT', '42345');

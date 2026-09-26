@@ -20,7 +20,7 @@ import { TaskComposer, StartingAgentTask, useAgentTaskCreation } from '../agents
 import type { WorkspaceDto } from '../types';
 import { workspaceAgentTaskRoute } from '../workspaces/model';
 import { settingsRoute } from '../settings/routes';
-import { jiraIssueLocation, jiraLocation, jiraRoute, notifyJiraChanged, type JiraBoard, type JiraConnection, type JiraField, type JiraIssue, type JiraIssueDetail, type JiraIssuePage, type JiraLocation, type JiraSprint } from './contracts';
+import { JIRA_CHANGED, jiraAccountLabel, jiraSiteDomain, jiraIssueLocation, jiraLocation, jiraRoute, notifyJiraChanged, type JiraBoard, type JiraConnection, type JiraField, type JiraIssue, type JiraIssueDetail, type JiraIssuePage, type JiraLocation, type JiraSprint } from './contracts';
 import JiraIcon from './JiraIcon';
 import { completedGroups, JIRA_WORKFLOW_GROUPS, jiraWorkflowGroup } from './presentation';
 import './jira.css';
@@ -45,9 +45,13 @@ export function JiraIssueActions({ issue, busy = false, onGoal, onStart }: { iss
 
 export default function JiraScreen() {
   const initial = jiraLocation(window.location.hash);
+  const savedSite = (() => {
+    try { const value = JSON.parse(localStorage.getItem('bytequay:jira-site') ?? 'null') as { connectionId?: unknown; cloudId?: unknown } | null; return typeof value?.connectionId === 'string' && typeof value?.cloudId === 'string' ? { connectionId: value.connectionId, cloudId: value.cloudId } : null; }
+    catch { return null; }
+  })();
   const [connections, setConnections] = useState<JiraConnection[]>([]);
-  const [connectionId, setConnectionId] = useState(initial?.connectionId ?? '');
-  const [cloudId, setCloudId] = useState(initial?.cloudId ?? '');
+  const [connectionId, setConnectionId] = useState(initial?.connectionId ?? savedSite?.connectionId ?? '');
+  const [cloudId, setCloudId] = useState(initial?.cloudId ?? savedSite?.cloudId ?? '');
   const [boards, setBoards] = useState<JiraBoard[]>([]);
   const [boardId, setBoardId] = useState<number | null>(null);
   const [sprints, setSprints] = useState<JiraSprint[]>([]);
@@ -62,10 +66,9 @@ export default function JiraScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [launch, setLaunch] = useState<JiraIssue | null>(null);
-  const [settings, setSettings] = useState(false);
 
   const generation = useRef(0);
-  const connection = connections.find(value => value.id === connectionId) ?? connections[0];
+  const connection = connections.find(value => value.id === connectionId && value.sites.length > 0) ?? connections.find(value => value.state === 'connected' && value.sites.length > 0) ?? connections.find(value => value.sites.length > 0);
   const site = connection?.sites.find(value => value.id === cloudId) ?? connection?.sites[0];
   const actualConnectionId = connection?.id ?? '';
   const actualCloudId = site?.id ?? '';
@@ -82,12 +85,16 @@ export default function JiraScreen() {
     return () => { active = false; };
   }, [selected]);
 
-  const applyConnections = useCallback((values: JiraConnection[]) => { setConnections(values); setError(null); }, []);
+  const applyConnections = useCallback((values: JiraConnection[]) => { setConnections(values); }, []);
   useEffect(() => {
     let active = true;
-    void window.bridge.listJiraConnections().then(value => { if (active) applyConnections(value); }).catch(cause => { if (active) setError(message(cause)); });
-    return () => { active = false; };
+    const load = () => { void window.bridge.listJiraConnections().then(value => { if (active) applyConnections(value); }).catch(cause => { if (active) setError(message(cause)); }); };
+    load(); window.addEventListener(JIRA_CHANGED, load);
+    return () => { active = false; window.removeEventListener(JIRA_CHANGED, load); };
   }, [applyConnections]);
+  useEffect(() => {
+    if (actualConnectionId && actualCloudId) { try { localStorage.setItem('bytequay:jira-site', JSON.stringify({ connectionId: actualConnectionId, cloudId: actualCloudId })); } catch { /* Optional view preference. */ } }
+  }, [actualConnectionId, actualCloudId]);
   useEffect(() => {
     const changed = () => {
       const location = jiraLocation(window.location.hash);
@@ -116,7 +123,7 @@ export default function JiraScreen() {
       finally { if (active) setLoading(false); }
     })();
     return () => { active = false; };
-  }, [actualConnectionId, actualCloudId]);
+  }, [actualConnectionId, actualCloudId, connection?.state]);
   useEffect(() => {
     let active = true;
     generation.current += 1;
@@ -206,17 +213,18 @@ export default function JiraScreen() {
   return <div className="jira-screen">
     <header className="jira-header"><div><h1><JiraIcon size={25} />Jira</h1><p>Your sprint, development, and completed work.</p></div><span className="jira-spacer" />
       {site && boardId !== null && <button type="button" className="bq-button jira-open-board" onClick={() => { void window.bridge.openInAppBrowser(`${site.url.replace(/\/$/, '')}/secure/RapidBoard.jspa?rapidView=${boardId}`); }}>Open board in Jira <ExternalLink size={14} /></button>}
-      <button type="button" className="bq-button" onClick={() => setSettings(value => !value)}>Connections</button>
+      <button type="button" className="bq-button" onClick={() => { window.location.hash = settingsRoute('jira'); }}>Manage accounts</button>
       <button type="button" className="bq-iconbtn" aria-label="Refresh tickets" title="Refresh tickets" disabled={loading || boardId === null} onClick={() => { void refreshSprint(); }}><RefreshCw size={17} className={loading ? 'jira-spin' : ''} /></button>
     </header>
-    {(settings || connections.length === 0 || !site) && <JiraConnections connections={connections} onChanged={applyConnections} />}
+    {!site && <div className="jira-connect"><h2>Connect your Jira account</h2><p>Add an Atlassian account in Settings to choose a site and board.</p><button type="button" className="bq-button" onClick={() => { window.location.hash = settingsRoute('jira'); }}>Open Jira settings</button></div>}
+    {site && connection?.state !== 'connected' && <div className="jira-notice">{connection?.state === 'pending' ? 'Jira sign-in is waiting to finish.' : 'This Jira account needs attention.'} Manage accounts in Settings to reconnect.</div>}
     {error && <div className="ws-error" role="alert">{error}</div>}
     {site && <><nav className="jira-views" aria-label="Jira views">
       <button type="button" aria-current={view === 'current' ? 'page' : undefined} onClick={() => { setView('current'); setStatus(''); }}>Current sprint</button>
       <button type="button" aria-current={view === 'completed' ? 'page' : undefined} onClick={() => { setView('completed'); setStatus(''); }}>Completed</button>
     </nav><div className="jira-toolbar">
       <select aria-label="Jira site" value={`${actualConnectionId}/${actualCloudId}`} onChange={event => { const [c, s] = event.target.value.split('/'); setConnectionId(c); setCloudId(s); setSelected(null); setLaunch(null); window.location.hash = jiraRoute(); }}>
-        {connections.flatMap(value => value.sites.map(item => <option key={`${value.id}/${item.id}`} value={`${value.id}/${item.id}`}>{item.name}</option>))}</select>
+        {connections.flatMap(value => value.sites.map(item => <option key={`${value.id}/${item.id}`} value={`${value.id}/${item.id}`}>{item.name} · {jiraSiteDomain(item)} · {jiraAccountLabel(value)}</option>))}</select>
       <select aria-label="Jira board" value={boardId ?? ''} onChange={event => { setBoardId(Number(event.target.value)); setStatus(''); try { localStorage.setItem(`bytequay:jira-board:${actualConnectionId}/${actualCloudId}`, event.target.value); } catch { /* Optional view preference. */ } }}><option value="" disabled>Select board</option>{boards.map(board => <option value={board.id} key={board.id}>{board.name}</option>)}</select>
       {view === 'current' && <select aria-label="Sprint" value={sprintId ?? ''} onChange={event => setSprintId(event.target.value === '' ? null : Number(event.target.value))}><option value="">Backlog</option>{sprints.map(sprint => <option value={sprint.id} key={sprint.id}>{sprint.name}{sprint.state === 'active' ? ' · Active' : ''}</option>)}</select>}
       <label className="jira-mine"><input type="checkbox" checked={mine} onChange={event => setMine(event.target.checked)} />Assigned to me</label>
@@ -255,26 +263,6 @@ function JiraAssignee({ assignee }: { assignee: JiraIssue['assignee'] }) {
   return <span className="jira-assignee" title={`Assignee: ${name}`} aria-label={`Assignee: ${name}`}>
     {assignee ? <span>{initials.length > 1 ? `${initials[0]}${initials[initials.length - 1]}` : initials[0]}</span> : <UserRound size={14} />}
   </span>;
-}
-
-function JiraConnections({ connections, onChanged }: { connections: JiraConnection[]; onChanged: (values: JiraConnection[]) => void }) {
-  const [brokerUrl, setBrokerUrl] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const act = async (action: () => Promise<unknown>) => { setBusy(true); setError(null); try { await action(); onChanged(await window.bridge.listJiraConnections()); } catch (cause) { setError(message(cause)); } finally { setBusy(false); } };
-  return <section className="jira-connect"><h2>Connect Jira</h2><p>Sign in with Atlassian through your ByteQuay authentication service. Your browser session and API connection are separate.</p>
-    {connections.map(connection => <div className="jira-connection" key={connection.id}><strong>{connection.sites.map(site => site.name).join(', ') || 'Connection awaiting sign-in'}</strong><span>{connection.state.toLowerCase()}</span>
-      {connection.pairingCode && <div>Enter this pairing code on the sign-in page: <strong className="jira-pairing-code">{connection.pairingCode}</strong></div>}
-      {connection.authorizationUrl && <button className="bq-button" type="button" disabled={busy} onClick={() => { void window.bridge.openExternal(connection.authorizationUrl ?? '').catch(cause => setError(message(cause))); }}>Open sign-in page <ExternalLink size={14} /></button>}
-      <button className="bq-button" type="button" disabled={busy} onClick={() => { void act(() => window.bridge.refreshJiraConnection(connection.id)); }}>Check connection</button>
-      <button className="bq-button" type="button" disabled={busy} onClick={() => { void act(() => window.bridge.disconnectJira(connection.id)); }}>Disconnect</button>
-      {connection.error && <div role="alert" className="ws-error">{connection.error}</div>}
-    </div>)}
-    <form onSubmit={event => { event.preventDefault(); void act(async () => { const connection = await window.bridge.connectJira(brokerUrl.trim()); if (connection.authorizationUrl) await window.bridge.openExternal(connection.authorizationUrl); }); }}>
-      <label>Authentication service URL<input type="url" required placeholder="https://jira-auth.your-company.com" value={brokerUrl} onChange={event => setBrokerUrl(event.target.value)} /></label>
-      <button className="bq-button bq-button--primary" disabled={busy || !brokerUrl.trim()} type="submit">Connect Jira</button>
-    </form>{error && <div className="ws-error" role="alert">{error}</div>}
-  </section>;
 }
 
 function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }: { location: JiraLocation; sprints: JiraSprint[]; boardId: number | null; onClose: () => void; onChanged: (detail: JiraIssueDetail) => void; onStart: (issue: JiraIssue) => void }) {

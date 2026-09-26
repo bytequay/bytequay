@@ -17,6 +17,7 @@ import com.bytequay.core.store.JiraConnectionStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -27,6 +28,7 @@ import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -35,81 +37,204 @@ public class JiraConnections
     private final JiraConnectionStore store;
     private final JiraCache json;
     private final JiraHttpClient http;
+    private final Optional<URI> authOrigin;
 
-    public JiraConnections(JiraConnectionStore store, JiraCache json, JiraHttpClient http)
+    public JiraConnections(JiraConnectionStore store, JiraCache json, JiraHttpClient http, @Value("${bytequay.jira.auth-url:}") String authUrl)
     {
         this.store = requireNonNull(store, "store is null");
         this.json = requireNonNull(json, "json is null");
         this.http = requireNonNull(http, "http is null");
+        this.authOrigin = Optional.of(requireNonNull(authUrl, "authUrl is null").strip()).filter(value -> !value.isEmpty()).map(JiraConnections::broker);
+    }
+
+    public boolean configured()
+    {
+        return authOrigin.isPresent();
     }
 
     public List<JiraDtos.Connection> list()
     {
-        return store.ids().stream().map(this::get).collect(toImmutableList());
+        List<JiraDtos.Connection> connections = snapshots();
+        return connections.stream().map(connection -> duplicates(connection, connections)).collect(toImmutableList());
     }
 
     public JiraDtos.Connection get(String id)
     {
-        return json.decode(stored(id).stateJson(), JiraDtos.Connection.class);
+        return duplicates(view(stored(id)), snapshots());
     }
 
-    public JiraDtos.Connection connect(String brokerUrl)
+    public synchronized JiraDtos.Connection connect()
     {
-        URI base = broker(brokerUrl);
+        URI base = authOrigin.orElseThrow(() -> new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Jira sign-in is not configured for this installation."));
         JsonNode result = http.request(base.resolve("/v1/connections"), "POST", Optional.empty(), Optional.of(ImmutableMap.of()));
         String id = segment(result.path("id").asText());
+        checkArgument(store.find(id).isEmpty(), "Jira sign-in returned an existing connection id");
         String secret = result.path("pairingToken").asText();
         checkArgument(secret.length() >= 32 && secret.length() <= 1024, "Invalid Jira pairing response");
-        String authorization = result.path("authorizationUrl").asText();
-        URI target = URI.create(authorization);
-        checkArgument(base.getScheme().equals(target.getScheme()) && base.getAuthority().equals(target.getAuthority()), "Unexpected Jira sign-in origin");
-        JiraDtos.Connection view = new JiraDtos.Connection(id, base.toString(), "pending", ImmutableList.of(),
-                Optional.of(authorization), Optional.of(result.path("pairingCode").asText()), Optional.empty());
-        store.save(new JiraConnectionStore.Connection(id, base.toString(), secret, json.encode(view)));
-        return view;
+        JiraDtos.Connection pending = pending(id, base, result, Optional.empty(), ImmutableList.of());
+        store.save(new JiraConnectionStore.Connection(id, base.toString(), secret, json.encode(pending)));
+        return pending;
+    }
+
+    public synchronized JiraDtos.Connection reconnect(String id)
+    {
+        JiraConnectionStore.Connection saved = stored(id);
+        JiraDtos.Connection previous = view(saved);
+        URI base = broker(saved.brokerUrl());
+        JsonNode result;
+        try {
+            result = http.request(base.resolve("/v1/connections/" + segment(id) + "/reconnect"), "POST",
+                    Optional.of(saved.pairingToken()), Optional.of(ImmutableMap.of()));
+        }
+        catch (ResponseStatusException failure) {
+            if (failure.getStatusCode().value() == 401 || failure.getStatusCode().value() == 404
+                    || failure.getStatusCode().value() == 409 && previous.account().isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "This connection cannot be restored. Remove it and add the Jira account again. Existing tasks will remain.");
+            }
+            throw failure;
+        }
+        checkArgument(id.equals(result.path("id").asText()), "Jira reconnect changed connection identity");
+        return save(saved, pending(id, base, result, previous.account(), previous.sites()));
     }
 
     public synchronized JiraDtos.Connection refresh(String id)
     {
-        JiraConnectionStore.Connection stored = stored(id);
-        JiraDtos.Connection previous = get(id);
-        JsonNode status = http.request(URI.create(stored.brokerUrl()).resolve("/v1/connections/" + segment(id)), "GET", Optional.of(stored.pairingToken()), Optional.empty());
-        List<JiraDtos.Site> sites = ImmutableList.copyOf(status.path("sites")).stream()
-                .map(site -> new JiraDtos.Site(segment(site.path("id").asText()), site.path("name").asText(), siteUrl(site.path("url").asText())))
-                .collect(toImmutableList());
+        JiraConnectionStore.Connection saved = stored(id);
+        JiraDtos.Connection previous = view(saved);
+        JsonNode status;
+        try {
+            status = http.request(broker(saved.brokerUrl()).resolve("/v1/connections/" + segment(id)), "GET", Optional.of(saved.pairingToken()), Optional.empty());
+        }
+        catch (ResponseStatusException failure) {
+            if (failure.getStatusCode().value() == 401 || failure.getStatusCode().value() == 404) {
+                return save(saved, error(previous, "This Jira connection is no longer available. Remove it and add the account again. Existing tasks will remain."));
+            }
+            throw failure;
+        }
         String state = status.path("state").asText();
         checkArgument(ImmutableList.of("pending", "connected", "error").contains(state), "Invalid Jira connection state");
-        JiraDtos.Connection view = new JiraDtos.Connection(id, stored.brokerUrl(), state, sites,
-                state.equals("pending") ? previous.authorizationUrl() : Optional.empty(), state.equals("pending") ? previous.pairingCode() : Optional.empty(),
-                state.equals("error") ? Optional.of("Jira sign-in failed. Disconnect and connect again.") : Optional.empty());
-        store.save(new JiraConnectionStore.Connection(id, stored.brokerUrl(), stored.pairingToken(), json.encode(view)));
-        return view;
+        Optional<JiraDtos.Account> account = account(status.path("account"));
+        if (state.equals("connected") && (account.isEmpty() || previous.account().isPresent()
+                && !previous.account().orElseThrow().accountId().equals(account.orElseThrow().accountId()))) {
+            return save(saved, error(previous, "This sign-in did not match the original Jira account. Reconnect with that account, or add a separate account."));
+        }
+        List<JiraDtos.Site> sites = state.equals("connected") ? ImmutableList.copyOf(status.path("sites")).stream()
+                .map(site -> new JiraDtos.Site(segment(site.path("id").asText()), site.path("name").asText(), siteUrl(site.path("url").asText())))
+                .collect(toImmutableList()) : previous.sites();
+        Optional<String> error = state.equals("error") ? Optional.of("Jira sign-in failed. Reconnect this account.")
+                : JiraMapping.text(status, "error").map(ignored -> "Sign-in did not change this account. Reconnect with the original account, or add another account.");
+        return save(saved, new JiraDtos.Connection(id, state, sites, state.equals("pending") ? previous.authorizationUrl() : Optional.empty(),
+                state.equals("pending") ? previous.pairingCode() : Optional.empty(), error, account.or(previous::account), Optional.empty()));
     }
 
     public synchronized void disconnect(String id)
     {
         JiraConnectionStore.Connection saved = stored(id);
-        http.request(URI.create(saved.brokerUrl()).resolve("/v1/connections/" + segment(id)), "DELETE", Optional.of(saved.pairingToken()), Optional.empty());
+        try {
+            http.request(broker(saved.brokerUrl()).resolve("/v1/connections/" + segment(id)), "DELETE", Optional.of(saved.pairingToken()), Optional.empty());
+        }
+        catch (ResponseStatusException failure) {
+            if (failure.getStatusCode().value() != 401 && failure.getStatusCode().value() != 404) {
+                throw failure;
+            }
+        }
         store.delete(id);
     }
 
     public JiraDtos.Site site(String id, String cloudId)
     {
-        return get(id).sites().stream().filter(site -> site.id().equals(segment(cloudId))).findFirst()
+        JiraDtos.Connection connection = get(id);
+        if (!connection.state().equals("connected")) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Reconnect this Jira account before refreshing or editing tickets.");
+        }
+        return connection.sites().stream().filter(site -> site.id().equals(segment(cloudId))).findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "This Jira site is not connected."));
     }
 
-    public JsonNode request(String connectionId, String cloudId, String path, String method, Optional<Object> body)
+    // ponytail: Global monitor prevents reconnect races; use per-connection locks if measured request contention warrants it.
+    public synchronized JsonNode request(String connectionId, String cloudId, String path, String method, Optional<Object> body)
     {
         site(connectionId, cloudId);
-        JiraConnectionStore.Connection saved = stored(connectionId);
-        JsonNode token = http.request(URI.create(saved.brokerUrl()).resolve("/v1/connections/" + segment(connectionId) + "/token"),
-                "POST", Optional.of(saved.pairingToken()), Optional.of(ImmutableMap.of("cloudId", cloudId)));
-        String accessToken = token.path("accessToken").asText();
-        checkArgument(!accessToken.isBlank() && accessToken.length() <= 16384, "Invalid Jira access token response");
         checkArgument(path.startsWith("/rest/") && !path.contains(".."), "Invalid Jira API path");
-        URI uri = URI.create("https://api.atlassian.com/ex/jira/" + segment(cloudId) + path);
-        return http.request(uri, method, Optional.of(accessToken), body);
+        JiraConnectionStore.Connection saved = stored(connectionId);
+        boolean tokenAccepted = false;
+        try {
+            JsonNode token = http.request(broker(saved.brokerUrl()).resolve("/v1/connections/" + segment(connectionId) + "/token"),
+                    "POST", Optional.of(saved.pairingToken()), Optional.of(ImmutableMap.of("cloudId", cloudId)));
+            String accessToken = token.path("accessToken").asText();
+            checkArgument(!accessToken.isBlank() && accessToken.length() <= 16384, "Invalid Jira access token response");
+            tokenAccepted = true;
+            URI uri = URI.create("https://api.atlassian.com/ex/jira/" + segment(cloudId) + path);
+            return http.request(uri, method, Optional.of(accessToken), body);
+        }
+        catch (ResponseStatusException failure) {
+            if (failure.getStatusCode().value() == 401 || !tokenAccepted && failure.getStatusCode().value() == 404) {
+                save(saved, error(view(saved), "Jira authorization expired or was revoked. Reconnect this account."));
+            }
+            else if (!tokenAccepted && failure.getStatusCode().value() == 403) {
+                try {
+                    refresh(connectionId);
+                }
+                catch (ResponseStatusException ignored) {
+                    // Keep the original site-authorization error if its status cannot be refreshed.
+                }
+            }
+            throw failure;
+        }
+    }
+
+    private JiraDtos.Connection pending(String id, URI base, JsonNode result, Optional<JiraDtos.Account> account, List<JiraDtos.Site> sites)
+    {
+        String authorization = result.path("authorizationUrl").asText();
+        URI target = URI.create(authorization);
+        checkArgument(base.getScheme().equals(target.getScheme()) && base.getAuthority().equals(target.getAuthority()), "Unexpected Jira sign-in origin");
+        String code = result.path("pairingCode").asText();
+        checkArgument(code.matches("[A-Fa-f0-9]{8}"), "Invalid Jira pairing code");
+        return new JiraDtos.Connection(id, "pending", sites, Optional.of(authorization), Optional.of(code), Optional.empty(), account, Optional.empty());
+    }
+
+    private static JiraDtos.Connection error(JiraDtos.Connection previous, String message)
+    {
+        return new JiraDtos.Connection(previous.id(), "error", previous.sites(), Optional.empty(), Optional.empty(), Optional.of(message), previous.account(), Optional.empty());
+    }
+
+    private static Optional<JiraDtos.Account> account(JsonNode account)
+    {
+        if (account.isNull() || account.isMissingNode()) {
+            return Optional.empty();
+        }
+        String id = account.path("accountId").asText();
+        String name = account.path("displayName").asText();
+        checkArgument(!id.isBlank() && id.length() <= 256 && !name.isBlank() && name.length() <= 512, "Invalid Jira account identity");
+        return Optional.of(new JiraDtos.Account(id, name, JiraMapping.text(account, "email")));
+    }
+
+    private List<JiraDtos.Connection> snapshots()
+    {
+        return store.ids().stream().map(id -> view(stored(id))).collect(toImmutableList());
+    }
+
+    private JiraDtos.Connection view(JiraConnectionStore.Connection stored)
+    {
+        return json.decode(stored.stateJson(), JiraDtos.Connection.class);
+    }
+
+    private JiraDtos.Connection save(JiraConnectionStore.Connection stored, JiraDtos.Connection view)
+    {
+        store.save(new JiraConnectionStore.Connection(stored.id(), stored.brokerUrl(), stored.pairingToken(), json.encode(view)));
+        return duplicates(view, snapshots());
+    }
+
+    private static JiraDtos.Connection duplicates(JiraDtos.Connection connection, List<JiraDtos.Connection> connections)
+    {
+        Optional<String> duplicate = connection.state().equals("connected") && connection.account().isPresent() ? connections.stream()
+                .filter(other -> other.state().equals("connected") && other.id().compareTo(connection.id()) < 0)
+                .filter(other -> other.account().map(JiraDtos.Account::accountId).equals(connection.account().map(JiraDtos.Account::accountId)))
+                .filter(other -> other.sites().stream().map(JiraDtos.Site::id).collect(toImmutableSet())
+                        .equals(connection.sites().stream().map(JiraDtos.Site::id).collect(toImmutableSet())))
+                .map(JiraDtos.Connection::id).sorted().findFirst() : Optional.empty();
+        return new JiraDtos.Connection(connection.id(), connection.state(), connection.sites(), connection.authorizationUrl(), connection.pairingCode(), connection.error(),
+                connection.account(), duplicate);
     }
 
     public static String segment(String value)

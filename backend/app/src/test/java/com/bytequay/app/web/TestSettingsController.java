@@ -72,21 +72,26 @@ class TestSettingsController
             throws Exception
     {
         when(settings.developmentAutomation()).thenReturn(DevelopmentAutomation.DEFAULT);
-        DevelopmentAutomation selected = new DevelopmentAutomation(true, true, true, Optional.of(AgentLaneId.CLAUDE_CLI));
+        DevelopmentAutomation selected = new DevelopmentAutomation(true, true, true, Optional.of(AgentLaneId.CLAUDE_CLI), true);
         when(settings.saveDevelopmentAutomation(selected)).thenReturn(selected);
         mvc().perform(get("/api/settings/development-automation"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.autoCommit").doesNotExist())
                 .andExpect(jsonPath("$.autoDraftPr").value(true))
                 .andExpect(jsonPath("$.autoCiFix").value(true))
-                .andExpect(jsonPath("$.ciLaneId").isEmpty());
+                .andExpect(jsonPath("$.ciLaneId").isEmpty())
+                .andExpect(jsonPath("$.reviewSummary").value(false));
         mvc().perform(put("/api/settings/development-automation").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"autoDraftPr\":true,\"autoCiFix\":true,\"ciLaneId\":\"claude\"}"))
+                        .content("{\"autoDraftPr\":true,\"autoCiFix\":true,\"ciLaneId\":\"claude\",\"reviewSummary\":true}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.autoCommit").doesNotExist())
-                .andExpect(jsonPath("$.ciLaneId").value("claude"));
+                .andExpect(jsonPath("$.ciLaneId").value("claude"))
+                .andExpect(jsonPath("$.reviewSummary").value(true));
         mvc().perform(put("/api/settings/development-automation").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"autoDraftPr\":true}"))
+                .andExpect(status().isBadRequest());
+        mvc().perform(put("/api/settings/development-automation").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"autoDraftPr\":true,\"autoCiFix\":true,\"ciLaneId\":\"claude\"}"))
                 .andExpect(status().isBadRequest());
         verify(settings).saveDevelopmentAutomation(selected);
     }

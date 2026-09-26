@@ -187,6 +187,7 @@ export function parseDevelopmentAutomation(value: unknown, path = 'developmentAu
     autoDraftPr: flag(source.autoDraftPr, `${path}.autoDraftPr`),
     autoCiFix: flag(source.autoCiFix, `${path}.autoCiFix`),
     ciLaneId: optionalText(source.ciLaneId, `${path}.ciLaneId`),
+    reviewSummary: flag(source.reviewSummary, `${path}.reviewSummary`),
   };
 }
 

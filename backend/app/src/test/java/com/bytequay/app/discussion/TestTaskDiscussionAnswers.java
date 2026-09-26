@@ -79,11 +79,13 @@ import java.time.ZoneOffset;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.stream.IntStream;
@@ -91,6 +93,7 @@ import java.util.stream.IntStream;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -122,6 +125,9 @@ class TestTaskDiscussionAnswers
     private final List<String> prompts = new ArrayList<>();
     private final List<Optional<AgentSessionRef>> opened = new ArrayList<>();
     private final List<Runnable> held = new ArrayList<>();
+    private final List<Boolean> pendingWhenStored = new ArrayList<>();
+    private final Map<String, TaskDiscussion> racing = new LinkedHashMap<>();
+    private final Set<String> conflicting = new HashSet<>();
     private final ScriptedDriver driver = new ScriptedDriver();
     private final AgentTaskService tasks = mock(AgentTaskService.class);
     private final TaskPullRequestOwnership ownership = mock(TaskPullRequestOwnership.class);
@@ -442,6 +448,109 @@ class TestTaskDiscussionAnswers
     }
 
     @Test
+    void summarizesABatchInOneSessionAndGivesEachThreadItsVerdictWithoutASession()
+    {
+        answered(TurnId.random(), "Done.");
+        driver.answers.add("""
+                {"items":[
+                {"ref":"c2","ask":"Two.","valid":"no","why":"It already does.","do":"no","plan":"","size":""},
+                {"ref":"c1","ask":"One.","valid":"yes","why":"It holds.","do":"yes","plan":"Fix it.","size":"trivial"},
+                {"ref":"c3","ask":"Three.","valid":"unsure","why":"Needs a run.","do":"your_call","plan":"Run the suite.","size":"big"}]}""");
+        List<ReviewCommentAnchor> comments = ImmutableList.of(
+                anchor("review:1", "{\"body\":\"one\"}"), anchor("review_comment:2", "{\"body\":\"two\"}"), anchor("review_comment:3", "{\"body\":\"three\"}"));
+        hold = true;
+
+        service.summarize("w1", TASK.toString(), comments);
+
+        // Every thread is pending from its first stored row, before the batch has run.
+        assertThat(pendingWhenStored).containsExactly(true, true, true);
+        assertThat(rows.values()).allSatisfy(thread -> assertThat(thread.messages()).extracting(DiscussionMessage::body).containsExactly(DiscussionPrompt.SUMMARY_REQUEST));
+        runHeld();
+
+        assertThat(prompts).singleElement().satisfies(prompt -> assertThat(prompt).containsSubsequence(
+                "{\"ref\":\"c1\",\"comment\":{\"body\":\"one\"}}", "{\"ref\":\"c2\",\"comment\":{\"body\":\"two\"}}", "{\"ref\":\"c3\",\"comment\":{\"body\":\"three\"}}",
+                "--- question ---\n\nSummarize these 3 review comments."));
+        assertThat(rows.values()).extracting(thread -> thread.comment().orElseThrow().key()).containsExactly("review:1", "review_comment:2", "review_comment:3");
+        assertThat(rows.values()).allSatisfy(thread -> {
+            assertThat(thread.sessionReference()).isEmpty();
+            assertThat(thread.messages()).hasSize(2);
+        });
+        assertThat(rows.values()).extracting(thread -> thread.messages().getLast().body()).containsExactly(
+                "{\"ask\":\"One.\",\"valid\":\"yes\",\"why\":\"It holds.\",\"do\":\"yes\",\"plan\":\"Fix it.\",\"size\":\"trivial\"}",
+                "{\"ask\":\"Two.\",\"valid\":\"no\",\"why\":\"It already does.\",\"do\":\"no\",\"plan\":\"\",\"size\":\"\"}",
+                "{\"ask\":\"Three.\",\"valid\":\"unsure\",\"why\":\"Needs a run.\",\"do\":\"your_call\",\"plan\":\"Run the suite.\",\"size\":\"big\"}");
+        assertThat(service.list("w1", TASK.toString())).noneMatch(TaskDiscussionView::pending);
+
+        // Comments that already have threads are skipped, so the same batch again starts nothing.
+        service.summarize("w1", TASK.toString(), comments);
+        assertThat(held).isEmpty();
+        assertThat(prompts).hasSize(1);
+    }
+
+    @Test
+    void aBatchFailureFailsEveryThreadAndARacedCommentLeavesTheSlot()
+    {
+        answered(TurnId.random(), "Done.");
+        driver.answers.add(VERDICT);
+        ReviewCommentAnchor raced = anchor("review_comment:9", "{\"body\":\"raced\"}");
+        racing.put(raced.anchor().quoteHash(), commentThread("elsewhere", raced, ImmutableList.of()));
+        hold = true;
+
+        service.summarize("w1", TASK.toString(), ImmutableList.of(anchor("review:1", "{\"body\":\"one\"}"), raced, anchor("review:3", "{\"body\":\"three\"}")));
+
+        assertThat(service.list("w1", TASK.toString())).extracting(TaskDiscussionView::id, TaskDiscussionView::pending)
+                .containsExactlyInAnyOrder(
+                        tuple(idOf("review:1"), true),
+                        tuple("elsewhere", false),
+                        tuple(idOf("review:3"), true));
+        runHeld();
+
+        // One verdict for two comments fails the whole batch, and each hidden request carries the reason.
+        assertThat(prompts).singleElement().satisfies(prompt -> assertThat(prompt).contains("Summarize these 2 review comments.").doesNotContain("raced"));
+        for (String key : ImmutableList.of("review:1", "review:3")) {
+            assertThat(rows.get(idOf(key)).messages()).singleElement().satisfies(request -> {
+                assertThat(request.body()).isEqualTo(DiscussionPrompt.SUMMARY_REQUEST);
+                assertThat(request.error()).hasValueSatisfying(error -> assertThat(error).contains("exactly 2 items"));
+            });
+        }
+        assertThat(rows.get("elsewhere").messages()).isEmpty();
+    }
+
+    @Test
+    void summarizeGivesTheSlotBackWheneverItRefusesAfterClaiming()
+    {
+        List<ReviewCommentAnchor> one = ImmutableList.of(anchor(KEY, "{\"body\":\"one\"}"));
+
+        assertThatThrownBy(() -> service.summarize("w1", TASK.toString(), one))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessage("Waiting for the agent's first answer");
+
+        answered(TurnId.random(), "x".repeat(TaskDiscussion.MAX_SEED_CHARACTERS));
+        assertThatThrownBy(() -> service.summarize("w1", TASK.toString(), one))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessage("This task's history is too long to ask about");
+        assertThat(rows).isEmpty();
+
+        events.clear();
+        answered(TurnId.random(), "Done.");
+        store(commentThread("t1", anchor(KEY, "{}"), ImmutableList.of()));
+        service.summarize("w1", TASK.toString(), one);
+
+        IntStream.range(1, TaskDiscussionService.MAXIMUM_COMMENT_THREADS_PER_TASK)
+                .forEach(index -> store(commentThread("c" + index, anchor("review:" + index, "{}"), ImmutableList.of())));
+        assertThatThrownBy(() -> service.summarize("w1", TASK.toString(), ImmutableList.of(anchor("review_comment:7", "{}"))))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("most private threads");
+        assertThat(prompts).isEmpty();
+
+        // Each refusal gave the task's slot back, so the next question on the task is answered.
+        rows.clear();
+        driver.answers.add(VERDICT);
+        assertThat(service.askComment(askComment(KEY, "")).messages()).hasSize(1);
+        assertThat(prompts).hasSize(1);
+    }
+
+    @Test
     void askingAboutAHistoryOverItsBudgetSaysWhy()
     {
         answered(TurnId.random(), "x".repeat(TaskDiscussion.MAX_SEED_CHARACTERS));
@@ -450,6 +559,48 @@ class TestTaskDiscussionAnswers
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessage("This task's history is too long to ask about");
         assertThat(rows).isEmpty();
+    }
+
+    @Test
+    void summarizeTrimsABatchToTheRoomLeftForCommentThreads()
+    {
+        answered(TurnId.random(), "Done.");
+        IntStream.range(0, TaskDiscussionService.MAXIMUM_COMMENT_THREADS_PER_TASK - 1)
+                .forEach(index -> store(commentThread("c" + index, anchor("review:" + index, "{}"), ImmutableList.of())));
+        driver.answers.add(VERDICT);
+
+        service.summarize("w1", TASK.toString(), ImmutableList.of(
+                anchor("review_comment:1", "{\"body\":\"one\"}"), anchor("review_comment:2", "{\"body\":\"two\"}"), anchor("review_comment:3", "{\"body\":\"three\"}")));
+
+        assertThat(rows).hasSize(TaskDiscussionService.MAXIMUM_COMMENT_THREADS_PER_TASK);
+        assertThat(rows.get(idOf("review_comment:1")).messages()).extracting(DiscussionMessage::body).containsExactly(DiscussionPrompt.SUMMARY_REQUEST, NORMALIZED);
+        assertThat(prompts).singleElement().satisfies(prompt -> assertThat(prompt)
+                .contains("--- question ---\n\n" + DiscussionPrompt.SUMMARY_REQUEST)
+                .doesNotContain("{\"body\":\"two\"}", "{\"body\":\"three\"}"));
+    }
+
+    @Test
+    void aVerdictThatCannotBeStoredFailsOnlyItsOwnThread()
+    {
+        answered(TurnId.random(), "Done.");
+        driver.answers.add("""
+                {"items":[
+                {"ref":"c1","ask":"One.","valid":"yes","why":"It holds.","do":"yes","plan":"Fix it.","size":"trivial"},
+                {"ref":"c2","ask":"Two.","valid":"yes","why":"It holds.","do":"yes","plan":"Fix it.","size":"trivial"},
+                {"ref":"c3","ask":"Three.","valid":"yes","why":"It holds.","do":"yes","plan":"Fix it.","size":"trivial"}]}""");
+        hold = true;
+        service.summarize("w1", TASK.toString(), ImmutableList.of(
+                anchor("review:1", "{\"body\":\"one\"}"), anchor("review:2", "{\"body\":\"two\"}"), anchor("review:3", "{\"body\":\"three\"}")));
+        conflicting.add(idOf("review:2"));
+
+        runHeld();
+
+        assertThat(rows.get(idOf("review:1")).messages()).extracting(DiscussionMessage::author)
+                .containsExactly(DiscussionMessage.Author.USER, DiscussionMessage.Author.AGENT);
+        assertThat(rows.get(idOf("review:2")).messages()).singleElement()
+                .satisfies(request -> assertThat(request.error()).contains("This discussion changed while you were reading it"));
+        assertThat(rows.get(idOf("review:3")).messages()).extracting(DiscussionMessage::author)
+                .containsExactly(DiscussionMessage.Author.USER, DiscussionMessage.Author.AGENT);
     }
 
     @Test
@@ -506,6 +657,12 @@ class TestTaskDiscussionAnswers
         assertThat(service.list("w1", shouted)).extracting(TaskDiscussionView::id).containsExactlyInAnyOrder("d1", id);
     }
 
+    private String idOf(String key)
+    {
+        return rows.values().stream().filter(thread -> thread.comment().map(ReviewCommentAnchor::key).filter(key::equals).isPresent())
+                .findFirst().orElseThrow().id();
+    }
+
     private void runHeld()
     {
         hold = false;
@@ -520,6 +677,9 @@ class TestTaskDiscussionAnswers
         when(store.find(any())).thenAnswer(call -> Optional.ofNullable(rows.get(call.getArgument(0, String.class))));
         when(store.update(any())).thenAnswer(call -> {
             TaskDiscussion updated = call.getArgument(0, TaskDiscussion.class);
+            if (conflicting.remove(updated.id())) {
+                throw new AgentConflictException("This discussion changed while you were reading it");
+            }
             rows.put(updated.id(), updated);
             return updated;
         });
@@ -537,6 +697,7 @@ class TestTaskDiscussionAnswers
         });
         when(store.insertOrGet(any())).thenAnswer(call -> {
             TaskDiscussion inserted = call.getArgument(0, TaskDiscussion.class);
+            Optional.ofNullable(racing.remove(inserted.anchor().quoteHash())).ifPresent(this::store);
             Optional<TaskDiscussion> existing = rows.values().stream()
                     .filter(row -> row.taskId().equals(inserted.taskId()) && row.anchor().quoteHash().equals(inserted.anchor().quoteHash()))
                     .findFirst();
@@ -544,6 +705,7 @@ class TestTaskDiscussionAnswers
                 return existing.orElseThrow();
             }
             store(inserted);
+            pendingWhenStored.add(this.service.list("w1", TASK.toString()).stream().filter(view -> view.id().equals(inserted.id())).findFirst().orElseThrow().pending());
             return inserted;
         });
         when(tasks.getInteractive("w1", TASK)).thenReturn(task());

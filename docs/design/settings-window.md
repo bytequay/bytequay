@@ -30,11 +30,13 @@ on its integration page; Jira's scheduled interval is ten minutes.
 
 The separate [Development Task Delivery](development-delivery.md#2-settings-and-scope)
 design adds **Agents → Workflow** with default-on Auto commit, Auto draft PR,
-and Auto CI fix settings plus the supported CI provider selection. It also
-defines per-task overrides and accepted-turn snapshots. The page and snapshots
-are implemented; automatic publication and CI progression remain pending with
-the delivery coordinator. An unselected CI provider stays visibly unselected;
-the service does not silently choose a provider when delivery starts.
+and Auto CI fix settings, the default-off Auto review summary of
+[Review Triage](review-triage.md), plus the supported CI provider selection.
+It also defines per-task overrides and accepted-turn snapshots. The page and
+snapshots are implemented; automatic publication and CI progression remain
+pending with the delivery coordinator. An unselected CI provider stays visibly
+unselected; the service does not silently choose a provider when delivery
+starts.
 
 Rules taken from the prototype:
 

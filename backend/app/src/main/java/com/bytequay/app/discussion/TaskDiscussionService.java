@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.discussion;
 
+import com.bytequay.core.discussion.ReviewCommentAnchor;
+
 import java.util.List;
 
 /**
@@ -71,6 +73,18 @@ public interface TaskDiscussionService
      * @throws com.bytequay.agent.spi.AgentUnavailableException when the task has no answered turn yet
      */
     TaskDiscussionView askComment(AskCommentCommand command);
+
+    /**
+     * Starts one read-only session summarizing the given comments. Each comment without a thread gets
+     * one holding the hidden summary request, then its summary; a comment that already has a thread is
+     * skipped. Returns once the threads are stored.
+     *
+     * @throws com.bytequay.agent.core.AgentConflictException when the task is already answering, which
+     *         is the watcher's busy check, when its history is too long to ask about, or when it holds
+     *         {@link #MAXIMUM_COMMENT_THREADS_PER_TASK} threads
+     * @throws com.bytequay.agent.spi.AgentUnavailableException when the task has no answered turn yet
+     */
+    void summarize(String workspaceId, String taskId, List<ReviewCommentAnchor> comments);
 
     /** Drafts a GitHub reply from one comment thread; stores nothing and posts nothing. */
     String draftReply(String workspaceId, String taskId, String discussionId);

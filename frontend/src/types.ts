@@ -572,6 +572,8 @@ export type DevelopmentAutomationDto = {
   autoDraftPr: boolean;
   autoCiFix: boolean;
   ciLaneId: string | null;
+  /** Task-level: the review summary watcher reads it from task defaults only. */
+  reviewSummary: boolean;
 };
 
 export type AgentTaskDefaultsDto = {

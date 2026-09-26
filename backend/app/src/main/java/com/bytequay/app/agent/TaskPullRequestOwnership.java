@@ -93,6 +93,18 @@ public class TaskPullRequestOwnership
                         .flatMap(workspace -> newestLive(pullRequests.findByHeadRef(workspace.monitoredRepository().fullName(), worktree.generatedBranch())))));
     }
 
+    /**
+     * The pull request the task's tab shows: the linked one when {@link #pullRequests} lists it, else the newest live one listed.
+     * The watcher summarizes only this one, so it never works on a pull request the tab does not show.
+     */
+    public Optional<PullRequest> shownPullRequest(AgentTask task)
+    {
+        List<PullRequest> listed = pullRequests(task);
+        return linkedPullRequest(task)
+                .flatMap(linked -> listed.stream().filter(pr -> pr.number() == linked.number()).findFirst())
+                .or(() -> newestLive(listed));
+    }
+
     public Optional<List<PullRequest>> assignedPullRequests(AgentTask task)
     {
         return assignments.findByTaskId(task.id().toString())
@@ -124,7 +136,7 @@ public class TaskPullRequestOwnership
                 .collect(toImmutableList());
     }
 
-    private static boolean isOpen(PullRequest pullRequest)
+    public static boolean isOpen(PullRequest pullRequest)
     {
         return "open".equalsIgnoreCase(pullRequest.state());
     }

@@ -19,7 +19,10 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.core.store.AppSettingsStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.BooleanNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -55,10 +58,15 @@ public class AppSettingsService
     {
         return store.get(DEVELOPMENT_AUTOMATION_KEY).map(value -> {
             try {
+                // Settings saved before the review summary option existed read as off; every other field stays required.
+                JsonNode saved = mapper.readTree(value);
+                if (saved instanceof ObjectNode object) {
+                    object.putIfAbsent("reviewSummary", BooleanNode.FALSE);
+                }
                 return requireNonNull(mapper.readerFor(DevelopmentAutomation.class)
                         .with(DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES)
                         .with(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
-                        .<DevelopmentAutomation>readValue(value), "Saved development automation is null");
+                        .treeToValue(saved, DevelopmentAutomation.class), "Saved development automation is null");
             }
             catch (JsonProcessingException failure) {
                 throw new IllegalStateException("Saved development automation could not be read", failure);

@@ -201,7 +201,7 @@ export function createPreviewBridge(
       return [];
     },
     discardAgentDraftAttachments: async () => {},
-    getDevelopmentAutomation: async () => ({ autoDraftPr: true, autoCiFix: true, ciLaneId: null }),
+    getDevelopmentAutomation: async () => ({ autoDraftPr: true, autoCiFix: true, ciLaneId: null, reviewSummary: false }),
     createAgentTask: async (request) => {
       record('createAgentTask', request);
       return previewTask(request.workspaceId, request.taskId);

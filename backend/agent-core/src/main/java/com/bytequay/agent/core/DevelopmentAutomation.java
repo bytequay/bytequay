@@ -19,12 +19,19 @@ import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
-/** Accepted delivery settings. Only trusted private/publication turns can disable commits; CI inherits the task lane. */
+/**
+ * Accepted delivery settings. Only trusted private/publication turns can disable commits; CI inherits the task lane.
+ *
+ * @param reviewSummary whether the agent summarizes each new review comment on the task's pull request in a private thread. It is
+ *         task-level: the watcher reads it from the task defaults, so the copies on turns and queued inputs have no effect. It is
+ *         not a delivery step and grants no authority, so {@link #enabled()} ignores it.
+ */
 public record DevelopmentAutomation(
         boolean autoCommit,
         boolean autoDraftPr,
         boolean autoCiFix,
-        Optional<AgentLaneId> ciLaneId)
+        Optional<AgentLaneId> ciLaneId,
+        boolean reviewSummary)
 {
     public static final DevelopmentAutomation DEFAULT = new DevelopmentAutomation(true, true, true, Optional.empty());
     public static final DevelopmentAutomation LOCAL_ONLY = new DevelopmentAutomation(false, false, false, Optional.empty());
@@ -34,9 +41,14 @@ public record DevelopmentAutomation(
         requireNonNull(ciLaneId, "ciLaneId is null");
     }
 
+    public DevelopmentAutomation(boolean autoCommit, boolean autoDraftPr, boolean autoCiFix, Optional<AgentLaneId> ciLaneId)
+    {
+        this(autoCommit, autoDraftPr, autoCiFix, ciLaneId, false);
+    }
+
     public DevelopmentAutomation forDevelopment()
     {
-        return new DevelopmentAutomation(true, autoDraftPr, autoCiFix, ciLaneId);
+        return new DevelopmentAutomation(true, autoDraftPr, autoCiFix, ciLaneId, reviewSummary);
     }
 
     public boolean enabled()

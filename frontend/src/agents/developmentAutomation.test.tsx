@@ -36,10 +36,23 @@ const state = { ...initialAgentTaskState(), task, turn, latestTurnId: turn.id, c
 
 it('keeps commits local for one submission without changing saved defaults', () => {
   const local = automationForSubmission(defaults, true);
-  expect(local).toEqual({ autoDraftPr: false, autoCiFix: false, ciLaneId: null });
+  expect(local).toEqual({ autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: false });
   expect(defaults.autoDraftPr).toBe(true);
   expect(automationForSubmission(defaults, false)).toBe(defaults);
   expect(automationSummary(local)).toBe('Local commits');
+});
+
+it('keeps the review summary when commits stay local, because it is not delivery', () => {
+  const summarized = { ...defaults, reviewSummary: true };
+  expect(automationForSubmission(summarized, true)).toEqual({ autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: true });
+  expect(automationSummary(summarized)).toBe('draft PR · CI fix · review summary');
+  expect(automationSummary(automationForSubmission(summarized, true))).toBe('Local commits · review summary');
+  const composer = renderToStaticMarkup(<AutomationControl value={summarized} providers={[]} localOnly onChange={() => {}} onLocalOnlyChange={() => {}} />);
+  const boxes = [...composer.matchAll(/<input type="checkbox"[^>]*>([^<]*)/g)];
+  expect(boxes.map(box => [box[1], box[0].includes('disabled')])).toEqual([
+    ['Auto draft PR', true], ['Auto CI fix', true], ['Auto review summary', false], ['Keep commits local for this turn', false],
+  ]);
+  expect(composer).toContain('<span class="agt-picker__effort">Local commits · review summary</span>');
 });
 
 it('changes request identity when automation or its first-turn override changes', () => {
@@ -62,6 +75,9 @@ it('validates and narrows automation and durable readiness at the bridge', () =>
   expect(parseDevelopmentAutomation(defaults).ciLaneId).toBeNull();
   expect(parseDevelopmentAutomation({ ...defaults, ciLaneId: 'claude' }).ciLaneId).toBe('claude');
   expect(() => parseDevelopmentAutomation({ ...defaults, autoDraftPr: 'true' })).toThrow();
+  expect(parseDevelopmentAutomation({ ...defaults, reviewSummary: true }).reviewSummary).toBe(true);
+  expect(() => parseDevelopmentAutomation({ ...defaults, reviewSummary: 'false' })).toThrow();
+  expect(() => parseDevelopmentAutomation({ autoDraftPr: true, autoCiFix: true, ciLaneId: null })).toThrow();
   expect(parseDevelopmentResult(report)).toEqual(report);
   expect(() => parseDevelopmentResult({ ...report, readyForDelivery: 'false' })).toThrow();
   expect(() => parseDevelopmentResult({ ...report, message: false })).toThrow();
@@ -173,7 +189,7 @@ it('shows publication switches and explains mandatory development commits', () =
   expect(composer).not.toContain('<small>');
   expect(composer).not.toMatch(/<(input|select)[^>]*disabled/);
   const started = renderToStaticMarkup(<AutomationControl value={defaults} providers={[]} disabled />);
-  expect(started.match(/<(input|select)[^>]*disabled=""/g)).toHaveLength(4);
+  expect(started.match(/<(input|select)[^>]*disabled=""/g)).toHaveLength(5);
 });
 
 it('offers inherited CI repair by default and supported Codex or Claude overrides', () => {
@@ -199,4 +215,5 @@ it('makes Workflow discoverable and deep-linkable', () => {
   expect(settingsLocationFromRoute('#/settings/agents/workflow')?.section).toBe('workflow');
   expect(matchesSearch(entryFor('workflow'), 'Auto draft PR')).toBe(true);
   expect(matchesSearch(entryFor('workflow'), 'CI repair agent')).toBe(true);
+  expect(matchesSearch(entryFor('workflow'), 'Auto review summary')).toBe(true);
 });

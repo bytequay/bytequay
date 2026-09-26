@@ -15,25 +15,30 @@ import type { AgentTaskState } from './model';
 import type { DevelopmentAutomationDto } from '../types';
 
 export const DEFAULT_DEVELOPMENT_AUTOMATION: DevelopmentAutomationDto = {
-  autoDraftPr: true, autoCiFix: true, ciLaneId: null,
+  autoDraftPr: true, autoCiFix: true, ciLaneId: null, reviewSummary: false,
 };
 
 /** The backend still commits development work; these fields only control publication and CI. */
 export const LOCAL_COMMITS_ONLY: DevelopmentAutomationDto = {
-  autoDraftPr: false, autoCiFix: false, ciLaneId: null,
+  autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: false,
 };
 
 export const AUTOMATION_OPTIONS = [
   { key: 'autoDraftPr', title: 'Auto draft PR', description: 'Push commits and create or update this task’s PR.' },
   { key: 'autoCiFix', title: 'Auto CI fix', description: 'Repair code or PR-description checks, rerun CI, and mark the draft ready when checks pass.' },
+  { key: 'reviewSummary', title: 'Auto review summary',
+    description: 'Add a private agent note to each new review comment on this task’s PR: what it asks, whether it holds, and a plan. Nothing is posted to GitHub.' },
 ] as const;
 
+/** Keeping commits local changes only this turn's delivery; the review summary is not delivery. */
 export function automationForSubmission(settings: DevelopmentAutomationDto, localOnly: boolean): DevelopmentAutomationDto {
-  return localOnly ? LOCAL_COMMITS_ONLY : settings;
+  return localOnly ? { ...LOCAL_COMMITS_ONLY, reviewSummary: settings.reviewSummary } : settings;
 }
 
+/** The review summary is not delivery, so on its own it must not hide that commits stay local. */
 export function automationSummary(settings: DevelopmentAutomationDto): string {
-  return AUTOMATION_OPTIONS.filter(option => settings[option.key]).map(option => option.title.replace('Auto ', '')).join(' · ') || 'Local commits';
+  const local = settings.autoDraftPr || settings.autoCiFix ? [] : ['Local commits'];
+  return [...local, ...AUTOMATION_OPTIONS.filter(option => settings[option.key]).map(option => option.title.replace('Auto ', ''))].join(' · ');
 }
 
 export function developmentQuestion(state: AgentTaskState): string | null {

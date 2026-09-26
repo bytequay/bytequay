@@ -85,11 +85,12 @@ class TestAppSettingsService
                 false,
                 ImmutableSet.of(AgentPermissionPolicy.CI_AUTOFIX),
                 ImmutableSet.of()));
-        DevelopmentAutomation chosen = new DevelopmentAutomation(false, true, true, Optional.of(lane));
+        DevelopmentAutomation chosen = new DevelopmentAutomation(false, true, true, Optional.of(lane), true);
 
         settings.saveDevelopmentAutomation(chosen);
 
         assertThat(settings.developmentAutomation()).isEqualTo(chosen.forDevelopment());
+        assertThat(settings.developmentAutomation().reviewSummary()).isTrue();
         assertThat(rows).containsKey("agent.developmentAutomation");
         settings.saveDevelopmentAutomation(DevelopmentAutomation.LOCAL_ONLY);
         assertThat(settings.developmentAutomation()).isEqualTo(DevelopmentAutomation.LOCAL_ONLY.forDevelopment());
@@ -98,7 +99,7 @@ class TestAppSettingsService
     @Test
     void savedAutoCommitOptOutCannotDisableDevelopmentCommits()
     {
-        rows.put("agent.developmentAutomation", "{\"autoCommit\":false,\"autoDraftPr\":false,\"autoCiFix\":false,\"ciLaneId\":null}");
+        rows.put("agent.developmentAutomation", "{\"autoCommit\":false,\"autoDraftPr\":false,\"autoCiFix\":false,\"ciLaneId\":null,\"reviewSummary\":false}");
         assertThat(settings.developmentAutomation()).isEqualTo(DevelopmentAutomation.LOCAL_ONLY.forDevelopment());
     }
 
@@ -115,6 +116,8 @@ class TestAppSettingsService
         assertThat(rows).isEmpty();
         rows.put("agent.developmentAutomation", "{\"autoCommit\":true}");
         assertThatThrownBy(settings::developmentAutomation).isInstanceOf(IllegalStateException.class);
+        rows.put("agent.developmentAutomation", "{\"autoCommit\":true,\"autoDraftPr\":true,\"autoCiFix\":true,\"ciLaneId\":null}");
+        assertThat(settings.developmentAutomation()).isEqualTo(new DevelopmentAutomation(true, true, true, Optional.empty(), false));
     }
 
     @Test

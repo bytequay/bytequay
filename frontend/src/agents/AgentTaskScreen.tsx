@@ -2517,7 +2517,7 @@ export default function AgentTaskScreen({
     const attachmentIds = input.attachments.map((attachment) => attachment.id);
     // Retrying the accepted input retains its publication choices, which may differ from the task defaults.
     const developmentAutomation = task.interactive && task.localReviewHead == null
-      ? current.turn.settings?.developmentAutomation ?? { autoDraftPr: false, autoCiFix: false, ciLaneId: null }
+      ? current.turn.settings?.developmentAutomation ?? { autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: false }
       : undefined;
     // The failed turn's key is never reused. The tracker retains this new key only if this reply is
     // ambiguous, so a second confirmed click cannot create a duplicate retry turn.

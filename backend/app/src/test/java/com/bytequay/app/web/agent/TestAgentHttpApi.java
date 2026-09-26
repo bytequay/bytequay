@@ -644,7 +644,7 @@ class TestAgentHttpApi
                 ImmutableMap.of("model", "test-model", "effort", "low", "permissionPolicy", "AUTO"),
                 ImmutableMap.of("model", "test-model", "effort", "high", "permissionPolicy", "AUTO", "serviceTier", "fast"),
                 ImmutableMap.of("model", "test-model", "effort", "high", "permissionPolicy", "AUTO",
-                        "developmentAutomation", ImmutableMap.of("autoDraftPr", true, "autoCiFix", false)));
+                        "developmentAutomation", ImmutableMap.of("autoDraftPr", true, "autoCiFix", false, "reviewSummary", false)));
         HttpHeaders updateHeaders = headers();
         updateHeaders.setContentType(MediaType.APPLICATION_JSON);
         for (Map<String, Object> defaults : unsupported) {
@@ -1000,7 +1000,7 @@ class TestAgentHttpApi
     {
         driver.holdNextTurn();
         Map<String, Object> request = new HashMap<>(createTaskBody("codex"));
-        request.put("developmentAutomation", ImmutableMap.of("autoDraftPr", true, "autoCiFix", true));
+        request.put("developmentAutomation", ImmutableMap.of("autoDraftPr", true, "autoCiFix", true, "reviewSummary", false));
         JsonNode created = post("/agent/tasks", request, null).getBody();
         String taskId = created.required("id").asText();
         String taskPath = "/agent/tasks/" + taskId + "?workspaceId=" + workspaceId;
@@ -1045,7 +1045,7 @@ class TestAgentHttpApi
         driver.holdNextTurn();
         Map<String, Object> request = new HashMap<>(createTaskBody("codex"));
         request.put("defaults", ImmutableMap.of("model", "test-model", "effort", "high", "permissionPolicy", "AUTO",
-                "developmentAutomation", ImmutableMap.of("autoDraftPr", true, "autoCiFix", true)));
+                "developmentAutomation", ImmutableMap.of("autoDraftPr", true, "autoCiFix", true, "reviewSummary", false)));
         JsonNode created = post("/agent/tasks", request, null).getBody();
         String taskId = created.required("id").asText();
         String taskPath = "/agent/tasks/" + taskId + "?workspaceId=" + workspaceId;
@@ -1505,7 +1505,7 @@ class TestAgentHttpApi
                         "model", model,
                         "effort", "high",
                         "permissionPolicy", "AUTO",
-                        "developmentAutomation", ImmutableMap.of("autoDraftPr", false, "autoCiFix", false)));
+                        "developmentAutomation", ImmutableMap.of("autoDraftPr", false, "autoCiFix", false, "reviewSummary", false)));
     }
 
     private JsonNode startTurn(String taskId, String message, String idempotencyKey)

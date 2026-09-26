@@ -32,8 +32,10 @@ import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.agent.IssueSourceInput;
 import com.bytequay.app.agent.JiraSourceInput;
+import com.bytequay.app.web.DevelopmentAutomationDto;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.JiraIssueSource;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
@@ -364,13 +366,19 @@ class TestInteractiveAgentHttpContract
                 {"taskId":"11111111-1111-1111-1111-111111111111","workspaceId":"workspace-1",
                 "message":"Task","laneId":"codex","idempotencyKey":"create-key",
                 "defaults":{"model":"model-a","permissionPolicy":"AUTO","developmentAutomation":
-                {"autoDraftPr":true,"autoCiFix":true,"ciLaneId":"claude"}},
-                "developmentAutomation":{"autoDraftPr":false,"autoCiFix":false,"ciLaneId":null}}
+                {"autoDraftPr":true,"autoCiFix":true,"ciLaneId":"claude","reviewSummary":true}},
+                "developmentAutomation":{"autoDraftPr":false,"autoCiFix":false,"ciLaneId":null,"reviewSummary":false}}
                 """, InteractiveAgentHttpContract.CreateTaskRequest.class);
 
         assertThat(request.defaults().developmentAutomation().orElseThrow().toDomain())
-                .isEqualTo(new DevelopmentAutomation(true, true, true, Optional.of(new AgentLaneId("claude"))));
+                .isEqualTo(new DevelopmentAutomation(true, true, true, Optional.of(new AgentLaneId("claude")), true));
         assertThat(request.developmentAutomation().orElseThrow().toDomain()).isEqualTo(DevelopmentAutomation.LOCAL_ONLY.forDevelopment());
+        // The option is required like its siblings, so a client that omits it is refused rather than defaulted.
+        assertThatThrownBy(() -> objectMapper.readValue("""
+                {"autoDraftPr":true,"autoCiFix":true,"ciLaneId":null}
+                """, DevelopmentAutomationDto.class))
+                .isInstanceOf(JsonProcessingException.class)
+                .hasMessageContaining("reviewSummary is null");
 
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), TaskId.random(), "private-key",
                         new AgentTurnSettings(Optional.of("model-a"), Optional.empty(), AgentPermissionPolicy.AUTO,
@@ -381,6 +389,7 @@ class TestInteractiveAgentHttpContract
         JsonNode json = objectMapper.valueToTree(InteractiveAgentHttpContract.turn(turn));
 
         assertThat(json.path("settings").path("developmentAutomation").has("autoCommit")).isFalse();
+        assertThat(json.path("settings").path("developmentAutomation").path("reviewSummary").isBoolean()).isTrue();
         assertThat(json.path("developmentResult").path("readyForDelivery").asBoolean()).isFalse();
         assertThat(json.path("developmentResult").path("message").asText()).isEqualTo("Choose the expected behavior.");
         assertThat(json.path("developmentResult").size()).isEqualTo(3);

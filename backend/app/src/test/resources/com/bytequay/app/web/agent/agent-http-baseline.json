@@ -8,7 +8,8 @@
       "permissionPolicy": "AUTO",
       "developmentAutomation": {
         "autoDraftPr": false,
-        "autoCiFix": false
+        "autoCiFix": false,
+        "reviewSummary": false
       }
     },
     "taskId": "<task-id>",
@@ -30,7 +31,8 @@
       "developmentAutomation": {
         "autoDraftPr": false,
         "autoCiFix": false,
-        "ciLaneId": null
+        "ciLaneId": null,
+        "reviewSummary": false
       }
     },
     "state": "OPEN",
@@ -96,7 +98,8 @@
           "developmentAutomation": {
             "autoDraftPr": false,
             "autoCiFix": false,
-            "ciLaneId": null
+            "ciLaneId": null,
+            "reviewSummary": false
           }
         },
         "terminalReason": null,
@@ -144,7 +147,8 @@
           "developmentAutomation": {
             "autoDraftPr": false,
             "autoCiFix": false,
-            "ciLaneId": null
+            "ciLaneId": null,
+            "reviewSummary": false
           }
         },
         "terminalReason": null,
@@ -198,7 +202,8 @@
           "developmentAutomation": {
             "autoDraftPr": false,
             "autoCiFix": false,
-            "ciLaneId": null
+            "ciLaneId": null,
+            "reviewSummary": false
           }
         },
         "terminalReason": null,
@@ -246,7 +251,8 @@
           "developmentAutomation": {
             "autoDraftPr": false,
             "autoCiFix": false,
-            "ciLaneId": null
+            "ciLaneId": null,
+            "reviewSummary": false
           }
         },
         "terminalReason": null,
@@ -300,7 +306,8 @@
           "developmentAutomation": {
             "autoDraftPr": false,
             "autoCiFix": false,
-            "ciLaneId": null
+            "ciLaneId": null,
+            "reviewSummary": false
           }
         },
         "terminalReason": null,
@@ -348,7 +355,8 @@
           "developmentAutomation": {
             "autoDraftPr": false,
             "autoCiFix": false,
-            "ciLaneId": null
+            "ciLaneId": null,
+            "reviewSummary": false
           }
         },
         "terminalReason": null,
@@ -855,7 +863,8 @@
       "developmentAutomation": {
         "autoDraftPr": false,
         "autoCiFix": false,
-        "ciLaneId": null
+        "ciLaneId": null,
+        "reviewSummary": false
       }
     },
     "state": "COMPLETED",

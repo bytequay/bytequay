@@ -58,6 +58,7 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -88,6 +89,7 @@ public class DefaultTaskDiscussionService
 {
     private static final Logger log = LoggerFactory.getLogger(DefaultTaskDiscussionService.class);
     private static final Duration MAXIMUM_RUNTIME = Duration.ofMinutes(3);
+    private static final Duration MAXIMUM_BATCH_RUNTIME = Duration.ofMinutes(5);
     private static final int EVENT_PAGE_SIZE = 1000;
     private static final int MAXIMUM_REPLY_CONTEXT_CHARACTERS = 20_000;
 
@@ -253,6 +255,63 @@ public class DefaultTaskDiscussionService
     }
 
     @Override
+    public void summarize(String workspaceId, String taskId, List<ReviewCommentAnchor> comments)
+    {
+        List<ReviewCommentAnchor> requested = ImmutableList.copyOf(comments);
+        AgentTask task = askableTask(workspaceId, taskId);
+        Set<String> slot = claim(task);
+        try {
+            List<TaskDiscussion> existing = store.listByTask(task.id().toString());
+            Set<String> covered = new HashSet<>();
+            existing.forEach(discussion -> discussion.comment().ifPresent(comment -> covered.add(comment.key())));
+            List<ReviewCommentAnchor> uncovered = requested.stream().filter(comment -> covered.add(comment.key())).collect(toImmutableList());
+            if (uncovered.isEmpty()) {
+                release(task, slot);
+                return;
+            }
+            requireCommentThreadRoom(existing);
+            // Rendered before anything is stored, so a refusal leaves no thread behind.
+            String history = seed(task.id(), Optional.empty()).text();
+            List<ReviewCommentAnchor> fresh = uncovered.stream()
+                    .limit(MAXIMUM_COMMENT_THREADS_PER_TASK - existing.stream().filter(discussion -> discussion.comment().isPresent()).count())
+                    .collect(toImmutableList());
+            List<String> ids = fresh.stream().map(comment -> UUID.randomUUID().toString()).collect(toImmutableList());
+            // Every id is pending before its row shows the hidden request, so no poll sees a question that is neither pending nor failed.
+            slot.addAll(ids);
+            Instant now = clock.instant();
+            ImmutableList.Builder<TaskDiscussion> kept = ImmutableList.builder();
+            for (int index = 0; index < fresh.size(); index++) {
+                String id = ids.get(index);
+                TaskDiscussion stored = store.insertOrGet(commentThread(id, task, fresh.get(index),
+                        ImmutableList.of(new DiscussionMessage(UUID.randomUUID().toString(), DiscussionMessage.Author.USER, SUMMARY_REQUEST, now, Optional.empty())), now));
+                if (stored.id().equals(id)) {
+                    kept.add(stored);
+                }
+                else {
+                    slot.remove(id);
+                }
+            }
+            List<TaskDiscussion> threads = kept.build();
+            if (threads.isEmpty()) {
+                release(task, slot);
+                return;
+            }
+            answers.execute(() -> {
+                try {
+                    summarizeBatch(task, threads, history);
+                }
+                finally {
+                    release(task, slot);
+                }
+            });
+        }
+        catch (RuntimeException failure) {
+            release(task, slot);
+            throw failure;
+        }
+    }
+
+    @Override
     public String draftReply(String workspaceId, String taskId, String discussionId)
     {
         AgentTask task = askableTask(workspaceId, taskId);
@@ -295,8 +354,8 @@ public class DefaultTaskDiscussionService
     }
 
     /**
-     * One read-only session per task, whichever discussion it answers. Keyed by the canonical id, because a path id is parsed
-     * leniently and another spelling of it must not claim a second slot.
+     * One read-only session per task, whichever discussion it answers; this refusal is also the watcher's busy check. Keyed by the
+     * canonical id, because a path id is parsed leniently and another spelling of it must not claim a second slot.
      */
     private Set<String> claim(AgentTask task)
     {
@@ -568,6 +627,50 @@ public class DefaultTaskDiscussionService
                 catch (RuntimeException failure) {
                     log.warn("Could not remove discussion resources for {}", scratchId, failure);
                 }
+            }
+        }
+    }
+
+    /**
+     * One session over every new comment; each thread then holds its own verdict and no session,
+     * because a provider conversation shared by several threads would interleave their follow-ups.
+     */
+    private void summarizeBatch(AgentTask task, List<TaskDiscussion> threads, String history)
+    {
+        List<String> verdicts;
+        try {
+            String prompt = DiscussionPrompt.renderComments(history, threads.stream().map(thread -> thread.comment().orElseThrow().snapshot()).collect(toImmutableList()),
+                    ImmutableList.of(), DiscussionPrompt.summaryRequest(threads.size()));
+            AgentTurnResult result = converse(task, task.defaults().model(), Optional.empty(), prompt, MAXIMUM_BATCH_RUNTIME).result();
+            String answer = result.finalResponse().orElse("").strip();
+            if (result.state() != AgentTurnResult.State.COMPLETED || answer.isEmpty()) {
+                threads.forEach(thread -> fail(thread.id(), result.terminalReason().orElse("The answer could not be produced")));
+                return;
+            }
+            verdicts = CommentSummary.parse(answer, threads.size());
+        }
+        catch (RuntimeException failure) {
+            log.warn("Review comments on task {} could not be summarized", task.id(), failure);
+            threads.forEach(thread -> fail(thread.id(), reasonOf(failure)));
+            return;
+        }
+        for (int index = 0; index < threads.size(); index++) {
+            String id = threads.get(index).id();
+            String verdict = verdicts.get(index);
+            // One thread's conflict or storage error must not strand the verdicts after it.
+            try {
+                store.find(id).ifPresent(discussion -> store.update(discussion.update(
+                        discussion.resolved(),
+                        ImmutableList.<DiscussionMessage>builder()
+                                .addAll(discussion.messages())
+                                .add(new DiscussionMessage(UUID.randomUUID().toString(), DiscussionMessage.Author.AGENT, verdict, clock.instant(), Optional.empty()))
+                                .build(),
+                        Optional.empty(),
+                        clock.instant())));
+            }
+            catch (RuntimeException failure) {
+                log.warn("The summary for discussion {} could not be stored", id, failure);
+                fail(id, reasonOf(failure));
             }
         }
     }

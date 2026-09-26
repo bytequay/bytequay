@@ -368,7 +368,7 @@ async function stopPreservesTask(): Promise<{ name: string; error?: string }[]> 
     const send = host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]');
     assert(send !== null && !send.disabled, 'The user must be able to continue in the same task');
     const automation = Array.from(host.querySelectorAll<HTMLInputElement | HTMLSelectElement>('.agt-automation input, .agt-automation select'));
-    assert(automation.length === 4 && automation.every(control => control.disabled), 'A started task must show its publication automation read-only');
+    assert(automation.length === 5 && automation.every(control => control.disabled), 'A started task must show its publication automation read-only');
     send.click();
     await settle();
     const requests = bridge.commands.filter(command => command.name === 'startAgentTurn');

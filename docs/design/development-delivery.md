@@ -40,13 +40,19 @@ do not duplicate them in a new delivery lifecycle.
 
 ## 2. Settings and scope
 
-**Settings → Agents → Workflow** has two settings, both on by default.
+**Settings → Agents → Workflow** has three settings. Auto draft PR and Auto CI
+fix are on by default; Auto review summary is off by default.
 Finished development work is always committed locally; there is no Auto commit toggle.
 
 | Setting | Meaning |
 | --- | --- |
 | Auto draft PR | Ask the agent to push committed work and create a draft if the task has no matching PR. Update the same open PR on later revisions. |
 | Auto CI fix | Repair code or PR-description checks through CI Autofix and mark this task's draft ready after verified green. |
+| Auto review summary | Add a private agent summary to each new review comment on the task's pull request. |
+
+Auto review summary is not a delivery step and carries no publication
+authority. Only the [Review Triage](review-triage.md) watcher reads it, and it
+reads the task's defaults, not the per-turn snapshot.
 
 Store defaults in the existing `AppSettingsStore`. Copy them into a new task,
 which may override them until it starts; a started task's choices cannot

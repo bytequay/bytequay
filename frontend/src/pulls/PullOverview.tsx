@@ -307,16 +307,14 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate }: {
         <button type="button" className={`pr-meta__chip${open === 'reviewers' ? ' is-open' : ''}`}
           aria-expanded={open === 'reviewers'} aria-haspopup="listbox" onClick={() => toggle('reviewers')}>
           <small>Reviewers</small>
-          {visibleDetail.reviewers.length === 0
-            ? 'None'
-            : visibleDetail.reviewers.length < 3
-              ? visibleDetail.reviewers.map(reviewer => (
-                <span className="pr-meta__reviewer" key={reviewer.login}>
-                  <Avatar login={reviewer.login} avatarUrl={reviewer.avatarUrl} size={18} />
-                  {reviewer.login}
-                </span>
-              ))
-              : `${visibleDetail.reviewers.length} people`}
+          {visibleDetail.reviewers.length === 0 && 'None'}
+          {visibleDetail.reviewers.slice(0, visibleDetail.reviewers.length > 3 ? 2 : 3).map(reviewer => (
+            <span className="pr-meta__item" key={reviewer.login}>
+              <Avatar login={reviewer.login} avatarUrl={reviewer.avatarUrl} size={18} />
+              {reviewer.login}
+            </span>
+          ))}
+          {visibleDetail.reviewers.length > 3 && `${visibleDetail.reviewers.length - 2} other reviewers`}
         </button>
         {open === 'reviewers' && <PeoplePicker detail={visibleDetail} kind="reviewers" loading={loading}
           query={query} repoUsers={repoUsers} setQuery={setQuery} updating={updating}
@@ -337,7 +335,14 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate }: {
       <div className="pr-meta__picker">
         <button type="button" className={`pr-meta__chip${open === 'assignees' ? ' is-open' : ''}`}
           aria-expanded={open === 'assignees'} aria-haspopup="listbox" onClick={() => toggle('assignees')}>
-          <User size={15} strokeWidth={1.4} aria-hidden="true" /> <small>Assignees</small>{visibleDetail.assignees.length > 0 ? ` ${visibleDetail.assignees.length}` : ''}
+          <User size={15} strokeWidth={1.4} aria-hidden="true" /> <small>Assignees</small>
+          {visibleDetail.assignees.slice(0, visibleDetail.assignees.length > 3 ? 2 : 3).map(login => (
+            <span className="pr-meta__item" key={login}>
+              <Avatar login={login} size={18} />
+              {login}
+            </span>
+          ))}
+          {visibleDetail.assignees.length > 3 && `${visibleDetail.assignees.length - 2} other assignees`}
         </button>
         {open === 'assignees' && <PeoplePicker detail={visibleDetail} kind="assignees" loading={loading}
           query={query} repoUsers={repoUsers} setQuery={setQuery} updating={updating}
@@ -355,14 +360,14 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate }: {
       <div className="pr-meta__picker">
         <button type="button" className={`pr-meta__chip${open === 'labels' ? ' is-open' : ''}`}
           aria-expanded={open === 'labels'} aria-haspopup="listbox" onClick={() => toggle('labels')}>
-          <span className="pr-meta__label-dots" aria-hidden="true">
-            {(visibleDetail.labels.length > 1 ? visibleDetail.labels.slice(0, 2) : [visibleDetail.labels[0]]).filter(Boolean).map((label, index) => (
-              <i className="pr-meta__label-dot" style={{ background: labelPalette(label?.name ?? '', label?.color).color }} key={`${label?.name ?? 'label'}-${index}`} />
-            ))}
-          </span>
-          {visibleDetail.labels.length === 0
-            ? 'No labels'
-            : visibleDetail.labels.length === 1 ? visibleDetail.labels[0].name : `${visibleDetail.labels.length} labels`}
+          {visibleDetail.labels.length === 0 && 'No labels'}
+          {visibleDetail.labels.slice(0, visibleDetail.labels.length > 3 ? 2 : 3).map(label => (
+            <span className="pr-meta__item" key={label.name}>
+              <i className="pr-meta__label-dot" aria-hidden="true" style={{ background: labelPalette(label.name, label.color).color }} />
+              {label.name}
+            </span>
+          ))}
+          {visibleDetail.labels.length > 3 && `${visibleDetail.labels.length - 2} other labels`}
         </button>
         {open === 'labels' && <LabelPicker labels={repoLabels} selected={visibleDetail.labels.map(label => label.name)}
           loading={loading} query={query} setQuery={setQuery} updating={updating}

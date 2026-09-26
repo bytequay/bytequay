@@ -1221,22 +1221,33 @@ describe('PullOverview', () => {
     expect(html).toContain('Related issue</a>');
   });
 
-  it('shows reviewer identities below three people and a count from three people', () => {
+  it.each([0, 1, 2, 3, 4, 5])('shows metadata items and the remaining count for %i entries', count => {
     const value = detail();
-    value.reviewers = [
-      { login: 'bob', avatarUrl: 'https://example.com/bob.png', state: 'APPROVED' },
-      { login: 'carol', avatarUrl: 'https://example.com/carol.png', state: 'PENDING' },
-    ];
+    const names = ['bob', 'carol', 'dave', 'erin', 'frank'].slice(0, count);
+    value.reviewers = names.map(login => ({ login, avatarUrl: `https://example.com/${login}.png`, state: 'PENDING' }));
+    value.assignees = names;
+    value.labels = names.map(name => ({ name: `label-${name}`, color: 'd4c5f9' }));
 
-    const twoReviewers = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
-    expect(twoReviewers).toContain('alt="bob"');
-    expect(twoReviewers).toContain('alt="carol"');
-    expect(twoReviewers).not.toContain('2 people');
-
-    value.reviewers.push({ login: 'dave', avatarUrl: 'https://example.com/dave.png', state: 'PENDING' });
-    const threeReviewers = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
-    expect(threeReviewers).toContain('<small>Reviewers</small>3 people');
-    expect(threeReviewers).not.toContain('alt="bob"');
+    const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+    const chips = [...html.matchAll(/<button[^>]*class="pr-meta__chip"[^>]*>(.*?)<\/button>/g)].map(match => match[1]);
+    expect(chips).toHaveLength(3);
+    ['reviewers', 'assignees', 'labels'].forEach((kind, index) => {
+      const chip = chips[index];
+      const shown = count > 3 ? 2 : count;
+      expect(chip.match(/class="pr-meta__item"/g) ?? []).toHaveLength(shown);
+      names.forEach((name, itemIndex) => {
+        const content = `${kind === 'labels' ? 'label-' : ''}${name}</span>`;
+        if (itemIndex < shown) expect(chip).toContain(content);
+        else expect(chip).not.toContain(content);
+      });
+      if (count > 3) expect(chip).toContain(`${count - 2} other ${kind}`);
+      else expect(chip).not.toContain(' other ');
+    });
+    if (count === 0) {
+      expect(chips[0]).toContain('None');
+      expect(chips[1]).toContain('Assignees');
+      expect(chips[2]).toContain('No labels');
+    }
   });
 
   it('pins selected reviewers and assignees before repository users', () => {

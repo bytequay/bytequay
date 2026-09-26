@@ -30,9 +30,11 @@ import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent.PlanItem;
 import com.bytequay.app.agent.IssueSourceInput;
+import com.bytequay.app.agent.JiraSourceInput;
 import com.bytequay.app.web.DevelopmentAutomationDto;
 import com.bytequay.app.web.ci.CiAutofixHttpModels;
 import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.PullRequest;
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import com.google.common.collect.ImmutableList;
@@ -69,6 +71,17 @@ final class InteractiveAgentHttpContract
             Optional<TaskPullRequestResponse> pullRequest,
             Optional<IssueSourceResponse> issueSource)
     {
+        return task(task, metrics, developmentCi, pullRequest, issueSource, Optional.empty());
+    }
+
+    static TaskResponse task(
+            AgentTask task,
+            AgentMetrics metrics,
+            Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi,
+            Optional<TaskPullRequestResponse> pullRequest,
+            Optional<IssueSourceResponse> issueSource,
+            Optional<JiraSourceResponse> jiraSource)
+    {
         requireNonNull(task, "task is null");
         requireNonNull(metrics, "metrics is null");
         checkArgument(task.interactive(), "task is not interactive");
@@ -100,7 +113,8 @@ final class InteractiveAgentHttpContract
                 developmentCi,
                 pullRequest,
                 task.localReviewHead(),
-                issueSource);
+                issueSource,
+                jiraSource);
     }
 
     /**
@@ -246,16 +260,26 @@ final class InteractiveAgentHttpContract
             TaskDefaults defaults,
             String idempotencyKey,
             Optional<DevelopmentAutomationDto> developmentAutomation,
-            Optional<IssueSourceInput> issueSource)
+            Optional<IssueSourceInput> issueSource,
+            Optional<JiraSourceInput> jiraSource)
     {
         CreateTaskRequest(String taskId, String workspaceId, String message, String laneId, TaskDefaults defaults, String idempotencyKey)
         {
-            this(taskId, workspaceId, message, laneId, defaults, idempotencyKey, Optional.empty(), Optional.empty());
+            this(taskId, workspaceId, message, laneId, defaults, idempotencyKey, Optional.empty(), Optional.empty(), Optional.empty());
+        }
+
+        CreateTaskRequest(
+                String taskId, String workspaceId, String message, String laneId, TaskDefaults defaults, String idempotencyKey,
+                Optional<DevelopmentAutomationDto> developmentAutomation, Optional<IssueSourceInput> issueSource)
+        {
+            this(taskId, workspaceId, message, laneId, defaults, idempotencyKey, developmentAutomation, issueSource, Optional.empty());
         }
 
         CreateTaskRequest
         {
             requireNonNull(issueSource, "issueSource is null");
+            requireNonNull(jiraSource, "jiraSource is null");
+            checkArgument(issueSource.isEmpty() || jiraSource.isEmpty(), "Choose only one issue source");
             requireNonNull(developmentAutomation, "developmentAutomation is null");
             checkNotBlank(taskId, "taskId");
             checkNotBlank(workspaceId, "workspaceId");
@@ -326,6 +350,8 @@ final class InteractiveAgentHttpContract
 
     record IssueSourceResponse(@JsonUnwrapped GitHubIssueSource source, Optional<String> initialTurnId, String instructions) {}
 
+    record JiraSourceResponse(@JsonUnwrapped JiraIssueSource source, Optional<String> initialTurnId, String instructions) {}
+
     record TaskResponse(
             String id,
             String workspaceId,
@@ -354,7 +380,8 @@ final class InteractiveAgentHttpContract
             Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi,
             Optional<TaskPullRequestResponse> pullRequest,
             Optional<String> localReviewHead,
-            Optional<IssueSourceResponse> issueSource) {}
+            Optional<IssueSourceResponse> issueSource,
+            Optional<JiraSourceResponse> jiraSource) {}
 
     record TaskPullRequestResponse(
             int number,

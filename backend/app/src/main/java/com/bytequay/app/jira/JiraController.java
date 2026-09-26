@@ -1,0 +1,170 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.jira;
+
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+import static java.util.Objects.requireNonNull;
+
+@RestController
+@RequestMapping("/api/jira")
+public class JiraController
+{
+    private static final String SITE = "/connections/{connectionId}/sites/{cloudId}";
+    private static final String ISSUE = SITE + "/issues/{issueId}";
+    private final JiraConnections connections;
+    private final JiraService jira;
+
+    public JiraController(JiraConnections connections, JiraService jira)
+    {
+        this.connections = requireNonNull(connections, "connections is null");
+        this.jira = requireNonNull(jira, "jira is null");
+    }
+
+    @GetMapping("/connections")
+    public List<JiraDtos.Connection> connections()
+    {
+        return connections.list();
+    }
+
+    @PostMapping("/connections")
+    public JiraDtos.Connection connect(@RequestBody Connect request)
+    {
+        return connections.connect(request.brokerUrl());
+    }
+
+    @PostMapping("/connections/{connectionId}/refresh")
+    public JiraDtos.Connection refreshConnection(@PathVariable String connectionId)
+    {
+        return connections.refresh(connectionId);
+    }
+
+    @DeleteMapping("/connections/{connectionId}")
+    public void disconnect(@PathVariable String connectionId)
+    {
+        connections.disconnect(connectionId);
+    }
+
+    @GetMapping(SITE + "/boards")
+    public List<JiraDtos.Board> boards(@PathVariable String connectionId, @PathVariable String cloudId)
+    {
+        return jira.boards(connectionId, cloudId, false);
+    }
+
+    @PostMapping(SITE + "/boards/refresh")
+    public List<JiraDtos.Board> refreshBoards(@PathVariable String connectionId, @PathVariable String cloudId)
+    {
+        return jira.boards(connectionId, cloudId, true);
+    }
+
+    @GetMapping(SITE + "/boards/{boardId}/sprints")
+    public List<JiraDtos.Sprint> sprints(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable long boardId)
+    {
+        return jira.sprints(connectionId, cloudId, boardId, false);
+    }
+
+    @PostMapping(SITE + "/boards/{boardId}/sprints/refresh")
+    public List<JiraDtos.Sprint> refreshSprints(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable long boardId)
+    {
+        return jira.sprints(connectionId, cloudId, boardId, true);
+    }
+
+    @GetMapping(SITE + "/issues")
+    public JiraDtos.IssuePage issues(@PathVariable String connectionId, @PathVariable String cloudId, @RequestParam long boardId,
+            @RequestParam Optional<Long> sprintId, @RequestParam(defaultValue = "true") boolean mine)
+    {
+        return jira.issues(connectionId, cloudId, boardId, sprintId, mine, false);
+    }
+
+    @PostMapping(SITE + "/issues/refresh")
+    public JiraDtos.IssuePage refreshIssues(@PathVariable String connectionId, @PathVariable String cloudId, @RequestParam long boardId,
+            @RequestParam Optional<Long> sprintId, @RequestParam(defaultValue = "true") boolean mine)
+    {
+        return jira.issues(connectionId, cloudId, boardId, sprintId, mine, true);
+    }
+
+    @GetMapping(ISSUE)
+    public JiraDtos.Detail detail(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId)
+    {
+        return jira.detail(connectionId, cloudId, issueId, false);
+    }
+
+    @PostMapping(ISSUE + "/refresh")
+    public JiraDtos.Detail refreshDetail(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId)
+    {
+        return jira.detail(connectionId, cloudId, issueId, true);
+    }
+
+    @PatchMapping(ISSUE)
+    public JiraDtos.Detail update(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId, @RequestBody Edit request)
+    {
+        return jira.update(connectionId, cloudId, issueId, request.expectedUpdatedAt(), request.fields());
+    }
+
+    @PostMapping(ISSUE + "/transitions")
+    public JiraDtos.Detail transition(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId, @RequestBody Transition request)
+    {
+        return jira.transition(connectionId, cloudId, issueId, request.expectedUpdatedAt(), request.transitionId(), request.fields());
+    }
+
+    @PostMapping(ISSUE + "/sprint")
+    public JiraDtos.Detail move(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId, @RequestBody Move request)
+    {
+        return jira.move(connectionId, cloudId, issueId, request.expectedUpdatedAt(), request.sprintId());
+    }
+
+    @PostMapping(ISSUE + "/comments")
+    public JiraDtos.Detail comment(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId, @RequestBody Comment request)
+    {
+        return jira.comment(connectionId, cloudId, issueId, request.body(), request.operationId());
+    }
+
+    @PutMapping(ISSUE + "/goal")
+    public JiraDtos.Detail goal(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId, @RequestBody Goal request)
+    {
+        return jira.goal(connectionId, cloudId, issueId, request.isGoal());
+    }
+
+    @GetMapping("/attention")
+    public List<JiraIssue> attention()
+    {
+        return jira.attention();
+    }
+
+    public record Connect(String brokerUrl) {}
+
+    public record Edit(Instant expectedUpdatedAt, Map<String, Object> fields) {}
+
+    public record Transition(String transitionId, Instant expectedUpdatedAt, Map<String, Object> fields) {}
+
+    public record Move(Optional<Long> sprintId, Instant expectedUpdatedAt) {}
+
+    public record Comment(String body, String operationId) {}
+
+    public record Goal(boolean isGoal) {}
+}

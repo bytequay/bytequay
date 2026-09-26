@@ -11,6 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useJiraAttention } from '../jira/attention';
+import { jiraIssueLocation, jiraRoute } from '../jira/contracts';
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import type { PullRequestDto, RecentEventDto, UserProfileDto, WorkspaceDto } from '../types';
@@ -142,6 +144,7 @@ function HomePage({
   const [attentionPrs, setAttentionPrs] = useState<PullRequestDto[] | null>(
     () => getCached<PullRequestDto[]>(SEED.attention) ?? null);
   const [attentionError, setAttentionError] = useState<string | null>(null);
+  const jira = useJiraAttention();
   const [issueAttentionError, setIssueAttentionError] = useState<string | null>(null);
   const [loading, setLoading] = useState(() => getCached(SEED.workspaces) === undefined);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
@@ -301,10 +304,10 @@ function HomePage({
   }, [login, workspaceKey]);
 
   const candidates = useMemo(
-    () => attentionCandidates(attentionPrs ?? [], issueItems.map(item => ({
+    () => attentionCandidates(attentionPrs ?? [], issueItems.map<AttentionItem>(item => ({
       ...item, workspaceName: workspaces.find(workspace => workspace.id === item.workspaceId)?.name,
-    })), login),
-    [attentionPrs, issueItems, login, workspaces]);
+    })).concat(jira.items), login),
+    [attentionPrs, issueItems, jira.items, login, workspaces]);
 
   const snoozedCount = useMemo(() => {
     const now = Date.now();
@@ -366,12 +369,14 @@ function HomePage({
       </div>
 
       {attentionError && <div className="ws-error" role="alert">Unable to load PR attention: {attentionError}</div>}
+      {jira.error && <div className="ws-error" role="alert">{jira.error}</div>}
       {issueAttentionError && <div className="ws-error" role="alert">{issueAttentionError}</div>}
       <AttentionList
         candidates={candidates}
         handled={handled}
         onHandledChange={applyHandled}
         onOpen={item => {
+          if (item.jira) { window.location.hash = jiraRoute(jiraIssueLocation(item.jira)); return; }
           if (item.type === 'issue' && item.workspaceId !== null) {
             zoomReference({ kind: 'issue', repo: item.repo, number: item.number, workspaceId: item.workspaceId });
             return;
@@ -379,9 +384,10 @@ function HomePage({
           const slash = item.repo.indexOf('/');
           onSelectRepo(item.repo.slice(0, slash), item.repo.slice(slash + 1), item.number);
         }}
-        onStartIssue={onStartIssue ? item => {
-          if (item.workspaceId !== null) onStartIssue(item.workspaceId, item.number);
-        } : undefined}
+        onStartIssue={item => {
+          if (item.jira) { window.location.hash = `${jiraRoute(jiraIssueLocation(item.jira))}&start=1`; return; }
+          if (item.workspaceId !== null) onStartIssue?.(item.workspaceId, item.number);
+        }}
         issueNavigation={workspaces.length > 0 ? (
           <select className="atn-head__issues" aria-label="Open workspace issues" value=""
             onChange={event => { if (event.target.value) window.location.hash = workspaceRoute(event.target.value, 'issues'); }}>

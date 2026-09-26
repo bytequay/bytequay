@@ -66,12 +66,13 @@ export function WindowControls() {
   );
 }
 
-export type AppPage = 'home' | 'recent' | 'pulls' | 'workspaces' | 'settings';
+export type AppPage = 'home' | 'recent' | 'pulls' | 'workspaces' | 'jira' | 'settings';
 
 type NavItem = { page: AppPage; label: string; icon: ReactNode };
 
 const GLOBAL_NAV_ITEMS: NavItem[] = [
   { page: 'home', label: 'Home', icon: <HomeIcon /> },
+  { page: 'jira', label: 'My sprint', icon: <ListChecks size={16} strokeWidth={1.7} aria-hidden="true" /> },
   { page: 'recent', label: 'Recent', icon: <History size={16} strokeWidth={1.7} aria-hidden="true" /> },
 ];
 

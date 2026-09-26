@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import type { JiraBridge, JiraSourceRequest, JiraTaskSource } from './jira/contracts';
 import { AgentEventEnvelope } from './agents/events';
 import type { AskDiscussionRequest, DiscussionQuery, OpenDiscussionRequest, ResolveDiscussionRequest, RetryDiscussionRequest, TaskDiscussionDto } from './agents/discussions/contracts';
 import type { CreateDevelopmentLearningCommentRequest, CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';
@@ -622,6 +623,7 @@ export type AgentTaskPullRequestDto = Pick<PullRequestDto, 'number' | 'title' | 
 export type AgentTaskChangesDto = { uncommitted: boolean; commits: number };
 
 export type AgentTaskDto = {
+  jiraSource?: JiraTaskSource | null;
   issueSource?: AgentIssueSourceDto | null;
   interactive?: boolean;
   localReviewHead?: string | null;
@@ -745,6 +747,7 @@ export type CiAutofixRunDto = {
 };
 
 export type CreateAgentTaskRequest = {
+  jiraSource?: JiraSourceRequest;
   issueSource?: IssueTaskSourceRequest;
   developmentAutomation?: DevelopmentAutomationDto;
   /** Client-generated identity makes task provisioning safe to replay after a lost response. */
@@ -1339,7 +1342,7 @@ export interface DevelopmentContextActivityDto {
   usageTruncated: boolean;
 }
 
-export type Bridge = {
+export type Bridge = JiraBridge & {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
   fetchPrs: (workspaceId: string | undefined, page: number, pageSize: number) => Promise<PullRequestPageDto>;

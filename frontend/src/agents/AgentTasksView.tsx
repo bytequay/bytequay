@@ -12,6 +12,8 @@
  * limitations under the License.
  */
 
+import { notifyJiraChanged, type JiraIssue } from '../jira/contracts';
+import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Archive, ArchiveRestore, Check, ChevronRight, Circle, FilePen, GitCommitHorizontal, LoaderCircle, SquareCheck, Trash2, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
@@ -197,8 +199,9 @@ export function taskCreationCatalog(settings: ModelSettingsDto, sourceIssueNumbe
  * Everything creating a task needs: the list, the catalog, the chosen model, the draft, why
  * creation is blocked, and the create call itself — shared by the Tasks page and the Home hero.
  */
-export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpenTask, sourceIssueNumber = null, onOpenCreatedTask }: {
+export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpenTask, sourceIssueNumber = null, sourceJira = null, onOpenCreatedTask }: {
   workspaceId: string;
+  sourceJira?: JiraIssue | null;
   /** A launch the caller chose; without one the workspace's Development agent decides. */
   initialLaunch?: TaskLaunch;
   bridge: () => AgentBridgePort;
@@ -208,6 +211,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
 }) {
   // Home and the Tasks page remount on every tab switch; the last list paints the first frame, and
   // the mount still re-reads it.
+  const sourceBound = sourceIssueNumber !== null || sourceJira !== null;
   const seed = `agent-tasks:${workspaceId}`;
   const [tasks, setTasks] = useState<AgentTaskDto[]>(() => getCached<AgentTaskDto[]>(seed) ?? []);
   const [loading, setLoading] = useState(() => getCached(seed) === undefined);
@@ -215,7 +219,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   const [catalog, setCatalog] = useState<ModelSettingsDto | null>(null);
   const [laneId, setLaneId] = useState(initialLaunch?.laneId ?? INTERACTIVE_LANE_ID);
   const [selection, setSelection] = useState<TaskModelSelection | null>(null);
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState(sourceJira === null ? '' : `Implement ${sourceJira.key}: ${sourceJira.title}`);
   const [issue, setIssue] = useState<DevelopmentIssue | null>(null);
   const [sourceLoading, setSourceLoading] = useState(sourceIssueNumber !== null);
   const [sourceError, setSourceError] = useState<string | null>(null);
@@ -252,7 +256,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
    * blocked start is retried on the lane it failed on.
    */
   const applyCatalog = useCallback((settings: ModelSettingsDto, preferredLaneId = initialLaunch?.laneId) => {
-    const available = taskCreationCatalog(settings, sourceIssueNumber);
+    const available = taskCreationCatalog(settings, sourceBound ? 0 : null);
     setCatalog(available);
     // The caller's own choice is taken as made; a retry that lands on another lane takes that lane's own.
     if (initialLaunch !== undefined && preferredLaneId === initialLaunch.laneId
@@ -268,7 +272,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
         setSelection({ model: named.selectedModel, effort: named.selectedEffort === '' ? null : named.selectedEffort });
         return;
       }
-      if (sourceIssueNumber === null && isDeepSeekKeyLane(preferredLaneId) && named === undefined) {
+      if (!sourceBound && isDeepSeekKeyLane(preferredLaneId) && named === undefined) {
         setLaneId(preferredLaneId);
         setSelection(null);
         return;
@@ -288,7 +292,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
         effort: provider.selectedEffort === '' ? null : provider.selectedEffort,
       });
     }
-  }, [initialLaunch, sourceIssueNumber]);
+  }, [initialLaunch, sourceBound]);
 
   useEffect(() => {
     let active = true;
@@ -369,6 +373,8 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   const models: ModelOptionDto[] = provider?.models ?? [];
   const imagesAccepted = !deepSeek && acceptsImages(models, selection?.model, provider?.capabilities ?? null);
   const blocker = (sourceLoading ? 'Loading issue…' : sourceError)
+    ?? (sourceJira?.status.category === 'done' ? 'This ticket is done. Reopen it in Jira before starting new development.' : null)
+    ?? (sourceJira?.isGoal || sourceJira?.hasChildren ? 'Choose a leaf ticket to start development.' : null)
     ?? (issue?.isGoal ? 'Goals organize work and cannot start development. Unmark this issue as a Goal to run it.' : null)
     ?? creationBlocker(catalog, laneId, selection)
     ?? automationError
@@ -435,6 +441,9 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       developmentAutomation: taskAutomation,
     }, images.map((image) => image.id), automationForSubmission(taskAutomation, localOnly), issue === null ? undefined : {
       issueId: issue.id, number: issue.number, updatedAt: issue.updatedAt,
+    }, sourceJira === null ? undefined : {
+      connectionId: sourceJira.connectionId, cloudId: sourceJira.cloudId, issueId: sourceJira.id,
+      key: sourceJira.key, title: sourceJira.title, body: sourceJira.body, updatedAt: sourceJira.updatedAt,
     });
     // The create call blocks until the first turn is running; the backend names the step it is in meanwhile.
     let watching = true;
@@ -447,6 +456,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       submissions.settled(request.taskId);
       if (task.workspaceId === workspaceId) setTasks((current) => [task, ...current.filter((existing) => existing.id !== task.id)]);
       if (issue !== null) notifyIssueDevelopmentChanged(issue.id);
+      if (sourceJira !== null) notifyJiraChanged();
       setDraft('');
       setLocalOnly(false);
       clearImages();
@@ -492,7 +502,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       busyRef.current = false;
       setOperation(null);
     }
-  }, [applyCatalog, blocker, bridge, clearImages, draft, images, issue, laneId, localOnly, onOpenCreatedTask, onOpenTask, selection, submissions, taskAutomation, workspaceId]);
+  }, [applyCatalog, blocker, bridge, clearImages, draft, images, issue, sourceJira, laneId, localOnly, onOpenCreatedTask, onOpenTask, selection, submissions, taskAutomation, workspaceId]);
 
   return {
     /** Everything TaskComposer needs, so a screen spreads it instead of re-listing eighteen props. */
@@ -516,7 +526,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       onSelectModel: (model: string, effort: string | null, serviceTier: string | null) => setSelection({ model, effort, serviceTier }),
       onCreate: () => { void create(); },
     },
-    issueAttachment: issue === null ? null : <IssueAttachment source={{
+    issueAttachment: sourceJira !== null ? <JiraSourceAttachment source={{ ...sourceJira, issueId: sourceJira.id }} /> : issue === null ? null : <IssueAttachment source={{
       number: issue.number, title: issue.title, body: issue.body, url: issue.htmlUrl,
       repo: new URL(issue.htmlUrl).pathname.split('/').slice(1, 3).join('/'),
     }} onRefresh={() => { void refreshIssue(); }} refreshing={busy || sourceLoading} />,

@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import type { JiraSourceRequest } from '../jira/contracts';
 import type { AgentEventEnvelope } from './events';
 import { compactHistoryPages } from './history';
 import type { ApprovalBlock } from './transcript';
@@ -669,6 +670,7 @@ export type TaskCreationTracker = {
     draftAttachmentIds?: string[],
     developmentAutomation?: DevelopmentAutomationDto,
     issueSource?: IssueTaskSourceRequest,
+    jiraSource?: JiraSourceRequest,
   ) => CreateAgentTaskRequest;
   settled: (taskId: string) => void;
 };
@@ -677,7 +679,7 @@ export type TaskCreationTracker = {
 export function createTaskCreationTracker(createKey: () => string = () => globalThis.crypto.randomUUID()): TaskCreationTracker {
   let retained: { signature: string; request: CreateAgentTaskRequest } | null = null;
   return {
-    requestFor(workspaceId, message, laneId, defaults, draftAttachmentIds = [], developmentAutomation, issueSource) {
+    requestFor(workspaceId, message, laneId, defaults, draftAttachmentIds = [], developmentAutomation, issueSource, jiraSource) {
       const signature = JSON.stringify([
         workspaceId,
         message.trim(),
@@ -690,6 +692,7 @@ export function createTaskCreationTracker(createKey: () => string = () => global
         developmentAutomation ?? null,
         draftAttachmentIds,
         issueSource ?? null,
+        jiraSource ?? null,
       ]);
       if (retained?.signature !== signature) {
         retained = {
@@ -700,6 +703,7 @@ export function createTaskCreationTracker(createKey: () => string = () => global
             message: message.trim(),
             laneId,
             defaults,
+            ...(jiraSource === undefined ? {} : { jiraSource: { ...jiraSource } }),
             ...(issueSource === undefined ? {} : { issueSource: { ...issueSource } }),
             ...(developmentAutomation === undefined ? {} : { developmentAutomation }),
             ...(draftAttachmentIds.length === 0 ? {} : { draftAttachmentIds: [...draftAttachmentIds] }),

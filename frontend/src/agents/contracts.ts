@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import type { JiraTaskSource } from '../jira/contracts';
 import type {
   AgentIssueSourceDto,
   DevelopmentAutomationDto,
@@ -260,11 +261,23 @@ function issueSource(value: unknown, path: string): AgentIssueSourceDto {
   };
 }
 
+function jiraSource(value: unknown, path: string): JiraTaskSource {
+  const source = object(value, path);
+  return {
+    connectionId: text(source.connectionId, `${path}.connectionId`), cloudId: text(source.cloudId, `${path}.cloudId`),
+    issueId: text(source.issueId, `${path}.issueId`), key: text(source.key, `${path}.key`),
+    url: text(source.url, `${path}.url`), title: text(source.title, `${path}.title`), body: text(source.body, `${path}.body`),
+    updatedAt: text(source.updatedAt, `${path}.updatedAt`), initialTurnId: optionalText(source.initialTurnId, `${path}.initialTurnId`),
+    instructions: text(source.instructions, `${path}.instructions`),
+  };
+}
+
 export function parseAgentTask(value: unknown, path = 'task'): AgentTaskDto {
   const source = object(value, path);
   return {
     id: text(source.id, `${path}.id`),
     workspaceId: text(source.workspaceId, `${path}.workspaceId`),
+    jiraSource: source.jiraSource == null ? null : jiraSource(source.jiraSource, `${path}.jiraSource`),
     issueSource: source.issueSource == null ? null : issueSource(source.issueSource, `${path}.issueSource`),
     generatedBranch: optionalText(source.generatedBranch, `${path}.generatedBranch`),
     ...(source.interactive === undefined ? {} : { interactive: flag(source.interactive, `${path}.interactive`) }),

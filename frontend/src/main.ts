@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { JiraLocation, JiraQuery } from './jira/contracts';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -1678,6 +1679,34 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/api/workspaces/watch-preview`, jsonInit('POST', { selectedRepositoryId })));
   ipcMain.handle('workspaces:watch', (_event, command: WatchRepositoryCommand) =>
     backendJson(`${backendBase()}/api/workspaces`, jsonInit('POST', command)));
+  const jiraSitePath = (connectionId: string, cloudId: string) => `${backendBase()}/api/jira/connections/${encodeURIComponent(connectionId)}/sites/${encodeURIComponent(cloudId)}`;
+  const jiraIssuePath = (location: JiraLocation) => `${jiraSitePath(location.connectionId, location.cloudId)}/issues/${encodeURIComponent(location.issueId)}`;
+  ipcMain.handle('jira:connections', () => backendJson(`${backendBase()}/api/jira/connections`, { headers: agentHeaders() }));
+  ipcMain.handle('jira:connect', (_event, brokerUrl: string) => backendJson(`${backendBase()}/api/jira/connections`, jsonInit('POST', { brokerUrl }, agentHeaders())));
+  ipcMain.handle('jira:connection:refresh', (_event, id: string) => backendJson(`${backendBase()}/api/jira/connections/${encodeURIComponent(id)}/refresh`, { method: 'POST', headers: agentHeaders() }));
+  ipcMain.handle('jira:disconnect', (_event, id: string) => backendVoid(`${backendBase()}/api/jira/connections/${encodeURIComponent(id)}`, { method: 'DELETE', headers: agentHeaders() }));
+  ipcMain.handle('jira:boards', (_event, connectionId: string, cloudId: string, refresh: boolean) =>
+    backendJson(`${jiraSitePath(connectionId, cloudId)}/boards${refresh ? '/refresh' : ''}`, { method: refresh ? 'POST' : 'GET', headers: agentHeaders() }));
+  ipcMain.handle('jira:sprints', (_event, connectionId: string, cloudId: string, boardId: number, refresh: boolean) =>
+    backendJson(`${jiraSitePath(connectionId, cloudId)}/boards/${encodeURIComponent(String(boardId))}/sprints${refresh ? '/refresh' : ''}`, { method: refresh ? 'POST' : 'GET', headers: agentHeaders() }));
+  ipcMain.handle('jira:issues', (_event, query: JiraQuery, refresh: boolean) => {
+    const params = new URLSearchParams({ boardId: String(query.boardId), mine: String(query.mine) });
+    if (query.sprintId !== null) params.set('sprintId', String(query.sprintId));
+    return backendJson(`${jiraSitePath(query.connectionId, query.cloudId)}/issues${refresh ? '/refresh' : ''}?${params}`, { method: refresh ? 'POST' : 'GET', headers: agentHeaders() });
+  });
+  ipcMain.handle('jira:issue', (_event, location: JiraLocation, refresh: boolean) =>
+    backendJson(`${jiraIssuePath(location)}${refresh ? '/refresh' : ''}`, { method: refresh ? 'POST' : 'GET', headers: agentHeaders() }));
+  ipcMain.handle('jira:issue:update', (_event, location: JiraLocation, fields: Record<string, unknown>, expectedUpdatedAt: string) =>
+    backendJson(jiraIssuePath(location), jsonInit('PATCH', { fields, expectedUpdatedAt }, agentHeaders())));
+  ipcMain.handle('jira:issue:transition', (_event, location: JiraLocation, transitionId: string, fields: Record<string, unknown>, expectedUpdatedAt: string) =>
+    backendJson(`${jiraIssuePath(location)}/transitions`, jsonInit('POST', { transitionId, fields, expectedUpdatedAt }, agentHeaders())));
+  ipcMain.handle('jira:issue:sprint', (_event, location: JiraLocation, sprintId: number | null, boardId: number, expectedUpdatedAt: string) =>
+    backendJson(`${jiraIssuePath(location)}/sprint`, jsonInit('POST', { sprintId, boardId, expectedUpdatedAt }, agentHeaders())));
+  ipcMain.handle('jira:issue:comment', (_event, location: JiraLocation, body: string, operationId: string) =>
+    backendJson(`${jiraIssuePath(location)}/comments`, jsonInit('POST', { body, operationId }, agentHeaders())));
+  ipcMain.handle('jira:issue:goal', (_event, location: JiraLocation, isGoal: boolean) =>
+    backendJson(`${jiraIssuePath(location)}/goal`, jsonInit('PUT', { isGoal }, agentHeaders())));
+  ipcMain.handle('jira:attention', () => backendJson(`${backendBase()}/api/jira/attention`, { headers: agentHeaders() }));
   ipcMain.handle('workspaces:list', () => backendJson(`${backendBase()}/api/workspaces`));
   ipcMain.handle('workspaces:list-retired', () => backendJson(`${backendBase()}/api/workspaces/retired`));
   ipcMain.handle('workspaces:get', (_event, workspaceId: string) =>

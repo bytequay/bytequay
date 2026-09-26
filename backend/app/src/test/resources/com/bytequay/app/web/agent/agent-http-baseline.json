@@ -66,7 +66,8 @@
     "developmentCi": null,
     "pullRequest": null,
     "localReviewHead": null,
-    "issueSource": null
+    "issueSource": null,
+    "jiraSource": null
   },
   "turns": [
     {
@@ -910,6 +911,7 @@
     "developmentCi": null,
     "pullRequest": null,
     "localReviewHead": null,
-    "issueSource": null
+    "issueSource": null,
+    "jiraSource": null
   }
 }

@@ -45,6 +45,7 @@ import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
@@ -265,6 +266,11 @@ class TestInteractiveAgentTaskCreator
         verify(names, times(1)).generate(any(), any(), any());
         verify(settings, times(1)).developmentAutomation();
         verify(tasks, times(1)).createInteractive(any());
+        JiraIssueSource jira = new JiraIssueSource("connection", "cloud", "10001", "APP-7", "https://company.atlassian.net/browse/APP-7",
+                "Jira title", "Jira description", Instant.EPOCH);
+        assertThatThrownBy(() -> creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI, defaults(), "create-key", Optional.empty(),
+                Optional.of(DevelopmentAutomation.LOCAL_ONLY), Optional.empty(), Optional.of(jira), Optional.empty()))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("creation request changed");
         assertThatThrownBy(() -> creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI,
                 defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY), Optional.of(issue()), Optional.empty()))
                 .isInstanceOf(AgentConflictException.class).hasMessageContaining("creation request changed");

@@ -50,6 +50,9 @@ import com.bytequay.app.agent.DevelopmentPublicationFacts;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.agent.codegraph.FakeCodeGraphService;
 import com.bytequay.app.agent.impl.DeterministicAgentDriver;
+import com.bytequay.app.jira.JiraDtos;
+import com.bytequay.app.jira.JiraIssue;
+import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -257,6 +260,9 @@ class TestAgentHttpApi
     private GitHubRepoClient issueClient;
 
     @MockitoBean
+    private JiraService jira;
+
+    @MockitoBean
     private GitHubPullRequestReadClient gitHub;
 
     @MockitoBean
@@ -344,6 +350,39 @@ class TestAgentHttpApi
         assertThat(status.getBody().get(0).get("laneId").asText()).isEqualTo("codex");
         assertThat(status.getBody().get(0).get("readiness").asText()).isEqualTo("READY");
         assertThat(status.getBody().get(0).has("health")).isFalse();
+    }
+
+    @Test
+    void jiraLaunchUsesTheCanonicalTurnAndRetainsSourceOnRetry()
+            throws Exception
+    {
+        Instant updated = Instant.parse("2026-09-16T00:00:00Z");
+        String issueId = "jira-" + UUID.randomUUID();
+        JiraIssue issue = new JiraIssue("connection", "cloud", issueId, "APP-7", "https://company.atlassian.net/browse/APP-7",
+                "Fix selection", "Jira body kept in local metadata", "Story", new JiraDtos.Status("3", "In progress", "indeterminate"), Optional.empty(),
+                ImmutableList.of(), Optional.empty(), Optional.empty(), false, false, updated, Optional.empty(), Optional.empty(), ImmutableList.of(), false);
+        when(jira.issue("connection", "cloud", issueId)).thenReturn(issue);
+        when(jira.refreshIssue("connection", "cloud", issueId)).thenReturn(issue);
+        String instruction = "Implement Jira selection";
+        Map<String, Object> request = ImmutableMap.<String, Object>builder().putAll(createTaskBody("codex", "test-model", instruction))
+                .put("jiraSource", ImmutableMap.<String, Object>builder().put("connectionId", "connection").put("cloudId", "cloud").put("issueId", issueId)
+                        .put("key", issue.key()).put("title", issue.title()).put("body", issue.body()).put("updatedAt", updated.toString()).buildOrThrow()).buildOrThrow();
+        ResponseEntity<JsonNode> response = post("/agent/tasks", request, null);
+        assertThat(response.getStatusCode()).as("create response: %s", response.getBody()).isEqualTo(HttpStatus.CREATED);
+        JsonNode created = response.getBody();
+        String taskId = created.required("id").asText();
+        assertThat(created.at("/jiraSource/instructions").asText()).isEqualTo(instruction);
+        assertThat(created.at("/jiraSource/issueId").asText()).isEqualTo(issueId);
+        assertThat(created.at("/jiraSource/body").asText()).isEqualTo(issue.body());
+        assertThat(created.path("issueSource").isNull()).isTrue();
+        JsonNode firstMessage = StreamSupport.stream(get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody().spliterator(), false)
+                .filter(event -> event.path("type").asText().equals("user_message")).findFirst().orElseThrow();
+        assertThat(firstMessage.at("/payload/text").asText()).isEqualTo(instruction);
+        assertThat(created.at("/jiraSource/initialTurnId").asText()).isEqualTo(firstMessage.path("turnId").asText());
+        when(jira.issue("connection", "cloud", issueId)).thenThrow(new AssertionError("retry must use the durable source"));
+        assertThat(post("/agent/tasks", request, null).getBody().path("id").asText()).isEqualTo(taskId);
+        assertThat(get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId).getBody().path("jiraSource")).isEqualTo(created.path("jiraSource"));
+        verify(jira).refreshIssue("connection", "cloud", issueId);
     }
 
     @Test

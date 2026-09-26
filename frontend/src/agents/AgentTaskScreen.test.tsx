@@ -171,6 +171,22 @@ describe('issue development conversation', () => {
     expect(markup).not.toContain('public API');
   });
 
+  it('uses the same compact request and composer attachment for Jira while preserving later input', () => {
+    const jiraSource = { connectionId: 'connection', cloudId: 'site', issueId: '1007', key: 'ENG-1007',
+      title: 'Fix upload timeout', body: 'Keep the public API stable.', url: 'https://example.atlassian.net/browse/ENG-1007',
+      updatedAt: source.updatedAt, initialTurnId: opening.turnId, instructions: 'Internal source instructions' };
+    const jiraTask = { ...task('t-1', 'OPEN', 'Jira development'), jiraSource };
+    const markup = body({ task: jiraTask, connection: 'open', events: [message] });
+    expect(markup).toContain('Start development');
+    expect(markup).toContain('ENG-1007');
+    expect(markup).toContain('flow.png');
+    expect(markup).not.toContain(rawPrompt);
+    expect(markup).not.toContain('Internal source instructions');
+    expect(markup.indexOf('agt-issue-attachment')).toBeGreaterThan(markup.indexOf('agt-transcript'));
+    expect(markup.indexOf('agt-issue-attachment')).toBeLessThan(markup.indexOf('agt-compose-dock is-task'));
+    expect(body({ task: { ...jiraTask, jiraSource: { ...jiraSource, initialTurnId: 'other-turn' } }, connection: 'open', events: [message] })).toContain(rawPrompt);
+  });
+
   it('recognizes an old source response only from the confirmed first root turn', () => {
     const legacyTask: AgentTaskDto = { ...task('t-1', 'OPEN', 'Legacy issue development'), issueSource: { ...source, initialTurnId: null, instructions: '' } };
     const later = { ...message, eventId: 'later-request', sequence: message.sequence + 1, turnId: 'later-turn',

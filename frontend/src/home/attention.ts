@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { JiraIssue } from '../jira/contracts';
 import type { PullRequestDto, RepositoryIssueSnapshotDto } from '../types';
 import { pullRequestIsMine } from '../pulls/model';
 
@@ -36,6 +37,8 @@ const PRIORITY: AttentionKind[] = ['review', 'assigned', 'changes', 'ci', 'block
 
 /** One row: a pull request or an issue assigned to you. */
 export type AttentionItem = {
+  jira?: JiraIssue;
+  reference?: string;
   key: string;
   type: 'pr' | 'issue';
   kind: AttentionKind;

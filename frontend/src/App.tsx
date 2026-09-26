@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import AppSidebar, { type AppPage } from './AppSidebar';
 import BrowserRail from './BrowserRail';
 import FindBar from './FindBar';
+import JiraScreen from './jira/JiraScreen';
 import HomePage from './home/HomePage';
 import { loadHandled } from './home/attention';
 import { pullRequestFromRoute, pullRequestRoute, zoomReference, ZOOM_REFERENCE, type ZoomedReference } from './githubReference';
@@ -62,6 +63,7 @@ import {
 type Status = 'checking' | 'needs-pat' | 'ready';
 
 function pageFromRoute(hash: string): AppPage {
+  if (hash === '#/jira' || hash.startsWith('#/jira?')) return 'jira';
   if (settingsLocationFromRoute(hash) !== null) return 'settings';
   const match = /^#\/(home|recent|pulls|workspaces)$/.exec(hash);
   return match ? match[1] as AppPage : 'home';
@@ -466,6 +468,7 @@ export default function App() {
             />
           )}
           <RecentPage active={page === 'recent'} onOpenRow={openRecentRow} />
+          {page === 'jira' && <JiraScreen />}
           {page === 'pulls' && (
             <PullsScreen
               initialPr={initialPr}

@@ -30,7 +30,10 @@ import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.app.agent.IssueSourceInput;
+import com.bytequay.app.agent.JiraSourceInput;
 import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.PullRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -87,7 +90,7 @@ class TestInteractiveAgentHttpContract
                 "create-key"));
 
         assertThat(request.fieldNames()).toIterable()
-                .containsExactlyInAnyOrder("taskId", "workspaceId", "message", "laneId", "defaults", "idempotencyKey", "developmentAutomation", "issueSource");
+                .containsExactlyInAnyOrder("taskId", "workspaceId", "message", "laneId", "defaults", "idempotencyKey", "developmentAutomation", "issueSource", "jiraSource");
         assertThat(request.toString())
                 .doesNotContain("worktree")
                 .doesNotContain("repository")
@@ -106,6 +109,26 @@ class TestInteractiveAgentHttpContract
         assertThat(json.path("initialTurnId").asText()).isEqualTo("initial-turn");
         assertThat(json.path("instructions").asText()).isEqualTo("Implement using the existing model");
         assertThat(json.has("source")).isFalse();
+    }
+
+    @Test
+    void jiraProvenanceStaysDistinctAndRejectsAmbiguousLaunchSources()
+    {
+        JiraIssueSource source = new JiraIssueSource("connection", "cloud", "10001", "APP-7", "https://company.atlassian.net/browse/APP-7",
+                "Jira title", "Accepted Jira body", Instant.EPOCH);
+        JsonNode json = objectMapper.valueToTree(new InteractiveAgentHttpContract.JiraSourceResponse(source, Optional.of("first-turn"), "User instruction"));
+        assertThat(json.path("issueId").asText()).isEqualTo("10001");
+        assertThat(json.path("key").asText()).isEqualTo("APP-7");
+        assertThat(json.path("instructions").asText()).isEqualTo("User instruction");
+        assertThat(json.path("initialTurnId").asText()).isEqualTo("first-turn");
+        assertThat(json.has("source")).isFalse();
+        assertThat(json.has("repo")).isFalse();
+        assertThatThrownBy(() -> new InteractiveAgentHttpContract.CreateTaskRequest(
+                TaskId.random().toString(), "workspace", "Implement", "codex",
+                new InteractiveAgentHttpContract.TaskDefaults(Optional.of("model"), Optional.empty(), "AUTO"), "key", Optional.empty(),
+                Optional.of(new IssueSourceInput(7, 7, Instant.EPOCH)),
+                Optional.of(new JiraSourceInput("connection", "cloud", "10001", "APP-7", source.title(), source.body(), Instant.EPOCH))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("only one issue source");
     }
 
     @Test
@@ -141,7 +164,8 @@ class TestInteractiveAgentHttpContract
                         "developmentCi",
                         "pullRequest",
                         "localReviewHead",
-                        "issueSource");
+                        "issueSource",
+                        "jiraSource");
         assertThat(InteractiveAgentHttpContract.MutationClaim.class.getRecordComponents())
                 .extracting(component -> component.getName())
                 .containsExactly("kind", "ownerId", "acquiredAt");

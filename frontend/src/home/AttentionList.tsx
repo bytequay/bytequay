@@ -121,7 +121,7 @@ export default function AttentionList({
     handle(
       item,
       handledEntry(item, 'ack', null, 'acknowledged'),
-      `Acknowledged #${item.number} — cleared from your list`,
+      `Acknowledged ${item.reference ?? `#${item.number}`} — cleared from your list`,
     );
   }
 
@@ -129,7 +129,7 @@ export default function AttentionList({
     handle(
       item,
       handledEntry(item, 'snooze', snoozeUntil(option, Date.now()), label.toLowerCase()),
-      `Snoozed #${item.number} · ${label.toLowerCase()}`,
+      `Snoozed ${item.reference ?? `#${item.number}`} · ${label.toLowerCase()}`,
     );
   }
 
@@ -142,6 +142,7 @@ export default function AttentionList({
   }
 
   function enterRow(item: AttentionItem, element: HTMLElement) {
+    if (item.jira) { closePreview(); return; }
     setHovered(item);
     preview.show(element);
   }
@@ -213,7 +214,7 @@ export default function AttentionList({
               <span className="atn-row__body">
                 <span className="atn-row__subject">
                   <span className="atn-row__title">{item.title}</span>
-                  <span className="atn-row__meta">#{item.number}</span>
+                  <span className="atn-row__meta">{item.reference ?? `#${item.number}`}</span>
                 </span>
                 <span className="atn-row__detail">
                   <span className="atn-row__kind" style={{ color: kind.color }}>{item.type === 'issue' ? kind.label : activity.label}</span>
@@ -223,24 +224,24 @@ export default function AttentionList({
                 </span>
               </span>
               {item.type === 'issue' && onStartIssue && (
-                <button className="bq-button atn-start" type="button" aria-label={`Start development for #${item.number}`}
+                <button className="bq-button atn-start" type="button" aria-label={`Start development for ${item.reference ?? `#${item.number}`}`}
                   title={`Start in ${item.workspaceName || item.repo}`}
                   onClick={event => { event.stopPropagation(); closePreview(); onStartIssue(item); }}>
                   <Play size={13} aria-hidden="true" /> Start development
                 </button>
               )}
-              {variant === 'home' && <RepoAvatar owner={owner} repo={repo ?? ''} size={18} />}
-              <Avatar login={item.author ?? ''} avatarUrl={item.authorAvatarUrl} size={22} />
+              {variant === 'home' && !item.jira && <RepoAvatar owner={owner} repo={repo ?? ''} size={18} />}
+              {!item.jira && <Avatar login={item.author ?? ''} avatarUrl={item.authorAvatarUrl} size={22} />}
               <time className="atn-row__age" dateTime={activity.timestamp}
                 title={`${activity.label} · ${new Date(activity.timestamp).toLocaleString()}`}>
                 {relativeTime(activity.timestamp, { suffix: false })}
               </time>
-              <div className="atn-row__actions" role="group" aria-label={`Actions for #${item.number}`}>
+              <div className="atn-row__actions" role="group" aria-label={`Actions for ${item.reference ?? `#${item.number}`}`}>
                 <button
                   className="atn-iconbtn is-ack"
                   type="button"
                   title="Acknowledge — clears it from this list"
-                  aria-label={`Acknowledge #${item.number}`}
+                  aria-label={`Acknowledge ${item.reference ?? `#${item.number}`}`}
                   onClick={event => { event.stopPropagation(); acknowledge(item); }}
                 >
                   <Check size={15} strokeWidth={2} aria-hidden="true" />
@@ -249,7 +250,7 @@ export default function AttentionList({
                   className="atn-iconbtn"
                   type="button"
                   title="Snooze"
-                  aria-label={`Snooze #${item.number}`}
+                  aria-label={`Snooze ${item.reference ?? `#${item.number}`}`}
                   onClick={event => { event.stopPropagation(); openSnoozeMenu(item, event.currentTarget); }}
                 >
                   <Clock3 size={15} strokeWidth={1.8} aria-hidden="true" />

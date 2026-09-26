@@ -43,6 +43,20 @@ function streamSubscriber(prefix: 'agent' | 'review'): Bridge['subscribeAgentTas
 }
 
 const bridge: Bridge = {
+  listJiraConnections: () => ipcRenderer.invoke('jira:connections'),
+  connectJira: brokerUrl => ipcRenderer.invoke('jira:connect', brokerUrl),
+  refreshJiraConnection: id => ipcRenderer.invoke('jira:connection:refresh', id),
+  disconnectJira: id => ipcRenderer.invoke('jira:disconnect', id),
+  listJiraBoards: (connectionId, cloudId, refresh) => ipcRenderer.invoke('jira:boards', connectionId, cloudId, refresh),
+  listJiraSprints: (connectionId, cloudId, boardId, refresh) => ipcRenderer.invoke('jira:sprints', connectionId, cloudId, boardId, refresh),
+  listJiraIssues: (query, refresh) => ipcRenderer.invoke('jira:issues', query, refresh),
+  getJiraIssue: (location, refresh) => ipcRenderer.invoke('jira:issue', location, refresh),
+  updateJiraIssue: (location, fields, expectedUpdatedAt) => ipcRenderer.invoke('jira:issue:update', location, fields, expectedUpdatedAt),
+  transitionJiraIssue: (location, transitionId, fields, expectedUpdatedAt) => ipcRenderer.invoke('jira:issue:transition', location, transitionId, fields, expectedUpdatedAt),
+  moveJiraIssue: (location, sprintId, boardId, expectedUpdatedAt) => ipcRenderer.invoke('jira:issue:sprint', location, sprintId, boardId, expectedUpdatedAt),
+  commentJiraIssue: (location, body, operationId) => ipcRenderer.invoke('jira:issue:comment', location, body, operationId),
+  setJiraGoal: (location, isGoal) => ipcRenderer.invoke('jira:issue:goal', location, isGoal),
+  listJiraAttention: () => ipcRenderer.invoke('jira:attention'),
   savePat: pat => ipcRenderer.invoke('pat:save', pat),
   hasPat: () => ipcRenderer.invoke('pat:has'),
   fetchPrs: (workspaceId, page, pageSize) => ipcRenderer.invoke('prs:list', workspaceId, page, pageSize),

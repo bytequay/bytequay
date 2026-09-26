@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
 import {
 Archive,
 ArchiveRestore,
@@ -1352,7 +1353,7 @@ export function AgentTaskBody({
 
       <AgentConversation
         turns={turns} repository={repository} durableTurns={state.turns} models={models} now={now} scroll={scroll}
-        localReview={localReview} onOpenReview={onOpenReview} issueSource={state.task?.issueSource}
+        localReview={localReview} onOpenReview={onOpenReview} issueSource={state.task?.issueSource} jiraSource={state.task?.jiraSource}
         discussions={discussions?.discussions} onSelectPassage={onSelectPassage} onOpenDiscussion={onOpenDiscussion}
         generatedBranch={state.task?.generatedBranch}
         connection={state.connection} running={status === 'running'} activeTurn={state.turn} activeTurnId={state.turn?.id ?? state.latestTurnId}
@@ -1435,6 +1436,7 @@ export function AgentTaskBody({
         </button>
       )}
 
+      {state.task?.jiraSource != null && <JiraSourceAttachment source={state.task.jiraSource} />}
       {state.task?.issueSource != null && <IssueAttachment source={state.task.issueSource} />}
 
       {/* The design's composer: the message above one row of controls, and one round button. */}

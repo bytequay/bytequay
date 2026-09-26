@@ -261,6 +261,7 @@ public class SqliteAgentTaskStore
                 .setParameter("taskId", id).executeUpdate();
         entities.createNativeQuery("DELETE FROM pull_request_task WHERE id = :taskId").setParameter("taskId", id).executeUpdate();
         entities.createNativeQuery("DELETE FROM issue_task WHERE id = :taskId").setParameter("taskId", id).executeUpdate();
+        entities.createNativeQuery("DELETE FROM jira_issue_task WHERE id = :taskId").setParameter("taskId", id).executeUpdate();
         // A launch names its owner, the task or one of its turns; nothing else ties it to the task.
         List<String> owners = Stream.concat(Stream.of(id), turns.findByTaskIdOrderByCreatedAtAsc(id).stream().map(AgentTurnEntity::getId))
                 .collect(toImmutableList());

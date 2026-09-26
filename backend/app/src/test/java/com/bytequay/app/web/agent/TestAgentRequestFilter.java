@@ -36,6 +36,8 @@ class TestAgentRequestFilter
     @ParameterizedTest
     @ValueSource(strings = {
             "/agent/tasks",
+            "/api/jira/connections",
+            "/api/jira/connections/connection/sites/cloud/issues/1001/comments",
             "/api/ci-autofix/runs",
             "/api/cherry-pick-ranges/previews",
             "/api/workspaces/workspace-a/cherry-pick/preview",

@@ -19,14 +19,20 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.IssueContextBridge;
+import com.bytequay.app.jira.JiraDtos;
+import com.bytequay.app.jira.JiraIssue;
+import com.bytequay.app.jira.JiraService;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.IssueTask;
+import com.bytequay.core.domain.JiraIssueSource;
+import com.bytequay.core.domain.JiraIssueTask;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.IssueDevelopmentStore;
+import com.bytequay.core.store.JiraIssueTaskStore;
 import com.bytequay.core.store.RepositoryIssueDetailStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -38,6 +44,8 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -46,7 +54,10 @@ import java.util.stream.IntStream;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
@@ -62,8 +73,10 @@ class TestIssueContextBridgeResolverImpl
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final RepositoryIssueStore issues = mock(RepositoryIssueStore.class);
     private final RepositoryIssueDetailStore details = mock(RepositoryIssueDetailStore.class);
+    private final JiraIssueTaskStore jiraSources = mock(JiraIssueTaskStore.class);
+    private final JiraService jira = mock(JiraService.class);
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new JavaTimeModule());
-    private final IssueContextBridgeResolverImpl resolver = new IssueContextBridgeResolverImpl(tasks, sources, workspaces, issues, details, mapper);
+    private final IssueContextBridgeResolverImpl resolver = new IssueContextBridgeResolverImpl(tasks, sources, workspaces, issues, details, mapper, jiraSources, jira);
     private final AgentTask task = mock(AgentTask.class, withSettings().mockMaker(MockMakers.INLINE));
 
     @BeforeEach
@@ -79,6 +92,37 @@ class TestIssueContextBridgeResolverImpl
         when(workspace.monitoredRepository()).thenReturn(RepoRef.of("upstream", "repo"));
         when(workspace.monitoredRepositoryId()).thenReturn(2L);
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
+    }
+
+    @Test
+    void jiraContextRemainsTaskBoundOfflineAndAvailableAfterCacheEviction()
+            throws Exception
+    {
+        when(sources.findByTaskId(taskId.toString())).thenReturn(Optional.empty());
+        JiraIssueSource source = new JiraIssueSource("connection", "cloud", "10001", "APP-7", "https://company.atlassian.net/browse/APP-7",
+                "Accepted Jira title", "Accepted Jira body", NOW);
+        when(jiraSources.findByTaskId(taskId.toString())).thenReturn(Optional.of(new JiraIssueTask(taskId.toString(), "workspace", source, "Implement Jira scope", NOW)));
+        JiraDtos.Person author = new JiraDtos.Person("account", "Alice", Optional.empty());
+        when(jira.issue("connection", "cloud", "10001")).thenReturn(new JiraIssue("connection", "cloud", "10001", "APP-7", source.url(),
+                "Changed Jira title", "Changed Jira body", "Story", new JiraDtos.Status("3", "In progress", "indeterminate"), Optional.of(author),
+                ImmutableList.of("bug"), Optional.empty(), Optional.empty(), false, false, NOW.plusSeconds(1), Optional.empty(), Optional.empty(),
+                ImmutableList.of(new JiraDtos.Comment("comment-1", author, "x".repeat(2_500), NOW.toString(), NOW.toString())), true));
+        IssueContextBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
+        JsonNode context = mapper.readTree(bridge.read().get());
+        assertThat(context.at("/acceptedIssue/body").asText()).isEqualTo(source.body());
+        assertThat(context.at("/cachedMetadata/labels/0").asText()).isEqualTo("bug");
+        assertThat(context.at("/cachedMetadata/differsFromAcceptedDescription").asBoolean()).isTrue();
+        assertThat(context.at("/cachedTimeline/truncated").asBoolean()).isTrue();
+        assertThat(context.at("/cachedTimeline/events/0/body").asText()).hasSize(2_000);
+        assertThat(bridge.instruction()).contains("Jira", "Do not fetch", "untrusted");
+        when(jira.issue("connection", "cloud", "10001")).thenThrow(new ResponseStatusException(HttpStatus.NOT_FOUND));
+        JsonNode retained = mapper.readTree(bridge.read().get());
+        assertThat(retained.at("/acceptedIssue/body").asText()).isEqualTo(source.body());
+        assertThat(retained.at("/cachedMetadata/status").asText()).isEqualTo("missing");
+        verify(jira, never()).refreshIssue(anyString(), anyString(), anyString());
+        when(task.state()).thenReturn(TaskState.COMPLETED);
+        assertThat(resolver.resolve(taskId.toString())).isEmpty();
+        assertThatThrownBy(() -> bridge.read().get()).isInstanceOf(AgentConflictException.class);
     }
 
     @Test

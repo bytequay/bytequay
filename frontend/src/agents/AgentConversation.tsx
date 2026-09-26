@@ -12,6 +12,8 @@
  * limitations under the License.
  */
 
+import type { JiraTaskSource } from '../jira/contracts';
+import { JiraRequestCard } from '../jira/JiraSourceAttachment';
 import { BookOpen,Check,ChevronsDownUp,Circle,CircleAlert,CircleCheck,CircleX,CornerDownRight,FilePenLine,FolderOpen,GitPullRequest,Globe,Image,ListChecks,ListPlus,LoaderCircle,MessageSquare,Search,ShieldCheck,ShieldX,SquareTerminal,Trash2,TriangleAlert,Wrench,X,type LucideIcon } from 'lucide-react';
 import hljs from 'highlight.js/lib/common';
 import React,{ useCallback,useEffect,useId,useLayoutEffect,useMemo,useRef,useState } from 'react';
@@ -638,7 +640,7 @@ function TurnFooter({ turn, durable, models }: {
   );
 }
 
-export function TurnView({ turn, repository, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, localReview, discussions, reviewRequests, issueSource, onOpenReview, onOpenDiscussion, onSelectPassage, focusedDiscussion, onHoverDiscussion, latest = false, children }: {
+export function TurnView({ turn, repository, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, localReview, discussions, reviewRequests, issueSource, jiraSource, onOpenReview, onOpenDiscussion, onSelectPassage, focusedDiscussion, onHoverDiscussion, latest = false, children }: {
   localReview?: LocalReviewThreads;
   discussions?: TaskDiscussionDto[];
   onOpenDiscussion?: (discussionId: string) => void;
@@ -647,6 +649,7 @@ export function TurnView({ turn, repository, first, open, now, models, durableTu
   onSelectPassage?: (passage: SelectedPassage, question: string) => void;
   reviewRequests?: readonly ReviewRequest[];
   issueSource?: AgentIssueSourceDto | null;
+  jiraSource?: JiraTaskSource | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
   latest?: boolean;
   children?: React.ReactNode;
@@ -676,6 +679,8 @@ export function TurnView({ turn, repository, first, open, now, models, durableTu
   const developmentRequest = opening?.delivery === 'TURN' ? developmentTurnRequest(durable) : null;
   const request = opening?.delivery === 'TURN' ? draftPullRequestRequest(durable, opening, generatedBranch) : null;
   // Legacy source responses lack the ID; ordinal 1 is known only when history includes its beginning.
+  const jiraRequest = jiraSource != null && turn.turnId != null && (jiraSource.initialTurnId != null
+    ? turn.turnId === jiraSource.initialTurnId : first && turn.ordinal === 1);
   const issueRequest = issueSource != null && turn.turnId != null && (issueSource.initialTurnId != null
     ? turn.turnId === issueSource.initialTurnId : first && turn.ordinal === 1);
   return (
@@ -700,7 +705,11 @@ export function TurnView({ turn, repository, first, open, now, models, durableTu
               </ReviewRequestCard>
             </div>
           ) : <div className="agt-user" data-history-anchor={user.id}>
-            {index === 0 && user.delivery === 'TURN' && issueRequest && issueSource != null
+            {index === 0 && user.delivery === 'TURN' && jiraRequest && jiraSource != null
+              ? <JiraRequestCard source={jiraSource} attachments={user.attachments.length > 0 && <div className="agt-user__files">
+                {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
+              </div>} />
+              : index === 0 && user.delivery === 'TURN' && issueRequest && issueSource != null
               ? <IssueRequestCard source={issueSource} attachments={user.attachments.length > 0 && <div className="agt-user__files">
                 {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
               </div>} /> : reviewRequest !== undefined ? <ReviewRequestCard {...reviewRequest}
@@ -997,7 +1006,7 @@ export function AgentConversation({
   turns, repository, durableTurns, models, now, scroll, connection, running, activeTurn, activeTurnId = activeTurn?.id, waiting, gap = false, pendingMessage = null,
   activityChoice, turnChoice, onToggleTurn, onToggleActivity, onDecide,
   previews = {}, agentLabels = {}, pendingApprovals = [], generatedTurnIds, generatedBranch,
-  onOpenAgent, children, transcriptFooter, localReview, discussions, reviewRequests, issueSource, onOpenReview, onOpenDiscussion, onSelectPassage, focusedDiscussion, onHoverDiscussion, label = 'Task transcript',
+  onOpenAgent, children, transcriptFooter, localReview, discussions, reviewRequests, issueSource, jiraSource, onOpenReview, onOpenDiscussion, onSelectPassage, focusedDiscussion, onHoverDiscussion, label = 'Task transcript',
 }: {
   turns: TranscriptTurn[];
   /** `owner/repo` a bare `#1234` in the transcript refers to. */
@@ -1035,6 +1044,7 @@ export function AgentConversation({
   onSelectPassage?: (passage: SelectedPassage, question: string) => void;
   reviewRequests?: readonly ReviewRequest[];
   issueSource?: AgentIssueSourceDto | null;
+  jiraSource?: JiraTaskSource | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
   label?: string;
 }): React.JSX.Element {
@@ -1089,7 +1099,7 @@ export function AgentConversation({
               onToggleActivity={onToggleActivity} onDecide={onDecide} onOpenAgent={onOpenAgent}
               localReview={localReview} discussions={discussions} onOpenDiscussion={onOpenDiscussion} onSelectPassage={onSelectPassage}
               focusedDiscussion={focusedDiscussion} onHoverDiscussion={onHoverDiscussion}
-              reviewRequests={reviewRequests} issueSource={issueSource} onOpenReview={onOpenReview} latest={reserve}
+              reviewRequests={reviewRequests} issueSource={issueSource} jiraSource={jiraSource} onOpenReview={onOpenReview} latest={reserve}
               generatedRequest={turn.turnId !== null && generatedTurnIds?.has(turn.turnId)} generatedBranch={generatedBranch}>
               {latest && liveActivity}
             </TurnView>;

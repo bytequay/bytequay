@@ -55,6 +55,7 @@ import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.agent.AgentTaskStartupProgress;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.agent.IssueDevelopmentService;
+import com.bytequay.app.agent.JiraDevelopmentService;
 import com.bytequay.app.agent.LocalReviewSessionService;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.context.RepositoryContextService;
@@ -71,6 +72,7 @@ import com.bytequay.app.workspace.WorktreeChanges;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.store.PullRequestStore;
@@ -109,6 +111,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.locks.Lock;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
@@ -151,6 +154,7 @@ public class AgentController
     private final LocalReviewSessionService localReviewSessions;
     private final AgentStreamRegistry streams;
     private final IssueDevelopmentService issueDevelopment;
+    private final JiraDevelopmentService jiraDevelopment;
     private final RepositoryContextService repositoryContext;
 
     public AgentController(
@@ -178,6 +182,7 @@ public class AgentController
             LocalReviewSessionService localReviewSessions,
             AgentStreamRegistry streams,
             IssueDevelopmentService issueDevelopment,
+            JiraDevelopmentService jiraDevelopment,
             RepositoryContextService repositoryContext)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
@@ -204,6 +209,7 @@ public class AgentController
         this.localReviewSessions = requireNonNull(localReviewSessions, "localReviewSessions is null");
         this.streams = requireNonNull(streams, "streams is null");
         this.issueDevelopment = requireNonNull(issueDevelopment, "issueDevelopment is null");
+        this.jiraDevelopment = requireNonNull(jiraDevelopment, "jiraDevelopment is null");
         this.repositoryContext = requireNonNull(repositoryContext, "repositoryContext is null");
     }
 
@@ -225,7 +231,9 @@ public class AgentController
                                 .map(workspace -> pullRequests.findByHeadRef(workspace.monitoredRepository().fullName(), worktree.generatedBranch()))
                                 .flatMap(InteractiveAgentHttpContract::taskPullRequest)));
         return InteractiveAgentHttpContract.task(task, metrics, developmentCi, pullRequest, issueDevelopment.source(task.id().toString()).map(source ->
-                new InteractiveAgentHttpContract.IssueSourceResponse(source.issue(), source.initialTurnId(), source.instructions())));
+                new InteractiveAgentHttpContract.IssueSourceResponse(source.issue(), source.initialTurnId(), source.instructions())),
+                jiraDevelopment.source(task.id().toString()).map(source ->
+                        new InteractiveAgentHttpContract.JiraSourceResponse(source.issue(), source.initialTurnId(), source.instructions())));
     }
 
     @PostMapping(value = "/tasks", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -258,22 +266,28 @@ public class AgentController
             InteractiveAgentHttpContract.CreateTaskRequest request,
             List<StoreAgentAttachmentCommand> uploads)
     {
-        checkArgument(!request.laneId().startsWith("deepseek-key-") || request.issueSource().isEmpty(),
-                "DeepSeek tasks cannot start from a GitHub issue");
+        checkArgument(!request.laneId().startsWith("deepseek-key-") || request.issueSource().isEmpty() && request.jiraSource().isEmpty(),
+                "DeepSeek tasks cannot start from an issue");
         if (request.issueSource().isEmpty()) {
             issueDevelopment.requireUnattachedCreate(TaskId.valueOf(request.taskId()));
         }
+        if (request.jiraSource().isEmpty()) {
+            jiraDevelopment.requireUnattachedCreate(TaskId.valueOf(request.taskId()));
+        }
         AgentTask task = request.issueSource()
                 .map(source -> issueDevelopment.start(request.workspaceId(), TaskId.valueOf(request.taskId()), source, request.message(),
-                        accepted -> createTask(request, uploads, Optional.of(accepted))))
-                .orElseGet(() -> createTask(request, uploads, Optional.empty()));
+                        accepted -> createTask(request, uploads, Optional.of(accepted), Optional.empty())))
+                .or(() -> request.jiraSource().map(source -> jiraDevelopment.start(request.workspaceId(), TaskId.valueOf(request.taskId()), source, request.message(),
+                        accepted -> createTask(request, uploads, Optional.empty(), Optional.of(accepted)))))
+                .orElseGet(() -> createTask(request, uploads, Optional.empty(), Optional.empty()));
         return ResponseEntity.status(HttpStatus.CREATED).body(taskResponse(task));
     }
 
     private AgentTask createTask(
             InteractiveAgentHttpContract.CreateTaskRequest request,
             List<StoreAgentAttachmentCommand> uploads,
-            Optional<GitHubIssueSource> source)
+            Optional<GitHubIssueSource> source,
+            Optional<JiraIssueSource> jiraSource)
     {
         String message = request.message();
         AgentLaneId laneId = new AgentLaneId(request.laneId());
@@ -301,7 +315,9 @@ public class AgentController
                     uploads.isEmpty() ? Optional.empty() : Optional.of(attachmentDigest(uploads)),
                     requestedAutomation,
                     source,
-                    source.map(accepted -> prepared -> issueDevelopment.persistTask(prepared, accepted, request.message())));
+                    jiraSource,
+                    source.<Consumer<AgentTask>>map(accepted -> prepared -> issueDevelopment.persistTask(prepared, accepted, request.message()))
+                            .or(() -> jiraSource.map(accepted -> prepared -> jiraDevelopment.persistTask(prepared, accepted, request.message()))));
             if (!replay && !uploads.isEmpty()) {
                 startupProgress.record(taskId, AgentTaskStartupProgress.Phase.ATTACHMENTS);
             }

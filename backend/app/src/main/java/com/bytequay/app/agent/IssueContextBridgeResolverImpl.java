@@ -19,12 +19,17 @@ import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.IssueContextBridge;
+import com.bytequay.app.jira.JiraDtos;
+import com.bytequay.app.jira.JiraIssue;
+import com.bytequay.app.jira.JiraService;
 import com.bytequay.core.domain.IssueTask;
+import com.bytequay.core.domain.JiraIssueTask;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.IssueDevelopmentStore;
+import com.bytequay.core.store.JiraIssueTaskStore;
 import com.bytequay.core.store.RepositoryIssueDetailStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -33,6 +38,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.Comparator;
@@ -51,16 +57,20 @@ public class IssueContextBridgeResolverImpl
     private static final int MAXIMUM_EVENT_BODY = 2_000;
     private final AgentTaskStore tasks;
     private final IssueDevelopmentStore sources;
+    private final JiraIssueTaskStore jiraSources;
+    private final JiraService jira;
     private final WorkspaceStore workspaces;
     private final RepositoryIssueStore issues;
     private final RepositoryIssueDetailStore details;
     private final ObjectMapper objectMapper;
 
     public IssueContextBridgeResolverImpl(AgentTaskStore tasks, IssueDevelopmentStore sources, WorkspaceStore workspaces,
-            RepositoryIssueStore issues, RepositoryIssueDetailStore details, ObjectMapper objectMapper)
+            RepositoryIssueStore issues, RepositoryIssueDetailStore details, ObjectMapper objectMapper, JiraIssueTaskStore jiraSources, JiraService jira)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.sources = requireNonNull(sources, "sources is null");
+        this.jiraSources = requireNonNull(jiraSources, "jiraSources is null");
+        this.jira = requireNonNull(jira, "jira is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.issues = requireNonNull(issues, "issues is null");
         this.details = requireNonNull(details, "details is null");
@@ -70,7 +80,8 @@ public class IssueContextBridgeResolverImpl
     @Override
     public Optional<IssueContextBridge> resolve(String taskId)
     {
-        return scope(taskId).map(ignored -> new IssueContextBridge(() -> read(taskId), IssueContextBridge.INSTRUCTION));
+        return scope(taskId).map(ignored -> new IssueContextBridge(() -> read(taskId), IssueContextBridge.INSTRUCTION))
+                .or(() -> jiraScope(taskId).map(ignored -> new IssueContextBridge(() -> readJira(taskId), IssueContextBridge.INSTRUCTION)));
     }
 
     private Optional<IssueTask> scope(String taskId)
@@ -78,6 +89,74 @@ public class IssueContextBridgeResolverImpl
         return tasks.find(TaskId.valueOf(taskId))
                 .filter(task -> task.interactive() && task.state() == TaskState.OPEN && task.worktreeRemovedAt().isEmpty())
                 .flatMap(task -> sources.findByTaskId(taskId).filter(link -> task.workspaceId().filter(link.workspaceId()::equals).isPresent()));
+    }
+
+    private Optional<JiraIssueTask> jiraScope(String taskId)
+    {
+        return tasks.find(TaskId.valueOf(taskId))
+                .filter(task -> task.interactive() && task.state() == TaskState.OPEN && task.worktreeRemovedAt().isEmpty())
+                .flatMap(task -> jiraSources.findByTaskId(taskId).filter(link -> task.workspaceId().filter(link.workspaceId()::equals).isPresent()));
+    }
+
+    private String readJira(String taskId)
+    {
+        JiraIssueTask link = jiraScope(taskId).orElseThrow(() -> new AgentConflictException("This task no longer has readable Jira context."));
+        Optional<JiraIssue> cached = cachedJira(link);
+        ObjectNode result = objectMapper.createObjectNode();
+        result.put("source", "ByteQuay local data only; no remote request was made.");
+        result.put("warning", "The accepted Jira assignment is retained independently of current cached metadata. Missing or stale cache data does not imply completion.");
+        result.set("acceptedIssue", objectMapper.valueToTree(link.source()));
+        result.put("instructions", link.instructions());
+        result.put("acceptedAt", link.createdAt().toString());
+        ObjectNode metadata = result.putObject("cachedMetadata");
+        metadata.put("status", cached.map(issue -> issue.updatedAt().isBefore(link.source().updatedAt()) ? "stale" : "cached").orElse("missing"));
+        metadata.put("mayBeStale", true);
+        cached.ifPresent(issue -> {
+            metadata.put("updatedAt", issue.updatedAt().toString());
+            metadata.put("key", issue.key());
+            metadata.put("type", issue.type());
+            metadata.set("issueStatus", objectMapper.valueToTree(issue.status()));
+            metadata.set("assignee", objectMapper.valueToTree(issue.assignee()));
+            metadata.set("labels", objectMapper.valueToTree(issue.labels()));
+            metadata.set("priority", objectMapper.valueToTree(issue.priority()));
+            metadata.set("parent", objectMapper.valueToTree(issue.parent()));
+            metadata.set("dueDate", objectMapper.valueToTree(issue.dueDate()));
+            metadata.put("hasChildren", issue.hasChildren());
+            metadata.put("differsFromAcceptedDescription", !issue.title().equals(link.source().title()) || !issue.body().equals(link.source().body()));
+        });
+        ObjectNode timeline = result.putObject("cachedTimeline");
+        timeline.put("status", cached.isPresent() ? "cached" : "missing");
+        timeline.put("mayBeStale", true);
+        timeline.put("coverage", "Only comments currently present in the local cache; absence does not prove that Jira has no comments.");
+        List<JiraDtos.Comment> comments = cached.map(JiraIssue::comments).orElseGet(ImmutableList::of);
+        timeline.put("totalCachedComments", comments.size());
+        timeline.put("truncated", cached.map(JiraIssue::commentsTruncated).orElse(false) || comments.size() > MAXIMUM_EVENTS);
+        ArrayNode entries = timeline.putArray("events");
+        comments.stream().skip(Math.max(0, comments.size() - MAXIMUM_EVENTS)).forEach(comment -> {
+            ObjectNode entry = entries.addObject();
+            entry.put("id", comment.id());
+            entry.put("event", "commented");
+            entry.put("actor", comment.author().displayName());
+            entry.put("createdAt", comment.created());
+            entry.put("updatedAt", comment.updated());
+            entry.put("body", comment.body().substring(0, Math.min(comment.body().length(), MAXIMUM_EVENT_BODY)));
+            entry.put("bodyTruncated", comment.body().length() > MAXIMUM_EVENT_BODY);
+        });
+        return result.toString();
+    }
+
+    private Optional<JiraIssue> cachedJira(JiraIssueTask link)
+    {
+        try {
+            var source = link.source();
+            return Optional.of(jira.issue(source.connectionId(), source.cloudId(), source.issueId()));
+        }
+        catch (ResponseStatusException failure) {
+            if (failure.getStatusCode().value() != 404) {
+                throw failure;
+            }
+            return Optional.empty();
+        }
     }
 
     private String read(String taskId)

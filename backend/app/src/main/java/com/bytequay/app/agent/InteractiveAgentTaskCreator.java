@@ -40,6 +40,7 @@ import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.store.PullRequestStore;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
@@ -55,6 +56,7 @@ import java.util.function.Consumer;
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.bytequay.app.agent.WorkflowAgentTasks.repositoryIdentity;
 import static com.bytequay.app.agent.WorkflowAgentTasks.requireReady;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Resolves trusted workspace Git facts before core creates an interactive task. */
@@ -115,15 +117,33 @@ public final class InteractiveAgentTaskCreator
             Optional<GitHubIssueSource> issueSource,
             Optional<Consumer<AgentTask>> persistTask)
     {
+        return create(taskId, workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation, issueSource, Optional.empty(), persistTask);
+    }
+
+    public AgentTask create(
+            TaskId taskId,
+            String workspaceId,
+            String message,
+            AgentLaneId laneId,
+            AgentTaskDefaults defaults,
+            String idempotencyKey,
+            Optional<String> attachmentDigest,
+            Optional<DevelopmentAutomation> initialAutomation,
+            Optional<GitHubIssueSource> issueSource,
+            Optional<JiraIssueSource> jiraSource,
+            Optional<Consumer<AgentTask>> persistTask)
+    {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(persistTask, "persistTask is null");
         requireNonNull(issueSource, "issueSource is null");
+        requireNonNull(jiraSource, "jiraSource is null");
+        checkArgument(issueSource.isEmpty() || jiraSource.isEmpty(), "Choose only one issue source");
         requireNonNull(initialAutomation, "initialAutomation is null");
         requireNonNull(attachmentDigest, "attachmentDigest is null");
         Lock lock = creationLocks.get(taskId);
         lock.lock();
         try {
-            return createLocked(taskId, workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation, issueSource, persistTask);
+            return createLocked(taskId, workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation, issueSource, jiraSource, persistTask);
         }
         finally {
             lock.unlock();
@@ -140,6 +160,7 @@ public final class InteractiveAgentTaskCreator
             Optional<String> attachmentDigest,
             Optional<DevelopmentAutomation> initialAutomation,
             Optional<GitHubIssueSource> issueSource,
+            Optional<JiraIssueSource> jiraSource,
             Optional<Consumer<AgentTask>> persistTask)
     {
         checkNotBlank(workspaceId, "workspaceId");
@@ -148,7 +169,7 @@ public final class InteractiveAgentTaskCreator
         requireNonNull(defaults, "defaults is null");
         checkNotBlank(idempotencyKey, "idempotencyKey");
         String fingerprint = fingerprint(workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation,
-                issueSource.map(source -> source.host() + ":" + source.issueId()));
+                issueSource.map(source -> source.host() + ":" + source.issueId()).or(() -> jiraSource.map(source -> "jira:" + source.identity())));
         Optional<AgentTask> replay = interactiveTask(workspaceId, taskId);
         if (replay.isPresent()) {
             AgentTask task = requireReplay(replay.orElseThrow(), fingerprint);
@@ -180,7 +201,8 @@ public final class InteractiveAgentTaskCreator
         }
         progress.record(taskId, Phase.NAMING);
         String context = issueSource.map(source -> "GitHub issue #" + source.number() + ": " + source.title() + "\n" + source.body()
-                + "\n\nUser request:\n" + message).orElse(message);
+                + "\n\nUser request:\n" + message)
+                .or(() -> jiraSource.map(source -> "Jira " + source.key() + ": " + source.title() + "\n" + source.body() + "\n\nUser request:\n" + message)).orElse(message);
         Optional<TaskNames> generated = names.generate(laneId, defaults, context);
         String branch = TaskBranches.prefix(credentials.resolveGitHubCredential().profile().login())
                 + generated.map(TaskNames::branch).orElse("task-" + taskId.toString().substring(0, 8));

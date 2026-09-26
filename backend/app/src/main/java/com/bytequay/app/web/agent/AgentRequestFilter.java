@@ -54,6 +54,7 @@ public final class AgentRequestFilter
         String path = request.getRequestURI();
         return !path.startsWith("/agent")
                 && !path.startsWith("/api/agent-review")
+                && !(path.equals("/api/jira") || path.startsWith("/api/jira/"))
                 && !path.startsWith("/api/ci-autofix")
                 && !path.startsWith("/api/cherry-pick-ranges")
                 && !(path.startsWith("/api/workspaces/")

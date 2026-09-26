@@ -1090,7 +1090,13 @@ describe('PullOverview', () => {
     expect(html).toContain('pr-review-event');
   });
 
-  it('attaches review threads to their matching standalone review event', () => {
+  it.each([
+    { state: 'commented', body: '' },
+    { state: 'commented', body: '   ' },
+    { state: 'commented', body: 'Please update the **interruption wording**.' },
+    { state: 'approved', body: 'Please update the **interruption wording**.' },
+    { state: 'changes_requested', body: 'Please update the **interruption wording**.' },
+  ])('keeps a $state review body and its inline threads together ($body)', ({ state, body }) => {
     const value = detail();
     value.recentActivity = [
       {
@@ -1131,8 +1137,8 @@ describe('PullOverview', () => {
         },
       },
       {
-        actor: 'chenjian2664', eventType: 'reviewed', timestamp: '2026-08-13T08:49:10Z', body: '', githubId: 4925022844,
-        payload: { ...emptyPayload, actorAvatarUrl: 'https://example.com/chenjian2664.png', state: 'commented' },
+        actor: 'chenjian2664', eventType: 'reviewed', timestamp: '2026-08-13T08:49:10Z', body, githubId: 4925022844,
+        payload: { ...emptyPayload, actorAvatarUrl: 'https://example.com/chenjian2664.png', state },
       },
     ];
 
@@ -1146,6 +1152,15 @@ describe('PullOverview', () => {
     expect(html).toContain('src="https://example.com/chenjian2664.png"');
     expect(html).toContain('RewriteCast.java:R67');
     expect(html).toContain('Can you add a test?');
+    if (body.trim()) {
+      const renderedBody = '<p>Please update the <strong>interruption wording</strong>.</p>';
+      expect(html.split(renderedBody)).toHaveLength(2);
+      expect(html.indexOf(renderedBody)).toBeLessThan(html.indexOf('RewriteCast.java:R67'));
+      expect(html).toContain('class="pr-card pr-comment-card"');
+    }
+    else {
+      expect(html).not.toContain('class="pr-card pr-comment-card"');
+    }
   });
 
   it('omits the Markdown fence label and highlights its syntax', () => {

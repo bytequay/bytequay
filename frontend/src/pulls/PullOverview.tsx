@@ -707,7 +707,7 @@ function TimelineItem({ activities, viewerLogin, pr, workspaceId, onRefresh, onD
   const activity = activities[0];
   if (activity.eventType === 'reviewed' && activities.some(item => item.eventType === 'review_thread')) {
     return <ReviewGroup activities={activities} viewerLogin={viewerLogin} pr={pr} workspaceId={workspaceId} onRefresh={onRefresh}
-      onDetailUpdate={onDetailUpdate} />;
+      onDetailUpdate={onDetailUpdate} onQuote={onQuote} />;
   }
   if (activity.eventType === 'review_thread') {
     return <ReviewThread activity={activity} viewerLogin={viewerLogin} pr={pr} workspaceId={workspaceId} onRefresh={onRefresh}
@@ -850,13 +850,14 @@ function CommentCard({ activity, viewerLogin, pr, onDetailUpdate, onQuote }: {
   );
 }
 
-function ReviewGroup({ activities, viewerLogin, pr, workspaceId, onRefresh, onDetailUpdate }: {
+function ReviewGroup({ activities, viewerLogin, pr, workspaceId, onRefresh, onDetailUpdate, onQuote }: {
   activities: Activity[];
   viewerLogin?: string;
   pr: PullRequestDto;
   workspaceId?: string;
   onRefresh: () => Promise<void>;
   onDetailUpdate: PullDetailUpdater;
+  onQuote: (body: string) => void;
 }) {
   const review = activities[0];
   const actor = displayActor(review.actor || 'github');
@@ -871,6 +872,9 @@ function ReviewGroup({ activities, viewerLogin, pr, workspaceId, onRefresh, onDe
         <time>{relativeTime(review.timestamp)}</time>
         {badge && <span className={`pr-review-badge ${badge.className}`}>{badge.text}</span>}
       </div>
+      {review.body?.trim() && (
+        <CommentCard activity={review} viewerLogin={viewerLogin} pr={pr} onDetailUpdate={onDetailUpdate} onQuote={onQuote} />
+      )}
       {activities.slice(1).map(thread => (
         <ReviewThread key={thread.githubId ?? `${thread.timestamp}-${thread.payload.path}`} activity={thread}
           viewerLogin={viewerLogin} pr={pr} workspaceId={workspaceId} onRefresh={onRefresh} onDetailUpdate={onDetailUpdate} />

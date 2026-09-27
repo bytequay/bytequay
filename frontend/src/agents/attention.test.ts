@@ -103,7 +103,7 @@ describe('task attention', () => {
     expect(taskCardState(task('t', running), activity({ pendingApproval: { ...COMMAND, scope: ['AskUserQuestion'] } })).reason).toBe('Question for you');
     expect(taskCardState(task('t', running), null)).toMatchObject({ label: 'Running', spinning: true, reason: null });
     expect(taskCardState(task('t'), null)).toMatchObject({ label: 'Idle', tone: 'green' });
-    expect(taskCardState(task('t', { state: 'COMPLETED' }), activity({ pendingApproval: COMMAND }))).toMatchObject({ label: 'Finished' });
+    expect(taskCardState(task('t', { state: 'COMPLETED' }), activity({ pendingApproval: COMMAND }))).toMatchObject({ label: 'Completed' });
     expect(taskCardState(task('t', { state: 'FAILED' }), null)).toMatchObject({ label: 'Failed', tone: 'red' });
   });
 

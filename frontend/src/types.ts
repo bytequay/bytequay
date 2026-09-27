@@ -762,6 +762,8 @@ export type CiAutofixRunDto = {
   summary: string | null;
   pauseReason: string | null;
   finishReason: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type CreateAgentTaskRequest = {
@@ -990,6 +992,10 @@ export type CherryPickExecution = {
     pullRequestUrl?: string | null;
   } | null;
   items: CherryPickExecutionItem[];
+  /** When the execution started and last moved, which the Tasks page groups it by. */
+  createdAt: string;
+  updatedAt: string;
+  terminalAt: string | null;
 };
 
 type WorkspacePushResult = {
@@ -1513,6 +1519,8 @@ export type Bridge = JiraBridge & {
   startCherryPickExecution: (request: CherryPickExecutionRequest) => Promise<CherryPickExecution>;
   getCherryPickExecution: (executionId: string) => Promise<CherryPickExecution>;
   listCherryPickExecutions: (limit: number) => Promise<CherryPickExecution[]>;
+  /** The newest CI Autofix runs of every workspace, newest first. */
+  listCiAutofixRuns: (limit: number) => Promise<CiAutofixRunDto[]>;
   sendCherryPickMessage: (executionId: string, message: string) => Promise<CherryPickExecution>;
   cancelCherryPickExecution: (workspaceId: string, executionId: string) => Promise<CherryPickExecution>;
   getWorkspaceDeliveryStatus: (

@@ -12,31 +12,6 @@
  * limitations under the License.
  */
 
-.agt-section {
-  margin-top: 26px;
-}
-
-.agt-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.agt-head h2 {
-  font-size: 14px;
-  font-weight: 700;
-  margin: 0;
-}
-
-/* A section of the Tasks page, as the design labels it. */
-.agt-section-label {
-  font-size: 12px;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  color: #656d76;
-}
-
 .agt-spacer {
   flex: 1;
 }
@@ -2944,7 +2919,7 @@
   gap: 6px;
 }
 
-/* ── Tasks page: header tabs, day groups, rows, selection, deletion ── */
+/* ── Tasks page: shelf and type tabs, today's cards, older rows, selection, deletion ── */
 
 .agt-tasks-head {
   display: flex;
@@ -2991,17 +2966,92 @@
   font-weight: 600;
 }
 
-.agt-head {
-  min-height: 30px;
+/* Every task type has its own colour, on its tab, chip and tile alike. */
+:is(.agt-type-tab__icon, .agt-type-chip, .agt-type-tile, .agt-item-card__bar > span).is-all { --type-fg: #57606a; }
+:is(.agt-type-tab__icon, .agt-type-chip, .agt-type-tile, .agt-item-card__bar > span).is-dev { --type-fg: #0e7c86; --type-bg: #d8f3f5; }
+:is(.agt-type-tab__icon, .agt-type-chip, .agt-type-tile, .agt-item-card__bar > span).is-review { --type-fg: #0969da; --type-bg: #ddf4ff; }
+:is(.agt-type-tab__icon, .agt-type-chip, .agt-type-tile, .agt-item-card__bar > span).is-cherry { --type-fg: #9a6700; --type-bg: #fff8c5; }
+:is(.agt-type-tab__icon, .agt-type-chip, .agt-type-tile, .agt-item-card__bar > span).is-ci { --type-fg: #cf222e; --type-bg: #ffebe9; }
+
+.agt-type-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+  border-bottom: 1px solid #e3e3e6;
 }
 
-.agt-section-hint {
+/* In a narrow pane the tabs scroll sideways under the New button rather than pushing it out. */
+.agt-type-tabs__list {
+  display: flex;
+  gap: 2px;
   min-width: 0;
-  font-size: 12px;
-  color: #8c959f;
+  margin-bottom: -1px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.agt-type-tab {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #57606a;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 400;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.agt-type-tab.is-active {
+  border-bottom-color: #fd8c73;
+  color: var(--text-1);
+  font-weight: 500;
+}
+
+.agt-type-tab__icon {
+  display: inline-flex;
+  color: var(--type-fg);
+}
+
+.agt-type-tab__count {
+  padding: 0 7px;
+  border-radius: 10px;
+  background: #eceff2;
+  color: #57606a;
+  font-size: 11.5px;
+}
+
+.agt-type-tab__needs {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #bc4c00;
+}
+
+.agt-type-new {
+  flex: none;
+  margin: 0 0 6px auto;
+  padding: 4px 12px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--text-1);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.agt-type-new:hover {
+  background: #f6f8fa;
 }
 
 @keyframes agt-fade {
@@ -3009,12 +3059,12 @@
   to { opacity: 1; transform: none; }
 }
 
-/* Replaces the section header while anything is selected. */
+/* Appears under the type tabs while anything is selected. */
 .agt-selbar {
-  flex: 1;
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-top: 12px;
   padding: 5px 6px 5px 12px;
   border: 1px solid rgba(9, 105, 218, 0.25);
   border-radius: 8px;
@@ -3068,7 +3118,7 @@
 }
 
 .agt-empty-hero {
-  margin-top: 10px;
+  margin-top: 20px;
   padding: 36px 20px;
   border: 1px dashed #d8dee4;
   border-radius: 10px;
@@ -3083,156 +3133,395 @@
   color: var(--text-1);
 }
 
-/* Commits-style day groups: a bordered card per day with a grey header row. */
-.agt-groups {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  margin-top: 10px;
+.agt-items-empty {
+  margin-top: 20px;
+  padding: 28px;
+  border: 1px dashed #d8dee4;
+  border-radius: 10px;
+  text-align: center;
+  font-size: 13px;
+  color: #57606a;
 }
 
-.agt-group {
+.agt-items {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.agt-items:empty {
+  display: none;
+}
+
+/* Today's cards stand further apart from the older rows than the row groups do from each other. */
+.agt-day.is-today {
+  margin-bottom: 12px;
+}
+
+.agt-day__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.agt-day.is-today .agt-day__head {
+  margin-bottom: 10px;
+}
+
+.agt-day__label {
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #57606a;
+  white-space: nowrap;
+}
+
+.agt-day__date {
+  font-size: 12px;
+  color: #8c959f;
+  white-space: nowrap;
+}
+
+.agt-item-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.agt-item-rows {
   border: 1px solid #e3e3e6;
   border-radius: 10px;
   overflow: hidden;
   background: #ffffff;
 }
 
-.agt-group__head {
+.agt-item-card {
+  box-sizing: border-box;
+  min-width: 0;
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
-  padding: 8px 14px;
-  border-bottom: 1px solid #e3e3e6;
-  background: #f7f7f8;
-}
-
-.agt-group__label {
-  font-size: 12px;
-  font-weight: 700;
-  color: #57606a;
-  white-space: nowrap;
-}
-
-.agt-group__date,
-.agt-group__count {
-  font-size: 11px;
-  color: #8c959f;
-  white-space: nowrap;
-}
-
-.agt-trow {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  height: 44px;
-  padding: 0 10px 0 12px;
-  border-top: 1px solid #f0f0f2;
+  padding: 11px 12px;
+  border: 1px solid #e3e3e6;
+  border-radius: 12px;
   background: #ffffff;
+  box-shadow: 0 1px 2px rgba(31, 35, 40, 0.05);
+  color: var(--text-1);
   cursor: pointer;
+  transition: box-shadow 0.15s, border-color 0.15s;
 }
 
-.agt-group__head + .agt-trow {
-  border-top: 0;
+.agt-item-card:hover {
+  border-color: #b6bcc4;
+  box-shadow: 0 8px 24px rgba(140, 149, 159, 0.22);
 }
 
-.agt-trow:hover {
-  background: #f6f8fa;
+.agt-item-card.is-selected {
+  border-color: #54aeff;
+  background: #f5faff;
 }
 
-.agt-trow.is-selected {
-  background: #ddf4ff;
-}
-
-.agt-trow:focus-visible {
+:is(.agt-item-card, .agt-item-row):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
-/* The leading slot: a muted check-square at rest, a checkbox on hover and while selecting. */
-.agt-trow__slot {
-  width: 20px;
-  height: 20px;
+.agt-item-card__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 22px;
+  min-width: 0;
+}
+
+.agt-type-chip,
+.agt-type-tile {
   flex: none;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  padding: 0;
   border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: #b6bcc4;
+  background: var(--type-bg);
+  color: var(--type-fg);
+  font: inherit;
+}
+
+.agt-type-chip {
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px 0 6px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.agt-type-tile {
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 6px;
+}
+
+button:is(.agt-type-chip, .agt-type-tile) {
   cursor: pointer;
 }
 
-.agt-trow__check {
-  width: 15px;
-  height: 15px;
+.agt-type-glyph {
+  display: inline-flex;
+}
+
+/* An agent task's type icon turns into its checkbox on hover and while anything is selected. */
+.agt-type-check {
+  width: 13px;
+  height: 13px;
   display: none;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  border: 1.5px solid #8c959f;
+  border: 1.5px solid currentColor;
   border-radius: 4px;
   background: #ffffff;
   color: #ffffff;
 }
 
-.agt-trow__check > svg {
+.agt-type-check > svg {
   display: none;
 }
 
-.agt-trow:hover .agt-trow__check,
-.agt-groups.has-selection .agt-trow__check,
-.agt-trow.is-selected .agt-trow__check {
+:is(.agt-item-row:hover, .agt-type-chip:hover, .agt-items.has-selection, .is-selected) .agt-type-check {
   display: inline-flex;
+  border-color: var(--type-fg);
 }
 
-.agt-trow:hover .agt-trow__glyph,
-.agt-groups.has-selection .agt-trow__glyph,
-.agt-trow.is-selected .agt-trow__glyph {
+:is(.agt-item-row:hover, .agt-type-chip:hover, .agt-items.has-selection, .is-selected) .agt-type-glyph {
   display: none;
 }
 
-.agt-trow.is-selected .agt-trow__check {
+.is-selected .agt-type-check {
   border-color: var(--accent);
   background: var(--accent);
 }
 
-.agt-trow.is-selected .agt-trow__check > svg {
+.is-selected .agt-type-check > svg {
   display: block;
 }
 
-.agt-trow__title {
-  flex: 1;
-  min-width: 0;
-  font-size: 13.5px;
+.agt-item-age {
+  flex: none;
+  font-size: 12px;
+  color: #8c959f;
+  white-space: nowrap;
+}
+
+/* Archive and delete replace the age while the pointer or focus is on the card. */
+.agt-item-actions {
+  flex: none;
+  display: none;
+  gap: 2px;
+}
+
+:is(.agt-item-card, .agt-item-row):is(:hover, :focus-within) .agt-item-actions {
+  display: flex;
+}
+
+.agt-item-card:is(:hover, :focus-within) .agt-item-actions + .agt-item-age {
+  display: none;
+}
+
+.agt-item-action {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #57606a;
+  cursor: pointer;
+}
+
+.agt-item-action:hover:not(:disabled) {
+  background: #eceff2;
   color: var(--text-1);
+}
+
+.agt-item-action.is-danger:hover:not(:disabled) {
+  background: #ffebe9;
+  color: #cf222e;
+}
+
+.agt-item-action:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.agt-item-card__title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 19px;
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+
+.agt-item-card__needs {
+  min-width: 0;
+  font-size: 12.5px;
+  color: #bc4c00;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.agt-trow__title.is-archived {
+.agt-item-card__needs > span {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: 1px;
+}
+
+.agt-item-card__message {
+  display: flex;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: #f6f8fa;
+}
+
+/* Who said a card's last message, in the colour of that agent. */
+.agt-speaker {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #57606a;
+  color: #ffffff;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.agt-speaker.is-claude { background: #0e7c86; }
+.agt-speaker.is-codex { background: #24292f; }
+.agt-speaker.is-deepseek { background: #4f6bed; }
+.agt-speaker.is-you { background: #8c959f; }
+
+.agt-item-card__said {
+  flex: 1;
+  min-width: 0;
+}
+
+.agt-item-card__who {
+  font-size: 11.5px;
+  color: #8c959f;
+}
+
+.agt-item-card__who > span {
   color: #57606a;
 }
 
-/*
- * The title and its pull request share the row fairly: both grow toward their full width in equal
- * steps, so a short one stays whole and only the longer one is cut.
- */
-.agt-trow__name {
-  flex: 1;
-  min-width: 0;
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, max-content);
-  column-gap: 10px;
-  align-items: center;
+.agt-item-card__text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 1px;
+  font-size: 12.5px;
+  line-height: 17px;
+  overflow-wrap: anywhere;
 }
 
-.agt-trow__pr,
-.agt-trow__changes {
+.agt-item-card__progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: #57606a;
+  white-space: nowrap;
+}
+
+.agt-item-card__bar {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: #eceff2;
+  overflow: hidden;
+}
+
+.agt-item-card__bar > span {
+  display: block;
+  height: 100%;
+  background: var(--type-fg);
+}
+
+.agt-item-card__foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 18px;
+  overflow: hidden;
+}
+
+.agt-item-change {
+  flex: none;
+  font-size: 11.5px;
+  color: #57606a;
+  white-space: nowrap;
+}
+
+.agt-item-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 44px;
+  padding: 0 10px 0 12px;
+  border-top: 1px solid #f0f0f2;
+  background: #ffffff;
+  color: var(--text-1);
+  cursor: pointer;
+}
+
+.agt-item-row:first-child {
+  border-top: 0;
+}
+
+.agt-item-row:hover {
+  background: #f6f8fa;
+}
+
+.agt-item-row.is-selected {
+  background: #ddf4ff;
+}
+
+.agt-item-row__title {
+  flex: none;
+  max-width: 38%;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agt-item-row__said {
+  flex: 1;
+  min-width: 0;
   font-size: 12.5px;
   color: #57606a;
   white-space: nowrap;
@@ -3240,10 +3529,36 @@
   text-overflow: ellipsis;
 }
 
-.agt-trow__pr > svg,
-.agt-trow__changes > svg {
-  margin-right: 4px;
-  vertical-align: -2px;
+.agt-item-row__who {
+  color: #8c959f;
+}
+
+.agt-item-row .agt-item-change {
+  font-size: 12px;
+  color: #8c959f;
+}
+
+.agt-item-row .agt-pill {
+  flex: none;
+}
+
+.agt-item-row .agt-item-age {
+  width: 28px;
+  text-align: right;
+}
+
+.agt-item-row__end {
+  flex: none;
+  min-width: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.agt-item-row__chev {
+  flex: none;
+  margin-left: 4px;
+  color: #8c959f;
 }
 
 /* A pull request's state in GitHub's colours, wherever a task or a review names one. */
@@ -3261,57 +3576,6 @@
 
 .agt-pr-icon.is-closed {
   color: #cf222e;
-}
-
-.agt-trow__meta {
-  flex: none;
-  font-size: 12px;
-  color: #8c959f;
-  white-space: nowrap;
-}
-
-.agt-trow__actions {
-  flex: none;
-  width: 96px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 2px;
-}
-
-.agt-trow__btn {
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #57606a;
-  cursor: pointer;
-}
-
-.agt-trow__btn:hover:not(:disabled) {
-  background: #e4e4e8;
-  color: var(--text-1);
-}
-
-.agt-trow__btn.is-danger:hover:not(:disabled) {
-  background: #ffebe9;
-  color: #cf222e;
-}
-
-.agt-trow__btn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-.agt-trow__chev {
-  flex: none;
-  margin-left: 6px;
-  color: #8c959f;
 }
 
 /* Above the docked composer and the chip row over it. */

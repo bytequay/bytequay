@@ -406,6 +406,7 @@ export function parseCiAutofixRun(value: unknown): CiAutofixRunDto {
     agentTaskId: optionalText(source.agentTaskId, 'ciRun.agentTaskId'), currentTurnId: optionalText(source.currentTurnId, 'ciRun.currentTurnId'),
     parentTaskId: optionalText(source.parentTaskId, 'ciRun.parentTaskId'), canMessage: flag(source.canMessage, 'ciRun.canMessage'),
     summary: optionalText(source.summary, 'ciRun.summary'), pauseReason: optionalText(source.pauseReason, 'ciRun.pauseReason'), finishReason: optionalText(source.finishReason, 'ciRun.finishReason'),
+    createdAt: text(source.createdAt, 'ciRun.createdAt'), updatedAt: text(source.updatedAt, 'ciRun.updatedAt'),
   };
 }
 

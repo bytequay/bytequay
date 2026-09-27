@@ -76,7 +76,7 @@ describe('agent home on a return visit', () => {
     const markup = renderToStaticMarkup(
       <AgentTasksView workspaceId="workspace-rows" bridge={createPreviewBridge('workspace-rows')} onOpenTask={() => {}} onOpenReview={() => {}} />);
 
-    expect(markup).toContain('#31105 Clean up nits');
+    expect(markup).toMatch(/<span class="atn-link-key is-pr" title="Clean up nits"><svg[^>]*>.*?<\/svg><span>#31105<\/span><\/span>/);
     expect(markup).toContain('2 commits');
   });
 

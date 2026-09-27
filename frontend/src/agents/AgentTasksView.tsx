@@ -14,11 +14,10 @@
 
 import { notifyJiraChanged, type JiraIssue } from '../jira/contracts';
 import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Archive, ArchiveRestore, Check, ChevronRight, Circle, FilePen, GitCommitHorizontal, LoaderCircle, SquareCheck, Trash2, X } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Archive, ArchiveRestore, Check, Circle, LoaderCircle, Trash2, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import RepoAvatar from '../RepoAvatar';
-import { relativeTime } from '../relativeTime';
 import { INTERACTIVE_LANE_ID, displayModelName, isDeepSeekKeyLane, laneLabel, providerAvailable, providerRemedy, remedyCommand } from '../settings/model';
 import { settingsRoute } from '../settings/routes';
 import { getCached, setCached } from '../dataCache';
@@ -31,13 +30,18 @@ import { automationForSubmission } from './developmentAutomation';
 import { ModelPicker } from './ModelPicker';
 import { ProviderPicker } from './ProviderPicker';
 import '../css/agents.css';
-import type { AgentTaskChangesDto, AgentTaskDto, AgentTaskPullRequestDto, AgentTaskStartupPhase, DevelopmentAutomationDto, ModelOptionDto, ModelProviderDto, ModelSettingsDto } from '../types';
+import type {
+  AgentTaskActivityDto, AgentTaskChangesDto, AgentTaskDto, AgentTaskStartupPhase, CherryPickExecution, CiAutofixRunDto, DevelopmentAutomationDto,
+  ModelOptionDto, ModelProviderDto, ModelSettingsDto, UserProfileDto,
+} from '../types';
 import { acceptsImages, createTaskCreationTracker, type AgentBridgePort, type TaskCreationTracker } from './model';
 import { agentProviderUnavailableFrom } from './contracts';
 import { pasteImage } from './clipboard';
 import { ImageAttachment } from './ImageAttachment';
-import { ReviewTasksView } from './ReviewTasksView';
-import { PullRequestStateIcon } from './TaskPullRequestPanel';
+import { ATTENTION_SEED } from '../home/attention';
+import { useTaskAttention } from './attention';
+import { TaskItemCard, TaskItemRow, TaskTypeIcon, viewerInitials, type TaskItemHandlers } from './TaskListCards';
+import { TASK_TYPES, cherryPickItem, ciFixItem, developmentItem, groupTaskList, reviewItem, type TaskListItem, type TaskType } from './taskList';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 
 export type DraftImage = { id: string; name: string; url: string };
@@ -59,14 +63,17 @@ interface AgentTasksViewProps {
   sourceIssueNumber?: number | null;
   onOpenCreatedTask?: (task: AgentTaskDto) => void;
   headerAction?: React.ReactNode;
-  /** The rest of the Tasks page, drawn above the agent tasks under the one heading. */
-  children?: React.ReactNode;
   /** Electron's bridge unless a test supplies its own. */
   bridge?: AgentBridgePort;
   /** The route owns which task is open, so opening one is a navigation. */
   onOpenTask: (taskId: string) => void;
   onOpenReview: (review: AgentReviewDto) => void;
   onOpenReviewWorkspace?: (review: AgentReviewDto) => void;
+  onOpenCherryPick?: (execution: CherryPickExecution) => void;
+  /** A CI fix that neither a task nor a cherry-pick started opens on its pull request. */
+  onOpenPullRequest?: (number: number, repo: string) => void;
+  /** Goes where a review, cherry-pick or CI fix begins. */
+  onNewItem?: (type: Exclude<TaskType, 'dev'>) => void;
   /** Where a provider that is not ready gets fixed. */
   onOpenSettings?: () => void;
   /** A launch chosen before the composer opened; the person may change it until the first message creates a task. */
@@ -119,41 +126,6 @@ export function taskArchived(task: Pick<AgentTaskDto, 'archivedAt'>): boolean {
 function taskBusy(task: AgentTaskDto): boolean {
   const claim = task.mutationClaim ?? null;
   return claim !== null && claim.kind !== 'RECOVERY';
-}
-
-type TaskGroup = { key: string; label: string; date: string; tasks: AgentTaskDto[] };
-
-function dayStart(at: Date): Date {
-  return new Date(at.getFullYear(), at.getMonth(), at.getDate());
-}
-
-function dayKey(day: Date): string {
-  const pad = (value: number): string => String(value).padStart(2, '0');
-  return `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
-}
-
-/** Tasks by the local day they last moved, newest day first and newest task first within it. */
-export function groupTasksByDay(tasks: AgentTaskDto[], now: number): TaskGroup[] {
-  const today = dayStart(new Date(now)).getTime();
-  const groups = new Map<string, TaskGroup>();
-  const ordered = [...tasks].sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
-  for (const task of ordered) {
-    const day = dayStart(new Date(task.updatedAt));
-    const key = dayKey(day);
-    let group = groups.get(key);
-    if (group === undefined) {
-      const daysAgo = Math.round((today - day.getTime()) / 86_400_000);
-      group = {
-        key,
-        label: daysAgo === 0 ? 'Today' : daysAgo === 1 ? 'Yesterday' : day.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }),
-        date: day.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        tasks: [],
-      };
-      groups.set(key, group);
-    }
-    group.tasks.push(task);
-  }
-  return [...groups.values()];
 }
 
 /**
@@ -647,17 +619,71 @@ function failureMessage(failure: unknown): string {
   return failure instanceof Error ? failure.message : String(failure);
 }
 
+/** How often the Tasks page re-reads reviews, cherry-picks and CI fixes, the pace review tasks always had. */
+const WORK_POLL_MS = 5000;
+
+type WorkspaceWork = { reviews: AgentReviewDto[]; executions: CherryPickExecution[]; runs: CiAutofixRunDto[]; failed: string[] };
+
+const NO_WORK: WorkspaceWork = { reviews: [], executions: [], runs: [], failed: [] };
+
+/**
+ * The workspace's reviews, cherry-picks and CI fixes, re-read while the page is visible. A source
+ * that cannot be read keeps its last answer and is named until a read succeeds again.
+ */
+function useWorkspaceWork(workspaceId: string, bridge: () => AgentBridgePort): WorkspaceWork {
+  const seed = `task-work:${workspaceId}`;
+  const [work, setWork] = useState<WorkspaceWork>(() => getCached<WorkspaceWork>(seed) ?? NO_WORK);
+  useEffect(() => {
+    let active = true;
+    const read = (): void => {
+      if (document.hidden) return;
+      const port = bridge();
+      // ponytail: every list on every tick; per-source change events if these reads ever show up.
+      void Promise.allSettled([
+        port.listAgentReviews?.(workspaceId) ?? Promise.resolve([]),
+        port.listCherryPickExecutions?.(200) ?? Promise.resolve([]),
+        port.listCiAutofixRuns?.(100) ?? Promise.resolve([]),
+      ]).then(([reviews, executions, runs]) => {
+        if (!active) return;
+        setWork((last) => ({
+          reviews: reviews.status === 'fulfilled' ? reviews.value : last.reviews,
+          executions: executions.status === 'fulfilled' ? executions.value.filter((execution) => execution.workspaceId === workspaceId) : last.executions,
+          runs: runs.status === 'fulfilled' ? runs.value.filter((run) => run.workspaceId === workspaceId) : last.runs,
+          failed: [reviews.status === 'rejected' ? 'reviews' : null, executions.status === 'rejected' ? 'cherry-picks' : null, runs.status === 'rejected' ? 'CI fixes' : null]
+            .filter((name): name is string => name !== null),
+        }));
+      });
+    };
+    read();
+    const timer = window.setInterval(read, WORK_POLL_MS);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [bridge, workspaceId]);
+  useEffect(() => { setCached(seed, work); }, [seed, work]);
+  return work;
+}
+
+/** Each listed task in its newest copy: the page's own changes and the polled list both move the version. */
+function freshest(tasks: AgentTaskDto[], polled: { task: AgentTaskDto }[]): AgentTaskDto[] {
+  const latest = new Map(polled.map(({ task }) => [task.id, task]));
+  return tasks.map((task) => {
+    const fresh = latest.get(task.id);
+    return fresh !== undefined && fresh.version > task.version ? fresh : task;
+  });
+}
+
 export default function AgentTasksView({
   workspaceId,
   repository,
   sourceIssueNumber = null,
   onOpenCreatedTask,
   headerAction,
-  children,
   bridge: explicitBridge,
   onOpenTask,
   onOpenReview,
   onOpenReviewWorkspace,
+  onOpenCherryPick,
+  onOpenPullRequest,
+  onNewItem,
   onOpenSettings,
   launch,
 }: AgentTasksViewProps): React.JSX.Element {
@@ -665,8 +691,11 @@ export default function AgentTasksView({
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
   const creation = useAgentTaskCreation({ workspaceId, initialLaunch: launch, bridge: live, onOpenTask, sourceIssueNumber, onOpenCreatedTask });
   const { setTasks } = creation;
-  const tasksRef = useRef(creation.tasks);
-  tasksRef.current = creation.tasks;
+  const taskWorkspaces = useMemo(() => [{ id: workspaceId, name: '', repository: repository ?? '' }], [repository, workspaceId]);
+  const polled = useTaskAttention(taskWorkspaces, live);
+  const tasks = useMemo(() => freshest(creation.tasks, polled.tasks), [creation.tasks, polled.tasks]);
+  const tasksRef = useRef(tasks);
+  tasksRef.current = tasks;
   // One task at a time: each answer carries the version the next request must echo, and the list
   // reflects what actually happened when one of a batch fails.
   const archive = useCallback(async (ids: string[], archived: boolean) => {
@@ -683,26 +712,47 @@ export default function AgentTasksView({
       setTasks((list) => list.filter((task) => task.id !== id));
     }
   }, [live, setTasks, workspaceId]);
-  const changes = useTaskChanges(workspaceId, creation.tasks, live);
+  const changes = useTaskChanges(workspaceId, tasks, live);
+  const work = useWorkspaceWork(workspaceId, live);
+  const items = useMemo(() => [
+    ...work.reviews.map(reviewItem),
+    ...work.executions.map(cherryPickItem),
+    ...work.runs.map(ciFixItem),
+  ], [work]);
+  const openItem = useCallback((item: TaskListItem) => {
+    const { review, execution, run } = item;
+    if (review !== null) onOpenReview(review);
+    else if (execution !== null) onOpenCherryPick?.(execution);
+    else if (run !== null) {
+      // A CI fix is followed where it started: the development task, or the cherry-pick that delivered its pull request.
+      const delivery = work.executions.find((candidate) => candidate.delivery?.pullRequestNumber === run.pullRequestNumber);
+      if (run.parentTaskId !== null) onOpenTask(run.parentTaskId);
+      else if (delivery !== undefined) onOpenCherryPick?.(delivery);
+      else onOpenPullRequest?.(run.pullRequestNumber, run.repository);
+    }
+  }, [onOpenCherryPick, onOpenPullRequest, onOpenReview, onOpenTask, work.executions]);
+  const error = creation.error ?? (work.failed.length === 0 ? null : `Could not read ${work.failed.join(', ')}; trying again.`);
   return (
     <AgentTaskList
       headerAction={headerAction}
       repository={repository}
       {...creation.composer}
       issueAttachment={creation.issueAttachment}
-      tasks={creation.tasks}
+      tasks={tasks}
+      items={items}
+      activity={polled.activity}
       changes={changes}
       loading={creation.loading}
-      error={creation.error}
+      error={error}
       startup={creation.startup}
       onOpenTask={onOpenTask}
+      onOpenItem={openItem}
+      onOpenReviewWorkspace={onOpenReviewWorkspace}
+      onNewItem={onNewItem}
       onOpenSettings={onOpenSettings}
       onArchive={archive}
       onDelete={remove}
-      reviewTasks={<ReviewTasksView workspaceId={workspaceId} onOpenReview={onOpenReview} onOpenWorkspace={onOpenReviewWorkspace} />}
-    >
-      {children}
-    </AgentTaskList>
+    />
   );
 }
 
@@ -883,110 +933,27 @@ export function changesLabel({ uncommitted, commits }: AgentTaskChangesDto): str
   return uncommitted ? `${committed} · uncommitted changes` : committed;
 }
 
-function TaskRow({ task, pullRequest, changes, providers, now, checked, selecting, onOpen, onToggle, onArchive, onDelete }: {
-  task: AgentTaskDto;
-  pullRequest: AgentTaskPullRequestDto | null;
-  /** What the checkout holds, named only while the task has no pull request to name instead. */
-  changes: AgentTaskChangesDto | null;
-  providers: ModelProviderDto[];
-  now: number;
-  checked: boolean;
-  /** While anything is selected, a click on a row selects it rather than opening it. */
-  selecting: boolean;
-  onOpen: () => void;
-  onToggle: () => void;
-  onArchive: (archived: boolean) => void;
-  onDelete: () => void;
-}): React.JSX.Element {
-  const pill = taskStatePill(task);
-  const provider = providers.find((candidate) => candidate.id === task.laneId);
-  const model = displayModelName(provider?.models.find((option) => option.id === task.defaults.model)?.name ?? task.defaults.model ?? 'No model');
-  const archived = taskArchived(task);
-  const running = taskBusy(task);
-  const activate = (): void => { if (selecting) onToggle(); else onOpen(); };
-  return (
-    <div
-      className={`agt-trow${checked ? ' is-selected' : ''}`}
-      role="button"
-      tabIndex={0}
-      onClick={activate}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        event.preventDefault();
-        activate();
-      }}
-    >
-      <button
-        type="button"
-        className="agt-trow__slot"
-        aria-label={`${checked ? 'Deselect' : 'Select'} ${task.title}`}
-        aria-pressed={checked}
-        onClick={(event) => { event.stopPropagation(); onToggle(); }}
-      >
-        <span className="agt-trow__check" aria-hidden="true"><Check size={10} strokeWidth={3.2} /></span>
-        <SquareCheck className="agt-trow__glyph" size={14} strokeWidth={1.8} aria-hidden="true" />
-      </button>
-      <span className="agt-trow__name">
-        <span className={`agt-trow__title${archived ? ' is-archived' : ''}`}>{task.title}</span>
-        {pullRequest !== null ? (
-          <span className="agt-trow__pr" title={`#${pullRequest.number} ${pullRequest.title}`}>
-            <PullRequestStateIcon pullRequest={pullRequest} size={13} />
-            {`#${pullRequest.number} ${pullRequest.title}`}
-          </span>
-        ) : changes !== null && (
-          <span className="agt-trow__changes" title="Commits since the task started, and files its checkout has not committed">
-            {changes.uncommitted ? <FilePen size={13} aria-hidden="true" /> : changes.commits > 0 && <GitCommitHorizontal size={13} aria-hidden="true" />}
-            {changesLabel(changes)}
-          </span>
-        )}
-      </span>
-      <span className="agt-mono agt-trow__meta">
-        {provider?.label ?? laneLabel(task.laneId)} · {model} · {relativeTime(task.updatedAt, { suffix: false, now })}
-      </span>
-      <span className={`agt-state ${pill.className}`}>
-        {pill.spinning && <LoaderCircle className="agt-spin" aria-hidden="true" />}
-        {pill.label}
-      </span>
-      <span className="agt-trow__actions">
-        {!selecting && (
-          <>
-            <button
-              type="button"
-              className="agt-trow__btn"
-              title={archived ? 'Restore to Active' : 'Archive'}
-              aria-label={`${archived ? 'Restore' : 'Archive'} task: ${task.title}`}
-              onClick={(event) => { event.stopPropagation(); onArchive(!archived); }}
-            >
-              {archived ? <ArchiveRestore size={15} aria-hidden="true" /> : <Archive size={15} aria-hidden="true" />}
-            </button>
-            <button
-              type="button"
-              className="agt-trow__btn is-danger"
-              title={running ? 'Stop the task before deleting' : 'Delete permanently'}
-              aria-label={`Delete task: ${task.title}`}
-              disabled={running}
-              onClick={(event) => { event.stopPropagation(); onDelete(); }}
-            >
-              <Trash2 size={15} aria-hidden="true" />
-            </button>
-          </>
-        )}
-        <ChevronRight className="agt-trow__chev" size={14} aria-hidden="true" />
-      </span>
-    </div>
-  );
-}
-
 type ToastState = { id: number; text: string; undo?: () => void };
 
+/** The type tabs across the Tasks page, each filtering the whole page. */
+type TypeTab = 'all' | TaskType;
+const TYPE_TABS: TypeTab[] = ['all', 'dev', 'review', 'cherry', 'ci'];
+
+function inType(item: TaskListItem, type: TypeTab): boolean {
+  return type === 'all' || item.type === type;
+}
+
 export function AgentTaskList({
-  tasks, loading, error, laneId, providers, models, selection, draft, blocker, children, reviewTasks, headerAction, repository,
-  onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onArchive, onDelete,
+  tasks, items = [], activity = {}, loading, error, laneId, providers, models, selection, draft, blocker, headerAction, repository,
+  onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenItem, onOpenReviewWorkspace, onNewItem, onOpenSettings, onArchive, onDelete,
   images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, automation, issueAttachment,
-  now = Date.now(), initialTab = 'active', changes = {},
+  now = Date.now(), initialTab = 'active', initialType = 'all', changes = {},
 }: {
   tasks: AgentTaskDto[];
+  /** The workspace's reviews, cherry-picks and CI fixes, listed beside its agent tasks. */
+  items?: TaskListItem[];
+  /** What each agent task last said and waits on, by task id. */
+  activity?: Record<string, AgentTaskActivityDto>;
   loading: boolean;
   error: string | null;
   laneId: string;
@@ -997,8 +964,6 @@ export function AgentTaskList({
   draft: string;
   /** Why creation is unavailable; null when the task can be created. */
   blocker: string | null;
-  children?: React.ReactNode;
-  reviewTasks?: React.ReactNode;
   headerAction?: React.ReactNode;
   /** "owner/repo" new tasks start in. */
   repository?: string;
@@ -1007,6 +972,12 @@ export function AgentTaskList({
   onSelectModel: (model: string, effort: string | null, serviceTier: string | null) => void;
   onCreate: () => void;
   onOpenTask: (taskId: string) => void;
+  /** Opens a review, cherry-pick or CI fix. */
+  onOpenItem?: (item: TaskListItem) => void;
+  /** A review's own conversation, beside its pull request. */
+  onOpenReviewWorkspace?: (review: AgentReviewDto) => void;
+  /** Goes where a review, cherry-pick or CI fix begins; a development task begins in the composer below. */
+  onNewItem?: (type: Exclude<TaskType, 'dev'>) => void;
   onOpenSettings?: () => void;
   /** Shelves or restores the tasks; the caller updates its list as each answer arrives. */
   onArchive?: (ids: string[], archived: boolean) => Promise<void>;
@@ -1025,10 +996,12 @@ export function AgentTaskList({
   /** The clock the day groups are drawn against. */
   now?: number;
   initialTab?: TaskTab;
-  /** What each task's checkout holds, by task id, for rows without a pull request to name. */
+  initialType?: TypeTab;
+  /** What each task's checkout holds, by task id, for tasks without a pull request to name. */
   changes?: Record<string, AgentTaskChangesDto>;
 }): React.JSX.Element {
   const [tab, setTab] = useState<TaskTab>(initialTab);
+  const [type, setType] = useState<TypeTab>(initialType);
   const [selected, setSelected] = useState<string[]>([]);
   const [confirm, setConfirm] = useState<AgentTaskDto[] | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -1046,11 +1019,19 @@ export function AgentTaskList({
   if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup, headerAction }} />;
 
   const active = tab === 'active';
-  const visible = tasks.filter((task) => taskArchived(task) === !active);
-  const activeCount = tasks.filter((task) => !taskArchived(task)).length;
-  const groups = groupTasksByDay(visible, now);
-  const selectedTasks = selected.map((id) => visible.find((task) => task.id === id)).filter((task): task is AgentTaskDto => task !== undefined);
+  const archivedCount = tasks.filter(taskArchived).length;
+  // Only agent tasks archive; reviews, cherry-picks and CI fixes stay on the active shelf.
+  const shelf = [
+    ...tasks.filter((task) => taskArchived(task) === !active)
+      .map((task) => developmentItem(task, activity[task.id] ?? null, changes[task.id] ?? null, providers)),
+    ...(active ? items : []),
+  ];
+  const visible = shelf.filter((item) => inType(item, type));
+  const { today, todayDate, groups } = groupTaskList(visible, now);
+  const visibleTasks = visible.flatMap((item) => (item.task === null ? [] : [item.task]));
+  const selectedTasks = selected.map((id) => visibleTasks.find((task) => task.id === id)).filter((task): task is AgentTaskDto => task !== undefined);
   const selectionRunning = selectedTasks.some(taskBusy);
+  const you = viewerInitials(getCached<UserProfileDto>(ATTENTION_SEED.profile));
 
   const showToast = (text: string, undo?: () => void): void => {
     toastId.current += 1;
@@ -1058,6 +1039,10 @@ export function AgentTaskList({
   };
   const switchTab = (next: TaskTab): void => {
     setTab(next);
+    setSelected([]);
+  };
+  const switchType = (next: TypeTab): void => {
+    setType(next);
     setSelected([]);
   };
   const toggle = (id: string): void => {
@@ -1094,6 +1079,31 @@ export function AgentTaskList({
         setSelected([]);
       });
   };
+  const handlers = (item: TaskListItem): TaskItemHandlers => {
+    const { task, review } = item;
+    if (task !== null) {
+      return {
+        now, you, selecting,
+        checked: selected.includes(task.id),
+        onOpen: () => onOpenTask(task.id),
+        onToggle: () => toggle(task.id),
+        onArchive: (archived) => archive([task.id], archived),
+        onDelete: () => requestDelete([task.id]),
+      };
+    }
+    return {
+      now, you, selecting,
+      checked: false,
+      onOpen: () => onOpenItem?.(item),
+      onOpenWorkspace: review === null || onOpenReviewWorkspace === undefined ? undefined : () => onOpenReviewWorkspace(review),
+    };
+  };
+  const startNew = (event: React.MouseEvent<HTMLButtonElement>): void => {
+    if (type === 'all' || type === 'dev') {
+      event.currentTarget.closest('.agt-page')?.querySelector<HTMLTextAreaElement>('.agt-compose__input')?.focus();
+    }
+    else onNewItem?.(type);
+  };
 
   return (
     <div className="agt-tasks-page">
@@ -1102,12 +1112,16 @@ export function AgentTaskList({
           <h1>Tasks</h1>
           <span className="agt-spacer" />
           <div className="agt-tabs" role="tablist" aria-label="Task lists">
-            {([['active', 'Active', activeCount], ['archived', 'Archived', tasks.length - activeCount]] as const).map(([id, label, count]) => (
+            {([
+              ['active', 'Active', tasks.length - archivedCount + items.length, undefined],
+              ['archived', 'Archived', archivedCount, `Completed tasks archive automatically after ${AUTO_ARCHIVE_DAYS} days`],
+            ] as const).map(([id, label, count, hint]) => (
               <button
                 key={id}
                 type="button"
                 role="tab"
                 aria-selected={tab === id}
+                title={hint}
                 className={`agt-tab${tab === id ? ' is-active' : ''}`}
                 onClick={() => switchTab(id)}
               >
@@ -1117,84 +1131,88 @@ export function AgentTaskList({
           </div>
           {headerAction}
         </div>
-        {active && children}
-        <section className="agt-section" aria-label={active ? 'Agent tasks' : 'Archived tasks'}>
-          <div className="agt-head">
-            {selecting ? (
-              <div className="agt-selbar">
-                <span className="agt-selbar__count">{selected.length} selected</span>
-                <button type="button" className="agt-selbar__link" onClick={() => setSelected(visible.map((task) => task.id))}>Select all</button>
-                <span className="agt-spacer" />
-                <button type="button" className="agt-selbar__btn" onClick={() => archive(selected, active)}>
-                  {active ? <Archive size={14} aria-hidden="true" /> : <ArchiveRestore size={14} aria-hidden="true" />}
-                  {active ? 'Archive' : 'Restore'}
-                </button>
-                <button
-                  type="button"
-                  className="agt-selbar__btn is-danger"
-                  disabled={selectionRunning}
-                  title={selectionRunning ? 'Selection includes a running task' : 'Delete permanently'}
-                  onClick={() => requestDelete(selected)}
-                >
-                  <Trash2 size={14} aria-hidden="true" />
-                  Delete
-                </button>
-                <button type="button" className="agt-selbar__link is-muted" onClick={() => setSelected([])}>Cancel</button>
-              </div>
-            ) : (
-              <>
-                <span className="agt-section-label">{active ? 'Agent tasks' : 'Archived tasks'}</span>
-                <span className="agt-spacer" />
-                <span className="agt-section-hint">
-                  {active
-                    ? `Completed tasks archive automatically after ${AUTO_ARCHIVE_DAYS} days`
-                    : 'Archived tasks keep their transcript and branch until deleted'}
-                </span>
-              </>
-            )}
-          </div>
-          {error !== null && <div className="cmt-error" role="alert">{error}</div>}
-          {loading && <div className="agt-loading">Loading agent tasks…</div>}
-          {!loading && visible.length === 0 && (
-            <div className="agt-empty-hero">
-              <div className="agt-empty-hero__title">{active ? 'No agent tasks yet' : 'Nothing archived'}</div>
-              <div className="agt-muted">
-                {active
-                  ? 'Send a message below to start one.'
-                  : `Archive a task from the Active tab, or wait — completed tasks move here after ${AUTO_ARCHIVE_DAYS} days.`}
-              </div>
-            </div>
-          )}
-          <div className={`agt-groups${selecting ? ' has-selection' : ''}`}>
-            {groups.map((group) => (
-              <div className="agt-group" key={group.key}>
-                <div className="agt-group__head">
-                  <span className="agt-group__label">{group.label}</span>
-                  <span className="agt-mono agt-group__date">{group.date}</span>
-                  <span className="agt-spacer" />
-                  <span className="agt-group__count">{group.tasks.length === 1 ? '1 task' : `${group.tasks.length} tasks`}</span>
-                </div>
-                {group.tasks.map((task) => (
-                  <TaskRow
-                    key={task.id}
-                    task={task}
-                    pullRequest={task.pullRequest ?? null}
-                    changes={changes[task.id] ?? null}
-                    providers={providers}
-                    now={now}
-                    checked={selected.includes(task.id)}
-                    selecting={selecting}
-                    onOpen={() => onOpenTask(task.id)}
-                    onToggle={() => toggle(task.id)}
-                    onArchive={(archived) => archive([task.id], archived)}
-                    onDelete={() => requestDelete([task.id])}
-                  />
-                ))}
-              </div>
+        <div className="agt-type-tabs">
+          <div className="agt-type-tabs__list" role="tablist" aria-label="Task types">
+            {TYPE_TABS.map((key) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={type === key}
+                className={`agt-type-tab${type === key ? ' is-active' : ''}`}
+                onClick={() => switchType(key)}
+              >
+                <span className={`agt-type-tab__icon is-${key}`}><TaskTypeIcon type={key} /></span>
+                {key === 'all' ? 'All' : TASK_TYPES[key].label}
+                <span className="agt-type-tab__count">{shelf.filter((item) => inType(item, key)).length}</span>
+                {shelf.some((item) => inType(item, key) && item.state.label === 'Needs you') && <span className="agt-type-tab__needs" title="Needs you" />}
+              </button>
             ))}
           </div>
-        </section>
-        {active && reviewTasks}
+          {active && (
+            <button type="button" className="agt-type-new" onClick={startNew}>
+              + {TASK_TYPES[type === 'all' ? 'dev' : type].newLabel}
+            </button>
+          )}
+        </div>
+        {selecting && (
+          <div className="agt-selbar">
+            <span className="agt-selbar__count">{selected.length} selected</span>
+            <button type="button" className="agt-selbar__link" onClick={() => setSelected(visibleTasks.map((task) => task.id))}>Select all</button>
+            <span className="agt-spacer" />
+            <button type="button" className="agt-selbar__btn" onClick={() => archive(selected, active)}>
+              {active ? <Archive size={14} aria-hidden="true" /> : <ArchiveRestore size={14} aria-hidden="true" />}
+              {active ? 'Archive' : 'Restore'}
+            </button>
+            <button
+              type="button"
+              className="agt-selbar__btn is-danger"
+              disabled={selectionRunning}
+              title={selectionRunning ? 'Selection includes a running task' : 'Delete permanently'}
+              onClick={() => requestDelete(selected)}
+            >
+              <Trash2 size={14} aria-hidden="true" />
+              Delete
+            </button>
+            <button type="button" className="agt-selbar__link is-muted" onClick={() => setSelected([])}>Cancel</button>
+          </div>
+        )}
+        {error !== null && <div className="cmt-error" role="alert">{error}</div>}
+        {loading && <div className="agt-loading">Loading agent tasks…</div>}
+        {!loading && visible.length === 0 && (active ? (
+          <div className="agt-items-empty">{type === 'all' ? 'No tasks yet.' : 'No tasks of this type yet.'}</div>
+        ) : (
+          <div className="agt-empty-hero">
+            <div className="agt-empty-hero__title">Nothing archived</div>
+            <div className="agt-muted">
+              {`Archive a task from the Active tab, or wait — completed tasks move here after ${AUTO_ARCHIVE_DAYS} days.`}
+            </div>
+          </div>
+        ))}
+        <div className={`agt-items${selecting ? ' has-selection' : ''}`}>
+          {today.length > 0 && (
+            <section className="agt-day is-today" aria-label="Today">
+              <div className="agt-day__head">
+                <span className="agt-day__label">Today</span>
+                <span className="agt-day__date">{todayDate}</span>
+              </div>
+              <div className="agt-item-grid">
+                {today.map((item) => <TaskItemCard key={item.key} item={item} {...handlers(item)} />)}
+              </div>
+            </section>
+          )}
+          {groups.map((group) => (
+            <section className="agt-day" key={group.key} aria-label={group.label}>
+              <div className="agt-day__head">
+                <span className="agt-day__label">{group.label}</span>
+                <span className="agt-day__date">{group.date}</span>
+              </div>
+              <div className="agt-item-rows">
+                {group.items.map((item) => <TaskItemRow key={item.key} item={item} {...handlers(item)} />)}
+              </div>
+            </section>
+          ))}
+        </div>
 
         {/* Anchored under the list: sending this first message is what creates a task. */}
         {active && (

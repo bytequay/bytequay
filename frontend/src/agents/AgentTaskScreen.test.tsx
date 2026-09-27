@@ -16,7 +16,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { AgentTaskList, creationBlocker, groupTasksByDay, taskCreationCatalog } from './AgentTasksView';
+import { AgentTaskList, creationBlocker, taskCreationCatalog } from './AgentTasksView';
+import { cherryPickItem, ciFixItem, reviewItem } from './taskList';
+import { CI_RUN } from './fixtures/ciAutofix';
+import { runningReviewFixture } from '../pulls/agent-review/fixtures/review';
 import type { TaskDiscussions } from './discussions/useTaskDiscussions';
 import { AgentTaskBody, providerStatusFromUnavailable, type AttachmentPreview } from './AgentTaskScreen';
 import fixture from './fixtures/agent-events-v2.json';
@@ -35,6 +38,7 @@ import type {
   AgentProviderStatus,
   AgentProviderUnavailableDto,
   AgentTaskDto,
+  CherryPickExecution,
   ModelOptionDto,
   ModelSettingsDto,
   PullRequestDto,
@@ -351,10 +355,10 @@ describe('agent task list', () => {
     expect(markup).not.toContain('finished');
     expect(markup).toContain('Rename the widget');
     expect(markup).toContain('Describe a task');
-    // Wire enums never reach the user.
+    // Wire enums never reach the user; a checkout that could not be shown stopped waits on them.
     expect(markup).toContain('>Idle<');
     expect(markup).toContain('>Completed<');
-    expect(markup).toContain('>Recovery required<');
+    expect(markup).toContain('>Needs you<');
     expect(markup).not.toContain('OPEN');
     // The list reads live data now; nothing may call it fixture data.
     expect(markup).not.toContain('Fixture data');
@@ -460,7 +464,7 @@ describe('agent task list', () => {
       .toContain('Loading agent tasks\u2026');
     expect(renderToStaticMarkup(
       <AgentTaskList {...listProps} tasks={[]} loading={false} error={null} />))
-      .toContain('No agent tasks yet');
+      .toContain('No tasks yet.');
     // A live list must not promise fixture behaviour.
     expect(renderToStaticMarkup(
       <AgentTaskList {...listProps} tasks={[]} loading={false} error={null} />))
@@ -1978,7 +1982,8 @@ describe('agent task detail', () => {
   });
 });
 
-describe('task list tabs, day groups and row actions', () => {
+describe('task list tabs, today cards, older rows and row actions', () => {
+  // A Sunday: this week began on Monday, August 31.
   const noon = new Date(2026, 8, 6, 12).getTime();
   const at = (daysAgo: number, hour = 9): string => new Date(2026, 8, 6 - daysAgo, hour).toISOString();
   const rows: AgentTaskDto[] = [
@@ -1988,74 +1993,81 @@ describe('task list tabs, day groups and row actions', () => {
     { ...task('t-wed', 'FAILED', 'Image journey'), updatedAt: at(3), terminalAt: at(3), terminalReason: 'gave up' },
     { ...task('t-shelved', 'COMPLETED', 'Explain the query planner'), updatedAt: at(9), terminalAt: at(9), archivedAt: at(2) },
   ];
+  const section = (markup: string, label: string): string => {
+    const start = markup.indexOf(`aria-label="${label}"`);
+    return start === -1 ? '' : markup.slice(start, markup.indexOf('</section>', start));
+  };
+  const typeTab = (markup: string, label: string) => {
+    const button = markup.split('</button>').find((chunk) => chunk.includes(`</span>${label}<span class="agt-type-tab__count">`)) ?? '';
+    return {
+      selected: button.includes('aria-selected="true"'),
+      count: Number(button.match(/agt-type-tab__count">(\d+)</)?.[1]),
+      needsYou: button.includes('agt-type-tab__needs'),
+    };
+  };
 
-  it('groups by the local day a task last moved, newest first', () => {
-    const groups = groupTasksByDay(rows.filter((row) => row.archivedAt === null), noon);
-    expect(groups.map((group) => [group.label, group.date, group.tasks.map((row) => row.id)])).toEqual([
-      ['Today', 'Sep 6', ['t-today', 't-today-2']],
-      ['Yesterday', 'Sep 5', ['t-yesterday']],
-      ['Thursday, September 3', 'Sep 3', ['t-wed']],
-    ]);
-  });
-
-  it('shows active tasks under the day groups with archive and delete, and refuses to delete a running one', () => {
+  it('draws today as cards, busiest first, and older tasks as rows under Yesterday and Earlier this week', () => {
     const markup = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={rows} loading={false} error={null} now={noon} />);
 
-    expect(markup).toMatch(/role="tab" aria-selected="true"[^>]*>Active<span class="agt-tab__count">4</);
-    expect(markup).toMatch(/role="tab" aria-selected="false"[^>]*>Archived<span class="agt-tab__count">1</);
-    expect(markup).toContain('Completed tasks archive automatically after 7 days');
-    expect(markup.match(/class="agt-group"/g)).toHaveLength(3);
-    expect(markup).toContain('class="agt-group__label">Today<');
-    expect(markup).toContain('class="agt-group__count">2 tasks<');
-    expect(markup).toContain('class="agt-group__count">1 task<');
-    // The shelved task waits on the other tab; nothing here is a glyph.
+    expect(markup).toMatch(/role="tab" aria-selected="true" class="agt-tab is-active">Active<span class="agt-tab__count">4</);
+    expect(markup).toMatch(/role="tab" aria-selected="false" title="Completed tasks archive automatically after 7 days"[^>]*>Archived<span class="agt-tab__count">1</);
+    const today = section(markup, 'Today');
+    expect(today).toContain('class="agt-day__date">Sun, Sep 6<');
+    expect(today.match(/class="agt-item-card"/g)).toHaveLength(2);
+    expect(today.indexOf('>hello<')).toBeLessThan(today.indexOf('>Ask about the model<'));
+    expect(section(markup, 'Yesterday')).toContain('class="agt-day__date">Sat, Sep 5<');
+    expect(section(markup, 'Yesterday')).toContain('class="agt-item-row__title">trino issue reading<');
+    expect(section(markup, 'Earlier this week')).toContain('class="agt-day__date">Sep 3<');
+    expect(section(markup, 'Earlier this week')).toContain('class="agt-item-row__title">Image journey<');
+    // The shelved task waits on the other tab.
     expect(markup).not.toContain('Explain the query planner');
-    expect(markup).not.toContain('❋');
-    // Row anatomy: selection slot, title, mono facts, pill, actions, chevron.
-    expect(markup).toMatch(/aria-label="Select hello"[^>]*aria-pressed="false"/);
-    expect(markup).toContain('Codex · test-model · 2h');
+    // Lane and model are one click away inside the task, not on its card.
+    expect(markup).not.toContain('test-model');
+    expect(markup).toContain('>Running<');
+    expect(markup).toContain('>Idle<');
+    expect(markup).toContain('>Completed<');
+    expect(markup).toContain('>Failed<');
+    // Selection, archive and delete stay on every agent task; a running one cannot be deleted.
+    expect(markup).toContain('aria-pressed="false" aria-label="Select hello"');
     expect(markup).toContain('aria-label="Archive task: hello"');
-    expect(markup).toMatch(/<button[^>]*class="agt-trow__btn is-danger"[^>]*title="Stop the task before deleting"[^>]*aria-label="Delete task: hello"[^>]*disabled/);
-    expect(markup).toMatch(/<button[^>]*class="agt-trow__btn is-danger"[^>]*title="Delete permanently"[^>]*aria-label="Delete task: trino issue reading"(?![^>]*disabled)/);
+    expect(markup).toMatch(/<button[^>]*class="agt-item-action is-danger"[^>]*title="Stop the task before deleting"[^>]*aria-label="Delete task: hello"[^>]*disabled/);
+    expect(markup).toMatch(/<button[^>]*class="agt-item-action is-danger"[^>]*title="Delete permanently"[^>]*aria-label="Delete task: trino issue reading"(?![^>]*disabled)/);
     expect(markup).toContain('lucide-chevron-right');
-    // The composer stays anchored under the active list.
+    // A development task starts in the composer anchored under the list.
+    expect(typeTab(markup, 'All')).toEqual({ selected: true, count: 4, needsYou: false });
+    expect(markup).toContain('>+ New task</button>');
     expect(markup).toContain('aria-label="Describe a task"');
   });
 
   it('shows only shelved tasks on the archived tab, with restore and no composer', () => {
     const markup = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={rows} loading={false} error={null} now={noon} initialTab="archived" />);
 
-    expect(markup).toContain('Archived tasks keep their transcript and branch until deleted');
-    expect(markup).toContain('Explain the query planner');
+    expect(section(markup, 'Older')).toContain('Explain the query planner');
     expect(markup).not.toContain('trino issue reading');
     expect(markup).toContain('aria-label="Restore task: Explain the query planner"');
-    expect(markup).toContain('class="agt-trow__title is-archived"');
     expect(markup).not.toContain('aria-label="Describe a task"');
+    expect(markup).not.toContain('+ New task');
 
     const empty = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={rows.slice(0, 2)} loading={false} error={null} now={noon} initialTab="archived" />);
     expect(empty).toContain('Nothing archived');
     expect(empty).toContain('completed tasks move here after 7 days');
   });
 
-  it('names the pull request a task opened or delivered right after its title', () => {
+  it('names the pull request a task opened among its links, in place of what its checkout holds', () => {
     const pullRequests: Record<string, PullRequestDto> = {
       't-yesterday': pullRequest(31101, 'Refactor a minor issue', 'merged'),
       't-today-2': pullRequest(482, 'Fix preview output limit', 'open', true),
     };
     const tasks = rows.map((row) => ({ ...row, pullRequest: pullRequests[row.id] ?? null }));
-    // A pull request outranks the checkout: its row names the pull request even with changes known.
     const changes = { 't-yesterday': { uncommitted: true, commits: 2 } };
     const markup = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={tasks} loading={false} error={null} now={noon} changes={changes} />);
 
-    expect(markup).toContain('class="agt-trow__title">trino issue reading</span><span class="agt-trow__pr" title="#31101 Refactor a minor issue">');
-    expect(markup).toMatch(/title="#31101 Refactor a minor issue"><svg[^>]*class="[^"]*lucide-git-merge[^"]*agt-pr-icon is-merged"[^>]*>.*?<\/svg>#31101 Refactor a minor issue<\/span><\/span>/);
-    expect(markup).toMatch(/title="#482 Fix preview output limit"><svg[^>]*class="[^"]*lucide-git-pull-request-draft[^"]*agt-pr-icon is-draft"/);
-    expect(markup).not.toContain('agt-trow__changes');
-    // A task without one, and without a read of its checkout yet, shows its title alone.
-    expect(markup).toContain('<span class="agt-trow__name"><span class="agt-trow__title">hello</span></span><span class="agt-mono agt-trow__meta">');
+    expect(markup).toMatch(/class="agt-item-row__title">trino issue reading<\/span>.*?<span class="atn-link-key is-pr" title="Refactor a minor issue"><svg[^>]*>.*?<\/svg><span>#31101<\/span><\/span>/);
+    expect(markup).toContain('<span class="atn-link-key is-pr" title="Fix preview output limit">');
+    expect(markup).not.toContain('2 commits · uncommitted changes');
   });
 
-  it('says whether a task without a pull request has changes, and whether they are committed', () => {
+  it('says what a task without a pull request changed, and whether it is committed', () => {
     const changes = {
       't-today': { uncommitted: false, commits: 0 },
       't-today-2': { uncommitted: true, commits: 0 },
@@ -2063,13 +2075,59 @@ describe('task list tabs, day groups and row actions', () => {
       't-wed': { uncommitted: true, commits: 3 },
     };
     const markup = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={rows} loading={false} error={null} now={noon} changes={changes} />);
-    const label = (title: string) => markup.match(new RegExp(`class="agt-trow__title">${title}</span><span class="agt-trow__changes"[^>]*>(.*?)</span>`))?.[1];
+    const change = (title: string) => markup.match(new RegExp(`>${title}<.*?class="agt-item-change">(.*?)</span>`))?.[1];
 
-    expect(label('hello')).toBe('No changes');
-    expect(label('Ask about the model')).toMatch(/^<svg[^>]*lucide-file-pen[^>]*>.*<\/svg>Uncommitted changes$/);
-    expect(label('trino issue reading')).toMatch(/^<svg[^>]*lucide-git-commit-horizontal[^>]*>.*<\/svg>1 commit$/);
-    expect(label('Image journey')).toMatch(/<\/svg>3 commits · uncommitted changes$/);
-    expect(declarations('.agt-trow__pr,\n.agt-trow__changes')).toContain('text-overflow: ellipsis');
+    expect(change('hello')).toBe('No changes');
+    expect(change('Ask about the model')).toBe('Uncommitted changes');
+    expect(change('trino issue reading')).toBe('1 commit');
+    expect(change('Image journey')).toBe('3 commits · uncommitted changes');
+  });
+
+  it('lists reviews, cherry-picks and CI fixes beside agent tasks, one type tab at a time', () => {
+    const execution: CherryPickExecution = {
+      executionId: 'exec-1', workspaceId: 'workspace-1', repository: 'trinodb/trino', workBranch: 'cp-1',
+      localTargetBranch: '478-lts', targetBranch: '478-lts', status: 'PAUSED', pauseReason: 'CONFLICT',
+      initialTargetSha: 'a'.repeat(40), currentTargetSha: 'a'.repeat(40),
+      pullRequestDraft: { title: 'Backport conflict classification to 478-lts', body: '' },
+      items: [
+        { position: 1, sourceSha: 'b'.repeat(40), title: 'one', result: 'APPLIED' },
+        { position: 2, sourceSha: 'c'.repeat(40), title: 'two', result: 'PENDING' },
+      ],
+      createdAt: at(0, 7), updatedAt: at(0, 9), terminalAt: null,
+    };
+    const items = [
+      reviewItem({ ...runningReviewFixture(), createdAt: at(0, 11) }),
+      cherryPickItem(execution),
+      ciFixItem({ ...CI_RUN, updatedAt: at(2) }),
+    ];
+    const all = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={rows} items={items} loading={false} error={null} now={noon} />);
+
+    expect(all).toMatch(/>Active<span class="agt-tab__count">7</);
+    expect(typeTab(all, 'All')).toEqual({ selected: true, count: 7, needsYou: true });
+    expect(typeTab(all, 'Development')).toEqual({ selected: false, count: 4, needsYou: false });
+    expect(typeTab(all, 'Review')).toEqual({ selected: false, count: 1, needsYou: false });
+    expect(typeTab(all, 'Cherry-pick')).toEqual({ selected: false, count: 1, needsYou: true });
+    expect(typeTab(all, 'CI fix')).toEqual({ selected: false, count: 1, needsYou: true });
+    // What waits on the user leads today's cards, and says why.
+    const today = section(all, 'Today');
+    expect(today.indexOf('Backport conflict classification to 478-lts')).toBeLessThan(today.indexOf('>hello<'));
+    expect(today).toContain('Paused: Conflict');
+    expect(today).toContain('1 of 2 commits');
+    expect(section(all, 'Earlier this week')).toContain('Get CI green on #17');
+    expect(section(all, 'Earlier this week')).toContain('attempt 1 of 3');
+    // Only agent tasks select, archive and delete.
+    expect(all.match(/aria-label="Select /g)).toHaveLength(4);
+
+    const reviews = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={rows} items={items} loading={false} error={null} now={noon}
+      initialType="review" onOpenReviewWorkspace={() => {}} />);
+    expect(reviews.match(/class="agt-item-card"/g)).toHaveLength(1);
+    expect(reviews).toContain('title="View inside workspace"');
+    expect(reviews).not.toContain('>hello<');
+    expect(reviews).toContain('>+ Review a pull request</button>');
+
+    const cherryPicks = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={rows} loading={false} error={null} now={noon} initialType="cherry" />);
+    expect(cherryPicks).toContain('No tasks of this type yet.');
+    expect(cherryPicks).toContain('>+ New cherry-pick</button>');
   });
 
   it('offers Archive or Restore in the task header beside Complete', () => {

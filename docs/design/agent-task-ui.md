@@ -218,9 +218,9 @@ Four HTML design files accompany this document as the presentation references
 for reviewing or changing how the implemented screens look and respond:
 
 - [Tasks.dc.html](Tasks.dc.html) is the Tasks tab: Active and Archived tabs,
-  day-grouped rows with archive, restore and delete, multi-select, the undo
-  toast, and the delete confirmation. Open it in a browser beside
-  `support.js`; it is interactive.
+  archive, restore and delete, multi-select, the undo toast, and the delete
+  confirmation. Open it in a browser beside `support.js`; it is interactive.
+  The type tabs, today's cards and the older rows follow the prose below.
 - [Workspace Home.dc.html](Workspace%20Home.dc.html) is the workspace Home:
   repository avatar, composer, starting points, the repository's own Needs
   attention rows, and the open tasks as a grid of windows with rename and hide.
@@ -845,26 +845,55 @@ Server stores a name only after a client sets one, while Claude's one-way
 print stream does not expose its internal session title. ByteQuay therefore
 owns the same fallback-plus-background-generation lifecycle itself.
 
-The Tasks tab is [Tasks.dc.html](Tasks.dc.html). Its heading carries an
-**Active** / **Archived** segmented control with counts. The heading reserves
-space for the pinned overview button and wraps at narrow widths so the controls
-remain separate. Active shows three sections in order: **Cherry-pick executions**,
-**Agent tasks**, and **Review tasks**, with the composer docked at the bottom of
-the page: centred at 760px over a white fade the list scrolls under, sticky at
-the foot of the page's scroller so the last row always scrolls clear of it. A
-round chip holding only the repository avatar sits 10px above the composer and
-names the repository new tasks start in.
-Archived shows only shelved agent tasks and no composer. Review tasks lists
-this workspace's open and ended PR-owned reviews with their derived review
-status. A row names its pull request by number and stored title beside the
-pull request's state icon in GitHub's colours (open, draft, merged, closed); a
-pull request ByteQuay has not stored yet reads as repository and number with a
-grey icon. Reviews are grouped by local calendar start date into **Today**, **Yesterday**,
-**Recent 7 days**, **Recent 30 days**, and **Older**. Groups do not overlap;
-empty groups are hidden, and rows are newest first within each group.
-Selecting a row opens that exact review in the existing PR detail
+The Tasks tab lists every kind of task in the workspace: development tasks, PR
+reviews, cherry-pick executions and CI fixes, all read from local storage and
+re-read every five seconds while the page is visible. Its heading carries an
+**Active** / **Archived** segmented control with counts; Archived's tooltip
+names the rule that completed tasks archive automatically after seven days.
+The heading reserves space for the pinned overview button and wraps at narrow
+widths so the controls remain separate. Below it, the type tabs **All**,
+**Development**, **Review**, **Cherry-pick** and **CI fix** each carry the
+type's icon and colour (teal, blue, amber, red), a count, and an orange dot
+while an item of that type needs the user. The selected tab has the `#fd8c73`
+underline and filters the whole page. In a narrow pane the tabs scroll
+sideways under the button at their right, which follows the tab: **+ New
+task** focuses the composer, **+ Review a pull request** and **+ Fix a failing
+check** open the Pull requests tab, and **+ New cherry-pick** opens upstream
+Commits.
+
+**Today** comes first: the items that moved today as cards in a
+`minmax(270px, 1fr)` grid, ordered **Needs you**, **Running**, **Idle**, then
+finished (**Completed**, **Finished** or **Failed**), newest first within a
+state. A card shows the type chip, state pill and age; the title in 14px
+regular type, clamped to two lines; why it needs the user when it does (an
+approval, a question, a paused run); the conversation's last message with who
+said it and when; and its ticket, pull request and issue keys beside what its
+checkout holds, how far a cherry-pick has come through its commits, or which
+CI attempt is running. Lane and model stay inside the task. **Yesterday**,
+**Earlier this week** (from Monday) and **Older** follow as one-line rows,
+newest first; an item whose time does not read lands in Older rather than
+disappearing. Only development tasks archive, delete and select: hovering a
+card or row shows Archive and Delete, on a card in place of its age, and the
+type icon turns into a checkbox on hover and while anything is selected. The
+selection bar appears under the type tabs. Archived lists only shelved
+development tasks and no composer.
+
+The composer is docked at the bottom of the page: centred at 760px over a white
+fade the list scrolls under, sticky at the foot of the page's scroller so the
+last row always scrolls clear of it. A round chip holding only the repository
+avatar sits 10px above the composer and names the repository new tasks start
+in.
+
+A cherry-pick opens its progress over the list. A CI fix opens the development
+task that started it, else the cherry-pick whose pull request it fixes, else
+that pull request. A review reads as **Running** while its run works, **Needs
+you** while it waits on an approval, **Finished** once it ended or saved its
+result, and **Failed** when it could not finish. It is titled by its pull
+request's number and stored title, or by repository and number before ByteQuay
+has stored the pull request, and it sits in the day of its latest activity.
+Selecting a review opens that exact review in the existing PR detail
 overlay's **Summary** tab; closing the overlay returns to the
-selected list. Each row also has a **View inside workspace** icon. It opens the
+list. A review also has a **View inside workspace** icon. It opens the
 exact review at `tasks/review/{reviewId}`, so reload and back/forward retain
 the selected review. The workspace shows the existing review conversation on
 the left and the same PR page on the right. Both development and review tasks

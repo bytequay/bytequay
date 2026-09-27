@@ -191,13 +191,12 @@ matching workspace in saved display order for Start review. An explicitly
 opened workspace keeps its own review context. Loading or failed context reads
 must not be presented as an unwatched repository.
 
-Workspace **Tasks** shows **Review tasks** as the third section on **Active**,
-below **Cherry-pick executions** and **Agent tasks**, listing that workspace's
-open and ended reviews. Group reviews by their local calendar start date into
-**Today**, **Yesterday**, **Recent 7 days**, **Recent 30 days**, and **Older**.
-Each review appears once, empty groups are hidden, and rows are newest first.
-A row names the pull request by number and stored title beside its state icon.
-Opening a row selects the exact review ID in the PR pane, including an ended
+Workspace **Tasks** lists that workspace's open and ended reviews beside its
+other tasks, under **All** and the **Review** type tab. A review sits in the
+day of its latest activity: a card under **Today**, a row under **Yesterday**,
+**Earlier this week** or **Older**. Each review appears once and names the
+pull request by number and stored title.
+Opening one selects the exact review ID in the PR pane, including an ended
 review when a newer review exists for the same PR. A separate workspace icon
 opens its conversation and PR together at
 `/workspaces/:workspaceId/tasks/review/:reviewId`. Review ownership and controls

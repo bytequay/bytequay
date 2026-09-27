@@ -19,7 +19,6 @@ import ReviewTaskScreen from '../agents/ReviewTaskScreen';
 import TaskOverview from '../agents/TaskOverview';
 import CommitsTab, { type CommitSourceSelection } from '../commits/CommitsTab';
 import ProgressView from '../commits/ProgressView';
-import TasksView from '../commits/TasksView';
 import { zoomReference } from '../githubReference';
 import JiraScreen from '../jira/JiraScreen';
 import type { NavigationMode } from '../navigationHistory';
@@ -28,7 +27,7 @@ import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import { settingsRoute } from '../settings/routes';
 import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
-import type { CherryPickExecution, WorkspaceDto } from '../types';
+import type { WorkspaceDto } from '../types';
 import {
   workspaceAgentTaskRoute,
   workspaceIssueTaskRoute,
@@ -219,18 +218,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         />,
       );
     }
-    const cherryPicks = (
-      <WorkspaceTasks
-        workspace={workspace}
-        embedded
-        onOpenTask={execution => setOpenCherryPick(execution.executionId)}
-        onNewCherryPick={() => {
-          setInitialCommitsRepo('upstream');
-          onSelectTab('commits');
-        }}
-      />
-    );
-    // The agent view owns the page: its composer stays anchored under both task sections.
+    // The agent view owns the page: every kind of task is listed there, above its composer.
     return stage(
       <>
         <AgentTasksView
@@ -243,11 +231,16 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
           headerAction={overviewOpen || zoomedCherryPick ? undefined : overviewToggle}
           onOpenReview={review => review.number === null ? openReviewWorkspace(review) : setOpenReview({ id: review.id, repo: review.repo, number: review.number })}
           onOpenReviewWorkspace={openReviewWorkspace}
+          onOpenCherryPick={execution => setOpenCherryPick(execution.executionId)}
+          onOpenPullRequest={zoomPullRequest}
+          onNewItem={type => {
+            // A cherry-pick starts from a range of upstream commits; a review or CI fix from a pull request.
+            if (type === 'cherry') setInitialCommitsRepo('upstream');
+            onSelectTab(type === 'cherry' ? 'commits' : 'prs');
+          }}
           onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
           onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
-        >
-          {cherryPicks}
-        </AgentTasksView>
+        />
         {zoomedCherryPick && !zoom.full && <ZoomScrim onClose={zoom.close} />}
         {openCherryPick !== null && (
           <div className={zoom.cardClass}>
@@ -289,20 +282,4 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
 
 function WorkspaceUnavailable({ message }: { message: string }) {
   return <div className="ws-tab-page"><div className="ws-empty">{message}</div></div>;
-}
-
-function WorkspaceTasks({ workspace, embedded = false, onOpenTask, onNewCherryPick }: {
-  workspace: WorkspaceDto;
-  embedded?: boolean;
-  onOpenTask: (execution: CherryPickExecution) => void;
-  onNewCherryPick: () => void;
-}) {
-  return (
-    <TasksView
-      workspaceId={workspace.id}
-      embedded={embedded}
-      onOpenTask={onOpenTask}
-      onNewCherryPick={onNewCherryPick}
-    />
-  );
 }

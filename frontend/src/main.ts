@@ -619,6 +619,12 @@ function registerIpc(): void {
     backendJson(taskUrl(taskId, '/pull-requests')
       + `${refresh === true ? '/sync' : ''}?${new URLSearchParams({ workspaceId })}`,
     { method: refresh === true ? 'POST' : 'GET', headers: agentHeaders() }));
+  ipcMain.handle('ci-autofix:list', (_event, limit: number) =>
+    backendJson(`${backendBase()}/api/ci-autofix/runs?${new URLSearchParams({ limit: String(limit) })}`, { headers: agentHeaders() })
+      .then((runs: unknown) => {
+        if (!Array.isArray(runs)) throw new Error('ciRuns is not an array');
+        return runs.map(parseCiAutofixRun);
+      }));
   ipcMain.handle('ci-autofix:get', (_event, runId: string) =>
     backendJson(`${backendBase()}/api/ci-autofix/runs/${encodeURIComponent(runId)}`, { headers: agentHeaders() }).then(parseCiAutofixRun));
   ipcMain.handle('ci-autofix:message', (_event, runId: string, message: string, idempotencyKey: string) =>

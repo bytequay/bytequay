@@ -227,6 +227,7 @@ const bridge: Bridge = {
   startCherryPickExecution: request => ipcRenderer.invoke('cherrypick:execution:start', request),
   getCherryPickExecution: executionId => ipcRenderer.invoke('cherrypick:execution:get', executionId),
   listCherryPickExecutions: limit => ipcRenderer.invoke('cherrypick:execution:list', limit),
+  listCiAutofixRuns: limit => ipcRenderer.invoke('ci-autofix:list', limit),
   sendCherryPickMessage: (executionId, message) =>
     ipcRenderer.invoke('cherrypick:execution:message', executionId, message),
   cancelCherryPickExecution: (workspaceId, executionId) =>

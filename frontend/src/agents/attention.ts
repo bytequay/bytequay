@@ -38,7 +38,7 @@ export function taskAttentionKind(task: AgentTaskDto, activity: AgentTaskActivit
 }
 
 export type TaskCardState = {
-  label: 'Needs you' | 'Running' | 'Idle' | 'Finished' | 'Failed';
+  label: 'Needs you' | 'Running' | 'Idle' | 'Completed' | 'Finished' | 'Failed';
   tone: 'orange' | 'blue' | 'green' | 'neutral' | 'red';
   spinning: boolean;
   /** Why a task needs the user, when it does. */
@@ -62,7 +62,7 @@ export function taskCardState(task: AgentTaskDto, activity: AgentTaskActivityDto
   if (task.state === 'OPEN') return { label: 'Idle', tone: 'green', spinning: false, reason: null };
   return task.state === 'FAILED'
     ? { label: 'Failed', tone: 'red', spinning: false, reason: null }
-    : { label: 'Finished', tone: 'neutral', spinning: false, reason: null };
+    : { label: 'Completed', tone: 'neutral', spinning: false, reason: null };
 }
 
 /**

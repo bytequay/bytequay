@@ -224,7 +224,7 @@ describe('watched repository workspace UI', () => {
     };
 
     const tasks = renderToStaticMarkup(<WorkspaceShell {...props} />);
-    expect(tasks).toContain('Agent tasks');
+    expect(tasks).toContain('aria-label="Task types"');
     expect(tasks).toContain('Describe a task');
     // Every agent screen carries the overview control.
     expect(tasks).toContain('aria-label="Show all tasks"');
@@ -382,17 +382,25 @@ describe('watched repository workspace UI', () => {
 
   it('opens a cherry-pick execution without leaving the Tasks tab', () => {
     const onSelectTab = vi.fn();
-    let cherryPicks: ReactElement<{ onOpenTask: (execution: { executionId: string }) => void }> | undefined;
-    function CaptureCherryPicks() {
+    let tasks: ReactElement<{
+      onOpenCherryPick: (execution: { executionId: string }) => void;
+      onNewItem: (type: 'review' | 'cherry' | 'ci') => void;
+    }> | undefined;
+    function CaptureTasks() {
       const view = tasksTab({ onSelectTab });
-      cherryPicks = find(view, props => props.onNewCherryPick !== undefined);
+      tasks = find(view, props => props.onOpenCherryPick !== undefined);
       return view;
     }
-    renderToStaticMarkup(<CaptureCherryPicks />);
+    renderToStaticMarkup(<CaptureTasks />);
 
-    expect(cherryPicks).toBeDefined();
-    cherryPicks?.props.onOpenTask({ executionId: 'execution-1' });
+    expect(tasks).toBeDefined();
+    tasks?.props.onOpenCherryPick({ executionId: 'execution-1' });
     expect(onSelectTab).not.toHaveBeenCalled();
+    // A new cherry-pick starts from upstream commits; a review or a CI fix from a pull request.
+    tasks?.props.onNewItem('cherry');
+    tasks?.props.onNewItem('review');
+    tasks?.props.onNewItem('ci');
+    expect(onSelectTab.mock.calls).toEqual([['commits'], ['prs'], ['prs']]);
   });
 
   it('loads the saved target before opening fork workspace commits', () => {

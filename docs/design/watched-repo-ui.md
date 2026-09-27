@@ -253,8 +253,10 @@ enhancement (or is dropped for the minimal implementation).
 - **Opening one pull request or issue**: every surface that opens a single reference —
   Home and Workspace Home cards, attention rows, a PR notification, a commit's pull
   request, an agent task's pull request, and an issue or pull-request link inside rendered
-  Markdown — asks for the same zoom layer over the page it came from, keeping the current
-  route, scroll position, and composer state. Close, Escape, or the backdrop dismisses it.
+  Markdown — asks for a zoom layer over the page or layer it came from, keeping the current
+  route, scroll position, and composer state. The layer opened last is on top and the ones
+  under it stay as its background; opening a reference that is already open brings it
+  forward. Close, Escape, or the backdrop dismisses only the top layer; navigating closes all.
   A workspace surface keeps its monitored repository and workspace context. Neither list
   is loaded behind the overlay; **See all** and **Start review** still navigate to the PR
   list, and the Issues tab still owns the issue list and its route. A Markdown reference

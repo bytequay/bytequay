@@ -11,9 +11,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { Maximize2, Minimize2, X } from 'lucide-react';
 import './css/zoom.css';
+
+/**
+ * Whether another layer, or the embedded browser, is drawn above this page or layer. Only the top
+ * answers Escape, and a covered page keeps its native modals closed: they paint in the browser's
+ * top layer, over anything opened after them.
+ */
+export const LayerCovered = createContext(false);
 
 export type ZoomControls = {
   full: boolean;
@@ -22,15 +29,17 @@ export type ZoomControls = {
 };
 
 /**
- * One zoom layer over the page that opened it: a card by default, the whole window when full.
- * Escape leaves the layer from either state instead of unwinding it one step at a time.
+ * One zoom layer over the page or layer that opened it: a card by default, the whole window when
+ * full. Escape leaves the layer from either state instead of unwinding it one step at a time.
  */
 export function useZoom(onClose: () => void, open = true): ZoomControls & { cardClass: string } {
   const [full, setFull] = useState(false);
+  const covered = useContext(LayerCovered);
   const close = useCallback(() => { setFull(false); onClose(); }, [onClose]);
   useEffect(() => {
     // A layer closed from outside, such as by the route, must not reopen full.
     if (!open) { setFull(false); return; }
+    if (covered) return;
     const leave = (event: KeyboardEvent): void => {
       if (event.defaultPrevented || event.key !== 'Escape') return;
       // An editor or a terminal answers Escape itself.
@@ -40,7 +49,7 @@ export function useZoom(onClose: () => void, open = true): ZoomControls & { card
     };
     window.addEventListener('keydown', leave);
     return () => window.removeEventListener('keydown', leave);
-  }, [close, open]);
+  }, [close, covered, open]);
   return { full, close, toggle: () => setFull(value => !value), cardClass: `zoom-card${full ? ' is-full' : ''}` };
 }
 

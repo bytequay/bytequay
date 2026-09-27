@@ -190,7 +190,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     />;
   }
   if (tab === 'jira') {
-    return <JiraScreen workspace={workspace} browserOpen={browserOpen} />;
+    return <JiraScreen workspace={workspace} />;
   }
   if (tab === 'tasks') {
     if (initialAgentReviewId !== null) return stage(<ReviewTaskScreen

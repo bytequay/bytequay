@@ -51,6 +51,7 @@ import type { InAppBrowserState, RecentRowDto, RecentWordHitDto, WorkspaceDto } 
 import WorkspaceIssuesScreen from './workspaces/WorkspaceIssuesScreen';
 import WorkspacesPage from './workspaces/WorkspacesPage';
 import WorkspaceShell from './workspaces/WorkspaceShell';
+import { LayerCovered } from './Zoom';
 import {
   workspaceIssueRoute,
   workspaceIssueTaskRoute,
@@ -62,6 +63,10 @@ import {
 } from './workspaces/model';
 
 type Status = 'checking' | 'needs-pat' | 'ready';
+
+function layerKey(layer: ZoomedReference): string {
+  return `${layer.kind}:${layer.workspaceId ?? ''}:${layer.repo}#${layer.number}`;
+}
 
 function pageFromRoute(hash: string): AppPage {
   if (hash === '#/jira' || hash.startsWith('#/jira?')) return 'jira';
@@ -106,8 +111,8 @@ export default function App() {
     setNewPageOpen(false);
     browserAction(window.bridge.hideInAppBrowser());
   }, [browserAction]);
-  /** The one issue or pull request shown over the page, whichever surface asked for it. */
-  const [zoomed, setZoomed] = useState<ZoomedReference | null>(null);
+  /** Issues and pull requests shown over the page, the one opened last on top. */
+  const [layers, setLayers] = useState<ZoomedReference[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
   const workspaceRef = useRef(workspace);
@@ -201,7 +206,12 @@ export default function App() {
     const open = (event: Event) => {
       backToApp();
       setPaletteOpen(false);
-      setZoomed((event as CustomEvent<ZoomedReference>).detail);
+      const target = (event as CustomEvent<ZoomedReference>).detail;
+      // A reference that is already open comes back to the top, as it was, instead of opening twice.
+      setLayers(current => [
+        ...current.filter(layer => layerKey(layer) !== layerKey(target)),
+        current.find(layer => layerKey(layer) === layerKey(target)) ?? target,
+      ]);
     };
     window.addEventListener(ZOOM_REFERENCE, open);
     return () => window.removeEventListener(ZOOM_REFERENCE, open);
@@ -257,9 +267,9 @@ export default function App() {
         });
     };
     const applyHistoryRoute = () => {
-      // Navigating leaves an open zoom layer; the first route of the session must not, or it
+      // Navigating leaves every open layer; the first route of the session must not, or it
       // races the pull request a notification asked to show while the app was still starting.
-      setZoomed(null);
+      setLayers([]);
       const hash = window.location.hash || '#/home';
       const index = navigationIndex(window.history.state, navigationSession.current, hash);
       const next = index === null
@@ -325,7 +335,7 @@ export default function App() {
     if (current) navigateTo(workspacePullRequestRoute(current.id, number), mode);
   }, [navigateTo]);
 
-  const closeZoom = useCallback(() => setZoomed(null), []);
+  const closeLayer = (key: string) => setLayers(current => current.filter(layer => layerKey(layer) !== key));
 
   const selectAgentTask = useCallback((taskId: string | null, mode: NavigationMode) => {
     const current = workspaceRef.current;
@@ -437,7 +447,8 @@ export default function App() {
         onClose={id => browserAction(window.bridge.closeInAppBrowserTab(id))}
         onRename={(id, name) => browserAction(window.bridge.renameInAppBrowserTab(id, name))} />
       <div className="app-surfaces" inert={browserOpen}>
-    <div className="app-shell" inert={zoomed !== null}>
+    <LayerCovered.Provider value={browserOpen || layers.length > 0}>
+    <div className="app-shell" inert={layers.length > 0}>
         <AppSidebar
           page={page}
           jiraConnected={jiraConnected}
@@ -490,7 +501,7 @@ export default function App() {
             />
           )}
           <RecentPage active={page === 'recent'} onOpenRow={openRecentRow} />
-          {page === 'jira' && <JiraScreen browserOpen={browserOpen} />}
+          {page === 'jira' && <JiraScreen />}
           {page === 'pulls' && (
             <PullsScreen
               initialPr={initialPr}
@@ -530,26 +541,35 @@ export default function App() {
         )}
       </main>
     </div>
-      {zoomed?.kind === 'pull' && (
-        <PullsScreen
-          key={`${zoomed.workspaceId ?? ''}:${zoomed.repo}#${zoomed.number}`}
-          initialPr={zoomed}
-          repositoryScope={zoomed.workspaceId === undefined
-            ? undefined
-            : { workspaceId: zoomed.workspaceId, repository: zoomed.repo }}
-          browserOpen={browserOpen}
-          onClose={closeZoom}
-        />
-      )}
-      {zoomed?.kind === 'issue' && (
-        <WorkspaceIssuesScreen
-          key={`${zoomed.workspaceId}:${zoomed.repo}#${zoomed.number}`}
-          workspaceId={zoomed.workspaceId}
-          repository={zoomed.repo}
-          initialIssueNumber={zoomed.number}
-          onClose={closeZoom}
-        />
-      )}
+    </LayerCovered.Provider>
+      {layers.map((layer, index) => {
+        const key = layerKey(layer);
+        const covered = index < layers.length - 1;
+        return (
+          <LayerCovered.Provider key={key} value={browserOpen || covered}>
+            <div style={{ display: 'contents' }} inert={covered}>
+              {layer.kind === 'pull' && (
+                <PullsScreen
+                  initialPr={layer}
+                  repositoryScope={layer.workspaceId === undefined
+                    ? undefined
+                    : { workspaceId: layer.workspaceId, repository: layer.repo }}
+                  browserOpen={browserOpen}
+                  onClose={() => closeLayer(key)}
+                />
+              )}
+              {layer.kind === 'issue' && (
+                <WorkspaceIssuesScreen
+                  workspaceId={layer.workspaceId}
+                  repository={layer.repo}
+                  initialIssueNumber={layer.number}
+                  onClose={() => closeLayer(key)}
+                />
+              )}
+            </div>
+          </LayerCovered.Provider>
+        );
+      })}
       {paletteOpen && (
         <RecentPalette
           onClose={() => setPaletteOpen(false)}

@@ -23,7 +23,8 @@ The first release includes:
   first, under the comment box) and fields.
   Action icons and parent links keep their own actions. Escape or Close returns
   focus to the card; the board keeps its layout and scroll position. Ticket dialogs
-  hide while the embedded browser is open and restore with their drafts on return.
+  hide while the embedded browser or another layer is above them and restore with
+  their drafts on return, so the layer opened last stays on top.
 - Use a distinct Jira source icon across navigation, attention and task source
   cards. Ticket cards place the title first, labels/parent below it, and the issue
   type/key, priority and assignee in the footer. Unknown custom priorities retain

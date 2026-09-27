@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Bookmark, Bug, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, ExternalLink, Flag, Columns3, FolderGit2, List, LoaderCircle, MessageSquare, Minus, Play, RefreshCw, SquareCheck, UserRound, X, Zap } from 'lucide-react';
 import MarkdownBody from '../pulls/MarkdownBody';
 import { relativeTime } from '../relativeTime';
@@ -20,6 +20,7 @@ import { TaskComposer, StartingAgentTask, useAgentTaskCreation } from '../agents
 import type { WorkspaceDto } from '../types';
 import { workspaceAgentTaskRoute } from '../workspaces/model';
 import { settingsRoute } from '../settings/routes';
+import { LayerCovered } from '../Zoom';
 import { JIRA_CHANGED, jiraAccountLabel, jiraSiteDomain, jiraIssueLocation, jiraLocation, jiraRoute, notifyJiraChanged, type JiraBoard, type JiraConnection, type JiraField, type JiraIssue, type JiraIssueDetail, type JiraIssuePage, type JiraLocation, type JiraSprint } from './contracts';
 import JiraIcon from './JiraIcon';
 import { completedGroups, JIRA_WORKFLOW_GROUPS, jiraWorkflowGroup } from './presentation';
@@ -28,21 +29,20 @@ import './jira.css';
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 const bridge = () => window.bridge;
 const emptyPage: JiraIssuePage = { issues: [], fetchedAt: null, error: null, partial: false };
-const JiraBrowserOpen = createContext(false);
 
 function useJiraDialog() {
   const dialog = useRef<HTMLDialogElement>(null);
-  const browserOpen = useContext(JiraBrowserOpen);
+  const covered = useContext(LayerCovered);
   useLayoutEffect(() => {
     const element = dialog.current;
-    // Native modal dialogs otherwise make the embedded browser's toolbar inert.
-    if (!browserOpen && element) {
+    // A modal would also make the embedded browser's toolbar inert, so it waits closed until uncovered.
+    if (!covered && element) {
       // Restore the parent first so a nested workspace chooser stays above it.
       element.parentElement?.closest('dialog')?.showModal();
       element.showModal();
     }
     return () => element?.close();
-  }, [browserOpen]);
+  }, [covered]);
   return dialog;
 }
 
@@ -61,7 +61,7 @@ export function JiraIssueActions({ issue, busy = false, onGoal, onStart, onAssig
   </span>{assigning && <JiraWorkspaceDialog issue={issue} onClose={() => setAssigning(false)} onAssigned={detail => { setAssigning(false); onAssigned?.(detail); onGoal(); }} />}</>;
 }
 
-export default function JiraScreen({ browserOpen = false, workspace }: { browserOpen?: boolean; workspace?: Pick<WorkspaceDto, 'id' | 'name'> }) {
+export default function JiraScreen({ workspace }: { workspace?: Pick<WorkspaceDto, 'id' | 'name'> }) {
   const initial = jiraLocation(window.location.hash);
   const savedSite = (() => {
     try { const value = JSON.parse(localStorage.getItem('bytequay:jira-site') ?? 'null') as { connectionId?: unknown; cloudId?: unknown } | null; return typeof value?.connectionId === 'string' && typeof value?.cloudId === 'string' ? { connectionId: value.connectionId, cloudId: value.cloudId } : null; }
@@ -234,7 +234,7 @@ export default function JiraScreen({ browserOpen = false, workspace }: { browser
       : 'Completion date unavailable'
       : <time dateTime={issue.updatedAt} title={new Date(issue.updatedAt).toLocaleString()}>Updated {relativeTime(issue.updatedAt)}</time>}<span className="jira-spacer" /><JiraIssueActions issue={issue} onAssigned={detail => update(detail, false)} onGoal={() => { void toggleGoal(issue); }} onStart={() => setLaunch({ issue })} /></div>
   </article>;
-  return <JiraBrowserOpen.Provider value={browserOpen}><div className="jira-screen">
+  return <div className="jira-screen">
     <header className="jira-header"><div><h1><JiraIcon size={25} />Jira</h1><p>{workspace ? `Tickets assigned to ${workspace.name}.` : 'Your sprint, development, and completed work.'}</p></div><span className="jira-spacer" />
       {site && boardId !== null && <button type="button" className="bq-button jira-open-board" onClick={() => { void window.bridge.openInAppBrowser(`${site.url.replace(/\/$/, '')}/secure/RapidBoard.jspa?rapidView=${boardId}`); }}>Open board in Jira <ExternalLink size={14} /></button>}
       <button type="button" className="bq-button" onClick={() => { window.location.hash = settingsRoute('jira'); }}>Manage accounts</button>
@@ -266,7 +266,7 @@ export default function JiraScreen({ browserOpen = false, workspace }: { browser
     </div></div></>}
     {selected && <JiraDetail key={`${selected.connectionId}/${selected.cloudId}/${selected.issueId}`} location={selected} boardId={selected.connectionId === actualConnectionId && selected.cloudId === actualCloudId ? boardId : null} sprints={selected.connectionId === actualConnectionId && selected.cloudId === actualCloudId ? sprints : []} onClose={() => { window.location.hash = jiraRoute(undefined, workspace?.id); }} onChanged={update} onStart={(issue, onChanged) => setLaunch({ issue, onChanged })} />}
     {launch && <JiraLaunch issue={launch.issue} onChanged={detail => { update(detail, false); launch.onChanged?.(detail); }} onClose={() => setLaunch(null)} />}
-  </div></JiraBrowserOpen.Provider>;
+  </div>;
 }
 
 function JiraWorkspaceBadge({ workspace }: { workspace: JiraIssue['workspace'] }) {

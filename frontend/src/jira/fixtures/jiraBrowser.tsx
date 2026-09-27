@@ -15,6 +15,7 @@
 import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import JiraScreen from '../JiraScreen';
+import { LayerCovered } from '../../Zoom';
 import { jiraDetail, jiraIssue } from './jira';
 import { jiraRoute, type JiraConnection, type JiraIssue, type JiraIssueDetail, type JiraQuery } from '../contracts';
 import type { Bridge, CreateAgentTaskRequest, WorkspaceDto } from '../../types';
@@ -173,7 +174,9 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     async 'suspends Jira modals for the embedded browser without losing drafts or assignment'() {
       await mountPreview();
       const mounted = root; assert(mounted !== null, 'Screen is mounted');
-      const browserOpen = async (open: boolean) => { flushSync(() => mounted.render(<JiraScreen browserOpen={open} />)); await settle(); };
+      const browserOpen = async (open: boolean) => { flushSync(() => mounted.render(<LayerCovered.Provider value={open}><JiraScreen /></LayerCovered.Provider>)); await settle(); };
+      // App always renders the screen under this provider; adding it later would remount the screen.
+      await browserOpen(false); await until(() => document.querySelector('.jira-detail h2') !== null);
       const pane = document.querySelector<HTMLDialogElement>('dialog.jira-detail'); assert(pane !== null, 'Ticket detail exists');
       const reply = pane.querySelector<HTMLTextAreaElement>('textarea[placeholder="Write a reply…"]'); assert(reply !== null, 'Comment draft exists');
       edit(reply, 'Keep this reply while I check Jira.'); await settle();

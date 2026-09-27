@@ -14,6 +14,7 @@
 
 import React from 'react';
 import { Archive, ArchiveRestore, Check, ChevronRight, Cherry, CodeXml, Eye, LayoutGrid, LoaderCircle, PanelLeft, Trash2, Wrench } from 'lucide-react';
+import { GoalIcon } from '../goals/GoalPanel';
 import { SourceIcon } from '../home/AttentionCard';
 import { relativeTime } from '../relativeTime';
 import { TASK_TYPES, type TaskListItem, type TaskType } from './taskList';
@@ -69,6 +70,8 @@ export type TaskItemHandlers = {
   now: number;
   /** The viewer's initials, for a message the user sent. */
   you?: string;
+  /** Whether the item is in the workspace's pinned goal. */
+  inGoal?: boolean;
   /** While anything is selected, activating an agent task toggles it instead of opening it. */
   selecting: boolean;
   checked: boolean;
@@ -145,7 +148,7 @@ function activate(event: React.KeyboardEvent, run: () => void): void {
  * Today's task as a card: its type and state, the title, why it needs the user, the conversation's
  * last message, and its links with what it changed or how far a cherry-pick has come.
  */
-export function TaskItemCard({ item, now, you = 'Y', selecting, checked, onOpen, onToggle, onArchive, onDelete, onOpenWorkspace }: TaskItemHandlers & { item: TaskListItem }): React.JSX.Element {
+export function TaskItemCard({ item, now, you = 'Y', inGoal = false, selecting, checked, onOpen, onToggle, onArchive, onDelete, onOpenWorkspace }: TaskItemHandlers & { item: TaskListItem }): React.JSX.Element {
   const open = selecting && onToggle !== undefined ? onToggle : onOpen;
   const speaking = item.message === null ? null : speaker(item.message.who, you);
   return (
@@ -154,6 +157,7 @@ export function TaskItemCard({ item, now, you = 'Y', selecting, checked, onOpen,
       <div className="agt-item-card__head">
         <TypeSlot item={item} checked={checked} onToggle={onToggle} chip />
         <StatePill item={item} />
+        {inGoal && <span className="agt-in-goal" title="In goal"><GoalIcon size={13} /></span>}
         <span className="agt-spacer" />
         {!selecting && <Actions item={item} onArchive={onArchive} onDelete={onDelete} onOpenWorkspace={onOpenWorkspace} />}
         <time className="agt-item-age" dateTime={item.at}>{relativeTime(item.at, { suffix: false, now })}</time>
@@ -186,13 +190,14 @@ export function TaskItemCard({ item, now, you = 'Y', selecting, checked, onOpen,
 }
 
 /** An older task as one row: its type, title, the last message, links, state and age. */
-export function TaskItemRow({ item, now, selecting, checked, onOpen, onToggle, onArchive, onDelete, onOpenWorkspace }: TaskItemHandlers & { item: TaskListItem }): React.JSX.Element {
+export function TaskItemRow({ item, now, inGoal = false, selecting, checked, onOpen, onToggle, onArchive, onDelete, onOpenWorkspace }: TaskItemHandlers & { item: TaskListItem }): React.JSX.Element {
   const open = selecting && onToggle !== undefined ? onToggle : onOpen;
   return (
     <div className={`agt-item-row${checked ? ' is-selected' : ''}`} role="button" tabIndex={0} aria-label={`${TASK_TYPES[item.type].label}: ${item.title}`}
       onClick={open} onKeyDown={(event) => activate(event, open)}>
       <TypeSlot item={item} checked={checked} onToggle={onToggle} chip={false} />
       <span className="agt-item-row__title">{item.title}</span>
+      {inGoal && <span className="agt-in-goal" title="In goal"><GoalIcon size={12} /></span>}
       <span className="agt-item-row__said">
         {item.message !== null && <><span className="agt-item-row__who">{item.message.who}:</span> {item.message.text}</>}
       </span>

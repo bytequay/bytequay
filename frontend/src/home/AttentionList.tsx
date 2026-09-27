@@ -47,13 +47,18 @@ type Props = {
   viewerLogin?: string | null;
   /** Home spans every watched repository and names each card's; a workspace shows only its own. */
   variant?: 'home' | 'workspace';
+  /** The pinned goal each card can join or leave; absent where no goal can hold the card. */
+  goal?: (item: AttentionItem) => GoalToggle | null;
 };
+
+/** A card's place in a pinned goal, and the change that flips it. */
+export type GoalToggle = { inGoal: boolean; toggle: () => Promise<unknown> };
 
 type Anchored = { item: AttentionItem; anchor: DOMRect };
 type ToastState = { id: number; text: string; key: string };
 
 export default function AttentionList({
-  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home',
+  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home', goal,
 }: Props) {
   const [filter, setFilter] = useState<AttentionFilter>('all');
   const [snooze, setSnooze] = useState<Anchored | null>(null);
@@ -122,18 +127,28 @@ export default function AttentionList({
 
       {cards.length > 0 ? (
         <div className="atn-grid">
-          {cards.map(item => (
-            <AttentionCard
-              key={item.key}
-              item={item}
-              viewerLogin={viewerLogin}
-              showRepo={variant === 'home'}
-              onOpen={() => onOpen(item)}
-              onAcknowledge={() => acknowledge(item)}
-              onSnooze={button => setSnooze({ item, anchor: button.getBoundingClientRect() })}
-              onStart={startable(item) ? () => onStartIssue?.(item) : undefined}
-            />
-          ))}
+          {cards.map(item => {
+            const membership = goal?.(item) ?? null;
+            return (
+              <AttentionCard
+                key={item.key}
+                item={item}
+                viewerLogin={viewerLogin}
+                showRepo={variant === 'home'}
+                onOpen={() => onOpen(item)}
+                onAcknowledge={() => acknowledge(item)}
+                onSnooze={button => setSnooze({ item, anchor: button.getBoundingClientRect() })}
+                onStart={startable(item) ? () => onStartIssue?.(item) : undefined}
+                inGoal={membership?.inGoal ?? false}
+                onToggleGoal={membership === null ? undefined : () => {
+                  void membership.toggle().catch((failure: unknown) => {
+                    toastId.current += 1;
+                    setToast({ id: toastId.current, text: `Could not change the goal: ${failure instanceof Error ? failure.message : String(failure)}`, key: '' });
+                  });
+                }}
+              />
+            );
+          })}
         </div>
       ) : (
         <div className="atn-clear">Nothing needs you right now.</div>
@@ -183,7 +198,7 @@ export default function AttentionList({
           key={toast.id}
           className={variant === 'workspace' ? 'is-raised' : ''}
           text={toast.text}
-          onUndo={() => restore([toast.key])}
+          onUndo={toast.key === '' ? undefined : () => restore([toast.key])}
           onDismiss={() => setToast(null)}
         />
       )}

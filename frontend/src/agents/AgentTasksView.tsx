@@ -39,7 +39,7 @@ import { agentProviderUnavailableFrom } from './contracts';
 import { pasteImage } from './clipboard';
 import { ImageAttachment } from './ImageAttachment';
 import { ATTENTION_SEED } from '../home/attention';
-import { useTaskAttention } from './attention';
+import type { TaskAttention } from './attention';
 import { TaskItemCard, TaskItemRow, TaskTypeIcon, viewerInitials, type TaskItemHandlers } from './TaskListCards';
 import { TASK_TYPES, cherryPickItem, ciFixItem, developmentItem, groupTaskList, reviewItem, type TaskListItem, type TaskType } from './taskList';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
@@ -74,6 +74,10 @@ interface AgentTasksViewProps {
   onOpenPullRequest?: (number: number, repo: string) => void;
   /** Goes where a review, cherry-pick or CI fix begins. */
   onNewItem?: (type: Exclude<TaskType, 'dev'>) => void;
+  /** The workspace's tasks and what they wait on, re-read for all its pages; without it the list shows what it loaded. */
+  taskAttention?: TaskAttention;
+  /** Whether a task, or a pull request by number, is in the workspace's pinned goal. */
+  inGoal?: (item: TaskListItem) => boolean;
   /** Where a provider that is not ready gets fixed. */
   onOpenSettings?: () => void;
   /** A launch chosen before the composer opened; the person may change it until the first message creates a task. */
@@ -619,6 +623,8 @@ function failureMessage(failure: unknown): string {
   return failure instanceof Error ? failure.message : String(failure);
 }
 
+const NO_TASK_ATTENTION: TaskAttention = { items: [], tasks: [], activity: {}, refresh: () => {} };
+
 /** How often the Tasks page re-reads reviews, cherry-picks and CI fixes, the pace review tasks always had. */
 const WORK_POLL_MS = 5000;
 
@@ -684,6 +690,8 @@ export default function AgentTasksView({
   onOpenCherryPick,
   onOpenPullRequest,
   onNewItem,
+  taskAttention = NO_TASK_ATTENTION,
+  inGoal,
   onOpenSettings,
   launch,
 }: AgentTasksViewProps): React.JSX.Element {
@@ -691,9 +699,7 @@ export default function AgentTasksView({
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
   const creation = useAgentTaskCreation({ workspaceId, initialLaunch: launch, bridge: live, onOpenTask, sourceIssueNumber, onOpenCreatedTask });
   const { setTasks } = creation;
-  const taskWorkspaces = useMemo(() => [{ id: workspaceId, name: '', repository: repository ?? '' }], [repository, workspaceId]);
-  const polled = useTaskAttention(taskWorkspaces, live);
-  const tasks = useMemo(() => freshest(creation.tasks, polled.tasks), [creation.tasks, polled.tasks]);
+  const tasks = useMemo(() => freshest(creation.tasks, taskAttention.tasks), [creation.tasks, taskAttention.tasks]);
   const tasksRef = useRef(tasks);
   tasksRef.current = tasks;
   // One task at a time: each answer carries the version the next request must echo, and the list
@@ -740,7 +746,8 @@ export default function AgentTasksView({
       issueAttachment={creation.issueAttachment}
       tasks={tasks}
       items={items}
-      activity={polled.activity}
+      activity={taskAttention.activity}
+      inGoal={inGoal}
       changes={changes}
       loading={creation.loading}
       error={error}
@@ -945,7 +952,7 @@ function inType(item: TaskListItem, type: TypeTab): boolean {
 
 export function AgentTaskList({
   tasks, items = [], activity = {}, loading, error, laneId, providers, models, selection, draft, blocker, headerAction, repository,
-  onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenItem, onOpenReviewWorkspace, onNewItem, onOpenSettings, onArchive, onDelete,
+  onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenItem, onOpenReviewWorkspace, onNewItem, inGoal, onOpenSettings, onArchive, onDelete,
   images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, automation, issueAttachment,
   now = Date.now(), initialTab = 'active', initialType = 'all', changes = {},
 }: {
@@ -978,6 +985,8 @@ export function AgentTaskList({
   onOpenReviewWorkspace?: (review: AgentReviewDto) => void;
   /** Goes where a review, cherry-pick or CI fix begins; a development task begins in the composer below. */
   onNewItem?: (type: Exclude<TaskType, 'dev'>) => void;
+  /** Whether an item is in the workspace's pinned goal, marked on its card or row. */
+  inGoal?: (item: TaskListItem) => boolean;
   onOpenSettings?: () => void;
   /** Shelves or restores the tasks; the caller updates its list as each answer arrives. */
   onArchive?: (ids: string[], archived: boolean) => Promise<void>;
@@ -1081,9 +1090,10 @@ export function AgentTaskList({
   };
   const handlers = (item: TaskListItem): TaskItemHandlers => {
     const { task, review } = item;
+    const goal = inGoal?.(item) ?? false;
     if (task !== null) {
       return {
-        now, you, selecting,
+        now, you, selecting, inGoal: goal,
         checked: selected.includes(task.id),
         onOpen: () => onOpenTask(task.id),
         onToggle: () => toggle(task.id),
@@ -1092,7 +1102,7 @@ export function AgentTaskList({
       };
     }
     return {
-      now, you, selecting,
+      now, you, selecting, inGoal: goal,
       checked: false,
       onOpen: () => onOpenItem?.(item),
       onOpenWorkspace: review === null || onOpenReviewWorkspace === undefined ? undefined : () => onOpenReviewWorkspace(review),

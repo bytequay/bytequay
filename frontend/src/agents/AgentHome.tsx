@@ -15,28 +15,20 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CircleDot, EyeOff, ListChecks, LoaderCircle, Pencil, Search, SquareCheck, type LucideIcon } from 'lucide-react';
 import RepoAvatar from '../RepoAvatar';
-import { getCached, setCached } from '../dataCache';
-import AttentionList from '../home/AttentionList';
-import { ISSUE_DEVELOPMENT_CHANGED } from '../workspaces/issueDevelopment';
-import {
-  ATTENTION_SEED,
-  assignedIssues,
-  attentionCandidates,
-  loadHandled,
-  saveHandled,
-  type AttentionItem,
-  type Handled,
-} from '../home/attention';
+import AttentionList, { type GoalToggle } from '../home/AttentionList';
+import { GoalIcon } from '../goals/GoalPanel';
+import type { AttentionItem, Handled } from '../home/attention';
+import type { WorkspaceAttention } from '../workspaces/workspaceAttention';
 import { relativeTime } from '../relativeTime';
 import { useRenameDraft } from '../renameDraft';
 import { displayModelName, laneLabel } from '../settings/model';
 import {
   ComposerDock, StartingAgentTask, TaskComposer, changesLabel, taskArchived, useAgentTaskCreation, useTaskChanges, type DraftImage, type TaskModelSelection,
 } from './AgentTasksView';
-import { linkTasks, taskCardState, taskLastMessage, useTaskAttention, type TaskAttention } from './attention';
+import { taskCardState, taskLastMessage, type TaskAttention } from './attention';
 import type { AgentBridgePort } from './model';
 import type {
-  AgentTaskActivityDto, AgentTaskChangesDto, AgentTaskDto, AgentTaskStartupPhase, ModelOptionDto, ModelProviderDto, PullRequestDto,
+  AgentTaskActivityDto, AgentTaskChangesDto, AgentTaskDto, AgentTaskStartupPhase, ModelOptionDto, ModelProviderDto,
 } from '../types';
 
 /** Starting points that fill the composer; the user edits or sends them as they are. */
@@ -86,92 +78,19 @@ function saveHiddenTasks(workspaceId: string, hidden: ReadonlyMap<string, number
   catch { /* A full or disabled store just means the window comes back next time. */ }
 }
 
-/** The workspace's slice of what Home lists: pull requests and issues of its monitored repository. */
-function useWorkspaceAttention(workspaceId: string, repository: string, tasks: TaskAttention): {
-  candidates: AttentionItem[];
-  handled: Handled;
-  applyHandled: (handled: Handled) => void;
-  error: string | null;
-  login: string | null;
-} {
-  // Every tab switch remounts this page; the last reads any Home made paint the first frame, and
-  // the mount still re-reads them.
-  const [prs, setPrs] = useState<PullRequestDto[]>(() => getCached<PullRequestDto[]>(ATTENTION_SEED.prs) ?? []);
-  const [login, setLogin] = useState<string | null>(() => getCached<{ login: string }>(ATTENTION_SEED.profile)?.login ?? null);
-  const [issues, setIssues] = useState<AttentionItem[]>(
-    () => (getCached<AttentionItem[]>(ATTENTION_SEED.issues) ?? []).filter(item => item.workspaceId === workspaceId));
-  const [handled, setHandled] = useState<Handled>(loadHandled);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let active = true;
-    const apply = (rows: PullRequestDto[]) => {
-      setCached(ATTENTION_SEED.prs, rows);
-      if (active) setPrs(rows);
-    };
-    const reload = () => { void window.bridge.fetchAttentionPrs().then(apply).catch(() => {}); };
-    const updated = (event: Event) => apply((event as CustomEvent<PullRequestDto[]>).detail);
-    const handledChanged = () => setHandled(loadHandled());
-    reload();
-    const stopSync = window.bridge.onPullRequestsSynced(reload);
-    window.addEventListener('bytequay:pr-attention-updated', updated);
-    window.addEventListener('bytequay:pr-monitor-changed', reload);
-    window.addEventListener('bytequay:attention-handled-changed', handledChanged);
-    window.bridge.getUserProfile()
-      .then(profile => {
-        setCached(ATTENTION_SEED.profile, profile);
-        if (active) setLogin(profile.login);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-      stopSync();
-      window.removeEventListener('bytequay:pr-attention-updated', updated);
-      window.removeEventListener('bytequay:pr-monitor-changed', reload);
-      window.removeEventListener('bytequay:attention-handled-changed', handledChanged);
-    };
-  }, [workspaceId]);
-  useEffect(() => {
-    if (!login) return;
-    let active = true;
-    let request = 0;
-    const reload = () => {
-      const current = ++request;
-      void window.bridge.fetchWorkspaceIssueAttention(workspaceId).then(snapshot => {
-        if (!active || current !== request) return;
-        const assigned = assignedIssues(snapshot, workspaceId, login);
-        setCached(ATTENTION_SEED.issues, (getCached<AttentionItem[]>(ATTENTION_SEED.issues) ?? [])
-          .filter(item => item.workspaceId !== workspaceId).concat(assigned));
-        setIssues(assigned);
-        setError(null);
-      }).catch(() => {
-        if (active && current === request) setError('Work items could not be loaded. Open Issues to retry.');
-      });
-    };
-    const changed = () => { setIssues([]); reload(); };
-    reload();
-    window.addEventListener(ISSUE_DEVELOPMENT_CHANGED, changed);
-    window.addEventListener('bytequay:pr-attention-updated', reload);
-    return () => {
-      active = false;
-      window.removeEventListener(ISSUE_DEVELOPMENT_CHANGED, changed);
-      window.removeEventListener('bytequay:pr-attention-updated', reload);
-    };
-  }, [login, workspaceId]);
-  const candidates = useMemo(() => linkTasks(attentionCandidates(
-    prs.filter(pr => pr.repo.toLowerCase() === repository.toLowerCase()), issues.concat(tasks.items), login), tasks.tasks), [issues, login, prs, repository, tasks.items, tasks.tasks]);
-  // The same store as Home, so acknowledging here clears the row there too.
-  const applyHandled = useCallback((next: Handled) => {
-    setHandled(next);
-    saveHandled(next);
-  }, []);
-  return { candidates, handled, applyHandled, error, login };
-}
-
 interface AgentHomeProps {
   workspaceId: string;
   headerAction?: React.ReactNode;
   /** "owner/repo", the monitored repository the page belongs to. */
   repository: string;
+  /** The workspace's tasks and what they wait on, read once for all its pages. */
+  taskAttention: TaskAttention;
+  /** What needs the user in this workspace, read once for all its pages. */
+  attention: WorkspaceAttention;
+  /** The pinned goal each attention card can join or leave. */
+  goal?: (item: AttentionItem) => GoalToggle | null;
+  /** Whether a task is in the pinned goal. */
+  inGoal?: (task: AgentTaskDto) => boolean;
   bridge?: AgentBridgePort;
   onOpenTask: (taskId: string) => void;
   onOpenSettings?: () => void;
@@ -182,13 +101,10 @@ interface AgentHomeProps {
 }
 
 export default function AgentHome({
-  workspaceId, headerAction, repository, bridge: explicitBridge, onOpenTask, onOpenSettings, onShowAll, onOpenPullRequest, onOpenIssue, onStartIssue,
+  workspaceId, headerAction, repository, taskAttention, attention, goal, inGoal, bridge: explicitBridge, onOpenTask, onOpenSettings, onShowAll, onOpenPullRequest, onOpenIssue, onStartIssue,
 }: AgentHomeProps): React.JSX.Element {
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
   const creation = useAgentTaskCreation({ workspaceId, bridge: live, onOpenTask });
-  const taskWorkspaces = useMemo(() => [{ id: workspaceId, name: '', repository }], [repository, workspaceId]);
-  const taskAttention = useTaskAttention(taskWorkspaces, live);
-  const attention = useWorkspaceAttention(workspaceId, repository, taskAttention);
   // The polled list is fresher; until its first read lands, the list this page last painted stands in.
   const listed = taskAttention.tasks.length > 0 ? taskAttention.tasks.map((entry) => entry.task) : creation.tasks;
   const openTasks = useMemo(() => listed.filter((task) => task.state === 'OPEN' && !taskArchived(task)), [listed]);
@@ -237,6 +153,8 @@ export default function AgentHome({
       attention={attention.candidates}
       handled={attention.handled}
       viewerLogin={attention.login}
+      goal={goal}
+      inGoal={inGoal}
       onHandledChange={attention.applyHandled}
       onOpenAttention={openAttention}
       onStartIssue={onStartIssue ? item => onStartIssue(item.number) : undefined}
@@ -255,7 +173,7 @@ export function AgentHomeView({
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onShowAll,
   activity = {}, changes = {}, hiddenTasks, onHideTask, onRenameTask, now = Date.now(),
   attention = [], handled = {}, viewerLogin = null, onHandledChange = () => {}, onOpenAttention = () => {},
-  onStartIssue, attentionError,
+  onStartIssue, attentionError, goal, inGoal,
   images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, error = null, automation,
 }: {
   repository: string;
@@ -281,6 +199,8 @@ export function AgentHomeView({
   onOpenAttention?: (item: AttentionItem) => void;
   onStartIssue?: (item: AttentionItem) => void;
   attentionError?: string | null;
+  goal?: (item: AttentionItem) => GoalToggle | null;
+  inGoal?: (task: AgentTaskDto) => boolean;
   models: ModelOptionDto[];
   selection: TaskModelSelection | null;
   draft: string;
@@ -324,6 +244,7 @@ export function AgentHomeView({
           onHandledChange={onHandledChange}
           onOpen={onOpenAttention}
           onStartIssue={onStartIssue}
+          goal={goal}
         />
         <section className="agt-open-tasks" aria-label="Open tasks">
           <div className="agt-open-tasks__head">
@@ -342,6 +263,7 @@ export function AgentHomeView({
                 changes={changes[task.id] ?? null}
                 providers={providers}
                 now={now}
+                inGoal={inGoal?.(task) ?? false}
                 onOpen={() => onOpenTask(task.id)}
                 onRename={onRenameTask === undefined ? undefined : (title) => onRenameTask(task, title)}
                 onHide={onHideTask === undefined ? undefined : () => onHideTask(task)}
@@ -389,12 +311,13 @@ export function AgentHomeView({
  * One open task as a compact card: its name and state, what it last said or why it waits on the
  * user, and its lane, age and what its checkout holds. Rename and Hide from Home sit beside the name.
  */
-function HomeTaskCard({ task, activity, changes, providers, now, onOpen, onRename, onHide }: {
+function HomeTaskCard({ task, activity, changes, providers, now, inGoal, onOpen, onRename, onHide }: {
   task: AgentTaskDto;
   activity: AgentTaskActivityDto | null;
   changes: AgentTaskChangesDto | null;
   providers: ModelProviderDto[];
   now: number;
+  inGoal: boolean;
   onOpen: () => void;
   onRename?: (title: string) => void;
   onHide?: () => void;
@@ -446,6 +369,7 @@ function HomeTaskCard({ task, activity, changes, providers, now, onOpen, onRenam
             )}
           </span>
         )}
+        {inGoal && <span className="agt-in-goal" title="In goal"><GoalIcon size={13} /></span>}
         <span className={`agt-pill is-${state.tone}`}>
           {state.spinning && <LoaderCircle className="agt-spin" aria-hidden="true" />}
           {state.label}

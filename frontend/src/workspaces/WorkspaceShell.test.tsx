@@ -237,9 +237,16 @@ describe('watched repository workspace UI', () => {
     expect(home).toContain('aria-label="Describe a task"');
     expect(home).toContain('class="agt-headbtn agt-overview-toggle"');
 
+    // Every page but an open task carries the workspace's goal as a pill.
+    for (const page of [tasks, home, renderToStaticMarkup(<WorkspaceShell {...props} tab="prs" />)]) {
+      expect(page).toContain('class="goal-layer"');
+      expect(page).toMatch(/<button[^>]*class="goal-pill"[^>]*aria-label="Open goals"/);
+    }
+
     // The route, not component memory, decides which task is open.
     const open = renderToStaticMarkup(
       <WorkspaceShell {...props} initialAgentTaskId="task-1" />);
+    expect(open).not.toContain('goal-pill');
     expect(open).toContain('Message the agent');
     expect(open.match(/aria-label="Show all tasks"/g)).toHaveLength(1);
     expect(open).toMatch(/<div class="agt-screen-head">.*aria-label="Show all tasks".*<\/button><\/div>/);
@@ -278,12 +285,13 @@ describe('watched repository workspace UI', () => {
     const value = workspace('FORK');
     let jira: ReactElement<Parameters<typeof JiraScreen>[0]> | undefined;
     function CaptureJira(): null {
+      // Every workspace page sits inside the goal layer.
       jira = WorkspaceShell({
         workspace: value, tab: 'jira',
         onSelectTab: vi.fn(), onWorkspaceChanged: vi.fn(),
         initialPullRequestNumber: null, initialIssueNumber: null, initialAgentTaskId: null,
         onSelectAgentTask: vi.fn(), onSelectPullRequest: vi.fn(), onSelectIssue: vi.fn(),
-      });
+      }).props.children;
       return null;
     }
     renderToStaticMarkup(<CaptureJira />);
@@ -309,7 +317,7 @@ describe('watched repository workspace UI', () => {
         onSelectPullRequest,
         onSelectIssue: () => {},
       });
-      home = view.props.children[0];
+      home = view.props.children.props.children[0];
       return view;
     }
     renderToStaticMarkup(<CaptureHome />);

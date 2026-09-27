@@ -56,7 +56,8 @@ The first release includes:
   detail dialog. Later actions reuse it. Development uses the existing
   provider/model/worktree composer; canceling the composer keeps the assignment
   without creating a task. View task opens the resulting task instead of creating
-  another one.
+  another one. Marking a ticket as a Goal also gives its workspace a goal named
+  after it, which unmarking removes.
 - Surface cached, assigned, unfinished leaf tickets from watched active sprints
   in global Needs attention. Workspace attention requires an explicit mapping;
   Jira project names are never guessed to be repository/workspace names.

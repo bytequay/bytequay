@@ -14,8 +14,12 @@
 package com.bytequay.app.jira;
 
 import com.bytequay.app.agent.JiraIssueLocks;
+import com.bytequay.app.service.goal.GoalService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceException;
+import com.bytequay.core.domain.GoalItem;
+import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.GoalSource;
 import com.bytequay.core.store.JiraIssueTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -52,8 +56,10 @@ public class JiraService
     private final JiraIssueTaskStore tasks;
     private final WorkspaceStore workspaces;
     private final ObjectProvider<AppSettingsService> appSettings;
+    private final ObjectProvider<GoalService> goals;
 
-    public JiraService(JiraConnections connections, JiraCache cache, JiraIssueTaskStore tasks, WorkspaceStore workspaces, ObjectProvider<AppSettingsService> appSettings)
+    public JiraService(JiraConnections connections, JiraCache cache, JiraIssueTaskStore tasks, WorkspaceStore workspaces, ObjectProvider<AppSettingsService> appSettings,
+            ObjectProvider<GoalService> goals)
     {
         this.connections = requireNonNull(connections, "connections is null");
         this.cache = requireNonNull(cache, "cache is null");
@@ -61,6 +67,8 @@ public class JiraService
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         // Agent initialization reads Jira context and also depends on settings; resolve settings only for refresh.
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
+        // Goals read cached tickets through this service; resolve them only when a Goal marker changes.
+        this.goals = requireNonNull(goals, "goals is null");
     }
 
     public List<JiraDtos.Board> boards(String connectionId, String cloudId, boolean refresh)
@@ -231,6 +239,14 @@ public class JiraService
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Assign a ByteQuay workspace before marking this ticket as a Goal.");
             }
             cache.write("goal." + segment(cloudId) + "." + segment(issueId), goal);
+            // The marked ticket gets its own workspace goal, named after it, and loses it when unmarked.
+            GoalSource source = new GoalSource(GoalItemKind.JIRA, GoalItem.jiraKey(connectionId, cloudId, issueId));
+            if (goal) {
+                goals.getObject().seed(issue.workspace().orElseThrow().id(), source, issue.title());
+            }
+            else {
+                goals.getObject().unseed(source);
+            }
             return detail(connectionId, cloudId, issueId, false);
         });
     }
@@ -309,6 +325,18 @@ public class JiraService
             cache.write(key, new CommentAttempt(body, true));
             return afterWrite(connectionId, cloudId, issueId);
         });
+    }
+
+    /** Every cached ticket of every saved board scope, each once; no network. */
+    public List<JiraIssue> cachedIssues()
+    {
+        Map<String, JiraIssue> result = new LinkedHashMap<>();
+        for (Scope scope : scopes()) {
+            cache.read(scope.key(), JiraDtos.IssuePage.class).ifPresent(page -> page.issues().forEach(item ->
+                    cache.read(issueKey(item.connectionId(), item.cloudId(), item.id()), JiraIssue.class).map(this::metadata)
+                            .ifPresent(issue -> result.putIfAbsent(issue.cloudId() + ":" + issue.id(), issue))));
+        }
+        return ImmutableList.copyOf(result.values());
     }
 
     public List<JiraIssue> attention()

@@ -13,6 +13,7 @@
  */
 
 import type { JiraBridge, JiraSourceRequest, JiraTaskSource } from './jira/contracts';
+import type { GoalDto, GoalItemDto, GoalItemKind, GoalPatch } from './goals/contracts';
 import { AgentEventEnvelope } from './agents/events';
 import type { AskCommentDiscussionRequest, AskDiscussionRequest, DiscussionQuery, DraftDiscussionReplyRequest, OpenDiscussionRequest, ResolveDiscussionRequest, RetryDiscussionRequest, TaskDiscussionDto } from './agents/discussions/contracts';
 import type { CreateDevelopmentLearningCommentRequest, CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';
@@ -1450,6 +1451,14 @@ export type Bridge = JiraBridge & {
   fetchWorkspaceIssue: (workspaceId: string, issueNumber: number) => Promise<RepositoryIssueSnapshotDto['issues'][number]>;
   fetchWorkspaceIssueAttention: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
   setWorkspaceIssueGoal: (workspaceId: string, issueNumber: number, isGoal: boolean) => Promise<IssueDevelopmentDto>;
+  /** The workspace's goals with every item read locally; nothing here writes to GitHub or Jira. */
+  listGoals: (workspaceId: string) => Promise<GoalDto[]>;
+  createGoal: (workspaceId: string, title: string, description: string) => Promise<GoalDto>;
+  updateGoal: (workspaceId: string, goalId: string, patch: GoalPatch) => Promise<GoalDto>;
+  deleteGoal: (workspaceId: string, goalId: string) => Promise<void>;
+  addGoalItem: (workspaceId: string, goalId: string, kind: GoalItemKind, key: string) => Promise<GoalDto>;
+  removeGoalItem: (workspaceId: string, goalId: string, kind: GoalItemKind, key: string) => Promise<GoalDto>;
+  searchGoalCandidates: (workspaceId: string, query: string) => Promise<GoalItemDto[]>;
   refreshWorkspaceIssues: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
   fetchWorkspaceIssueDetail: (workspaceId: string, issueNumber: number) => Promise<WorkspaceIssueDetailDto>;
   refreshWorkspaceIssueDetail: (workspaceId: string, issueNumber: number) => Promise<WorkspaceIssueDetailDto>;

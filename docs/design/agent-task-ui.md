@@ -979,9 +979,11 @@ Tasks**, each with its count) narrow the cards to one source; the cap applies
 after filtering. There are no **All issues** or **All pull requests** links. A
 card is a strip tinted by the source that produced the event (pull request
 green, issue blue, Jira ticket purple, agent task teal) naming its type, key,
-repository on the application Home only, and age; while the pointer or focus
-is inside the card the age gives way to Start development (issues and tickets
-that can start), Acknowledge and Snooze, beside the chevron. The body is the
+repository on the application Home only, a **Goal** badge when the item is in
+its workspace's pinned goal, and age; while the pointer or focus is inside the
+card the age gives way to ◎ (add to or remove from that goal), Start
+development (issues and tickets that can start), Acknowledge and Snooze, beside
+the chevron. The body is the
 title clamped to two lines, a reason tag with the actor's avatar and what they
 did, and a detail block saying what happened. Tags are toned by reason: Review
 requested blue, Approval amber, a status moved to Blocked red, Assigned green,
@@ -1010,6 +1012,46 @@ a bounded number of records. A task whose transcript retention removed quotes
 its kept final answer. A task card's key is its lane and model, and its linked
 items are its Jira ticket, pull request and issue; a pull request's card links
 the task whose branch opened it.
+
+**Goals.** A workspace can hold several goals, each a local list of pull
+requests, issues, Jira tickets and agent tasks toward one outcome. One is
+pinned, and every page of the workspace follows it. Goals live in SQLite behind
+`/api/workspaces/{workspaceId}/goals`; no goal change writes to GitHub or Jira
+or starts work, and removing an item leaves its task and history as they are.
+Adding an item saves its kind, key, label and title as ByteQuay stores them.
+Reading a goal reads each item from the local store for its kind: a merged or
+closed pull request, a closed issue, a done ticket or an ended task is
+**Finished**; an open pull request, an issue with a development task, a ticket
+in progress or a running task is **Working**; anything else is **Idle**. An
+issue gone from the repository's synced open issues reads as closed, and any
+other item no store holds keeps its saved label and title. A ticket in a status
+named Blocked is blocked. An item needs you while it shows in the workspace's
+Needs attention, which the workspace reads once for all of its pages. Marking
+an issue or Jira ticket as a Goal gives its workspace a goal named after it
+that does not list the marked item itself; unmarking removes that goal. A
+workspace's first goal is pinned, choosing another goal in the switcher pins
+that one, and deleting the pinned goal pins the oldest one left.
+
+Every workspace page but an open task or review carries the pinned goal as a
+pill: a progress ring, the goal's name, `finished/total` and how many items
+need you. It starts just above the composer's right edge, or in the page's
+bottom-right corner where there is no composer. It can be dragged anywhere, and
+keeps its spot per page (`bq.goal.pill.{page}`); wherever it would cover the
+composer it is lifted above it. A click that did not drag, or ⌥G, opens the
+goal: docked in a 340px column beside a Home at least 1100px wide, where ×
+collapses it back to the pill (`bq.goal.dockCollapsed`), and otherwise as a
+380px drawer inset 10px, for which the page makes room so the composer
+re-centres. The panel has the goal switcher (**GOAL 1 of 3**, **Pinned**,
+**New goal**, and **Delete this goal** for a goal no marker seeded), the title
+and description, a Finished / Working / Idle bar, tiles for pull requests
+merged and open, what needs you and what is blocked, **All · Needs you ·
+Blocked** tabs, **+ Add** searching the repository's stored pull requests and
+issues, cached Jira tickets and the workspace's tasks, the items grouped
+Working, Idle and Finished (folded) with remove on hover, and recent activity:
+the latest stored change of each item. ⤢ opens a board of Idle, Working and
+Finished columns with the same search and remove. Task cards and rows on the
+Tasks page and open-task cards on Home show ◎ for a task in the pinned goal or
+one working on a pull request in it.
 
 The composer checks the same typed provider readiness returned by Workspace
 Settings before enabling its send control. Authentication-required, missing,

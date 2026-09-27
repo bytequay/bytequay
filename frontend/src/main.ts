@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import type { JiraLocation, JiraQuery, JiraTokenRequest } from './jira/contracts';
+import { parseGoal, parseGoalItem, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -1758,6 +1759,21 @@ function registerIpc(): void {
   ipcMain.handle('workspaces:issues:goal', (_event, workspaceId: string, issueNumber: number, isGoal: boolean) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/goal`,
       jsonInit('PATCH', { isGoal })));
+  const goalsUrl = (workspaceId: string, path = '') => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/goals${path}`;
+  ipcMain.handle('goals:list', (_event, workspaceId: string) =>
+    backendJson(goalsUrl(workspaceId)).then(goals => parseList(goals, parseGoal, 'goals')));
+  ipcMain.handle('goals:create', (_event, workspaceId: string, title: string, description: string) =>
+    backendJson(goalsUrl(workspaceId), jsonInit('POST', { title, description })).then(parseGoal));
+  ipcMain.handle('goals:update', (_event, workspaceId: string, goalId: string, patch: GoalPatch) =>
+    backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}`), jsonInit('PATCH', patch)).then(parseGoal));
+  ipcMain.handle('goals:delete', (_event, workspaceId: string, goalId: string) =>
+    backendVoid(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}`), { method: 'DELETE' }));
+  ipcMain.handle('goals:items:add', (_event, workspaceId: string, goalId: string, kind: GoalItemKind, key: string) =>
+    backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/items`), jsonInit('POST', { kind, key })).then(parseGoal));
+  ipcMain.handle('goals:items:remove', (_event, workspaceId: string, goalId: string, kind: GoalItemKind, key: string) =>
+    backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/items?${new URLSearchParams({ kind, key })}`), { method: 'DELETE' }).then(parseGoal));
+  ipcMain.handle('goals:candidates', (_event, workspaceId: string, query: string) =>
+    backendJson(goalsUrl(workspaceId, `/candidates?${new URLSearchParams({ q: query })}`)).then(items => parseList(items, parseGoalItem, 'goal candidates')));
   ipcMain.handle('workspaces:issues:refresh', (_event, workspaceId: string) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/refresh`, {
       method: 'POST',

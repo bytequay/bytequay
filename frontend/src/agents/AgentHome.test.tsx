@@ -11,22 +11,34 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useMemo } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { setCached } from '../dataCache';
 import { ATTENTION_SEED, type AttentionItem } from '../home/attention';
 import type { PullRequestDto } from '../types';
+import { useWorkspaceAttention } from '../workspaces/workspaceAttention';
 import AgentHome from './AgentHome';
 import AgentTasksView from './AgentTasksView';
+import { useTaskAttention } from './attention';
 import { parseAgentEventSequence } from './events';
 import fixture from './fixtures/agent-events-v2.json';
 import { createPreviewBridge, previewTask } from './fixtures/previewBridge';
 import { initialAgentTaskState } from './model';
 import { TaskWindows } from './TaskCard';
 
+/** Home as its workspace shows it: with the attention the workspace reads once for all its pages. */
+function WorkspaceHome({ workspaceId }: { workspaceId: string }) {
+  const taskAttention = useTaskAttention(useMemo(() => [{ id: workspaceId, name: '', repository: 'octo/app' }], [workspaceId]));
+  const attention = useWorkspaceAttention(workspaceId, 'octo/app', taskAttention);
+  return (
+    <AgentHome workspaceId={workspaceId} repository="octo/app" taskAttention={taskAttention} attention={attention}
+      bridge={createPreviewBridge(workspaceId)} onOpenTask={() => {}} onShowAll={() => {}} onStartIssue={() => {}} />
+  );
+}
+
 function home(workspaceId: string): string {
-  return renderToStaticMarkup(
-    <AgentHome workspaceId={workspaceId} repository="octo/app" bridge={createPreviewBridge(workspaceId)} onOpenTask={() => {}} onShowAll={() => {}} onStartIssue={() => {}} />);
+  return renderToStaticMarkup(<WorkspaceHome workspaceId={workspaceId} />);
 }
 
 describe('agent home on a return visit', () => {

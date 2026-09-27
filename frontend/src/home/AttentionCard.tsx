@@ -14,6 +14,7 @@
 import { useState, type MouseEvent } from 'react';
 import { Check, ChevronRight, CircleDot, CircleX, Clock3, GitPullRequest, Play, SquareCheck } from 'lucide-react';
 import Avatar from '../Avatar';
+import { GoalIcon } from '../goals/GoalPanel';
 import JiraIcon from '../jira/JiraIcon';
 import RepoAvatar from '../RepoAvatar';
 import { relativeTime } from '../relativeTime';
@@ -108,13 +109,17 @@ type Props = {
   onSnooze: (button: HTMLElement) => void;
   /** Present for an issue or ticket that can start development. */
   onStart?: () => void;
+  /** Whether the item is in the pinned goal, shown as a badge in the strip. */
+  inGoal?: boolean;
+  /** Adds the item to the pinned goal, or takes it out; absent where no goal can hold it. */
+  onToggleGoal?: () => void;
 };
 
 /**
  * One item that needs you: a strip tinted by the source that produced it, then what happened. The
  * age in the strip gives way to the card's actions while the pointer or focus is inside it.
  */
-export default function AttentionCard({ item, viewerLogin, showRepo, onOpen, onAcknowledge, onSnooze, onStart }: Props) {
+export default function AttentionCard({ item, viewerLogin, showRepo, onOpen, onAcknowledge, onSnooze, onStart, inGoal = false, onToggleGoal }: Props) {
   const source = attentionSource(item);
   const summary = attentionSummary(item, viewerLogin);
   const reference = item.reference ?? `#${item.number}`;
@@ -143,8 +148,15 @@ export default function AttentionCard({ item, viewerLogin, showRepo, onOpen, onA
           // An issue names the workspace it would start in, so a repository watched twice is never ambiguous.
           <span className="atn-card__repo"><RepoAvatar owner={owner} repo={repo} size={12} radius={3} />{item.workspaceName || item.repo}</span>
         )}
+        {inGoal && <span className="atn-goal" title="In goal"><GoalIcon size={11} />Goal</span>}
         <span className="atn-spacer" />
         <span className="atn-card__actions" role="group" aria-label={`Actions for ${reference}`}>
+          {onToggleGoal !== undefined && (
+            <button className={`atn-iconbtn is-goal${inGoal ? ' is-active' : ''}`} type="button" title={inGoal ? 'Remove from goal' : 'Add to goal'}
+              aria-label={`${inGoal ? 'Remove' : 'Add'} ${reference} ${inGoal ? 'from' : 'to'} the goal`} aria-pressed={inGoal} onClick={act(onToggleGoal)}>
+              <GoalIcon size={15} />
+            </button>
+          )}
           {onStart !== undefined && (
             <button className="atn-iconbtn" type="button" title={`Start development in ${item.workspaceName || item.repo}`}
               aria-label={`Start development for ${reference}`} onClick={act(onStart)}>

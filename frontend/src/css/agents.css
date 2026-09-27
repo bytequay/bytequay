@@ -3538,6 +3538,13 @@ button:is(.agt-type-chip, .agt-type-tile) {
   color: #8c959f;
 }
 
+/* The task, or the pull request it works on, is in the pinned goal. */
+.agt-in-goal {
+  flex: none;
+  display: inline-flex;
+  color: #57606a;
+}
+
 .agt-item-row .agt-pill {
   flex: none;
 }

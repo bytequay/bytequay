@@ -323,9 +323,7 @@
 
 /* The workspace's own list: an uppercase label, and no section at all when nothing needs you. */
 .atn-section.is-workspace {
-  width: 100%;
-  max-width: 880px;
-  margin-top: 40px;
+  margin-top: 22px;
 }
 
 .atn-head {

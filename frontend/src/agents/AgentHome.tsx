@@ -27,7 +27,7 @@ import {
   type AttentionItem,
   type Handled,
 } from '../home/attention';
-import { StartingAgentTask, TaskComposer, taskArchived, useAgentTaskCreation, type DraftImage, type TaskModelSelection } from './AgentTasksView';
+import { ComposerDock, StartingAgentTask, TaskComposer, taskArchived, useAgentTaskCreation, type DraftImage, type TaskModelSelection } from './AgentTasksView';
 import { HOME_WINDOW_MIN, TaskWindows } from './TaskCard';
 import type { AgentBridgePort } from './model';
 import type { AgentTaskDto, AgentTaskStartupPhase, ModelOptionDto, ModelProviderDto, PullRequestDto } from '../types';
@@ -272,50 +272,15 @@ export function AgentHomeView({
   onRemoveImage?: (id: string) => void;
 }): React.JSX.Element {
   if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup, headerAction }} />;
-  const slash = repository.indexOf('/');
-  const owner = slash < 0 ? repository : repository.slice(0, slash);
-  const repo = slash < 0 ? '' : repository.slice(slash + 1);
+  const [owner, repo = ''] = repository.split('/');
   return (
     <div className="agt-home">
-      {headerAction}
-      <div className="agt-home__scroll">
-        <div className="agt-home__avatar">
-          <RepoAvatar owner={owner} repo={repo} size={64} radius={16} />
-        </div>
-        <div className="agt-home__repo">{repository}</div>
-        <div className="agt-home__composer">
-          {error !== null && <div className="cmt-error" role="alert">{error}</div>}
-          <TaskComposer
-            automation={automation}
-            draft={draft}
-            blocker={blocker}
-            busy={busy}
-            attaching={attaching}
-            images={images}
-            onAttach={onAttach}
-            onPasteImages={onPasteImages}
-            onRemoveImage={onRemoveImage}
-            laneId={laneId}
-            providers={providers}
-            models={models}
-            selection={selection}
-            onDraftChange={onDraftChange}
-            onSelectProvider={onSelectProvider}
-            onSelectModel={onSelectModel}
-            onCreate={onCreate}
-            onOpenSettings={onOpenSettings}
-          />
-        </div>
-        <div className="agt-starts">
-          {SUGGESTIONS.map((suggestion) => {
-            const Icon = suggestion.icon;
-            return (
-              <button type="button" className="agt-start" key={suggestion.title} onClick={() => onDraftChange(suggestion.prompt)}>
-                <span className="agt-start__icon" aria-hidden="true"><Icon size={15} strokeWidth={1.8} /></span>
-                <span className="agt-start__text">{suggestion.title}</span>
-              </button>
-            );
-          })}
+      <div className="agt-page">
+        <div className="agt-page-head">
+          <RepoAvatar owner={owner} repo={repo} size={28} radius={8} />
+          <h1>{repository}</h1>
+          <span className="agt-spacer" />
+          {headerAction}
         </div>
         {attentionError && <div className="ws-error" role="alert">{attentionError}</div>}
         <AttentionList
@@ -352,6 +317,37 @@ export function AgentHomeView({
             onOpen={onOpenTask}
           />
         </section>
+        <ComposerDock repository={repository} chips={SUGGESTIONS.map((suggestion) => {
+          const Icon = suggestion.icon;
+          return (
+            <button type="button" className="agt-start" key={suggestion.title} onClick={() => onDraftChange(suggestion.prompt)}>
+              <Icon size={13} strokeWidth={1.9} aria-hidden="true" />
+              {suggestion.title}
+            </button>
+          );
+        })}>
+          {error !== null && <div className="cmt-error" role="alert">{error}</div>}
+          <TaskComposer
+            automation={automation}
+            draft={draft}
+            blocker={blocker}
+            busy={busy}
+            attaching={attaching}
+            images={images}
+            onAttach={onAttach}
+            onPasteImages={onPasteImages}
+            onRemoveImage={onRemoveImage}
+            laneId={laneId}
+            providers={providers}
+            models={models}
+            selection={selection}
+            onDraftChange={onDraftChange}
+            onSelectProvider={onSelectProvider}
+            onSelectModel={onSelectModel}
+            onCreate={onCreate}
+            onOpenSettings={onOpenSettings}
+          />
+        </ComposerDock>
       </div>
     </div>
   );

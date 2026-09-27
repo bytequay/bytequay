@@ -229,8 +229,10 @@ describe('watched repository workspace UI', () => {
     // Every agent screen carries the overview control.
     expect(tasks).toContain('aria-label="Show all tasks"');
     expect(tasks).toContain('class="agt-headbtn agt-overview-toggle"');
+    expect(tasks).toContain('title="upstream/project · tasks start in this repo"');
     const home = renderToStaticMarkup(<WorkspaceShell {...props} tab="home" />);
-    expect(home).toContain('class="agt-home__repo">upstream/project<');
+    expect(home).toContain('<h1>upstream/project</h1>');
+    expect(home).toContain('title="upstream/project · tasks start in this repo"');
     expect(home).toContain('Open tasks · 0');
     expect(home).toContain('aria-label="Describe a task"');
     expect(home).toContain('class="agt-headbtn agt-overview-toggle"');

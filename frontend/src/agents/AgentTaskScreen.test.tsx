@@ -307,10 +307,8 @@ describe('agent task layout', () => {
   it('positions the composer picker by surface, and names models the short way', () => {
     expect(declarations('.agt-picker__card')).toContain('bottom: calc(100% + 8px)');
     expect(declarations('.agt-picker__card')).toContain('border-radius: 14px');
-    expect(declarations('.agt-home__composer .agt-picker__card')).toEqual(expect.arrayContaining([
-      'top: calc(100% + 8px)',
-      'bottom: auto',
-    ]));
+    // Every page docks its composer at the bottom, so the pickers open upward everywhere.
+    expect(declarations('.agt-dock')).toEqual(expect.arrayContaining(['position: sticky', 'bottom: 0']));
     expect(displayModelName('GPT-5.6-Sol')).toBe('5.6 Sol');
     expect(displayModelName('GPT-5.3-Codex-Spark')).toBe('5.3 Codex Spark');
     expect(displayModelName('Claude Opus 4.1')).toBe('Claude Opus 4.1');

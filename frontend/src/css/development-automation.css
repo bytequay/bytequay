@@ -3,7 +3,6 @@
 .agt-automation summary::-webkit-details-marker { display: none; }
 .agt-automation summary:hover { background: #f3f4f6; }
 .agt-automation-options { position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 15; width: 310px; padding: 14px; border: 1px solid #e1e4e8; border-radius: 12px; background: #fff; box-shadow: 0 8px 28px #0002; color: #31363d; }
-.agt-home__composer .agt-automation-options { top: calc(100% + 8px); bottom: auto; }
 .agt-automation-options strong { display: block; margin-bottom: 8px; }
 .agt-automation-options p { margin: 0 0 8px; line-height: 1.5; color: #656b73; }
 .agt-automation-option { display: flex; gap: 9px; padding: 8px 0; align-items: center; cursor: pointer; }

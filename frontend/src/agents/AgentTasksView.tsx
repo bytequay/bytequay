@@ -17,6 +17,7 @@ import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Archive, ArchiveRestore, Check, ChevronRight, Circle, FilePen, GitCommitHorizontal, LoaderCircle, SquareCheck, Trash2, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
+import RepoAvatar from '../RepoAvatar';
 import { relativeTime } from '../relativeTime';
 import { INTERACTIVE_LANE_ID, displayModelName, isDeepSeekKeyLane, laneLabel, providerAvailable, providerRemedy, remedyCommand } from '../settings/model';
 import { settingsRoute } from '../settings/routes';
@@ -53,6 +54,8 @@ const STARTUP_POLL_MS = 500;
 
 interface AgentTasksViewProps {
   workspaceId: string;
+  /** "owner/repo" new tasks start in, named by the chip above the composer. */
+  repository?: string;
   sourceIssueNumber?: number | null;
   onOpenCreatedTask?: (task: AgentTaskDto) => void;
   headerAction?: React.ReactNode;
@@ -646,6 +649,7 @@ function failureMessage(failure: unknown): string {
 
 export default function AgentTasksView({
   workspaceId,
+  repository,
   sourceIssueNumber = null,
   onOpenCreatedTask,
   headerAction,
@@ -697,6 +701,7 @@ export default function AgentTasksView({
   return (
     <AgentTaskList
       headerAction={headerAction}
+      repository={repository}
       {...creation.composer}
       issueAttachment={creation.issueAttachment}
       tasks={creation.tasks}
@@ -712,6 +717,37 @@ export default function AgentTasksView({
     >
       {children}
     </AgentTaskList>
+  );
+}
+
+/**
+ * The composer anchored at the foot of a workspace page, over a fade, under a chip naming the
+ * repository new tasks start in. It sticks to the bottom of the page's own scroller, so the last row
+ * always scrolls clear of it however tall the draft grows.
+ */
+export function ComposerDock({ repository, chips, children }: {
+  /** "owner/repo"; without one the chip row holds only the chips. */
+  repository?: string;
+  chips?: React.ReactNode;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  const [owner, repo = ''] = (repository ?? '').split('/');
+  return (
+    <div className="agt-dock">
+      <div className="agt-dock__inner">
+        {(repository !== undefined || chips !== undefined) && (
+          <div className="agt-dock__chips">
+            {repository !== undefined && (
+              <span className="agt-repo-chip" title={`${repository} · tasks start in this repo`}>
+                <RepoAvatar owner={owner} repo={repo} size={18} />
+              </span>
+            )}
+            {chips}
+          </div>
+        )}
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -938,7 +974,7 @@ function TaskRow({ task, pullRequest, changes, providers, now, checked, selectin
 type ToastState = { id: number; text: string; undo?: () => void };
 
 export function AgentTaskList({
-  tasks, loading, error, laneId, providers, models, selection, draft, blocker, children, reviewTasks, headerAction,
+  tasks, loading, error, laneId, providers, models, selection, draft, blocker, children, reviewTasks, headerAction, repository,
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onArchive, onDelete,
   images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, automation, issueAttachment,
   now = Date.now(), initialTab = 'active', changes = {},
@@ -957,6 +993,8 @@ export function AgentTaskList({
   children?: React.ReactNode;
   reviewTasks?: React.ReactNode;
   headerAction?: React.ReactNode;
+  /** "owner/repo" new tasks start in. */
+  repository?: string;
   onDraftChange: (draft: string) => void;
   onSelectProvider: (laneId: string) => void;
   onSelectModel: (model: string, effort: string | null, serviceTier: string | null) => void;
@@ -1052,7 +1090,7 @@ export function AgentTaskList({
 
   return (
     <div className="agt-tasks-page">
-      <div className="agt-tasks-scroll">
+      <div className="agt-page">
         <div className="agt-tasks-head">
           <h1>Tasks</h1>
           <span className="agt-spacer" />
@@ -1150,32 +1188,34 @@ export function AgentTaskList({
           </div>
         </section>
         {active && reviewTasks}
-      </div>
 
-      {/* Anchored under the list: sending this first message is what creates a task. */}
-      {active && (
-        <TaskComposer
-          automation={automation}
-          issueAttachment={issueAttachment}
-          draft={draft}
-          blocker={blocker}
-          busy={busy}
-          attaching={attaching}
-          images={images}
-          onAttach={onAttach}
-          onPasteImages={onPasteImages}
-          onRemoveImage={onRemoveImage}
-          laneId={laneId}
-          providers={providers}
-          models={models}
-          selection={selection}
-          onDraftChange={onDraftChange}
-          onSelectProvider={onSelectProvider}
-          onSelectModel={onSelectModel}
-          onCreate={onCreate}
-          onOpenSettings={onOpenSettings}
-        />
-      )}
+        {/* Anchored under the list: sending this first message is what creates a task. */}
+        {active && (
+          <ComposerDock repository={repository}>
+            <TaskComposer
+              automation={automation}
+              issueAttachment={issueAttachment}
+              draft={draft}
+              blocker={blocker}
+              busy={busy}
+              attaching={attaching}
+              images={images}
+              onAttach={onAttach}
+              onPasteImages={onPasteImages}
+              onRemoveImage={onRemoveImage}
+              laneId={laneId}
+              providers={providers}
+              models={models}
+              selection={selection}
+              onDraftChange={onDraftChange}
+              onSelectProvider={onSelectProvider}
+              onSelectModel={onSelectModel}
+              onCreate={onCreate}
+              onOpenSettings={onOpenSettings}
+            />
+          </ComposerDock>
+        )}
+      </div>
       {toast !== null && (
         <Toast
           key={toast.id}

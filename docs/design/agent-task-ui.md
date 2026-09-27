@@ -849,7 +849,11 @@ The Tasks tab is [Tasks.dc.html](Tasks.dc.html). Its heading carries an
 **Active** / **Archived** segmented control with counts. The heading reserves
 space for the pinned overview button and wraps at narrow widths so the controls
 remain separate. Active shows three sections in order: **Cherry-pick executions**,
-**Agent tasks**, and **Review tasks**, with the composer anchored beneath.
+**Agent tasks**, and **Review tasks**, with the composer docked at the bottom of
+the page: centred at 760px over a white fade the list scrolls under, sticky at
+the foot of the page's scroller so the last row always scrolls clear of it. A
+round chip holding only the repository avatar sits 10px above the composer and
+names the repository new tasks start in.
 Archived shows only shelved agent tasks and no composer. Review tasks lists
 this workspace's open and ended PR-owned reviews with their derived review
 status. A row names its pull request by number and stored title beside the
@@ -911,9 +915,11 @@ Delete disabled when the selection holds a running task) and Escape clears it.
 Archive and restore, single or bulk, show a five-second toast with Undo; delete
 shows the same toast without it.
 
-The workspace Home is [Workspace Home.dc.html](Workspace%20Home.dc.html): the
-repository avatar and name, the same composer in the flow of the page, three
-starting points that fill it, the repository's own **Needs attention** rows
+The workspace Home is [Workspace Home.dc.html](Workspace%20Home.dc.html): a
+header with the 28px repository avatar, the repository name and the overview
+control, the same composer docked at the bottom as on the Tasks page, with the
+repository chip and three starting points that fill it as pills in one row
+above it, the repository's own **Needs attention** rows
 (at most three, drawn from the same candidates and ack/snooze store as the
 application Home, hidden entirely when nothing needs the user, **See all**
 opening the workspace Pull requests tab), and the open tasks as a responsive

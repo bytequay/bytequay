@@ -236,6 +236,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         <AgentTasksView
           key={sourceIssueNumber ?? 'new-task'}
           workspaceId={workspace.id}
+          repository={monitoredRepository}
           sourceIssueNumber={sourceIssueNumber}
           launch={sourceIssueNumber === null ? undefined : startLaunch}
           onOpenCreatedTask={task => { window.location.hash = workspaceAgentTaskRoute(task.workspaceId, task.id); }}

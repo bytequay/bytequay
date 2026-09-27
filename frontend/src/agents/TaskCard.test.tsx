@@ -125,7 +125,7 @@ describe('task window', () => {
 describe('agent home and overview', () => {
   const bridge = () => createPreviewBridge('workspace-1');
 
-  it('names the repository, keeps the composer in the page, and lays the open tasks out as a grid', () => {
+  it('names the repository, docks the composer under the page, and lays the open tasks out as a grid', () => {
     const markup = renderToStaticMarkup(
       <AgentHomeView
         repository="jackchen/trino"
@@ -146,7 +146,9 @@ describe('agent home and overview', () => {
       />);
 
     expect(markup).toContain('aria-label="jackchen/trino"');
-    expect(markup).toContain('class="agt-home__repo">jackchen/trino<');
+    expect(markup).toContain('<h1>jackchen/trino</h1>');
+    // The chip over the composer names where new tasks start.
+    expect(markup).toContain('title="jackchen/trino · tasks start in this repo"');
     expect(markup).not.toContain('What should the agent do');
     expect(markup).not.toContain('❋');
     expect(markup.match(/class="agt-start"/g)).toHaveLength(3);
@@ -159,8 +161,10 @@ describe('agent home and overview', () => {
     expect(markup).toContain('class="agt-windows-grid"');
     expect(markup.match(/style="--card-w:250"/g)).toHaveLength(2);
     expect(markup.match(/aria-label="Rename task: /g)).toHaveLength(2);
-    // The composer sits under the repository, not docked to the bottom of the page.
-    expect(markup.indexOf('agt-compose')).toBeLessThan(markup.indexOf('agt-open-tasks'));
+    // The composer docks at the foot of the page, with the starting points beside the repository chip.
+    expect(markup.indexOf('agt-open-tasks')).toBeLessThan(markup.indexOf('class="agt-dock"'));
+    expect(markup.indexOf('class="agt-repo-chip"')).toBeLessThan(markup.indexOf('class="agt-start"'));
+    expect(markup.indexOf('class="agt-start"')).toBeLessThan(markup.indexOf('agt-compose'));
     // A quiet repository shows no attention section at all.
     expect(markup).not.toContain('Needs attention');
     expect(markup).toContain('aria-label="Describe a task"');

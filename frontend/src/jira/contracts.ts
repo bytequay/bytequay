@@ -30,7 +30,8 @@ export type JiraIssue = {
   workspace: { id: string; name: string } | null;
 };
 export type JiraField = { id: string; name: string; required: boolean; schemaType: string; allowedValues: { id: string; name: string }[] };
-export type JiraComment = { id: string; parentId: string | null; author: JiraUser; body: string; created: string; updated: string };
+/** `editableText` is set only on your own comments that plain text can rewrite without losing formatting. */
+export type JiraComment = { id: string; parentId: string | null; author: JiraUser; body: string; created: string; updated: string; mine: boolean; editableText: string | null };
 export type JiraIssueDetail = {
   issue: JiraIssue;
   comments: JiraComment[];
@@ -61,7 +62,8 @@ export type JiraBridge = {
   updateJiraIssue: (location: JiraLocation, fields: Record<string, unknown>, expectedUpdatedAt: string) => Promise<JiraIssueDetail>;
   transitionJiraIssue: (location: JiraLocation, transitionId: string, fields: Record<string, unknown>, expectedUpdatedAt: string) => Promise<JiraIssueDetail>;
   moveJiraIssue: (location: JiraLocation, sprintId: number | null, boardId: number, expectedUpdatedAt: string) => Promise<JiraIssueDetail>;
-  commentJiraIssue: (location: JiraLocation, body: string, operationId: string) => Promise<JiraIssueDetail>;
+  commentJiraIssue: (location: JiraLocation, body: string, operationId: string, parentId?: string) => Promise<JiraIssueDetail>;
+  editJiraComment: (location: JiraLocation, commentId: string, body: string, expectedUpdated: string) => Promise<JiraIssueDetail>;
   setJiraGoal: (location: JiraLocation, isGoal: boolean) => Promise<JiraIssueDetail>;
   assignJiraWorkspace: (location: JiraLocation, workspaceId: string) => Promise<JiraIssueDetail>;
   listJiraAttention: () => Promise<JiraIssue[]>;

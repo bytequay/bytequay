@@ -127,6 +127,9 @@
 .jira-comment:has(+ .jira-comment-replies > .jira-comment)::after { content: ''; position: absolute; top: 48px; bottom: 0; left: 16px; border-left: 1px solid var(--border, #d8dee4); }
 .jira-comment-replies > .jira-comment:not(:last-of-type)::after { content: ''; position: absolute; top: 0; bottom: 0; left: -28px; border-left: 1px solid var(--border, #d8dee4); }
 .jira-comment-replies > .jira-comment::before { content: ''; position: absolute; top: 0; left: -28px; width: 24px; height: 28px; border: 0 solid var(--border, #d8dee4); border-width: 0 0 1px 1px; border-bottom-left-radius: 12px; }
+/* Pull the first icon's padding out so its glyph lines up with the comment text. */
+.jira-comment__actions { display: flex; gap: 2px; margin: 4px 0 0 -6px; }
+.jira-comment-form__actions { display: flex; justify-content: flex-end; gap: 8px; }
 .jira-comments form { display: grid; gap: 9px; margin-bottom: 16px; }
 .jira-comments form button { justify-self: end; }
 .jira-comments textarea { resize: vertical; }

@@ -52,7 +52,7 @@ describe('Jira completion dates', () => {
 
 describe('Jira comment threads', () => {
   it('shows the newest thread first with replies in order under their root', () => {
-    const comment = (id: string, parentId: string | null = null): JiraComment => ({ id, parentId, author: { accountId: 'a', displayName: 'A', avatarUrl: null }, body: id, created: '', updated: '' });
+    const comment = (id: string, parentId: string | null = null): JiraComment => ({ id, parentId, author: { accountId: 'a', displayName: 'A', avatarUrl: null }, body: id, created: '', updated: '', mine: false, editableText: null });
     const ids = jiraCommentThreads([comment('root'), comment('other'), comment('reply', 'root'), comment('reply-to-reply', 'reply'), comment('orphan', 'missing')])
       .map(thread => [thread.comment.id, ...thread.replies.map(reply => reply.id)]);
     expect(ids).toEqual([['orphan'], ['other'], ['root', 'reply', 'reply-to-reply']]);

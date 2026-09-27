@@ -48,8 +48,9 @@ The first release includes:
   move tickets to an active/future sprint or backlog; choose an available Jira
   transition and supply supported required fields. Additional field types use
   Open in Jira.
-- Post a comment explicitly. Drafts survive failures. An uncertain send is not
-  retried automatically, including after reconnecting through another connection.
+- Post a comment explicitly, reply inside a thread, or edit your own comment.
+  Drafts survive failures. An uncertain send is not retried automatically,
+  including after reconnecting through another connection.
 - Mark a ticket as a local Goal, or start development on a leaf ticket. If it
   has no ByteQuay workspace, either action asks the user to choose and confirm
   one first. Save the choice locally and show the workspace name on the card and
@@ -252,6 +253,17 @@ carries the `parentId` Jira returns, although its published comment schema omits
 the field; a reply whose parent is not loaded stays a top-level row marked as a
 reply. ByteQuay does not infer threads from names, mentions or comment text.
 Cached comments stay oldest first; only the ticket dialog groups them.
+
+Every comment offers Reply. A reply goes to the thread's first comment with the
+same `parentId`, because Jira keeps threads one level deep; when Jira answers
+with a top-level comment instead, the dialog says so. Your own comments offer
+Edit only when their body is plain paragraphs and mentions with no visibility
+restriction. The saved text turns names the comment already mentioned back into
+those mentions, and ByteQuay re-reads the comment first, refusing the edit when
+it changed in Jira. Other own comments open in Jira to edit, so formatting, links
+and restrictions are never flattened. Reactions stay in Jira: Jira Cloud serves
+them only through an internal endpoint that requires a browser session, which API
+tokens and OAuth cannot use.
 
 ## Verification
 

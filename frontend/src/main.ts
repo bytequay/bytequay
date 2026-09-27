@@ -1722,8 +1722,10 @@ function registerIpc(): void {
     backendJson(`${jiraIssuePath(location)}/transitions`, jsonInit('POST', { transitionId, fields, expectedUpdatedAt }, agentHeaders())));
   ipcMain.handle('jira:issue:sprint', (_event, location: JiraLocation, sprintId: number | null, boardId: number, expectedUpdatedAt: string) =>
     backendJson(`${jiraIssuePath(location)}/sprint`, jsonInit('POST', { sprintId, boardId, expectedUpdatedAt }, agentHeaders())));
-  ipcMain.handle('jira:issue:comment', (_event, location: JiraLocation, body: string, operationId: string) =>
-    backendJson(`${jiraIssuePath(location)}/comments`, jsonInit('POST', { body, operationId }, agentHeaders())));
+  ipcMain.handle('jira:issue:comment', (_event, location: JiraLocation, body: string, operationId: string, parentId?: string) =>
+    backendJson(`${jiraIssuePath(location)}/comments`, jsonInit('POST', { body, operationId, parentId: parentId ?? null }, agentHeaders())));
+  ipcMain.handle('jira:comment:edit', (_event, location: JiraLocation, commentId: string, body: string, expectedUpdated: string) =>
+    backendJson(`${jiraIssuePath(location)}/comments/${encodeURIComponent(commentId)}`, jsonInit('PUT', { body, expectedUpdated }, agentHeaders())));
   ipcMain.handle('jira:issue:goal', (_event, location: JiraLocation, isGoal: boolean) =>
     backendJson(`${jiraIssuePath(location)}/goal`, jsonInit('PUT', { isGoal }, agentHeaders())));
   ipcMain.handle('jira:issue:workspace', (_event, location: JiraLocation, workspaceId: string) =>

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.jira;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
@@ -44,7 +45,7 @@ class TestJiraMapping
             comment.set("body", body);
 
             assertThat(JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", issue).body()).isEqualTo(markdown);
-            assertThat(JiraMapping.comment("https://example.atlassian.net", comment).body()).isEqualTo(markdown);
+            assertThat(JiraMapping.comment("https://example.atlassian.net", Optional.empty(), comment).body()).isEqualTo(markdown);
         }
     }
 
@@ -78,6 +79,34 @@ class TestJiraMapping
                 | --- |
                 | `a\\|b` or c\\|d |
                 """.strip());
+    }
+
+    @Test
+    void editsOnlyPlainOwnCommentsAndRestoresTheirMentions()
+            throws Exception
+    {
+        ObjectNode comment = (ObjectNode) mapper.readTree("""
+                {"id":"5","author":{"accountId":"me"},"body":{"type":"doc","version":1,"content":[
+                  {"type":"paragraph","content":[{"type":"mention","attrs":{"id":"alex","text":"@Alex Kim"}},{"type":"text","text":" please check"}]},
+                  {"type":"paragraph","content":[]},
+                  {"type":"paragraph","content":[{"type":"text","text":"Thanks"}]}
+                ]}}
+                """);
+
+        JiraDtos.Comment mine = JiraMapping.comment("https://example.atlassian.net", Optional.of("me"), comment);
+        assertThat(mine.mine()).isTrue();
+        assertThat(mine.editableText()).contains("@Alex Kim please check\n\nThanks");
+        JsonNode saved = mapper.valueToTree(JiraMapping.document(mine.editableText().orElseThrow(), JiraMapping.mentions(comment)));
+        assertThat(saved).isEqualTo(comment.path("body"));
+        assertThat(JiraMapping.comment("https://example.atlassian.net", Optional.of("someone else"), comment).editableText()).isEmpty();
+
+        ((ObjectNode) comment.at("/body/content/2")).putArray("content").add(mapper.readTree("{\"type\":\"mention\",\"attrs\":{\"id\":\"other\",\"text\":\"@Alex Kim\"}}"));
+        assertThat(JiraMapping.editableText(comment)).isEmpty();
+        ((ObjectNode) comment.at("/body/content/2")).putArray("content").addObject().put("type", "text").put("text", "Thanks").putArray("marks").addObject().put("type", "strong");
+        assertThat(JiraMapping.editableText(comment)).isEmpty();
+        ((ObjectNode) comment.at("/body/content/2")).putArray("content");
+        comment.putObject("visibility").put("type", "role").put("value", "Developers");
+        assertThat(JiraMapping.editableText(comment)).isEmpty();
     }
 
     @Test
@@ -175,7 +204,7 @@ class TestJiraMapping
         comment.set("body", body);
 
         assertThat(JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", issue).body()).isEqualTo(expected);
-        assertThat(JiraMapping.comment("https://example.atlassian.net", comment).body()).isEqualTo(expected);
+        assertThat(JiraMapping.comment("https://example.atlassian.net", Optional.empty(), comment).body()).isEqualTo(expected);
     }
 
     @Test
@@ -191,7 +220,7 @@ class TestJiraMapping
         comment.set("author", person);
 
         assertThat(JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", issue).assignee().orElseThrow().avatarUrl()).contains(avatar);
-        assertThat(JiraMapping.comment("https://example.atlassian.net", comment).author().avatarUrl()).contains(avatar);
+        assertThat(JiraMapping.comment("https://example.atlassian.net", Optional.empty(), comment).author().avatarUrl()).contains(avatar);
         urls.remove("48x48");
         assertThat(JiraMapping.person(person).avatarUrl()).contains("https://example.atlassian.net/avatar/24");
         urls.removeAll();

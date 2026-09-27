@@ -187,11 +187,21 @@ class TestJiraController
                         .content(mapper.writeValueAsString(ImmutableMap.of("sprintId", 8, "expectedUpdatedAt", UPDATED))))
                 .andExpect(status().isOk());
         verify(jira).move("connection", "cloud", "10001", UPDATED, Optional.of(8L));
-        when(jira.comment("connection", "cloud", "10001", "Ready for review", "request-1234567890")).thenReturn(detail());
+        when(jira.comment("connection", "cloud", "10001", "Ready for review", "request-1234567890", Optional.empty())).thenReturn(detail());
         mvc.perform(post(ISSUE + "/comments").contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(ImmutableMap.of("body", "Ready for review", "operationId", "request-1234567890"))))
                 .andExpect(status().isOk());
-        verify(jira).comment("connection", "cloud", "10001", "Ready for review", "request-1234567890");
+        verify(jira).comment("connection", "cloud", "10001", "Ready for review", "request-1234567890", Optional.empty());
+        when(jira.comment("connection", "cloud", "10001", "Agreed", "request-1234567891", Optional.of("5"))).thenReturn(detail());
+        mvc.perform(post(ISSUE + "/comments").contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(ImmutableMap.of("body", "Agreed", "operationId", "request-1234567891", "parentId", "5"))))
+                .andExpect(status().isOk());
+        verify(jira).comment("connection", "cloud", "10001", "Agreed", "request-1234567891", Optional.of("5"));
+        when(jira.editComment("connection", "cloud", "10001", "5", "Updated", "2026-09-26T01:00:00.000+0000")).thenReturn(detail());
+        mvc.perform(put(ISSUE + "/comments/5").contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(ImmutableMap.of("body", "Updated", "expectedUpdated", "2026-09-26T01:00:00.000+0000"))))
+                .andExpect(status().isOk());
+        verify(jira).editComment("connection", "cloud", "10001", "5", "Updated", "2026-09-26T01:00:00.000+0000");
         when(jira.goal("connection", "cloud", "10001", true)).thenReturn(detail());
         mvc.perform(put(ISSUE + "/goal").contentType(MediaType.APPLICATION_JSON).content("{\"isGoal\":true}"))
                 .andExpect(status().isOk());

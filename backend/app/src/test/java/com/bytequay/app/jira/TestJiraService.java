@@ -46,6 +46,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doAnswer;
@@ -82,6 +83,8 @@ class TestJiraService
         }).when(settings).put(anyString(), anyString());
         when(tasks.findBySource(anyString(), anyString())).thenReturn(Optional.empty());
         when(remote.site("connection", "cloud")).thenReturn(new JiraDtos.Site("cloud", "Example", "https://example.atlassian.net"));
+        when(remote.get("connection")).thenReturn(new JiraDtos.Connection("connection", "connected", ImmutableList.of(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.of(new JiraDtos.Account("me", "Me", Optional.empty())), Optional.empty(), "api_token", Optional.of("me@example.com")));
         when(remote.request(eq("connection"), eq("cloud"), anyString(), eq("GET"), any())).thenAnswer(call -> {
             String path = call.getArgument(2);
             if (path.startsWith("/rest/api/3/issue/1001?")) {
@@ -267,11 +270,47 @@ class TestJiraService
         jira.refreshIssue("connection", "cloud", "1001");
         when(remote.request(eq("connection"), eq("cloud"), eq("/rest/api/3/issue/1001/comment"), eq("POST"), any()))
                 .thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Connection lost"));
-        assertThatThrownBy(() -> jira.comment("connection", "cloud", "1001", "Please check", "operation-123456789"))
+        assertThatThrownBy(() -> jira.comment("connection", "cloud", "1001", "Please check", "operation-123456789", Optional.empty()))
                 .isInstanceOf(ResponseStatusException.class);
-        assertThatThrownBy(() -> jira.comment("replacement", "cloud", "1001", "Please check", "operation-123456789"))
+        assertThatThrownBy(() -> jira.comment("replacement", "cloud", "1001", "Please check", "operation-123456789", Optional.empty()))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("unknown result");
         verify(remote, never()).request(eq("replacement"), anyString(), anyString(), eq("POST"), any());
+    }
+
+    @Test
+    void repliesNameTheirParentAndSayWhenJiraPostsThemAtTopLevel()
+            throws Exception
+    {
+        jira.refreshIssue("connection", "cloud", "1001");
+        when(remote.request(eq("connection"), eq("cloud"), eq("/rest/api/3/issue/1001/comment"), eq("POST"), any()))
+                .thenReturn(json("{\"id\":\"9\",\"parentId\":\"5\"}"), json("{\"id\":\"10\"}"));
+
+        assertThat(jira.comment("connection", "cloud", "1001", "Agreed", "operation-reply-000001", Optional.of("5")).error()).isEmpty();
+        verify(remote).request(eq("connection"), eq("cloud"), eq("/rest/api/3/issue/1001/comment"), eq("POST"),
+                argThat(body -> body.orElseThrow() instanceof Map<?, ?> request && "5".equals(request.get("parentId"))));
+        assertThat(jira.comment("connection", "cloud", "1001", "Agreed", "operation-reply-000002", Optional.of("5")).error())
+                .contains("Jira saved your reply as a new comment instead of a reply.");
+    }
+
+    @Test
+    void editsOnlyFreshPlainOwnCommentsAndKeepsTheirMentions()
+            throws Exception
+    {
+        jira.refreshIssue("connection", "cloud", "1001");
+        String own = """
+                {"id":"5","author":{"accountId":"me"},"updated":"U1","body":{"type":"doc","version":1,"content":[
+                  {"type":"paragraph","content":[{"type":"mention","attrs":{"id":"alex","text":"@Alex Kim"}},{"type":"text","text":" please check"}]}]}}
+                """;
+        doReturn(json(own)).when(remote).request("connection", "cloud", "/rest/api/3/issue/1001/comment/5", "GET", Optional.empty());
+
+        jira.editComment("connection", "cloud", "1001", "5", "@Alex Kim fixed now", "U1");
+        List<Map<String, Object>> edited = ImmutableList.of(ImmutableMap.of("type", "mention", "attrs", ImmutableMap.of("id", "alex", "text", "@Alex Kim")),
+                ImmutableMap.of("type", "text", "text", " fixed now"));
+        verify(remote).request("connection", "cloud", "/rest/api/3/issue/1001/comment/5", "PUT", Optional.of(ImmutableMap.of("body",
+                ImmutableMap.of("version", 1, "type", "doc", "content", ImmutableList.of(ImmutableMap.of("type", "paragraph", "content", edited))))));
+        assertThatThrownBy(() -> jira.editComment("connection", "cloud", "1001", "5", "Again", "U0")).hasMessageContaining("changed in Jira");
+        doReturn(json(own.replace("\"me\"", "\"alex\""))).when(remote).request("connection", "cloud", "/rest/api/3/issue/1001/comment/5", "GET", Optional.empty());
+        assertThatThrownBy(() -> jira.editComment("connection", "cloud", "1001", "5", "Again", "U1")).hasMessageContaining("your own");
     }
 
     @Test

@@ -60,7 +60,7 @@ public final class JiraDtos
 
     public record WorkspaceLink(String id, String name) {}
 
-    public record Comment(String id, Optional<String> parentId, Person author, String body, String created, String updated) {}
+    public record Comment(String id, Optional<String> parentId, Person author, String body, String created, String updated, boolean mine, Optional<String> editableText) {}
 
     public record Field(String id, String name, boolean required, String schemaType, List<Choice> allowedValues)
     {

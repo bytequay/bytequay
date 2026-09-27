@@ -12,8 +12,8 @@
  * limitations under the License.
  */
 
-import { Fragment, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Bookmark, Bug, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, ExternalLink, Flag, Columns3, FolderGit2, List, LoaderCircle, MessageSquare, Minus, Play, RefreshCw, SquareCheck, UserRound, X, Zap } from 'lucide-react';
+import { Fragment, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Bookmark, Bug, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, ExternalLink, Flag, Columns3, FolderGit2, List, LoaderCircle, MessageSquare, Minus, Pencil, Play, RefreshCw, Reply, SquareCheck, UserRound, X, Zap } from 'lucide-react';
 import MarkdownBody from '../pulls/MarkdownBody';
 import { relativeTime } from '../relativeTime';
 import { TaskComposer, StartingAgentTask, useAgentTaskCreation } from '../agents/AgentTasksView';
@@ -283,11 +283,11 @@ function JiraAvatar({ person, label = person?.displayName ?? 'Unassigned' }: { p
       : person ? <span>{initials.length > 1 ? `${initials[0]}${initials[initials.length - 1]}` : initials[0]}</span> : <UserRound size={14} />}
   </span>;
 }
-function JiraCommentRow({ value, nested = false }: { value: JiraComment; nested?: boolean }) {
+function JiraCommentRow({ value, nested = false, children }: { value: JiraComment; nested?: boolean; children: ReactNode }) {
   return <article className="jira-comment" aria-label={`${value.parentId === null ? 'Comment' : 'Reply'} by ${value.author.displayName}`}>
     <JiraAvatar person={value.author} />
     <div className="jira-comment__content"><header><strong>{value.author.displayName}</strong><time dateTime={value.created}>{new Date(value.created).toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' })}</time>
-      {value.parentId !== null && !nested && <span className="jira-muted">Reply to a comment that is not loaded</span>}</header><MarkdownBody body={value.body} /></div>
+      {value.parentId !== null && !nested && <span className="jira-muted">Reply to a comment that is not loaded</span>}</header>{children}</div>
   </article>;
 }
 
@@ -319,6 +319,9 @@ function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }:
   const [loading, setLoading] = useState(true);
   const [comment, setComment] = useState('');
   const commentRequest = useRef<{ body: string; id: string } | null>(null);
+  const [reply, setReply] = useState<{ threadId: string; parentId: string; to: string; body: string } | null>(null);
+  const replyRequest = useRef<{ body: string; parentId: string; id: string } | null>(null);
+  const [commentEdit, setCommentEdit] = useState<{ id: string; body: string; updated: string } | null>(null);
   const [editing, setEditing] = useState(false);
   const [assigningWorkspace, setAssigningWorkspace] = useState(false);
   const [editVersion, setEditVersion] = useState('');
@@ -375,6 +378,19 @@ function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }:
   };
   const issue = detail?.issue;
   const transition = detail?.transitions.find(value => value.id === transitionId);
+  // Jira threads are one level deep: a reply to a reply still belongs to the thread's first comment.
+  const commentRow = (value: JiraComment, threadId: string, parentId: string, nested = false) => <JiraCommentRow key={value.id} value={value} nested={nested}>
+    {commentEdit?.id === value.id
+      ? <form className="jira-comment-form" onSubmit={event => { event.preventDefault(); const body = commentEdit.body.trim(); if (body) void mutate(() => window.bridge.editJiraComment(location, value.id, body, commentEdit.updated), () => setCommentEdit(null)); }}>
+        <textarea aria-label="Edit comment" rows={4} autoFocus value={commentEdit.body} onChange={event => setCommentEdit({ ...commentEdit, body: event.target.value })} />
+        <div className="jira-comment-form__actions"><button type="button" className="bq-button" disabled={busy} onClick={() => setCommentEdit(null)}>Cancel</button><button type="submit" className="bq-button bq-button--primary" disabled={busy || !commentEdit.body.trim()}>Save</button></div>
+      </form>
+      : <><MarkdownBody body={value.body} /><div className="jira-comment__actions">
+        <button type="button" className="bq-iconbtn" aria-label={`Reply to ${value.author.displayName}`} title="Reply" onClick={() => setReply(current => ({ threadId, parentId, to: value.author.displayName, body: current?.threadId === threadId ? current.body : '' }))}><Reply size={16} /></button>
+        {value.mine && <button type="button" className="bq-iconbtn" aria-label={value.editableText === null ? 'Edit comment in Jira' : 'Edit comment'} title={value.editableText === null ? 'Edit in Jira: this comment has formatting ByteQuay cannot edit' : 'Edit'}
+          onClick={() => { if (value.editableText !== null) setCommentEdit({ id: value.id, body: value.editableText, updated: value.updated }); else if (issue) void window.bridge.openInAppBrowser(`${issue.url}?focusedCommentId=${encodeURIComponent(value.id)}`); }}><Pencil size={15} /></button>}
+      </div></>}
+  </JiraCommentRow>;
   const field = (id: string) => detail?.editableFields.find(value => value.id === id);
   const startEditing = () => { if (!issue) return; setSummary(issue.title); setLabels(issue.labels.join(', ')); setAssignee(issue.assignee?.accountId ?? ''); setPriority(issue.priority?.id ?? ''); setDueDate(issue.dueDate ?? ''); setEditVersion(issue.updatedAt); setEditing(true); };
   const save = () => {
@@ -404,10 +420,21 @@ function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }:
           <label>Add a comment<textarea rows={4} value={comment} onChange={event => setComment(event.target.value)} placeholder="Write a reply…" /></label>
           <button type="submit" className="bq-button bq-button--primary" disabled={busy || !comment.trim()}>Send comment</button>
         </form>
-        {jiraCommentThreads(detail.comments).map(({ comment, replies }) => <Fragment key={comment.id}>
-          <JiraCommentRow value={comment} />
-          {replies.length > 0 && <div className="jira-comment-replies">{replies.map(reply => <JiraCommentRow key={reply.id} value={reply} nested />)}</div>}
-        </Fragment>)}
+        {jiraCommentThreads(detail.comments).map(({ comment, replies }) => {
+          // A reply whose own parent is not loaded still answers that parent.
+          const parentId = comment.parentId ?? comment.id;
+          const replying = reply?.threadId === comment.id ? reply : null;
+          return <Fragment key={comment.id}>
+            {commentRow(comment, comment.id, parentId)}
+            {(replies.length > 0 || replying) && <div className="jira-comment-replies">
+              {replies.map(value => commentRow(value, comment.id, parentId, true))}
+              {replying && <form className="jira-comment-form" onSubmit={event => { event.preventDefault(); const body = replying.body.trim(); if (!body) return; if (replyRequest.current?.body !== body || replyRequest.current.parentId !== replying.parentId) replyRequest.current = { body, parentId: replying.parentId, id: crypto.randomUUID() }; const request = replyRequest.current; void mutate(() => window.bridge.commentJiraIssue(location, request.body, request.id, request.parentId), () => { setReply(null); replyRequest.current = null; }); }}>
+                <label>Replying to {replying.to}<textarea rows={3} autoFocus value={replying.body} onChange={event => setReply({ ...replying, body: event.target.value })} /></label>
+                <div className="jira-comment-form__actions"><button type="button" className="bq-button" disabled={busy} onClick={() => setReply(null)}>Cancel</button><button type="submit" className="bq-button bq-button--primary" disabled={busy || !replying.body.trim()}>Reply</button></div>
+              </form>}
+            </div>}
+          </Fragment>;
+        })}
         {detail.commentsTruncated && <p className="jira-notice">Some comments are not loaded. Open Jira to read the full discussion.</p>}
         {detail.comments.length === 0 && !detail.commentsTruncated && <p className="jira-muted">No comments yet.</p>}
       </section>

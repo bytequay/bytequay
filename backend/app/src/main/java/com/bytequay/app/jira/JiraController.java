@@ -185,7 +185,14 @@ public class JiraController
     @PostMapping(ISSUE + "/comments")
     public JiraDtos.Detail comment(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId, @RequestBody Comment request)
     {
-        return jira.comment(connectionId, cloudId, issueId, request.body(), request.operationId());
+        return jira.comment(connectionId, cloudId, issueId, request.body(), request.operationId(), request.parentId());
+    }
+
+    @PutMapping(ISSUE + "/comments/{commentId}")
+    public JiraDtos.Detail editComment(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId, @PathVariable String commentId,
+            @RequestBody CommentEdit request)
+    {
+        return jira.editComment(connectionId, cloudId, issueId, commentId, request.body(), request.expectedUpdated());
     }
 
     @PutMapping(ISSUE + "/goal")
@@ -223,7 +230,9 @@ public class JiraController
 
     public record Move(Optional<Long> sprintId, Instant expectedUpdatedAt) {}
 
-    public record Comment(String body, String operationId) {}
+    public record Comment(String body, String operationId, Optional<String> parentId) {}
+
+    public record CommentEdit(String body, String expectedUpdated) {}
 
     public record Goal(boolean isGoal) {}
 

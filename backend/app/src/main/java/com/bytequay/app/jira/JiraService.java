@@ -211,8 +211,9 @@ public class JiraService
         JiraIssue issue = refreshIssue(connectionId, cloudId, issueId);
         String path = issuePath(issueId);
         String siteUrl = connections.site(connectionId, cloudId).url();
+        Optional<String> account = connections.get(connectionId).account().map(JiraDtos.Account::accountId);
         PageItems commentPage = pageItems(connectionId, cloudId, path + "/comment", "comments", ImmutableMap.of("orderBy", "-created"));
-        List<JiraDtos.Comment> comments = commentPage.items().stream().map(comment -> JiraMapping.comment(siteUrl, comment))
+        List<JiraDtos.Comment> comments = commentPage.items().stream().map(comment -> JiraMapping.comment(siteUrl, account, comment))
                 .sorted(java.util.Comparator.comparing(JiraDtos.Comment::created)).collect(toImmutableList());
         List<JiraDtos.Transition> transitions = nodes(get(connectionId, cloudId, path + "/transitions?expand=transitions.fields").path("transitions")).stream()
                 .map(item -> new JiraDtos.Transition(item.path("id").asText(), item.path("name").asText(), JiraMapping.status(item.path("to")),
@@ -305,10 +306,11 @@ public class JiraService
         });
     }
 
-    public JiraDtos.Detail comment(String connectionId, String cloudId, String issueId, String body, String operationId)
+    public JiraDtos.Detail comment(String connectionId, String cloudId, String issueId, String body, String operationId, Optional<String> parentId)
     {
         checkArgument(body != null && !body.isBlank() && body.length() <= 32000, "Comment must contain 1–32000 characters");
         checkArgument(operationId != null && operationId.matches("[A-Za-z0-9_-]{16,128}"), "Invalid comment operation id");
+        checkArgument(parentId.map(id -> id.matches("[0-9]+")).orElse(true), "Invalid parent comment id");
         return JiraIssueLocks.withLock(cloudId, issueId, () -> {
             String key = "comment." + segment(cloudId) + "." + segment(issueId) + "." + operationId;
             Optional<CommentAttempt> previous = cache.read(key, CommentAttempt.class);
@@ -324,9 +326,39 @@ public class JiraService
             connections.site(connectionId, cloudId);
             // Persist before sending: a timeout or process exit must never cause an automatic duplicate comment.
             cache.write(key, new CommentAttempt(body, false));
-            write(connectionId, cloudId, issuePath(issueId) + "/comment", "POST", ImmutableMap.of("body", JiraMapping.document(body), "properties",
-                    ImmutableList.of(ImmutableMap.of("key", "bytequay.operation", "value", operationId))));
+            ImmutableMap.Builder<String, Object> request = ImmutableMap.<String, Object>builder().put("body", JiraMapping.document(body))
+                    .put("properties", ImmutableList.of(ImmutableMap.of("key", "bytequay.operation", "value", operationId)));
+            // Jira's published schema has no reply field; its own replies carry the parentId it returns on reads.
+            parentId.ifPresent(id -> request.put("parentId", id));
+            JsonNode created = write(connectionId, cloudId, issuePath(issueId) + "/comment", "POST", request.buildOrThrow());
             cache.write(key, new CommentAttempt(body, true));
+            JiraDtos.Detail detail = afterWrite(connectionId, cloudId, issueId);
+            if (parentId.isPresent() && !parentId.equals(JiraMapping.text(created, "parentId"))) {
+                return new JiraDtos.Detail(detail.issue(), detail.comments(), detail.transitions(), detail.editableFields(), detail.assignees(), detail.fetchedAt(),
+                        Optional.of("Jira saved your reply as a new comment instead of a reply."), detail.commentsTruncated());
+            }
+            return detail;
+        });
+    }
+
+    public JiraDtos.Detail editComment(String connectionId, String cloudId, String issueId, String commentId, String body, String expectedUpdated)
+    {
+        checkArgument(body != null && !body.isBlank() && body.length() <= 32000, "Comment must contain 1–32000 characters");
+        checkArgument(commentId != null && commentId.matches("[0-9]+"), "Invalid comment id");
+        checkArgument(expectedUpdated != null, "expectedUpdated is required");
+        return JiraIssueLocks.withLock(cloudId, issueId, () -> {
+            String path = issuePath(issueId) + "/comment/" + segment(commentId);
+            JsonNode current = get(connectionId, cloudId, path);
+            if (!JiraMapping.mine(connections.get(connectionId).account().map(JiraDtos.Account::accountId), current)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only your own comments can be edited.");
+            }
+            if (!current.path("updated").asText().equals(expectedUpdated)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "This comment changed in Jira. Refresh the ticket before editing it.");
+            }
+            if (JiraMapping.editableText(current).isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "This comment has formatting ByteQuay cannot edit. Edit it in Jira.");
+            }
+            write(connectionId, cloudId, path, "PUT", ImmutableMap.of("body", JiraMapping.document(body, JiraMapping.mentions(current))));
             return afterWrite(connectionId, cloudId, issueId);
         });
     }
@@ -522,9 +554,9 @@ public class JiraService
         return connections.request(connectionId, cloudId, path, "GET", Optional.empty());
     }
 
-    private void write(String connectionId, String cloudId, String path, String method, Object body)
+    private JsonNode write(String connectionId, String cloudId, String path, String method, Object body)
     {
-        connections.request(connectionId, cloudId, path, method, Optional.of(body));
+        return connections.request(connectionId, cloudId, path, method, Optional.of(body));
     }
 
     private static String query(String path, Map<String, Object> parameters)

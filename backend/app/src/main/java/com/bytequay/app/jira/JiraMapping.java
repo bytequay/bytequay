@@ -22,6 +22,9 @@ import java.net.URLEncoder;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -31,6 +34,7 @@ import java.util.regex.Pattern;
 import java.util.stream.StreamSupport;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.stream.Collectors.joining;
 
@@ -111,11 +115,61 @@ final class JiraMapping
         return fields.build();
     }
 
-    static JiraDtos.Comment comment(String siteUrl, JsonNode value)
+    static JiraDtos.Comment comment(String siteUrl, Optional<String> accountId, JsonNode value)
     {
+        boolean mine = mine(accountId, value);
         // Jira returns parentId on replies, although its published comment schema omits the field.
         return new JiraDtos.Comment(value.path("id").asText(), text(value, "parentId"), person(value.path("author")), markdown(siteUrl, value.path("body")).strip(),
-                value.path("created").asText(), value.path("updated").asText());
+                value.path("created").asText(), value.path("updated").asText(), mine, mine ? editableText(value) : Optional.empty());
+    }
+
+    static boolean mine(Optional<String> accountId, JsonNode comment)
+    {
+        return accountId.isPresent() && accountId.equals(text(comment.path("author"), "accountId"));
+    }
+
+    /** The comment as composer text, only when saving that text back cannot drop formatting, links, a mention or a visibility restriction. */
+    static Optional<String> editableText(JsonNode comment)
+    {
+        JsonNode body = comment.path("body");
+        if (optional(comment.path("visibility")).isPresent() || !body.path("type").asText().equals("doc")) {
+            return Optional.empty();
+        }
+        Map<String, String> mentions = new HashMap<>();
+        List<String> lines = new ArrayList<>();
+        for (JsonNode paragraph : nodes(body.path("content"))) {
+            if (!paragraph.path("type").asText().equals("paragraph") || !nodes(paragraph.path("marks")).isEmpty()) {
+                return Optional.empty();
+            }
+            StringBuilder line = new StringBuilder();
+            for (JsonNode inline : nodes(paragraph.path("content"))) {
+                String type = inline.path("type").asText();
+                Optional<String> name = text(inline.path("attrs"), "text");
+                Optional<String> id = text(inline.path("attrs"), "id");
+                // Mentions come back by name, so a name two people share cannot round-trip.
+                if (type.equals("text") && nodes(inline.path("marks")).isEmpty()) {
+                    line.append(inline.path("text").asText());
+                }
+                else if (type.equals("mention") && name.isPresent() && id.isPresent() && mentions.computeIfAbsent(name.get(), ignored -> id.get()).equals(id.get())) {
+                    line.append(name.get());
+                }
+                else {
+                    return Optional.empty();
+                }
+            }
+            if (line.indexOf("\n") >= 0 || line.indexOf("\r") >= 0) {
+                return Optional.empty();
+            }
+            lines.add(line.toString());
+        }
+        return Optional.of(String.join("\n", lines));
+    }
+
+    static Map<String, String> mentions(JsonNode comment)
+    {
+        return nodes(comment.path("body").path("content")).stream().flatMap(paragraph -> nodes(paragraph.path("content")).stream())
+                .filter(inline -> inline.path("type").asText().equals("mention"))
+                .collect(toImmutableMap(inline -> inline.path("attrs").path("text").asText(), inline -> inline.path("attrs").path("id").asText(), (first, second) -> first));
     }
 
     static Optional<String> text(JsonNode value, String field)
@@ -145,9 +199,36 @@ final class JiraMapping
 
     static Map<String, Object> document(String value)
     {
-        List<Map<String, Object>> content = value.lines().map(line -> ImmutableMap.<String, Object>of("type", "paragraph", "content",
-                line.isEmpty() ? ImmutableList.of() : ImmutableList.of(ImmutableMap.of("type", "text", "text", line)))).collect(toImmutableList());
+        return document(value, ImmutableMap.of());
+    }
+
+    /** Each line becomes a paragraph; a name the edited comment already mentioned becomes that mention again. */
+    static Map<String, Object> document(String value, Map<String, String> mentions)
+    {
+        // Longest first, so "@Ann Lee" is not cut short at "@Ann".
+        String names = mentions.keySet().stream().sorted(Comparator.comparingInt(String::length).reversed()).map(Pattern::quote).collect(joining("|"));
+        Pattern pattern = Pattern.compile(names.isEmpty() ? "(?!)" : names);
+        List<Map<String, Object>> content = value.lines().map(line -> ImmutableMap.<String, Object>of("type", "paragraph", "content", inline(line, pattern, mentions)))
+                .collect(toImmutableList());
         return ImmutableMap.of("version", 1, "type", "doc", "content", content);
+    }
+
+    private static List<Map<String, Object>> inline(String line, Pattern names, Map<String, String> mentions)
+    {
+        ImmutableList.Builder<Map<String, Object>> content = ImmutableList.builder();
+        Matcher matcher = names.matcher(line);
+        int start = 0;
+        while (matcher.find()) {
+            content.addAll(textNode(line.substring(start, matcher.start())));
+            content.add(ImmutableMap.of("type", "mention", "attrs", ImmutableMap.of("id", mentions.get(matcher.group()), "text", matcher.group())));
+            start = matcher.end();
+        }
+        return content.addAll(textNode(line.substring(start))).build();
+    }
+
+    private static List<Map<String, Object>> textNode(String text)
+    {
+        return text.isEmpty() ? ImmutableList.of() : ImmutableList.of(ImmutableMap.of("type", "text", "text", text));
     }
 
     static String markdown(String siteUrl, JsonNode node)

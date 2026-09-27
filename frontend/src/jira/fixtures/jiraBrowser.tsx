@@ -17,7 +17,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import JiraScreen from '../JiraScreen';
 import { LayerCovered } from '../../Zoom';
 import { jiraDetail, jiraIssue } from './jira';
-import { jiraRoute, type JiraConnection, type JiraIssue, type JiraIssueDetail, type JiraQuery } from '../contracts';
+import { jiraRoute, type JiraConnection, type JiraIssue, type JiraIssueDetail, type JiraQuery, type JiraUser } from '../contracts';
 import type { Bridge, CreateAgentTaskRequest, WorkspaceDto } from '../../types';
 import { createPreviewBridge, previewTask } from '../../agents/fixtures/previewBridge';
 import { assert, settle } from '../../fixtures/harness';
@@ -100,7 +100,8 @@ export async function mountPreview(offline = false, openIssue = true, body = jir
     setJiraGoal: async (_location, isGoal) => { record('goal', isGoal); assert(!isGoal || issue.workspace !== null, 'Goal requires a saved workspace'); issue = { ...issue, isGoal }; return { ...detail, issue }; },
     updateJiraIssue: async (_location, fields, expectedUpdatedAt) => { record('fields', fields, expectedUpdatedAt); issue = { ...issue, labels: fields.labels as string[] }; return { ...detail, issue }; },
     transitionJiraIssue: async (_location, id, fields, expectedUpdatedAt) => { record('transition', id, fields, expectedUpdatedAt); const transition = detail.transitions.find(value => value.id === id); assert(transition !== undefined, 'Known transition required'); issue = { ...issue, status: transition.to }; return { ...detail, issue }; },
-    commentJiraIssue: async (_location, body, operationId) => { record('comment', body, operationId); if (commentFails) { commentFails = false; throw new Error('Connection lost; draft retained'); } detail = { ...detail, comments: [...detail.comments, { id: 'c2', parentId: null, body, author: { accountId: 'me', displayName: 'Alex Chen', avatarUrl: null }, created: issue.updatedAt, updated: issue.updatedAt }] }; return { ...detail, issue }; },
+    commentJiraIssue: async (_location, body, operationId, parentId) => { record('comment', body, operationId, parentId); if (commentFails) { commentFails = false; throw new Error('Connection lost; draft retained'); } detail = { ...detail, comments: [...detail.comments, { id: `posted-${detail.comments.length}`, parentId: parentId ?? null, body, author: { accountId: 'me', displayName: 'Alex Chen', avatarUrl: null }, created: issue.updatedAt, updated: issue.updatedAt, mine: true, editableText: body }] }; return { ...detail, issue }; },
+    editJiraComment: async (_location, commentId, body, expectedUpdated) => { record('edit', commentId, body, expectedUpdated); detail = { ...detail, comments: detail.comments.map(value => value.id === commentId ? { ...value, body, editableText: body, updated: issue.updatedAt } : value) }; return { ...detail, issue }; },
     moveJiraIssue: async (_location, sprintId, boardId, expectedUpdatedAt) => { record('sprint', sprintId, boardId, expectedUpdatedAt); return { ...detail, issue }; },
     listWorkspaces: async () => workspaces,
     createAgentTask: async request => { taskRequest = request; return previewTask('workspace', request.taskId); },
@@ -134,9 +135,9 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       await mountPreview();
       const source = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#dbe8fb"/></svg>')}`;
       detail = { ...detail, comments: [
-        { id: 'c0', parentId: null, author: { accountId: 'jack', displayName: 'Jack Chen', avatarUrl: source }, body: 'The connector now preserves the declared scale.', created: '2026-09-12T08:43:00Z', updated: '2026-09-12T08:43:00Z' },
-        { id: 'c1', parentId: null, author: { accountId: 'sam', displayName: 'Sam Rivera', avatarUrl: null }, body: '[@Jack Chen](https://example.atlassian.net/jira/people/jack) Thanks for fixing this.\n\nPlease preserve the existing null handling.', created: '2026-09-13T09:15:00Z', updated: '2026-09-13T09:15:00Z' },
-        { id: 'c2', parentId: 'c0', author: { accountId: 'sam', displayName: 'Sam Rivera', avatarUrl: null }, body: 'Confirmed on the custom build.', created: '2026-09-14T10:00:00Z', updated: '2026-09-14T10:00:00Z' },
+        { id: 'c0', parentId: null, author: { accountId: 'jack', displayName: 'Jack Chen', avatarUrl: source }, body: 'The connector now preserves the declared scale.', created: '2026-09-12T08:43:00Z', updated: '2026-09-12T08:43:00Z', mine: true, editableText: 'The connector now preserves the declared scale.' },
+        { id: 'c1', parentId: null, author: { accountId: 'sam', displayName: 'Sam Rivera', avatarUrl: null }, body: '[@Jack Chen](https://example.atlassian.net/jira/people/jack) Thanks for fixing this.\n\nPlease preserve the existing null handling.', created: '2026-09-13T09:15:00Z', updated: '2026-09-13T09:15:00Z', mine: false, editableText: null },
+        { id: 'c2', parentId: 'c0', author: { accountId: 'sam', displayName: 'Sam Rivera', avatarUrl: null }, body: 'Confirmed on the custom build.', created: '2026-09-14T10:00:00Z', updated: '2026-09-14T10:00:00Z', mine: false, editableText: null },
       ] };
       button('Refresh ticket').click(); await until(() => document.querySelectorAll('.jira-comment').length === 3);
       await Promise.all(document.getAnimations().map(animation => animation.finished));
@@ -157,6 +158,31 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       assert(getComputedStyle(comments[0]).borderWidth === '0px', 'Comments use conversation rows without card borders');
       const mention = body.querySelector('.md-mention'); assert(mention?.textContent === '@Jack Chen', 'The entire mentioned name is one pill');
       const composer = document.querySelector('.jira-comments form'); assert(composer !== null && Boolean(composer.compareDocumentPosition(comments[0]) & Node.DOCUMENT_POSITION_FOLLOWING), 'Comment composer stays before the conversation');
+    },
+    async 'replies inside a thread and edits only your own comments'() {
+      await mountPreview(); commentFails = false;
+      const person = (accountId: string, displayName: string): JiraUser => ({ accountId, displayName, avatarUrl: null });
+      detail = { ...detail, comments: [
+        { id: 'c0', parentId: null, author: person('sam', 'Sam Rivera'), body: 'Can you check the scale?', created: '2026-09-12T08:00:00Z', updated: '2026-09-12T08:00:00Z', mine: false, editableText: null },
+        { id: 'c1', parentId: 'c0', author: person('me', 'Alex Chen'), body: 'On it.', created: '2026-09-12T09:00:00Z', updated: '2026-09-12T09:00:00Z', mine: true, editableText: 'On it.' },
+        { id: 'c2', parentId: null, author: person('me', 'Alex Chen'), body: 'See [the PR](https://github.com/trinodb/trino/pull/1).', created: '2026-09-13T09:00:00Z', updated: '2026-09-13T09:00:00Z', mine: true, editableText: null },
+      ] };
+      button('Refresh ticket').click(); await until(() => document.querySelectorAll('.jira-comment').length === 3);
+      const own = document.querySelector('[aria-label="Reply by Alex Chen"]'); const other = document.querySelector('[aria-label="Comment by Sam Rivera"]');
+      assert(own !== null && other !== null && other.querySelector('[aria-label^="Edit comment"]') === null, 'Only your own comments offer an edit action');
+      button('Reply to Alex Chen', own).click(); await settle();
+      const thread = document.querySelector<HTMLElement>('.jira-comment-replies'); const replyBox = thread?.querySelector<HTMLTextAreaElement>('textarea');
+      assert(thread !== null && replyBox != null && thread.textContent?.includes('Replying to Alex Chen') === true && document.activeElement === replyBox, 'Reply opens focused at the end of its thread');
+      edit(replyBox, 'Thanks, confirmed.'); await settle(); button('Reply', thread).click(); await until(() => calls.some(call => call.name === 'comment'));
+      const posted = calls.find(call => call.name === 'comment'); assert(posted?.args[0] === 'Thanks, confirmed.' && posted.args[2] === 'c0', 'A reply to a reply is sent under the thread root');
+      await until(() => thread.querySelectorAll('.jira-comment').length === 2 && thread.querySelector('textarea') === null, 'Reply lands in its thread and closes the composer');
+      button('Edit comment', own).click(); await settle();
+      const editor = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Edit comment"]'); assert(editor?.value === 'On it.', 'Edit starts from the comment text');
+      edit(editor, 'On it now.'); await settle(); button('Save').click(); await until(() => calls.some(call => call.name === 'edit'));
+      const saved = calls.find(call => call.name === 'edit'); assert(saved?.args[0] === 'c1' && saved.args[1] === 'On it now.' && saved.args[2] === '2026-09-12T09:00:00Z', 'Edit sends the text and the version it started from');
+      await until(() => document.querySelector('textarea[aria-label="Edit comment"]') === null && own.textContent?.includes('On it now.') === true, 'Edited text replaces the comment');
+      button('Edit comment in Jira').click(); await until(() => calls.some(call => call.name === 'browser'));
+      assert(calls.some(call => call.name === 'browser' && call.args[0] === `${jiraIssue.url}?focusedCommentId=c2`), 'A formatted comment opens in Jira for editing');
     },
     async 'loads current sprint and edits supported fields'() {
       await mountPreview();

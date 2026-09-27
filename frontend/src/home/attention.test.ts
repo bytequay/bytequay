@@ -28,6 +28,9 @@ import {
   type HandledEntry,
 } from './attention';
 import { pr } from '../pulls/fixtures/pullRequest';
+import { jiraAttentionItems } from '../jira/attention';
+import type { JiraActivity, JiraUser } from '../jira/contracts';
+import { jiraIssue } from '../jira/fixtures/jira';
 
 
 describe('attentionKind', () => {
@@ -342,5 +345,36 @@ describe('attentionSummary', () => {
     expect(attentionSummary({ ...base, type: 'issue', kind: 'assigned', labels: ['bug'] })).toMatchObject({
       tag: { label: 'Assigned to you', tone: 'green' }, verb: 'opened this issue', detail: { kind: 'labels', labels: [{ name: 'bug' }] },
     });
+  });
+});
+
+describe('Jira ticket events', () => {
+  const ticket = (latestActivity: JiraActivity | null) => jiraAttentionItems([{ ...jiraIssue, updatedAt: '2026-09-27T09:00:00Z', latestActivity }])[0];
+  const status = (name: string, category: string) => ({ id: name, name, category });
+
+  it('says a ticket moved, where from and to, with a note that came with it, red when it is now blocked', () => {
+    const moved = ticket({ kind: 'STATUS_CHANGED', at: '2026-09-27T09:00:00Z', actor: null, from: status('In Progress', 'indeterminate'),
+      to: status('Blocked', 'indeterminate'), note: 'Staging is mid-upgrade.', fields: [] });
+    expect(attentionSummary(moved)).toEqual({
+      tag: { label: 'Status changed', tone: 'red' },
+      actor: null,
+      verb: 'moved to Blocked',
+      detail: { kind: 'status', from: { name: 'In Progress', tone: 'blue' }, to: { name: 'Blocked', tone: 'red' }, note: 'Staging is mid-upgrade.' },
+    });
+    expect(attentionTime(moved)).toBe('2026-09-27T09:00:00Z');
+    const done = ticket({ kind: 'STATUS_CHANGED', at: '2026-09-27T09:00:00Z', actor: null, from: status('To Do', 'new'),
+      to: status('Done', 'done'), note: null, fields: [] });
+    expect(attentionSummary(done).tag).toEqual({ label: 'Status changed', tone: 'neutral' });
+    expect(attentionSummary(done).detail).toMatchObject({ from: { tone: 'neutral' }, to: { tone: 'green' } });
+  });
+
+  it('quotes a comment with who wrote it, names changed fields, and otherwise says the ticket is yours', () => {
+    const priya: JiraUser = { accountId: 'priya', displayName: 'Priya Raman', avatarUrl: null };
+    expect(attentionSummary(ticket({ kind: 'COMMENTED', at: '2026-09-27T09:00:00Z', actor: priya, from: null, to: null, note: 'Can we keep it?', fields: [] })))
+      .toEqual({ tag: { label: 'Commented', tone: 'neutral' }, actor: { name: 'Priya Raman', avatarUrl: null }, verb: 'commented',
+        detail: { kind: 'quote', text: 'Can we keep it?', file: null } });
+    expect(attentionSummary(ticket({ kind: 'FIELDS_CHANGED', at: '2026-09-27T09:00:00Z', actor: null, from: null, to: null, note: null,
+      fields: ['priority', 'labels', 'due date'] }))).toMatchObject({ tag: { label: 'Updated', tone: 'orange' }, detail: { kind: 'text', text: 'Changed priority, labels and due date' } });
+    expect(attentionSummary(ticket(null)).tag).toEqual({ label: 'Assigned to you', tone: 'green' });
   });
 });

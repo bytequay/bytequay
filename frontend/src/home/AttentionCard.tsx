@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useState, type MouseEvent } from 'react';
-import { Check, ChevronRight, CircleDot, CircleX, Clock3, GitPullRequest, Play, SquareCheck } from 'lucide-react';
+import { ArrowRight, Check, ChevronRight, CircleDot, CircleX, Clock3, GitPullRequest, Play, SquareCheck } from 'lucide-react';
 import Avatar from '../Avatar';
 import { GoalIcon } from '../goals/GoalPanel';
 import JiraIcon from '../jira/JiraIcon';
@@ -85,6 +85,17 @@ function Detail({ detail }: { detail: AttentionDetail }) {
             {detail.checks.length === 0 ? 'Checks failed' : `${detail.checks[0]} failed`}
           </div>
           {detail.checks.length > 1 && <div className="atn-detail__lead">and {detail.checks.length - 1} more</div>}
+        </div>
+      );
+    case 'status':
+      return (
+        <div className="atn-detail">
+          <div className="atn-detail__status">
+            <span className={`atn-status is-${detail.from.tone} is-from`}>{detail.from.name}</span>
+            <ArrowRight size={14} strokeWidth={2} aria-label="to" />
+            <span className={`atn-status is-${detail.to.tone}`}>{detail.to.name}</span>
+          </div>
+          {detail.note !== null && <div className="atn-detail__quote">“{detail.note}”</div>}
         </div>
       );
     case 'labels':

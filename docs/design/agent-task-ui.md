@@ -1000,7 +1000,11 @@ stored timeline, commits and check runs: the latest comment's opening text and
 the file and line of an inline one, the commits cached after the viewer's last
 review (or the review request when there was none), and the names of the
 latest failing checks. Failing test names are not stored, so a CI detail names
-the check. A task waits on the user when it has a pending approval (the command
+the check. `GET /api/jira/attention` sends each ticket with the last change
+ByteQuay saw on it: a status move with where it went and any comment with it, a
+comment with its author, or the fields that changed (see
+[jira-integration.md](jira-integration.md)); a workspace's Home lists the
+tickets assigned to that workspace. A task waits on the user when it has a pending approval (the command
 it wants to run, or the questions of an `AskUserQuestion` card), when its latest
 turn completed or failed while the task stays open and idle, or when it needs
 recovery; a running turn says nothing until it stops. Both Homes read

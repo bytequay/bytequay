@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.jira;
 
+import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -34,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @RestController
@@ -44,11 +46,13 @@ public class JiraController
     private static final String ISSUE = SITE + "/issues/{issueId}";
     private final JiraConnections connections;
     private final JiraService jira;
+    private final JiraActivityLog activity;
 
-    public JiraController(JiraConnections connections, JiraService jira)
+    public JiraController(JiraConnections connections, JiraService jira, JiraActivityLog activity)
     {
         this.connections = requireNonNull(connections, "connections is null");
         this.jira = requireNonNull(jira, "jira is null");
+        this.activity = requireNonNull(activity, "activity is null");
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
@@ -194,11 +198,14 @@ public class JiraController
         return jira.goal(connectionId, cloudId, issueId, request.isGoal());
     }
 
+    /** Each ticket with the last change ByteQuay saw on it, which its card names. */
     @GetMapping("/attention")
-    public List<JiraIssue> attention()
+    public List<AttentionTicket> attention()
     {
-        return jira.attention();
+        return jira.attention().stream().map(issue -> new AttentionTicket(issue, activity.latest(issue))).collect(toImmutableList());
     }
+
+    public record AttentionTicket(@JsonUnwrapped JiraIssue issue, Optional<JiraActivity> latestActivity) {}
 
     @PutMapping(ISSUE + "/workspace")
     public JiraDtos.Detail assignWorkspace(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId, @RequestBody Workspace request)

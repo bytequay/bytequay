@@ -29,9 +29,9 @@ The first release includes:
   Markdown as the native ticket, layered over the page, issue or pull request it
   came from. An explicit lookup resolves the key once; the ticket is then cached
   and addressed by its issue id. Links to unconnected sites, and tickets the
-  connected account cannot read, stay web pages. Needs attention rows and task
-  source cards open their ticket the same way, and a row's Start development opens
-  the composer over its ticket. A ticket opened this way has no board, so sprint
+  connected account cannot read, stay web pages. Needs attention cards and task
+  source cards open their ticket the same way, and a card's Start development
+  opens the composer over its ticket. A ticket opened this way has no board, so sprint
   moves stay on the Jira page.
 - Use a distinct Jira source icon across navigation, attention and task source
   cards. Ticket cards place the title first, labels/parent below it, and the issue
@@ -59,8 +59,19 @@ The first release includes:
   another one. Marking a ticket as a Goal also gives its workspace a goal named
   after it, which unmarking removes.
 - Surface cached, assigned, unfinished leaf tickets from watched active sprints
-  in global Needs attention. Workspace attention requires an explicit mapping;
-  Jira project names are never guessed to be repository/workspace names.
+  in global Needs attention. A workspace's Home lists only the tickets assigned
+  to that workspace; Jira project names are never guessed to be
+  repository/workspace names.
+- Each card says what last changed on its ticket. Every refresh compares the
+  ticket it fetched with the cached one it replaces: a status move is kept with
+  where it came from and went, and any comment that arrived with it; a change to
+  the title, assignee, priority, labels, due date, type or parent names the
+  fields; a detail refresh names a new comment with its author and opening text.
+  When the scheduled refresh finds a ticket in Needs attention updated with
+  nothing ByteQuay saves changed, it reads that ticket's newest comment once.
+  Jira's changelog is never read, so a status or field change names no actor,
+  and the description is not compared because board and ticket reads format it
+  differently. A card with no recorded change says the ticket is assigned to you.
 
 Automatic Done, outbound agent comments, webhook delivery, parent progress
 statistics, Goal pinning, comprehensive custom-field editing, and inferred

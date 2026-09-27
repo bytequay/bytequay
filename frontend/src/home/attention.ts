@@ -181,7 +181,7 @@ export function attentionCandidates(
 
 /** When the item last moved: the latest known source event, else the source's own update time. */
 export function attentionTime(item: AttentionItem): string {
-  return item.pr?.latestActivity?.timestamp ?? item.updatedAt;
+  return item.pr?.latestActivity?.timestamp ?? item.jira?.latestActivity?.at ?? item.updatedAt;
 }
 
 export function attentionSource(item: AttentionItem): AttentionSource {
@@ -202,7 +202,17 @@ export type AttentionDetail =
   | { kind: 'commits'; lead: string | null; commits: AttentionCommit[] }
   | { kind: 'ci'; commits: AttentionCommit[]; checks: string[] }
   | { kind: 'command'; lead: string | null; command: string }
-  | { kind: 'labels'; lead: string | null; labels: AttentionLabel[] };
+  | { kind: 'labels'; lead: string | null; labels: AttentionLabel[] }
+  | { kind: 'status'; from: AttentionStatus; to: AttentionStatus; note: string | null };
+
+/** A ticket status as a pill: blocked red, in progress blue, done green, anything else grey. */
+export type AttentionStatus = { name: string; tone: AttentionTone };
+
+export function statusPill(status: { name: string; category: string }): AttentionStatus {
+  const tone: AttentionTone = /blocked/i.test(status.name) ? 'red'
+    : status.category === 'indeterminate' ? 'blue' : status.category === 'done' ? 'green' : 'neutral';
+  return { name: status.name, tone };
+}
 
 export type AttentionSummary = {
   tag: { label: string; tone: AttentionTone };
@@ -351,15 +361,43 @@ function taskSummary(item: AttentionItem, task: NonNullable<AttentionItem['task'
   return { tag: KIND_TAGS.finished, actor, verb: 'finished a turn', detail: said };
 }
 
+function words(names: string[]): string {
+  return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/** A ticket's card says what last changed on it, or else that it is assigned to you. */
+function jiraSummary(item: AttentionItem, jira: NonNullable<AttentionItem['jira']>, labels: AttentionDetail | null): AttentionSummary {
+  const activity = jira.latestActivity ?? null;
+  if (activity?.kind === 'STATUS_CHANGED' && activity.from !== null && activity.to !== null) {
+    const to = statusPill(activity.to);
+    return {
+      tag: { label: 'Status changed', tone: to.tone === 'red' ? 'red' : 'neutral' },
+      actor: null,
+      verb: `moved to ${activity.to.name}`,
+      detail: { kind: 'status', from: statusPill(activity.from), to, note: activity.note },
+    };
+  }
+  if (activity?.kind === 'COMMENTED') {
+    return {
+      tag: { label: 'Commented', tone: 'neutral' },
+      actor: activity.actor === null ? null : { name: activity.actor.displayName, avatarUrl: activity.actor.avatarUrl },
+      verb: 'commented',
+      detail: activity.note === null ? null : { kind: 'quote', text: activity.note, file: null },
+    };
+  }
+  if (activity?.kind === 'FIELDS_CHANGED' && activity.fields.length > 0) {
+    return { tag: KIND_TAGS.updated, actor: null, verb: 'was updated in Jira', detail: { kind: 'text', text: `Changed ${words(activity.fields)}` } };
+  }
+  return { tag: KIND_TAGS.assigned, actor: null, verb: `${jira.status.name} · ${item.workspaceName ?? 'current sprint'}`, detail: labels };
+}
+
 /** The card's reason tag, who did what, and what the detail block shows. */
 export function attentionSummary(item: AttentionItem, viewerLogin: string | null = null): AttentionSummary {
   if (item.task !== undefined) return taskSummary(item, item.task);
   if (item.pr !== null) return pullRequestSummary(item, item.pr, viewerLogin);
   const labels = item.labels.map((name): AttentionLabel => ({ name, color: null }));
   const detail: AttentionDetail | null = labels.length === 0 ? null : { kind: 'labels', lead: null, labels };
-  if (item.jira) {
-    return { tag: KIND_TAGS.assigned, actor: null, verb: `${item.jira.status.name} · ${item.workspaceName ?? 'current sprint'}`, detail };
-  }
+  if (item.jira) return jiraSummary(item, item.jira, detail);
   return {
     tag: KIND_TAGS[item.kind],
     actor: item.author === null ? null : { name: item.author, avatarUrl: item.authorAvatarUrl },

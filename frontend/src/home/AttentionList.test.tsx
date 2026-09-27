@@ -14,6 +14,8 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import AttentionList from './AttentionList';
+import { jiraAttentionItems } from '../jira/attention';
+import { jiraIssue } from '../jira/fixtures/jira';
 import { attentionCards, handledEntry, visibleAttention, type AttentionItem, type Handled } from './attention';
 import type { PullRequestDto } from '../types';
 
@@ -73,6 +75,19 @@ describe('AttentionList', () => {
     // The "All issues" and "All pull requests" links are gone.
     expect(html).not.toContain('All pull requests');
     expect(html).not.toContain('All issues');
+  });
+
+  it('draws a ticket\'s status move as the old status struck through, then the new one, then the note', () => {
+    const [ticket] = jiraAttentionItems([{ ...jiraIssue, latestActivity: {
+      kind: 'STATUS_CHANGED', at: jiraIssue.updatedAt, actor: null, from: { id: '3', name: 'In Progress', category: 'indeterminate' },
+      to: { id: '6', name: 'Blocked', category: 'indeterminate' }, note: 'Staging is mid-upgrade.', fields: [],
+    } }]);
+    const html = list([ticket]);
+
+    expect(html).toContain('class="atn-card is-jira"');
+    expect(html).toContain('class="atn-tag is-red">Status changed<');
+    expect(html).toMatch(/<span class="atn-status is-blue is-from">In Progress<\/span><svg[^>]*aria-label="to"[^>]*>.*?<\/svg><span class="atn-status is-red">Blocked<\/span>/);
+    expect(html).toContain('class="atn-detail__quote">“Staging is mid-upgrade.”<');
   });
 
   it('shows at most four cards, counts the rest, and filters by source', () => {

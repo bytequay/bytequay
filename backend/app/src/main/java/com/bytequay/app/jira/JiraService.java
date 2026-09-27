@@ -57,9 +57,10 @@ public class JiraService
     private final WorkspaceStore workspaces;
     private final ObjectProvider<AppSettingsService> appSettings;
     private final ObjectProvider<GoalService> goals;
+    private final JiraActivityLog activity;
 
     public JiraService(JiraConnections connections, JiraCache cache, JiraIssueTaskStore tasks, WorkspaceStore workspaces, ObjectProvider<AppSettingsService> appSettings,
-            ObjectProvider<GoalService> goals)
+            ObjectProvider<GoalService> goals, JiraActivityLog activity)
     {
         this.connections = requireNonNull(connections, "connections is null");
         this.cache = requireNonNull(cache, "cache is null");
@@ -69,6 +70,7 @@ public class JiraService
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
         // Goals read cached tickets through this service; resolve them only when a Goal marker changes.
         this.goals = requireNonNull(goals, "goals is null");
+        this.activity = requireNonNull(activity, "activity is null");
     }
 
     public List<JiraDtos.Board> boards(String connectionId, String cloudId, boolean refresh)
@@ -390,6 +392,32 @@ public class JiraService
                         Optional.of("Jira refresh failed. Showing saved tickets."), previous.partial()));
             }
         }
+        readNewComments();
+    }
+
+    /**
+     * Reads the newest comment of each ticket in Needs attention whose refresh moved its update time
+     * without changing anything ByteQuay saves, so a comment becomes the ticket's latest activity.
+     */
+    private void readNewComments()
+    {
+        Map<String, Instant> unexplained = activity.takeUnexplained();
+        if (unexplained.isEmpty()) {
+            return;
+        }
+        for (JiraIssue issue : attention()) {
+            Instant since = unexplained.get(JiraActivityLog.key(issue));
+            if (since == null) {
+                continue;
+            }
+            try {
+                JsonNode page = get(issue.connectionId(), issue.cloudId(), query(issuePath(issue.id()) + "/comment", ImmutableMap.of("orderBy", "-created", "maxResults", 1)));
+                nodes(page.path("comments")).stream().findFirst().map(JiraMapping::comment).ifPresent(comment -> activity.commented(issue, comment, since));
+            }
+            catch (RuntimeException ignored) {
+                // The ticket's next change asks again.
+            }
+        }
     }
 
     private JiraDtos.Detail afterWrite(String connectionId, String cloudId, String issueId)
@@ -489,6 +517,7 @@ public class JiraService
                     saved = saved.withChildren(true);
                 }
             }
+            activity.observe(previous, saved, includeComments);
             cache.write(key, saved);
             return metadata(saved);
         });

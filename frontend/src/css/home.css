@@ -307,13 +307,34 @@
   font-size: 11.5px;
 }
 
-:is(.atn-tag, .atn-link__status).is-blue { color: #0969da; background: #ddf4ff; }
-:is(.atn-tag, .atn-link__status).is-amber { color: #9a6700; background: #fff8c5; }
-:is(.atn-tag, .atn-link__status).is-red { color: #cf222e; background: #ffebe9; }
-:is(.atn-tag, .atn-link__status).is-green { color: #1a7f37; background: #dafbe1; }
-:is(.atn-tag, .atn-link__status).is-neutral { color: #24292f; background: #eceff2; }
-:is(.atn-tag, .atn-link__status).is-orange { color: #bc4c00; background: #fff1e5; }
-:is(.atn-tag, .atn-link__status).is-purple { color: #8250df; background: #fbefff; }
+:is(.atn-tag, .atn-link__status, .atn-status).is-blue { color: #0969da; background: #ddf4ff; }
+:is(.atn-tag, .atn-link__status, .atn-status).is-amber { color: #9a6700; background: #fff8c5; }
+:is(.atn-tag, .atn-link__status, .atn-status).is-red { color: #cf222e; background: #ffebe9; }
+:is(.atn-tag, .atn-link__status, .atn-status).is-green { color: #1a7f37; background: #dafbe1; }
+:is(.atn-tag, .atn-link__status, .atn-status).is-neutral { color: #24292f; background: #eceff2; }
+:is(.atn-tag, .atn-link__status, .atn-status).is-orange { color: #bc4c00; background: #fff1e5; }
+:is(.atn-tag, .atn-link__status, .atn-status).is-purple { color: #8250df; background: #fbefff; }
+
+/* A ticket's status move: where it was, struck through, then where it is. */
+.atn-detail__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8c959f;
+}
+
+.atn-status {
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.atn-status.is-from {
+  text-decoration: line-through;
+  text-decoration-color: rgba(87, 96, 106, 0.5);
+}
 
 .atn-detail {
   display: flex;

@@ -72,7 +72,7 @@ class TestJiraService
     private final GoalService goals = mock(GoalService.class);
     private final ObjectProvider<GoalService> goalsProvider = mock(ObjectProvider.class);
     private final JiraCache cache = new JiraCache(settings, mapper);
-    private final JiraService jira = new JiraService(remote, cache, tasks, workspaces, settingsProvider, goalsProvider);
+    private final JiraService jira = new JiraService(remote, cache, tasks, workspaces, settingsProvider, goalsProvider, new JiraActivityLog(cache));
     private final Map<String, String> saved = new HashMap<>();
 
     @BeforeEach
@@ -153,7 +153,8 @@ class TestJiraService
         verify(goals).unseed(source);
         verifyNoInteractions(remote);
         assertThat(jira.refreshIssue("connection", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
-        JiraService reopened = new JiraService(remote, new JiraCache(settings, mapper), tasks, workspaces, settingsProvider, goalsProvider);
+        JiraCache reopenedCache = new JiraCache(settings, mapper);
+        JiraService reopened = new JiraService(remote, reopenedCache, tasks, workspaces, settingsProvider, goalsProvider, new JiraActivityLog(reopenedCache));
         assertThat(reopened.issue("other", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace("workspace", "Renamed")));
         assertThat(reopened.issue("other", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "Renamed"));

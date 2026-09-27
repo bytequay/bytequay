@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { linkTasks, type TaskAttention } from '../agents/attention';
+import { useJiraAttention } from '../jira/attention';
 import { getCached, setCached } from '../dataCache';
 import {
   ATTENTION_SEED,
@@ -37,7 +38,8 @@ export type WorkspaceAttention = {
 
 /**
  * The workspace's slice of what Home lists: pull requests and issues of its monitored repository,
- * and its tasks. Read once for the whole workspace, so its Home and its goal agree on what needs you.
+ * Jira tickets assigned to the workspace, and its tasks. Read once for the whole workspace, so its
+ * Home and its goal agree on what needs you.
  */
 export function useWorkspaceAttention(workspaceId: string, repository: string, tasks: TaskAttention): WorkspaceAttention {
   // Opening a workspace again paints the last reads any Home made; the mount still re-reads them.
@@ -47,6 +49,9 @@ export function useWorkspaceAttention(workspaceId: string, repository: string, t
     () => (getCached<AttentionItem[]>(ATTENTION_SEED.issues) ?? []).filter(item => item.workspaceId === workspaceId));
   const [handled, setHandled] = useState<Handled>(loadHandled);
   const [error, setError] = useState<string | null>(null);
+  // Only a ticket explicitly assigned to this workspace belongs to it; project names are never matched.
+  const jira = useJiraAttention();
+  const tickets = useMemo(() => jira.items.filter(item => item.jira?.workspace?.id === workspaceId), [jira.items, workspaceId]);
   useEffect(() => {
     let active = true;
     const apply = (rows: PullRequestDto[]) => {
@@ -103,7 +108,8 @@ export function useWorkspaceAttention(workspaceId: string, repository: string, t
     };
   }, [login, workspaceId]);
   const candidates = useMemo(() => linkTasks(attentionCandidates(
-    prs.filter(pr => pr.repo.toLowerCase() === repository.toLowerCase()), issues.concat(tasks.items), login), tasks.tasks), [issues, login, prs, repository, tasks.items, tasks.tasks]);
+    prs.filter(pr => pr.repo.toLowerCase() === repository.toLowerCase()), issues.concat(tickets, tasks.items), login), tasks.tasks),
+  [issues, login, prs, repository, tasks.items, tasks.tasks, tickets]);
   // The same store as Home, so acknowledging here clears the row there too.
   const applyHandled = useCallback((next: Handled) => {
     setHandled(next);

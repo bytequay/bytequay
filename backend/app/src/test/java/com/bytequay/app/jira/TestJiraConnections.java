@@ -32,10 +32,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeoutException;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -218,7 +216,7 @@ class TestJiraConnections
     }
 
     @Test
-    void reconnectWaitsForAnOlderRequestAndFinishesConnectedWithTheSameAccountAndSites()
+    void reconnectDuringAnOlderRequestFinishesConnectedDespiteItsLaterFailure()
             throws Exception
     {
         put("connection", "https://broker.example", "connected", Optional.of(ACCOUNT), ImmutableList.of(SITE));
@@ -245,17 +243,11 @@ class TestJiraConnections
             Future<?> request = executor.submit(() -> connections.request("connection", "cloud", "/rest/api/3/issue/1", "GET", Optional.empty()));
             try {
                 assertThat(requestStarted.await(5, SECONDS)).isTrue();
-                CountDownLatch reconnectStarted = new CountDownLatch(1);
-                Future<JiraDtos.Connection> reconnect = executor.submit(() -> {
-                    reconnectStarted.countDown();
-                    connections.reconnect("connection");
-                    return connections.refresh("connection");
-                });
-                assertThat(reconnectStarted.await(5, SECONDS)).isTrue();
-                assertThatThrownBy(() -> reconnect.get(100, MILLISECONDS)).isInstanceOf(TimeoutException.class);
+                connections.reconnect("connection");
+                assertThat(connections.refresh("connection").state()).isEqualTo("connected");
                 releaseFailure.countDown();
                 assertThatThrownBy(() -> request.get(5, SECONDS)).hasCauseInstanceOf(ResponseStatusException.class);
-                assertThat(reconnect.get(5, SECONDS).state()).isEqualTo("connected");
+                // The restored state equals the one the request read, so only the change count tells its 401 is stale.
                 assertThat(records.get("connection").stateJson()).isEqualTo(originalState);
             }
             finally {

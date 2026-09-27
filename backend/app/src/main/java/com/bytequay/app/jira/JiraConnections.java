@@ -41,6 +41,9 @@ public class JiraConnections
     private final JiraCache json;
     private final JiraHttpClient http;
     private final Optional<URI> authOrigin;
+    // Guarded by this; bumped by every change to a saved connection.
+    // ponytail: one count for all connections, so another account's change leaves a concurrent failure for the next request to record; count per connection if that lag matters.
+    private long changes;
 
     public JiraConnections(JiraConnectionStore store, JiraCache json, JiraHttpClient http, @Value("${bytequay.jira.auth-url:}") String authUrl)
     {
@@ -104,6 +107,7 @@ public class JiraConnections
         }
         JiraDtos.Connection connected = verifyToken(id, target, tokenEmail(email), token, previous.account());
         store.save(new JiraConnectionStore.Connection(id, saved.authUrl(), token, json.encode(connected)));
+        changes++;
         return duplicates(connected, snapshots());
     }
 
@@ -217,6 +221,7 @@ public class JiraConnections
     public synchronized void disconnect(String id)
     {
         JiraConnectionStore.Connection saved = stored(id);
+        changes++;
         if (view(saved).authType().equals("api_token")) {
             store.delete(id);
             return;
@@ -243,12 +248,18 @@ public class JiraConnections
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "This Jira site is not connected."));
     }
 
-    // ponytail: Global monitor prevents reconnect races; use per-connection locks if measured request contention warrants it.
-    public synchronized JsonNode request(String connectionId, String cloudId, String path, String method, Optional<Object> body)
+    /** Requests run concurrently outside the monitor, so a failure is recorded only if no reconnect, token change or removal happened meanwhile. */
+    public JsonNode request(String connectionId, String cloudId, String path, String method, Optional<Object> body)
     {
-        site(connectionId, cloudId);
-        URI uri = apiUri(cloudId, path);
-        JiraConnectionStore.Connection saved = stored(connectionId);
+        URI uri;
+        JiraConnectionStore.Connection saved;
+        long seen;
+        synchronized (this) {
+            site(connectionId, cloudId);
+            uri = apiUri(cloudId, path);
+            saved = stored(connectionId);
+            seen = changes;
+        }
         JiraDtos.Connection connection = view(saved);
         boolean tokenAccepted = false;
         try {
@@ -265,15 +276,21 @@ public class JiraConnections
             return http.request(uri, method, Optional.of(accessToken), body);
         }
         catch (ResponseStatusException failure) {
-            if (failure.getStatusCode().value() == 401 || !tokenAccepted && failure.getStatusCode().value() == 404) {
-                save(saved, error(connection, connection.authType().equals("api_token") ? TOKEN_EXPIRED : "Jira authorization expired or was revoked. Reconnect this account."));
-            }
-            else if (!tokenAccepted && failure.getStatusCode().value() == 403) {
-                try {
-                    refresh(connectionId);
+            synchronized (this) {
+                if (changes != seen) {
+                    throw failure;
                 }
-                catch (ResponseStatusException ignored) {
-                    // Keep the original site-authorization error if its status cannot be refreshed.
+                if (failure.getStatusCode().value() == 401 || !tokenAccepted && failure.getStatusCode().value() == 404) {
+                    save(saved, error(connection, connection.authType().equals("api_token") ? TOKEN_EXPIRED
+                            : "Jira authorization expired or was revoked. Reconnect this account."));
+                }
+                else if (!tokenAccepted && failure.getStatusCode().value() == 403) {
+                    try {
+                        refresh(connectionId);
+                    }
+                    catch (ResponseStatusException ignored) {
+                        // Keep the original site-authorization error if its status cannot be refreshed.
+                    }
                 }
             }
             throw failure;
@@ -328,6 +345,7 @@ public class JiraConnections
     private JiraDtos.Connection save(JiraConnectionStore.Connection stored, JiraDtos.Connection view)
     {
         store.save(new JiraConnectionStore.Connection(stored.id(), stored.authUrl(), stored.credential(), json.encode(view)));
+        changes++;
         return duplicates(view, snapshots());
     }
 

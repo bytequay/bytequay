@@ -181,6 +181,23 @@ class TestJiraApiTokenConnections
     }
 
     @Test
+    void rejectionOfTheOldTokenKeepsATokenReplacedDuringTheRequest()
+            throws Exception
+    {
+        prepare();
+        JiraDtos.Connection connected = connections.connectToken(SITE, EMAIL, TOKEN);
+        doReturn(mapper.readTree(user())).when(http).basicRequest(MYSELF, "GET", EMAIL, "replacement", Optional.empty());
+        when(http.basicRequest(ISSUE, "GET", EMAIL, TOKEN, Optional.empty())).thenAnswer(ignored -> {
+            // The user replaces the token while this request is still waiting for Jira.
+            connections.replaceToken(connected.id(), SITE, EMAIL, "replacement");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        });
+        assertThatThrownBy(() -> request(connected.id())).isInstanceOf(ResponseStatusException.class);
+        assertThat(records.get(connected.id()).credential()).isEqualTo("replacement");
+        assertThat(connections.get(connected.id()).state()).isEqualTo("connected");
+    }
+
+    @Test
     void refreshReportsExpiredTokenAndDisconnectDoesNotRevokeRemotely()
             throws Exception
     {

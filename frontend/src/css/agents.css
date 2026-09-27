@@ -1619,6 +1619,10 @@
   margin-top: 16px;
 }
 
+.agt-answer > .agt-answer {
+  margin-top: 0;
+}
+
 .agt-reasoning {
   font-size: 12.5px;
   line-height: 1.55;

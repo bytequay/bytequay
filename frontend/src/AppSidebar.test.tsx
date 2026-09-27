@@ -15,6 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import AppSidebar, { type AppPage } from './AppSidebar';
 import type { WorkspaceDto } from './types';
+import type { WorkspaceTab } from './workspaces/model';
 
 const WORKSPACE = {
   id: 'ws-1',
@@ -27,7 +28,11 @@ const WORKSPACE = {
   topology: 'DIRECT',
 } as unknown as WorkspaceDto;
 
-function render(page: AppPage, workspace: WorkspaceDto | null, settings = false) {
+function render(page: AppPage, workspace: WorkspaceDto | null, {
+  settings = false,
+  jiraConnected = false,
+  workspaceTab = 'home',
+}: { settings?: boolean; jiraConnected?: boolean; workspaceTab?: WorkspaceTab } = {}) {
   return renderToStaticMarkup(
     <AppSidebar
       page={page}
@@ -39,8 +44,9 @@ function render(page: AppPage, workspace: WorkspaceDto | null, settings = false)
       onBack={vi.fn()}
       onForward={vi.fn()}
       workspace={workspace}
-      workspaceTab="home"
+      workspaceTab={workspaceTab}
       onWorkspaceTab={vi.fn()}
+      jiraConnected={jiraConnected}
       settings={settings ? {
         section: 'models',
         workspaces: [WORKSPACE],
@@ -58,10 +64,39 @@ function rowCount(markup: string): number {
   return markup.split('class="app-sidebar__item').length - 1;
 }
 
+function navLabels(markup: string, label: string): string[] {
+  const nav = markup.split(`aria-label="${label}">`)[1]?.split('</nav>')[0] ?? '';
+  return [...nav.matchAll(/<button[^>]*aria-label="([^"]+)"/g)].map(match => match[1]);
+}
+
 describe('app sidebar', () => {
   const app = render('home', null);
   const workspace = render('workspaces', WORKSPACE);
-  const settings = render('settings', null, true);
+  const settings = render('settings', null, { settings: true });
+
+  it('keeps Home, Workspaces and Recent in the global navigation in that order', () => {
+    for (const markup of [app, workspace, render('jira', null, { jiraConnected: true })]) {
+      expect(navLabels(markup, 'Global navigation')).toEqual(['Home', 'Workspaces', 'Recent']);
+    }
+    expect(render('workspaces', null)).toContain('aria-label="Workspaces" aria-current="page"');
+    expect(workspace).not.toContain('aria-label="Workspaces" aria-current="page"');
+    expect(workspace).toContain('aria-label="Workspace home" aria-current="page"');
+    expect(workspace).not.toContain('aria-label="App home"');
+    expect(workspace).not.toContain('aria-label="All workspaces"');
+  });
+
+  it('shows connected Jira below the global navigation and within a workspace', () => {
+    const connectedApp = render('jira', null, { jiraConnected: true });
+    const connectedWorkspace = render('workspaces', WORKSPACE, { jiraConnected: true, workspaceTab: 'jira' });
+    expect(navLabels(app, 'Application navigation')).toEqual(['Pull requests']);
+    expect(navLabels(connectedApp, 'Application navigation')).toEqual(['Pull requests', 'Jira']);
+    expect(connectedApp).toContain('aria-label="Jira" aria-current="page"');
+    expect(navLabels(workspace, 'Workspace navigation')).toEqual(['Workspace home', 'Tasks', 'Pull requests', 'Issues', 'Commits']);
+    expect(navLabels(connectedWorkspace, 'Workspace navigation')).toEqual(['Workspace home', 'Tasks', 'Pull requests', 'Issues', 'Jira', 'Commits']);
+    expect(connectedWorkspace).toContain('aria-label="Jira" aria-current="page"');
+    expect(app).not.toContain('aria-label="Jira"');
+    expect(workspace).not.toContain('aria-label="Jira"');
+  });
 
   it('offers Settings from inside a workspace, not only outside one', () => {
     expect(app).toContain('aria-label="Settings"');
@@ -75,6 +110,7 @@ describe('app sidebar', () => {
     expect(settings).not.toContain('aria-label="Global navigation"');
     expect(settings).not.toContain('aria-label="Workspace navigation"');
     expect(settings).toContain('aria-label="Back to app"');
+    expect(navLabels(settings, 'Settings navigation')).toContain('Jira');
   });
 
   it('renders every shape through the same row, so they share size and markup', () => {

@@ -12,6 +12,8 @@
  * limitations under the License.
  */
 
+import { workspaceRoute } from '../workspaces/model';
+
 export type JiraSite = { id: string; name: string; url: string };
 export type JiraConnection = { id: string; authType: 'oauth' | 'api_token'; tokenEmail: string | null; state: 'pending' | 'connected' | 'error'; account: { accountId: string; displayName: string; email: string | null } | null; sites: JiraSite[]; authorizationUrl: string | null; pairingCode: string | null; error: string | null; duplicateOf: string | null };
 export type JiraTokenRequest = { siteUrl: string; email: string; token: string };
@@ -62,12 +64,14 @@ export type JiraBridge = {
   listJiraAttention: () => Promise<JiraIssue[]>;
 };
 
-export function jiraRoute(location?: JiraLocation): string {
-  return location === undefined ? '#/jira' : `#/jira?${new URLSearchParams({ connectionId: location.connectionId, cloudId: location.cloudId, issueId: location.issueId })}`;
+export function jiraRoute(location?: JiraLocation, workspaceId?: string): string {
+  const route = workspaceId === undefined ? '#/jira' : workspaceRoute(workspaceId, 'jira');
+  return location === undefined ? route : `${route}?${new URLSearchParams({ connectionId: location.connectionId, cloudId: location.cloudId, issueId: location.issueId })}`;
 }
 export function jiraLocation(hash: string): JiraLocation | null {
-  if (!hash.startsWith('#/jira?')) return null;
-  const query = new URLSearchParams(hash.slice(7));
+  const [path, search] = hash.split('?');
+  if (path !== '#/jira' && !/^#\/workspaces\/[^/]+\/jira$/.test(path)) return null;
+  const query = new URLSearchParams(search);
   const connectionId = query.get('connectionId');
   const cloudId = query.get('cloudId');
   const issueId = query.get('issueId');

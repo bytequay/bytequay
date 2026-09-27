@@ -231,6 +231,36 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       button('Manage accounts').click(); await until(() => window.location.hash === '#/settings/integrations/jira');
       assert(!document.body.textContent?.includes('Authentication service URL'), 'Jira page links to the shared account settings');
     },
+    async 'filters workspace tickets and retains workspace navigation'() {
+      await mountPreview(false, false);
+      const workspace = { id: 'workspace / one', name: 'Trino' };
+      issue = { ...issue, workspace };
+      const listIssues = window.bridge.listJiraIssues;
+      window.bridge.listJiraIssues = async (...args) => {
+        const page = await listIssues(...args);
+        return { ...page, issues: page.issues.map((value, index) => ({ ...value, workspace: index === 0 ? workspace : index === 1 ? { id: 'other', name: 'Other' } : null })) };
+      };
+      window.location.hash = jiraRoute(undefined, workspace.id); await settle();
+      const mounted = root; assert(mounted !== null, 'Screen is mounted');
+      flushSync(() => mounted.render(<JiraScreen workspace={workspace} />));
+      button('Refresh tickets').click(); await until(() => document.querySelectorAll('.jira-ticket').length === 1);
+      assert(document.querySelector('.jira-header p')?.textContent === 'Tickets assigned to Trino.', 'Workspace scope is visible');
+      assert(document.querySelector('.jira-ticket__key')?.textContent === 'ENG-1007', 'Current sprint excludes other-workspace and unassigned tickets');
+      assert(JSON.stringify([...select('Filter status').options].map(option => option.value)) === '["","todo"]', 'Status options contain only workspace tickets');
+      button('List view').click(); await settle();
+      assert(document.querySelectorAll('.jira-items.is-list .jira-ticket').length === 1, 'List uses the same workspace scope');
+      button('ENG-1007').click(); await until(() => document.querySelector('.jira-detail h2') !== null);
+      assert(window.location.hash === jiraRoute({ connectionId: 'connection', cloudId: 'site', issueId: '1007' }, workspace.id), 'Opening a ticket keeps its workspace route');
+      button('Close ticket').click(); await until(() => document.querySelector('.jira-detail') === null);
+      assert(window.location.hash === jiraRoute(undefined, workspace.id), 'Closing a ticket returns to workspace Jira');
+      button('Connector reliability', document.querySelector('.jira-ticket') ?? document).click(); await until(() => document.querySelector('.jira-detail h2') !== null);
+      assert(window.location.hash === jiraRoute({ connectionId: 'connection', cloudId: 'site', issueId: '1000' }, workspace.id), 'Parent links retain the workspace route');
+      button('Close ticket').click(); await until(() => document.querySelector('.jira-detail') === null);
+      button('Completed').click(); await until(() => document.querySelectorAll('.jira-history-group .jira-ticket').length === 1);
+      assert(document.querySelector('.jira-ticket__key')?.textContent === 'ENG-2001', 'Completed history also excludes other-workspace and unassigned tickets');
+      choose(select('Jira site'), 'other/other-site'); await until(() => select('Jira site').value === 'other/other-site');
+      assert(window.location.hash === jiraRoute(undefined, workspace.id), 'Site changes retain the workspace route');
+    },
     async 'keeps cached tickets visible offline'() {
       await mountPreview(true); await until(() => document.body.textContent?.includes('Jira is offline') ?? false);
       assert(document.querySelectorAll('.jira-ticket').length === 4, 'Cached tickets remain visible after remote refresh fails');

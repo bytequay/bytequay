@@ -16,6 +16,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ZOOM_REFERENCE } from '../githubReference';
 import AppSidebar from '../AppSidebar';
+import JiraScreen from '../jira/JiraScreen';
 import WatchedReposGrid from '../home/WatchedReposGrid';
 import type { WorkspaceDto } from '../types';
 import { RetiredWorkspaceCards, WorkspaceCards } from './WorkspacesPage';
@@ -269,6 +270,24 @@ describe('watched repository workspace UI', () => {
     expect(pulls).toContain('upstream/project');
     expect(issues).toContain('Open issues');
     expect(issues).toContain('upstream/project');
+  });
+
+  it('opens the shared Jira screen with the selected workspace and browser visibility', () => {
+    const value = workspace('FORK');
+    let jira: ReactElement<Parameters<typeof JiraScreen>[0]> | undefined;
+    function CaptureJira(): null {
+      jira = WorkspaceShell({
+        workspace: value, tab: 'jira', browserOpen: true,
+        onSelectTab: vi.fn(), onWorkspaceChanged: vi.fn(),
+        initialPullRequestNumber: null, initialIssueNumber: null, initialAgentTaskId: null,
+        onSelectAgentTask: vi.fn(), onSelectPullRequest: vi.fn(), onSelectIssue: vi.fn(),
+      });
+      return null;
+    }
+    renderToStaticMarkup(<CaptureJira />);
+    expect(jira?.type).toBe(JiraScreen);
+    expect(jira?.props.workspace).toBe(value);
+    expect(jira?.props.browserOpen).toBe(true);
   });
 
   it('zooms a workspace Home PR while See all still opens its PR tab', () => {

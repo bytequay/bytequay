@@ -30,6 +30,10 @@ describe('Jira development', () => {
   it('preserves source identity across routes and separates sites in attention', () => {
     const location = { connectionId: 'with / spaces', cloudId: 'site?other', issueId: '1007' };
     expect(jiraLocation(jiraRoute(location))).toEqual(location);
+    expect(jiraRoute(undefined, 'workspace / one')).toBe('#/workspaces/workspace%20%2F%20one/jira');
+    expect(jiraLocation(jiraRoute(location, 'workspace / one'))).toEqual(location);
+    expect(jiraLocation(jiraRoute(undefined, 'workspace'))).toBeNull();
+    expect(jiraLocation('#/workspaces/workspace/issues?connectionId=c&cloudId=s&issueId=i')).toBeNull();
     expect(jiraLocation('#/home')).toBeNull();
     expect(jiraRoute(source)).not.toContain('body=');
     expect(jiraRoute(source)).not.toContain('title=');

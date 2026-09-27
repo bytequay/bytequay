@@ -770,23 +770,6 @@ samp {
 
 .app-sidebar__spacer { flex: 1; }
 
-.app-sidebar__traffic-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-3);
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.app-sidebar__traffic-btn:hover { background: var(--left-nav-hover-bg); }
-
 .app-sidebar__brand {
   padding: 10px 16px 6px;
   font-size: 12.5px;
@@ -823,14 +806,13 @@ samp {
 }
 
 .app-sidebar.is-collapsed .app-sidebar__lights,
-.app-sidebar.is-collapsed .app-sidebar__traffic-btn,
 .app-sidebar.is-collapsed .app-sidebar__traffic .app-sidebar__spacer,
 .app-sidebar.is-collapsed .app-sidebar__label { display: none; }
 .app-sidebar.is-collapsed .app-sidebar__ws-head { justify-content: center; padding: 8px 0 10px; }
 .app-sidebar.is-collapsed .app-sidebar__traffic { justify-content: center; padding: 0; }
 .app-sidebar.is-collapsed .app-sidebar__toggle { margin-left: 0; }
 .app-sidebar.is-collapsed .app-sidebar__history { justify-content: center; padding-right: 3px; padding-left: 3px; }
-/* Recent sits with Home above the work surfaces, per the left-nav design. */
+/* Home, Workspaces and Recent stay above the work surfaces. */
 .app-sidebar__rule {
   height: 1px;
   background: rgba(15, 20, 25, 0.07);

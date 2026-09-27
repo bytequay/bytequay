@@ -159,7 +159,7 @@ describe('workspace model', () => {
   });
 
   it('round-trips every workspace tab through the renderer route', () => {
-    for (const tab of ['home', 'tasks', 'prs', 'issues', 'commits'] as const) {
+    for (const tab of ['home', 'tasks', 'prs', 'issues', 'jira', 'commits'] as const) {
       const route = workspaceRoute('workspace/id', tab);
       expect(workspaceLocationFromRoute(route)).toEqual({
         workspaceId: 'workspace/id',
@@ -169,6 +169,16 @@ describe('workspace model', () => {
         agentTaskId: null,
       });
     }
+  });
+
+  it('keeps Jira ticket query parameters inside the workspace route', () => {
+    expect(workspaceLocationFromRoute('#/workspaces/workspace%2Fid/jira?connectionId=c&cloudId=s&issueId=42')).toEqual({
+      workspaceId: 'workspace/id', tab: 'jira', pullRequestNumber: null, issueNumber: null, agentTaskId: null,
+    });
+    expect(workspaceLocationFromRoute('#/workspaces/w/jira/42')).toBeNull();
+    expect(workspaceLocationFromRoute('#/workspaces/w/jira/agent/task')).toBeNull();
+    expect(workspaceLocationFromRoute('#/workspaces/w/tasks?issueId=42')).toBeNull();
+    expect(workspaceLocationFromRoute('#/workspaces/%/jira')).toBeNull();
   });
 });
 

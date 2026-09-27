@@ -16,6 +16,7 @@ import AppSidebar, { type AppPage } from './AppSidebar';
 import BrowserRail from './BrowserRail';
 import FindBar from './FindBar';
 import JiraScreen from './jira/JiraScreen';
+import { JIRA_CHANGED } from './jira/contracts';
 import HomePage from './home/HomePage';
 import { loadHandled } from './home/attention';
 import { pullRequestFromRoute, pullRequestRoute, zoomReference, ZOOM_REFERENCE, type ZoomedReference } from './githubReference';
@@ -77,6 +78,7 @@ export default function App() {
   const [settingsWorkspaces, setSettingsWorkspaces] = useState<WorkspaceDto[]>([]);
   const [workspace, setWorkspace] = useState<WorkspaceDto | null>(null);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('home');
+  const [jiraConnected, setJiraConnected] = useState(false);
   const [initialPr, setInitialPr] = useState<{ repo: string; number: number } | undefined>();
   const [initialWorkspacePrNumber, setInitialWorkspacePrNumber] = useState<number | null>(null);
   const [initialIssueNumber, setInitialIssueNumber] = useState<number | null>(null);
@@ -175,6 +177,25 @@ export default function App() {
     });
     return () => { stopAttention(); stopNotification(); };
   }, []);
+
+  useEffect(() => {
+    if (status !== 'ready') return;
+    let request = 0;
+    const reload = () => {
+      const current = ++request;
+      void window.bridge.listJiraConnections().then(connections => {
+        if (current === request) setJiraConnected(connections.some(connection => connection.state === 'connected' && connection.sites.length > 0));
+      }).catch(() => {});
+    };
+    reload();
+    window.addEventListener(JIRA_CHANGED, reload);
+    window.addEventListener('focus', reload);
+    return () => {
+      request++;
+      window.removeEventListener(JIRA_CHANGED, reload);
+      window.removeEventListener('focus', reload);
+    };
+  }, [status]);
 
   useEffect(() => {
     const open = (event: Event) => {
@@ -419,6 +440,7 @@ export default function App() {
     <div className="app-shell" inert={zoomed !== null}>
         <AppSidebar
           page={page}
+          jiraConnected={jiraConnected}
           browserRailVisible={railVisible}
           onToggleBrowserRail={() => setRailVisible(value => {
             try { localStorage.setItem('bytequay.browser-rail-visible', String(!value)); } catch { /* preference is optional */ }

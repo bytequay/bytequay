@@ -74,13 +74,13 @@ type NavItem = { page: AppPage; label: string; icon: ReactNode };
 
 const GLOBAL_NAV_ITEMS: NavItem[] = [
   { page: 'home', label: 'Home', icon: <HomeIcon /> },
-  { page: 'jira', label: 'Jira', icon: <JiraIcon size={16} /> },
+  { page: 'workspaces', label: 'Workspaces', icon: <LayoutGrid size={16} strokeWidth={1.7} aria-hidden="true" /> },
   { page: 'recent', label: 'Recent', icon: <History size={16} strokeWidth={1.7} aria-hidden="true" /> },
 ];
 
 const APP_NAV_ITEMS: NavItem[] = [
   { page: 'pulls', label: 'Pull requests', icon: <PullsIcon /> },
-  { page: 'workspaces', label: 'Workspaces', icon: <LayoutGrid size={16} strokeWidth={1.7} aria-hidden="true" /> },
+  { page: 'jira', label: 'Jira', icon: <JiraIcon size={16} /> },
 ];
 
 const WORKSPACE_TABS: Array<{ tab: WorkspaceTab; label: string; icon: ReactNode }> = [
@@ -88,6 +88,7 @@ const WORKSPACE_TABS: Array<{ tab: WorkspaceTab; label: string; icon: ReactNode 
   { tab: 'tasks', label: 'Tasks', icon: <SquareCheck size={16} strokeWidth={1.7} aria-hidden="true" /> },
   { tab: 'prs', label: 'Pull requests', icon: <PullsIcon /> },
   { tab: 'issues', label: 'Issues', icon: <CircleDot size={16} strokeWidth={1.7} aria-hidden="true" /> },
+  { tab: 'jira', label: 'Jira', icon: <JiraIcon size={16} /> },
   { tab: 'commits', label: 'Commits', icon: <GitBranch size={16} strokeWidth={1.7} aria-hidden="true" /> },
 ];
 
@@ -101,6 +102,7 @@ export default function AppSidebar({
   workspace,
   workspaceTab,
   onWorkspaceTab,
+  jiraConnected = false,
   browserRailVisible,
   onToggleBrowserRail,
   settings,
@@ -114,6 +116,7 @@ export default function AppSidebar({
   workspace: WorkspaceDto | null;
   workspaceTab: WorkspaceTab;
   onWorkspaceTab: (tab: WorkspaceTab) => void;
+  jiraConnected?: boolean;
   browserRailVisible: boolean;
   onToggleBrowserRail: () => void;
   /** Present only while settings is open, when the sidebar becomes its category nav. */
@@ -161,7 +164,7 @@ export default function AppSidebar({
   );
 
   const navItem = ({ page: destination, label, icon }: NavItem) =>
-    row({ key: destination, label, icon, active: page === destination, onClick: () => onNavigate(destination) });
+    row({ key: destination, label, icon, active: page === destination && workspace === null, onClick: () => onNavigate(destination) });
 
   const disabledReason = (tab: WorkspaceTab): string | null => {
     if (!workspace) return null;
@@ -289,28 +292,6 @@ export default function AppSidebar({
         </button>
         <div className="app-sidebar__spacer" />
         {!collapsed && historyControls}
-        {workspace !== null && (
-          <>
-            <button
-              type="button"
-              className="app-sidebar__traffic-btn"
-              aria-label="App home"
-              title="App home"
-              onClick={() => onNavigate('home')}
-            >
-              <HomeIcon />
-            </button>
-            <button
-              type="button"
-              className="app-sidebar__traffic-btn"
-              aria-label="All workspaces"
-              title="All workspaces"
-              onClick={() => onNavigate('workspaces')}
-            >
-              ▦
-            </button>
-          </>
-        )}
       </div>
       {collapsed && historyControls}
       {settingsBody !== null ? settingsBody : <>
@@ -320,7 +301,7 @@ export default function AppSidebar({
       </nav>
       {workspace === null ? (
         <nav className="app-sidebar__nav" aria-label="Application navigation">
-          {APP_NAV_ITEMS.map(navItem)}
+          {APP_NAV_ITEMS.filter(item => item.page !== 'jira' || jiraConnected).map(navItem)}
         </nav>
       ) : (
         <>
@@ -335,7 +316,7 @@ export default function AppSidebar({
             <span className="app-sidebar__ws-name app-sidebar__label" title={workspace.name}>{workspace.name}</span>
           </button>
           <nav className="app-sidebar__nav" aria-label="Workspace navigation">
-            {WORKSPACE_TABS.map(workspaceItem)}
+            {WORKSPACE_TABS.filter(item => item.tab !== 'jira' || jiraConnected).map(workspaceItem)}
           </nav>
         </>
       )}

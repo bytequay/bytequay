@@ -21,6 +21,7 @@ import CommitsTab, { type CommitSourceSelection } from '../commits/CommitsTab';
 import ProgressView from '../commits/ProgressView';
 import TasksView from '../commits/TasksView';
 import { zoomReference } from '../githubReference';
+import JiraScreen from '../jira/JiraScreen';
 import type { NavigationMode } from '../navigationHistory';
 import PullsScreen from '../pulls/PullsScreen';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
@@ -187,6 +188,9 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       onStartDevelopment={(number, launch) => { setStartLaunch(launch); window.location.hash = workspaceIssueTaskRoute(workspace.id, number); }}
       onViewTask={link => { window.location.hash = workspaceAgentTaskRoute(link.workspaceId, link.taskId); }}
     />;
+  }
+  if (tab === 'jira') {
+    return <JiraScreen workspace={workspace} browserOpen={browserOpen} />;
   }
   if (tab === 'tasks') {
     if (initialAgentReviewId !== null) return stage(<ReviewTaskScreen

@@ -61,7 +61,7 @@ export function JiraIssueActions({ issue, busy = false, onGoal, onStart, onAssig
   </span>{assigning && <JiraWorkspaceDialog issue={issue} onClose={() => setAssigning(false)} onAssigned={detail => { setAssigning(false); onAssigned?.(detail); onGoal(); }} />}</>;
 }
 
-export default function JiraScreen({ browserOpen = false }: { browserOpen?: boolean }) {
+export default function JiraScreen({ browserOpen = false, workspace }: { browserOpen?: boolean; workspace?: Pick<WorkspaceDto, 'id' | 'name'> }) {
   const initial = jiraLocation(window.location.hash);
   const savedSite = (() => {
     try { const value = JSON.parse(localStorage.getItem('bytequay:jira-site') ?? 'null') as { connectionId?: unknown; cloudId?: unknown } | null; return typeof value?.connectionId === 'string' && typeof value?.cloudId === 'string' ? { connectionId: value.connectionId, cloudId: value.cloudId } : null; }
@@ -211,9 +211,10 @@ export default function JiraScreen({ browserOpen = false }: { browserOpen?: bool
     try { update(await window.bridge.setJiraGoal(jiraIssueLocation(issue), !issue.isGoal)); }
     catch (cause) { setError(message(cause)); }
   };
-  const open = (issue: JiraIssue) => { window.location.hash = jiraRoute(jiraIssueLocation(issue)); };
-  const shown = page.issues.filter(issue => (view !== 'completed' || issue.status.category === 'done') && (!status || issue.status.id === status) && `${issue.key} ${issue.title} ${issue.labels.join(' ')}`.toLowerCase().includes(query.toLowerCase()));
-  const statuses = [...new Map(page.issues.map(issue => [issue.status.id, issue.status])).values()];
+  const open = (issue: JiraIssue) => { window.location.hash = jiraRoute(jiraIssueLocation(issue), workspace?.id); };
+  const scopedIssues = workspace ? page.issues.filter(issue => issue.workspace?.id === workspace.id) : page.issues;
+  const shown = scopedIssues.filter(issue => (view !== 'completed' || issue.status.category === 'done') && (!status || issue.status.id === status) && `${issue.key} ${issue.title} ${issue.labels.join(' ')}`.toLowerCase().includes(query.toLowerCase()));
+  const statuses = [...new Map(scopedIssues.map(issue => [issue.status.id, issue.status])).values()];
   const workflowGroups = [...JIRA_WORKFLOW_GROUPS, ...new Set(shown.map(jiraWorkflowGroup).filter(value => !JIRA_WORKFLOW_GROUPS.some(group => group === value)))];
   const history = completedGroups(shown);
   const card = (issue: JiraIssue) => <article key={issue.id} className={`jira-ticket${selected?.issueId === issue.id ? ' is-selected' : ''}`} aria-label={`${issue.key}: ${issue.title}`}
@@ -224,7 +225,7 @@ export default function JiraScreen({ browserOpen = false }: { browserOpen?: bool
     }}>
     <button className="jira-ticket__title" type="button" aria-haspopup="dialog" onClick={() => open(issue)}><strong>{issue.title}</strong></button>
     <div className="jira-ticket__tags"><span className={`jira-status is-${issue.status.category}`}>{issue.status.name}</span><JiraWorkspaceBadge workspace={issue.workspace} />{issue.labels.map(label => <span className="jira-ticket__label" key={label}>{label}</span>)}</div>
-    {issue.parent && <button type="button" className="jira-parent" title={`${issue.parent.key} · ${issue.parent.title}`} onClick={() => { window.location.hash = jiraRoute({ ...jiraIssueLocation(issue), issueId: issue.parent?.id ?? '' }); }}><Zap size={12} />{issue.parent.title}</button>}
+    {issue.parent && <button type="button" className="jira-parent" title={`${issue.parent.key} · ${issue.parent.title}`} onClick={() => { window.location.hash = jiraRoute({ ...jiraIssueLocation(issue), issueId: issue.parent?.id ?? '' }, workspace?.id); }}><Zap size={12} />{issue.parent.title}</button>}
     <div className="jira-ticket__footer"><button type="button" className="jira-ticket__key" onClick={() => open(issue)}><JiraTypeIcon type={issue.type} /><span>{issue.key}</span></button>
       <span className="jira-spacer" /><JiraPriority priority={issue.priority} /><JiraAssignee key={issue.assignee?.accountId ?? 'unassigned'} assignee={issue.assignee} />
     </div>
@@ -234,7 +235,7 @@ export default function JiraScreen({ browserOpen = false }: { browserOpen?: bool
       : <time dateTime={issue.updatedAt} title={new Date(issue.updatedAt).toLocaleString()}>Updated {relativeTime(issue.updatedAt)}</time>}<span className="jira-spacer" /><JiraIssueActions issue={issue} onAssigned={detail => update(detail, false)} onGoal={() => { void toggleGoal(issue); }} onStart={() => setLaunch({ issue })} /></div>
   </article>;
   return <JiraBrowserOpen.Provider value={browserOpen}><div className="jira-screen">
-    <header className="jira-header"><div><h1><JiraIcon size={25} />Jira</h1><p>Your sprint, development, and completed work.</p></div><span className="jira-spacer" />
+    <header className="jira-header"><div><h1><JiraIcon size={25} />Jira</h1><p>{workspace ? `Tickets assigned to ${workspace.name}.` : 'Your sprint, development, and completed work.'}</p></div><span className="jira-spacer" />
       {site && boardId !== null && <button type="button" className="bq-button jira-open-board" onClick={() => { void window.bridge.openInAppBrowser(`${site.url.replace(/\/$/, '')}/secure/RapidBoard.jspa?rapidView=${boardId}`); }}>Open board in Jira <ExternalLink size={14} /></button>}
       <button type="button" className="bq-button" onClick={() => { window.location.hash = settingsRoute('jira'); }}>Manage accounts</button>
       <button type="button" className="bq-iconbtn" aria-label="Refresh tickets" title="Refresh tickets" disabled={loading || boardId === null} onClick={() => { void refreshSprint(); }}><RefreshCw size={17} className={loading ? 'jira-spin' : ''} /></button>
@@ -246,7 +247,7 @@ export default function JiraScreen({ browserOpen = false }: { browserOpen?: bool
       <button type="button" aria-current={view === 'current' ? 'page' : undefined} onClick={() => { setView('current'); setStatus(''); }}>Current sprint</button>
       <button type="button" aria-current={view === 'completed' ? 'page' : undefined} onClick={() => { setView('completed'); setStatus(''); }}>Completed</button>
     </nav><div className="jira-toolbar">
-      <select aria-label="Jira site" value={`${actualConnectionId}/${actualCloudId}`} onChange={event => { const [c, s] = event.target.value.split('/'); setConnectionId(c); setCloudId(s); setSelected(null); setLaunch(null); window.location.hash = jiraRoute(); }}>
+      <select aria-label="Jira site" value={`${actualConnectionId}/${actualCloudId}`} onChange={event => { const [c, s] = event.target.value.split('/'); setConnectionId(c); setCloudId(s); setSelected(null); setLaunch(null); window.location.hash = jiraRoute(undefined, workspace?.id); }}>
         {connections.flatMap(value => value.sites.map(item => <option key={`${value.id}/${item.id}`} value={`${value.id}/${item.id}`}>{item.name} · {jiraSiteDomain(item)} · {jiraAccountLabel(value)}</option>))}</select>
       <select aria-label="Jira board" value={boardId ?? ''} onChange={event => { setBoardId(Number(event.target.value)); setStatus(''); try { localStorage.setItem(`bytequay:jira-board:${actualConnectionId}/${actualCloudId}`, event.target.value); } catch { /* Optional view preference. */ } }}><option value="" disabled>Select board</option>{boards.map(board => <option value={board.id} key={board.id}>{board.name}</option>)}</select>
       {view === 'current' && <select aria-label="Sprint" value={sprintId ?? ''} onChange={event => setSprintId(event.target.value === '' ? null : Number(event.target.value))}><option value="">Backlog</option>{sprints.map(sprint => <option value={sprint.id} key={sprint.id}>{sprint.name}{sprint.state === 'active' ? ' · Active' : ''}</option>)}</select>}
@@ -263,7 +264,7 @@ export default function JiraScreen({ browserOpen = false }: { browserOpen?: bool
         : layout === 'board' ? workflowGroups.map(group => <section className="jira-column" key={group}><h2>{group}<span>{shown.filter(issue => jiraWorkflowGroup(issue) === group).length}</span></h2>{shown.filter(issue => jiraWorkflowGroup(issue) === group).map(card)}{!shown.some(issue => jiraWorkflowGroup(issue) === group) && <p className="jira-column__empty">No tickets</p>}</section>) : shown.map(card)}
       {shown.length === 0 && <div className="jira-empty">{loading ? <><LoaderCircle size={18} className="jira-spin" /> Loading tickets…</> : page.fetchedAt === null ? 'Select a board to load tickets.' : 'No tickets match this view.'}</div>}
     </div></div></>}
-    {selected && <JiraDetail key={`${selected.connectionId}/${selected.cloudId}/${selected.issueId}`} location={selected} boardId={selected.connectionId === actualConnectionId && selected.cloudId === actualCloudId ? boardId : null} sprints={selected.connectionId === actualConnectionId && selected.cloudId === actualCloudId ? sprints : []} onClose={() => { window.location.hash = jiraRoute(); }} onChanged={update} onStart={(issue, onChanged) => setLaunch({ issue, onChanged })} />}
+    {selected && <JiraDetail key={`${selected.connectionId}/${selected.cloudId}/${selected.issueId}`} location={selected} boardId={selected.connectionId === actualConnectionId && selected.cloudId === actualCloudId ? boardId : null} sprints={selected.connectionId === actualConnectionId && selected.cloudId === actualCloudId ? sprints : []} onClose={() => { window.location.hash = jiraRoute(undefined, workspace?.id); }} onChanged={update} onStart={(issue, onChanged) => setLaunch({ issue, onChanged })} />}
     {launch && <JiraLaunch issue={launch.issue} onChanged={detail => { update(detail, false); launch.onChanged?.(detail); }} onClose={() => setLaunch(null)} />}
   </div></JiraBrowserOpen.Provider>;
 }

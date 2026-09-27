@@ -59,6 +59,15 @@ signal (for example merged PR or deployment) and required transition fields.
 
 ## UI and task reuse
 
+Home, Workspaces and Recent stay in the global sidebar group. Jira sits below
+that group in application navigation and also appears as a workspace tab. Both
+Jira navigation entries are shown only while a connected account has at least
+one site; Settings → Integrations → Jira remains available to connect an account.
+The workspace tab reuses the Jira page with an explicit workspace-assignment
+filter for its current and completed tickets, including status choices and
+counts. Ticket dialogs retain the workspace route. The shared Jira source mark
+uses a monochrome outline matching the surrounding navigation icons.
+
 The native page uses ByteQuay's current card, badge, dialog, Markdown and
 composer styles. Start development and Goal are accessible icon actions with
 tooltips and selected Goal styling. The task transcript shows a compact source

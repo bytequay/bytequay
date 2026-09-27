@@ -356,6 +356,31 @@ class TestJiraService
     }
 
     @Test
+    void boardRefreshCachesTheRichTextDescriptionTicketReadsShow()
+            throws Exception
+    {
+        List<String> requests = new ArrayList<>();
+        ObjectNode card = (ObjectNode) ticket();
+        ((ObjectNode) card.path("fields")).put("description", "[runbook|https://example.com/runbook]");
+        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any())).thenAnswer(call -> {
+            requests.add(URLDecoder.decode(call.getArgument(2), StandardCharsets.UTF_8));
+            return json("{\"issues\":[" + card + "],\"isLast\":true}");
+        });
+        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/search/jql"), eq("GET"), any())).thenAnswer(call -> {
+            requests.add(URLDecoder.decode(call.getArgument(2), StandardCharsets.UTF_8));
+            return json("""
+                    {"issues":[{"id":"1001","fields":{"description":{"type":"doc","content":[{"type":"paragraph","content":[
+                    {"type":"text","text":"runbook","marks":[{"type":"link","attrs":{"href":"https://example.com/runbook"}}]}]}]}}}]}
+                    """);
+        });
+        jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, true);
+        assertThat(requests).hasSize(2);
+        assertThat(requests.getFirst()).doesNotContain("description");
+        assertThat(requests.getLast()).contains("id in (1001)", "fields=description");
+        assertThat(jira.detail("connection", "cloud", "1001", false).issue().body()).isEqualTo("[runbook](https://example.com/runbook)");
+    }
+
+    @Test
     void olderPollCannotReplaceNewerCachedRevision()
             throws Exception
     {

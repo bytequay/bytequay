@@ -36,11 +36,16 @@ final class JiraMapping
 
     static JiraIssue issue(String connectionId, String cloudId, String siteUrl, JsonNode value)
     {
+        return issue(connectionId, cloudId, siteUrl, value, value.path("fields").path("description"));
+    }
+
+    static JiraIssue issue(String connectionId, String cloudId, String siteUrl, JsonNode value, JsonNode description)
+    {
         JsonNode fields = value.path("fields");
         JsonNode parent = fields.path("parent");
         return new JiraIssue(connectionId, cloudId, value.path("id").asText(), value.path("key").asText(),
                 siteUrl + "/browse/" + JiraConnections.segment(value.path("key").asText()), fields.path("summary").asText(),
-                markdown(fields.path("description")).strip(), fields.path("issuetype").path("name").asText(), status(fields.path("status")),
+                markdown(description).strip(), fields.path("issuetype").path("name").asText(), status(fields.path("status")),
                 optional(fields.path("assignee")).map(JiraMapping::person), nodes(fields.path("labels")).stream().map(JsonNode::asText).collect(toImmutableList()),
                 optional(fields.path("priority")).map(JiraMapping::choice), optional(parent).map(item -> new JiraDtos.Parent(item.path("id").asText(),
                         item.path("key").asText(), item.path("fields").path("summary").asText())),

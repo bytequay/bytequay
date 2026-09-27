@@ -19,6 +19,7 @@ import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.store.JiraIssueTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.MissingNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.beans.factory.ObjectProvider;
@@ -39,13 +40,16 @@ import static com.bytequay.app.jira.JiraConnections.segment;
 import static com.bytequay.app.jira.JiraMapping.nodes;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.joining;
 
 /** Explicit remote refresh and edits, with cache-only reads for the UI and agents. */
 @Service
 public class JiraService
 {
-    private static final String FIELDS = "summary,description,issuetype,status,assignee,labels,priority,parent,subtasks,updated,duedate,resolutiondate,statuscategorychangedate";
+    private static final String BOARD_FIELDS = "summary,issuetype,status,assignee,labels,priority,parent,subtasks,updated,duedate,resolutiondate,statuscategorychangedate";
+    private static final String FIELDS = BOARD_FIELDS + ",description";
     private static final int MAX_PAGES = 20;
     private final JiraConnections connections;
     private final JiraCache cache;
@@ -112,7 +116,7 @@ public class JiraService
         for (int page = 0; page < MAX_PAGES; page++) {
             Map<String, Object> params = new LinkedHashMap<>();
             params.put("maxResults", 100);
-            params.put("fields", FIELDS);
+            params.put("fields", BOARD_FIELDS);
             if (scope.completed()) {
                 params.put("jql", "statusCategory = Done" + (scope.mine() ? " AND assignee = currentUser()" : "") + " ORDER BY statusCategoryChangedDate DESC, resolved DESC");
             }
@@ -121,8 +125,11 @@ public class JiraService
             }
             next.ifPresent(token -> params.put("nextPageToken", token));
             JsonNode response = get(scope.connectionId(), scope.cloudId(), query(path, params));
-            for (JsonNode item : nodes(response.path("issues"))) {
-                JiraIssue issue = JiraMapping.issue(scope.connectionId(), scope.cloudId(), siteUrl, item);
+            List<JsonNode> items = nodes(response.path("issues"));
+            Map<String, JsonNode> descriptions = descriptions(scope.connectionId(), scope.cloudId(), items);
+            for (JsonNode item : items) {
+                JiraIssue issue = JiraMapping.issue(scope.connectionId(), scope.cloudId(), siteUrl, item,
+                        descriptions.getOrDefault(item.path("id").asText(), MissingNode.getInstance()));
                 JiraIssue saved = saveIssue(issue, false, true);
                 if (!scope.completed() || "done".equals(saved.status().category())) {
                     result.add(saved);
@@ -141,6 +148,18 @@ public class JiraService
         JiraDtos.IssuePage page = new JiraDtos.IssuePage(ImmutableList.copyOf(result), Optional.of(Instant.now()), Optional.empty(), partial);
         cache.write(scope.key(), page);
         return page;
+    }
+
+    /** Board endpoints return descriptions as wiki markup, so a board page caches the same rich-text projection as a ticket read. */
+    private Map<String, JsonNode> descriptions(String connectionId, String cloudId, List<JsonNode> issues)
+    {
+        if (issues.isEmpty()) {
+            return ImmutableMap.of();
+        }
+        // ponytail: one request, since a board page never exceeds maxResults; follow nextPageToken if Jira starts splitting these pages.
+        String jql = issues.stream().map(issue -> segment(issue.path("id").asText())).collect(joining(",", "id in (", ")"));
+        JsonNode response = get(connectionId, cloudId, query("/rest/api/3/search/jql", ImmutableMap.of("jql", jql, "fields", "description", "maxResults", 100)));
+        return nodes(response.path("issues")).stream().collect(toImmutableMap(issue -> issue.path("id").asText(), issue -> issue.path("fields").path("description")));
     }
 
     /** No network or credential lookup: also usable after the connection is removed. */

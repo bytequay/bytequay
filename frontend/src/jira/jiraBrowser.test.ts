@@ -13,9 +13,11 @@
  */
 
 import { expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
 
 it('assigns Jira workspaces, opens ticket modals and starts a source-bound task in Chromium', async () => {
+  const richDescription = readFileSync('../backend/app/src/test/resources/jira/rich-description.md', 'utf8');
   const results = await runBrowserFixture<ScenarioResult[]>({
     prefix: 'bytequay-jira-', entry: 'src/jira/fixtures/jiraBrowser.tsx', global: 'JiraTests', styles: true, charset: true, width: 1280, height: 920,
     setup: `
@@ -26,9 +28,9 @@ it('assigns Jira workspaces, opens ticket modals and starts a source-bound task 
     body: `
       window.webContents.debugger.attach('1.3');
       await window.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
-      const results = await window.webContents.executeJavaScript('JiraTests.run()');
+      const results = await window.webContents.executeJavaScript(${JSON.stringify(`JiraTests.run(${JSON.stringify(richDescription)})`)});
     `,
   });
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-  expect(results).toHaveLength(12);
+  expect(results).toHaveLength(14);
 }, 30_000);

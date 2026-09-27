@@ -394,6 +394,24 @@ class TestJiraService
     }
 
     @Test
+    void commentMentionsKeepTheConnectedSiteInCachedContext()
+            throws Exception
+    {
+        when(remote.site("connection", "cloud")).thenReturn(new JiraDtos.Site("cloud", "Team", "https://team.atlassian.net"));
+        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/1001/comment?"), eq("GET"), any()))
+                .thenReturn(json("""
+                        {"comments":[{"id":"comment","author":{"accountId":"alice"},"body":{"type":"doc","content":[
+                          {"type":"paragraph","content":[{"type":"mention","attrs":{"id":"712020:jack","text":"@Jack Chen"}}]}
+                        ]},"created":"2026-09-26T01:00:00Z","updated":"2026-09-26T01:00:00Z"}],"total":1}
+                        """));
+        String expected = "[@Jack Chen](https://team.atlassian.net/jira/people/712020%3Ajack)";
+
+        assertThat(jira.detail("connection", "cloud", "1001", true).comments().getFirst().body()).isEqualTo(expected);
+        assertThat(jira.detail("connection", "cloud", "1001", false).comments().getFirst().body()).isEqualTo(expected);
+        assertThat(jira.issue("connection", "cloud", "1001").comments().getFirst().body()).isEqualTo(expected);
+    }
+
+    @Test
     void commentPageLimitReturnsVisiblePartialResult()
             throws Exception
     {
@@ -418,7 +436,7 @@ class TestJiraService
                   {"type":"text","text":" bad","marks":[{"type":"link","attrs":{"href":"javascript:alert(1)"}}]}
                 ]}]}
                 """);
-        assertThat(JiraMapping.markdown(text)).contains("[&lt;design&gt;](https://example.com/design)").doesNotContain("javascript:", "<design>");
+        assertThat(JiraMapping.markdown("https://example.atlassian.net", text)).contains("[&lt;design&gt;](https://example.com/design)").doesNotContain("javascript:", "<design>");
         assertThat(mapper.valueToTree(JiraMapping.document("first\n\nthird")).path("content")).hasSize(3);
     }
 

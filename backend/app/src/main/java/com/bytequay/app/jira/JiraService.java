@@ -210,8 +210,9 @@ public class JiraService
     {
         JiraIssue issue = refreshIssue(connectionId, cloudId, issueId);
         String path = issuePath(issueId);
+        String siteUrl = connections.site(connectionId, cloudId).url();
         PageItems commentPage = pageItems(connectionId, cloudId, path + "/comment", "comments", ImmutableMap.of("orderBy", "-created"));
-        List<JiraDtos.Comment> comments = commentPage.items().stream().map(JiraMapping::comment)
+        List<JiraDtos.Comment> comments = commentPage.items().stream().map(comment -> JiraMapping.comment(siteUrl, comment))
                 .sorted(java.util.Comparator.comparing(JiraDtos.Comment::created)).collect(toImmutableList());
         List<JiraDtos.Transition> transitions = nodes(get(connectionId, cloudId, path + "/transitions?expand=transitions.fields").path("transitions")).stream()
                 .map(item -> new JiraDtos.Transition(item.path("id").asText(), item.path("name").asText(), JiraMapping.status(item.path("to")),

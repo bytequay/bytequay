@@ -23,11 +23,160 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.time.Instant;
 import java.util.Optional;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestJiraMapping
 {
     private final ObjectMapper mapper = new ObjectMapper();
+
+    @Test
+    void preservesRichDescriptionsAndComments()
+            throws Exception
+    {
+        try (var document = getClass().getResourceAsStream("/jira/rich-description.json");
+                var expected = getClass().getResourceAsStream("/jira/rich-description.md")) {
+            var body = mapper.readTree(document);
+            String markdown = new String(expected.readAllBytes(), UTF_8).strip();
+            ObjectNode issue = ticket("done");
+            ((ObjectNode) issue.path("fields")).set("description", body);
+            ObjectNode comment = mapper.createObjectNode();
+            comment.set("body", body);
+
+            assertThat(JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", issue).body()).isEqualTo(markdown);
+            assertThat(JiraMapping.comment("https://example.atlassian.net", comment).body()).isEqualTo(markdown);
+        }
+    }
+
+    @Test
+    void preservesCodeDelimitersAndLiteralTablePipes()
+            throws Exception
+    {
+        assertThat(JiraMapping.markdown("https://example.atlassian.net", mapper.readTree("""
+                {"type":"doc","content":[
+                  {"type":"paragraph","content":[{"type":"text","text":"`a_b`","marks":[{"type":"code"}]}]},
+                  {"type":"paragraph","content":[{"type":"text","text":" a_b ","marks":[{"type":"code"}]}]},
+                  {"type":"codeBlock","attrs":{"language":"markdown"},"content":[{"type":"text","text":"```java\\nx();\\n```"}]},
+                  {"type":"table","content":[
+                    {"type":"tableRow","content":[{"type":"tableHeader","content":[{"type":"paragraph","content":[{"type":"text","text":"Value"}]}]}]},
+                    {"type":"tableRow","content":[{"type":"tableCell","content":[{"type":"paragraph","content":[
+                      {"type":"text","text":"a|b","marks":[{"type":"code"}]}, {"type":"hardBreak"}, {"type":"text","text":"or c|d"}]}]}]}
+                  ]}
+                ]}
+                """)).strip()).isEqualTo("""
+                `` `a_b` ``
+
+                `  a_b  `
+
+                ````markdown
+                ```java
+                x();
+                ```
+                ````
+
+                | Value |
+                | --- |
+                | `a\\|b` or c\\|d |
+                """.strip());
+    }
+
+    @Test
+    void keepsWhitespaceOutsideEmphasisMarkers()
+            throws Exception
+    {
+        assertThat(JiraMapping.markdown("https://example.atlassian.net", mapper.readTree("""
+                {"type":"paragraph","content":[
+                  {"type":"text","text":"updated the PR: ","marks":[{"type":"em"}]},
+                  {"type":"inlineCard","attrs":{"url":"https://github.com/trinodb/trino/pull/30205"}},
+                  {"type":"text","text":" ","marks":[{"type":"em"}]},
+                  {"type":"text","text":"\\u00a0really ","marks":[{"type":"strong"},{"type":"em"}]},
+                  {"type":"text","text":"done"}
+                ]}
+                """)).strip()).isEqualTo("_updated the PR:_ [https://github\\.com/trinodb/trino/pull/30205](https://github.com/trinodb/trino/pull/30205) \u00a0_**really**_ done");
+    }
+
+    @Test
+    void preservesQuotesListsAndEmphasisWithoutInterpretingLiteralMarkup()
+            throws Exception
+    {
+        assertThat(JiraMapping.markdown("https://example.atlassian.net", mapper.readTree("""
+                {"type":"doc","content":[
+                  {"type":"blockquote","content":[{"type":"paragraph","content":[{"type":"text","text":"Quoted"}]}]},
+                  {"type":"orderedList","attrs":{"order":3},"content":[
+                    {"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"First","marks":[{"type":"em"}]}]}]},
+                    {"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"Next","marks":[
+                      {"type":"link","attrs":{"href":"https://example.com/a(b)"}},{"type":"strong"}]}]}]}
+                  ]},
+                  {"type":"paragraph","content":[{"type":"text","text":"# **literal** [label](javascript:alert(1)) <details> &lt;tag&gt;"}]}
+                ]}
+                """)).strip()).isEqualTo("""
+                > Quoted
+
+                3. _First_
+                4. [**Next**](https://example.com/a%28b%29)
+
+                \\# \\*\\*literal\\*\\* \\[label\\]\\(javascript:alert\\(1\\)\\) &lt;details&gt; &amp;lt;tag&amp;gt;
+                """.strip());
+    }
+
+    @Test
+    void keepsCardDestinationsUnescapedAndRejectsUnsafeLinks()
+            throws Exception
+    {
+        assertThat(JiraMapping.markdown("https://example.atlassian.net", mapper.readTree("""
+                {"type":"doc","content":[
+                  {"type":"paragraph","content":[{"type":"inlineCard","attrs":{"url":"https://example.atlassian.net/browse/ENG-7"}}]},
+                  {"type":"paragraph","content":[{"type":"text","text":"Unsafe","marks":[
+                    {"type":"code"},{"type":"link","attrs":{"href":"javascript:alert(1)"}}]}]}
+                ]}
+                """)).strip()).isEqualTo("""
+                [https://example\\.atlassian\\.net/browse/ENG\\-7](https://example.atlassian.net/browse/ENG-7)
+
+                `Unsafe`
+                """.strip());
+    }
+
+    @Test
+    void preservesFullMentionNamesAndSiteProfilesInDescriptionsAndComments()
+            throws Exception
+    {
+        var body = mapper.readTree("""
+                {"type":"doc","content":[
+                  {"type":"heading","attrs":{"level":2},"content":[
+                    {"type":"mention","attrs":{"id":"712020:jack/chen ?#%","text":"Jack Chen"}}]},
+                  {"type":"blockquote","content":[{"type":"bulletList","content":[{"type":"listItem","content":[
+                    {"type":"paragraph","content":[{"type":"mention","attrs":{"id":"chen xiao","text":"@陈 晓"}}]}]}]}]},
+                  {"type":"table","content":[
+                    {"type":"tableRow","content":[{"type":"tableHeader","content":[{"type":"paragraph","content":[{"type":"text","text":"Person"}]}]}]},
+                    {"type":"tableRow","content":[{"type":"tableCell","content":[{"type":"paragraph","content":[
+                      {"type":"mention","attrs":{"id":"special","text":"@A [B] (C)_D *E* & <F>"}}]}]}]}
+                  ]},
+                  {"type":"paragraph","content":[
+                    {"type":"mention","attrs":{"text":"Guest Reader"}},{"type":"text","text":" / "},
+                    {"type":"mention","attrs":{"id":" ","text":" "}},{"type":"text","text":" / "},
+                    {"type":"mention","attrs":{"id":"unknown"}}
+                  ]}
+                ]}
+                """);
+        String expected = """
+                ## [@Jack Chen](https://example.atlassian.net/jira/people/712020%3Ajack%2Fchen%20%3F%23%25)
+
+                > - [@陈 晓](https://example.atlassian.net/jira/people/chen%20xiao)
+
+                | Person |
+                | --- |
+                | [@A \\[B\\] \\(C\\)\\_D \\*E\\* &amp; &lt;F&gt;](https://example.atlassian.net/jira/people/special) |
+
+                @Guest Reader / @user / [@user](https://example.atlassian.net/jira/people/unknown)
+                """.strip();
+        ObjectNode issue = ticket("done");
+        ((ObjectNode) issue.path("fields")).set("description", body);
+        ObjectNode comment = mapper.createObjectNode();
+        comment.set("body", body);
+
+        assertThat(JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", issue).body()).isEqualTo(expected);
+        assertThat(JiraMapping.comment("https://example.atlassian.net", comment).body()).isEqualTo(expected);
+    }
 
     @Test
     void preservesAvatarsForAssigneesAndCommentAuthors()
@@ -42,7 +191,7 @@ class TestJiraMapping
         comment.set("author", person);
 
         assertThat(JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", issue).assignee().orElseThrow().avatarUrl()).contains(avatar);
-        assertThat(JiraMapping.comment(comment).author().avatarUrl()).contains(avatar);
+        assertThat(JiraMapping.comment("https://example.atlassian.net", comment).author().avatarUrl()).contains(avatar);
         urls.remove("48x48");
         assertThat(JiraMapping.person(person).avatarUrl()).contains("https://example.atlassian.net/avatar/24");
         urls.removeAll();

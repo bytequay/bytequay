@@ -238,6 +238,13 @@ Descriptions are not round-tripped through that projection. Attachments and
 unsupported rich content remain accessible in Jira; this release does not
 implement the full Atlassian document editor.
 
+Comment rows show the author's avatar, full name and timestamp, newest first
+below the composer. ADF mentions retain their full supplied name and link to the
+account's Jira profile on the connected site; missing account IDs remain readable
+text. Comments stay in flat chronological order because the documented Jira REST
+API supplies no reply relationships. ByteQuay does not infer threads from names,
+mentions or comment text.
+
 ## Verification
 
 Offline tests cover source admission/retry, cross-workspace uniqueness, persistence

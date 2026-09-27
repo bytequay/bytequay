@@ -42,7 +42,7 @@ type Block =
   | { kind: 'paragraph'; text: string }
   | { kind: 'task'; checked: boolean; text: string }
   | { kind: 'code'; language: string; text: string }
-  | { kind: 'list'; ordered: boolean; items: string[] }
+  | { kind: 'list'; ordered: boolean; start?: number; items: string[] }
   | { kind: 'table'; headers: string[]; rows: string[][]; aligns: Array<'left' | 'center' | 'right'> }
   | { kind: 'quote'; text: string }
   | { kind: 'alert'; label: string; text: string }
@@ -276,8 +276,8 @@ function stripHtml(value: string) {
 
 function htmlToMarkdown(value: string) {
   return decodeEntities(value
-    .replace(/```[^]*?(?:```|$)|`[^`\n]+`/g,
-      code => code.replaceAll('<', '&lt;').replaceAll('>', '&gt;'))
+    .replace(/\\[!-/:-@[-`{-~]|(?<!`)(`+)(?!`)[^]*?(?<!`)\1(?!`)|```[^]*$|&(?:lt|gt|#(?:x0*3[ce]|0*(?:60|62)));/gi,
+      part => part.startsWith('&') ? `\\${part}` : part.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'))
     .replace(/<!--[^]*?-->/g, '')
     .replace(/<(https?:\/\/[^>\s]+)>/gi, '$1')
     .replace(/<img\s[^>]*>/gi, tag => {
@@ -307,7 +307,11 @@ function decodeEntities(value: string) {
 export function tableCells(line: string) {
   const trimmed = line.trim();
   if (!trimmed.includes('|')) return null;
-  return trimmed.replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim());
+  // GFM escapes a pipe after any backslash, regardless of backslash parity.
+  const result = trimmed.split(/(?<!\\)\|/);
+  if (trimmed.startsWith('|')) result.shift();
+  if (result.at(-1) === '') result.pop();
+  return result.map(cell => cell.trim().replace(/\\\|/g, '|'));
 }
 
 export function tableAlignments(line: string) {
@@ -321,7 +325,7 @@ export function tableAlignments(line: string) {
 
 // Like GitHub, `_` emphasis cannot open or close inside a word, so ICEBERG_FILESYSTEM_ERROR stays literal.
 // Its content admits only intraword underscores, which keeps an unclosed `_` from scanning the rest of the text.
-const INLINE_TOKEN = /(\\[\\`]|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|!\[[^\]]*\]\([^)]+\)|\*\*[^*]+\*\*|(?<=^|[\s\p{P}\p{S}])_(?!\s)(?:[^_]|(?<=[^\s\p{P}\p{S}])_(?=[^\s\p{P}\p{S}]))+?(?<!\s)_(?=$|[\s\p{P}\p{S}])|`[^`]+`|\[[^\]]+\]\([^)]+\)|\[[^\]]+\]\[[^\]]*\]|\[[^\]]+\]|https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"]|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)/gu;
+const INLINE_TOKEN = /(\\[!-/:-@[-`{-~]|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|!\[[^\]]*\]\([^)]+\)|\*\*(?:\\.|[^*\\]|\*(?!\*))+?\*\*|(?<=^|[\s\p{P}\p{S}])_(?!\s)(?:\\.|[^_\\]|(?<=[^\s\p{P}\p{S}])_(?=[^\s\p{P}\p{S}]))+?(?<!\s)_(?=$|[\s\p{P}\p{S}])|(?<!`)(`+)(?!`)[^]*?(?<!`)\2(?!`)|\[(?:\\.|[^\]\\])+\]\([^)]+\)|\[[^\]]+\]\[[^\]]*\]|\[[^\]]+\]|https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"]|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)/gu;
 
 export function parseGitHubCodePermalink(value: string, repository?: string): GitHubCodePermalink | null {
   if (!repository) return null;
@@ -361,7 +365,7 @@ export function markdownBlocks(markdown: string, repository?: string): Block[] {
   const blocks: Block[] = [];
   const lines = markdown.replaceAll('\r\n', '\n').split('\n');
   let paragraph: string[] = [];
-  let list: { ordered: boolean; items: string[] } | null = null;
+  let list: { ordered: boolean; start?: number; items: string[] } | null = null;
   let code: { fence: Fence; lines: string[] } | null = null;
 
   const flushParagraph = () => {
@@ -386,7 +390,7 @@ export function markdownBlocks(markdown: string, repository?: string): Block[] {
     paragraph = [];
   };
   const flushList = () => {
-    if (list) blocks.push({ kind: 'list', ordered: list.ordered, items: list.items });
+    if (list) blocks.push({ kind: 'list', ...list });
     list = null;
   };
 
@@ -412,7 +416,8 @@ export function markdownBlocks(markdown: string, repository?: string): Block[] {
       flushList();
       continue;
     }
-    const disclosure = line.match(/<details(?:\s[^>]*)?>/i);
+    const disclosure = line.replace(/\\[!-/:-@[-`{-~]|(?<!`)(`+)(?!`)[^]*?(?<!`)\1(?!`)/g,
+      part => part.startsWith('`') ? ' '.repeat(part.length) : part).match(/(?<!\\)<details(?:\s[^>]*)?>/i);
     if (disclosure) {
       const lead = line.slice(0, disclosure.index).trim();
       if (lead) paragraph.push(lead);
@@ -481,7 +486,7 @@ export function markdownBlocks(markdown: string, repository?: string): Block[] {
       flushParagraph();
       const ordered = item[1] !== undefined;
       if (list && list.ordered !== ordered) flushList();
-      if (!list) list = { ordered, items: [] };
+      if (!list) list = { ordered, ...(ordered && Number(item[1]) !== 1 ? { start: Number(item[1]) } : {}), items: [] };
       list.items.push(item[2]);
       continue;
     }
@@ -534,9 +539,16 @@ function inline(
   definitions: ReadonlyMap<string, string> = EMPTY_LINK_DEFINITIONS,
   repository?: string,
 ): ReactNode[] {
-  return text.split(INLINE_TOKEN).filter(Boolean).map((part, index) => {
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const match of text.matchAll(INLINE_TOKEN)) {
+    parts.push(text.slice(cursor, match.index), match[0]);
+    cursor = match.index + match[0].length;
+  }
+  parts.push(text.slice(cursor));
+  return parts.filter(Boolean).map((part, index) => {
     const key = `${keyPrefix}-${index}`;
-    if (part === '\\`' || part === '\\\\') return <Fragment key={key}>{part.slice(1)}</Fragment>;
+    if (/^\\[!-/:-@[-`{-~]$/.test(part)) return <Fragment key={key}>{part.slice(1)}</Fragment>;
     const linkedImage = part.match(/^\[!\[([^\]]*)\]\(([^)]+)\)\]\(([^)]+)\)$/);
     if (linkedImage) return (
       <a className="md-image-link" key={key} href={linkedImage[3]} onClick={event => {
@@ -550,8 +562,12 @@ function inline(
     if (image) return <img className="md-image" key={key} src={image[2]} alt={image[1]} />;
     if (part.startsWith('**') && part.endsWith('**')) return <strong key={key}>{inline(part.slice(2, -2), `${key}-strong`, definitions, repository)}</strong>;
     if (part.startsWith('_') && part.endsWith('_')) return <em key={key}>{inline(part.slice(1, -1), `${key}-em`, definitions, repository)}</em>;
-    if (part.startsWith('`') && part.endsWith('`')) return <code key={key}>{part.slice(1, -1)}</code>;
-    const directLink = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+    const codeFence = part.match(/^`+/)?.[0];
+    if (codeFence && part.endsWith(codeFence)) {
+      const code = part.slice(codeFence.length, -codeFence.length).replaceAll('\n', ' ');
+      return <code key={key}>{code.startsWith(' ') && code.endsWith(' ') && code.trim() ? code.slice(1, -1) : code}</code>;
+    }
+    const directLink = part.match(/^\[((?:\\.|[^\]\\])+)\]\(([^)]+)\)$/);
     const referenceLink = directLink ? null : part.match(/^\[([^\]]+)\](?:\[([^\]]*)\])?$/);
     const definitionLabel = referenceLink ? referenceLink[2] || referenceLink[1] : null;
     const definition = definitionLabel ? definitions.get(normalizeLinkLabel(definitionLabel)) : undefined;
@@ -562,15 +578,17 @@ function inline(
       const reference = linkText.match(/^(.*) (#\d+)$/);
       const githubReference = parseGitHubReference(href);
       const showTitle = /^https?:\/\//i.test(linkText);
+      const mention = linkText.startsWith('@') && /^https:\/\/[a-z0-9-]+\.atlassian\.net\/jira\/people\/[^/?#]+$/i.test(href);
       // The label is already inside a link, so its own #numbers stay text.
-      const label = showTitle && githubReference
-        ? <>{githubReference.owner}/{githubReference.repo} <small>#{githubReference.number}</small></>
-        : reference ? <>{reference[1]} <small>{reference[2]}</small></> : inline(linkText, `${key}-link`, definitions);
+      const label = mention || (showTitle && !githubReference)
+        ? linkText.replace(/\\([!-/:-@[-`{-~])/g, '$1')
+        : showTitle && githubReference ? <>{githubReference.owner}/{githubReference.repo} <small>#{githubReference.number}</small></>
+          : reference ? <>{reference[1]} <small>{reference[2]}</small></> : inline(linkText, `${key}-link`, definitions);
       if (githubReference) return (
         <ReferenceLink key={key} reference={githubReference} showTitle={showTitle}>{label}</ReferenceLink>
       );
       return (
-        <a key={key} href={href} onClick={event => {
+        <a key={key} className={mention ? 'md-mention' : undefined} href={href} onClick={event => {
           event.preventDefault();
           void openWebLink(href);
         }}>
@@ -982,7 +1000,7 @@ function MarkdownBlocks({ markdown, definitions, repository, suggestion, tasksIn
         );
         if (block.kind === 'rule') return <hr key={key} />;
         const List = block.ordered ? 'ol' : 'ul';
-        return <List key={key}>{block.items.map((item, itemIndex) => (
+        return <List key={key} start={block.start}>{block.items.map((item, itemIndex) => (
           <li key={`${key}-${itemIndex}`}>{inline(item, `${key}-${itemIndex}`, definitions, repository)}</li>
         ))}</List>;
       })}

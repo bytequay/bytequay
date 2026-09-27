@@ -337,6 +337,71 @@ describe('MarkdownBody', () => {
     expect(html).toBe('<div class="markdown-body"><p>Use `ClickHouseClient.toColumnMapping()`.</p></div>');
   });
 
+  it('renders Jira text escapes without turning literal punctuation or tags into formatting', () => {
+    const body = '\\# Plain heading\n\n\\*\\*literal\\*\\* \\_literal\\_ GENERIC\\_INTERNAL\\_ERROR '
+      + '\\[label\\]\\(value\\) &lt;details&gt;&lt;summary&gt;literal&lt;/summary&gt;&lt;/details&gt; &amp;lt;tag&amp;gt;\n\n'
+      + '&gt; Plain quote\n\n**bold with \\* punctuation** and _italic with \\_ punctuation_';
+    const html = renderToStaticMarkup(<MarkdownBody body={body} />);
+
+    expect(html).toContain('<p># Plain heading</p>');
+    expect(html).toContain('**literal** _literal_ GENERIC_INTERNAL_ERROR [label](value) &lt;details&gt;&lt;summary&gt;literal&lt;/summary&gt;&lt;/details&gt;');
+    expect(html).toContain('&amp;lt;tag&amp;gt;');
+    expect(html).toContain('<p>&gt; Plain quote</p>');
+    expect(html).toContain('<strong>bold with * punctuation</strong> and <em>italic with _ punctuation</em>');
+    expect(html).not.toMatch(/<(?:details|summary|blockquote|h1|a)\b/);
+  });
+
+  it('preserves inline code containing backticks, padding and HTML-looking text', () => {
+    const html = renderToStaticMarkup(<MarkdownBody body={'Use `` `value` `` and ``a`b<T>`` with `\\_literal\\_`, `&lt;tag&gt;`, and **`<details>literal</details>`**.'} />);
+
+    expect(html).toContain('<code>`value`</code>');
+    expect(html).toContain('<code>a`b&lt;T&gt;</code>');
+    expect(html).toContain('<code>\\_literal\\_</code>');
+    expect(html).toContain('<code>&amp;lt;tag&amp;gt;</code>');
+    expect(html).toContain('<strong><code>&lt;details&gt;literal&lt;/details&gt;</code></strong>');
+    expect(html).not.toContain('<details');
+  });
+
+  it('preserves escaped link labels and ordered list start numbers from Jira', () => {
+    const html = renderToStaticMarkup(<MarkdownBody body={'3. [a\\]b](https://example.com)\n4. Continue'} />);
+
+    expect(html).toContain('<ol start="3"><li><a href="https://example.com">a]b</a></li><li>Continue</li></ol>');
+    const card = renderToStaticMarkup(<MarkdownBody body={'[https://example\\.atlassian\\.net/browse/ENG\\-7](https://example.atlassian.net/browse/ENG-7)'} />);
+    expect(card.match(/<a /g)).toHaveLength(1);
+    expect(card).toContain('<a href="https://example.atlassian.net/browse/ENG-7">https://example.atlassian.net/browse/ENG-7</a>');
+  });
+
+  it('renders full Jira mention names as one profile link without parsing the label as Markdown', () => {
+    const body = 'Hello [@Jack Chen](https://example.atlassian.net/jira/people/account%3A123), cc '
+      + '[@Anu Sudarsan](https://example.atlassian.net/jira/people/anu) and '
+      + '[@张 三 \\(QA\\) \\[team\\]](https://example.atlassian.net/jira/people/qa).';
+    const html = renderToStaticMarkup(<MarkdownBody body={body} />);
+
+    expect(html).toContain('<a class="md-mention" href="https://example.atlassian.net/jira/people/account%3A123">@Jack Chen</a>');
+    expect(html).toContain('<a class="md-mention" href="https://example.atlassian.net/jira/people/anu">@Anu Sudarsan</a>');
+    expect(html).toContain('>@张 三 (QA) [team]</a>');
+    expect(html).not.toContain('class="md-link"');
+    expect(html.match(/<a /g)).toHaveLength(3);
+    expect(renderToStaticMarkup(<MarkdownBody body={'[@Jack Chen](https://example.com/jira/people/jack) and `@Jack Chen`'} />)).not.toContain('md-mention');
+  });
+
+  it('keeps escaped pipes inside table text and code cells', () => {
+    const body = '| Metric | Value |\n| --- | --- |\n| **left\\|right** | `left\\|right` |\n| path\\\\ | final |';
+    const html = renderToStaticMarkup(<MarkdownBody body={body} />);
+
+    expect(html.match(/<td\b/g)).toHaveLength(4);
+    expect(html).toContain('<strong>left|right</strong>');
+    expect(html).toContain('<code>left|right</code>');
+    expect(html).toContain('>path\\</td>');
+  });
+
+  it.each([1, 2, 3])('preserves %s code backslashes before an escaped table pipe', count => {
+    const source = 'left' + '\\'.repeat(count) + '|right';
+    const body = '| Code |\n| --- |\n| `' + source.replace('|', '\\|') + '` |';
+
+    expect(renderToStaticMarkup(<MarkdownBody body={body} />)).toContain(`<code>${source}</code>`);
+  });
+
   it.each(['md', 'markdown'])('preserves source inside inline code and %s fences without a header', language => {
     const releaseNote = '## SPI\n* {{breaking}} Change return type of `ConnectorMetadata.finishMerge` method '
       + 'to `Optional<ConnectorOutputMetadata>`. ({issue}`30934`)';

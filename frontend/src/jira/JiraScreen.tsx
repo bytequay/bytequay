@@ -215,7 +215,7 @@ export default function JiraScreen({ workspace }: { workspace?: Pick<WorkspaceDt
     <div className="jira-ticket__tags"><span className={`jira-status is-${issue.status.category}`}>{issue.status.name}</span><JiraWorkspaceBadge workspace={issue.workspace} />{issue.labels.map(label => <span className="jira-ticket__label" key={label}>{label}</span>)}</div>
     {issue.parent && <button type="button" className="jira-parent" title={`${issue.parent.key} · ${issue.parent.title}`} onClick={() => { window.location.hash = jiraRoute({ ...jiraIssueLocation(issue), issueId: issue.parent?.id ?? '' }, workspace?.id); }}><Zap size={12} />{issue.parent.title}</button>}
     <div className="jira-ticket__footer"><button type="button" className="jira-ticket__key" onClick={() => open(issue)}><JiraTypeIcon type={issue.type} /><span>{issue.key}</span></button>
-      <span className="jira-spacer" /><JiraPriority priority={issue.priority} /><JiraAssignee key={issue.assignee?.accountId ?? 'unassigned'} assignee={issue.assignee} />
+      <span className="jira-spacer" /><JiraPriority priority={issue.priority} /><JiraAvatar key={issue.assignee?.accountId ?? 'unassigned'} person={issue.assignee} label={`Assignee: ${issue.assignee?.displayName ?? 'Unassigned'}`} />
     </div>
     <div className="jira-ticket__time">{view === 'completed' ? issue.completedAt !== null && Number.isFinite(Date.parse(issue.completedAt))
       ? <time dateTime={issue.completedAt} title={new Date(issue.completedAt).toLocaleString()}>Completed {new Date(issue.completedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</time>
@@ -273,14 +273,14 @@ function JiraPriority({ priority }: { priority: JiraIssue['priority'] }) {
   const level = /^(highest|critical|blocker|high)$/.test(name) ? 'high' : /^(low|lowest)$/.test(name) ? 'low' : 'neutral';
   return <span className={`jira-priority is-${level}`} title={`Priority: ${priority.name}`} aria-label={`Priority: ${priority.name}`}><Icon size={16} /><span>{priority.name}</span></span>;
 }
-function JiraAssignee({ assignee }: { assignee: JiraIssue['assignee'] }) {
+function JiraAvatar({ person, label = person?.displayName ?? 'Unassigned' }: { person: JiraIssue['assignee']; label?: string }) {
   const [failedSource, setFailedSource] = useState<string | null>(null);
-  const source = assignee?.avatarUrl?.trim();
-  const name = assignee?.displayName ?? 'Unassigned';
+  const source = person?.avatarUrl?.trim();
+  const name = person?.displayName ?? 'Unassigned';
   const initials = name.trim().split(/\s+/).map(part => part[0]).filter(Boolean);
-  return <span className="jira-assignee" title={`Assignee: ${name}`} role="img" aria-label={`Assignee: ${name}`}>
+  return <span className="jira-avatar" title={label} role="img" aria-label={label}>
     {source && source !== failedSource ? <img src={source} alt="" width={25} height={25} referrerPolicy="no-referrer" onError={() => setFailedSource(source)} />
-      : assignee ? <span>{initials.length > 1 ? `${initials[0]}${initials[initials.length - 1]}` : initials[0]}</span> : <UserRound size={14} />}
+      : person ? <span>{initials.length > 1 ? `${initials[0]}${initials[initials.length - 1]}` : initials[0]}</span> : <UserRound size={14} />}
   </span>;
 }
 
@@ -396,7 +396,10 @@ function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }:
           <label>Add a comment<textarea rows={4} value={comment} onChange={event => setComment(event.target.value)} placeholder="Write a reply…" /></label>
           <button type="submit" className="bq-button bq-button--primary" disabled={busy || !comment.trim()}>Send comment</button>
         </form>
-        {detail.comments.toReversed().map(value => <article key={value.id}><header><strong>{value.author.displayName}</strong><time dateTime={value.created}>{relativeTime(value.created)}</time></header><MarkdownBody body={value.body} /></article>)}
+        {detail.comments.toReversed().map(value => <article className="jira-comment" key={value.id} aria-label={`Comment by ${value.author.displayName}`}>
+          <JiraAvatar person={value.author} />
+          <div className="jira-comment__content"><header><strong>{value.author.displayName}</strong><time dateTime={value.created}>{new Date(value.created).toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' })}</time></header><MarkdownBody body={value.body} /></div>
+        </article>)}
         {detail.commentsTruncated && <p className="jira-notice">Some comments are not loaded. Open Jira to read the full discussion.</p>}
         {detail.comments.length === 0 && !detail.commentsTruncated && <p className="jira-muted">No comments yet.</p>}
       </section>

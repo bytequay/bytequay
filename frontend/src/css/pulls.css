@@ -849,6 +849,7 @@
 .markdown-body a,
 .md-link { color: var(--accent); text-decoration: none; }
 .markdown-body a:hover { text-decoration: underline; }
+.markdown-body a.md-mention { border-radius: 10px; padding: 1px 5px; background: color-mix(in srgb, var(--accent) 12%, var(--bg-base)); font-weight: 500; box-decoration-break: clone; }
 .markdown-body .md-image-link { display: inline-block; text-decoration: none; }
 .markdown-body .md-image-link img { display: block; max-width: 100%; height: auto; }
 .markdown-body img.md-image { max-width: 100%; height: auto; vertical-align: middle; }

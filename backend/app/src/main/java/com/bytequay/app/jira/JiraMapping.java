@@ -18,6 +18,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.net.URI;
+import java.net.URLEncoder;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
@@ -25,13 +26,19 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.StreamSupport;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.stream.Collectors.joining;
 
 /** Jira wire projections. Rich text is rendered as Markdown; credentials never enter this projection. */
 final class JiraMapping
 {
+    private static final Pattern PADDED = Pattern.compile("([\\s\\p{Z}]*)(.*?)([\\s\\p{Z}]*)", Pattern.DOTALL);
+
     private JiraMapping() {}
 
     static JiraIssue issue(String connectionId, String cloudId, String siteUrl, JsonNode value)
@@ -45,7 +52,7 @@ final class JiraMapping
         JsonNode parent = fields.path("parent");
         return new JiraIssue(connectionId, cloudId, value.path("id").asText(), value.path("key").asText(),
                 siteUrl + "/browse/" + JiraConnections.segment(value.path("key").asText()), fields.path("summary").asText(),
-                markdown(description).strip(), fields.path("issuetype").path("name").asText(), status(fields.path("status")),
+                markdown(siteUrl, description).strip(), fields.path("issuetype").path("name").asText(), status(fields.path("status")),
                 optional(fields.path("assignee")).map(JiraMapping::person), nodes(fields.path("labels")).stream().map(JsonNode::asText).collect(toImmutableList()),
                 optional(fields.path("priority")).map(JiraMapping::choice), optional(parent).map(item -> new JiraDtos.Parent(item.path("id").asText(),
                         item.path("key").asText(), item.path("fields").path("summary").asText())),
@@ -104,9 +111,9 @@ final class JiraMapping
         return fields.build();
     }
 
-    static JiraDtos.Comment comment(JsonNode value)
+    static JiraDtos.Comment comment(String siteUrl, JsonNode value)
     {
-        return new JiraDtos.Comment(value.path("id").asText(), person(value.path("author")), markdown(value.path("body")).strip(),
+        return new JiraDtos.Comment(value.path("id").asText(), person(value.path("author")), markdown(siteUrl, value.path("body")).strip(),
                 value.path("created").asText(), value.path("updated").asText());
     }
 
@@ -142,58 +149,141 @@ final class JiraMapping
         return ImmutableMap.of("version", 1, "type", "doc", "content", content);
     }
 
-    static String markdown(JsonNode node)
+    static String markdown(String siteUrl, JsonNode node)
     {
         if (node.isTextual()) {
             return escape(node.asText());
         }
-        String children = nodes(node.path("content")).stream().map(JiraMapping::markdown).collect(java.util.stream.Collectors.joining());
         return switch (node.path("type").asText()) {
             case "text" -> markedText(node);
-            case "paragraph", "heading", "blockquote", "tableRow" -> children.stripTrailing() + "\n\n";
-            case "bulletList", "orderedList", "doc" -> children;
-            case "listItem" -> "- " + children.strip().replace("\n", "\n  ") + "\n";
+            case "paragraph" -> markdownChildren(siteUrl, node).stripTrailing() + "\n\n";
+            case "heading" -> "#".repeat(Math.clamp(node.path("attrs").path("level").asInt(1), 1, 6)) + " " + markdownChildren(siteUrl, node).strip() + "\n\n";
+            case "blockquote" -> "> " + markdownChildren(siteUrl, node).strip().replace("\n", "\n> ") + "\n\n";
+            case "bulletList", "orderedList" -> list(siteUrl, node);
             case "hardBreak" -> "\n";
             case "rule" -> "\n---\n";
-            case "codeBlock" -> "\n" + raw(node).lines().map(line -> "    " + line).collect(java.util.stream.Collectors.joining("\n")) + "\n\n";
-            case "mention" -> escape(node.path("attrs").path("text").asText("@user"));
+            case "codeBlock" -> codeBlock(node);
+            case "mention" -> mention(siteUrl, node.path("attrs"));
             case "emoji" -> node.path("attrs").path("shortName").asText();
-            case "inlineCard", "blockCard" -> escape(node.path("attrs").path("url").asText());
-            case "tableCell", "tableHeader" -> children.strip() + " | ";
+            case "inlineCard", "blockCard" -> link(escape(node.path("attrs").path("url").asText()), node.path("attrs").path("url").asText());
+            case "table" -> table(siteUrl, node);
             case "media", "mediaSingle", "mediaGroup" -> "[Attachment: open in Jira]";
-            default -> children;
+            default -> markdownChildren(siteUrl, node);
         };
+    }
+
+    private static String markdownChildren(String siteUrl, JsonNode node)
+    {
+        return nodes(node.path("content")).stream().map(child -> markdown(siteUrl, child)).collect(joining());
+    }
+
+    private static String mention(String siteUrl, JsonNode attrs)
+    {
+        String name = text(attrs, "text").orElse("@user").strip();
+        String label = escape(name.startsWith("@") ? name : "@" + name);
+        return text(attrs, "id").map(id -> link(label, siteUrl + "/jira/people/" + URLEncoder.encode(id, UTF_8).replace("+", "%20"))).orElse(label);
     }
 
     private static String markedText(JsonNode node)
     {
-        String text = escape(node.path("text").asText());
-        for (JsonNode mark : nodes(node.path("marks"))) {
+        String value = node.path("text").asText();
+        List<JsonNode> marks = nodes(node.path("marks"));
+        String text = escape(value);
+        if (marks.stream().anyMatch(mark -> mark.path("type").asText().equals("code"))) {
+            String fence = backticks(value, 1);
+            String padding = value.startsWith("`") || value.endsWith("`") || (value.startsWith(" ") && value.endsWith(" ") && !value.isBlank()) ? " " : "";
+            text = fence + padding + value + padding + fence;
+        }
+        if (marks.stream().anyMatch(mark -> mark.path("type").asText().equals("strong"))) {
+            text = emphasis(text, "**");
+        }
+        if (marks.stream().anyMatch(mark -> mark.path("type").asText().equals("em"))) {
+            text = emphasis(text, "_");
+        }
+        for (JsonNode mark : marks) {
             if (mark.path("type").asText().equals("link")) {
-                String href = mark.path("attrs").path("href").asText();
-                try {
-                    java.net.URI uri = java.net.URI.create(href);
-                    if (("https".equals(uri.getScheme()) || "http".equals(uri.getScheme())) && uri.getHost() != null && uri.getUserInfo() == null) {
-                        text = "[" + text.replace("]", "\\]") + "](" + uri.toASCIIString().replace("(", "%28").replace(")", "%29") + ")";
-                    }
-                }
-                catch (IllegalArgumentException ignored) {
-                    // Malformed links remain readable text.
-                }
+                text = link(text, mark.path("attrs").path("href").asText());
             }
         }
         return text;
     }
 
+    private static String emphasis(String text, String delimiter)
+    {
+        // A delimiter that touches whitespace is literal in Markdown, so Jira's "italic " becomes "_italic_ ".
+        Matcher parts = PADDED.matcher(text);
+        return !parts.matches() || parts.group(2).isEmpty() ? text : parts.group(1) + delimiter + parts.group(2) + delimiter + parts.group(3);
+    }
+
+    private static String link(String text, String href)
+    {
+        try {
+            URI uri = URI.create(href);
+            if (("https".equals(uri.getScheme()) || "http".equals(uri.getScheme())) && uri.getHost() != null && uri.getUserInfo() == null) {
+                return "[" + text + "](" + uri.toASCIIString().replace("(", "%28").replace(")", "%29") + ")";
+            }
+        }
+        catch (IllegalArgumentException ignored) {
+            // Malformed links remain readable text.
+        }
+        return text;
+    }
+
+    private static String table(String siteUrl, JsonNode node)
+    {
+        List<JsonNode> rows = nodes(node.path("content"));
+        if (rows.isEmpty()) {
+            return "";
+        }
+        StringBuilder result = new StringBuilder();
+        for (int index = 0; index < rows.size(); index++) {
+            List<JsonNode> cells = nodes(rows.get(index).path("content"));
+            // ponytail: GFM cells flatten block layout; use a rich-text renderer if merged or multi-block cells need fidelity.
+            result.append(cells.stream().map(cell -> markdown(siteUrl, cell))
+                    .map(cell -> cell.strip().replaceAll("\\s*\\R\\s*", " ").replace("|", "\\|"))
+                    .collect(joining(" | ", "| ", " |\n")));
+            if (index == 0) {
+                result.append("| ").append("--- | ".repeat(cells.size()).stripTrailing()).append('\n');
+            }
+        }
+        return result + "\n";
+    }
+
+    private static String list(String siteUrl, JsonNode node)
+    {
+        boolean ordered = node.path("type").asText().equals("orderedList");
+        int number = Math.max(1, node.path("attrs").path("order").asInt(1));
+        StringBuilder result = new StringBuilder();
+        for (JsonNode item : nodes(node.path("content"))) {
+            String prefix = ordered ? number++ + ". " : "- ";
+            result.append(prefix).append(markdown(siteUrl, item).strip().replace("\n", "\n" + " ".repeat(prefix.length()))).append('\n');
+        }
+        return result + "\n";
+    }
+
+    private static String codeBlock(JsonNode node)
+    {
+        String value = raw(node);
+        String fence = backticks(value, 3);
+        String language = node.path("attrs").path("language").asText();
+        return fence + (language.matches("[\\w+-]+") ? language : "") + "\n" + value + "\n" + fence + "\n\n";
+    }
+
+    private static String backticks(String value, int minimum)
+    {
+        int longest = Pattern.compile("`+").matcher(value).results().mapToInt(match -> match.group().length()).max().orElse(0);
+        return "`".repeat(Math.max(minimum, longest + 1));
+    }
+
     private static String raw(JsonNode node)
     {
         return node.path("type").asText().equals("text") ? node.path("text").asText()
-                : nodes(node.path("content")).stream().map(JiraMapping::raw).collect(java.util.stream.Collectors.joining());
+                : nodes(node.path("content")).stream().map(JiraMapping::raw).collect(joining());
     }
 
     private static String escape(String value)
     {
-        return value.replace("\\", "\\\\").replace("<", "&lt;").replace(">", "&gt;")
-                .replace("*", "\\*").replace("_", "\\_").replace("`", "\\`").replace("[", "\\[");
+        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                .replaceAll("([\\\\`*_\\[\\]#!+().~-])", "\\\\$1");
     }
 }

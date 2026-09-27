@@ -76,9 +76,9 @@ function completedIssues(): JiraIssue[] {
   ].map(([id, title, completedAt]) => ({ ...issue, id: id ?? '', key: `ENG-${id}`, title: title ?? '', status: { id: 'done', name: 'Resolved', category: 'done' }, completedAt }));
 }
 
-export async function mountPreview(offline = false, openIssue = true) {
+export async function mountPreview(offline = false, openIssue = true, body = jiraIssue.body) {
   root?.unmount(); document.body.innerHTML = ''; calls.length = 0; taskRequest = null; commentFails = true; assignmentFails = false;
-  issue = { ...jiraIssue }; detail = jiraDetail(issue);
+  issue = { ...jiraIssue, body }; detail = jiraDetail(issue);
   window.location.hash = openIssue ? jiraRoute({ connectionId: 'connection', cloudId: 'site', issueId: issue.id }) : jiraRoute();
   const preview = createPreviewBridge('workspace');
   const fake = {
@@ -105,9 +105,47 @@ export async function mountPreview(offline = false, openIssue = true) {
   await until(() => (!openIssue || document.querySelector('.jira-detail h2') !== null) && document.querySelectorAll('.jira-ticket').length === 4 && select('Sprint').value === '11');
 }
 
-export async function run(): Promise<{ name: string; error?: string }[]> {
+export async function run(richDescription: string): Promise<{ name: string; error?: string }[]> {
   const results: { name: string; error?: string }[] = [];
   for (const [name, test] of Object.entries({
+    async 'renders Jira rich descriptions as headings, tables and formatted code'() {
+      await mountPreview(false, true, richDescription);
+      const description = document.querySelector<HTMLElement>('.jira-description .markdown-body'); assert(description !== null, 'Description exists');
+      const heading = description.querySelector('h2'); assert(heading?.textContent === 'Triage data', 'ADF heading retains its level and text');
+      const table = description.querySelector('table'); assert(table !== null, 'ADF table renders as a table');
+      assert([...table.querySelectorAll('th')].map(cell => cell.textContent).join('|') === 'Metric|Value', 'Table retains its columns');
+      assert(table.querySelector('td strong')?.textContent === 'Failures (7d)', 'Table retains bold metrics');
+      assert([...table.querySelectorAll('code')].some(code => code.textContent === 'GENERIC_INTERNAL_ERROR'), 'Inline code preserves underscores');
+      const code = description.querySelector('pre code[data-language="java"]'); assert(code?.textContent?.includes('setScale') ?? false, 'Java code remains a code block');
+      assert(code?.querySelector('[class^="hljs-"]') !== null, 'Java code is highlighted');
+      const paragraph = description.querySelector('p'); assert(paragraph !== null && heading !== null, 'Heading and paragraph have separate semantics');
+      assert(parseFloat(getComputedStyle(heading).fontSize) > parseFloat(getComputedStyle(paragraph).fontSize), 'Heading has visual hierarchy');
+      const dialog = document.querySelector<HTMLElement>('.jira-detail'); assert(dialog !== null && dialog.scrollWidth <= dialog.clientWidth + 1, 'Wide table and code stay inside the ticket');
+    },
+    async 'renders compact comment rows with author avatars and full local timestamps'() {
+      await mountPreview();
+      const source = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#dbe8fb"/></svg>')}`;
+      detail = { ...detail, comments: [
+        { id: 'c0', author: { accountId: 'jack', displayName: 'Jack Chen', avatarUrl: source }, body: 'The connector now preserves the declared scale.', created: '2026-09-12T08:43:00Z', updated: '2026-09-12T08:43:00Z' },
+        { id: 'c1', author: { accountId: 'sam', displayName: 'Sam Rivera', avatarUrl: null }, body: '[@Jack Chen](https://example.atlassian.net/jira/people/jack) Thanks for fixing this.\n\nPlease preserve the existing null handling.', created: '2026-09-13T09:15:00Z', updated: '2026-09-13T09:15:00Z' },
+      ] };
+      button('Refresh ticket').click(); await until(() => document.querySelectorAll('.jira-comment').length === 2);
+      await Promise.all(document.getAnimations().map(animation => animation.finished));
+      const comments = [...document.querySelectorAll<HTMLElement>('.jira-comment')];
+      assert(comments.map(comment => comment.querySelector('strong')?.textContent).join('|') === 'Sam Rivera|Jack Chen', 'Newest comments remain first');
+      const time = comments[0].querySelector('time');
+      assert(time?.dateTime === detail.comments[1].created && time.textContent === new Date(detail.comments[1].created).toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' }), 'Comment shows its full local date and time');
+      const avatar = comments[0].querySelector<HTMLElement>('.jira-avatar'); assert(avatar?.textContent === 'SR' && avatar.title === 'Sam Rivera', 'Missing avatar shows author initials and full name');
+      assert(avatar.getBoundingClientRect().width === 32 && avatar.getBoundingClientRect().height === 32, 'Comment avatars use the 32 pixel conversation size');
+      const image = comments[1].querySelector<HTMLImageElement>('.jira-avatar img'); await until(() => image?.naturalWidth === 32);
+      assert(image?.width === 32 && image.height === 32 && image.referrerPolicy === 'no-referrer', 'Comment author images fit the avatar without sending a referrer');
+      image.dispatchEvent(new Event('error')); await until(() => comments[1].querySelector('.jira-avatar')?.textContent === 'JC');
+      const body = comments[0].querySelector<HTMLElement>('.markdown-body'); const name = comments[0].querySelector('strong'); assert(body !== null && name !== null, 'Comment body and author exist');
+      assert(getComputedStyle(body).padding === '0px' && body.getBoundingClientRect().left === name.getBoundingClientRect().left, 'Comment text aligns with the author without nested Markdown padding');
+      assert(getComputedStyle(comments[0]).borderWidth === '0px', 'Comments use conversation rows without card borders');
+      const mention = body.querySelector('.md-mention'); assert(mention?.textContent === '@Jack Chen', 'The entire mentioned name is one pill');
+      const composer = document.querySelector('.jira-comments form'); assert(composer !== null && Boolean(composer.compareDocumentPosition(comments[0]) & Node.DOCUMENT_POSITION_FOLLOWING), 'Comment composer stays before the conversation');
+    },
     async 'loads current sprint and edits supported fields'() {
       await mountPreview();
       assert(calls.some(call => call.name === 'issues' && (call.args[0] as { sprintId: number; mine: boolean }).sprintId === 11 && (call.args[0] as { mine: boolean }).mine), 'Active sprint must use the assigned-to-me filter');
@@ -227,7 +265,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     async 'loads assignee avatars and recovers from unavailable images'() {
       await mountPreview(false, false);
       const assignee = issue.assignee; assert(assignee !== null, 'Fixture has an assignee');
-      const avatar = () => document.querySelector<HTMLElement>('[aria-label^="ENG-1007:"] .jira-assignee');
+      const avatar = () => document.querySelector<HTMLElement>('[aria-label^="ENG-1007:"] .jira-avatar');
       const image = () => avatar()?.querySelector('img');
       const source = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="25" height="25"><rect width="25" height="25" fill="blue"/></svg>')}`;
       assert(avatar()?.textContent === 'AC' && !image(), 'Missing avatar retains initials without a GitHub request');
@@ -242,8 +280,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       button('Refresh tickets').click(); await until(() => image()?.naturalWidth === 25);
       assert(image()?.src === source, 'A changed source retries the same assignee after failure');
       button('List view').click(); await settle(); assert(image()?.src === source, 'List cards use Jira avatars');
-      button('Completed').click(); await until(() => document.querySelector('.jira-history-group .jira-assignee img') !== null);
-      assert(document.querySelector<HTMLImageElement>('.jira-history-group .jira-assignee img')?.src === source, 'Completed cards use Jira avatars');
+      button('Completed').click(); await until(() => document.querySelector('.jira-history-group .jira-avatar img') !== null);
+      assert(document.querySelector<HTMLImageElement>('.jira-history-group .jira-avatar img')?.src === source, 'Completed cards use Jira avatars');
       button('Current sprint').click(); await until(() => avatar() !== null);
       issue = { ...issue, assignee: null };
       button('Refresh tickets').click(); await until(() => avatar()?.getAttribute('aria-label') === 'Assignee: Unassigned');
@@ -328,7 +366,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       await mountPreview(false, false);
       const card = document.querySelector<HTMLElement>('.jira-ticket'); assert(card !== null, 'Card exists');
       const title = card.querySelector<HTMLButtonElement>('.jira-ticket__title'); assert(title !== null, 'Card has a native keyboard button');
-      for (const selector of ['.jira-assignee', '.jira-priority']) {
+      for (const selector of ['.jira-avatar', '.jira-priority']) {
         const target = card.querySelector<HTMLElement>(selector); assert(target !== null, 'Card metadata exists');
         const bounds = target.getBoundingClientRect();
         assert(target.contains(document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2)), 'Whole-card click target preserves native metadata hover tooltips');

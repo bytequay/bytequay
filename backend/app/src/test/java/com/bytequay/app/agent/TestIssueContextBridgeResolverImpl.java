@@ -106,7 +106,8 @@ class TestIssueContextBridgeResolverImpl
         when(jira.issue("connection", "cloud", "10001")).thenReturn(new JiraIssue("connection", "cloud", "10001", "APP-7", source.url(),
                 "Changed Jira title", "Changed Jira body", "Story", new JiraDtos.Status("3", "Done", "done"), Optional.of(author),
                 ImmutableList.of("bug"), Optional.empty(), Optional.empty(), false, false, NOW.plusSeconds(1), Optional.empty(), Optional.empty(),
-                ImmutableList.of(new JiraDtos.Comment("comment-1", author, "x".repeat(2_500), NOW.toString(), NOW.toString())), true, Optional.of(NOW), Optional.empty()));
+                ImmutableList.of(new JiraDtos.Comment("comment-1", Optional.empty(), author, "x".repeat(2_500), NOW.toString(), NOW.toString())), true,
+                Optional.of(NOW), Optional.empty()));
         IssueContextBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
         JsonNode context = mapper.readTree(bridge.read().get());
         assertThat(context.at("/acceptedIssue/body").asText()).isEqualTo(source.body());

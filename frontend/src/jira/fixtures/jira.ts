@@ -22,7 +22,7 @@ export const jiraIssue: JiraIssue = {
   updatedAt: '2026-09-26T08:00:00Z', completedAt: null, dueDate: null, task: null, workspace: null,
 };
 export function jiraDetail(issue: JiraIssue = jiraIssue): JiraIssueDetail {
-  return { issue, comments: [{ id: 'c1', author: { accountId: 'reviewer', displayName: 'Sam Rivera', avatarUrl: null }, body: 'Please preserve the existing null handling.', created: issue.updatedAt, updated: issue.updatedAt }],
+  return { issue, comments: [{ id: 'c1', parentId: null, author: { accountId: 'reviewer', displayName: 'Sam Rivera', avatarUrl: null }, body: 'Please preserve the existing null handling.', created: issue.updatedAt, updated: issue.updatedAt }],
     transitions: [{ id: 'start', name: 'Start progress', to: { id: 'progress', name: 'In progress', category: 'indeterminate' }, fields: [] },
       { id: 'done', name: 'Mark done', to: { id: 'done', name: 'Done', category: 'done' }, fields: [{ id: 'resolution', name: 'Resolution', required: true, schemaType: 'resolution', allowedValues: [{ id: '1', name: 'Fixed' }] }] },
       { id: 'complex', name: 'Complete with approvals', to: { id: 'done', name: 'Done', category: 'done' }, fields: [{ id: 'approvers', name: 'Approvers', required: true, schemaType: 'array', allowedValues: [] }] }],

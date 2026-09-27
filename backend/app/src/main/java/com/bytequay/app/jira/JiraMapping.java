@@ -113,7 +113,8 @@ final class JiraMapping
 
     static JiraDtos.Comment comment(String siteUrl, JsonNode value)
     {
-        return new JiraDtos.Comment(value.path("id").asText(), person(value.path("author")), markdown(siteUrl, value.path("body")).strip(),
+        // Jira returns parentId on replies, although its published comment schema omits the field.
+        return new JiraDtos.Comment(value.path("id").asText(), text(value, "parentId"), person(value.path("author")), markdown(siteUrl, value.path("body")).strip(),
                 value.path("created").asText(), value.path("updated").asText());
     }
 

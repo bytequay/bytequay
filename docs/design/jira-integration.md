@@ -20,7 +20,7 @@ The first release includes:
   Unknown categories retain their actual status name. Clicking anywhere on a
   ticket card opens a large centered dialog over the board or list, with a short
   zoom animation (disabled for reduced motion), description, comments (newest
-  first, under the comment box) and fields.
+  thread first, under the comment box) and fields.
   Action icons and parent links keep their own actions. Escape or Close returns
   focus to the card; the board keeps its layout and scroll position. Ticket dialogs
   hide while the embedded browser or another layer is above them and restore with
@@ -242,12 +242,16 @@ Descriptions are not round-tripped through that projection. Attachments and
 unsupported rich content remain accessible in Jira; this release does not
 implement the full Atlassian document editor.
 
-Comment rows show the author's avatar, full name and timestamp, newest first
-below the composer. ADF mentions retain their full supplied name and link to the
-account's Jira profile on the connected site; missing account IDs remain readable
-text. Comments stay in flat chronological order because the documented Jira REST
-API supplies no reply relationships. ByteQuay does not infer threads from names,
-mentions or comment text.
+Comment rows show the author's avatar, full name and timestamp below the
+composer. ADF mentions retain their full supplied name and link to the account's
+Jira profile on the connected site; missing account IDs remain readable text.
+Comments follow Jira's reply threads: the newest thread comes first, and its
+replies sit indented under the root, oldest first. As in Jira, a thread keeps
+the position of its root, so a new reply does not move it to the top. Each reply
+carries the `parentId` Jira returns, although its published comment schema omits
+the field; a reply whose parent is not loaded stays a top-level row marked as a
+reply. ByteQuay does not infer threads from names, mentions or comment text.
+Cached comments stay oldest first; only the ticket dialog groups them.
 
 ## Verification
 

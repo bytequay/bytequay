@@ -412,6 +412,24 @@ class TestJiraService
     }
 
     @Test
+    void commentRepliesKeepTheirParentInCachedContext()
+            throws Exception
+    {
+        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/1001/comment?"), eq("GET"), any()))
+                .thenReturn(json("""
+                        {"comments":[
+                          {"id":"2","parentId":"1","author":{"accountId":"bob"},"body":{"type":"doc","content":[]},
+                           "created":"2026-09-26T02:00:00Z","updated":"2026-09-26T02:00:00Z"},
+                          {"id":"1","author":{"accountId":"alice"},"body":{"type":"doc","content":[]},
+                           "created":"2026-09-26T01:00:00Z","updated":"2026-09-26T01:00:00Z"}
+                        ],"total":2}
+                        """));
+
+        assertThat(jira.detail("connection", "cloud", "1001", true).comments()).extracting(JiraDtos.Comment::parentId).containsExactly(Optional.empty(), Optional.of("1"));
+        assertThat(jira.detail("connection", "cloud", "1001", false).comments()).extracting(JiraDtos.Comment::parentId).containsExactly(Optional.empty(), Optional.of("1"));
+    }
+
+    @Test
     void commentPageLimitReturnsVisiblePartialResult()
             throws Exception
     {

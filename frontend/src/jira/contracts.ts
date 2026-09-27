@@ -30,9 +30,10 @@ export type JiraIssue = {
   workspace: { id: string; name: string } | null;
 };
 export type JiraField = { id: string; name: string; required: boolean; schemaType: string; allowedValues: { id: string; name: string }[] };
+export type JiraComment = { id: string; parentId: string | null; author: JiraUser; body: string; created: string; updated: string };
 export type JiraIssueDetail = {
   issue: JiraIssue;
-  comments: { id: string; author: JiraUser; body: string; created: string; updated: string }[];
+  comments: JiraComment[];
   transitions: { id: string; name: string; to: JiraStatus; fields: JiraField[] }[];
   editableFields: JiraField[]; assignees: JiraUser[];
   fetchedAt: string | null; error: string | null; commentsTruncated: boolean;

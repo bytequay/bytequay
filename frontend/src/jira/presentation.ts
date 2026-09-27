@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import type { JiraIssue } from './contracts';
+import type { JiraComment, JiraIssue } from './contracts';
 
 export const JIRA_WORKFLOW_GROUPS = ['To do', 'In progress', 'In review', 'Done'] as const;
 export function jiraWorkflowGroup(issue: JiraIssue): string {
@@ -45,4 +45,20 @@ export function completedGroups(issues: JiraIssue[], now = new Date()): { label:
     groups[index].issues.push(issue);
   }
   return groups.filter(group => group.issues.length > 0);
+}
+
+type JiraCommentThread = { comment: JiraComment; replies: JiraComment[] };
+/** Threads oldest-first comments as Jira shows them: newest thread first, replies oldest first under their root. */
+export function jiraCommentThreads(comments: JiraComment[]): JiraCommentThread[] {
+  const threads: JiraCommentThread[] = [];
+  const threadOf = new Map<string, JiraCommentThread>();
+  for (const comment of comments) {
+    // A reply to a reply joins its root's thread; a reply whose parent is not loaded starts its own.
+    const parent = comment.parentId === null ? undefined : threadOf.get(comment.parentId);
+    const thread = parent ?? { comment, replies: [] };
+    if (parent) parent.replies.push(comment);
+    else threads.push(thread);
+    threadOf.set(comment.id, thread);
+  }
+  return threads.reverse();
 }

@@ -100,7 +100,7 @@ export async function mountPreview(offline = false, openIssue = true, body = jir
     setJiraGoal: async (_location, isGoal) => { record('goal', isGoal); assert(!isGoal || issue.workspace !== null, 'Goal requires a saved workspace'); issue = { ...issue, isGoal }; return { ...detail, issue }; },
     updateJiraIssue: async (_location, fields, expectedUpdatedAt) => { record('fields', fields, expectedUpdatedAt); issue = { ...issue, labels: fields.labels as string[] }; return { ...detail, issue }; },
     transitionJiraIssue: async (_location, id, fields, expectedUpdatedAt) => { record('transition', id, fields, expectedUpdatedAt); const transition = detail.transitions.find(value => value.id === id); assert(transition !== undefined, 'Known transition required'); issue = { ...issue, status: transition.to }; return { ...detail, issue }; },
-    commentJiraIssue: async (_location, body, operationId) => { record('comment', body, operationId); if (commentFails) { commentFails = false; throw new Error('Connection lost; draft retained'); } detail = { ...detail, comments: [...detail.comments, { id: 'c2', body, author: { accountId: 'me', displayName: 'Alex Chen', avatarUrl: null }, created: issue.updatedAt, updated: issue.updatedAt }] }; return { ...detail, issue }; },
+    commentJiraIssue: async (_location, body, operationId) => { record('comment', body, operationId); if (commentFails) { commentFails = false; throw new Error('Connection lost; draft retained'); } detail = { ...detail, comments: [...detail.comments, { id: 'c2', parentId: null, body, author: { accountId: 'me', displayName: 'Alex Chen', avatarUrl: null }, created: issue.updatedAt, updated: issue.updatedAt }] }; return { ...detail, issue }; },
     moveJiraIssue: async (_location, sprintId, boardId, expectedUpdatedAt) => { record('sprint', sprintId, boardId, expectedUpdatedAt); return { ...detail, issue }; },
     listWorkspaces: async () => workspaces,
     createAgentTask: async request => { taskRequest = request; return previewTask('workspace', request.taskId); },
@@ -134,13 +134,17 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       await mountPreview();
       const source = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#dbe8fb"/></svg>')}`;
       detail = { ...detail, comments: [
-        { id: 'c0', author: { accountId: 'jack', displayName: 'Jack Chen', avatarUrl: source }, body: 'The connector now preserves the declared scale.', created: '2026-09-12T08:43:00Z', updated: '2026-09-12T08:43:00Z' },
-        { id: 'c1', author: { accountId: 'sam', displayName: 'Sam Rivera', avatarUrl: null }, body: '[@Jack Chen](https://example.atlassian.net/jira/people/jack) Thanks for fixing this.\n\nPlease preserve the existing null handling.', created: '2026-09-13T09:15:00Z', updated: '2026-09-13T09:15:00Z' },
+        { id: 'c0', parentId: null, author: { accountId: 'jack', displayName: 'Jack Chen', avatarUrl: source }, body: 'The connector now preserves the declared scale.', created: '2026-09-12T08:43:00Z', updated: '2026-09-12T08:43:00Z' },
+        { id: 'c1', parentId: null, author: { accountId: 'sam', displayName: 'Sam Rivera', avatarUrl: null }, body: '[@Jack Chen](https://example.atlassian.net/jira/people/jack) Thanks for fixing this.\n\nPlease preserve the existing null handling.', created: '2026-09-13T09:15:00Z', updated: '2026-09-13T09:15:00Z' },
+        { id: 'c2', parentId: 'c0', author: { accountId: 'sam', displayName: 'Sam Rivera', avatarUrl: null }, body: 'Confirmed on the custom build.', created: '2026-09-14T10:00:00Z', updated: '2026-09-14T10:00:00Z' },
       ] };
-      button('Refresh ticket').click(); await until(() => document.querySelectorAll('.jira-comment').length === 2);
+      button('Refresh ticket').click(); await until(() => document.querySelectorAll('.jira-comment').length === 3);
       await Promise.all(document.getAnimations().map(animation => animation.finished));
       const comments = [...document.querySelectorAll<HTMLElement>('.jira-comment')];
-      assert(comments.map(comment => comment.querySelector('strong')?.textContent).join('|') === 'Sam Rivera|Jack Chen', 'Newest comments remain first');
+      assert(comments.map(comment => comment.getAttribute('aria-label')).join('|') === 'Comment by Sam Rivera|Comment by Jack Chen|Reply by Sam Rivera', 'Newest thread first; a reply follows its root');
+      const replyAvatar = comments[2].querySelector('.jira-avatar'); const rootText = comments[1].querySelector('.jira-comment__content');
+      assert(comments[2].parentElement?.classList.contains('jira-comment-replies') === true && replyAvatar?.getBoundingClientRect().left === rootText?.getBoundingClientRect().left, 'A reply is nested under its root');
+      assert(getComputedStyle(comments[1], '::after').content !== 'none' && getComputedStyle(comments[2], '::before').borderBottomLeftRadius === '12px' && getComputedStyle(comments[2], '::after').content === 'none', 'A rail runs from the root avatar and curves into its last reply');
       const time = comments[0].querySelector('time');
       assert(time?.dateTime === detail.comments[1].created && time.textContent === new Date(detail.comments[1].created).toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' }), 'Comment shows its full local date and time');
       const avatar = comments[0].querySelector<HTMLElement>('.jira-avatar'); assert(avatar?.textContent === 'SR' && avatar.title === 'Sam Rivera', 'Missing avatar shows author initials and full name');

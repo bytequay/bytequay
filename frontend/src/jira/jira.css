@@ -115,12 +115,18 @@
 .jira-detail .markdown-body > :first-child { margin-top: 0; }
 .jira-detail .markdown-body > :last-child { margin-bottom: 0; }
 .jira-comments { border-top: 1px solid var(--border, #d8dee4); padding-top: 15px; }
-.jira-comment { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 12px; padding: 12px 0 20px; }
+.jira-comment { position: relative; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 12px; padding: 12px 0 20px; }
 .jira-comment > .jira-avatar { width: 32px; height: 32px; font-size: 12px; }
 .jira-comment__content { min-width: 0; }
 .jira-comment header { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; margin-bottom: 8px; font-size: 14px; }
 .jira-comment time { color: var(--text-3); font-size: 12px; }
 .jira-comment .markdown-body { padding: 0; }
+/* Like Jira, a rail drops from the root's avatar and curves into each reply's avatar, ending at the last reply.
+   Replies sit on the root's text column, so -28px from a reply is the root avatar's centre (16px). */
+.jira-comment-replies { padding-left: 44px; }
+.jira-comment:has(+ .jira-comment-replies > .jira-comment)::after { content: ''; position: absolute; top: 48px; bottom: 0; left: 16px; border-left: 1px solid var(--border, #d8dee4); }
+.jira-comment-replies > .jira-comment:not(:last-of-type)::after { content: ''; position: absolute; top: 0; bottom: 0; left: -28px; border-left: 1px solid var(--border, #d8dee4); }
+.jira-comment-replies > .jira-comment::before { content: ''; position: absolute; top: 0; left: -28px; width: 24px; height: 28px; border: 0 solid var(--border, #d8dee4); border-width: 0 0 1px 1px; border-bottom-left-radius: 12px; }
 .jira-comments form { display: grid; gap: 9px; margin-bottom: 16px; }
 .jira-comments form button { justify-self: end; }
 .jira-comments textarea { resize: vertical; }

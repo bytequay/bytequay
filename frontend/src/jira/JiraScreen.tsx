@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Bookmark, Bug, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, ExternalLink, Flag, Columns3, FolderGit2, List, LoaderCircle, MessageSquare, Minus, Play, RefreshCw, SquareCheck, UserRound, X, Zap } from 'lucide-react';
 import MarkdownBody from '../pulls/MarkdownBody';
 import { relativeTime } from '../relativeTime';
@@ -21,9 +21,9 @@ import type { WorkspaceDto } from '../types';
 import { workspaceAgentTaskRoute } from '../workspaces/model';
 import { settingsRoute } from '../settings/routes';
 import { LayerCovered } from '../Zoom';
-import { JIRA_CHANGED, jiraAccountLabel, jiraSiteDomain, jiraIssueLocation, jiraLocation, jiraRoute, notifyJiraChanged, type JiraBoard, type JiraConnection, type JiraField, type JiraIssue, type JiraIssueDetail, type JiraIssuePage, type JiraLocation, type JiraSprint } from './contracts';
+import { JIRA_CHANGED, jiraAccountLabel, jiraSiteDomain, jiraIssueLocation, jiraLocation, jiraRoute, notifyJiraChanged, type JiraBoard, type JiraComment, type JiraConnection, type JiraField, type JiraIssue, type JiraIssueDetail, type JiraIssuePage, type JiraLocation, type JiraSprint } from './contracts';
 import JiraIcon from './JiraIcon';
-import { completedGroups, JIRA_WORKFLOW_GROUPS, jiraWorkflowGroup } from './presentation';
+import { completedGroups, JIRA_WORKFLOW_GROUPS, jiraCommentThreads, jiraWorkflowGroup } from './presentation';
 import './jira.css';
 
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -283,6 +283,13 @@ function JiraAvatar({ person, label = person?.displayName ?? 'Unassigned' }: { p
       : person ? <span>{initials.length > 1 ? `${initials[0]}${initials[initials.length - 1]}` : initials[0]}</span> : <UserRound size={14} />}
   </span>;
 }
+function JiraCommentRow({ value, nested = false }: { value: JiraComment; nested?: boolean }) {
+  return <article className="jira-comment" aria-label={`${value.parentId === null ? 'Comment' : 'Reply'} by ${value.author.displayName}`}>
+    <JiraAvatar person={value.author} />
+    <div className="jira-comment__content"><header><strong>{value.author.displayName}</strong><time dateTime={value.created}>{new Date(value.created).toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' })}</time>
+      {value.parentId !== null && !nested && <span className="jira-muted">Reply to a comment that is not loaded</span>}</header><MarkdownBody body={value.body} /></div>
+  </article>;
+}
 
 /** A ticket a link opened over its page. It has no board, so moving between sprints stays on the Jira page. */
 export function JiraTicketLayer({ location, start = false, onClose }: { location: JiraLocation; start?: boolean; onClose: () => void }) {
@@ -397,10 +404,10 @@ function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }:
           <label>Add a comment<textarea rows={4} value={comment} onChange={event => setComment(event.target.value)} placeholder="Write a reply…" /></label>
           <button type="submit" className="bq-button bq-button--primary" disabled={busy || !comment.trim()}>Send comment</button>
         </form>
-        {detail.comments.toReversed().map(value => <article className="jira-comment" key={value.id} aria-label={`Comment by ${value.author.displayName}`}>
-          <JiraAvatar person={value.author} />
-          <div className="jira-comment__content"><header><strong>{value.author.displayName}</strong><time dateTime={value.created}>{new Date(value.created).toLocaleString(undefined, { dateStyle: 'long', timeStyle: 'short' })}</time></header><MarkdownBody body={value.body} /></div>
-        </article>)}
+        {jiraCommentThreads(detail.comments).map(({ comment, replies }) => <Fragment key={comment.id}>
+          <JiraCommentRow value={comment} />
+          {replies.length > 0 && <div className="jira-comment-replies">{replies.map(reply => <JiraCommentRow key={reply.id} value={reply} nested />)}</div>}
+        </Fragment>)}
         {detail.commentsTruncated && <p className="jira-notice">Some comments are not loaded. Open Jira to read the full discussion.</p>}
         {detail.comments.length === 0 && !detail.commentsTruncated && <p className="jira-muted">No comments yet.</p>}
       </section>

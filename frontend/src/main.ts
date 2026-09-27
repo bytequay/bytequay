@@ -1714,6 +1714,8 @@ function registerIpc(): void {
   });
   ipcMain.handle('jira:issue', (_event, location: JiraLocation, refresh: boolean, automatic: boolean) =>
     backendJson(`${jiraIssuePath(location)}${refresh ? '/refresh' : ''}${refresh && automatic ? '?automatic=true' : ''}`, { method: refresh ? 'POST' : 'GET', headers: agentHeaders() }));
+  ipcMain.handle('jira:key:refresh', (_event, connectionId: string, cloudId: string, key: string) =>
+    backendJson(`${jiraSitePath(connectionId, cloudId)}/keys/${encodeURIComponent(key)}/refresh`, { method: 'POST', headers: agentHeaders() }));
   ipcMain.handle('jira:issue:update', (_event, location: JiraLocation, fields: Record<string, unknown>, expectedUpdatedAt: string) =>
     backendJson(jiraIssuePath(location), jsonInit('PATCH', { fields, expectedUpdatedAt }, agentHeaders())));
   ipcMain.handle('jira:issue:transition', (_event, location: JiraLocation, transitionId: string, fields: Record<string, unknown>, expectedUpdatedAt: string) =>

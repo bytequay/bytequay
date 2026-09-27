@@ -15,7 +15,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import AppSidebar, { type AppPage } from './AppSidebar';
 import BrowserRail from './BrowserRail';
 import FindBar from './FindBar';
-import JiraScreen from './jira/JiraScreen';
+import JiraScreen, { JiraTicketLayer } from './jira/JiraScreen';
 import { JIRA_CHANGED } from './jira/contracts';
 import HomePage from './home/HomePage';
 import { loadHandled } from './home/attention';
@@ -65,7 +65,9 @@ import {
 type Status = 'checking' | 'needs-pat' | 'ready';
 
 function layerKey(layer: ZoomedReference): string {
-  return `${layer.kind}:${layer.workspaceId ?? ''}:${layer.repo}#${layer.number}`;
+  return layer.kind === 'jira'
+    ? `jira:${layer.connectionId}/${layer.cloudId}/${layer.issueId}`
+    : `${layer.kind}:${layer.workspaceId ?? ''}:${layer.repo}#${layer.number}`;
 }
 
 function pageFromRoute(hash: string): AppPage {
@@ -111,7 +113,7 @@ export default function App() {
     setNewPageOpen(false);
     browserAction(window.bridge.hideInAppBrowser());
   }, [browserAction]);
-  /** Issues and pull requests shown over the page, the one opened last on top. */
+  /** Issues, pull requests and Jira tickets shown over the page, the one opened last on top. */
   const [layers, setLayers] = useState<ZoomedReference[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
@@ -566,6 +568,7 @@ export default function App() {
                   onClose={() => closeLayer(key)}
                 />
               )}
+              {layer.kind === 'jira' && <JiraTicketLayer location={layer} start={layer.start} onClose={() => closeLayer(key)} />}
             </div>
           </LayerCovered.Provider>
         );

@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { jiraIssueLocation, jiraTicketLink, type JiraLocation } from './jira/contracts';
 import type { GitHubIssuePreviewDto, PullRequestDetailDto, RepositoryIssueSnapshotDto } from './types';
 
 export type GitHubReference = {
@@ -122,11 +123,14 @@ export const ZOOM_REFERENCE = 'bytequay:zoom-reference';
 
 export type ZoomedReference =
   | { kind: 'pull'; repo: string; number: number; workspaceId?: string }
-  | { kind: 'issue'; repo: string; number: number; workspaceId: string };
+  | { kind: 'issue'; repo: string; number: number; workspaceId: string }
+  /** `start` also opens the development composer over the ticket. */
+  | ({ kind: 'jira'; start?: boolean } & JiraLocation);
 
 /**
- * Shows one issue or pull request over the page that asked for it. Every surface that opens a
- * reference goes through here, so a reference never replaces the page with a list to find it in.
+ * Shows one issue, pull request or Jira ticket over the page or layer that asked for it. Every
+ * surface that opens a reference goes through here, so a reference never replaces the page with a
+ * list to find it in.
  */
 export function zoomReference(target: ZoomedReference): void {
   window.dispatchEvent(new CustomEvent(ZOOM_REFERENCE, { detail: target }));
@@ -146,4 +150,23 @@ export async function openGitHubReference(reference: GitHubReference, preview?: 
     return;
   }
   await window.bridge.openInAppBrowser(referenceHref(reference, kind));
+}
+
+/**
+ * Opens a link from rendered text. A ticket on a connected Jira site opens natively over the page;
+ * anything else, including a ticket no connected account can read, stays a web page.
+ */
+export async function openWebLink(href: string): Promise<void> {
+  const ticket = jiraTicketLink(href);
+  const location = ticket === null ? null : await jiraTicketLocation(ticket.origin, ticket.key).catch((): null => null);
+  if (location !== null) zoomReference({ kind: 'jira', ...location });
+  else await window.bridge.openInAppBrowser(href);
+}
+
+async function jiraTicketLocation(origin: string, key: string): Promise<JiraLocation | null> {
+  for (const connection of await window.bridge.listJiraConnections()) {
+    const site = connection.state === 'connected' ? connection.sites.find(candidate => new URL(candidate.url).origin === origin) : undefined;
+    if (site) return jiraIssueLocation(await window.bridge.refreshJiraIssueByKey(connection.id, site.id, key));
+  }
+  return null;
 }

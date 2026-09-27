@@ -14,8 +14,8 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture } from './fixtures/browserFixture';
 
-it('draws a reference opened from a Jira ticket above that ticket in the running app', async () => {
-  const results = await runBrowserFixture<{ name: string }[]>({
+it('draws the most recently opened ticket, issue or web page on top in the running app', async () => {
+  const results = await runBrowserFixture<{ name: string; error?: string }[]>({
     prefix: 'bytequay-zoom-over-jira-',
     entry: 'src/fixtures/zoomOverJiraBrowser.tsx',
     global: 'ZoomOverJiraTests',
@@ -23,5 +23,6 @@ it('draws a reference opened from a Jira ticket above that ticket in the running
     width: 1280,
     height: 900,
   });
-  expect(results).toHaveLength(1);
+  expect(results.filter(result => result.error !== undefined)).toEqual([]);
+  expect(results).toHaveLength(2);
 }, 30_000);

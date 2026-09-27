@@ -55,6 +55,8 @@ export type JiraBridge = {
   listJiraSprints: (connectionId: string, cloudId: string, boardId: number, refresh?: boolean) => Promise<JiraSprint[]>;
   listJiraIssues: (query: JiraQuery, refresh?: boolean) => Promise<JiraIssuePage>;
   getJiraIssue: (location: JiraLocation, refresh?: boolean, automatic?: boolean) => Promise<JiraIssueDetail>;
+  /** Looks up the ticket a link's key names now; everything after uses the returned issue id. */
+  refreshJiraIssueByKey: (connectionId: string, cloudId: string, key: string) => Promise<JiraIssue>;
   updateJiraIssue: (location: JiraLocation, fields: Record<string, unknown>, expectedUpdatedAt: string) => Promise<JiraIssueDetail>;
   transitionJiraIssue: (location: JiraLocation, transitionId: string, fields: Record<string, unknown>, expectedUpdatedAt: string) => Promise<JiraIssueDetail>;
   moveJiraIssue: (location: JiraLocation, sprintId: number | null, boardId: number, expectedUpdatedAt: string) => Promise<JiraIssueDetail>;
@@ -76,6 +78,17 @@ export function jiraLocation(hash: string): JiraLocation | null {
   const cloudId = query.get('cloudId');
   const issueId = query.get('issueId');
   return connectionId && cloudId && issueId ? { connectionId, cloudId, issueId } : null;
+}
+/** The site origin and key of a Jira Cloud ticket link such as `https://acme.atlassian.net/browse/ENG-7`. */
+export function jiraTicketLink(href: string): { origin: string; key: string } | null {
+  try {
+    const url = new URL(href);
+    const key = /^\/browse\/([a-z][a-z0-9_]*-[1-9][0-9]*)\/?$/i.exec(url.pathname)?.[1];
+    return url.protocol === 'https:' && key ? { origin: url.origin, key: key.toUpperCase() } : null;
+  }
+  catch {
+    return null;
+  }
 }
 export function jiraIssueLocation(issue: JiraIssue): JiraLocation {
   return { connectionId: issue.connectionId, cloudId: issue.cloudId, issueId: issue.id };

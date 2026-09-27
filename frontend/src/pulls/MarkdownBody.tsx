@@ -16,6 +16,7 @@ import { ArrowUpRight, CircleDot, GitPullRequest, Info, Lightbulb, MessageSquare
 import hljs from 'highlight.js/lib/common';
 import {
   openGitHubReference,
+  openWebLink,
   parseGitHubReference,
   referenceHref,
   type GitHubReference,
@@ -540,7 +541,7 @@ function inline(
     if (linkedImage) return (
       <a className="md-image-link" key={key} href={linkedImage[3]} onClick={event => {
         event.preventDefault();
-        void window.bridge.openInAppBrowser(linkedImage[3]);
+        void openWebLink(linkedImage[3]);
       }}>
         <img src={linkedImage[2]} alt={linkedImage[1]} />
       </a>
@@ -571,7 +572,7 @@ function inline(
       return (
         <a key={key} href={href} onClick={event => {
           event.preventDefault();
-          void window.bridge.openInAppBrowser(href);
+          void openWebLink(href);
         }}>
           {label}
         </a>
@@ -592,7 +593,7 @@ function inline(
     if (/^https?:\/\//i.test(part)) return (
       <a key={key} href={part} onClick={event => {
         event.preventDefault();
-        void window.bridge.openInAppBrowser(part);
+        void openWebLink(part);
       }}>
         {part}
       </a>

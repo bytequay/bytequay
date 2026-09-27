@@ -91,18 +91,6 @@ export default function JiraScreen({ workspace }: { workspace?: Pick<WorkspaceDt
   const actualConnectionId = connection?.id ?? '';
   const actualCloudId = site?.id ?? '';
 
-  useEffect(() => {
-    if (selected === null || new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('start') !== '1') return;
-    let active = true;
-    void window.bridge.getJiraIssue(selected, true).then(value => {
-      if (!active) return;
-      if (value.issue.task) window.location.hash = workspaceAgentTaskRoute(value.issue.task.workspaceId, value.issue.task.id);
-      else if (!value.issue.isGoal && !value.issue.hasChildren && value.issue.status.category !== 'done') setLaunch({ issue: value.issue });
-      else setError('Choose a leaf ticket to start development.');
-    }).catch(cause => { if (active) setError(message(cause)); });
-    return () => { active = false; };
-  }, [selected]);
-
   const applyConnections = useCallback((values: JiraConnection[]) => { setConnections(values); }, []);
   useEffect(() => {
     let active = true;
@@ -296,6 +284,26 @@ function JiraAssignee({ assignee }: { assignee: JiraIssue['assignee'] }) {
   </span>;
 }
 
+/** A ticket a link opened over its page. It has no board, so moving between sprints stays on the Jira page. */
+export function JiraTicketLayer({ location, start = false, onClose }: { location: JiraLocation; start?: boolean; onClose: () => void }) {
+  const [launch, setLaunch] = useState<{ issue: JiraIssue; onChanged?: (detail: JiraIssueDetail) => void } | null>(null);
+  useEffect(() => {
+    if (!start) return;
+    let active = true;
+    // A ticket that already has a task reopens it; only a leaf ticket that is not done starts one.
+    void window.bridge.getJiraIssue(location, true).then(({ issue }) => {
+      if (!active) return;
+      if (issue.task) window.location.hash = workspaceAgentTaskRoute(issue.task.workspaceId, issue.task.id);
+      else if (!issue.isGoal && !issue.hasChildren && issue.status.category !== 'done') setLaunch({ issue });
+    }).catch(() => { /* The ticket view reports its own refresh failure. */ });
+    return () => { active = false; };
+  }, [location, start]);
+  return <>
+    <JiraDetail location={location} boardId={null} sprints={[]} onClose={onClose} onChanged={notifyJiraChanged} onStart={(issue, onChanged) => setLaunch({ issue, onChanged })} />
+    {launch && <JiraLaunch issue={launch.issue} onChanged={detail => { notifyJiraChanged(); launch.onChanged?.(detail); }} onClose={() => setLaunch(null)} />}
+  </>;
+}
+
 function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }: { location: JiraLocation; sprints: JiraSprint[]; boardId: number | null; onClose: () => void; onChanged: (detail: JiraIssueDetail, refresh?: boolean) => void; onStart: (issue: JiraIssue, onChanged: (detail: JiraIssueDetail) => void) => void }) {
   const dialog = useJiraDialog();
   const [detail, setDetail] = useState<JiraIssueDetail | null>(null);
@@ -339,6 +347,17 @@ function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }:
     }, 60_000);
     return () => { active = false; window.clearInterval(timer); };
   }, [busy, editing, location, transitionId, moveTo]);
+  const covered = useContext(LayerCovered);
+  const wasCovered = useRef(covered);
+  useEffect(() => {
+    if (wasCovered.current === covered) return;
+    wasCovered.current = covered;
+    if (covered) return;
+    let active = true;
+    // A view of the same ticket in a layer that was above this one may have changed it.
+    void window.bridge.getJiraIssue(location).then(value => { if (active) { setDetail(value); onChangedRef.current(value, false); } }).catch(() => {});
+    return () => { active = false; };
+  }, [covered, location]);
   const mutate = async (action: () => Promise<JiraIssueDetail>, success?: () => void) => {
     if (busy) return;
     setBusy(true); setError(null);

@@ -19,16 +19,16 @@
 .jira-spacer { flex: 1; }
 .jira-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 0 26px 14px; }
 .jira-toolbar--secondary { border-bottom: 1px solid var(--border, #d8dee4); }
-.jira-screen select, .jira-screen input:not([type=checkbox]), .jira-screen textarea, .jira-launch select { font: inherit; color: inherit; border: 1px solid var(--border, #d8dee4); background: var(--bg-base); border-radius: 7px; padding: 7px 9px; min-width: 0; max-width: 100%; }
+.jira-screen select, .jira-screen input:not([type=checkbox]), .jira-screen textarea, .jira-detail select, .jira-detail input:not([type=checkbox]), .jira-detail textarea, .jira-launch select { font: inherit; color: inherit; border: 1px solid var(--border, #d8dee4); background: var(--bg-base); border-radius: 7px; padding: 7px 9px; min-width: 0; max-width: 100%; }
 .jira-toolbar select { max-width: 260px; }
 .jira-mine { display: flex; align-items: center; gap: 5px; font-size: 13px; white-space: nowrap; }
 .jira-muted { color: var(--text-3); font-size: 12px; }
 .jira-layout, .jira-actions { display: inline-flex; align-items: center; gap: 4px; }
 .jira-actions { flex-shrink: 0; }
-.jira-screen .bq-iconbtn, .jira-launch .bq-iconbtn { display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--text-2); border-radius: 6px; padding: 6px; cursor: pointer; }
-.jira-screen .bq-iconbtn:hover, .jira-launch .bq-iconbtn:hover { background: var(--bg-hover); }
-.jira-screen .bq-iconbtn:disabled { opacity: .45; cursor: default; }
-.jira-screen .jira-goal-active, .jira-layout button[aria-pressed=true] { color: #0969da; background: #ddf4ff; }
+.jira-screen .bq-iconbtn, .jira-detail .bq-iconbtn, .jira-launch .bq-iconbtn { display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--text-2); border-radius: 6px; padding: 6px; cursor: pointer; }
+.jira-screen .bq-iconbtn:hover, .jira-detail .bq-iconbtn:hover, .jira-launch .bq-iconbtn:hover { background: var(--bg-hover); }
+.jira-screen .bq-iconbtn:disabled, .jira-detail .bq-iconbtn:disabled { opacity: .45; cursor: default; }
+.jira-screen .jira-goal-active, .jira-detail .jira-goal-active, .jira-layout button[aria-pressed=true] { color: #0969da; background: #ddf4ff; }
 .jira-content { display: flex; flex: 1; min-height: 0; }
 .jira-items { flex: 1; min-width: 260px; padding: 12px 20px; overflow: auto; }
 .jira-items.is-board { display: flex; align-items: flex-start; gap: 12px; }

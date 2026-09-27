@@ -17,7 +17,8 @@ import { createPortal } from 'react-dom';
 import { ExternalLink } from 'lucide-react';
 import { anchorPanel, previewMarkdown, useHoverCard } from '../ReferenceCard';
 import MarkdownBody from '../pulls/MarkdownBody';
-import { jiraRoute, type JiraTaskSource } from './contracts';
+import { zoomReference } from '../githubReference';
+import type { JiraTaskSource } from './contracts';
 import JiraIcon from './JiraIcon';
 import './jira.css';
 
@@ -26,7 +27,7 @@ export function JiraSourceAttachment({ source }: { source: Source }) {
   const id = useId();
   const container = useRef<HTMLDivElement>(null);
   const hover = useHoverCard(0, 150);
-  const open = () => { hover.close(); window.location.hash = jiraRoute(source); };
+  const open = () => { hover.close(); zoomReference({ kind: 'jira', connectionId: source.connectionId, cloudId: source.cloudId, issueId: source.issueId }); };
   return <div ref={container} className="agt-issue-attachment">
     <button type="button" className="agt-issue-attachment__source" aria-label={`Preview ticket ${source.key}`}
       aria-haspopup="dialog" aria-expanded={hover.anchor !== null} aria-controls={hover.anchor ? id : undefined}

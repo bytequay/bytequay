@@ -12,7 +12,8 @@
  * limitations under the License.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { openGitHubReference, parseGitHubReference, pullRequestFromRoute, pullRequestRoute, resolveGitHubReference, ZOOM_REFERENCE } from './githubReference';
+import { openGitHubReference, openWebLink, parseGitHubReference, pullRequestFromRoute, pullRequestRoute, resolveGitHubReference, ZOOM_REFERENCE } from './githubReference';
+import { jiraTicketLink } from './jira/contracts';
 
 const issuePreview = {
   title: 'Kerberos Hive container startup times out',
@@ -168,6 +169,49 @@ describe('GitHub references', () => {
     await openGitHubReference(reference);
 
     expect(bridge.openInAppBrowser).toHaveBeenCalledWith(reference.href);
+    expect(zoomed(dispatchEvent)).toEqual([]);
+  });
+});
+
+describe('Jira ticket links', () => {
+  const site = { id: 'cloud', name: 'Engineering', url: 'https://acme.atlassian.net/' };
+  const connection = { id: 'connection', state: 'connected', sites: [site] };
+
+  it('recognizes a browse link by its site and key', () => {
+    expect(jiraTicketLink('https://acme.atlassian.net/browse/eng-7?focusedCommentId=3')).toEqual({ origin: 'https://acme.atlassian.net', key: 'ENG-7' });
+    expect(jiraTicketLink('https://acme.atlassian.net/browse/ENG')).toBeNull();
+    expect(jiraTicketLink('http://acme.atlassian.net/browse/ENG-7')).toBeNull();
+    expect(jiraTicketLink('https://acme.atlassian.net/jira/software/projects/ENG/boards/1')).toBeNull();
+  });
+
+  it('opens a connected-site ticket natively by the issue id its key names now', async () => {
+    const bridge = {
+      listJiraConnections: vi.fn().mockResolvedValue([{ ...connection, id: 'pending', state: 'pending' }, connection]),
+      refreshJiraIssueByKey: vi.fn().mockResolvedValue({ id: '10042', key: 'ENG-7', connectionId: 'connection', cloudId: 'cloud' }),
+      openInAppBrowser: vi.fn(),
+    };
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal('window', { bridge, dispatchEvent });
+
+    await openWebLink('https://acme.atlassian.net/browse/ENG-7');
+
+    expect(bridge.refreshJiraIssueByKey).toHaveBeenCalledWith('connection', 'cloud', 'ENG-7');
+    expect(zoomed(dispatchEvent)).toEqual([{ kind: 'jira', connectionId: 'connection', cloudId: 'cloud', issueId: '10042' }]);
+    expect(bridge.openInAppBrowser).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['another site', 'https://other.atlassian.net/browse/ENG-7', vi.fn()],
+    ['an unreadable ticket', 'https://acme.atlassian.net/browse/ENG-7', vi.fn().mockRejectedValue(new Error('Not found'))],
+    ['any other page', 'https://example.com/docs', vi.fn()],
+  ])('keeps %s a web page', async (_name, href, refreshJiraIssueByKey) => {
+    const bridge = { listJiraConnections: vi.fn().mockResolvedValue([connection]), refreshJiraIssueByKey, openInAppBrowser: vi.fn() };
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal('window', { bridge, dispatchEvent });
+
+    await openWebLink(href);
+
+    expect(bridge.openInAppBrowser).toHaveBeenCalledWith(href);
     expect(zoomed(dispatchEvent)).toEqual([]);
   });
 });

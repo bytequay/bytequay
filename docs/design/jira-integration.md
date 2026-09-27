@@ -25,6 +25,14 @@ The first release includes:
   focus to the card; the board keeps its layout and scroll position. Ticket dialogs
   hide while the embedded browser or another layer is above them and restore with
   their drafts on return, so the layer opened last stays on top.
+- Open a Jira Cloud ticket link (`https://<site>/browse/<KEY>`) in rendered
+  Markdown as the native ticket, layered over the page, issue or pull request it
+  came from. An explicit lookup resolves the key once; the ticket is then cached
+  and addressed by its issue id. Links to unconnected sites, and tickets the
+  connected account cannot read, stay web pages. Needs attention rows and task
+  source cards open their ticket the same way, and a row's Start development opens
+  the composer over its ticket. A ticket opened this way has no board, so sprint
+  moves stay on the Jira page.
 - Use a distinct Jira source icon across navigation, attention and task source
   cards. Ticket cards place the title first, labels/parent below it, and the issue
   type/key, priority and assignee in the footer. Unknown custom priorities retain

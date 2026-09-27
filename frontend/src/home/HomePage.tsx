@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useJiraAttention } from '../jira/attention';
-import { jiraIssueLocation, jiraRoute } from '../jira/contracts';
+import { jiraIssueLocation } from '../jira/contracts';
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import type { PullRequestDto, RecentEventDto, UserProfileDto, WorkspaceDto } from '../types';
@@ -376,7 +376,7 @@ function HomePage({
         handled={handled}
         onHandledChange={applyHandled}
         onOpen={item => {
-          if (item.jira) { window.location.hash = jiraRoute(jiraIssueLocation(item.jira)); return; }
+          if (item.jira) { zoomReference({ kind: 'jira', ...jiraIssueLocation(item.jira) }); return; }
           if (item.type === 'issue' && item.workspaceId !== null) {
             zoomReference({ kind: 'issue', repo: item.repo, number: item.number, workspaceId: item.workspaceId });
             return;
@@ -385,7 +385,7 @@ function HomePage({
           onSelectRepo(item.repo.slice(0, slash), item.repo.slice(slash + 1), item.number);
         }}
         onStartIssue={item => {
-          if (item.jira) { window.location.hash = `${jiraRoute(jiraIssueLocation(item.jira))}&start=1`; return; }
+          if (item.jira) { zoomReference({ kind: 'jira', ...jiraIssueLocation(item.jira), start: true }); return; }
           if (item.workspaceId !== null) onStartIssue?.(item.workspaceId, item.number);
         }}
         issueNavigation={workspaces.length > 0 ? (

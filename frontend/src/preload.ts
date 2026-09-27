@@ -55,6 +55,7 @@ const bridge: Bridge = {
   listJiraSprints: (connectionId, cloudId, boardId, refresh) => ipcRenderer.invoke('jira:sprints', connectionId, cloudId, boardId, refresh),
   listJiraIssues: (query, refresh) => ipcRenderer.invoke('jira:issues', query, refresh),
   getJiraIssue: (location, refresh, automatic) => ipcRenderer.invoke('jira:issue', location, refresh, automatic),
+  refreshJiraIssueByKey: (connectionId, cloudId, key) => ipcRenderer.invoke('jira:key:refresh', connectionId, cloudId, key),
   updateJiraIssue: (location, fields, expectedUpdatedAt) => ipcRenderer.invoke('jira:issue:update', location, fields, expectedUpdatedAt),
   transitionJiraIssue: (location, transitionId, fields, expectedUpdatedAt) => ipcRenderer.invoke('jira:issue:transition', location, transitionId, fields, expectedUpdatedAt),
   moveJiraIssue: (location, sprintId, boardId, expectedUpdatedAt) => ipcRenderer.invoke('jira:issue:sprint', location, sprintId, boardId, expectedUpdatedAt),

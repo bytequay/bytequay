@@ -89,6 +89,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
@@ -138,6 +139,25 @@ class TestReviewRuntimeRecovery
         verify(reviews).find("workspace-1", "owner/repo", 7);
         verifyNoMoreInteractions(reviews);
         verifyNoInteractions(turns, supervisor, taskStore, turnStore, launchStore);
+    }
+
+    @Test
+    void codeCatchUpRoutesToStandaloneSyncAndReturnsTheReview()
+            throws Exception
+    {
+        String head = "a".repeat(40);
+        when(reviews.syncWorktree(REVIEW_ID, head)).thenReturn(projection());
+        MockMvc mvc = standaloneSetup(controller).build();
+
+        mvc.perform(post("/api/agent-review/{reviewId}/code/sync", REVIEW_ID)
+                        .contentType("application/json")
+                        .content("{\"expectedHead\":\"" + head + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(REVIEW_ID));
+
+        verify(reviews).syncWorktree(REVIEW_ID, head);
+        verifyNoMoreInteractions(reviews);
+        verifyNoInteractions(turns);
     }
 
     @Test

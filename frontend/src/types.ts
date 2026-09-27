@@ -1732,6 +1732,7 @@ export type Bridge = JiraBridge & {
   saveCodeFile: (host: CodeHostRef, path: string, content: string, expectedHash: string) => Promise<{ file: ReviewCodeFileDto } | { conflict: SaveConflictDto }>;
   /** Resets the working copy to its HEAD, removing untracked files and the review's saved experiments; ignored files stay. */
   discardReviewCodeChanges: (reviewId: string, expectedHead: string) => Promise<ReviewCodeFilesDto>;
+  syncReviewWorktree: (reviewId: string, expectedHead: string) => Promise<AgentReviewDto>;
   /** Attaches to the host's login shell in its working copy, starting one if none is alive; replays its recent output. */
   openCodeTerminal: (host: CodeHostRef, cols: number, rows: number) => Promise<{ terminalId: string; scrollback: string }>;
   /** Runs this lane's own sign-in command in a one-shot login shell; it exits when the sign-in ends. */

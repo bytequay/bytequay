@@ -85,6 +85,7 @@ it.each([
   { channel: 'review:start', args: ['workspace-1', 'trinodb/trino', 31102] },
   { channel: 'review:resume', args: ['review-1'] },
   { channel: 'review:update', args: ['review-1'] },
+  { channel: 'review:code:sync', args: ['review-1', 'a'.repeat(40)] },
 ])('allows a slow Git synchronization to finish through $channel without retrying it', async ({ channel, args }) => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
@@ -175,6 +176,13 @@ it('routes Code & Tests reads and writes to the review or the development task t
 
   fetch.mockResolvedValueOnce(json({ message: "The task's worktree was removed" }, 409));
   await expect(handler('code:save')(task, 'a.java', 'draft', 'h1')).rejects.toThrow("The task's worktree was removed");
+
+  const syncedReview = runningReviewFixture();
+  fetch.mockResolvedValueOnce(json(syncedReview));
+  await expect(handler('review:code:sync')('review/one', 'a'.repeat(40))).resolves.toEqual(parseAgentReview(syncedReview));
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/agent-review/review%2Fone/code/sync',
+    expect.objectContaining({ method: 'POST', body: JSON.stringify({ expectedHead: 'a'.repeat(40) }),
+      headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
 
   const calls = fetch.mock.calls.length;
   await expect(handler('code:files')({ kind: 'task', taskId: 'task/one' })).rejects.toThrow('Malformed Code & Tests host');

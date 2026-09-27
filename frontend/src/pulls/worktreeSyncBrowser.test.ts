@@ -15,9 +15,9 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture } from '../fixtures/browserFixture';
 
-it('preserves editor drafts across automatic review worktree sync in Chromium', async () => {
+it('preserves drafts during automatic sync and resets only after confirmation in Chromium', async () => {
   const result = await runBrowserFixture<string>({ prefix: 'bytequay-worktree-sync-',
     entry: 'src/pulls/code-tests/fixtures/worktreeSyncBrowser.tsx', global: 'WorktreeSyncTests',
     styles: true, charset: true, width: 1100, height: 900 });
-  expect(result).toBe('Review sync notices preserve modified and deleted drafts with save hash guards');
+  expect(result).toBe('Worktree sync preserves drafts until a confirmed reset and never starts a review');
 }, 30_000);

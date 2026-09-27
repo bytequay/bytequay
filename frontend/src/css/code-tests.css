@@ -14,6 +14,7 @@
 .ct-icon-button { display: inline-flex; width: 26px; height: 26px; flex: none; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: #57606a; cursor: pointer; padding: 0; }
 .ct-icon-button:hover:not(:disabled) { background: #eceff2; color: var(--text-1); }
 .ct-icon-button:disabled { cursor: default; opacity: .35; }
+.ct-sync-button, .ct-sync-button:hover:not(:disabled) { background: #fff8c5; color: #7d4e00; }
 
 .ct-search { display: flex; width: 330px; min-width: 140px; flex-shrink: 1; align-items: center; gap: 6px; border: 1px solid #d6dce2; border-radius: 7px; background: #fff; color: #8c959f; padding: 4px 8px; }
 .ct-search:focus-within { border-color: var(--accent); }
@@ -21,8 +22,6 @@
 .ct-search input::-webkit-search-cancel-button { cursor: pointer; }
 
 .ct-banner { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #e8eaed; padding: 7px 12px; font-size: 12.5px; }
-.ct-sync > span { min-width: 0; flex: 1; }
-.ct-sync > button { flex: none; white-space: nowrap; }
 .ct-banner.is-error { border-color: #f3c2bd; background: #ffebe9; color: #8b1c2b; }
 .ct-banner button,
 .ct-editor__empty button { border: 1px solid #d6dce2; border-radius: 6px; background: #fff; color: #24292f; cursor: pointer; padding: 2px 9px; font-size: 12px; }

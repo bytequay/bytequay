@@ -416,6 +416,7 @@ const bridge: Bridge = {
   readCodeRunOutput: (host, runId, after) => ipcRenderer.invoke('code:runs:output', host, runId, after),
   saveCodeFile: (host, path, content, expectedHash) => ipcRenderer.invoke('code:save', host, path, content, expectedHash),
   discardReviewCodeChanges: (reviewId, expectedHead) => ipcRenderer.invoke('review:code:discard', reviewId, expectedHead),
+  syncReviewWorktree: (reviewId, expectedHead) => ipcRenderer.invoke('review:code:sync', reviewId, expectedHead),
   openCodeTerminal: (host, cols, rows) => ipcRenderer.invoke('terminal:open', host, cols, rows),
   openProviderSignIn: (laneId, cols, rows) => ipcRenderer.invoke('provider:signin:open', laneId, cols, rows),
   writeReviewTerminal: (terminalId, data) => ipcRenderer.send('terminal:write', terminalId, data),

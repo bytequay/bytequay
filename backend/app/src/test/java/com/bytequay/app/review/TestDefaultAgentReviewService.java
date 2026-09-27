@@ -2240,6 +2240,86 @@ class TestDefaultAgentReviewService
         verify(fixture.experiments, never()).synchronize(any(TaskWorktree.class), anyString(), anyString(), any(Runnable.class));
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void explicitCatchUpDiscardsLocalWorkWithoutStartingOrChangingTheReview(boolean localCommits)
+    {
+        Fixture fixture = rewrittenHistory();
+        AutoCheckout checkout = new AutoCheckout(fixture);
+        String reviewId = fixture.store.listOpenReviews().getFirst().id();
+        AgentReview review = fixture.store.findReview(reviewId).orElseThrow();
+        fixture.store.updateReview(review.withFollowUpPaused(true, NOW));
+        ReviewRun assessed = fixture.store.listRuns(reviewId).getFirst();
+        ReviewFinding finding = fixture.store.insertFinding(finding("preserved", reviewId, assessed.id(), 1, ReviewFinding.State.OPEN));
+        if (localCommits) {
+            checkout.head = "c3d4e5f6a70123456789abcdef0123456789abcd";
+        }
+        checkout.entries = "? private.txt\0";
+        String expectedHead = checkout.head;
+        when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", expectedHead, NEW_HEAD))
+                .thenReturn(new GitCommandRunner.Result(localCommits ? 1 : 0, "", false));
+        doAnswer(invocation -> {
+            checkout.entries = "";
+            return null;
+        }).when(fixture.experiments).discard(taskWorktree(), NEW_HEAD);
+
+        AgentReviewProjection result = fixture.service.syncWorktree(reviewId, expectedHead);
+
+        assertThat(checkout.head).isEqualTo(NEW_HEAD);
+        assertThat(result.review().observedHeadSha()).contains(NEW_HEAD);
+        assertThat(result.review().worktreeHeadSha()).contains(NEW_HEAD);
+        assertThat(result.review().followUpPaused()).isTrue();
+        assertThat(result.worktreeSync().orElseThrow().state()).isEqualTo(AgentReviewProjection.WorktreeSyncView.State.CURRENT);
+        assertThat(result.worktreeSync().orElseThrow().dirty()).isFalse();
+        assertThat(fixture.store.listRuns(reviewId)).containsExactly(assessed);
+        assertThat(fixture.store.findFinding(finding.id())).contains(finding);
+        verify(fixture.experiments).discard(taskWorktree(), NEW_HEAD);
+        verify(fixture.git).run(taskWorktree().canonicalWorktree(), localCommits ? realign(NEW_HEAD) : fastForward(NEW_HEAD));
+        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.experiments).synchronize(eq(taskWorktree()), eq(expectedHead), eq(NEW_HEAD), any(Runnable.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"fetch", "remote-change", "local-run", "recovery", "queue"})
+    void explicitCatchUpRefusesUnsafeUpdatesBeforeDiscarding(String obstacle)
+    {
+        Fixture fixture = rewrittenHistory();
+        AutoCheckout checkout = new AutoCheckout(fixture);
+        String reviewId = fixture.store.listOpenReviews().getFirst().id();
+        switch (obstacle) {
+            case "fetch" -> when(fixture.git.run(eq(REPOSITORY), anyList())).thenReturn(new GitCommandRunner.Result(1, "Fetch failed", false));
+            case "remote-change" -> doAnswer(invocation -> {
+                fixture.store.updateReview(fixture.store.findReview(reviewId).orElseThrow().withObservedHead(BASE_SHA, NOW));
+                invocation.<Consumer<AgentTask>>getArgument(2).accept(idleTask());
+                return null;
+            }).when(fixture.turns).synchronizeWorktree(eq(TASK_ID), anyLong(), any());
+            case "local-run" -> when(fixture.tasks.get(TASK_ID)).thenReturn(idleTask().claimWorktreeMutation(WorktreeMutationClaim.localRun("run", NOW), NOW));
+            case "recovery" -> when(fixture.tasks.get(TASK_ID)).thenReturn(idleTask().claimWorktreeMutation(WorktreeMutationClaim.recovery("runtime", NOW), NOW));
+            case "queue" -> when(fixture.turns.queued(TASK_ID)).thenReturn(ImmutableList.of(queuedInput()));
+            default -> throw new AssertionError(obstacle);
+        }
+
+        assertThatThrownBy(() -> fixture.service.syncWorktree(reviewId, HEAD)).isInstanceOf(ReviewConflictException.class);
+
+        assertThat(checkout.head).isEqualTo(HEAD);
+        verify(fixture.experiments, never()).discard(any(TaskWorktree.class), anyString());
+        verify(fixture.experiments, never()).synchronize(any(TaskWorktree.class), anyString(), anyString(), any(Runnable.class));
+        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+    }
+
+    @Test
+    void explicitCatchUpReportsAnOutdatedLocalRevisionWithoutMovingIt()
+    {
+        Fixture fixture = rewrittenHistory();
+        AutoCheckout checkout = new AutoCheckout(fixture);
+        String reviewId = fixture.store.listOpenReviews().getFirst().id();
+        assertThatThrownBy(() -> fixture.service.syncWorktree(reviewId, NEW_HEAD)).isInstanceOf(ReviewConflictException.class).hasMessageContaining("HEAD changed");
+
+        assertThat(checkout.head).isEqualTo(HEAD);
+        verify(fixture.experiments, never()).synchronize(any(TaskWorktree.class), anyString(), anyString(), any(Runnable.class));
+        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+    }
+
     @Test
     void repeatedCatchUpTracksItsOwnHeadAndExplicitUpdateReviewsTheCurrentRevision()
     {
@@ -2387,6 +2467,8 @@ class TestDefaultAgentReviewService
         assertThat(checkout.head).isEqualTo(HEAD);
         assertThat(fixture.store.findReview(review.id()).orElseThrow().observedHeadSha()).contains(HEAD);
         assertThat(fixture.service.get(review.id()).worktreeSync()).isEmpty();
+        assertThatThrownBy(() -> fixture.service.syncWorktree(review.id(), HEAD)).isInstanceOf(ReviewConflictException.class).hasMessageContaining("remote pull request");
+        verify(fixture.experiments, never()).discard(any(TaskWorktree.class), anyString());
         verify(fixture.experiments, never()).synchronizeClean(any(TaskWorktree.class), anyString(), anyString(), any(Runnable.class));
     }
 

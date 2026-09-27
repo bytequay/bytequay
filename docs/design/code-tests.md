@@ -142,6 +142,24 @@ PullsScreen                       DetailTab gains 'code'; button via PullDetailH
       └─ TerminalView             xterm.js
 ```
 
+**Remote working-copy status.** A remote review whose `worktreeSync` is not
+`CURRENT` shows an amber reset icon in the toolbar, with an accessible label
+and tooltip explaining that the local branch is stale. An unavailable sync
+status offers retry through the same action. There is no full-width sync
+warning or Update review action in this tab. A current working copy shows no
+stale indicator even when the report covers an older revision.
+
+Clicking the icon opens **Reset working copy to remote?** with the destructive
+**Discard and reset** action. The confirmation explains that unsaved editor
+drafts, local commits, tracked and untracked changes will be discarded to use
+the latest PR head, without starting a review. Reset shares the existing
+working-copy idle gate and is unavailable during agent work, queued input,
+local runs, another mutation, recovery, or after closure. Cancellation or a
+failed request preserves drafts; success clears drafts and rereads the files.
+The backend repeats the ownership, expected-head, idle and Git-operation checks
+before changing the checkout. Findings and existing review runs retain their
+recorded revisions.
+
 **How the Tests tree is built.** It comes from `GET /files`, limited to
 Surefire-named files under `src/test/`.
 
@@ -306,6 +324,7 @@ A new controller, `web/review/ReviewCodeController`, is mounted at
 | `GET /file?path=` | Optional `expectedRevision` from the file listing | `CodeFileResponse{path, content, contentHash, editable, readOnlyReason?, prPatch?, lineChanges: [{kind: ADDED\|MODIFIED\|DELETED, line, count}]}`, or 409 if the revision changed |
 | `PUT /file` | `{path, content, expectedHash}` | `CodeFileResponse`, or 409 `{currentHash, currentContent}` |
 | `POST /discard` | `{expectedHead}` | `CodeFilesResponse`, or 409 |
+| `POST /sync` | `{expectedHead}` | `AgentReviewDto`, or 409; explicitly discard local work and reset a remote-review working copy to the latest PR head without starting review |
 | `GET /symbols?query=&limit=` | – | `{status: READY\|BUSY\|UPDATING\|UNAVAILABLE, symbols: [{name, kind, qualifiedName?, path, startLine, startColumn, endLine, signature?, test}]}` |
 | `GET /outline?path=` | – | the same shape, with `test` and `added` (every line of the symbol is an added line of the PR patch) computed |
 | `POST /terminal` | – | `{workingDirectory}` for Electron main only (section 7) |
@@ -967,9 +986,11 @@ Each phase is runnable and reviewable on its own. Each runs the full gates
   next refresh or save shows the conflict banner instead of overwriting.
 - **Automatic remote catch-up.** A clean idle remote-review worktree follows a
   changed PR head without rerunning the review. Saved local edits prevent that
-  move and show a stale-branch notice with Update review. Unsaved editor drafts
-  remain accessible when a refresh changes or removes their file; their original
-  save hash remains the conflict guard. Findings and review comments continue
+  move and show the toolbar's stale-branch reset icon. Explicit **Discard and
+  reset** fetches the latest PR head and discards local work without starting
+  review. Unsaved editor drafts remain accessible during automatic refresh,
+  even when it changes or removes their file; their original save hash remains
+  the conflict guard. Only a successful confirmed reset clears those drafts. Findings and review comments continue
   to use their recorded review revision, not the automatically updated checkout.
   File reads check the listing's expected revision so a head change between
   listing and reading cannot pair new content with old comment anchors.

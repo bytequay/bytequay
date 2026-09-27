@@ -385,11 +385,27 @@ Before syncing, require the existing task execution boundary to exclude turn
 start, queued start, tools, and cleanup. Verify provider quiescence, generated
 branch/repository ownership, expected HEAD, and no open Git operation. Automatic
 catch-up refuses staged, unstaged, or untracked changes, saved experiments, and
-unrelated local commits; it never stashes or discards them. Show the stale branch
-and the existing Update review action when saved edits block catch-up. Explicit
-Update retains the experiment handling below. Require a clean index/worktree
-including untracked files at the move itself. An unrelated review-only mutex that
+unrelated local commits; it never stashes or discards them. Code & Tests shows
+an amber toolbar icon when the local branch is stale; its confirmed **Discard
+and reset** action catches up the checkout without starting a review. Summary's
+explicit Update review retains the experiment handling below. Automatic and
+ordinary review updates require a clean index/worktree including untracked
+files at the move itself. An unrelated review-only mutex that
 the agent queue can bypass is insufficient.
+
+The separate Code & Tests `POST /code/sync` action accepts the expected local
+HEAD, fetches the latest remote PR head, and explicitly discards local commits
+and tracked/untracked changes under the same idle, ownership, expected-head
+and no-open-Git-operation checks. It is available only for an open remote
+review. Owned saved-experiment stashes are removed; ignored files and unrelated
+stashes are preserved, and ignored-file collisions with the remote tree are
+refused. A failed preflight preserves local work; a successful reset records
+the aligned working-copy head and returns the current review projection. It creates
+no review run, task turn, or provider process and leaves findings and reviewed
+heads unchanged. The renderer clears unsaved drafts only after success and
+reloads the working-copy files. This destructive action has its own
+confirmation and does not change automatic catch-up or Update review's
+experiment-preservation contract.
 
 The core `synchronizeWorktree` callback uses the same durable task version,
 task lock, and existing mutation claim as private local-review transitions.

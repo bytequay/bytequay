@@ -21,6 +21,7 @@ import {
   FlaskConical,
   Folder,
   GitCommitHorizontal,
+  GitPullRequestArrow,
   Lock,
   PanelLeft,
   RotateCw,
@@ -30,11 +31,12 @@ import {
 } from 'lucide-react';
 import type { AgentTaskDto, Bridge, PullRequestDetailDto } from '../../types';
 import { useResizablePane } from '../../useResizablePane';
+import { ConfirmDialog } from '../../ConfirmDialog';
 import { buildFileTree, type FileTreeItem } from '../fileTree';
 import type { DiffAgentComment } from '../PullChanges';
 import { remoteErrorMessage } from '../PullOverview';
 import type { AgentReviewDto } from '../agent-review/contracts';
-import { latestRun, reviewRecoveryRequired, reviewRunning, reviewWorktreeNotice } from '../agent-review/model';
+import { latestRun } from '../agent-review/model';
 import CodeView, { type FollowRequest, type RunMarker } from './CodeView';
 import RunButton, { type RunTarget } from './RunButton';
 import RunPanel from './RunPanel';
@@ -81,7 +83,7 @@ export type CodeTestsBridge = Pick<Bridge,
   | 'listAgentReviews'
   | 'startAgentReview'
   | 'getAgentReview'
-  | 'updateAgentReview'
+  | 'syncReviewWorktree'
   | 'subscribeAgentReview'
   | 'getAgentTask'>;
 
@@ -272,8 +274,9 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
   const [saving, setSaving] = useState(false);
-  const [updatingReview, setUpdatingReview] = useState(false);
-  const [updateReviewError, setUpdateReviewError] = useState<string | null>(null);
+  const [syncHead, setSyncHead] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [discarding, setDiscarding] = useState(false);
@@ -293,7 +296,9 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
   const hostVersion = review?.task.version ?? task?.version;
   const runHead = review === null ? null : latestRun(review)?.headSha ?? null;
   const worktreeHead = review?.worktreeSync?.headSha ?? null;
-  const worktreeNotice = review === null ? null : reviewWorktreeNotice(review);
+  const sync = review?.worktreeSync;
+  const needsSync = reviewOpen && review?.sourceTaskId == null && sync != null && sync.state !== 'CURRENT';
+  const syncLabel = sync?.state === 'UNAVAILABLE' ? 'Working copy sync unavailable — retry' : 'Local branch is stale — reset to remote';
 
   // A turn, a save or an Update review can change the working copy; the task version moves with each of them.
   useEffect(() => {
@@ -577,6 +582,26 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
       .finally(() => setDiscarding(false));
   }, [bridge, files, reviewId]);
 
+  const syncWorkingCopy = async () => {
+    if (reviewId === null || syncHead === null || gate.hidden || gate.blocked !== null || saving || discarding || syncing) return;
+    setSyncing(true);
+    setSyncError(null);
+    try {
+      const updated = await bridge.syncReviewWorktree(reviewId, syncHead);
+      setDrafts(new Map());
+      setSaveError(null);
+      setSyncHead(null);
+      onReviewChange(updated);
+      setFilesReload(value => value + 1);
+    }
+    catch (failure) {
+      setSyncError(remoteErrorMessage(failure));
+    }
+    finally {
+      setSyncing(false);
+    }
+  };
+
   const entries = useMemo(() => files?.files ?? [], [files]);
   const entryByPath = useMemo(() => new Map(entries.map(entry => [entry.path, entry])), [entries]);
   const shownEntries = useMemo(() => visibleFiles(entries, scope, query, testsOnly), [entries, scope, query, testsOnly]);
@@ -684,6 +709,14 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
           onOpen={open}
           focusToken={paletteFocus} />
         <span className="ct-toolbar__spacer" />
+        {needsSync && (
+          <button type="button" className="ct-icon-button ct-sync-button" aria-label={syncLabel} aria-haspopup="dialog"
+            title={`${syncLabel}. ${gate.blocked ?? sync?.reason ?? 'Discard local changes and catch up to the latest PR commits without starting a review.'}`}
+            disabled={gate.hidden || gate.blocked !== null || saving || discarding || syncing}
+            onClick={() => { setSyncError(null); setSyncHead(files?.revision ?? null); }}>
+            <GitPullRequestArrow size={15} strokeWidth={1.8} aria-hidden="true" />
+          </button>
+        )}
         {files !== null && !gate.hidden && review !== null && (
           <div className="ct-discard-host">
             <button type="button" className="ct-icon-button" aria-expanded={discardOpen}
@@ -713,16 +746,15 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
           <button type="button" onClick={() => setFilesReload(value => value + 1)}>Retry</button>
         </div>
       )}
-      {worktreeNotice !== null && review !== null && <div className="ct-banner ct-sync" role="status">
-        <span><strong>{worktreeNotice.label}.</strong> {worktreeNotice.message}</span>
-        <button type="button" disabled={updatingReview || gate.blocked !== null || reviewRunning(review) || reviewRecoveryRequired(review) || review.worktreeSync?.state === 'PENDING'} title={gate.blocked ?? undefined}
-          onClick={() => {
-            setUpdatingReview(true); setUpdateReviewError(null);
-            void bridge.updateAgentReview(review.id).then(onReviewChange)
-              .catch(failure => setUpdateReviewError(remoteErrorMessage(failure))).finally(() => setUpdatingReview(false));
-          }}>{updatingReview ? 'Updating…' : 'Update review'}</button>
-      </div>}
-      {updateReviewError !== null && <div className="ct-banner is-error" role="alert">{updateReviewError}</div>}
+      {syncHead !== null && (
+        <ConfirmDialog title="Reset working copy to remote?" confirmLabel={syncing ? 'Resetting…' : 'Discard and reset'}
+          busy={syncing} confirmDisabled={gate.hidden || gate.blocked !== null || saving || discarding} destructive
+          onCancel={() => setSyncHead(null)} onConfirm={() => { void syncWorkingCopy(); }}>
+          <p>Discard unsaved drafts, saved local changes, untracked files, and local commits, then reset this branch to the latest remote PR commit.</p>
+          <p>This does not start a review. Existing review results and test runs stay available.</p>
+          {(syncError !== null || gate.blocked !== null) && <p role="alert">{syncError ?? gate.blocked}</p>}
+        </ConfirmDialog>
+      )}
       <div className="ct-work">
         {columnOpen && (
           <>

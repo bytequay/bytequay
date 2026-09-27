@@ -42,7 +42,7 @@ function bridge(): CodeTestsBridge {
     listAgentReviews: vi.fn(),
     startAgentReview: vi.fn(),
     getAgentReview: vi.fn(),
-    updateAgentReview: vi.fn(),
+    syncReviewWorktree: vi.fn(),
     subscribeAgentReview: vi.fn(),
     getAgentTask: vi.fn(),
   };
@@ -76,15 +76,26 @@ describe('CodeTestsTab', () => {
     expect(html).toContain('Open a file from the tree to read it whole.');
   });
 
-  it('shows preserved local work when automatic sync is blocked', () => {
+  it('marks a stale local branch with a reset icon instead of a review banner', () => {
     const review = reviewFixture({ observedHeadSha: 'new-head', worktreeSync: {
       state: 'BLOCKED', headSha: 'old-head', targetHeadSha: 'new-head', dirty: true, reason: 'Local edits',
     } });
     const html = renderToStaticMarkup(<CodeTestsTab workspaceId="workspace-1" review={review}
       onReviewChange={() => {}} active ownReviewStream={false} bridge={bridge()} />);
-    expect(html).toContain('Working copy is stale');
-    expect(html).toContain('Saved local changes are preserved');
-    expect(html).toContain('>Update review</button>');
+    expect(html).toContain('aria-label="Local branch is stale — reset to remote"');
+    expect(html).not.toContain('ct-banner ct-sync');
+    expect(html).not.toContain('>Update review</button>');
+  });
+
+  it('does not mark a current working copy stale just because the review covers an older head', () => {
+    const review = reviewFixture({ observedHeadSha: 'new-head', worktreeSync: {
+      state: 'CURRENT', headSha: 'new-head', targetHeadSha: 'new-head', dirty: false, reason: null,
+    } });
+    const html = renderToStaticMarkup(<CodeTestsTab workspaceId="workspace-1" review={review}
+      onReviewChange={() => {}} active ownReviewStream={false} bridge={bridge()} />);
+    expect(html).not.toContain('Local branch is stale');
+    expect(html).not.toContain('ct-banner ct-sync');
+    expect(html).not.toContain('>Update review</button>');
   });
 
   it('opens code before a PR exists, including for a workflow task', () => {

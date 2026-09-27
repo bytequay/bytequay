@@ -120,6 +120,58 @@ class TestReviewExperiments
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
+    void explicitCatchUpDiscardsOnlyAfterTheRemoteHeadMoveSucceeds(boolean collision)
+            throws IOException
+    {
+        Path checkout = worktree.canonicalWorktree();
+        Files.writeString(checkout.resolve("Local.java"), "local commit\n");
+        run(checkout, "add", "Local.java");
+        run(checkout, "commit", "-m", "Local experiment");
+        String localHead = head();
+        Files.writeString(checkout.resolve("Code.java"), "staged experiment\n");
+        run(checkout, "add", "Code.java");
+        Files.writeString(checkout.resolve("Other.java"), "unstaged experiment\n");
+        Files.writeString(checkout.resolve("Private.java"), "untracked experiment\n");
+        Files.createDirectories(checkout.resolve("build"));
+        Files.writeString(checkout.resolve("build/output"), "ignored result\n");
+
+        if (collision) {
+            Files.createDirectories(repository.resolve("build"));
+            Files.writeString(repository.resolve("build/output"), "new remote source\n");
+            run(repository, "add", "-f", "build/output");
+            run(repository, "commit", "-m", "Track a build path");
+            target = run(repository, "rev-parse", "HEAD");
+        }
+        Runnable move = () -> {
+            Result result = git.run(checkout, "-c", "core.hooksPath=/dev/null", "checkout", "--no-overwrite-ignore",
+                    "--no-recurse-submodules", "-B", worktree.generatedBranch(), target);
+            checkState(result.successful(), "Move refused: %s", result.output());
+        };
+        if (collision) {
+            assertThatThrownBy(() -> experiments.synchronize(worktree, localHead, target, move)).hasMessageContaining("would be overwritten");
+            assertThat(head()).isEqualTo(localHead);
+            assertThat(checkout.resolve("Local.java")).hasContent("local commit\n");
+            assertThat(checkout.resolve("Code.java")).hasContent("staged experiment\n");
+            assertThat(checkout.resolve("Other.java")).hasContent("unstaged experiment\n");
+            assertThat(checkout.resolve("Private.java")).hasContent("untracked experiment\n");
+            assertThat(checkout.resolve("build/output")).hasContent("ignored result\n");
+            return;
+        }
+        experiments.synchronize(worktree, localHead, target, move);
+        experiments.discard(worktree, target);
+
+        assertThat(head()).isEqualTo(target);
+        assertThat(worktrees.inspect(worktree).uncommitted()).isFalse();
+        assertThat(checkout.resolve("Local.java")).doesNotExist();
+        assertThat(checkout.resolve("Private.java")).doesNotExist();
+        assertThat(checkout.resolve("Code.java")).hasContent("original source\n");
+        assertThat(checkout.resolve("Other.java")).hasContent("other source\n");
+        assertThat(checkout.resolve("Remote.java")).hasContent("remote improvement\n");
+        assertThat(checkout.resolve("build/output")).hasContent("ignored result\n");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
     void automaticRewritePreservesIgnoredOutputAndRefusesTrackedCollisions(boolean collision)
             throws IOException
     {

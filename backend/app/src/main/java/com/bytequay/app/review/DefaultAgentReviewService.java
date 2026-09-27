@@ -113,6 +113,7 @@ import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.INCOMPLETE_REPORT;
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.REPAIR;
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.VALIDATE;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
@@ -431,6 +432,38 @@ public class DefaultAgentReviewService
     }
 
     @Override
+    public AgentReviewProjection syncWorktree(String reviewId, String expectedHead)
+    {
+        checkArgument(expectedHead != null && expectedHead.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "expectedHead must be a full commit ID");
+        AgentReview review = requireOpen(reviewId);
+        if (!remoteReview(review)) {
+            throw new ReviewConflictException("Only a remote pull request's review working copy can catch up");
+        }
+        LocalRunService.requireIdle(turns, store.listRuns(reviewId), review, tasks.get(TaskId.valueOf(review.taskId())));
+        WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(review.workspaceId());
+        try {
+            String target = fetchReviewHead(review, workspace);
+            mutateWorkingCopy(reviewId, task -> {
+                AgentReview current = requireOpen(reviewId);
+                checkState(current.observedHeadSha().equals(review.observedHeadSha()) || current.observedHeadSha().equals(Optional.of(target)),
+                        "The PR head changed while catching up; refresh and try again");
+                TaskWorktree worktree = task.taskWorktree().orElseThrow();
+                checkState(worktrees.inspect(worktree).head().equals(expectedHead), "Review HEAD changed; local changes were preserved");
+                // Keep edits recoverable until the head move succeeds, then discard them at the verified remote revision.
+                experiments.synchronize(worktree, expectedHead, target, () -> moveCleanHead(worktree, expectedHead, target, workspace));
+                experiments.discard(worktree, target);
+                store.updateReview(current.withObservedHead(target, Instant.now(clock)).withWorktreeHead(target, Instant.now(clock)));
+                return null;
+            });
+            syncFailures.remove(reviewId);
+            return get(reviewId);
+        }
+        catch (IllegalStateException failure) {
+            throw new ReviewConflictException(failure.getMessage(), failure);
+        }
+    }
+
+    @Override
     public AgentReviewProjection end(String reviewId)
     {
         return locked(reviewId, () -> {
@@ -733,16 +766,7 @@ public class DefaultAgentReviewService
                 return;
             }
             WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(review.workspaceId());
-            String remote = workspace.selectedRepository().equals(workspace.monitoredRepository()) ? "origin" : workspace.sourceRemote();
-            String headRef = "refs/bytequay/review/" + review.number().orElseThrow();
-            ImmutableList.Builder<String> fetch = ImmutableList.<String>builder()
-                    .add("fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", remote,
-                            "+refs/pull/" + review.number().orElseThrow() + "/head:" + headRef);
-            pullRequests.findPullRequestDetail(review.repo(), review.number().orElseThrow()).map(PullRequestDetail::baseRef)
-                    .ifPresent(base -> fetch.add("+refs/heads/" + base + ":refs/remotes/" + remote + "/" + base));
-            GitCommandRunner.Result fetched = git.run(workspace.repository(), fetch.build());
-            checkState(fetched.successful() && !fetched.truncated(), "Cannot fetch the latest PR commit: %s", fetched.output().strip());
-            if (!revParse(workspace.repository(), headRef).equals(target)) {
+            if (!fetchReviewHead(review, workspace).equals(target)) {
                 refresh.refreshAllDetail(review.repo(), review.number().orElseThrow());
                 return;
             }
@@ -775,6 +799,22 @@ public class DefaultAgentReviewService
             syncFailures.put(reviewId, new SyncFailure(target, failure.getMessage() == null ? "Automatic catch-up could not finish" : failure.getMessage()));
             log.debug("Review {} working copy could not catch up: {}", reviewId, failure.toString());
         }
+    }
+
+    private String fetchReviewHead(AgentReview review, WorkspaceRepositoryContext workspace)
+    {
+        String remote = workspace.selectedRepository().equals(workspace.monitoredRepository()) ? "origin" : workspace.sourceRemote();
+        String headRef = "refs/bytequay/review/" + review.number().orElseThrow();
+        ImmutableList.Builder<String> fetch = ImmutableList.<String>builder()
+                .add("fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", remote,
+                        "+refs/pull/" + review.number().orElseThrow() + "/head:" + headRef);
+        pullRequests.findPullRequestDetail(review.repo(), review.number().orElseThrow()).map(PullRequestDetail::baseRef)
+                .ifPresent(base -> fetch.add("+refs/heads/" + base + ":refs/remotes/" + remote + "/" + base));
+        GitCommandRunner.Result fetched = git.run(workspace.repository(), fetch.build());
+        checkState(fetched.successful() && !fetched.truncated(), "Cannot fetch the latest PR commit: %s", fetched.output().strip());
+        String head = revParse(workspace.repository(), headRef);
+        checkState(head.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Cannot identify the latest PR commit");
+        return head;
     }
 
     private boolean syncBusy(AgentTask task, List<ReviewRun> runs)
@@ -828,15 +868,15 @@ public class DefaultAgentReviewService
             return Optional.of("Finish the working copy's open Git operation before catching up");
         }
         if (checkout.dirty()) {
-            return Optional.of("Saved local changes are preserved; update the review explicitly or discard the edits");
+            return Optional.of("Saved local changes are preserved");
         }
         String expected = review.worktreeHeadSha().or(() -> runs.isEmpty() ? Optional.empty() : Optional.of(runs.getLast().headSha()))
                 .orElseGet(() -> task.taskWorktree().orElseThrow().startCommit());
         if (!checkout.head().equals(expected) && !review.observedHeadSha().equals(Optional.of(checkout.head()))) {
-            return Optional.of("Local commits are preserved; inspect the working copy before updating");
+            return Optional.of("Local commits are preserved");
         }
         if (experiments.hasSavedExperiment(task.taskWorktree().orElseThrow())) {
-            return Optional.of("Saved private experiments are waiting; update the review explicitly");
+            return Optional.of("Saved private experiments are preserved");
         }
         return Optional.empty();
     }

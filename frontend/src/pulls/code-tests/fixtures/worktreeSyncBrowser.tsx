@@ -28,6 +28,7 @@ const path = 'src/test/java/ExampleTest.java';
 const oldHead = reviewFixture().runs[0].headSha;
 const newHead = 'a'.repeat(40);
 const deletedHead = 'b'.repeat(40);
+const resetHead = 'e'.repeat(40);
 const initialReview = reviewFixture({ worktreeSync: {
   state: 'CURRENT', headSha: oldHead, targetHeadSha: oldHead, dirty: false, reason: null,
 } });
@@ -44,7 +45,9 @@ export async function run(keepMounted = false, stopAt: 'blocked' | 'current' | n
   let pendingRead: ((value: ReviewCodeFileDto) => void) | null = null;
   let rejectRead: ((failure: Error) => void) | null = null;
   const saves: { text: string; expectedHash: string }[] = [];
-  let updates = 0;
+  const syncs: { reviewId: string; expectedHead: string }[] = [];
+  let failSync = true;
+  let finishSync: ((value: AgentReviewDto) => void) | null = null;
   let unsaved = 0;
   let setReview: (value: AgentReviewDto) => void = () => { throw new Error('Not mounted'); };
   const unused = async (): Promise<never> => { throw new Error('Unexpected bridge call'); };
@@ -64,7 +67,11 @@ export async function run(keepMounted = false, stopAt: 'blocked' | 'current' | n
       saves.push({ text, expectedHash });
       return { conflict: { currentContent: file.content, currentHash: file.contentHash ?? '' } };
     },
-    updateAgentReview: async () => { updates++; return initialReview; },
+    syncReviewWorktree: async (reviewId, expectedHead) => {
+      syncs.push({ reviewId, expectedHead });
+      if (failSync) throw new Error('Remote fetch failed');
+      return new Promise<AgentReviewDto>(resolve => { finishSync = resolve; });
+    },
     searchCodeSymbols: unused, startCodeRun: unused, stopCodeRun: unused, readCodeRunOutput: unused,
     discardReviewCodeChanges: unused, openCodeTerminal: unused, writeReviewTerminal: unused, resizeReviewTerminal: unused,
     onReviewTerminalEvent: () => () => {}, listAgentReviews: unused, startAgentReview: unused,
@@ -87,6 +94,10 @@ export async function run(keepMounted = false, stopAt: 'blocked' | 'current' | n
     const value = [...host.querySelectorAll<HTMLButtonElement>('button')].find(candidate => candidate.textContent?.trim() === text);
     assert(value !== undefined, `Missing ${text}`); return value;
   };
+  const staleButton = () => {
+    const value = host.querySelector<HTMLButtonElement>('[aria-label="Local branch is stale — reset to remote"]');
+    assert(value !== null, 'A stale working copy must have a toolbar reset icon'); return value;
+  };
   try {
     flushSync(() => root.render(<Harness />)); await settle();
     button('ExampleTest.java').click(); await settle();
@@ -105,15 +116,30 @@ export async function run(keepMounted = false, stopAt: 'blocked' | 'current' | n
     flushSync(() => setReview({ ...initialReview, observedHeadSha: newHead, worktreeSync: {
       state: 'BLOCKED', headSha: oldHead, targetHeadSha: newHead, dirty: true, reason: 'Local edits',
     } })); await settle();
-    assert(host.textContent?.includes('Saved local changes are preserved') === true, 'Saved local work must explain why the branch is stale');
-    assert(updates === 0, 'Rendering the stale notice must not start a review');
+    assert(!staleButton().disabled && host.querySelector('.ct-sync') === null,
+      'An idle stale working copy must show an enabled toolbar reset icon without a warning row');
+    assert(syncs.length === 0, 'Rendering a stale branch must not reset it');
+    for (const claim of ['COMPLETION', 'LOCAL_RUN', 'RECOVERY'] as const) {
+      flushSync(() => setReview({ ...initialReview, task: { ...initialReview.task, mutationClaim: claim }, worktreeSync: {
+        state: 'BLOCKED', headSha: oldHead, targetHeadSha: newHead, dirty: true, reason: 'Local edits',
+      } })); await settle();
+      assert(staleButton().disabled, `${claim} must disable resetting the working copy`);
+    }
+    flushSync(() => setReview({ ...initialReview, state: 'CLOSED', worktreeSync: {
+      state: 'BLOCKED', headSha: oldHead, targetHeadSha: newHead, dirty: true, reason: 'Local edits',
+    } })); await settle();
+    const closedReset = host.querySelector<HTMLButtonElement>('[aria-label="Local branch is stale — reset to remote"]');
+    assert(closedReset === null || closedReset.disabled, 'An ended review must not allow resetting its working copy');
+    flushSync(() => setReview({ ...initialReview, observedHeadSha: newHead, worktreeSync: {
+      state: 'BLOCKED', headSha: oldHead, targetHeadSha: newHead, dirty: true, reason: 'Local edits',
+    } })); await settle();
     if (keepMounted && stopAt === 'blocked') return 'Blocked sync preview';
     head = newHead; file = diskFile('class ExampleTest { int latest; }\n', 'new-hash'); delayRead = true;
     flushSync(() => setReview({ ...initialReview, observedHeadSha: newHead, worktreeSync: {
       state: 'CURRENT', headSha: newHead, targetHeadSha: newHead, dirty: false, reason: null,
     } })); await settle();
-    assert(host.textContent?.includes('Review results still cover d9a0c41') === true,
-      'Catching up the working copy must not pretend the old review was updated');
+    assert(host.querySelector('[aria-label="Local branch is stale — reset to remote"]') === null && host.querySelector('.ct-sync') === null,
+      'A current working copy must have no stale icon or warning even when review results cover an older head');
     assert(host.querySelector('.cm-editor') === editor && view.state.doc.toString() === draft,
       'Auto-sync must retain the mounted editor and draft while new disk content loads');
     assert(host.querySelector('.ct-code.is-commentable') === null, 'A pending reread must not expose comments on the prior file generation');
@@ -144,12 +170,44 @@ export async function run(keepMounted = false, stopAt: 'blocked' | 'current' | n
     assert(host.textContent?.includes('This file was removed from the working copy') === true && button('Save').disabled,
       'A deleted draft must remain readable with an explanation and disabled save');
     if (!keepMounted) {
-      button('Revert').click(); await settle();
-      assert(Number(unsaved) === 0 && host.querySelector('[role="tab"]') === null, 'Only explicit discard may remove the deleted-file draft');
-      button('Update review').click(); await settle();
-      assert(Number(updates) === 1, 'Update review must remain an explicit action');
+      flushSync(() => setReview({ ...initialReview, observedHeadSha: resetHead, worktreeSync: {
+        state: 'BLOCKED', headSha: deletedHead, targetHeadSha: resetHead, dirty: true, reason: 'Local edits',
+      } })); await settle();
+      staleButton().click(); await settle();
+      assert(host.querySelector('dialog[open]')?.textContent?.includes('Reset working copy to remote?') === true,
+        'Reset must ask for confirmation');
+      const confirmation = host.querySelector('dialog[open]')?.textContent ?? '';
+      assert(confirmation.includes('untracked') && confirmation.includes('commits') && confirmation.includes('draft'),
+        'Confirmation must explain that drafts, local commits and untracked changes will be discarded');
+      button('Cancel').click(); await settle();
+      assert(syncs.length === 0 && view.state.doc.toString() === draft && unsaved === 1,
+        'Cancelling must preserve the draft and avoid the reset endpoint');
+      staleButton().click(); await settle(); button('Discard and reset').click(); await settle();
+      assert(syncs[0]?.reviewId === initialReview.id && syncs[0]?.expectedHead === deletedHead,
+        'Reset must identify the review and the local head shown to the user');
+      assert(host.textContent?.includes('Remote fetch failed') === true && view.state.doc.toString() === draft && unsaved === 1,
+        'A failed reset must show the error and preserve unsaved work');
+      if (host.querySelector('dialog[open]') !== null) { button('Cancel').click(); await settle(); }
+      failSync = false;
+      staleButton().click(); await settle(); button('Discard and reset').click(); await settle();
+      assert(finishSync !== null && staleButton().disabled && button('Resetting…').disabled,
+        'A pending reset must disable repeat submission');
+      deleted = false; head = resetHead; file = diskFile('class ExampleTest { int remote; }\n', 'reset-hash');
+      const resetReview: AgentReviewDto = { ...initialReview, observedHeadSha: resetHead, worktreeSync: {
+        state: 'CURRENT' as const, headSha: resetHead, targetHeadSha: resetHead, dirty: false, reason: null,
+      } };
+      (finishSync as (value: AgentReviewDto) => void)(resetReview); await settle(); await settle();
+      assert(Number(unsaved) === 0 && host.querySelector('dialog[open]') === null,
+        'A successful confirmed reset must discard drafts and close its dialog');
+      if (host.querySelector('.cm-editor') === null) { button('ExampleTest.java').click(); await settle(); }
+      const resetEditor = host.querySelector<HTMLElement>('.cm-editor');
+      assert(resetEditor !== null && EditorView.findFromDOM(resetEditor)?.state.doc.toString() === file.content,
+        'A successful reset must reread the remote file instead of retaining discarded draft content');
+      assert(Number(syncs.length) === 2 && resetReview.runs[0].headSha === oldHead
+        && host.querySelector('[aria-label="Local branch is stale — reset to remote"]') === null,
+      'Reset must clear the stale indicator without launching or updating a review');
     }
-    return 'Review sync notices preserve modified and deleted drafts with save hash guards';
+    return 'Worktree sync preserves drafts until a confirmed reset and never starts a review';
   }
   finally { if (!keepMounted) { flushSync(() => root.unmount()); host.remove(); } }
 }

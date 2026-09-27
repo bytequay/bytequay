@@ -84,11 +84,17 @@ the existing report, findings, or outgoing comment anchors. **Update review**
 remains the explicit action that assesses the new revision.
 
 Saved edits, staged or untracked files, local commits, saved experiments, or an
-open Git operation block automatic catch-up. Show that the branch is stale and
-offer the existing **Update review** action without altering those files.
-Automatic catch-up never stashes, discards, or resolves local changes. Unsaved
-Code & Tests drafts remain in the editor across refreshes, including remote
-file deletion; saving still checks their original content hash. Development
+open Git operation block automatic catch-up. Code & Tests marks a stale local
+branch with an amber toolbar icon. Clicking it offers a confirmed **Discard and
+reset** to fetch the latest PR head and discard local commits, tracked and
+untracked changes, and unsaved editor drafts without starting review. This
+explicit action requires an idle, open remote review and a verified working
+copy with no open Git operation. Automatic catch-up never stashes, discards, or
+resolves local changes. Unsaved Code & Tests drafts remain in the editor across
+ordinary refreshes, including remote file deletion; saving still checks their
+original content hash. Reset clears drafts only on success; cancellation and
+failure preserve them. A current checkout has no stale icon even if Summary's
+review results still cover an older head. Development
 worktrees and reviews sourced from development tasks do not follow remote heads
 through this mechanism.
 

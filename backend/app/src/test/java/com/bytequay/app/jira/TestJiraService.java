@@ -40,8 +40,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -557,6 +559,26 @@ class TestJiraService
         assertThat(detail.commentsTruncated()).isTrue();
         assertThat(detail.comments()).hasSize(20);
         assertThat(jira.issue("connection", "cloud", "1001").commentsTruncated()).isTrue();
+    }
+
+    @Test
+    void detailReadsRunTogetherAndEditMetadataFailureOnlyDisablesEditing()
+    {
+        CountDownLatch started = new CountDownLatch(4);
+        doAnswer(call -> {
+            started.countDown();
+            // Reads made one at a time would each wait here alone.
+            assertThat(started.await(5, SECONDS)).isTrue();
+            if (call.<String>getArgument(2).endsWith("/editmeta")) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+            }
+            return json("[{\"accountId\":\"alice\",\"displayName\":\"Alice\"}]");
+        }).when(remote).request(eq("connection"), eq("cloud"), argThat(path -> path.startsWith("/rest/api/3/issue/1001/") || path.startsWith("/rest/api/3/user/")),
+                eq("GET"), any());
+        JiraDtos.Detail detail = jira.detail("connection", "cloud", "1001", true);
+        assertThat(detail.error()).get().asString().contains("Some editing options are unavailable");
+        assertThat(detail.editableFields()).isEmpty();
+        assertThat(detail.assignees()).isEmpty();
     }
 
     @Test

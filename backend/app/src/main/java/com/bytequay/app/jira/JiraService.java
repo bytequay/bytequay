@@ -22,6 +22,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.MissingNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.util.concurrent.UncheckedExecutionException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -35,12 +36,17 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static com.bytequay.app.jira.JiraConnections.segment;
 import static com.bytequay.app.jira.JiraMapping.nodes;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Throwables.throwIfUnchecked;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static com.google.common.util.concurrent.Futures.getUnchecked;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
 
@@ -57,6 +63,7 @@ public class JiraService
     private final JiraIssueTaskStore tasks;
     private final WorkspaceStore workspaces;
     private final ObjectProvider<AppSettingsService> appSettings;
+    private final ExecutorService reads = Executors.newVirtualThreadPerTaskExecutor();
 
     public JiraService(JiraConnections connections, JiraCache cache, JiraIssueTaskStore tasks, WorkspaceStore workspaces, ObjectProvider<AppSettingsService> appSettings)
     {
@@ -221,29 +228,35 @@ public class JiraService
         JsonNode value = fetch(connectionId, cloudId, issueId);
         JiraIssue issue = refreshIssue(connectionId, cloudId, value);
         String path = issuePath(issueId);
+        // These reads only need the ticket, so they run together. They must not take JiraIssueLocks: afterWrite waits for them while holding a stripe.
+        Future<PageItems> commentRead = reads.submit(() -> pageItems(connectionId, cloudId, path + "/comment", "comments", ImmutableMap.of("orderBy", "-created")));
+        Future<JsonNode> transitionRead = reads.submit(() -> get(connectionId, cloudId, path + "/transitions?expand=transitions.fields"));
+        Future<JsonNode> fieldRead = reads.submit(() -> get(connectionId, cloudId, path + "/editmeta"));
+        Future<JsonNode> assigneeRead = reads.submit(() -> get(connectionId, cloudId, query("/rest/api/3/user/assignable/search", ImmutableMap.of("issueKey", issue.key(),
+                "maxResults", 100))));
+        // refreshIssue already asked Jira whether a ticket without subtasks has children, so only parents need the listing.
+        Future<JsonNode> childRead = reads.submit(() -> issue.hasChildren() ? get(connectionId, cloudId, query("/rest/api/3/search/jql", ImmutableMap.of(
+                "jql", "parent = " + segment(issue.id()) + " ORDER BY created ASC", "maxResults", 100, "fields", "summary,issuetype,status,priority,assignee")))
+                : MissingNode.getInstance());
         String siteUrl = connections.site(connectionId, cloudId).url();
         Optional<String> account = connections.get(connectionId).account().map(JiraDtos.Account::accountId);
-        PageItems commentPage = pageItems(connectionId, cloudId, path + "/comment", "comments", ImmutableMap.of("orderBy", "-created"));
+        PageItems commentPage = join(commentRead);
         List<JiraDtos.Comment> comments = commentPage.items().stream().map(comment -> JiraMapping.comment(siteUrl, account, comment))
                 .sorted(java.util.Comparator.comparing(JiraDtos.Comment::created)).collect(toImmutableList());
-        List<JiraDtos.Transition> transitions = nodes(get(connectionId, cloudId, path + "/transitions?expand=transitions.fields").path("transitions")).stream()
+        List<JiraDtos.Transition> transitions = nodes(join(transitionRead).path("transitions")).stream()
                 .map(item -> new JiraDtos.Transition(item.path("id").asText(), item.path("name").asText(), JiraMapping.status(item.path("to")),
                         JiraMapping.fields(item.path("fields")))).collect(toImmutableList());
         List<JiraDtos.Field> fields = ImmutableList.of();
         List<JiraDtos.Person> assignees = ImmutableList.of();
         Optional<String> error = Optional.empty();
         try {
-            fields = JiraMapping.fields(get(connectionId, cloudId, path + "/editmeta").path("fields"));
-            assignees = nodes(get(connectionId, cloudId, query("/rest/api/3/user/assignable/search", ImmutableMap.of("issueKey", issue.key(), "maxResults",
-                    100)))).stream().map(JiraMapping::person).collect(toImmutableList());
+            fields = JiraMapping.fields(join(fieldRead).path("fields"));
+            assignees = nodes(join(assigneeRead)).stream().map(JiraMapping::person).collect(toImmutableList());
         }
         catch (ResponseStatusException e) {
             error = Optional.of("Some editing options are unavailable. Open in Jira for additional fields or assignees.");
         }
-        // refreshIssue already asked Jira whether a ticket without subtasks has children, so only parents need the listing.
-        JsonNode children = issue.hasChildren() ? get(connectionId, cloudId, query("/rest/api/3/search/jql", ImmutableMap.of(
-                "jql", "parent = " + segment(issue.id()) + " ORDER BY created ASC", "maxResults", 100, "fields", "summary,issuetype,status,priority,assignee")))
-                : MissingNode.getInstance();
+        JsonNode children = join(childRead);
         JiraIssue complete = saveIssue(issue.withComments(comments, commentPage.partial()), true, false);
         JiraDtos.Detail detail = new JiraDtos.Detail(complete, complete.comments(), transitions, fields, assignees,
                 Optional.of(Instant.now()), error, complete.commentsTruncated(), value.path("fields").path("issuetype").path("hierarchyLevel").asInt(),
@@ -572,6 +585,18 @@ public class JiraService
             }
         }
         return new PageItems(ImmutableList.copyOf(result), true);
+    }
+
+    /** Rethrows a read's own failure, so a Jira status still reaches the client and the editing fallback. */
+    private static <T> T join(Future<T> read)
+    {
+        try {
+            return getUnchecked(read);
+        }
+        catch (UncheckedExecutionException e) {
+            throwIfUnchecked(e.getCause());
+            throw e;
+        }
     }
 
     private JiraIssue saveIssue(JiraIssue incoming, boolean includeComments, boolean summary)

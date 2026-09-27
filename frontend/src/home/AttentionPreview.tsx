@@ -102,10 +102,10 @@ export default function AttentionPreview({ item, hover, onOpen, onAck, onSnooze,
         <button className="bq-button bq-button--ghost" type="button" onClick={onAck}>
           <Check aria-hidden="true" /> Ack
         </button>
-        <button className="bq-button" type="button" onClick={event => onSnooze(event.currentTarget)}>
+        <button className="bq-button bq-button--ghost" type="button" onClick={event => onSnooze(event.currentTarget)}>
           <Clock3 aria-hidden="true" /> Snooze
         </button>
-        <button className="bq-button" type="button" onClick={onOpen}>
+        <button className="bq-button bq-button--ghost" type="button" onClick={onOpen}>
           Open <ArrowUpRight aria-hidden="true" />
         </button>
       </>}

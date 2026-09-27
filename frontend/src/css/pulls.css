@@ -1074,9 +1074,10 @@
 .pr-thread-comment__menu { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
 .pr-thread-comment .markdown-body { padding-top: 10px; }
 .pr-inline-thread > footer, .pr-thread-row__comments > footer { display: flex; min-height: 50px; align-items: center; padding: 10px 16px; }
-.pr-inline-thread > footer > button, .pr-thread-row__comments > footer > button { border: 1px solid #d0d7de; border-radius: 7px; background: #f6f8fa; color: #59636e; padding: 6px 11px; }
-.pr-inline-thread > footer .pr-thread-reply__open, .pr-thread-row__comments > footer .pr-thread-reply__open { border: 0; background: transparent; color: #24292f; padding-left: 0; font-weight: 400; }
+.pr-inline-thread > footer > button, .pr-thread-row__comments > footer > button { border: 0; border-radius: 7px; background: transparent; color: #59636e; padding: 6px 11px; }
+.pr-inline-thread > footer .pr-thread-reply__open, .pr-thread-row__comments > footer .pr-thread-reply__open { color: #24292f; padding-left: 0; font-weight: 400; }
 .pr-inline-thread > footer .pr-thread-resolve, .pr-thread-row__comments > footer .pr-thread-resolve { margin-left: auto; }
+.pr-inline-thread > footer .pr-thread-resolve:not(:disabled):hover, .pr-thread-row__comments > footer .pr-thread-resolve:not(:disabled):hover { background: #eaeef2; }
 .pr-thread-reply { display: grid !important; gap: 9px; background: #f6f8fa; }
 .pr-thread-reply__tabs { display: flex; gap: 2px; }
 .pr-thread-reply__tabs button { border: 0; border-radius: 6px; background: transparent; color: #59636e; padding: 5px 9px; }

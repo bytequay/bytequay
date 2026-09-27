@@ -165,8 +165,8 @@ describe('agent home and overview', () => {
     expect(markup.indexOf('agt-open-tasks')).toBeLessThan(markup.indexOf('class="agt-dock"'));
     expect(markup.indexOf('class="agt-repo-chip"')).toBeLessThan(markup.indexOf('class="agt-start"'));
     expect(markup.indexOf('class="agt-start"')).toBeLessThan(markup.indexOf('agt-compose'));
-    // A quiet repository shows no attention section at all.
-    expect(markup).not.toContain('Needs attention');
+    // A quiet repository says nothing needs the user.
+    expect(markup).toContain('Nothing needs you right now.');
     expect(markup).toContain('aria-label="Describe a task"');
     expect(markup).not.toContain('Describe a task — sending the first message creates it…');
     expect(markup).not.toContain('master');

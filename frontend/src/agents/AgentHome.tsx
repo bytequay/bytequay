@@ -39,9 +39,6 @@ const SUGGESTIONS: { icon: LucideIcon; title: string; prompt: string }[] = [
   { icon: ListChecks, title: 'Review code and suggest changes', prompt: 'Review recent changes and suggest safe improvements.' },
 ];
 
-/** Home shows at most this many attention rows; each source tab has the rest. */
-const HOME_MAX_ROWS = 3;
-
 /**
  * Windows the user put away, per workspace, each with when. Renderer-local: the task itself is
  * untouched. The time is what a window compares its attention against, so putting away a task that
@@ -80,6 +77,7 @@ function useWorkspaceAttention(workspaceId: string, repository: string): {
   handled: Handled;
   applyHandled: (handled: Handled) => void;
   error: string | null;
+  login: string | null;
 } {
   // Every tab switch remounts this page; the last reads any Home made paint the first frame, and
   // the mount still re-reads them.
@@ -151,7 +149,7 @@ function useWorkspaceAttention(workspaceId: string, repository: string): {
     setHandled(next);
     saveHandled(next);
   }, []);
-  return { candidates, handled, applyHandled, error };
+  return { candidates, handled, applyHandled, error, login };
 }
 
 interface AgentHomeProps {
@@ -163,16 +161,13 @@ interface AgentHomeProps {
   onOpenTask: (taskId: string) => void;
   onOpenSettings?: () => void;
   onShowAll: () => void;
-  /** Where "See all" of the attention list goes: the workspace's Pull requests tab. */
-  onOpenPullRequests?: () => void;
   onOpenPullRequest?: (number: number) => void;
   onOpenIssue?: (number: number) => void;
   onStartIssue?: (number: number) => void;
-  onOpenIssues?: () => void;
 }
 
 export default function AgentHome({
-  workspaceId, headerAction, repository, bridge: explicitBridge, onOpenTask, onOpenSettings, onShowAll, onOpenPullRequests, onOpenPullRequest, onOpenIssue, onStartIssue, onOpenIssues,
+  workspaceId, headerAction, repository, bridge: explicitBridge, onOpenTask, onOpenSettings, onShowAll, onOpenPullRequest, onOpenIssue, onStartIssue,
 }: AgentHomeProps): React.JSX.Element {
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
   const creation = useAgentTaskCreation({ workspaceId, bridge: live, onOpenTask });
@@ -206,11 +201,10 @@ export default function AgentHome({
       onRevealTask={reveal}
       attention={attention.candidates}
       handled={attention.handled}
+      viewerLogin={attention.login}
       onHandledChange={attention.applyHandled}
       onOpenAttention={openAttention}
-      onSeeAllAttention={onOpenPullRequests ?? (() => {})}
       onStartIssue={onStartIssue ? item => onStartIssue(item.number) : undefined}
-      onOpenIssues={onOpenIssues}
       attentionError={attention.error}
       error={creation.error}
       startup={creation.startup}
@@ -225,8 +219,8 @@ export function AgentHomeView({
   repository, headerAction, laneId, providers, bridge, tasks, models, selection, draft, blocker,
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onShowAll,
   hiddenTasks, onHideTask, onRevealTask,
-  attention = [], handled = {}, onHandledChange = () => {}, onOpenAttention = () => {}, onSeeAllAttention = () => {},
-  onStartIssue, onOpenIssues, attentionError,
+  attention = [], handled = {}, viewerLogin = null, onHandledChange = () => {}, onOpenAttention = () => {},
+  onStartIssue, attentionError,
   images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, error = null, automation,
 }: {
   repository: string;
@@ -242,11 +236,10 @@ export function AgentHomeView({
   /** The repository's pull requests and issues that need the user, before ack and snooze are applied. */
   attention?: AttentionItem[];
   handled?: Handled;
+  viewerLogin?: string | null;
   onHandledChange?: (handled: Handled) => void;
   onOpenAttention?: (item: AttentionItem) => void;
-  onSeeAllAttention?: () => void;
   onStartIssue?: (item: AttentionItem) => void;
-  onOpenIssues?: () => void;
   attentionError?: string | null;
   models: ModelOptionDto[];
   selection: TaskModelSelection | null;
@@ -285,16 +278,12 @@ export function AgentHomeView({
         {attentionError && <div className="ws-error" role="alert">{attentionError}</div>}
         <AttentionList
           variant="workspace"
-          maxRows={HOME_MAX_ROWS}
           candidates={attention}
           handled={handled}
+          viewerLogin={viewerLogin}
           onHandledChange={onHandledChange}
           onOpen={onOpenAttention}
-          onSeeAll={onSeeAllAttention}
           onStartIssue={onStartIssue}
-          issueNavigation={onOpenIssues && (
-            <button className="atn-head__link" type="button" onClick={onOpenIssues}>All issues</button>
-          )}
         />
         <section className="agt-open-tasks" aria-label="Open tasks">
           <div className="agt-open-tasks__head">

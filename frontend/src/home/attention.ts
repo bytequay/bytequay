@@ -18,19 +18,14 @@ import { pullRequestIsMine } from '../pulls/model';
 /** Why an item is on the "Needs attention" list, in priority order. */
 export type AttentionKind = 'review' | 'assigned' | 'changes' | 'blocked' | 'ci' | 'commits' | 'merge' | 'updated';
 
-export const ATTENTION_KINDS: Record<AttentionKind, {
-  label: string;
-  color: string;
-  background: string;
-}> = {
-  review: { label: 'Review requested', color: '#0969da', background: '#ddf4ff' },
-  assigned: { label: 'Assigned to you', color: '#6639ba', background: '#f3eefe' },
-  changes: { label: 'Changes requested', color: '#cf222e', background: '#ffebe9' },
-  blocked: { label: 'Merge blocked', color: '#9a6700', background: '#fff8c5' },
-  ci: { label: 'CI failing', color: '#bc4c00', background: '#fff1e5' },
-  commits: { label: 'New commits', color: '#9a6700', background: '#fff8c5' },
-  merge: { label: 'Ready to merge', color: '#1a7f37', background: '#dafbe1' },
-  updated: { label: 'Updated', color: '#0969da', background: '#ddf4ff' },
+/** Where an item comes from; it picks the card's colours, icon and filter tab. */
+export type AttentionSource = 'pr' | 'issue' | 'jira' | 'task';
+
+export const ATTENTION_SOURCES: Record<AttentionSource, { label: string; filter: string }> = {
+  pr: { label: 'Pull request', filter: 'PRs' },
+  issue: { label: 'Issue', filter: 'Issues' },
+  jira: { label: 'Jira ticket', filter: 'Jira' },
+  task: { label: 'Agent task', filter: 'Tasks' },
 };
 
 const PRIORITY: AttentionKind[] = ['review', 'assigned', 'changes', 'ci', 'blocked', 'commits', 'merge', 'updated'];
@@ -61,6 +56,17 @@ export type AttentionItem = {
   workspaceName?: string;
   /** Stable upstream identity, independent of which workspace supplied this issue. */
   sourceKey?: string;
+  /** Items this one is tied to, such as a task's ticket and pull request. */
+  links?: AttentionLink[];
+};
+
+/** Another item a card is tied to, as its folded links row names it. */
+export type AttentionLink = {
+  source: AttentionSource;
+  key: string;
+  title: string;
+  status: string | null;
+  tone: AttentionTone;
 };
 
 /** Authored and explicitly monitored PRs follow all activity; review work follows its relationship to you. */
@@ -167,33 +173,136 @@ export function attentionCandidates(
     .concat([...bySource.values()]);
   return items.sort((left, right) =>
     PRIORITY.indexOf(left.kind) - PRIORITY.indexOf(right.kind)
-    || Date.parse(attentionActivity(right).timestamp) - Date.parse(attentionActivity(left).timestamp));
+    || Date.parse(attentionTime(right)) - Date.parse(attentionTime(left)));
 }
 
-/** The action and age describe the same GitHub event, independently of the attention reason. */
-export function attentionActivity(item: AttentionItem): { label: string; detail: string; timestamp: string } {
-  const activity = item.pr?.latestActivity;
-  if (!activity) {
-    return { label: 'Updated', detail: item.type === 'issue' ? 'issue updated' : 'pull request updated', timestamp: item.updatedAt };
+/** When the item last moved: the latest known source event, else the source's own update time. */
+export function attentionTime(item: AttentionItem): string {
+  return item.pr?.latestActivity?.timestamp ?? item.updatedAt;
+}
+
+export function attentionSource(item: AttentionItem): AttentionSource {
+  return item.jira ? 'jira' : item.type;
+}
+
+/** A reason tag's colour. */
+export type AttentionTone = 'blue' | 'amber' | 'red' | 'green' | 'neutral' | 'orange';
+
+export type AttentionLabel = { name: string; color: string | null };
+
+/** What a card's detail block says about the event that put the item on the list. */
+export type AttentionDetail =
+  | { kind: 'text'; text: string }
+  | { kind: 'ci'; checks: string[] }
+  | { kind: 'labels'; lead: string | null; labels: AttentionLabel[] };
+
+export type AttentionSummary = {
+  tag: { label: string; tone: AttentionTone };
+  /** Who did it; null when the source does not say. */
+  actor: { name: string; avatarUrl: string | null } | null;
+  verb: string;
+  detail: AttentionDetail | null;
+};
+
+const KIND_TAGS: Record<AttentionKind, AttentionSummary['tag']> = {
+  review: { label: 'Review requested', tone: 'blue' },
+  assigned: { label: 'Assigned to you', tone: 'green' },
+  changes: { label: 'Changes requested', tone: 'red' },
+  blocked: { label: 'Merge blocked', tone: 'amber' },
+  ci: { label: 'Updated', tone: 'orange' },
+  commits: { label: 'Updated', tone: 'orange' },
+  merge: { label: 'Ready to merge', tone: 'green' },
+  updated: { label: 'Updated', tone: 'orange' },
+};
+
+const EVENT_VERBS: Record<string, string> = {
+  commented: 'commented', review_thread: 'left a review comment', committed: 'pushed a commit',
+  review_request_removed: 'removed a review request', labeled: 'added a label', unlabeled: 'removed a label',
+  renamed: 'changed the title', 'cross-referenced': 'mentioned this', head_ref_force_pushed: 'force-pushed',
+  closed: 'closed this', merged: 'merged this', reopened: 'reopened this',
+  convert_to_draft: 'converted this to a draft', ready_for_review: 'marked this ready for review',
+  milestoned: 'set the milestone', demilestoned: 'removed the milestone',
+  assigned: 'changed the assignees', unassigned: 'changed the assignees',
+  added_to_merge_queue: 'queued this for merge', removed_from_merge_queue: 'removed this from the merge queue',
+};
+
+/** A plain "updated" item reads as what actually happened on it. */
+function updatedTag(activity: NonNullable<PullRequestDto['latestActivity']>): AttentionSummary['tag'] {
+  const state = activity.state?.toUpperCase();
+  switch (activity.event) {
+    case 'commented':
+    case 'review_thread':
+      return { label: 'Commented', tone: 'neutral' };
+    case 'reviewed':
+      return state === 'APPROVED' ? { label: 'Approved', tone: 'green' }
+        : state === 'CHANGES_REQUESTED' ? { label: 'Changes requested', tone: 'red' } : { label: 'Reviewed', tone: 'neutral' };
+    case 'labeled':
+      return { label: 'Label added', tone: 'neutral' };
+    case 'unlabeled':
+      return { label: 'Label removed', tone: 'neutral' };
+    case 'merged':
+      return { label: 'Merged', tone: 'neutral' };
+    case 'closed':
+      return { label: 'Closed', tone: 'neutral' };
+    default:
+      return KIND_TAGS.updated;
   }
-  const labels: Record<string, string> = {
-    commented: 'Commented', review_thread: 'Commented', committed: 'Committed',
-    review_requested: 'Review requested', review_request_removed: 'Review request removed',
-    labeled: 'Label added', unlabeled: 'Label removed', renamed: 'Title changed',
-    'cross-referenced': 'Mentioned', head_ref_force_pushed: 'Force-pushed',
-    closed: 'Closed', merged: 'Merged', reopened: 'Reopened',
-    convert_to_draft: 'Converted to draft', ready_for_review: 'Ready for review',
-    milestoned: 'Milestone added', demilestoned: 'Milestone removed',
-    assigned: 'Assigned', unassigned: 'Unassigned',
-    added_to_merge_queue: 'Queued for merge', removed_from_merge_queue: 'Removed from merge queue',
+}
+
+function pullRequestSummary(item: AttentionItem, pr: PullRequestDto, viewerLogin: string | null): AttentionSummary {
+  const activity = pr.latestActivity ?? null;
+  const tag = item.kind === 'updated' && activity !== null ? updatedTag(activity) : KIND_TAGS[item.kind];
+  const name = activity?.actor ?? pr.author;
+  const actor = name === null ? null : { name, avatarUrl: name === pr.author ? pr.authorAvatarUrl ?? null : null };
+  const requested = activity?.requestedReviewer ?? null;
+  const verb = activity === null ? 'updated this pull request'
+    : activity.event === 'review_requested'
+      ? requested === null ? 'requested a review'
+        : viewerLogin !== null && requested.toLowerCase() === viewerLogin.toLowerCase() ? 'requested your review' : `requested review from ${requested}`
+      : activity.event === 'reviewed'
+        ? activity.state?.toUpperCase() === 'APPROVED' ? 'approved these changes'
+          : activity.state?.toUpperCase() === 'CHANGES_REQUESTED' ? 'requested changes' : 'reviewed'
+        : EVENT_VERBS[activity.event] ?? 'updated this pull request';
+  const label = activity?.label ?? null;
+  const since = pr.reviewedAt ?? pr.reviewRequestedAt ?? null;
+  const detail: AttentionDetail | null = item.kind === 'ci' ? { kind: 'ci', checks: [] }
+    : (activity?.event === 'labeled' || activity?.event === 'unlabeled') && label !== null
+      ? { kind: 'labels', lead: null, labels: [{ name: label, color: pr.labelColors?.[label] ?? null }] }
+      : since !== null && pr.headPushedAt !== null && Date.parse(pr.headPushedAt) > Date.parse(since)
+        ? { kind: 'text', text: 'New commits since your last review' }
+        : null;
+  return { tag, actor, verb, detail };
+}
+
+/** The card's reason tag, who did what, and what the detail block shows. */
+export function attentionSummary(item: AttentionItem, viewerLogin: string | null = null): AttentionSummary {
+  if (item.pr !== null) return pullRequestSummary(item, item.pr, viewerLogin);
+  const labels = item.labels.map((name): AttentionLabel => ({ name, color: null }));
+  const detail: AttentionDetail | null = labels.length === 0 ? null : { kind: 'labels', lead: null, labels };
+  if (item.jira) {
+    return { tag: KIND_TAGS.assigned, actor: null, verb: `${item.jira.status.name} · ${item.workspaceName ?? 'current sprint'}`, detail };
+  }
+  return {
+    tag: KIND_TAGS[item.kind],
+    actor: item.author === null ? null : { name: item.author, avatarUrl: item.authorAvatarUrl },
+    verb: 'opened this issue',
+    detail,
   };
-  const label = activity.event === 'reviewed'
-    ? activity.state?.toUpperCase() === 'APPROVED' ? 'Approved'
-      : activity.state?.toUpperCase() === 'CHANGES_REQUESTED' ? 'Changes requested' : 'Reviewed'
-    : labels[activity.event] ?? 'Updated';
-  const context = activity.event === 'labeled' || activity.event === 'unlabeled' ? activity.label
-    : activity.event === 'review_requested' && activity.requestedReviewer ? `review from ${activity.requestedReviewer}` : null;
-  return { label, detail: [activity.actor, context].filter(Boolean).join(' · ') || 'on GitHub', timestamp: activity.timestamp };
+}
+
+/** Both Homes show at most this many cards; acknowledging or snoozing one brings in the next. */
+export const ATTENTION_CARD_LIMIT = 4;
+
+export type AttentionFilter = 'all' | AttentionSource;
+
+/** The cards a filter draws, capped, and how many items each filter tab holds. */
+export function attentionCards(live: AttentionItem[], filter: AttentionFilter, limit = ATTENTION_CARD_LIMIT): {
+  cards: AttentionItem[];
+  counts: Record<AttentionFilter, number>;
+} {
+  const counts: Record<AttentionFilter, number> = { all: live.length, pr: 0, issue: 0, jira: 0, task: 0 };
+  for (const item of live) counts[attentionSource(item)] += 1;
+  return { cards: live.filter(item => filter === 'all' || attentionSource(item) === filter).slice(0, limit), counts };
 }
 
 /* ── Acknowledged and snoozed rows ──────────────────────────────── */

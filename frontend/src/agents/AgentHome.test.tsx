@@ -26,12 +26,12 @@ import { TaskWindows } from './TaskCard';
 
 function home(workspaceId: string): string {
   return renderToStaticMarkup(
-    <AgentHome workspaceId={workspaceId} repository="octo/app" bridge={createPreviewBridge(workspaceId)} onOpenTask={() => {}} onShowAll={() => {}} onStartIssue={() => {}} onOpenIssues={() => {}} />);
+    <AgentHome workspaceId={workspaceId} repository="octo/app" bridge={createPreviewBridge(workspaceId)} onOpenTask={() => {}} onShowAll={() => {}} onStartIssue={() => {}} />);
 }
 
 describe('agent home on a return visit', () => {
-  it('paints the attention rows Home last read for this repository, ranked as its own reads will rank them', () => {
-    expect(home('workspace-attention')).not.toContain('Needs attention');
+  it('paints the attention cards Home last read for this repository, ranked as its own reads will rank them', () => {
+    expect(home('workspace-attention')).toContain('Nothing needs you right now.');
 
     setCached(ATTENTION_SEED.prs, [
       pullRequest('octo/app', 7, 'Retry flaky upload'),
@@ -47,8 +47,9 @@ describe('agent home on a return visit', () => {
     expect(seeded).toContain('Reviewer named by login');
     expect(seeded).toContain('Assigned in this workspace');
     expect(seeded).toContain('Start development for #3');
-    expect(seeded).toContain('All issues');
-    expect(seeded).toContain('All pull requests');
+    expect(seeded.match(/class="atn-card /g)).toHaveLength(3);
+    expect(seeded).not.toContain('All issues');
+    expect(seeded).not.toContain('All pull requests');
     expect(seeded).not.toContain('Elsewhere');
     expect(seeded).not.toContain('Assigned in another workspace');
   });

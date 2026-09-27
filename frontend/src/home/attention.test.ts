@@ -16,8 +16,9 @@ import type { PullRequestDto, RepositoryIssueSnapshotDto } from '../types';
 import {
   assignedIssues,
   attentionCandidates,
-  attentionActivity,
   attentionKind,
+  attentionSummary,
+  attentionTime,
   handledEntry,
   handledSummary,
   snoozeUntil,
@@ -271,30 +272,50 @@ function snapshot(): RepositoryIssueSnapshotDto {
   };
 }
 
-describe('attentionActivity', () => {
+describe('attentionSummary', () => {
   const base: AttentionItem = {
-    key: 'o/r#1', type: 'pr', kind: 'review', repo: 'o/r', number: 1, title: 't', author: 'alice', authorAvatarUrl: null,
+    key: 'o/r#1', type: 'pr', kind: 'updated', repo: 'o/r', number: 1, title: 't', author: 'alice', authorAvatarUrl: null,
     createdAt: null, updatedAt: '2026-08-28T00:00:00Z', labels: [], pr: null, body: '', commentCount: 3, workspaceId: null,
   };
 
-  function activity(overrides: Partial<NonNullable<PullRequestDto['latestActivity']>>) {
-    return attentionActivity({ ...base, pr: pr({ latestActivity: {
+  function summary(overrides: Partial<NonNullable<PullRequestDto['latestActivity']>>, kind: AttentionItem['kind'] = 'updated') {
+    const item = { ...base, kind, pr: pr({ author: 'alice', latestActivity: {
       event: 'commented', actor: 'bob', timestamp: base.updatedAt, state: null, label: null, requestedReviewer: null, ...overrides,
-    } }) });
+    } }) };
+    return attentionSummary(item, 'jack');
   }
 
-  it('keeps the actual actor, action and timestamp together instead of inferring them from the PR author', () => {
-    expect(activity({})).toEqual({ label: 'Commented', detail: 'bob', timestamp: base.updatedAt });
-    expect(activity({ event: 'reviewed', state: 'approved' }).label).toBe('Approved');
-    expect(activity({ event: 'reviewed', state: 'CHANGES_REQUESTED' }).label).toBe('Changes requested');
-    expect(activity({ event: 'labeled', label: 'stale-ignore' })).toMatchObject({ label: 'Label added', detail: 'bob · stale-ignore' });
-    expect(activity({ event: 'review_requested', requestedReviewer: 'jack' })).toMatchObject({ label: 'Review requested', detail: 'bob · review from jack' });
-    expect(activity({ actor: null }).detail).toBe('on GitHub');
+  it('names the actual actor and action instead of inferring them from the PR author', () => {
+    expect(summary({})).toMatchObject({ tag: { label: 'Commented', tone: 'neutral' }, actor: { name: 'bob' }, verb: 'commented' });
+    expect(summary({ event: 'review_thread' }).verb).toBe('left a review comment');
+    expect(summary({ event: 'reviewed', state: 'approved' }).tag).toEqual({ label: 'Approved', tone: 'green' });
+    expect(summary({ event: 'reviewed', state: 'CHANGES_REQUESTED' }).tag).toEqual({ label: 'Changes requested', tone: 'red' });
+    expect(summary({ event: 'labeled', label: 'stale-ignore' })).toMatchObject({
+      tag: { label: 'Label added' }, detail: { kind: 'labels', labels: [{ name: 'stale-ignore', color: null }] },
+    });
+    // A review request says whose review it asked for.
+    expect(summary({ event: 'review_requested', requestedReviewer: 'jack' }, 'review')).toMatchObject({
+      tag: { label: 'Review requested', tone: 'blue' }, verb: 'requested your review',
+    });
+    expect(summary({ event: 'review_requested', requestedReviewer: 'kim' }, 'review').verb).toBe('requested review from kim');
+    expect(summary({ actor: null }).actor).toMatchObject({ name: 'alice' });
   });
 
-  it('uses GitHub updatedAt without inventing an action or actor when no event is known', () => {
-    const item = { ...base, pr: pr({ activityAt: '2026-09-08T01:47:58Z', reviewRequestedAt: '2026-09-08T01:47:58Z' }) };
-    expect(attentionActivity(item)).toEqual({ label: 'Updated', detail: 'pull request updated', timestamp: base.updatedAt });
-    expect(attentionActivity({ ...base, type: 'issue' })).toEqual({ label: 'Updated', detail: 'issue updated', timestamp: base.updatedAt });
+  it('tags pushes and failing CI as Updated, in orange, with what changed', () => {
+    expect(summary({ event: 'committed' }, 'commits').tag).toEqual({ label: 'Updated', tone: 'orange' });
+    expect(summary({ event: 'committed' }, 'ci')).toMatchObject({ tag: { label: 'Updated', tone: 'orange' }, detail: { kind: 'ci' } });
+    const pushed = attentionSummary({ ...base, kind: 'commits', pr: pr({
+      reviewedAt: '2026-08-20T00:00:00Z', headPushedAt: '2026-08-21T00:00:00Z', latestActivity: null,
+    }) });
+    expect(pushed.detail).toEqual({ kind: 'text', text: 'New commits since your last review' });
+  });
+
+  it('uses GitHub updatedAt without inventing an action when no event is known', () => {
+    const item = { ...base, pr: pr({ author: 'alice', activityAt: '2026-09-08T01:47:58Z', reviewRequestedAt: '2026-09-08T01:47:58Z', latestActivity: null }) };
+    expect(attentionSummary(item)).toMatchObject({ tag: { label: 'Updated' }, actor: { name: 'alice' }, verb: 'updated this pull request' });
+    expect(attentionTime(item)).toBe(base.updatedAt);
+    expect(attentionSummary({ ...base, type: 'issue', kind: 'assigned', labels: ['bug'] })).toMatchObject({
+      tag: { label: 'Assigned to you', tone: 'green' }, verb: 'opened this issue', detail: { kind: 'labels', labels: [{ name: 'bug' }] },
+    });
   });
 });

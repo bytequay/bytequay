@@ -280,10 +280,8 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
       onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
       onShowAll={() => setOverviewOpen(true)}
-      onOpenPullRequests={() => onSelectTab('prs')}
       onOpenPullRequest={zoomPullRequest}
       onOpenIssue={(number) => zoomReference({ kind: 'issue', repo: monitoredRepository, number, workspaceId: workspace.id })}
-      onOpenIssues={() => onSelectTab('issues')}
       onStartIssue={number => { window.location.hash = workspaceIssueTaskRoute(workspace.id, number); }}
     />,
   );

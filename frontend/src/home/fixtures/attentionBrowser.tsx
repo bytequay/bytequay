@@ -14,8 +14,6 @@
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import AttentionList from '../AttentionList';
-import AttentionPreview from '../AttentionPreview';
-import type { HoverCard } from '../../ReferenceCard';
 import type { AttentionItem, Handled } from '../attention';
 
 function assert(condition: boolean, message: string): void {
@@ -23,12 +21,6 @@ function assert(condition: boolean, message: string): void {
 }
 
 /** Real DOM clicks keep launching separate from source navigation and acknowledgement. */
-/** The fixture drives the card straight, with no row of its own to hover. */
-const openCard = (anchor: DOMRect): HoverCard => ({
-  anchor, pinned: false,
-  show: () => {}, hide: () => {}, hold: () => {}, close: () => {}, pin: () => {}, restoreFocus: () => {},
-});
-
 export async function runAttentionActions(): Promise<void> {
   const host = document.createElement('div');
   document.body.append(host);
@@ -42,8 +34,6 @@ export async function runAttentionActions(): Promise<void> {
   };
   let started = 0;
   let opened = 0;
-  let pullRequests = 0;
-  let issues = 0;
   let handled: Handled = {};
   const start = (item: AttentionItem) => {
     assert(item.workspaceId === 'workspace-fork' && item.number === 7, 'Start must retain the issue’s explicit workspace');
@@ -51,8 +41,7 @@ export async function runAttentionActions(): Promise<void> {
   };
   const render = () => flushSync(() => root.render(
     <AttentionList candidates={[issue]} handled={handled} onHandledChange={next => { handled = next; render(); }}
-      onOpen={() => { opened++; }} onStartIssue={start} onSeeAll={() => { pullRequests++; }}
-      issueNavigation={<button type="button" onClick={() => { issues++; }}>All issues</button>} />,
+      onOpen={() => { opened++; }} onStartIssue={start} />,
   ));
   const button = (label: string) => {
     const found = [...document.querySelectorAll<HTMLButtonElement>('button')]
@@ -63,25 +52,15 @@ export async function runAttentionActions(): Promise<void> {
   try {
     render();
     assert(host.textContent?.includes('Assigned to you') === true, 'Issue must explain its attention reason');
-    assert(host.textContent?.includes('My app fork') === true, 'Global row must show the destination workspace');
+    assert(host.textContent?.includes('My app fork') === true, 'Global card must show the destination workspace');
     button('Start development for #7').click();
-    assert(started === 1 && opened === 0, 'Start must not also open the issue row');
-    host.querySelector<HTMLElement>('.atn-row')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    assert(started === 1 && opened === 0, 'Start must not also open the issue card');
+    host.querySelector<HTMLElement>('.atn-card')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     assert(opened === 1 && started === 1, 'Keyboard open must not start development');
-    button('All issues').click();
-    button('All pull requests').click();
-    assert(issues === 1 && pullRequests === 1, 'Overflow actions must keep source destinations separate');
     flushSync(() => button('Acknowledge #7').click());
-    assert(handled[issue.key]?.kind === 'ack' && !host.querySelector('.atn-row'), 'Ack must hide the suggestion');
+    assert(handled[issue.key]?.kind === 'ack' && !host.querySelector('.atn-card'), 'Ack must hide the suggestion');
+    assert(host.textContent?.includes('Nothing needs you right now.') === true, 'An empty list must say nothing needs you');
     assert(started === 1 && opened === 1, 'Ack must not launch or navigate');
-    flushSync(() => root.render(
-      <AttentionPreview item={issue} hover={openCard(new DOMRect(20, 20, 500, 52))}
-        onOpen={() => { opened++; }} onStartIssue={() => start(issue)} onAck={() => {}} onSnooze={() => {}} />,
-    ));
-    button('Start development').click();
-    assert(started === 2 && opened === 1, 'Preview must expose the same launch action');
-    button('Open').click();
-    assert(opened === 2 && started === 2, 'Preview Open must preserve source navigation');
   }
   finally {
     flushSync(() => root.unmount());

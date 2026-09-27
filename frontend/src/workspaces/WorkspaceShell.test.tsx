@@ -291,11 +291,11 @@ describe('watched repository workspace UI', () => {
     expect(jira?.props.workspace).toBe(value);
   });
 
-  it('zooms a workspace Home PR while See all still opens its PR tab', () => {
+  it('zooms a workspace Home PR over the page', () => {
     const zoomed = captureZoom();
     const onSelectPullRequest = vi.fn();
     const onSelectTab = vi.fn();
-    let home: ReactElement<{ onOpenPullRequest: (number: number) => void; onOpenPullRequests: () => void }> | undefined;
+    let home: ReactElement<{ onOpenPullRequest: (number: number) => void }> | undefined;
     function CaptureHome() {
       const view = WorkspaceShell({
         workspace: workspace('FORK'),
@@ -319,9 +319,6 @@ describe('watched repository workspace UI', () => {
     expect(zoomed()).toEqual([{ kind: 'pull', repo: 'upstream/project', number: 42, workspaceId: 'workspace-id' }]);
     expect(onSelectPullRequest).not.toHaveBeenCalled();
     expect(onSelectTab).not.toHaveBeenCalled();
-
-    home?.props.onOpenPullRequests();
-    expect(onSelectTab).toHaveBeenCalledWith('prs');
   });
 
   /** A screen can ride in a zoom card rather than being the stage's only child. */

@@ -919,10 +919,9 @@ The workspace Home is [Workspace Home.dc.html](Workspace%20Home.dc.html): a
 header with the 28px repository avatar, the repository name and the overview
 control, the same composer docked at the bottom as on the Tasks page, with the
 repository chip and three starting points that fill it as pills in one row
-above it, the repository's own **Needs attention** rows
-(at most three, drawn from the same candidates and ack/snooze store as the
-application Home, hidden entirely when nothing needs the user, **See all**
-opening the workspace Pull requests tab), and the open tasks as a responsive
+above it, the repository's own **Needs attention** cards (drawn from the same
+candidates and ack/snooze store as the application Home, as described below),
+and the open tasks as a responsive
 grid of windows — each a scaled copy of its own screen, anchored to its newest
 work like the screen following its bottom, with finished turns folded. A
 window's footer is its name and state; hovering it shows Rename, which edits
@@ -937,6 +936,27 @@ as such a window over whichever agent screen is showing; `⇧⌘\` or its pinned
 control opens it, Escape closes it, a window opens its task, its ✕ completes an
 idle task after confirmation, and a dashed card starts a new one. Nothing in a
 window is interactive but the window, its name and its toolbar.
+
+Both Homes draw **Needs attention** as cards in a grid of 360px-minimum
+columns whose cards keep their own height. Each shows at most four cards:
+acknowledging or snoozing one brings in the next eligible item, and the count
+reads `4 of N`. Filter tabs above the grid (**All · PRs · Issues · Jira ·
+Tasks**, each with its count) narrow the cards to one source; the cap applies
+after filtering. There are no **All issues** or **All pull requests** links. A
+card is a strip tinted by the source that produced the event (pull request
+green, issue blue, Jira ticket purple, agent task teal) naming its type, key,
+repository on the application Home only, and age; while the pointer or focus
+is inside the card the age gives way to Start development (issues and tickets
+that can start), Acknowledge and Snooze, beside the chevron. The body is the
+title clamped to two lines, a reason tag with the actor's avatar and what they
+did, and a detail block saying what happened. Tags are toned by reason: Review
+requested blue, Approval amber, a status moved to Blocked red, Assigned green,
+Commented neutral, and Updated orange for pushes and failing checks. Linked
+items start folded to one row of icons and keys and unfold to a row per item
+with its title and status. Ack and snooze keep the shared store, undo toast
+and session **Bring back**. Cards never fetch per card: every detail comes
+from what ByteQuay already stores, and there is no hover preview. With
+nothing left, the section says **Nothing needs you right now.**
 
 The composer checks the same typed provider readiness returned by Workspace
 Settings before enabling its send control. Authentication-required, missing,

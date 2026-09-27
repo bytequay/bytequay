@@ -493,11 +493,6 @@ export default function App() {
           {page === 'home' && (
             <HomePage
               onSelectRepo={openPr}
-              onGoToMyPrs={() => {
-                setInitialPr(undefined);
-                setPage('pulls');
-                window.location.hash = '#/pulls';
-              }}
               onOpenWorkspace={openWorkspace}
               onStartIssue={(workspaceId, issueNumber) => navigateTo(workspaceIssueTaskRoute(workspaceId, issueNumber), 'push')}
             />

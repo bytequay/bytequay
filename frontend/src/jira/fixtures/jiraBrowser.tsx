@@ -34,10 +34,18 @@ let commentFails = true;
 let assignmentFails = false;
 let taskRequest: CreateAgentTaskRequest | null = null;
 const connection: JiraConnection = { id: 'connection', authType: 'oauth', tokenEmail: null, account: { accountId: 'alex', displayName: 'Alex Chen', email: 'alex@example.com' }, duplicateOf: null, state: 'connected', sites: [{ id: 'site', name: 'Engineering', url: 'https://example.atlassian.net' }], authorizationUrl: null, pairingCode: null, error: null };
+const workspaces = [
+  { id: 'workspace', name: 'Trino', monitoredOwner: 'trinodb', monitoredRepo: 'trino' },
+  { id: 'other-workspace', name: 'Connectors', monitoredOwner: 'example', monitoredRepo: 'connectors' },
+] as WorkspaceDto[];
 const record = (name: string, ...args: unknown[]) => { calls.push({ name, args }); };
 const button = (label: string, scope: ParentNode = document): HTMLButtonElement => {
   const found = [...scope.querySelectorAll<HTMLButtonElement>('button')].find(value => value.getAttribute('aria-label') === label || value.textContent?.trim() === label);
   assert(found !== undefined, `Missing button: ${label}`); return found;
+};
+const assignButton = (): HTMLButtonElement => {
+  const dialog = document.querySelector('dialog.jira-assignment[open]'); assert(dialog !== null, 'Workspace chooser is open');
+  return button('Assign workspace', dialog);
 };
 const select = (label: string): HTMLSelectElement => {
   const found = document.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`) ?? [...document.querySelectorAll('label')].find(value => value.textContent?.startsWith(label))?.querySelector('select');
@@ -88,13 +96,13 @@ export async function mountPreview(offline = false, openIssue = true, body = jir
     listJiraSprints: async (_connection, _cloud, _board, refresh) => { if (offline && refresh) throw new Error('Jira is offline'); return [{ id: 11, name: 'Connector reliability', state: 'active', startDate: null, endDate: null }]; },
     listJiraIssues: async (query, refresh) => { if (offline && refresh) throw new Error('Jira is offline'); record('issues', query, refresh); return { issues: query.completed ? completedIssues() : currentIssues(), fetchedAt: issue.updatedAt, error: null, partial: false }; },
     getJiraIssue: async (location, refresh, automatic) => { if (offline && refresh) throw new Error('Jira is offline'); record('detail', location, refresh, automatic); return { ...detail, issue }; },
-    assignJiraWorkspace: async (location, workspaceId) => { record('assign', location, workspaceId); if (assignmentFails) { assignmentFails = false; throw new Error('Workspace assignment failed'); } issue = { ...issue, workspace: { id: workspaceId, name: 'Trino' } }; return { ...detail, issue }; },
+    assignJiraWorkspace: async (location, workspaceId) => { record('assign', location, workspaceId); if (assignmentFails) { assignmentFails = false; throw new Error('Workspace assignment failed'); } const workspace = workspaces.find(value => value.id === workspaceId); assert(workspace !== undefined, 'Selected workspace exists'); issue = { ...issue, workspace: { id: workspace.id, name: workspace.name } }; return { ...detail, issue }; },
     setJiraGoal: async (_location, isGoal) => { record('goal', isGoal); assert(!isGoal || issue.workspace !== null, 'Goal requires a saved workspace'); issue = { ...issue, isGoal }; return { ...detail, issue }; },
     updateJiraIssue: async (_location, fields, expectedUpdatedAt) => { record('fields', fields, expectedUpdatedAt); issue = { ...issue, labels: fields.labels as string[] }; return { ...detail, issue }; },
     transitionJiraIssue: async (_location, id, fields, expectedUpdatedAt) => { record('transition', id, fields, expectedUpdatedAt); const transition = detail.transitions.find(value => value.id === id); assert(transition !== undefined, 'Known transition required'); issue = { ...issue, status: transition.to }; return { ...detail, issue }; },
     commentJiraIssue: async (_location, body, operationId) => { record('comment', body, operationId); if (commentFails) { commentFails = false; throw new Error('Connection lost; draft retained'); } detail = { ...detail, comments: [...detail.comments, { id: 'c2', body, author: { accountId: 'me', displayName: 'Alex Chen', avatarUrl: null }, created: issue.updatedAt, updated: issue.updatedAt }] }; return { ...detail, issue }; },
     moveJiraIssue: async (_location, sprintId, boardId, expectedUpdatedAt) => { record('sprint', sprintId, boardId, expectedUpdatedAt); return { ...detail, issue }; },
-    listWorkspaces: async () => [{ id: 'workspace', name: 'Trino', monitoredOwner: 'trinodb', monitoredRepo: 'trino' } as WorkspaceDto],
+    listWorkspaces: async () => workspaces,
     createAgentTask: async request => { taskRequest = request; return previewTask('workspace', request.taskId); },
     openInAppBrowser: async url => { record('browser', url); },
     openExternal: async url => { record('external', url); },
@@ -165,21 +173,61 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       assert(document.querySelector('.jira-comments article')?.textContent?.includes('The fix is ready for review.') ?? false, 'Newest comment reads first');
       const attempts = calls.filter(call => call.name === 'comment'); assert(attempts.length === 2 && attempts[0].args[1] === attempts[1].args[1], 'Retry retains operation identity');
     },
+    async 'assigns and changes the local workspace from ticket Details without Jira writes'() {
+      await mountPreview();
+      issue = { ...issue, hasChildren: true, status: { id: 'done', name: 'Done', category: 'done' } }; detail = { ...detail, editableFields: [] };
+      button('Refresh ticket').click(); await until(() => button('Edit fields').disabled && !button('Refresh ticket').disabled);
+      const pane = document.querySelector('.jira-detail'); assert(pane !== null, 'Ticket detail exists');
+      const assignment = () => document.querySelector<HTMLDialogElement>('dialog.jira-assignment[open]');
+      const reply = pane.querySelector<HTMLTextAreaElement>('textarea[placeholder="Write a reply…"]'); assert(reply !== null, 'Comment composer exists'); edit(reply, 'Keep my unsent reply.'); await settle();
+      calls.length = 0;
+      assert(!button('Assign ByteQuay workspace', pane).disabled, 'Completed parent tickets allow local assignment even without editable Jira fields');
+      button('Assign ByteQuay workspace', pane).click(); await until(() => assignment() !== null && !select('Workspace').disabled);
+      assert(select('Workspace').value === '' && assignButton().disabled, 'Unassigned tickets require an explicit workspace choice');
+      choose(select('Workspace'), 'workspace'); await settle(); button('Close workspace assignment').click(); await until(() => assignment() === null);
+      assert(issue.workspace === null && calls.length === 0 && reply.value === 'Keep my unsent reply.', 'Cancel keeps assignment and comment draft unchanged');
+      button('Assign ByteQuay workspace', pane).click(); await until(() => assignment() !== null && !select('Workspace').disabled);
+      choose(select('Workspace'), 'workspace'); await settle(); assignmentFails = true; assignButton().click();
+      await until(() => assignment()?.textContent?.includes('Workspace assignment failed') ?? false);
+      assert(select('Workspace').value === 'workspace' && issue.workspace === null && !assignButton().disabled, 'Failed save retains the selected workspace for retry');
+      assignButton().click(); await until(() => assignment() === null && button('Change ByteQuay workspace: Trino', pane).textContent?.includes('Trino') === true);
+      assert(document.querySelector('[aria-label^="ENG-1007:"] .jira-workspace')?.textContent?.includes('Trino') ?? false, 'Assignment also updates the ticket card');
+      button('Change ByteQuay workspace: Trino', pane).click(); await until(() => assignment() !== null && !select('Workspace').disabled);
+      assert(select('Workspace').value === 'workspace' && assignButton().disabled, 'Existing assignment is selected and unchanged submission is disabled');
+      choose(select('Workspace'), 'other-workspace'); await settle(); assignButton().click();
+      await until(() => assignment() === null && button('Change ByteQuay workspace: Connectors', pane).textContent?.includes('Connectors') === true);
+      assert(issue.workspace?.id === 'other-workspace' && reply.value === 'Keep my unsent reply.', 'Changing workspace preserves the ticket and comment draft');
+      assert(calls.filter(call => call.name === 'assign').map(call => call.args[1]).join('|') === 'workspace|workspace|other-workspace', 'Only explicit assignment submissions save the chosen workspace');
+      assert(!issue.isGoal && taskRequest === null && calls.every(call => call.name === 'assign' || (call.name === 'issues' && call.args[1] !== true)), 'Local assignment creates no Goal, task, Jira write or remote board refresh');
+    },
+    async 'handles missing workspaces and keeps a linked task workspace read-only'() {
+      await mountPreview();
+      window.bridge.listWorkspaces = async () => [];
+      button('Assign ByteQuay workspace').click();
+      await until(() => document.querySelector('.jira-assignment')?.textContent?.includes('Watch a repository from Home') ?? false);
+      assert(assignButton().disabled && select('Workspace').value === '', 'No workspace cannot produce an assignment');
+      button('Close workspace assignment').click(); await until(() => document.querySelector('.jira-assignment') === null);
+      issue = { ...issue, workspace: { id: 'workspace', name: 'Trino' }, task: { id: 'task', workspaceId: 'workspace' } };
+      button('Refresh ticket').click(); await until(() => document.querySelector('.jira-detail__fields')?.textContent?.includes('Set by the linked development task.') ?? false);
+      const fields = document.querySelector('.jira-detail__fields'); assert(fields !== null, 'Ticket fields exist');
+      assert(fields.textContent?.includes('ByteQuay workspace') && fields.textContent.includes('Trino'), 'Linked workspace remains visible in Details');
+      assert(fields.querySelector('[aria-label="Assign ByteQuay workspace"], [aria-label^="Change ByteQuay workspace:"]') === null && !calls.some(call => call.name === 'assign'), 'A linked development task owns its read-only workspace');
+    },
     async 'assigns a workspace before Goal marking and preserves cancellation and failures'() {
       await mountPreview(false, false);
       const card = document.querySelector('.jira-ticket'); assert(card !== null, 'Card exists');
       const assignment = () => document.querySelector<HTMLDialogElement>('dialog[aria-label="Assign workspace for ENG-1007"][open]');
       button('Mark ENG-1007 as Goal', card).click(); await until(() => assignment() !== null);
       assert(document.querySelector('.jira-detail') === null, 'Goal action does not also open ticket details');
-      assert(select('Workspace').value === '' && button('Assign workspace').disabled, 'Workspace is not inferred and confirmation requires a selection');
+      assert(select('Workspace').value === '' && assignButton().disabled, 'Workspace is not inferred and confirmation requires a selection');
       await keyPress('Escape'); await until(() => assignment() === null);
       assert(issue.workspace === null && !issue.isGoal && !calls.some(call => call.name === 'assign' || call.name === 'goal'), 'Cancel leaves assignment and Goal untouched');
       button('Mark ENG-1007 as Goal', card).click(); await until(() => assignment() !== null);
       choose(select('Workspace'), 'workspace'); await settle();
       assert(!calls.some(call => call.name === 'assign' || call.name === 'goal'), 'Selecting a workspace waits for explicit confirmation');
-      assignmentFails = true; button('Assign workspace').click(); await until(() => assignment()?.textContent?.includes('Workspace assignment failed') ?? false);
+      assignmentFails = true; assignButton().click(); await until(() => assignment()?.textContent?.includes('Workspace assignment failed') ?? false);
       assert(select('Workspace').value === 'workspace' && issue.workspace === null && !issue.isGoal && !calls.some(call => call.name === 'goal'), 'Failed assignment retains the choice without marking Goal');
-      button('Assign workspace').click(); await until(() => card.querySelector('.jira-goal-active') !== null && assignment() === null);
+      assignButton().click(); await until(() => card.querySelector('.jira-goal-active') !== null && assignment() === null);
       const workspace = card.querySelector('.jira-workspace'); assert(workspace?.textContent?.includes('Trino') ?? false, 'Assigned workspace appears on the card');
       const workspaceBounds = workspace?.getBoundingClientRect(); assert(workspaceBounds !== undefined, 'Workspace badge is visible');
       assert(workspace?.contains(document.elementFromPoint(workspaceBounds.left + workspaceBounds.width / 2, workspaceBounds.top + workspaceBounds.height / 2)) ?? false, 'Workspace hover tooltip remains reachable');
@@ -192,7 +240,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       await mountPreview(); const pane = document.querySelector('.jira-detail'); assert(pane !== null, 'Details exist');
       button('Use agent to develop ENG-1007', pane).click(); await until(() => document.querySelector('dialog[aria-label="Assign workspace for ENG-1007"][open]') !== null);
       assert(select('Workspace').value === '', 'Workspace is never inferred from active app state'); assert(document.querySelector('.agt-compose') === null, 'No composer until explicit workspace assignment');
-      choose(select('Workspace'), 'workspace'); await settle(); button('Assign workspace').click(); await until(() => document.querySelector('.agt-compose textarea') !== null);
+      choose(select('Workspace'), 'workspace'); await settle(); assignButton().click(); await until(() => document.querySelector('.agt-compose textarea') !== null);
       assert(calls.find(call => call.name === 'assign')?.args[1] === 'workspace', 'Explicit workspace assignment is persisted before composer opens');
       button('Close development').click(); await until(() => document.querySelector('.agt-compose') === null);
       assert(pane.querySelector('.jira-workspace')?.textContent?.includes('Trino') && document.querySelector('.jira-ticket .jira-workspace')?.textContent?.includes('Trino'), 'Composer cancellation retains workspace on detail and card');
@@ -230,7 +278,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       const assignment = document.querySelector('dialog[aria-label="Assign workspace for ENG-1007"]'); assert(assignment !== null, 'Workspace assignment remains mounted');
       const choiceBounds = select('Workspace').getBoundingClientRect();
       assert(assignment.contains(document.activeElement) && assignment.contains(document.elementFromPoint(choiceBounds.left + choiceBounds.width / 2, choiceBounds.top + choiceBounds.height / 2)), 'Restored workspace assignment stays above the underlying ticket');
-      button('Assign workspace').click(); await until(() => pane.querySelector('.jira-goal-active') !== null);
+      assignButton().click(); await until(() => pane.querySelector('.jira-goal-active') !== null);
       button('Unmark ENG-1007 as Goal', pane).click(); await until(() => pane.querySelector('.jira-goal-active') === null);
       button('Use agent to develop ENG-1007', pane).click(); await until(() => document.querySelector('.agt-compose textarea') !== null);
       const launch = document.querySelector<HTMLDialogElement>('dialog[aria-label="Develop ENG-1007"]'); assert(launch !== null, 'Development dialog exists');
@@ -335,12 +383,14 @@ export async function run(richDescription: string): Promise<{ name: string; erro
     },
     async 'marks automatic detail refresh and keeps its board update local'() {
       const interval = window.setInterval;
+      const clearInterval = window.clearInterval;
       const hidden = Object.getOwnPropertyDescriptor(document, 'hidden');
       let poll: (() => void) | undefined;
       window.setInterval = ((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
         if (delay === 60_000 && typeof handler === 'function') { poll = () => handler(...args); return -1; }
         return interval(handler, delay, ...args);
       }) as typeof window.setInterval;
+      window.clearInterval = id => { if (id === -1) poll = undefined; else clearInterval(id); };
       Object.defineProperty(document, 'hidden', { configurable: true, value: false });
       try {
         await mountPreview(); await settle(); calls.length = 0;
@@ -350,6 +400,11 @@ export async function run(richDescription: string): Promise<{ name: string; erro
         assert(calls.some(call => call.name === 'detail' && call.args[1] === true && call.args[2] === true), 'Timer labels detail request as automatic for the backend quiet-hours check');
         assert(!calls.some(call => call.name === 'issues' && call.args[1] === true), 'Cached automatic detail never triggers a remote board refresh');
         assert(document.querySelector('.jira-detail h2')?.textContent === issue.title && document.querySelector('.jira-ticket__title')?.textContent === issue.title, 'Cached detail still updates both visible ticket surfaces');
+        button('Assign ByteQuay workspace').click();
+        await until(() => document.querySelector('dialog.jira-assignment[open]') !== null && poll === undefined);
+        assert(poll === undefined, 'Workspace chooser pauses automatic detail refresh');
+        button('Close workspace assignment').click();
+        await until(() => document.querySelector('.jira-assignment') === null && poll !== undefined);
         calls.length = 0; button('Refresh ticket').click();
         await until(() => calls.some(call => call.name === 'issues' && call.args[1] === true)); await settle();
         assert(calls.some(call => call.name === 'detail' && call.args[1] === true && call.args[2] !== true), 'Explicit ticket refresh remains a manual remote request');
@@ -358,7 +413,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
         await until(() => calls.some(call => call.name === 'issues' && call.args[1] === true));
       }
       finally {
-        root?.unmount(); root = null; window.setInterval = interval;
+        root?.unmount(); root = null; window.setInterval = interval; window.clearInterval = clearInterval;
         if (hidden) Object.defineProperty(document, 'hidden', hidden); else Reflect.deleteProperty(document, 'hidden');
       }
     },

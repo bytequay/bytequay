@@ -99,6 +99,8 @@
 .jira-detail__fields { display: grid; gap: 18px; padding-block: 8px 20px; font-size: 12px; }
 .jira-detail__fields > span { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 8px; color: var(--text-3); }
 .jira-detail__fields strong { font-weight: 500; color: var(--text-1); }
+.jira-workspace-value { display: grid; gap: 5px; min-width: 0; }
+.jira-detail .jira-workspace-picker { justify-content: space-between; min-width: 0; min-height: 32px; height: auto; padding: 6px 8px; font-weight: 500; line-height: 1.3; white-space: normal; text-align: left; overflow-wrap: anywhere; }
 .jira-detail__fields .jira-labels { width: 100%; margin: 0; }
 .jira-detail__fields > button { justify-self: start; }
 .jira-edit { display: grid; gap: 10px; margin: 15px 0 24px; }

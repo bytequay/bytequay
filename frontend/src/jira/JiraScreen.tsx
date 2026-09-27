@@ -313,6 +313,7 @@ function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }:
   const [comment, setComment] = useState('');
   const commentRequest = useRef<{ body: string; id: string } | null>(null);
   const [editing, setEditing] = useState(false);
+  const [assigningWorkspace, setAssigningWorkspace] = useState(false);
   const [editVersion, setEditVersion] = useState('');
   const [transitionVersion, setTransitionVersion] = useState('');
   const [moveVersion, setMoveVersion] = useState('');
@@ -336,7 +337,7 @@ function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }:
     return () => { active = false; };
   }, [location]);
   useEffect(() => {
-    if (busy || editing || transitionId || moveTo) return;
+    if (busy || editing || assigningWorkspace || transitionId || moveTo) return;
     let active = true;
     const timer = window.setInterval(() => {
       if (document.hidden) return;
@@ -346,7 +347,7 @@ function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }:
       }).catch(cause => { if (active) setError(`Unable to refresh ticket: ${message(cause)}`); });
     }, 60_000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [busy, editing, location, transitionId, moveTo]);
+  }, [busy, editing, assigningWorkspace, location, transitionId, moveTo]);
   const covered = useContext(LayerCovered);
   const wasCovered = useRef(covered);
   useEffect(() => {
@@ -405,6 +406,10 @@ function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }:
       </section>
       </div><aside className="jira-detail__sidebar" aria-label="Ticket fields"><h3>Details</h3>
       <div className="jira-detail__fields"><span>Assignee <strong>{issue.assignee?.displayName ?? 'Unassigned'}</strong></span><span>Priority <strong>{issue.priority?.name ?? 'None'}</strong></span><span>Due date <strong>{issue.dueDate ?? 'None'}</strong></span>
+        <span>ByteQuay workspace<span className="jira-workspace-value">{issue.task
+          ? <><strong>{issue.workspace?.name ?? 'Unavailable'}</strong><small>Set by the linked development task.</small></>
+          : <button type="button" className="bq-button jira-workspace-picker" aria-label={issue.workspace ? `Change ByteQuay workspace: ${issue.workspace.name}` : 'Assign ByteQuay workspace'} aria-haspopup="dialog" disabled={busy || loading} onClick={() => setAssigningWorkspace(true)}>{issue.workspace?.name ?? 'Assign workspace'}<ChevronDown size={14} /></button>}
+        </span></span>
         <div className="jira-labels">{issue.labels.length ? issue.labels.map(label => <span key={label}>{label}</span>) : <span>No labels</span>}</div>
         {!editing && <button type="button" className="bq-button" onClick={startEditing} disabled={loading || busy || detail.editableFields.length === 0}>Edit fields</button>}
       </div>
@@ -428,6 +433,7 @@ function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }:
         </form>}
       </div>
       </aside></div>
+      {assigningWorkspace && <JiraWorkspaceDialog issue={issue} onClose={() => setAssigningWorkspace(false)} onAssigned={value => { setDetail(value); setError(value.error); setAssigningWorkspace(false); onChanged(value, false); }} />}
     </>}
   </dialog>;
 }
@@ -448,7 +454,7 @@ function TransitionField({ field, value, onChange }: { field: JiraField; value: 
 
 function JiraWorkspaceDialog({ issue, onClose, onAssigned }: { issue: JiraIssue; onClose: () => void; onAssigned: (detail: JiraIssueDetail) => void }) {
   const [workspaces, setWorkspaces] = useState<WorkspaceDto[]>([]);
-  const [workspaceId, setWorkspaceId] = useState('');
+  const [workspaceId, setWorkspaceId] = useState(issue.workspace?.id ?? '');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -460,7 +466,7 @@ function JiraWorkspaceDialog({ issue, onClose, onAssigned }: { issue: JiraIssue;
     return () => { active = false; };
   }, []);
   const assign = async () => {
-    if (busy || !workspaceId) return;
+    if (busy || loading || !workspaceId || workspaceId === issue.workspace?.id) return;
     setBusy(true); setError(null);
     try { onAssigned(await window.bridge.assignJiraWorkspace(jiraIssueLocation(issue), workspaceId)); }
     catch (cause) { setError(message(cause)); setBusy(false); }
@@ -472,7 +478,7 @@ function JiraWorkspaceDialog({ issue, onClose, onAssigned }: { issue: JiraIssue;
       <label>Workspace<select required disabled={busy || loading} value={workspaceId} onChange={event => setWorkspaceId(event.target.value)}><option value="" disabled>{loading ? 'Loading workspaces…' : 'Choose the repository for this ticket'}</option>{workspaces.map(value => <option value={value.id} key={value.id}>{value.name} · {value.monitoredOwner}/{value.monitoredRepo}</option>)}</select></label>
       {!loading && !error && workspaces.length === 0 && <p className="jira-muted">Watch a repository from Home to create a ByteQuay workspace, then try again.</p>}
       {error && <div className="ws-error" role="alert">{error}</div>}
-      <footer className="jira-actions"><button type="button" className="bq-button" disabled={busy} onClick={onClose}>Cancel</button><button type="submit" className="bq-button bq-button--primary" disabled={busy || !workspaceId}>{busy ? 'Assigning…' : 'Assign workspace'}</button></footer>
+      <footer className="jira-actions"><button type="button" className="bq-button" disabled={busy} onClick={onClose}>Cancel</button><button type="submit" className="bq-button bq-button--primary" disabled={busy || loading || !workspaceId || workspaceId === issue.workspace?.id}>{busy ? 'Assigning…' : 'Assign workspace'}</button></footer>
     </form>
   </dialog>;
 }

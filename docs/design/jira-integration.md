@@ -100,6 +100,10 @@ The workspace name is resolved from the current workspace record. A linked task
 owns the assignment and cannot be moved to another workspace. A missing workspace
 leaves an unstarted ticket unassigned. Goal marking requires an assignment, and
 new development admission validates that its selected workspace matches it.
+The ticket's Details panel shows a ByteQuay workspace field for assigning or
+changing this local association independently of Goal marking, development start,
+or Jira edit permissions. It reuses the workspace chooser and explicit confirmation;
+the field is read-only when a linked development task owns the assignment.
 
 Task creation follows the canonical interactive task path, including provider
 selection, execution, events, retries and delivery. Source persistence belongs to

@@ -145,6 +145,12 @@ public class JiraController
         return jira.issues(connectionId, cloudId, boardId, sprintId, mine, completed, true);
     }
 
+    @PostMapping(SITE + "/keys/{key}/refresh")
+    public JiraIssue refreshKey(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String key)
+    {
+        return jira.refreshIssueByKey(connectionId, cloudId, key);
+    }
+
     @GetMapping(ISSUE)
     public JiraDtos.Detail detail(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId)
     {

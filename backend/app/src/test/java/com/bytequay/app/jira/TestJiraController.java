@@ -202,6 +202,16 @@ class TestJiraController
         verify(jira).assignWorkspace("connection", "cloud", "10001", "workspace");
     }
 
+    @Test
+    void resolvesATicketLinkKeyOnlyThroughExplicitRefresh()
+            throws Exception
+    {
+        when(jira.refreshIssueByKey("connection", "cloud", "APP-7")).thenReturn(detail().issue());
+        JsonNode issue = mapper.readTree(mvc.perform(post(SITE + "/keys/APP-7/refresh")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(issue.path("id").asText()).isEqualTo("10001");
+        verify(jira).refreshIssueByKey("connection", "cloud", "APP-7");
+    }
+
     private static JiraDtos.Detail detail()
     {
         JiraIssue issue = new JiraIssue("connection", "cloud", "10001", "APP-7", "https://example.atlassian.net/browse/APP-7", "Selection", "Body",

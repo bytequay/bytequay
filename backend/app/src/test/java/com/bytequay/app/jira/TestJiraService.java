@@ -117,6 +117,17 @@ class TestJiraService
     }
 
     @Test
+    void ticketLinkKeyResolvesToTheIssueIdItIsCachedUnder()
+            throws Exception
+    {
+        doReturn(ticket()).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/ENG-7?"), eq("GET"), any());
+        assertThat(jira.refreshIssueByKey("connection", "cloud", "ENG-7").id()).isEqualTo("1001");
+        assertThat(jira.issue("connection", "cloud", "1001").key()).isEqualTo("ENG-7");
+        assertThatThrownBy(() -> jira.issue("connection", "cloud", "ENG-7")).isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> jira.refreshIssueByKey("connection", "cloud", "1001")).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void workspaceAssignmentSurvivesRefreshAndIsSharedAcrossConnections()
             throws Exception
     {

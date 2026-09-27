@@ -162,6 +162,13 @@ public class JiraService
         return saveIssue(issue, false, false);
     }
 
+    /** Resolves the key in a ticket link; the ticket stays cached and addressed by its issue id, never by the key. */
+    public JiraIssue refreshIssueByKey(String connectionId, String cloudId, String key)
+    {
+        checkArgument(key.matches("[A-Z][A-Z0-9_]*-[1-9][0-9]*"), "Invalid Jira issue key");
+        return refreshIssue(connectionId, cloudId, key);
+    }
+
     public JiraDtos.Detail detail(String connectionId, String cloudId, String issueId, boolean refresh)
     {
         if (refresh) {

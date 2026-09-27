@@ -26,8 +26,9 @@ The first release includes:
 - Use a distinct Jira source icon across navigation, attention and task source
   cards. Ticket cards place the title first, labels/parent below it, and the issue
   type/key, priority and assignee in the footer. Unknown custom priorities retain
-  their names without inferring rank from tenant-specific IDs. Assignee initials
-  show the full name on hover.
+  their names without inferring rank from tenant-specific IDs. Assignee avatars
+  use Jira's HTTPS Atlassian/Gravatar image URLs without API credentials, with
+  initials when an image is unavailable. Both show the full name on hover.
 - Browse Completed separately from the selected sprint. This view includes
   currently Done tickets across sprints that match the selected board and its
   mapped statuses, with the Assigned to me filter preserved. Group tickets into

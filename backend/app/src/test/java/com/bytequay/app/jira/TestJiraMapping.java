@@ -17,6 +17,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -26,6 +28,41 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestJiraMapping
 {
     private final ObjectMapper mapper = new ObjectMapper();
+
+    @Test
+    void preservesAvatarsForAssigneesAndCommentAuthors()
+            throws Exception
+    {
+        String avatar = "https://avatar-management--avatars.us-west-2.prod.public.atl-paas.net/account/photo/48";
+        ObjectNode person = mapper.createObjectNode().put("accountId", "account").put("displayName", "Alex Chen");
+        ObjectNode urls = person.putObject("avatarUrls").put("48x48", avatar).put("24x24", "https://example.atlassian.net/avatar/24");
+        ObjectNode issue = ticket("indeterminate");
+        ((ObjectNode) issue.path("fields")).set("assignee", person);
+        ObjectNode comment = mapper.createObjectNode();
+        comment.set("author", person);
+
+        assertThat(JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", issue).assignee().orElseThrow().avatarUrl()).contains(avatar);
+        assertThat(JiraMapping.comment(comment).author().avatarUrl()).contains(avatar);
+        urls.remove("48x48");
+        assertThat(JiraMapping.person(person).avatarUrl()).contains("https://example.atlassian.net/avatar/24");
+        urls.removeAll();
+        assertThat(JiraMapping.person(person).avatarUrl()).isEmpty();
+        person.remove("avatarUrls");
+        assertThat(JiraMapping.person(person).avatarUrl()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", " ", "not a URL", "javascript:alert(1)", "file:///tmp/avatar.png", "data:image/png;base64,abc", "/avatar/48",
+            "http://example.atlassian.net/avatar", "https://127.0.0.1/avatar", "https://example.com/avatar", "https://evilatl-paas.net/avatar",
+            "https://example.atlassian.net.evil.test/avatar", "https://user:password@example.atlassian.net/avatar", "https://example.atlassian.net:8443/avatar"})
+    void skipsUnsafeAvatarsWithoutDroppingThePerson(String url)
+    {
+        ObjectNode person = mapper.createObjectNode().put("accountId", "account").put("displayName", "Alex Chen");
+        ObjectNode urls = person.putObject("avatarUrls").put("48x48", url);
+        assertThat(JiraMapping.person(person)).isEqualTo(new JiraDtos.Person("account", "Alex Chen", Optional.empty()));
+        urls.put("32x32", "https://secure.gravatar.com/avatar/hash?s=32");
+        assertThat(JiraMapping.person(person).avatarUrl()).contains("https://secure.gravatar.com/avatar/hash?s=32");
+    }
 
     @Test
     void completionUsesLatestDoneCategoryEntryBeforeAnOlderResolution()

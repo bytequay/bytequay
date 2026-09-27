@@ -220,6 +220,31 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       button('List view').click(); await settle(); assert(document.querySelector('.jira-items.is-list') !== null, 'List remains available');
       button('ENG-1009').click(); await until(() => window.location.hash.includes('issueId=1009'));
     },
+    async 'loads assignee avatars and recovers from unavailable images'() {
+      await mountPreview(false, false);
+      const assignee = issue.assignee; assert(assignee !== null, 'Fixture has an assignee');
+      const avatar = () => document.querySelector<HTMLElement>('[aria-label^="ENG-1007:"] .jira-assignee');
+      const image = () => avatar()?.querySelector('img');
+      const source = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="25" height="25"><rect width="25" height="25" fill="blue"/></svg>')}`;
+      assert(avatar()?.textContent === 'AC' && !image(), 'Missing avatar retains initials without a GitHub request');
+      issue = { ...issue, assignee: { ...assignee, avatarUrl: source } };
+      button('Refresh tickets').click(); await until(() => image()?.naturalWidth === 25);
+      const loaded = image(); assert(loaded !== null && loaded !== undefined, 'Jira avatar loads');
+      assert(loaded.src === source && loaded.width === 25 && loaded.height === 25 && loaded.referrerPolicy === 'no-referrer', 'Avatar uses the supplied source in the existing circular slot');
+      assert(avatar()?.title === 'Assignee: Alex Chen', 'Full assignee name remains available on hover');
+      issue = { ...issue, assignee: { ...assignee, avatarUrl: 'data:image/png;base64,broken' } };
+      button('Refresh tickets').click(); await until(() => !image() && avatar()?.textContent === 'AC');
+      issue = { ...issue, assignee: { ...assignee, avatarUrl: source } };
+      button('Refresh tickets').click(); await until(() => image()?.naturalWidth === 25);
+      assert(image()?.src === source, 'A changed source retries the same assignee after failure');
+      button('List view').click(); await settle(); assert(image()?.src === source, 'List cards use Jira avatars');
+      button('Completed').click(); await until(() => document.querySelector('.jira-history-group .jira-assignee img') !== null);
+      assert(document.querySelector<HTMLImageElement>('.jira-history-group .jira-assignee img')?.src === source, 'Completed cards use Jira avatars');
+      button('Current sprint').click(); await until(() => avatar() !== null);
+      issue = { ...issue, assignee: null };
+      button('Refresh tickets').click(); await until(() => avatar()?.getAttribute('aria-label') === 'Assignee: Unassigned');
+      assert(avatar()?.querySelector('svg') !== null && !image(), 'Unassigned tickets retain the user icon');
+    },
     async 'remembers a valid account and site while source links retain their binding'() {
       await mountPreview(); const sites = select('Jira site');
       assert(sites.options[0].text.includes('alex@example.com') && sites.options[1].text.includes('sam@another.com') && sites.options[1].text.includes('another.atlassian.net'), 'Same-name sites identify account and domain');

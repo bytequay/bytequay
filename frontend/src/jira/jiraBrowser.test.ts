@@ -30,5 +30,5 @@ it('assigns Jira workspaces, opens ticket modals and starts a source-bound task 
     `,
   });
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-  expect(results).toHaveLength(11);
+  expect(results).toHaveLength(12);
 }, 30_000);

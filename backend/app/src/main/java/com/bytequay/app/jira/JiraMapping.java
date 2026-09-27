@@ -17,10 +17,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
+import java.net.URI;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.StreamSupport;
@@ -56,8 +58,24 @@ final class JiraMapping
 
     static JiraDtos.Person person(JsonNode value)
     {
-        // Avoid loading tenant-hosted avatars outside the authenticated transport.
-        return new JiraDtos.Person(value.path("accountId").asText(), value.path("displayName").asText("Unknown user"), Optional.empty());
+        Optional<String> avatarUrl = ImmutableList.of("48x48", "32x32", "24x24", "16x16").stream()
+                .flatMap(size -> text(value.path("avatarUrls"), size).stream()).filter(JiraMapping::isAvatarUrl).findFirst();
+        return new JiraDtos.Person(value.path("accountId").asText(), value.path("displayName").asText("Unknown user"), avatarUrl);
+    }
+
+    private static boolean isAvatarUrl(String value)
+    {
+        try {
+            URI uri = URI.create(value);
+            String host = Optional.ofNullable(uri.getHost()).orElse("").toLowerCase(Locale.ROOT);
+            // Images load without Jira credentials; only retain Atlassian's avatar hosts.
+            return "https".equalsIgnoreCase(uri.getScheme()) && uri.getUserInfo() == null && (uri.getPort() == -1 || uri.getPort() == 443)
+                    && (host.endsWith(".atlassian.net") || host.endsWith(".atl-paas.net") || host.equals("avatar-cdn.atlassian.com")
+                    || host.equals("api.atlassian.com") || host.equals("secure.gravatar.com"));
+        }
+        catch (IllegalArgumentException ignored) {
+            return false;
+        }
     }
 
     static JiraDtos.Status status(JsonNode value)

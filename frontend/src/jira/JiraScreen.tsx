@@ -286,10 +286,13 @@ function JiraPriority({ priority }: { priority: JiraIssue['priority'] }) {
   return <span className={`jira-priority is-${level}`} title={`Priority: ${priority.name}`} aria-label={`Priority: ${priority.name}`}><Icon size={16} /><span>{priority.name}</span></span>;
 }
 function JiraAssignee({ assignee }: { assignee: JiraIssue['assignee'] }) {
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  const source = assignee?.avatarUrl?.trim();
   const name = assignee?.displayName ?? 'Unassigned';
   const initials = name.trim().split(/\s+/).map(part => part[0]).filter(Boolean);
-  return <span className="jira-assignee" title={`Assignee: ${name}`} aria-label={`Assignee: ${name}`}>
-    {assignee ? <span>{initials.length > 1 ? `${initials[0]}${initials[initials.length - 1]}` : initials[0]}</span> : <UserRound size={14} />}
+  return <span className="jira-assignee" title={`Assignee: ${name}`} role="img" aria-label={`Assignee: ${name}`}>
+    {source && source !== failedSource ? <img src={source} alt="" width={25} height={25} referrerPolicy="no-referrer" onError={() => setFailedSource(source)} />
+      : assignee ? <span>{initials.length > 1 ? `${initials[0]}${initials[initials.length - 1]}` : initials[0]}</span> : <UserRound size={14} />}
   </span>;
 }
 

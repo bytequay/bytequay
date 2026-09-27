@@ -43,7 +43,7 @@ final class JiraMapping
                 optional(fields.path("priority")).map(JiraMapping::choice), optional(parent).map(item -> new JiraDtos.Parent(item.path("id").asText(),
                         item.path("key").asText(), item.path("fields").path("summary").asText())),
                 !fields.path("subtasks").isEmpty() || fields.path("issuetype").path("hierarchyLevel").asInt() > 0,
-                false, instant(fields.path("updated").asText()), text(fields, "duedate"), Optional.empty(), ImmutableList.of(), false, completedAt(fields));
+                false, instant(fields.path("updated").asText()), text(fields, "duedate"), Optional.empty(), ImmutableList.of(), false, completedAt(fields), Optional.empty());
     }
 
     private static Optional<Instant> completedAt(JsonNode fields)

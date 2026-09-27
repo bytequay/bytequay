@@ -468,7 +468,7 @@ export default function App() {
             />
           )}
           <RecentPage active={page === 'recent'} onOpenRow={openRecentRow} />
-          {page === 'jira' && <JiraScreen />}
+          {page === 'jira' && <JiraScreen browserOpen={browserOpen} />}
           {page === 'pulls' && (
             <PullsScreen
               initialPr={initialPr}

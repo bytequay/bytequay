@@ -93,9 +93,9 @@ public class JiraDevelopmentService
                 }
                 return create.apply(link.source());
             }
-            requireRunnable(jira.issue(input.connectionId(), input.cloudId(), input.issueId()), input);
+            requireRunnable(jira.issue(input.connectionId(), input.cloudId(), input.issueId()), input, workspaceId);
             JiraIssue fresh = jira.refreshIssue(input.connectionId(), input.cloudId(), input.issueId());
-            requireRunnable(fresh, input);
+            requireRunnable(fresh, input, workspaceId);
             if (taskStore.find(taskId).isPresent()) {
                 throw new AgentConflictException("Task already exists without this Jira source: " + taskId);
             }
@@ -103,10 +103,16 @@ public class JiraDevelopmentService
         });
     }
 
-    private void requireRunnable(JiraIssue issue, JiraSourceInput input)
+    private void requireRunnable(JiraIssue issue, JiraSourceInput input, String workspaceId)
     {
         checkArgument(issue.connectionId().equals(input.connectionId()) && issue.cloudId().equals(input.cloudId()) && issue.id().equals(input.issueId()),
                 "Jira issue identity changed");
+        if (issue.workspace().isEmpty()) {
+            throw new AgentConflictException("Assign a ByteQuay workspace before starting development.");
+        }
+        if (!issue.workspace().orElseThrow().id().equals(workspaceId)) {
+            throw new AgentConflictException("This Jira ticket is assigned to another workspace. Refresh it before starting development.");
+        }
         if (issue.isGoal() || jira.isGoal(input.cloudId(), input.issueId())) {
             throw new AgentConflictException("This Jira issue is a Goal. Unmark it before starting development.");
         }

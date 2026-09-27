@@ -1720,6 +1720,8 @@ function registerIpc(): void {
     backendJson(`${jiraIssuePath(location)}/comments`, jsonInit('POST', { body, operationId }, agentHeaders())));
   ipcMain.handle('jira:issue:goal', (_event, location: JiraLocation, isGoal: boolean) =>
     backendJson(`${jiraIssuePath(location)}/goal`, jsonInit('PUT', { isGoal }, agentHeaders())));
+  ipcMain.handle('jira:issue:workspace', (_event, location: JiraLocation, workspaceId: string) =>
+    backendJson(`${jiraIssuePath(location)}/workspace`, jsonInit('PUT', { workspaceId }, agentHeaders())));
   ipcMain.handle('jira:attention', () => backendJson(`${backendBase()}/api/jira/attention`, { headers: agentHeaders() }));
   ipcMain.handle('workspaces:list', () => backendJson(`${backendBase()}/api/workspaces`));
   ipcMain.handle('workspaces:list-retired', () => backendJson(`${backendBase()}/api/workspaces/retired`));

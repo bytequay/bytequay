@@ -58,6 +58,8 @@ public final class JiraDtos
 
     public record TaskLink(String id, String workspaceId) {}
 
+    public record WorkspaceLink(String id, String name) {}
+
     public record Comment(String id, Person author, String body, String created, String updated) {}
 
     public record Field(String id, String name, boolean required, String schemaType, List<Choice> allowedValues)

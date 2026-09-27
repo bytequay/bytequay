@@ -360,7 +360,8 @@ class TestAgentHttpApi
         String issueId = "jira-" + UUID.randomUUID();
         JiraIssue issue = new JiraIssue("connection", "cloud", issueId, "APP-7", "https://company.atlassian.net/browse/APP-7",
                 "Fix selection", "Jira body kept in local metadata", "Story", new JiraDtos.Status("3", "In progress", "indeterminate"), Optional.empty(),
-                ImmutableList.of(), Optional.empty(), Optional.empty(), false, false, updated, Optional.empty(), Optional.empty(), ImmutableList.of(), false, Optional.empty());
+                ImmutableList.of(), Optional.empty(), Optional.empty(), false, false, updated, Optional.empty(), Optional.empty(), ImmutableList.of(), false,
+                Optional.empty(), Optional.of(new JiraDtos.WorkspaceLink(workspaceId, "Workspace")));
         when(jira.issue("connection", "cloud", issueId)).thenReturn(issue);
         when(jira.refreshIssue("connection", "cloud", issueId)).thenReturn(issue);
         String instruction = "Implement Jira selection";

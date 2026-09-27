@@ -194,6 +194,12 @@ public class JiraController
         return jira.attention();
     }
 
+    @PutMapping(ISSUE + "/workspace")
+    public JiraDtos.Detail assignWorkspace(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId, @RequestBody Workspace request)
+    {
+        return jira.assignWorkspace(connectionId, cloudId, issueId, request.workspaceId());
+    }
+
     public record Config(boolean configured) {}
 
     public record Token(String siteUrl, String email, String token)
@@ -214,4 +220,6 @@ public class JiraController
     public record Comment(String body, String operationId) {}
 
     public record Goal(boolean isGoal) {}
+
+    public record Workspace(String workspaceId) {}
 }

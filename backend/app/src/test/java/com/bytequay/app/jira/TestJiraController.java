@@ -196,13 +196,17 @@ class TestJiraController
         mvc.perform(put(ISSUE + "/goal").contentType(MediaType.APPLICATION_JSON).content("{\"isGoal\":true}"))
                 .andExpect(status().isOk());
         verify(jira).goal("connection", "cloud", "10001", true);
+        when(jira.assignWorkspace("connection", "cloud", "10001", "workspace")).thenReturn(detail());
+        mvc.perform(put(ISSUE + "/workspace").contentType(MediaType.APPLICATION_JSON).content("{\"workspaceId\":\"workspace\"}"))
+                .andExpect(status().isOk());
+        verify(jira).assignWorkspace("connection", "cloud", "10001", "workspace");
     }
 
     private static JiraDtos.Detail detail()
     {
         JiraIssue issue = new JiraIssue("connection", "cloud", "10001", "APP-7", "https://example.atlassian.net/browse/APP-7", "Selection", "Body",
                 "Story", new JiraDtos.Status("3", "In progress", "indeterminate"), Optional.empty(), ImmutableList.of(), Optional.empty(), Optional.empty(), false, false,
-                UPDATED, Optional.empty(), Optional.empty(), ImmutableList.of(), false, Optional.empty());
+                UPDATED, Optional.empty(), Optional.empty(), ImmutableList.of(), false, Optional.empty(), Optional.empty());
         return new JiraDtos.Detail(issue, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.of(UPDATED), Optional.empty(), false);
     }
 }

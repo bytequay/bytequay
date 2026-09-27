@@ -12,8 +12,8 @@
  * limitations under the License.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Bookmark, Bug, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, ExternalLink, Flag, Columns3, List, LoaderCircle, MessageSquare, Minus, Play, RefreshCw, SquareCheck, UserRound, X, Zap } from 'lucide-react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Bookmark, Bug, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, ExternalLink, Flag, Columns3, FolderGit2, List, LoaderCircle, MessageSquare, Minus, Play, RefreshCw, SquareCheck, UserRound, X, Zap } from 'lucide-react';
 import MarkdownBody from '../pulls/MarkdownBody';
 import { relativeTime } from '../relativeTime';
 import { TaskComposer, StartingAgentTask, useAgentTaskCreation } from '../agents/AgentTasksView';
@@ -28,9 +28,27 @@ import './jira.css';
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 const bridge = () => window.bridge;
 const emptyPage: JiraIssuePage = { issues: [], fetchedAt: null, error: null, partial: false };
+const JiraBrowserOpen = createContext(false);
 
-export function JiraIssueActions({ issue, busy = false, onGoal, onStart }: { issue: JiraIssue; busy?: boolean; onGoal: () => void; onStart: () => void }) {
-  return <span className="jira-actions" role="group" aria-label={`Actions for ${issue.key}`}>
+function useJiraDialog() {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const browserOpen = useContext(JiraBrowserOpen);
+  useLayoutEffect(() => {
+    const element = dialog.current;
+    // Native modal dialogs otherwise make the embedded browser's toolbar inert.
+    if (!browserOpen && element) {
+      // Restore the parent first so a nested workspace chooser stays above it.
+      element.parentElement?.closest('dialog')?.showModal();
+      element.showModal();
+    }
+    return () => element?.close();
+  }, [browserOpen]);
+  return dialog;
+}
+
+export function JiraIssueActions({ issue, busy = false, onGoal, onStart, onAssigned }: { issue: JiraIssue; busy?: boolean; onGoal: () => void; onStart: () => void; onAssigned?: (detail: JiraIssueDetail) => void }) {
+  const [assigning, setAssigning] = useState(false);
+  return <><span className="jira-actions" role="group" aria-label={`Actions for ${issue.key}`}>
     <button className="bq-iconbtn" type="button" title="Open in Jira" aria-label={`Open ${issue.key} in Jira`}
       onClick={event => { event.stopPropagation(); void window.bridge.openInAppBrowser(issue.url); }}><ExternalLink size={15} /></button>
     {issue.task !== null ? <button className="bq-iconbtn" type="button" title="View task" aria-label={`View task for ${issue.key}`}
@@ -39,11 +57,11 @@ export function JiraIssueActions({ issue, busy = false, onGoal, onStart }: { iss
         onClick={event => { event.stopPropagation(); onStart(); }}><Play size={15} /></button>}
     <button className={`bq-iconbtn${issue.isGoal ? ' jira-goal-active' : ''}`} type="button" title={issue.isGoal ? 'Unmark as Goal' : 'Mark as Goal'}
       aria-label={`${issue.isGoal ? 'Unmark' : 'Mark'} ${issue.key} as Goal`} aria-pressed={issue.isGoal} disabled={busy}
-      onClick={event => { event.stopPropagation(); onGoal(); }}><Flag size={15} /></button>
-  </span>;
+      onClick={event => { event.stopPropagation(); if (!issue.isGoal && issue.workspace === null) setAssigning(true); else onGoal(); }}><Flag size={15} /></button>
+  </span>{assigning && <JiraWorkspaceDialog issue={issue} onClose={() => setAssigning(false)} onAssigned={detail => { setAssigning(false); onAssigned?.(detail); onGoal(); }} />}</>;
 }
 
-export default function JiraScreen() {
+export default function JiraScreen({ browserOpen = false }: { browserOpen?: boolean }) {
   const initial = jiraLocation(window.location.hash);
   const savedSite = (() => {
     try { const value = JSON.parse(localStorage.getItem('bytequay:jira-site') ?? 'null') as { connectionId?: unknown; cloudId?: unknown } | null; return typeof value?.connectionId === 'string' && typeof value?.cloudId === 'string' ? { connectionId: value.connectionId, cloudId: value.cloudId } : null; }
@@ -65,7 +83,7 @@ export default function JiraScreen() {
   const [selected, setSelected] = useState<JiraLocation | null>(initial);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [launch, setLaunch] = useState<JiraIssue | null>(null);
+  const [launch, setLaunch] = useState<{ issue: JiraIssue; onChanged?: (detail: JiraIssueDetail) => void } | null>(null);
 
   const generation = useRef(0);
   const connection = connections.find(value => value.id === connectionId && value.sites.length > 0) ?? connections.find(value => value.state === 'connected' && value.sites.length > 0) ?? connections.find(value => value.sites.length > 0);
@@ -79,7 +97,7 @@ export default function JiraScreen() {
     void window.bridge.getJiraIssue(selected, true).then(value => {
       if (!active) return;
       if (value.issue.task) window.location.hash = workspaceAgentTaskRoute(value.issue.task.workspaceId, value.issue.task.id);
-      else if (!value.issue.isGoal && !value.issue.hasChildren && value.issue.status.category !== 'done') setLaunch(value.issue);
+      else if (!value.issue.isGoal && !value.issue.hasChildren && value.issue.status.category !== 'done') setLaunch({ issue: value.issue });
       else setError('Choose a leaf ticket to start development.');
     }).catch(cause => { if (active) setError(message(cause)); });
     return () => { active = false; };
@@ -198,9 +216,14 @@ export default function JiraScreen() {
   const statuses = [...new Map(page.issues.map(issue => [issue.status.id, issue.status])).values()];
   const workflowGroups = [...JIRA_WORKFLOW_GROUPS, ...new Set(shown.map(jiraWorkflowGroup).filter(value => !JIRA_WORKFLOW_GROUPS.some(group => group === value)))];
   const history = completedGroups(shown);
-  const card = (issue: JiraIssue) => <article key={issue.id} className={`jira-ticket${selected?.issueId === issue.id ? ' is-selected' : ''}`} aria-label={`${issue.key}: ${issue.title}`}>
-    <button className="jira-ticket__title" type="button" onClick={() => open(issue)}><strong>{issue.title}</strong></button>
-    <div className="jira-ticket__tags"><span className={`jira-status is-${issue.status.category}`}>{issue.status.name}</span>{issue.labels.map(label => <span className="jira-ticket__label" key={label}>{label}</span>)}</div>
+  const card = (issue: JiraIssue) => <article key={issue.id} className={`jira-ticket${selected?.issueId === issue.id ? ' is-selected' : ''}`} aria-label={`${issue.key}: ${issue.title}`}
+    onClick={event => {
+      if (event.target instanceof Element && event.target.closest('button, dialog')) return;
+      event.currentTarget.querySelector<HTMLButtonElement>('.jira-ticket__title')?.focus();
+      open(issue);
+    }}>
+    <button className="jira-ticket__title" type="button" aria-haspopup="dialog" onClick={() => open(issue)}><strong>{issue.title}</strong></button>
+    <div className="jira-ticket__tags"><span className={`jira-status is-${issue.status.category}`}>{issue.status.name}</span><JiraWorkspaceBadge workspace={issue.workspace} />{issue.labels.map(label => <span className="jira-ticket__label" key={label}>{label}</span>)}</div>
     {issue.parent && <button type="button" className="jira-parent" title={`${issue.parent.key} · ${issue.parent.title}`} onClick={() => { window.location.hash = jiraRoute({ ...jiraIssueLocation(issue), issueId: issue.parent?.id ?? '' }); }}><Zap size={12} />{issue.parent.title}</button>}
     <div className="jira-ticket__footer"><button type="button" className="jira-ticket__key" onClick={() => open(issue)}><JiraTypeIcon type={issue.type} /><span>{issue.key}</span></button>
       <span className="jira-spacer" /><JiraPriority priority={issue.priority} /><JiraAssignee key={issue.assignee?.accountId ?? 'unassigned'} assignee={issue.assignee} />
@@ -208,9 +231,9 @@ export default function JiraScreen() {
     <div className="jira-ticket__time">{view === 'completed' ? issue.completedAt !== null && Number.isFinite(Date.parse(issue.completedAt))
       ? <time dateTime={issue.completedAt} title={new Date(issue.completedAt).toLocaleString()}>Completed {new Date(issue.completedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</time>
       : 'Completion date unavailable'
-      : <time dateTime={issue.updatedAt} title={new Date(issue.updatedAt).toLocaleString()}>Updated {relativeTime(issue.updatedAt)}</time>}<span className="jira-spacer" /><JiraIssueActions issue={issue} onGoal={() => { void toggleGoal(issue); }} onStart={() => setLaunch(issue)} /></div>
+      : <time dateTime={issue.updatedAt} title={new Date(issue.updatedAt).toLocaleString()}>Updated {relativeTime(issue.updatedAt)}</time>}<span className="jira-spacer" /><JiraIssueActions issue={issue} onAssigned={detail => update(detail, false)} onGoal={() => { void toggleGoal(issue); }} onStart={() => setLaunch({ issue })} /></div>
   </article>;
-  return <div className="jira-screen">
+  return <JiraBrowserOpen.Provider value={browserOpen}><div className="jira-screen">
     <header className="jira-header"><div><h1><JiraIcon size={25} />Jira</h1><p>Your sprint, development, and completed work.</p></div><span className="jira-spacer" />
       {site && boardId !== null && <button type="button" className="bq-button jira-open-board" onClick={() => { void window.bridge.openInAppBrowser(`${site.url.replace(/\/$/, '')}/secure/RapidBoard.jspa?rapidView=${boardId}`); }}>Open board in Jira <ExternalLink size={14} /></button>}
       <button type="button" className="bq-button" onClick={() => { window.location.hash = settingsRoute('jira'); }}>Manage accounts</button>
@@ -235,14 +258,18 @@ export default function JiraScreen() {
     </div>
     {view === 'completed' && <p className="jira-history-scope">Completed tickets matching this board, across sprints{mine ? ', assigned to you' : ''}. Jira’s board filters and mapped statuses apply.</p>}
     {page.partial && <div className="jira-notice">Only part of this {view === 'completed' ? 'completed view' : 'sprint'} is loaded. Open Jira to see all matching tickets.</div>}
-    <div className={`jira-content${selected !== null ? ' has-detail' : ''}`}><div className={`jira-items is-${view === 'completed' ? 'history' : layout}`} aria-busy={loading}>
+    <div className="jira-content"><div className={`jira-items is-${view === 'completed' ? 'history' : layout}`} aria-busy={loading}>
       {view === 'completed' ? history.map(group => <section className="jira-history-group" key={group.label}><h2>{group.label}<span>{group.issues.length}</span></h2><div className="jira-history__items">{group.issues.map(card)}</div></section>)
         : layout === 'board' ? workflowGroups.map(group => <section className="jira-column" key={group}><h2>{group}<span>{shown.filter(issue => jiraWorkflowGroup(issue) === group).length}</span></h2>{shown.filter(issue => jiraWorkflowGroup(issue) === group).map(card)}{!shown.some(issue => jiraWorkflowGroup(issue) === group) && <p className="jira-column__empty">No tickets</p>}</section>) : shown.map(card)}
       {shown.length === 0 && <div className="jira-empty">{loading ? <><LoaderCircle size={18} className="jira-spin" /> Loading tickets…</> : page.fetchedAt === null ? 'Select a board to load tickets.' : 'No tickets match this view.'}</div>}
-    </div>{selected && <JiraDetail key={`${selected.connectionId}/${selected.cloudId}/${selected.issueId}`} location={selected} boardId={selected.connectionId === actualConnectionId && selected.cloudId === actualCloudId ? boardId : null} sprints={selected.connectionId === actualConnectionId && selected.cloudId === actualCloudId ? sprints : []} onClose={() => { window.location.hash = jiraRoute(); }} onChanged={update} onStart={setLaunch} />}</div></>}
-    {!site && selected && <JiraDetail key={`${selected.connectionId}/${selected.cloudId}/${selected.issueId}`} location={selected} boardId={selected.connectionId === actualConnectionId && selected.cloudId === actualCloudId ? boardId : null} sprints={selected.connectionId === actualConnectionId && selected.cloudId === actualCloudId ? sprints : []} onClose={() => { window.location.hash = jiraRoute(); }} onChanged={update} onStart={setLaunch} />}
-    {launch && <JiraLaunch issue={launch} onClose={() => setLaunch(null)} />}
-  </div>;
+    </div></div></>}
+    {selected && <JiraDetail key={`${selected.connectionId}/${selected.cloudId}/${selected.issueId}`} location={selected} boardId={selected.connectionId === actualConnectionId && selected.cloudId === actualCloudId ? boardId : null} sprints={selected.connectionId === actualConnectionId && selected.cloudId === actualCloudId ? sprints : []} onClose={() => { window.location.hash = jiraRoute(); }} onChanged={update} onStart={(issue, onChanged) => setLaunch({ issue, onChanged })} />}
+    {launch && <JiraLaunch issue={launch.issue} onChanged={detail => { update(detail, false); launch.onChanged?.(detail); }} onClose={() => setLaunch(null)} />}
+  </div></JiraBrowserOpen.Provider>;
+}
+
+function JiraWorkspaceBadge({ workspace }: { workspace: JiraIssue['workspace'] }) {
+  return workspace && <span className="jira-workspace" title={`ByteQuay workspace: ${workspace.name}`}><FolderGit2 size={13} aria-hidden="true" />{workspace.name}</span>;
 }
 
 function JiraTypeIcon({ type }: { type: string }) {
@@ -265,7 +292,8 @@ function JiraAssignee({ assignee }: { assignee: JiraIssue['assignee'] }) {
   </span>;
 }
 
-function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }: { location: JiraLocation; sprints: JiraSprint[]; boardId: number | null; onClose: () => void; onChanged: (detail: JiraIssueDetail, refresh?: boolean) => void; onStart: (issue: JiraIssue) => void }) {
+function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }: { location: JiraLocation; sprints: JiraSprint[]; boardId: number | null; onClose: () => void; onChanged: (detail: JiraIssueDetail, refresh?: boolean) => void; onStart: (issue: JiraIssue, onChanged: (detail: JiraIssueDetail) => void) => void }) {
+  const dialog = useJiraDialog();
   const [detail, setDetail] = useState<JiraIssueDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -328,14 +356,28 @@ function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }:
     if (field('duedate')) fields.duedate = dueDate || null;
     void mutate(() => window.bridge.updateJiraIssue(location, fields, editVersion), () => setEditing(false));
   };
-  return <aside className="jira-detail" aria-label="Ticket details"><div className="jira-detail__toolbar"><button type="button" className="bq-iconbtn" aria-label="Close ticket" onClick={onClose}><ArrowLeft size={18} /></button><span className="jira-spacer" />
-    <button type="button" className="bq-iconbtn" aria-label="Refresh ticket" title="Refresh ticket" disabled={busy || loading} onClick={() => { void mutate(() => window.bridge.getJiraIssue(location, true)); }}><RefreshCw size={16} /></button></div>
+  return <dialog ref={dialog} className="jira-detail" aria-label="Ticket details" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}><div className="jira-detail__toolbar">
+    {issue && <span className="jira-detail__reference"><JiraTypeIcon type={issue.type} />{issue.key}<span className="jira-muted">{issue.type}</span></span>}<span className="jira-spacer" />
+    <button type="button" className="bq-iconbtn" aria-label="Refresh ticket" title="Refresh ticket" disabled={busy || loading} onClick={() => { void mutate(() => window.bridge.getJiraIssue(location, true)); }}><RefreshCw size={16} /></button>
+    <button type="button" className="bq-iconbtn" aria-label="Close ticket" title="Close ticket" disabled={busy} onClick={onClose}><X size={18} /></button></div>
     {error && <div className="ws-error" role="alert">{error}</div>}
     {!issue || !detail ? <div className="jira-empty">{loading ? 'Loading ticket…' : 'This ticket could not be loaded.'}</div> : <>
-      <p className="jira-muted">{issue.key} · {issue.type}</p><h2>{issue.title}</h2>
-      <div className="jira-ticket__meta"><span className={`jira-status is-${issue.status.category}`}>{issue.status.name}</span><span>Updated {relativeTime(issue.updatedAt)}</span>
-        <JiraIssueActions issue={issue} busy={busy || loading} onGoal={() => { void mutate(() => window.bridge.setJiraGoal(location, !issue.isGoal)); }} onStart={() => onStart(issue)} /></div>
+      <h2>{issue.title}</h2>
+      <div className="jira-ticket__meta"><span className={`jira-status is-${issue.status.category}`}>{issue.status.name}</span><JiraWorkspaceBadge workspace={issue.workspace} /><span>Updated {relativeTime(issue.updatedAt)}</span>
+        <JiraIssueActions issue={issue} busy={busy || loading} onAssigned={value => { setDetail(value); onChanged(value, false); }} onGoal={() => { void mutate(() => window.bridge.setJiraGoal(location, !issue.isGoal)); }} onStart={() => onStart(issue, setDetail)} /></div>
       {issue.hasChildren && <p className="jira-notice">This ticket has children. Start development from an individual child ticket.</p>}
+      <div className="jira-detail__body"><div className="jira-detail__main">
+      <section className="jira-description"><h3>Description</h3><MarkdownBody body={issue.body || 'No description.'} /></section>
+      <section className="jira-comments"><h3><MessageSquare size={16} /> Comments <span>{detail.comments.length}</span></h3>
+        {detail.comments.map(value => <article key={value.id}><header><strong>{value.author.displayName}</strong><time dateTime={value.created}>{relativeTime(value.created)}</time></header><MarkdownBody body={value.body} /></article>)}
+        {detail.commentsTruncated && <p className="jira-notice">Some comments are not loaded. Open Jira to read the full discussion.</p>}
+        {detail.comments.length === 0 && !detail.commentsTruncated && <p className="jira-muted">No comments yet.</p>}
+        <form onSubmit={event => { event.preventDefault(); const body = comment.trim(); if (!body) return; if (commentRequest.current?.body !== body) commentRequest.current = { body, id: crypto.randomUUID() }; const request = commentRequest.current; void mutate(() => window.bridge.commentJiraIssue(location, request.body, request.id), () => { setComment(''); commentRequest.current = null; }); }}>
+          <label>Add a comment<textarea rows={4} value={comment} onChange={event => setComment(event.target.value)} placeholder="Write a reply…" /></label>
+          <button type="submit" className="bq-button bq-button--primary" disabled={busy || !comment.trim()}>Send comment</button>
+        </form>
+      </section>
+      </div><aside className="jira-detail__sidebar" aria-label="Ticket fields"><h3>Details</h3>
       <div className="jira-detail__fields"><span>Assignee <strong>{issue.assignee?.displayName ?? 'Unassigned'}</strong></span><span>Priority <strong>{issue.priority?.name ?? 'None'}</strong></span><span>Due date <strong>{issue.dueDate ?? 'None'}</strong></span>
         <div className="jira-labels">{issue.labels.length ? issue.labels.map(label => <span key={label}>{label}</span>) : <span>No labels</span>}</div>
         {!editing && <button type="button" className="bq-button" onClick={startEditing} disabled={loading || busy || detail.editableFields.length === 0}>Edit fields</button>}
@@ -359,18 +401,9 @@ function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }:
           {moveTo && <button type="submit" className="bq-button" disabled={busy}>Move ticket</button>}
         </form>}
       </div>
-      <section className="jira-description"><h3>Description</h3><MarkdownBody body={issue.body || 'No description.'} /></section>
-      <section className="jira-comments"><h3><MessageSquare size={16} /> Comments <span>{detail.comments.length}</span></h3>
-        {detail.comments.map(value => <article key={value.id}><header><strong>{value.author.displayName}</strong><time dateTime={value.created}>{relativeTime(value.created)}</time></header><MarkdownBody body={value.body} /></article>)}
-        {detail.commentsTruncated && <p className="jira-notice">Some comments are not loaded. Open Jira to read the full discussion.</p>}
-        {detail.comments.length === 0 && !detail.commentsTruncated && <p className="jira-muted">No comments yet.</p>}
-        <form onSubmit={event => { event.preventDefault(); const body = comment.trim(); if (!body) return; if (commentRequest.current?.body !== body) commentRequest.current = { body, id: crypto.randomUUID() }; const request = commentRequest.current; void mutate(() => window.bridge.commentJiraIssue(location, request.body, request.id), () => { setComment(''); commentRequest.current = null; }); }}>
-          <label>Add a comment<textarea rows={4} value={comment} onChange={event => setComment(event.target.value)} placeholder="Write a reply…" /></label>
-          <button type="submit" className="bq-button bq-button--primary" disabled={busy || !comment.trim()}>Send comment</button>
-        </form>
-      </section>
+      </aside></div>
     </>}
-  </aside>;
+  </dialog>;
 }
 
 export function supportedTransitionField(field: JiraField): boolean {
@@ -387,21 +420,54 @@ function TransitionField({ field, value, onChange }: { field: JiraField; value: 
     : <input required={field.required} value={value} type={field.schemaType === 'date' ? 'date' : field.schemaType === 'number' ? 'number' : 'text'} step={field.schemaType === 'number' ? 'any' : undefined} onChange={event => onChange(event.target.value)} />}</label>;
 }
 
-function JiraLaunch({ issue: initialIssue, onClose }: { issue: JiraIssue; onClose: () => void }) {
-  const [issue, setIssue] = useState(initialIssue);
-  const [refreshing, setRefreshing] = useState(false);
+function JiraWorkspaceDialog({ issue, onClose, onAssigned }: { issue: JiraIssue; onClose: () => void; onAssigned: (detail: JiraIssueDetail) => void }) {
   const [workspaces, setWorkspaces] = useState<WorkspaceDto[]>([]);
   const [workspaceId, setWorkspaceId] = useState('');
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => { dialog.current?.showModal(); }, []);
-  useEffect(() => { let active = true; void window.bridge.listWorkspaces().then(value => { if (active) setWorkspaces(value); }).catch(cause => { if (active) setError(message(cause)); }); return () => { active = false; }; }, []);
+  const dialog = useJiraDialog();
+  useEffect(() => {
+    let active = true;
+    void window.bridge.listWorkspaces().then(value => { if (active) setWorkspaces(value); })
+      .catch(cause => { if (active) setError(message(cause)); }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, []);
+  const assign = async () => {
+    if (busy || !workspaceId) return;
+    setBusy(true); setError(null);
+    try { onAssigned(await window.bridge.assignJiraWorkspace(jiraIssueLocation(issue), workspaceId)); }
+    catch (cause) { setError(message(cause)); setBusy(false); }
+  };
+  return <dialog ref={dialog} aria-label={`Assign workspace for ${issue.key}`} className="jira-launch jira-assignment" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
+    <header><h2>Assign a workspace</h2><button type="button" className="bq-iconbtn" aria-label="Close workspace assignment" disabled={busy} onClick={onClose}><X size={18} /></button></header>
+    <p>Choose the ByteQuay workspace for <strong>{issue.key}</strong>. This choice is saved for this ticket.</p>
+    <form onSubmit={event => { event.preventDefault(); void assign(); }}>
+      <label>Workspace<select required disabled={busy || loading} value={workspaceId} onChange={event => setWorkspaceId(event.target.value)}><option value="" disabled>{loading ? 'Loading workspaces…' : 'Choose the repository for this ticket'}</option>{workspaces.map(value => <option value={value.id} key={value.id}>{value.name} · {value.monitoredOwner}/{value.monitoredRepo}</option>)}</select></label>
+      {!loading && !error && workspaces.length === 0 && <p className="jira-muted">Watch a repository from Home to create a ByteQuay workspace, then try again.</p>}
+      {error && <div className="ws-error" role="alert">{error}</div>}
+      <footer className="jira-actions"><button type="button" className="bq-button" disabled={busy} onClick={onClose}>Cancel</button><button type="submit" className="bq-button bq-button--primary" disabled={busy || !workspaceId}>{busy ? 'Assigning…' : 'Assign workspace'}</button></footer>
+    </form>
+  </dialog>;
+}
+
+function JiraLaunch({ issue: initialIssue, onClose, onChanged }: { issue: JiraIssue; onClose: () => void; onChanged: (detail: JiraIssueDetail) => void }) {
+  const [issue, setIssue] = useState(initialIssue);
+  return issue.workspace === null
+    ? <JiraWorkspaceDialog issue={issue} onClose={onClose} onAssigned={detail => { setIssue(detail.issue); onChanged(detail); }} />
+    : <JiraLaunchContent issue={issue} workspaceId={issue.workspace.id} onClose={onClose} onChanged={detail => { setIssue(detail.issue); onChanged(detail); }} />;
+}
+
+function JiraLaunchContent({ issue, workspaceId, onClose, onChanged }: { issue: JiraIssue; workspaceId: string; onClose: () => void; onChanged: (detail: JiraIssueDetail) => void }) {
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const dialog = useJiraDialog();
   const refresh = async () => {
     setRefreshing(true); setError(null);
     try {
       const detail = await window.bridge.getJiraIssue(jiraIssueLocation(issue), true);
-      setIssue(detail.issue); setError(detail.error);
+      setError(detail.error); onChanged(detail);
       if (detail.issue.task !== null) window.location.hash = workspaceAgentTaskRoute(detail.issue.task.workspaceId, detail.issue.task.id);
     }
     catch (cause) { setError(message(cause)); }
@@ -409,9 +475,9 @@ function JiraLaunch({ issue: initialIssue, onClose }: { issue: JiraIssue; onClos
   };
   return <dialog ref={dialog} aria-label={`Develop ${issue.key}`} className="jira-launch" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
     <header><h2>Develop {issue.key}</h2><span className="jira-spacer" /><button type="button" className="bq-iconbtn" aria-label="Refresh development source" title="Refresh ticket context" disabled={busy || refreshing} onClick={() => { void refresh(); }}><RefreshCw size={16} /></button><button type="button" className="bq-iconbtn" aria-label="Close development" disabled={busy} onClick={onClose}><X size={18} /></button></header>
-    <p>{issue.title}</p><label>Workspace<select disabled={busy} value={workspaceId} onChange={event => setWorkspaceId(event.target.value)}><option value="" disabled>Choose the repository for this ticket</option>{workspaces.map(value => <option value={value.id} key={value.id}>{value.name} · {value.monitoredOwner}/{value.monitoredRepo}</option>)}</select></label>
+    <p>{issue.title}</p><JiraWorkspaceBadge workspace={issue.workspace} />
     {error && <div className="ws-error" role="alert">{error}</div>}
-    {workspaceId && <JiraLaunchComposer key={workspaceId} issue={issue} workspaceId={workspaceId} refreshing={refreshing} onBusy={setBusy} />}
+    <JiraLaunchComposer key={workspaceId} issue={issue} workspaceId={workspaceId} refreshing={refreshing} onBusy={setBusy} />
   </dialog>;
 }
 function JiraLaunchComposer({ issue, workspaceId, onBusy, refreshing }: { issue: JiraIssue; workspaceId: string; onBusy: (busy: boolean) => void; refreshing: boolean }) {

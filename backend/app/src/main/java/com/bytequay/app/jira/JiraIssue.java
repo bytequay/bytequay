@@ -19,12 +19,13 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-/** Cached Jira source data; task links and Goal classification are local projections. */
+/** Cached Jira source data; workspace, task links and Goal classification are local projections. */
 public record JiraIssue(
         String connectionId, String cloudId, String id, String key, String url, String title, String body,
         String type, JiraDtos.Status status, Optional<JiraDtos.Person> assignee, List<String> labels,
         Optional<JiraDtos.Choice> priority, Optional<JiraDtos.Parent> parent, boolean hasChildren, boolean isGoal,
-        Instant updatedAt, Optional<String> dueDate, Optional<JiraDtos.TaskLink> task, List<JiraDtos.Comment> comments, boolean commentsTruncated, Optional<Instant> completedAt)
+        Instant updatedAt, Optional<String> dueDate, Optional<JiraDtos.TaskLink> task, List<JiraDtos.Comment> comments, boolean commentsTruncated,
+        Optional<Instant> completedAt, Optional<JiraDtos.WorkspaceLink> workspace)
 {
     public JiraIssue
     {
@@ -35,18 +36,18 @@ public record JiraIssue(
     public JiraIssue withComments(List<JiraDtos.Comment> values, boolean truncated)
     {
         return new JiraIssue(connectionId, cloudId, id, key, url, title, body, type, status, assignee, labels,
-                priority, parent, hasChildren, isGoal, updatedAt, dueDate, task, values, truncated, completedAt);
+                priority, parent, hasChildren, isGoal, updatedAt, dueDate, task, values, truncated, completedAt, workspace);
     }
 
     public JiraIssue withChildren(boolean children)
     {
         return new JiraIssue(connectionId, cloudId, id, key, url, title, body, type, status, assignee, labels,
-                priority, parent, children, isGoal, updatedAt, dueDate, task, comments, commentsTruncated, completedAt);
+                priority, parent, children, isGoal, updatedAt, dueDate, task, comments, commentsTruncated, completedAt, workspace);
     }
 
-    public JiraIssue withMetadata(boolean goal, Optional<JiraDtos.TaskLink> link)
+    public JiraIssue withMetadata(boolean goal, Optional<JiraDtos.TaskLink> link, Optional<JiraDtos.WorkspaceLink> assignedWorkspace)
     {
         return new JiraIssue(connectionId, cloudId, id, key, url, title, body, type, status, assignee, labels,
-                priority, parent, hasChildren, goal, updatedAt, dueDate, link, comments, commentsTruncated, completedAt);
+                priority, parent, hasChildren, goal, updatedAt, dueDate, link, comments, commentsTruncated, completedAt, assignedWorkspace);
     }
 }

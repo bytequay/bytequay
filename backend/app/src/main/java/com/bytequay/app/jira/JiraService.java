@@ -15,7 +15,9 @@ package com.bytequay.app.jira;
 
 import com.bytequay.app.agent.JiraIssueLocks;
 import com.bytequay.app.service.settings.AppSettingsService;
+import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.store.JiraIssueTaskStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -48,13 +50,15 @@ public class JiraService
     private final JiraConnections connections;
     private final JiraCache cache;
     private final JiraIssueTaskStore tasks;
+    private final WorkspaceStore workspaces;
     private final ObjectProvider<AppSettingsService> appSettings;
 
-    public JiraService(JiraConnections connections, JiraCache cache, JiraIssueTaskStore tasks, ObjectProvider<AppSettingsService> appSettings)
+    public JiraService(JiraConnections connections, JiraCache cache, JiraIssueTaskStore tasks, WorkspaceStore workspaces, ObjectProvider<AppSettingsService> appSettings)
     {
         this.connections = requireNonNull(connections, "connections is null");
         this.cache = requireNonNull(cache, "cache is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
         // Agent initialization reads Jira context and also depends on settings; resolve settings only for refresh.
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
     }
@@ -212,11 +216,28 @@ public class JiraService
     public JiraDtos.Detail goal(String connectionId, String cloudId, String issueId, boolean goal)
     {
         return JiraIssueLocks.withLock(cloudId, issueId, () -> {
-            issue(connectionId, cloudId, issueId);
+            JiraIssue issue = issue(connectionId, cloudId, issueId);
             if (goal && tasks.findBySource(cloudId, issueId).isPresent()) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "This ticket already has a development task.");
             }
+            if (goal && issue.workspace().isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Assign a ByteQuay workspace before marking this ticket as a Goal.");
+            }
             cache.write("goal." + segment(cloudId) + "." + segment(issueId), goal);
+            return detail(connectionId, cloudId, issueId, false);
+        });
+    }
+
+    public JiraDtos.Detail assignWorkspace(String connectionId, String cloudId, String issueId, String workspaceId)
+    {
+        checkArgument(workspaceId != null && !workspaceId.isBlank(), "Workspace is required");
+        return JiraIssueLocks.withLock(cloudId, issueId, () -> {
+            JiraIssue issue = issue(connectionId, cloudId, issueId);
+            WorkspaceException.requireWorkspace(workspaces, workspaceId);
+            if (issue.task().filter(task -> !task.workspaceId().equals(workspaceId)).isPresent()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "This ticket's development task belongs to another workspace.");
+            }
+            cache.write("workspace." + segment(cloudId) + "." + segment(issueId), workspaceId);
             return detail(connectionId, cloudId, issueId, false);
         });
     }
@@ -440,8 +461,11 @@ public class JiraService
 
     private JiraIssue metadata(JiraIssue issue)
     {
-        return issue.withMetadata(isGoal(issue.cloudId(), issue.id()), tasks.findBySource(issue.cloudId(),
-                issue.id()).map(task -> new JiraDtos.TaskLink(task.taskId(), task.workspaceId())));
+        Optional<JiraDtos.TaskLink> task = tasks.findBySource(issue.cloudId(), issue.id()).map(link -> new JiraDtos.TaskLink(link.taskId(), link.workspaceId()));
+        Optional<JiraDtos.WorkspaceLink> workspace = task.map(JiraDtos.TaskLink::workspaceId)
+                .or(() -> cache.read("workspace." + segment(issue.cloudId()) + "." + segment(issue.id()), String.class))
+                .flatMap(workspaces::findById).map(value -> new JiraDtos.WorkspaceLink(value.id(), value.name()));
+        return issue.withMetadata(isGoal(issue.cloudId(), issue.id()), task, workspace);
     }
 
     private JiraDtos.IssuePage page(Scope scope)

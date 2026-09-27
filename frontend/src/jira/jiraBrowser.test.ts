@@ -15,10 +15,20 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
 
-it('edits Jira fields, preserves failed replies and starts a source-bound task in Chromium', async () => {
+it('assigns Jira workspaces, opens ticket modals and starts a source-bound task in Chromium', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
     prefix: 'bytequay-jira-', entry: 'src/jira/fixtures/jiraBrowser.tsx', global: 'JiraTests', styles: true, charset: true, width: 1280, height: 920,
+    setup: `
+      window.webContents.on('console-message', details => {
+        if (details.message.startsWith('input:')) window.webContents.sendInputEvent(JSON.parse(details.message.slice('input:'.length)));
+      });
+    `,
+    body: `
+      window.webContents.debugger.attach('1.3');
+      await window.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
+      const results = await window.webContents.executeJavaScript('JiraTests.run()');
+    `,
   });
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-  expect(results).toHaveLength(8);
+  expect(results).toHaveLength(10);
 }, 30_000);

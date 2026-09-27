@@ -36,7 +36,8 @@ class TestJiraMapping
                 .put("statuscategorychangedate", "2026-09-26T01:00:00Z");
         JiraIssue issue = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", value);
         assertThat(issue.completedAt()).contains(Instant.parse("2026-09-26T01:00:00Z"));
-        assertThat(issue.withComments(ImmutableList.of(), true).withChildren(true).withMetadata(true, Optional.empty()).completedAt()).isEqualTo(issue.completedAt());
+        assertThat(issue.withComments(ImmutableList.of(), true).withChildren(true).withMetadata(true, Optional.empty(), Optional.empty()).completedAt())
+                .isEqualTo(issue.completedAt());
     }
 
     @Test

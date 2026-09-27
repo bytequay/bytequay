@@ -25,6 +25,7 @@ export type JiraIssue = {
   priority: { id: string; name: string } | null; parent: { id: string; key: string; title: string } | null;
   hasChildren: boolean; isGoal: boolean; updatedAt: string; completedAt: string | null; dueDate: string | null;
   task: { id: string; workspaceId: string } | null;
+  workspace: { id: string; name: string } | null;
 };
 export type JiraField = { id: string; name: string; required: boolean; schemaType: string; allowedValues: { id: string; name: string }[] };
 export type JiraIssueDetail = {
@@ -57,6 +58,7 @@ export type JiraBridge = {
   moveJiraIssue: (location: JiraLocation, sprintId: number | null, boardId: number, expectedUpdatedAt: string) => Promise<JiraIssueDetail>;
   commentJiraIssue: (location: JiraLocation, body: string, operationId: string) => Promise<JiraIssueDetail>;
   setJiraGoal: (location: JiraLocation, isGoal: boolean) => Promise<JiraIssueDetail>;
+  assignJiraWorkspace: (location: JiraLocation, workspaceId: string) => Promise<JiraIssueDetail>;
   listJiraAttention: () => Promise<JiraIssue[]>;
 };
 

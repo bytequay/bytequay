@@ -17,8 +17,12 @@ The first release includes:
   To do, In progress, In review and Done together, with Jira's actual status on
   each card. Review is a display group for an in-progress status whose name
   contains “review”; it is not a fourth Jira category or a new transition.
-  Unknown categories retain their actual status name. Open a ticket beside the
-  board or list, read its description and comments, and refresh saved information.
+  Unknown categories retain their actual status name. Clicking anywhere on a
+  ticket card opens a large centered dialog over the board or list, with a short
+  zoom animation (disabled for reduced motion), description, comments and fields.
+  Action icons and parent links keep their own actions. Escape or Close returns
+  focus to the card; the board keeps its layout and scroll position. Ticket dialogs
+  hide while the embedded browser is open and restore with their drafts on return.
 - Use a distinct Jira source icon across navigation, attention and task source
   cards. Ticket cards place the title first, labels/parent below it, and the issue
   type/key, priority and assignee in the footer. Unknown custom priorities retain
@@ -35,9 +39,13 @@ The first release includes:
   Open in Jira.
 - Post a comment explicitly. Drafts survive failures. An uncertain send is not
   retried automatically, including after reconnecting through another connection.
-- Mark a ticket as a local Goal, or start development on a leaf ticket. Choose
-  the repository workspace and use the existing provider/model/worktree composer.
-  View task opens the resulting task instead of creating another one.
+- Mark a ticket as a local Goal, or start development on a leaf ticket. If it
+  has no ByteQuay workspace, either action asks the user to choose and confirm
+  one first. Save the choice locally and show the workspace name on the card and
+  detail dialog. Later actions reuse it. Development uses the existing
+  provider/model/worktree composer; canceling the composer keeps the assignment
+  without creating a task. View task opens the resulting task instead of creating
+  another one.
 - Surface cached, assigned, unfinished leaf tickets from watched active sprints
   in global Needs attention. Workspace attention requires an explicit mapping;
   Jira project names are never guessed to be repository/workspace names.
@@ -51,7 +59,7 @@ signal (for example merged PR or deployment) and required transition fields.
 
 ## UI and task reuse
 
-The native page uses ByteQuay's current card, badge, detail panel, Markdown and
+The native page uses ByteQuay's current card, badge, dialog, Markdown and
 composer styles. Start development and Goal are accessible icon actions with
 tooltips and selected Goal styling. The task transcript shows a compact source
 request card; the source attachment sits above the composer with issue details
@@ -64,6 +72,14 @@ A persisted association admits one development task per source across workspaces
 and connections. Goal changes and task admission share a source lock. Parent
 items and completed tickets cannot launch development; the admission refresh
 checks subtasks, hierarchy information and the Jira parent query.
+
+Workspace assignment is keyed by the same cloud/issue identity and persists
+separately from remote ticket snapshots in the existing SQLite-backed Jira local
+metadata store. It is shared across connections and survives refresh or restart.
+The workspace name is resolved from the current workspace record. A linked task
+owns the assignment and cannot be moved to another workspace. A missing workspace
+leaves an unstarted ticket unassigned. Goal marking requires an assignment, and
+new development admission validates that its selected workspace matches it.
 
 Task creation follows the canonical interactive task path, including provider
 selection, execution, events, retries and delivery. Source persistence belongs to

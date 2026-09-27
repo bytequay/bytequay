@@ -35,11 +35,15 @@
 .jira-column { flex: 1 0 245px; min-width: 0; background: var(--bg-sidebar); border-radius: 9px; padding: 10px; }
 .jira-column h2, .jira-history-group h2 { display: flex; gap: 8px; margin: 4px 4px 14px; font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--text-2); }
 .jira-column h2 span, .jira-history-group h2 span { background: var(--border, #d8dee4); padding: 1px 5px; border-radius: 4px; }
-.jira-ticket { padding: 12px 13px 8px; border-radius: 8px; border: 1px solid var(--border, #d8dee4); margin-bottom: 8px; background: var(--bg-base); box-shadow: 0 1px 2px #00000008; }
+.jira-ticket { cursor: pointer; padding: 12px 13px 8px; border-radius: 8px; border: 1px solid var(--border, #d8dee4); margin-bottom: 8px; background: var(--bg-base); box-shadow: 0 1px 2px #00000008; }
 .jira-ticket:hover, .jira-ticket.is-selected { border-color: #9ebfea; }
 .jira-ticket.is-selected { background: color-mix(in srgb, #1868db 4%, var(--bg-base)); }
 .jira-ticket__title { display: block; width: 100%; background: none; padding: 0; border: 0; text-align: left; font: inherit; font-size: 13px; color: inherit; cursor: pointer; line-height: 1.5; }
 .jira-ticket__title strong { font-weight: 500; }
+.jira-ticket__title:focus-visible { outline: none; }
+.jira-ticket:has(.jira-ticket__title:focus-visible) { outline: 2px solid var(--accent, #1868db); outline-offset: 2px; }
+.jira-workspace { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 2px 6px; border: 1px solid var(--border, #d8dee4); border-radius: 4px; font-size: 11px; color: var(--text-2); overflow-wrap: anywhere; }
+.jira-workspace svg { flex-shrink: 0; }
 .jira-ticket__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 7px; color: var(--text-3); font-size: 12px; }
 .jira-ticket__tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
 .jira-ticket__label { border: 1px solid var(--border, #d8dee4); border-radius: 4px; padding: 2px 5px; font-size: 10px; color: var(--text-2); overflow-wrap: anywhere; }
@@ -81,14 +85,21 @@
 .jira-labels span { border: 1px solid var(--border, #d8dee4); padding: 2px 7px; font-size: 11px; border-radius: 12px; color: var(--text-2); }
 .jira-parent { display: flex; align-items: center; gap: 4px; max-width: 100%; background: color-mix(in srgb, #9f8fef 10%, var(--bg-base)); border: 1px solid #c7b7f5; border-radius: 4px; padding: 2px 5px; margin-top: 7px; color: var(--text-2); font-size: 10px; text-align: left; cursor: pointer; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .jira-parent svg { flex-shrink: 0; color: #9f8fef; }
-.jira-detail { width: min(52%, 760px); flex-shrink: 0; border-left: 1px solid var(--border, #d8dee4); padding: 16px 24px 30px; overflow: auto; }
+.jira-detail { width: min(1280px, calc(100vw - 64px)); max-width: none; min-height: min(720px, calc(100vh - 64px)); max-height: calc(100vh - 64px); padding: 0 32px 32px; overflow: auto; overscroll-behavior: contain; border: 1px solid var(--border, #d8dee4); border-radius: 14px; background: var(--bg-base); color: var(--text-1); box-shadow: 0 20px 80px #0004; }
+.jira-detail[open] { animation: jira-detail-open 160ms ease-out; }
+.jira-detail::backdrop { background: #10182866; }
 .jira-detail h2 { margin: 8px 0 12px; line-height: 1.3; font-size: 22px; letter-spacing: -.35px; }
 .jira-detail h3 { font-size: 14px; display: flex; align-items: center; gap: 7px; margin-bottom: 13px; }
-.jira-detail__toolbar { display: flex; align-items: center; }
-.jira-detail__fields { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; border-block: 1px solid var(--border, #d8dee4); padding: 16px 0; margin-block: 20px; font-size: 12px; }
-.jira-detail__fields > span { display: grid; gap: 5px; color: var(--text-3); }
+.jira-detail__toolbar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; padding-block: 18px; background: var(--bg-base); }
+.jira-detail__reference { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-2); }
+.jira-detail__body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, .52fr); align-items: start; gap: 32px; margin-top: 24px; }
+.jira-detail__main, .jira-detail__sidebar { min-width: 0; }
+.jira-detail__sidebar { border: 1px solid var(--border, #d8dee4); border-radius: 9px; padding: 0 18px; }
+.jira-detail__fields { display: grid; gap: 18px; padding-block: 8px 20px; font-size: 12px; }
+.jira-detail__fields > span { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 8px; color: var(--text-3); }
 .jira-detail__fields strong { font-weight: 500; color: var(--text-1); }
 .jira-detail__fields .jira-labels { width: 100%; margin: 0; }
+.jira-detail__fields > button { justify-self: start; }
 .jira-edit { display: grid; gap: 10px; margin: 15px 0 24px; }
 .jira-edit label, .jira-comments label, .jira-connect label, .jira-launch > label { display: grid; gap: 6px; font-size: 12px; color: var(--text-2); }
 .jira-edit form { display: grid; gap: 8px; }
@@ -112,13 +123,20 @@
 .jira-launch h2 { font-size: 20px; margin: 0; }
 .jira-launch > p { font-size: 14px; color: var(--text-2); }
 .jira-launch > label { margin-bottom: 24px; }
+.jira-launch > .jira-workspace { margin-bottom: 18px; }
+.jira-assignment { cursor: auto; width: min(480px, calc(100vw - 40px)); }
+.jira-assignment form, .jira-assignment label { display: grid; gap: 12px; }
+.jira-assignment label { gap: 6px; font-size: 12px; }
+.jira-assignment footer { justify-content: flex-end; margin-top: 8px; }
 .jira-launch .agt-compose-dock { width: 100%; }
 .jira-launch .agt-screen { min-height: 260px; height: auto; }
 .jira-source-preview { position: fixed; z-index: 200; width: min(480px, calc(100vw - 20px)); max-height: 350px; overflow: auto; padding: 18px; border: 1px solid var(--border, #d8dee4); border-radius: 12px; box-shadow: 0 12px 35px #0002; background: var(--bg-base); }
 .jira-source-preview > strong { display: block; margin-bottom: 12px; }
 .jira-spin { animation: jira-spin 1s linear infinite; }
 @keyframes jira-spin { to { transform: rotate(360deg); } }
-@media (max-width: 1000px) { .jira-content.has-detail > .jira-items { display: none; } .jira-detail { width: 100%; border: 0; } .jira-header, .jira-toolbar { padding-inline: 18px; } }
-@media (prefers-reduced-motion: reduce) { .jira-spin { animation: none; } }
+@keyframes jira-detail-open { from { opacity: 0; transform: scale(.95); } to { opacity: 1; transform: scale(1); } }
+@media (max-width: 1000px) { .jira-header, .jira-toolbar { padding-inline: 18px; } }
+@media (max-width: 760px) { .jira-detail { width: calc(100vw - 24px); max-height: calc(100vh - 24px); min-height: 0; padding-inline: 20px; } .jira-detail__body { grid-template-columns: minmax(0, 1fr); gap: 20px; } }
+@media (prefers-reduced-motion: reduce) { .jira-spin, .jira-detail[open] { animation: none; } }
 
 @media (hover: none) { .jira-ticket .jira-actions { opacity: 1; } }

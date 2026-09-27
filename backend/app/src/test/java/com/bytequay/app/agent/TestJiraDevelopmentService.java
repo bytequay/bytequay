@@ -151,6 +151,19 @@ class TestJiraDevelopmentService
     }
 
     @Test
+    void requiresTheAssignedWorkspaceBeforeRefreshingOrCreating()
+    {
+        assertThatThrownBy(() -> service.start("other-workspace", taskId, INPUT, "Implement", ignored -> task))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("another workspace");
+        JiraIssue unassigned = issue(SOURCE.title(), false, "indeterminate", NOW).withMetadata(false, Optional.empty(), Optional.empty());
+        when(jira.issue("connection", "cloud", "10001")).thenReturn(unassigned);
+        assertThatThrownBy(() -> service.start("workspace", taskId, INPUT, "Implement", ignored -> task))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("Assign a ByteQuay workspace");
+        verify(jira, never()).refreshIssue(anyString(), anyString(), anyString());
+        verifyNoInteractions(taskStore);
+    }
+
+    @Test
     void concurrentStartsAcrossWorkspacesReuseOneTaskAndGoalWaitsForAdmission()
             throws Exception
     {
@@ -193,6 +206,6 @@ class TestJiraDevelopmentService
     {
         return new JiraIssue("connection", "cloud", "10001", "APP-7", SOURCE.url(), title, SOURCE.body(), "Story",
                 new JiraDtos.Status("3", "In progress", category), Optional.empty(), ImmutableList.of("bug"), Optional.empty(), Optional.empty(), children, false,
-                updatedAt, Optional.empty(), Optional.empty(), ImmutableList.of(), false, Optional.empty());
+                updatedAt, Optional.empty(), Optional.empty(), ImmutableList.of(), false, Optional.empty(), Optional.of(new JiraDtos.WorkspaceLink("workspace", "Workspace")));
     }
 }

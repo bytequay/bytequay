@@ -14,8 +14,13 @@
 package com.bytequay.app.jira;
 
 import com.bytequay.app.service.settings.AppSettingsService;
+import com.bytequay.core.domain.JiraIssueSource;
+import com.bytequay.core.domain.JiraIssueTask;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.JiraIssueTaskStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -58,10 +63,11 @@ class TestJiraService
     private final JiraConnections remote = mock(JiraConnections.class);
     private final AppSettingsStore settings = mock(AppSettingsStore.class);
     private final JiraIssueTaskStore tasks = mock(JiraIssueTaskStore.class);
+    private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final AppSettingsService appSettings = mock(AppSettingsService.class);
     private final ObjectProvider<AppSettingsService> settingsProvider = mock(ObjectProvider.class);
     private final JiraCache cache = new JiraCache(settings, mapper);
-    private final JiraService jira = new JiraService(remote, cache, tasks, settingsProvider);
+    private final JiraService jira = new JiraService(remote, cache, tasks, workspaces, settingsProvider);
     private final Map<String, String> saved = new HashMap<>();
 
     @BeforeEach
@@ -108,6 +114,46 @@ class TestJiraService
         cache.write("connection.cloud.issue.1001", issue);
         assertThat(jira.issue("connection", "cloud", "1001").title()).isEqualTo("A ticket");
         verifyNoInteractions(remote, settingsProvider);
+    }
+
+    @Test
+    void workspaceAssignmentSurvivesRefreshAndIsSharedAcrossConnections()
+            throws Exception
+    {
+        JiraIssue issue = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", ticket());
+        cache.write("connection.cloud.issue.1001", issue);
+        cache.write("other.cloud.issue.1001", JiraMapping.issue("other", "cloud", "https://example.atlassian.net", ticket()));
+        when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace("workspace", "ByteQuay")));
+        assertThatThrownBy(() -> jira.goal("connection", "cloud", "1001", true)).hasMessageContaining("Assign a ByteQuay workspace");
+        assertThatThrownBy(() -> jira.assignWorkspace("connection", "cloud", "1001", "missing")).hasMessageContaining("missing");
+        assertThat(jira.assignWorkspace("connection", "cloud", "1001", "workspace").issue().workspace())
+                .contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
+        assertThat(jira.goal("connection", "cloud", "1001", true).issue().isGoal()).isTrue();
+        verifyNoInteractions(remote);
+        assertThat(jira.refreshIssue("connection", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
+        JiraService reopened = new JiraService(remote, new JiraCache(settings, mapper), tasks, workspaces, settingsProvider);
+        assertThat(reopened.issue("other", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
+        when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace("workspace", "Renamed")));
+        assertThat(reopened.issue("other", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "Renamed"));
+        when(workspaces.findById("workspace")).thenReturn(Optional.empty());
+        assertThat(reopened.issue("other", "cloud", "1001").workspace()).isEmpty();
+    }
+
+    @Test
+    void linkedTaskOwnsWorkspaceAndCannotBeReassigned()
+            throws Exception
+    {
+        JiraIssue issue = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", ticket());
+        cache.write("connection.cloud.issue.1001", issue);
+        cache.write("workspace.cloud.1001", "old-workspace");
+        when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace("workspace", "ByteQuay")));
+        when(workspaces.findById("other-workspace")).thenReturn(Optional.of(workspace("other-workspace", "Other")));
+        JiraIssueSource source = new JiraIssueSource("connection", "cloud", "1001", issue.key(), issue.url(), issue.title(), issue.body(), issue.updatedAt());
+        when(tasks.findBySource("cloud", "1001")).thenReturn(Optional.of(new JiraIssueTask("task", "workspace", source, "Implement", UPDATED)));
+        assertThat(jira.issue("connection", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
+        assertThatThrownBy(() -> jira.assignWorkspace("connection", "cloud", "1001", "other-workspace")).hasMessageContaining("another workspace");
+        assertThat(jira.assignWorkspace("connection", "cloud", "1001", "workspace").issue().task()).contains(new JiraDtos.TaskLink("task", "workspace"));
+        verifyNoInteractions(remote);
     }
 
     @Test
@@ -348,6 +394,13 @@ class TestJiraService
                 "updated":"2026-09-26T01:00:00.000+0000","issuetype":{"name":"Story","hierarchyLevel":0},"subtasks":[],"labels":[],
                 "status":{"id":"1","name":"To do","statusCategory":{"key":"new"}}}}
                 """);
+    }
+
+    private static Workspace workspace(String id, String name)
+    {
+        RepoRef repository = new RepoRef("bytequay", "bytequay");
+        return new Workspace(id, name, 1, repository, Optional.empty(), Optional.empty(), 1, repository, Workspace.Topology.DIRECT,
+                "main", "https://github.com/bytequay/bytequay.git", Optional.empty(), Optional.empty(), "/tmp/bytequay", Optional.empty(), Optional.empty(), 0, UPDATED, UPDATED);
     }
 
     private JsonNode json(String value)

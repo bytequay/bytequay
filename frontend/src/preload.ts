@@ -60,6 +60,7 @@ const bridge: Bridge = {
   moveJiraIssue: (location, sprintId, boardId, expectedUpdatedAt) => ipcRenderer.invoke('jira:issue:sprint', location, sprintId, boardId, expectedUpdatedAt),
   commentJiraIssue: (location, body, operationId) => ipcRenderer.invoke('jira:issue:comment', location, body, operationId),
   setJiraGoal: (location, isGoal) => ipcRenderer.invoke('jira:issue:goal', location, isGoal),
+  assignJiraWorkspace: (location, workspaceId) => ipcRenderer.invoke('jira:issue:workspace', location, workspaceId),
   listJiraAttention: () => ipcRenderer.invoke('jira:attention'),
   savePat: pat => ipcRenderer.invoke('pat:save', pat),
   hasPat: () => ipcRenderer.invoke('pat:has'),

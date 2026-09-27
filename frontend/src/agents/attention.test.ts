@@ -1,0 +1,107 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import { describe, expect, it } from 'vitest';
+import { attentionCandidates, attentionSummary, handledEntry, stillHandled } from '../home/attention';
+import { pr } from '../pulls/fixtures/pullRequest';
+import type { AgentTaskActivityDto, AgentTaskDto } from '../types';
+import { linkTasks, taskAttentionItems, taskAttentionKind } from './attention';
+import { previewTask } from './fixtures/previewBridge';
+
+const WORKSPACE = { id: 'workspace-1', name: 'trino', repository: 'trinodb/trino' };
+
+function task(id: string, overrides: Partial<AgentTaskDto> = {}): AgentTaskDto {
+  return {
+    ...previewTask('workspace-1', id), laneId: 'claude', title: `Task ${id}`, updatedAt: '2026-09-27T09:00:00Z',
+    defaults: { model: 'claude-opus', effort: 'high', permissionPolicy: 'AUTO' }, ...overrides,
+  };
+}
+
+function activity(overrides: Partial<AgentTaskActivityDto> = {}): AgentTaskActivityDto {
+  return { lastMessage: null, pendingApproval: null, latestTurn: null, ...overrides };
+}
+
+const COMMAND = {
+  approvalId: 'approval-1', occurredAt: '2026-09-27T10:05:00Z', title: 'Re-run the checkpoint tests',
+  detail: JSON.stringify({ command: './mvnw -pl plugin/trino-delta-lake test', description: 'Run the tests' }),
+  approvalKind: 'COMMAND', scope: ['Bash'],
+};
+
+describe('task attention', () => {
+  it('asks for the user while a task waits on an approval, fails, or finishes a turn, and stays quiet while it works', () => {
+    const finished = activity({ latestTurn: { id: 'turn-1', state: 'COMPLETED', endedAt: '2026-09-27T10:00:00Z' } });
+    expect(taskAttentionKind(task('t'), activity({ pendingApproval: COMMAND }))).toBe('approval');
+    expect(taskAttentionKind(task('t'), finished)).toBe('finished');
+    expect(taskAttentionKind(task('t'), activity({ latestTurn: { id: 'turn-1', state: 'FAILED', endedAt: '2026-09-27T10:00:00Z' } }))).toBe('failed');
+    expect(taskAttentionKind(task('t', { mutationClaim: { kind: 'RECOVERY', ownerId: 'x', acquiredAt: '2026-09-27T10:00:00Z' } }), finished)).toBe('failed');
+    // A running turn, a cancelled one, a finished or archived task, and a fresh task say nothing.
+    expect(taskAttentionKind(task('t', { mutationClaim: { kind: 'TURN', ownerId: 'turn-2', acquiredAt: '2026-09-27T10:00:00Z' } }), finished)).toBeNull();
+    expect(taskAttentionKind(task('t'), activity({ latestTurn: { id: 'turn-1', state: 'CANCELLED', endedAt: '2026-09-27T10:00:00Z' } }))).toBeNull();
+    expect(taskAttentionKind(task('t', { state: 'COMPLETED' }), finished)).toBeNull();
+    expect(taskAttentionKind(task('t', { archivedAt: '2026-09-27T11:00:00Z' }), finished)).toBeNull();
+    expect(taskAttentionKind(task('t'), null)).toBeNull();
+  });
+
+  it('draws an approval as the exact command, names the lane, and links the task to its ticket, pull request and issue', () => {
+    const waiting = task('t-1', {
+      jiraSource: {
+        connectionId: 'c', cloudId: 'cloud', issueId: '412', key: 'TRINO-412', title: 'Validate the fix', body: '', updatedAt: '',
+        url: 'https://example.atlassian.net/browse/TRINO-412', initialTurnId: null, instructions: '',
+      },
+      pullRequest: { number: 31264, title: 'Keep deletion vectors', state: 'open', draft: true },
+    });
+    const [item] = taskAttentionItems([waiting, task('t-2')], { 't-1': activity({ pendingApproval: COMMAND }) }, WORKSPACE,
+      new Map([['claude', 'Claude Code'], ['claude:claude-opus', 'Opus']]));
+
+    expect(item).toMatchObject({ key: 'task:t-1', type: 'task', kind: 'approval', reference: 'Claude Code · Opus', updatedAt: COMMAND.occurredAt, workspaceName: 'trino' });
+    // Without the catalog the card still names the lane.
+    expect(taskAttentionItems([waiting], { 't-1': activity({ pendingApproval: COMMAND }) }, WORKSPACE)[0].reference).toBe('Claude');
+    expect(item.links).toEqual([
+      { source: 'jira', key: 'TRINO-412', title: 'Validate the fix', status: null, tone: 'neutral' },
+      { source: 'pr', key: '#31264', title: 'Keep deletion vectors', status: 'Draft', tone: 'neutral' },
+    ]);
+    expect(attentionSummary(item)).toEqual({
+      tag: { label: 'Approval needed', tone: 'amber' },
+      actor: { name: 'Claude Code', avatarUrl: null },
+      verb: 'wants to run a command',
+      detail: { kind: 'command', lead: 'Re-run the checkpoint tests', command: './mvnw -pl plugin/trino-delta-lake test' },
+    });
+    // Approvals come before every other reason.
+    expect(attentionCandidates([pr({ number: 7, origin: 'AUTHORED', ciStatus: 'FAILING' })], [item], 'jack')[0].key).toBe('task:t-1');
+  });
+
+  it('quotes the question or the last answer, and comes back when a later turn finishes after an acknowledgement', () => {
+    const question = { ...COMMAND, scope: ['AskUserQuestion'], detail: JSON.stringify({ questions: [{ question: 'Pin the test to JDK 21?', options: [] }] }) };
+    const [asked] = taskAttentionItems([task('t')], { t: activity({ pendingApproval: question }) }, WORKSPACE);
+    expect(attentionSummary(asked)).toMatchObject({
+      tag: { label: 'Question for you', tone: 'amber' }, verb: 'asked you a question', detail: { kind: 'quote', text: 'Pin the test to JDK 21?' },
+    });
+
+    const answer = { author: 'AGENT' as const, text: 'Pushed the fix; 20 reruns green.', at: '2026-09-27T10:00:00Z', turnId: 'turn-1' };
+    const first = taskAttentionItems([task('t')], { t: activity({ lastMessage: answer, latestTurn: { id: 'turn-1', state: 'COMPLETED', endedAt: '2026-09-27T10:00:00Z' } }) }, WORKSPACE)[0];
+    expect(attentionSummary(first)).toMatchObject({ tag: { label: 'Turn finished', tone: 'green' }, verb: 'finished a turn', detail: { kind: 'quote', text: answer.text } });
+    const acknowledged = handledEntry(first, 'ack', null, 'acknowledged');
+    expect(stillHandled(acknowledged, first, Date.parse('2026-09-27T12:00:00Z'))).toBe(true);
+    const later = taskAttentionItems([task('t')], { t: activity({ latestTurn: { id: 'turn-2', state: 'COMPLETED', endedAt: '2026-09-27T11:00:00Z' } }) }, WORKSPACE)[0];
+    expect(stillHandled(acknowledged, later, Date.parse('2026-09-27T12:00:00Z'))).toBe(false);
+  });
+
+  it('links a pull request card to the task whose branch opened it, in the same repository only', () => {
+    const items = attentionCandidates([pr({ number: 31264, repo: 'trinodb/trino', origin: 'AUTHORED' }), pr({ id: 2, number: 31264, repo: 'other/repo', origin: 'AUTHORED' })], [], 'jack');
+    const opener = task('t-1', { pullRequest: { number: 31264, title: 'Keep deletion vectors', state: 'open', draft: false } });
+
+    const linked = linkTasks(items, [{ task: opener, workspace: WORKSPACE }]);
+    expect(linked.find(item => item.repo === 'trinodb/trino')?.links).toEqual([{ source: 'task', key: 'Task', title: 'Task t-1', status: 'Idle', tone: 'green' }]);
+    expect(linked.find(item => item.repo === 'other/repo')?.links).toBeUndefined();
+  });
+});

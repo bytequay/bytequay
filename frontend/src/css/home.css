@@ -313,6 +313,7 @@
 :is(.atn-tag, .atn-link__status).is-green { color: #1a7f37; background: #dafbe1; }
 :is(.atn-tag, .atn-link__status).is-neutral { color: #24292f; background: #eceff2; }
 :is(.atn-tag, .atn-link__status).is-orange { color: #bc4c00; background: #fff1e5; }
+:is(.atn-tag, .atn-link__status).is-purple { color: #8250df; background: #fbefff; }
 
 .atn-detail {
   display: flex;
@@ -328,6 +329,55 @@
 
 .atn-detail__lead {
   color: #57606a;
+}
+
+.atn-detail__quote {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-wrap: pretty;
+}
+
+.atn-detail__file {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: #57606a;
+}
+
+.atn-detail__commit {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.atn-detail__sha {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: #0969da;
+}
+
+.atn-detail__message {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The exact command an approval asks for, capped so a long script cannot stretch the card. */
+.atn-detail__command {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  padding: 4px 7px;
+  border: 1px solid #e3e3e6;
+  border-radius: 6px;
+  background: #ffffff;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 16px;
+  word-break: break-all;
 }
 
 .atn-detail__failed {

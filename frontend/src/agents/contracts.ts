@@ -15,6 +15,7 @@
 import type { JiraTaskSource } from '../jira/contracts';
 import type {
   AgentIssueSourceDto,
+  AgentTaskActivityDto,
   DevelopmentAutomationDto,
   DevelopmentResultDto,
   AgentModelSettingDto,
@@ -327,6 +328,38 @@ export function parseAgentTaskChanges(value: unknown): Record<string, AgentTaskC
     return [taskId, {
       uncommitted: flag(changes.uncommitted, `taskChanges.${taskId}.uncommitted`),
       commits: count(changes.commits, `taskChanges.${taskId}.commits`),
+    }];
+  }));
+}
+
+export function parseAgentTaskActivity(value: unknown): Record<string, AgentTaskActivityDto> {
+  const source = object(value, 'taskActivity');
+  return Object.fromEntries(Object.entries(source).map(([taskId, entry]) => {
+    const path = `taskActivity.${taskId}`;
+    const activity = object(entry, path);
+    const message = activity.lastMessage === null || activity.lastMessage === undefined ? null : object(activity.lastMessage, `${path}.lastMessage`);
+    const approval = activity.pendingApproval === null || activity.pendingApproval === undefined ? null : object(activity.pendingApproval, `${path}.pendingApproval`);
+    const turn = activity.latestTurn === null || activity.latestTurn === undefined ? null : object(activity.latestTurn, `${path}.latestTurn`);
+    return [taskId, {
+      lastMessage: message === null ? null : {
+        author: enumText(message.author, ['USER', 'AGENT'] as const, `${path}.lastMessage.author`),
+        text: text(message.text, `${path}.lastMessage.text`),
+        at: text(message.at, `${path}.lastMessage.at`),
+        turnId: optionalText(message.turnId, `${path}.lastMessage.turnId`),
+      },
+      pendingApproval: approval === null ? null : {
+        approvalId: text(approval.approvalId, `${path}.pendingApproval.approvalId`),
+        occurredAt: text(approval.occurredAt, `${path}.pendingApproval.occurredAt`),
+        title: text(approval.title, `${path}.pendingApproval.title`),
+        detail: text(approval.detail, `${path}.pendingApproval.detail`),
+        approvalKind: text(approval.approvalKind, `${path}.pendingApproval.approvalKind`),
+        scope: textList(approval.scope, `${path}.pendingApproval.scope`),
+      },
+      latestTurn: turn === null ? null : {
+        id: text(turn.id, `${path}.latestTurn.id`),
+        state: text(turn.state, `${path}.latestTurn.state`),
+        endedAt: optionalText(turn.endedAt, `${path}.latestTurn.endedAt`),
+      },
     }];
   }));
 }

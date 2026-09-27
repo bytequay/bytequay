@@ -320,6 +320,26 @@ class TestFileTaskLogStore
     }
 
     @Test
+    void findsTheNewestMatchingRecordWithinTheBound()
+    {
+        assertThat(store.findLatest(taskId, event -> true, 10)).isEmpty();
+
+        ImmutableList.Builder<AgentEventEnvelope> fixture = ImmutableList.builder();
+        fixture.add(envelope(1, message("the answer")));
+        for (int sequence = 2; sequence <= 30; sequence++) {
+            fixture.add(envelope(sequence, new AgentEventPayload.UserMessage("steer " + sequence, ImmutableList.of(), AgentEventPayload.DeliveryKind.STEER)));
+        }
+        store.appendAll(fixture.build());
+
+        assertThat(store.findLatest(taskId, event -> event.payload() instanceof AgentEventPayload.AssistantMessage, 30))
+                .map(AgentEventEnvelope::sequence)
+                .contains(1L);
+        // The bound keeps a long run of other records from turning a summary into a full scan.
+        assertThat(store.findLatest(taskId, event -> event.payload() instanceof AgentEventPayload.AssistantMessage, 29)).isEmpty();
+        assertThat(store.findLatest(taskId, event -> true, 1)).map(AgentEventEnvelope::sequence).contains(30L);
+    }
+
+    @Test
     void pagesHistoryInBothDirectionsWithoutSplittingEvents()
     {
         ImmutableList.Builder<AgentEventEnvelope> fixture = ImmutableList.builder();

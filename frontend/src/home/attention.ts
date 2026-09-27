@@ -12,11 +12,11 @@
  * limitations under the License.
  */
 import type { JiraIssue } from '../jira/contracts';
-import type { PullRequestDto, RepositoryIssueSnapshotDto } from '../types';
+import type { AgentTaskActivityDto, AgentTaskDto, PullRequestDto, RepositoryIssueSnapshotDto } from '../types';
 import { pullRequestIsMine } from '../pulls/model';
 
 /** Why an item is on the "Needs attention" list, in priority order. */
-export type AttentionKind = 'review' | 'assigned' | 'changes' | 'blocked' | 'ci' | 'commits' | 'merge' | 'updated';
+export type AttentionKind = 'approval' | 'review' | 'assigned' | 'changes' | 'failed' | 'blocked' | 'ci' | 'commits' | 'merge' | 'finished' | 'updated';
 
 /** Where an item comes from; it picks the card's colours, icon and filter tab. */
 export type AttentionSource = 'pr' | 'issue' | 'jira' | 'task';
@@ -28,14 +28,17 @@ export const ATTENTION_SOURCES: Record<AttentionSource, { label: string; filter:
   task: { label: 'Agent task', filter: 'Tasks' },
 };
 
-const PRIORITY: AttentionKind[] = ['review', 'assigned', 'changes', 'ci', 'blocked', 'commits', 'merge', 'updated'];
+// A task waiting on the user comes first: nothing moves until they answer it.
+const PRIORITY: AttentionKind[] = ['approval', 'review', 'assigned', 'changes', 'failed', 'ci', 'blocked', 'commits', 'merge', 'finished', 'updated'];
 
-/** One row: a pull request or an issue assigned to you. */
+/** One card: a pull request, an issue or ticket assigned to you, or an agent task that waits on you. */
 export type AttentionItem = {
   jira?: JiraIssue;
+  /** An agent task and what it last said and waits on. */
+  task?: { dto: AgentTaskDto; activity: AgentTaskActivityDto | null };
   reference?: string;
   key: string;
-  type: 'pr' | 'issue';
+  type: 'pr' | 'issue' | 'task';
   kind: AttentionKind;
   /** owner/repo */
   repo: string;
@@ -186,14 +189,19 @@ export function attentionSource(item: AttentionItem): AttentionSource {
 }
 
 /** A reason tag's colour. */
-export type AttentionTone = 'blue' | 'amber' | 'red' | 'green' | 'neutral' | 'orange';
+export type AttentionTone = 'blue' | 'amber' | 'red' | 'green' | 'neutral' | 'orange' | 'purple';
 
 export type AttentionLabel = { name: string; color: string | null };
+
+export type AttentionCommit = { sha: string; message: string };
 
 /** What a card's detail block says about the event that put the item on the list. */
 export type AttentionDetail =
   | { kind: 'text'; text: string }
-  | { kind: 'ci'; checks: string[] }
+  | { kind: 'quote'; text: string; file: string | null }
+  | { kind: 'commits'; lead: string | null; commits: AttentionCommit[] }
+  | { kind: 'ci'; commits: AttentionCommit[]; checks: string[] }
+  | { kind: 'command'; lead: string | null; command: string }
   | { kind: 'labels'; lead: string | null; labels: AttentionLabel[] };
 
 export type AttentionSummary = {
@@ -205,15 +213,29 @@ export type AttentionSummary = {
 };
 
 const KIND_TAGS: Record<AttentionKind, AttentionSummary['tag']> = {
+  approval: { label: 'Approval needed', tone: 'amber' },
   review: { label: 'Review requested', tone: 'blue' },
   assigned: { label: 'Assigned to you', tone: 'green' },
   changes: { label: 'Changes requested', tone: 'red' },
+  failed: { label: 'Turn failed', tone: 'red' },
   blocked: { label: 'Merge blocked', tone: 'amber' },
   ci: { label: 'Updated', tone: 'orange' },
   commits: { label: 'Updated', tone: 'orange' },
   merge: { label: 'Ready to merge', tone: 'green' },
+  finished: { label: 'Turn finished', tone: 'green' },
   updated: { label: 'Updated', tone: 'orange' },
 };
+
+/** A card names at most this many commits; the lead counts the rest. */
+const SHOWN_COMMITS = 3;
+
+function commitLines(pr: PullRequestDto): AttentionCommit[] {
+  return (pr.commitsSinceReview ?? []).map(commit => ({ sha: commit.sha.slice(0, 7), message: commit.message }));
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
 
 const EVENT_VERBS: Record<string, string> = {
   commented: 'commented', review_thread: 'left a review comment', committed: 'pushed a commit',
@@ -265,17 +287,72 @@ function pullRequestSummary(item: AttentionItem, pr: PullRequestDto, viewerLogin
         : EVENT_VERBS[activity.event] ?? 'updated this pull request';
   const label = activity?.label ?? null;
   const since = pr.reviewedAt ?? pr.reviewRequestedAt ?? null;
-  const detail: AttentionDetail | null = item.kind === 'ci' ? { kind: 'ci', checks: [] }
-    : (activity?.event === 'labeled' || activity?.event === 'unlabeled') && label !== null
-      ? { kind: 'labels', lead: null, labels: [{ name: label, color: pr.labelColors?.[label] ?? null }] }
-      : since !== null && pr.headPushedAt !== null && Date.parse(pr.headPushedAt) > Date.parse(since)
-        ? { kind: 'text', text: 'New commits since your last review' }
-        : null;
-  return { tag, actor, verb, detail };
+  const commits = commitLines(pr);
+  const pushed = commits.length > 0 && activity?.event === 'committed';
+  const excerpt = activity?.excerpt ?? null;
+  const file = activity?.path == null ? null : activity.line == null ? activity.path : `${activity.path}:${activity.line}`;
+  const detail: AttentionDetail | null = item.kind === 'ci' ? { kind: 'ci', commits: commits.slice(0, 1), checks: pr.failingChecks ?? [] }
+    : (item.kind === 'review' || item.kind === 'commits') && commits.length > 0
+      ? { kind: 'commits', lead: `${plural(commits.length, 'commit')} since your last review`, commits: commits.slice(0, SHOWN_COMMITS) }
+      : excerpt !== null ? { kind: 'quote', text: excerpt, file }
+        : (activity?.event === 'labeled' || activity?.event === 'unlabeled') && label !== null
+          ? { kind: 'labels', lead: null, labels: [{ name: label, color: pr.labelColors?.[label] ?? null }] }
+          : since !== null && pr.headPushedAt !== null && Date.parse(pr.headPushedAt) > Date.parse(since)
+            ? { kind: 'text', text: 'New commits since your last review' }
+            : null;
+  const pushedVerb = item.kind === 'ci' ? `pushed ${plural(commits.length, 'commit')}, then CI failed` : `pushed ${plural(commits.length, 'commit')}`;
+  return { tag, actor, verb: pushed ? pushedVerb : verb, detail };
+}
+
+/** An approval's command, when the provider sent the tool input rather than the command line. */
+export function approvalCommand(detail: string): string {
+  try {
+    const input: unknown = JSON.parse(detail);
+    if (typeof input === 'object' && input !== null && 'command' in input && typeof input.command === 'string') return input.command;
+  }
+  catch { /* Codex sends the command itself. */ }
+  return detail;
+}
+
+/** The questions a question-tool approval asks, joined for a card to quote. */
+function approvalQuestionText(detail: string): string | null {
+  try {
+    const input: unknown = JSON.parse(detail);
+    const questions = typeof input === 'object' && input !== null && 'questions' in input && Array.isArray(input.questions) ? input.questions : [];
+    const asked = questions.flatMap((entry: unknown) => typeof entry === 'object' && entry !== null && 'question' in entry && typeof entry.question === 'string'
+      ? [entry.question] : []);
+    return asked.length === 0 ? null : asked.join(' ');
+  }
+  catch {
+    return null;
+  }
+}
+
+const QUESTION_TOOL = 'AskUserQuestion';
+
+function taskSummary(item: AttentionItem, task: NonNullable<AttentionItem['task']>): AttentionSummary {
+  const actor: AttentionSummary['actor'] = { name: item.author ?? 'Agent', avatarUrl: null };
+  const approval = task.activity?.pendingApproval ?? null;
+  const message = task.activity?.lastMessage ?? null;
+  const said: AttentionDetail | null = message !== null && message.author === 'AGENT' ? { kind: 'quote', text: message.text, file: null } : null;
+  if (approval !== null && approval.scope.includes(QUESTION_TOOL)) {
+    const question = approvalQuestionText(approval.detail);
+    return { tag: { label: 'Question for you', tone: 'amber' }, actor, verb: 'asked you a question', detail: question === null ? said : { kind: 'quote', text: question, file: null } };
+  }
+  if (approval !== null) {
+    const verb = approval.approvalKind === 'COMMAND' ? 'wants to run a command' : approval.approvalKind === 'FILE_CHANGE' ? 'wants to change files' : 'is waiting for your approval';
+    return { tag: KIND_TAGS.approval, actor, verb, detail: { kind: 'command', lead: approval.title, command: approvalCommand(approval.detail) } };
+  }
+  if (task.dto.mutationClaim?.kind === 'RECOVERY') {
+    return { tag: { label: 'Recovery required', tone: 'red' }, actor, verb: 'could not be shown to have stopped', detail: said };
+  }
+  if (item.kind === 'failed') return { tag: KIND_TAGS.failed, actor, verb: 'stopped with an error', detail: said };
+  return { tag: KIND_TAGS.finished, actor, verb: 'finished a turn', detail: said };
 }
 
 /** The card's reason tag, who did what, and what the detail block shows. */
 export function attentionSummary(item: AttentionItem, viewerLogin: string | null = null): AttentionSummary {
+  if (item.task !== undefined) return taskSummary(item, item.task);
   if (item.pr !== null) return pullRequestSummary(item, item.pr, viewerLogin);
   const labels = item.labels.map((name): AttentionLabel => ({ name, color: null }));
   const detail: AttentionDetail | null = labels.length === 0 ? null : { kind: 'labels', lead: null, labels };

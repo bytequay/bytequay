@@ -29,6 +29,7 @@ import {
 } from '../home/attention';
 import { ComposerDock, StartingAgentTask, TaskComposer, taskArchived, useAgentTaskCreation, type DraftImage, type TaskModelSelection } from './AgentTasksView';
 import { HOME_WINDOW_MIN, TaskWindows } from './TaskCard';
+import { linkTasks, useTaskAttention } from './attention';
 import type { AgentBridgePort } from './model';
 import type { AgentTaskDto, AgentTaskStartupPhase, ModelOptionDto, ModelProviderDto, PullRequestDto } from '../types';
 
@@ -72,7 +73,7 @@ function saveHiddenTasks(workspaceId: string, hidden: ReadonlyMap<string, number
 }
 
 /** The workspace's slice of what Home lists: pull requests and issues of its monitored repository. */
-function useWorkspaceAttention(workspaceId: string, repository: string): {
+function useWorkspaceAttention(workspaceId: string, repository: string, bridge: () => AgentBridgePort): {
   candidates: AttentionItem[];
   handled: Handled;
   applyHandled: (handled: Handled) => void;
@@ -142,8 +143,10 @@ function useWorkspaceAttention(workspaceId: string, repository: string): {
       window.removeEventListener('bytequay:pr-attention-updated', reload);
     };
   }, [login, workspaceId]);
-  const candidates = useMemo(() => attentionCandidates(
-    prs.filter(pr => pr.repo.toLowerCase() === repository.toLowerCase()), issues, login), [issues, login, prs, repository]);
+  const workspaces = useMemo(() => [{ id: workspaceId, name: '', repository }], [repository, workspaceId]);
+  const tasks = useTaskAttention(workspaces, bridge);
+  const candidates = useMemo(() => linkTasks(attentionCandidates(
+    prs.filter(pr => pr.repo.toLowerCase() === repository.toLowerCase()), issues.concat(tasks.items), login), tasks.tasks), [issues, login, prs, repository, tasks]);
   // The same store as Home, so acknowledging here clears the row there too.
   const applyHandled = useCallback((next: Handled) => {
     setHandled(next);
@@ -171,7 +174,7 @@ export default function AgentHome({
 }: AgentHomeProps): React.JSX.Element {
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
   const creation = useAgentTaskCreation({ workspaceId, bridge: live, onOpenTask });
-  const attention = useWorkspaceAttention(workspaceId, repository);
+  const attention = useWorkspaceAttention(workspaceId, repository, live);
   const [hidden, setHidden] = useState(() => loadHiddenTasks(workspaceId));
   const hide = useCallback((task: AgentTaskDto) => setHidden((previous) => {
     const next = new Map(previous).set(task.id, Date.now());
@@ -186,9 +189,10 @@ export default function AgentHome({
     return next;
   }), [workspaceId]);
   const openAttention = useCallback((item: AttentionItem) => {
-    if (item.type === 'issue') onOpenIssue?.(item.number);
+    if (item.task) onOpenTask(item.task.dto.id);
+    else if (item.type === 'issue') onOpenIssue?.(item.number);
     else onOpenPullRequest?.(item.number);
-  }, [onOpenIssue, onOpenPullRequest]);
+  }, [onOpenIssue, onOpenPullRequest, onOpenTask]);
   return (
     <AgentHomeView
       headerAction={headerAction}

@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useJiraAttention } from '../jira/attention';
+import { linkTasks, useTaskAttention } from '../agents/attention';
 import { jiraIssueLocation } from '../jira/contracts';
 import { useEffect, useMemo, useState } from 'react';
 import type { PullRequestDto, RecentEventDto, UserProfileDto, WorkspaceDto } from '../types';
@@ -33,7 +34,7 @@ import { getCached, getCachedFresh, setCached } from '../dataCache';
 import WatchedReposGrid from './WatchedReposGrid';
 import { relativeTime } from '../relativeTime';
 import { zoomReference } from '../githubReference';
-import { workspaceIsUpdating } from '../workspaces/model';
+import { workspaceAgentTaskRoute, workspaceIsUpdating } from '../workspaces/model';
 import { ISSUE_DEVELOPMENT_CHANGED } from '../workspaces/issueDevelopment';
 
 type Props = {
@@ -294,11 +295,16 @@ function HomePage({
     };
   }, [login, workspaceKey]);
 
+  const taskWorkspaces = useMemo(() => workspaces.map(workspace => ({
+    id: workspace.id, name: workspace.name, repository: `${workspace.monitoredOwner}/${workspace.monitoredRepo}`,
+  })), [workspaces]);
+  const tasks = useTaskAttention(taskWorkspaces);
+
   const candidates = useMemo(
-    () => attentionCandidates(attentionPrs ?? [], issueItems.map<AttentionItem>(item => ({
+    () => linkTasks(attentionCandidates(attentionPrs ?? [], issueItems.map<AttentionItem>(item => ({
       ...item, workspaceName: workspaces.find(workspace => workspace.id === item.workspaceId)?.name,
-    })).concat(jira.items), login),
-    [attentionPrs, issueItems, jira.items, login, workspaces]);
+    })).concat(jira.items, tasks.items), login), tasks.tasks),
+    [attentionPrs, issueItems, jira.items, login, tasks, workspaces]);
 
   function applyHandled(next: Handled) {
     setHandled(next);
@@ -329,6 +335,7 @@ function HomePage({
         viewerLogin={login ?? null}
         onHandledChange={applyHandled}
         onOpen={item => {
+          if (item.task) { window.location.hash = workspaceAgentTaskRoute(item.task.dto.workspaceId, item.task.dto.id); return; }
           if (item.jira) { zoomReference({ kind: 'jira', ...jiraIssueLocation(item.jira) }); return; }
           if (item.type === 'issue' && item.workspaceId !== null) {
             zoomReference({ kind: 'issue', repo: item.repo, number: item.number, workspaceId: item.workspaceId });

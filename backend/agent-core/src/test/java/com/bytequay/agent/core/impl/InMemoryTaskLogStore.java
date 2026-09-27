@@ -19,11 +19,14 @@ import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.function.Predicate;
 
 /** A task log that keeps envelopes in memory, enough for tests that fold metrics from persisted events. */
 final class InMemoryTaskLogStore
@@ -48,6 +51,12 @@ final class InMemoryTaskLogStore
     {
         long latest = lastSequence(taskId);
         return new AgentHistoryPage(readAfter(taskId, Math.max(0, latest - 1000), 1000), OptionalLong.empty(), OptionalLong.empty(), latest);
+    }
+
+    @Override
+    public synchronized Optional<AgentEventEnvelope> findLatest(TaskId taskId, Predicate<AgentEventEnvelope> matches, int maxRecords)
+    {
+        return Lists.reverse(events).stream().filter(event -> event.taskId().equals(taskId)).limit(maxRecords).filter(matches).findFirst();
     }
 
     @Override

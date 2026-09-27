@@ -15,6 +15,7 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrCheckRunState;
+import com.bytequay.core.domain.PrCommitLine;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReaction;
 import com.bytequay.core.domain.PrReviewState;
@@ -44,6 +45,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -121,7 +123,7 @@ class TestSqlitePrDetailStore
     void readsLatestGitHubActivityWithoutUsingLocalOrSubscriptionEvents()
     {
         PrActivitySummary expected = new PrActivitySummary("labeled", Optional.of("maintainer"), NOW.plusSeconds(1),
-                Optional.empty(), Optional.of("stale-ignore"), Optional.empty());
+                Optional.empty(), Optional.of("stale-ignore"), Optional.empty(), Optional.empty(), Optional.empty(), OptionalInt.empty());
         store.save(prId, detail(ImmutableList.of(
                 remote(1, NOW),
                 new PrTimelineEvent(2L, "labeled", "maintainer", NOW.plusSeconds(1), null,
@@ -141,16 +143,59 @@ class TestSqlitePrDetailStore
     }
 
     @Test
-    void usesTheLatestInlineReplyActorAndTime()
+    void usesTheLatestInlineReplyActorTimeTextAndLine()
     {
-        PrTimelineComment reply = new PrTimelineComment(11L, "replier", null, false, NOW.plusSeconds(3), "reply body", null, null, 10L, ImmutableList.of());
+        PrTimelineComment reply = new PrTimelineComment(11L, "replier", null, false, NOW.plusSeconds(3), "  reply body\n", null, null, 10L, ImmutableList.of());
         store.save(prId, detail(ImmutableList.of(
                 new PrTimelineEvent(10L, "review_thread", "root-author", NOW, null,
-                        PrTimelinePayload.builder().comments(ImmutableList.of(reply)).build(), Optional.empty()),
+                        PrTimelinePayload.builder().path("src/Writer.java").originalLine(214).comments(ImmutableList.of(reply)).build(), Optional.empty()),
                 remote(12, NOW.plusSeconds(2)))));
 
         assertThat(store.findLatestActivities(ImmutableSet.of(prId))).containsExactlyEntriesOf(ImmutableMap.of(prId,
-                new PrActivitySummary("review_thread", Optional.of("replier"), NOW.plusSeconds(3), Optional.empty(), Optional.empty(), Optional.empty())));
+                new PrActivitySummary("review_thread", Optional.of("replier"), NOW.plusSeconds(3), Optional.empty(), Optional.empty(), Optional.empty(),
+                        Optional.of("reply body"), Optional.of("src/Writer.java"), OptionalInt.of(214))));
+    }
+
+    @Test
+    void quotesTheStartOfALongComment()
+    {
+        String body = "x".repeat(400);
+        store.save(prId, detail(new PrTimelineEvent(1L, "commented", "reviewer", NOW, body, Optional.empty())));
+
+        assertThat(store.findLatestActivities(ImmutableSet.of(prId)).get(prId).excerpt()).contains("x".repeat(280) + "…");
+        assertThat(PrActivitySummary.excerpt(" \n ")).isEmpty();
+        assertThat(PrActivitySummary.excerpt(null)).isEmpty();
+    }
+
+    @Test
+    void readsCommitsAfterEachPullRequestsOwnInstantNewestFirst()
+    {
+        store.save(prId, detail(ImmutableList.of(
+                commit(1, "aaa", "Old work", NOW),
+                commit(2, "bbb", "Map CommitFailedException\n\nLonger explanation", NOW.plusSeconds(10)),
+                commit(3, "ccc", "Add a conflict test", NOW.plusSeconds(20)),
+                remote(4, NOW.plusSeconds(30)))));
+        store.save(prId + 100, detail(commit(5, "ddd", "Elsewhere", NOW.plusSeconds(20))));
+
+        assertThat(store.findCommitsAfter(ImmutableMap.of(prId, NOW.plusSeconds(5), prId + 100, NOW.plusSeconds(25)))).containsExactlyEntriesOf(ImmutableMap.of(prId,
+                ImmutableList.of(
+                        new PrCommitLine("ccc", "Add a conflict test", Optional.of("author"), NOW.plusSeconds(20)),
+                        new PrCommitLine("bbb", "Map CommitFailedException", Optional.of("author"), NOW.plusSeconds(10)))));
+        assertThat(store.findCommitsAfter(ImmutableMap.of())).isEmpty();
+    }
+
+    @Test
+    void readsCheckRunsForEveryRequestedPullRequest()
+    {
+        store.save(prId, detail(ImmutableList.of(), ImmutableList.of(
+                new PrCheckRunState(1L, "ci / test", "completed", "failure", null, "check_run", NOW, NOW),
+                new PrCheckRunState(2L, "ci / lint", "completed", "success", null, "check_run", NOW, NOW))));
+
+        assertThat(store.findCheckRuns(ImmutableSet.of(prId, prId + 1)).get(prId))
+                .extracting(PrCheckRunState::name)
+                .containsExactly("ci / test", "ci / lint");
+        assertThat(store.findCheckRuns(ImmutableSet.of(prId + 1))).isEmpty();
+        assertThat(store.findCheckRuns(ImmutableSet.of())).isEmpty();
     }
 
     @Test
@@ -162,8 +207,10 @@ class TestSqlitePrDetailStore
                 PrTimelinePayload.builder().requestedReviewer("viewer").build(), Optional.empty())));
 
         assertThat(store.findLatestActivities(ImmutableSet.of(prId, prId + 1))).containsExactlyInAnyOrderEntriesOf(ImmutableMap.of(
-                prId, new PrActivitySummary("reviewed", Optional.of("reviewer"), NOW, Optional.of("APPROVED"), Optional.empty(), Optional.empty()),
-                prId + 1, new PrActivitySummary("review_requested", Optional.of("maintainer"), NOW, Optional.empty(), Optional.empty(), Optional.of("viewer"))));
+                prId, new PrActivitySummary("reviewed", Optional.of("reviewer"), NOW, Optional.of("APPROVED"), Optional.empty(), Optional.empty(),
+                        Optional.empty(), Optional.empty(), OptionalInt.empty()),
+                prId + 1, new PrActivitySummary("review_requested", Optional.of("maintainer"), NOW, Optional.empty(), Optional.empty(), Optional.of("viewer"),
+                        Optional.empty(), Optional.empty(), OptionalInt.empty())));
     }
 
     @Test
@@ -506,6 +553,12 @@ class TestSqlitePrDetailStore
                 events,
                 checkRuns,
                 unavailableSections);
+    }
+
+    private static PrTimelineEvent commit(long githubId, String sha, String message, Instant timestamp)
+    {
+        return new PrTimelineEvent(githubId, "committed", "author", timestamp, null,
+                PrTimelinePayload.builder().commitSha(sha).commitMessage(message).build(), Optional.empty());
     }
 
     private static PrTimelineEvent remote(long githubId, Instant timestamp)

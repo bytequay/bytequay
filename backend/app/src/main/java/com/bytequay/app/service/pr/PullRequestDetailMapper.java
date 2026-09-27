@@ -97,6 +97,15 @@ final class PullRequestDetailMapper
         return candidate.githubId() != null && (kept.githubId() == null || candidate.githubId() > kept.githubId());
     }
 
+    /** The names of the latest runs that fail, in the order the aggregate CI status reads them. */
+    static List<String> failingCheckNames(List<PrCheckRunState> checkRuns)
+    {
+        return dedupeCheckRunsByName(checkRuns).stream()
+                .filter(checkRun -> checkRun.conclusion() != null && FAILED_CHECK_CONCLUSIONS.contains(checkRun.conclusion()))
+                .map(PrCheckRunState::name)
+                .collect(toImmutableList());
+    }
+
     static List<PullRequestDetail.CheckRun> toCheckRuns(List<PrCheckRunState> checkRuns)
     {
         return dedupeCheckRunsByName(checkRuns).stream()

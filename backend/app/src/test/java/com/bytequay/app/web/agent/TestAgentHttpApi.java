@@ -986,8 +986,22 @@ class TestAgentHttpApi
             assertThat(get("/agent/tasks/" + otherTaskId + "/pending-approvals?turnId=" + turnId).getStatusCode())
                     .isEqualTo(HttpStatus.BAD_REQUEST);
 
+            // Task lists and Needs attention read the same approval, the running turn and the newest message in one call.
+            JsonNode activity = get("/agent/tasks/activity?workspaceId=" + workspaceId).getBody();
+            JsonNode owner = activity.required(ownerTaskId);
+            assertThat(owner.required("pendingApproval").required("title").asText()).isEqualTo("Run command");
+            assertThat(owner.required("pendingApproval").required("approvalKind").asText()).isEqualTo("COMMAND");
+            assertThat(owner.required("latestTurn").required("id").asText()).isEqualTo(turnId);
+            assertThat(owner.required("latestTurn").required("state").asText()).isEqualTo("RUNNING");
+            // The deterministic driver answers before it holds the turn, so the newest root message is that answer.
+            assertThat(owner.required("lastMessage").required("author").asText()).isEqualTo("AGENT");
+            assertThat(owner.required("lastMessage").required("text").asText()).startsWith("deterministic: ");
+            assertThat(owner.required("lastMessage").required("turnId").asText()).isEqualTo(turnId);
+            assertThat(activity.required(otherTaskId).required("pendingApproval").isNull()).isTrue();
+
             assertThat(post("/agent/approvals/" + request.id(), ImmutableMap.of("decision", "DENY"), null).getStatusCode()).isEqualTo(HttpStatus.OK);
             assertThat(get(path).getBody()).isEmpty();
+            assertThat(get("/agent/tasks/activity?workspaceId=" + workspaceId).getBody().required(ownerTaskId).required("pendingApproval").isNull()).isTrue();
         }
         finally {
             approvals.denyPending(TurnId.valueOf(turnId));

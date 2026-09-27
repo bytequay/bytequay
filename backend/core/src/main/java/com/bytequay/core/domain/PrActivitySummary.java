@@ -15,18 +15,27 @@ package com.bytequay.core.domain;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 import static java.util.Objects.requireNonNull;
 
-/** A timestamped GitHub action, without its comment body or locally observed refresh time. */
+/**
+ * A timestamped GitHub action, without its locally observed refresh time. A comment or review keeps
+ * the start of its text, and an inline review comment the file and line it was left on.
+ */
 public record PrActivitySummary(
         String event,
         Optional<String> actor,
         Instant timestamp,
         Optional<String> state,
         Optional<String> label,
-        Optional<String> requestedReviewer)
+        Optional<String> requestedReviewer,
+        Optional<String> excerpt,
+        Optional<String> path,
+        OptionalInt line)
 {
+    private static final int EXCERPT_LENGTH = 280;
+
     public PrActivitySummary
     {
         requireNonNull(event, "event is null");
@@ -35,5 +44,22 @@ public record PrActivitySummary(
         requireNonNull(state, "state is null");
         requireNonNull(label, "label is null");
         requireNonNull(requestedReviewer, "requestedReviewer is null");
+        requireNonNull(excerpt, "excerpt is null");
+        requireNonNull(path, "path is null");
+        requireNonNull(line, "line is null");
+    }
+
+    /** The start of a comment's text, enough for a card to quote; blank text has none. */
+    public static Optional<String> excerpt(String body)
+    {
+        if (body == null || body.isBlank()) {
+            return Optional.empty();
+        }
+        String text = body.strip();
+        if (text.length() <= EXCERPT_LENGTH) {
+            return Optional.of(text);
+        }
+        int end = Character.isHighSurrogate(text.charAt(EXCERPT_LENGTH - 1)) ? EXCERPT_LENGTH - 1 : EXCERPT_LENGTH;
+        return Optional.of(text.substring(0, end) + "…");
     }
 }

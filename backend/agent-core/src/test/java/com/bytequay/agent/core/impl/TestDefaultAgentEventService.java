@@ -33,6 +33,7 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -54,6 +55,7 @@ import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -716,6 +718,12 @@ class TestDefaultAgentEventService
             historyAfter = after;
             List<AgentEventEnvelope> page = events.subList(Math.max(0, events.size() - 1000), events.size());
             return new AgentHistoryPage(page, OptionalLong.empty(), OptionalLong.empty(), events.size());
+        }
+
+        @Override
+        public Optional<AgentEventEnvelope> findLatest(TaskId taskId, Predicate<AgentEventEnvelope> matches, int maxRecords)
+        {
+            return Lists.reverse(events).stream().filter(event -> event.taskId().equals(taskId)).limit(maxRecords).filter(matches).findFirst();
         }
 
         @Override

@@ -310,6 +310,31 @@ describe('attentionSummary', () => {
     expect(pushed.detail).toEqual({ kind: 'text', text: 'New commits since your last review' });
   });
 
+  it('details what happened from the cached facts the attention read carries', () => {
+    const commitsSinceReview = [
+      { sha: '4f1a2c9aaaaaaa', message: 'Map CommitFailedException', actor: 'ravi', committedAt: '2026-08-28T00:00:00Z' },
+      { sha: 'b73e0d1bbbbbbb', message: 'Add a conflict test', actor: 'ravi', committedAt: '2026-08-27T00:00:00Z' },
+    ];
+    const reviewed = attentionSummary({ ...base, kind: 'review', pr: pr({ commitsSinceReview, latestActivity: {
+      event: 'review_requested', actor: 'chenjian2664', timestamp: base.updatedAt, state: null, label: null, requestedReviewer: 'jack',
+    } }) }, 'jack');
+    expect(reviewed).toMatchObject({ verb: 'requested your review', detail: {
+      kind: 'commits', lead: '2 commits since your last review', commits: [{ sha: '4f1a2c9', message: 'Map CommitFailedException' }, { sha: 'b73e0d1', message: 'Add a conflict test' }],
+    } });
+
+    // A pushed commit that failed CI names the push, the commit and the check that failed.
+    expect(attentionSummary({ ...base, kind: 'ci', pr: pr({ commitsSinceReview: commitsSinceReview.slice(0, 1), failingChecks: ['ci / test (plugin/trino-iceberg)'], latestActivity: {
+      event: 'committed', actor: 'wren-d', timestamp: base.updatedAt, state: null, label: null, requestedReviewer: null,
+    } }) })).toMatchObject({
+      tag: { label: 'Updated', tone: 'orange' }, verb: 'pushed 1 commit, then CI failed',
+      detail: { kind: 'ci', commits: [{ sha: '4f1a2c9' }], checks: ['ci / test (plugin/trino-iceberg)'] },
+    });
+
+    expect(summary({ event: 'review_thread', excerpt: 'Keep the identity check in DeletionVectorEntry?', path: 'DeltaLakeWriter.java', line: 214 }).detail)
+      .toEqual({ kind: 'quote', text: 'Keep the identity check in DeletionVectorEntry?', file: 'DeltaLakeWriter.java:214' });
+    expect(summary({ excerpt: 'Looks good.' }).detail).toEqual({ kind: 'quote', text: 'Looks good.', file: null });
+  });
+
   it('uses GitHub updatedAt without inventing an action when no event is known', () => {
     const item = { ...base, pr: pr({ author: 'alice', activityAt: '2026-09-08T01:47:58Z', reviewRequestedAt: '2026-09-08T01:47:58Z', latestActivity: null }) };
     expect(attentionSummary(item)).toMatchObject({ tag: { label: 'Updated' }, actor: { name: 'alice' }, verb: 'updated this pull request' });

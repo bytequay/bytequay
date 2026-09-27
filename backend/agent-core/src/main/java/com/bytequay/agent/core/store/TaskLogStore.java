@@ -20,7 +20,9 @@ import com.bytequay.agent.core.TaskId;
 
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.function.Predicate;
 
 /**
  * Persistence port for append-only task event history and external payloads.
@@ -67,6 +69,20 @@ public interface TaskLogStore
      * @throws com.bytequay.agent.core.InvalidAgentRequestException when both cursors are supplied or a boundary is invalid
      */
     AgentHistoryPage readHistory(TaskId taskId, OptionalLong before, OptionalLong after);
+
+    /**
+     * Reads backwards from the newest complete record and returns the first one that matches.
+     *
+     * <p>At most {@code maxRecords} records are visited, so a summary of a long log stays cheap.
+     * A log that was never written has no records.
+     *
+     * @param taskId task whose log is read
+     * @param matches which record to return
+     * @param maxRecords positive maximum number of records to visit
+     * @return the newest matching record within the bound
+     * @throws com.bytequay.agent.core.AgentStorageException on non-tail corruption
+     */
+    Optional<AgentEventEnvelope> findLatest(TaskId taskId, Predicate<AgentEventEnvelope> matches, int maxRecords);
 
     /**
      * Returns the final complete record's sequence for restart recovery.

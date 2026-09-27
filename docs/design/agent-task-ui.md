@@ -958,6 +958,25 @@ and session **Bring back**. Cards never fetch per card: every detail comes
 from what ByteQuay already stores, and there is no hover preview. With
 nothing left, the section says **Nothing needs you right now.**
 
+The sources are pull requests, assigned issues and Jira tickets, and agent
+tasks. `GET /prs/attention` carries each pull request's cached details from its
+stored timeline, commits and check runs: the latest comment's opening text and
+the file and line of an inline one, the commits cached after the viewer's last
+review (or the review request when there was none), and the names of the
+latest failing checks. Failing test names are not stored, so a CI detail names
+the check. A task waits on the user when it has a pending approval (the command
+it wants to run, or the questions of an `AskUserQuestion` card), when its latest
+turn completed or failed while the task stays open and idle, or when it needs
+recovery; a running turn says nothing until it stops. Both Homes read
+`GET /agent/tasks/activity?workspaceId=…` on a short tick: one batched local read
+returning, by task id, the pending approval, the newest turn, and the start of
+the newest root message (a user message, or a final answer or commentary of the
+task's own agent), which a backwards scan of the task's event log finds within
+a bounded number of records. A task whose transcript retention removed quotes
+its kept final answer. A task card's key is its lane and model, and its linked
+items are its Jira ticket, pull request and issue; a pull request's card links
+the task whose branch opened it.
+
 The composer checks the same typed provider readiness returned by Workspace
 Settings before enabling its send control. Authentication-required, missing,
 unsupported, and unavailable lanes are disabled with an actionable link to

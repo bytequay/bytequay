@@ -22,6 +22,7 @@ import {
   attentionSource,
   attentionSummary,
   attentionTime,
+  type AttentionCommit,
   type AttentionDetail,
   type AttentionItem,
   type AttentionLabel,
@@ -40,13 +41,44 @@ function labelStyle(label: AttentionLabel) {
   return { background: `${hex}33`, color: '#1f2328' };
 }
 
+function Commits({ commits }: { commits: AttentionCommit[] }) {
+  return commits.map(commit => (
+    <div className="atn-detail__commit" key={commit.sha}>
+      <span className="atn-detail__sha">{commit.sha}</span>
+      <span className="atn-detail__message">{commit.message}</span>
+    </div>
+  ));
+}
+
 function Detail({ detail }: { detail: AttentionDetail }) {
   switch (detail.kind) {
     case 'text':
       return <div className="atn-detail"><div className="atn-detail__lead">{detail.text}</div></div>;
+    case 'quote':
+      return (
+        <div className="atn-detail">
+          <div className="atn-detail__quote">“{detail.text}”</div>
+          {detail.file !== null && <div className="atn-detail__file">on {detail.file}</div>}
+        </div>
+      );
+    case 'commits':
+      return (
+        <div className="atn-detail">
+          {detail.lead !== null && <div className="atn-detail__lead">{detail.lead}</div>}
+          <Commits commits={detail.commits} />
+        </div>
+      );
+    case 'command':
+      return (
+        <div className="atn-detail">
+          {detail.lead !== null && <div className="atn-detail__lead">{detail.lead}</div>}
+          <div className="atn-detail__command">$ {detail.command}</div>
+        </div>
+      );
     case 'ci':
       return (
         <div className="atn-detail">
+          <Commits commits={detail.commits} />
           <div className="atn-detail__failed">
             <CircleX size={14} strokeWidth={2} aria-hidden="true" />
             {detail.checks.length === 0 ? 'Checks failed' : `${detail.checks[0]} failed`}

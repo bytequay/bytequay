@@ -20,11 +20,14 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Set;
 
 public interface PrCheckRunJpaRepository
         extends JpaRepository<PrCheckRunEntity, Long>
 {
     List<PrCheckRunEntity> findByPrId(Long prId);
+
+    List<PrCheckRunEntity> findByPrIdInOrderByIdAsc(Set<Long> prIds);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("DELETE FROM PrCheckRunEntity e WHERE e.prId = :prId")

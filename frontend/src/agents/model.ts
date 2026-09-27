@@ -86,6 +86,7 @@ export type AgentBridgePort = Pick<Bridge,
   | 'deleteAgentTask'
   | 'listAgentTaskPullRequests'
   | 'listAgentTaskChanges'
+  | 'listAgentTaskActivity'
   | 'getCiAutofixRun'
   | 'sendCiAutofixMessage'
   | 'syncPrs'

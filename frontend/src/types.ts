@@ -84,7 +84,15 @@ export type PullRequestDto = {
     state: string | null;
     label: string | null;
     requestedReviewer: string | null;
+    /** The start of a comment's or review's text, and where an inline comment was left. */
+    excerpt?: string | null;
+    path?: string | null;
+    line?: number | null;
   } | null;
+  /** Needs attention only: cached commits after the viewer's last review, newest first. */
+  commitsSinceReview?: { sha: string; message: string; actor: string | null; committedAt: string }[];
+  /** Needs attention only: the latest checks failing on a PR whose CI fails. */
+  failingChecks?: string[];
 };
 
 export type PullRequestPageDto = {
@@ -623,6 +631,14 @@ export type AgentTaskPullRequestDto = Pick<PullRequestDto, 'number' | 'title' | 
 
 /** What a task's checkout holds beyond its start: files not yet committed, and commits made since. */
 export type AgentTaskChangesDto = { uncommitted: boolean; commits: number };
+
+/** What a task last said and waits on, read from local stores without reaching its provider. */
+export type AgentTaskActivityDto = {
+  /** The start of the newest root message; the task's generated first request carries its turn. */
+  lastMessage: { author: 'USER' | 'AGENT'; text: string; at: string; turnId: string | null } | null;
+  pendingApproval: Pick<AgentPendingApprovalDto, 'approvalId' | 'occurredAt' | 'title' | 'detail' | 'approvalKind' | 'scope'> | null;
+  latestTurn: { id: string; state: string; endedAt: string | null } | null;
+};
 
 export type AgentTaskDto = {
   jiraSource?: JiraTaskSource | null;
@@ -1638,6 +1654,8 @@ export type Bridge = JiraBridge & {
   listAgentTaskPullRequests: (taskId: string, workspaceId: string, refresh?: boolean) => Promise<PullRequestDto[]>;
   /** Reads every listed task's live checkout at once, by task id; a checkout that cannot be read is absent. */
   listAgentTaskChanges: (workspaceId: string) => Promise<Record<string, AgentTaskChangesDto>>;
+  /** Reads what every listed task last said and waits on, by task id, from local stores only. */
+  listAgentTaskActivity: (workspaceId: string) => Promise<Record<string, AgentTaskActivityDto>>;
   getCiAutofixRun: (runId: string) => Promise<CiAutofixRunDto>;
   sendCiAutofixMessage: (runId: string, message: string, idempotencyKey: string) => Promise<CiAutofixRunDto>;
   /** What the next turn on this task would be given, derived from what starting one snapshots. */

@@ -34,7 +34,7 @@ public interface PrTimelineJpaRepository
     // LENGTH keeps SQLite off the unique local_event_key index: every GitHub row shares its NULL key, so the
     // planner's one-row guess for IS NULL would scan the whole table for each correlated lookup instead of seeking by PR.
     @Query("""
-            SELECT e.prId AS prId, e.event AS event, e.actor AS actor, e.timestamp AS timestamp, e.payload AS payload
+            SELECT e.prId AS prId, e.event AS event, e.actor AS actor, e.timestamp AS timestamp, e.body AS body, e.payload AS payload
             FROM PrTimelineEntity e
             WHERE e.prId IN :ids AND LENGTH(e.localEventKey) IS NULL AND e.event NOT IN :ignored
               AND (e.event = 'review_thread' OR (e.timestamp IS NOT NULL AND NOT EXISTS (
@@ -50,6 +50,27 @@ public interface PrTimelineJpaRepository
         long getPrId();
 
         String getEvent();
+
+        String getActor();
+
+        Instant getTimestamp();
+
+        String getBody();
+
+        PrTimelinePayload getPayload();
+    }
+
+    @Query("""
+            SELECT e.prId AS prId, e.actor AS actor, e.timestamp AS timestamp, e.payload AS payload
+            FROM PrTimelineEntity e
+            WHERE e.prId IN :ids AND e.event = 'committed' AND LENGTH(e.localEventKey) IS NULL AND e.timestamp > :after
+            ORDER BY e.timestamp DESC, e.id DESC
+            """)
+    List<CommitCandidate> findCommitCandidates(@Param("ids") Set<Long> ids, @Param("after") Instant after);
+
+    interface CommitCandidate
+    {
+        long getPrId();
 
         String getActor();
 

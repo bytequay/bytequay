@@ -15,6 +15,7 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrCheckRunState;
+import com.bytequay.core.domain.PrCommitLine;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
@@ -33,6 +34,7 @@ import com.bytequay.persistence.sqlite.repository.PrDetailJpaRepository.AuthorAv
 import com.bytequay.persistence.sqlite.repository.PrReviewJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrTimelineJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrTimelineJpaRepository.ActivityCandidate;
+import com.bytequay.persistence.sqlite.repository.PrTimelineJpaRepository.CommitCandidate;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -48,6 +50,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -60,6 +63,9 @@ import static java.util.Objects.requireNonNull;
 public class SqlitePrDetailStore
         implements PrDetailStore
 {
+    /** Commits a list shows at most; a card names a handful and counts the rest. */
+    private static final int MAX_COMMITS_PER_PULL_REQUEST = 20;
+
     private final PrDetailJpaRepository detailRepo;
     private final PrReviewJpaRepository reviewRepo;
     private final PrTimelineJpaRepository timelineRepo;
@@ -127,18 +133,63 @@ public class SqlitePrDetailStore
         Map<Long, PrActivitySummary> latest = new HashMap<>();
         for (ActivityCandidate event : timelineRepo.findLatestActivityCandidates(prIds, ImmutableSet.of("mentioned", "subscribed", "unsubscribed"))) {
             PrTimelinePayload payload = Optional.ofNullable(event.getPayload()).orElseGet(PrTimelinePayload::empty);
+            // An inline comment names the file and line it was left on; an outdated one keeps its original line.
+            Optional<String> path = Optional.ofNullable(payload.path());
+            OptionalInt line = Optional.ofNullable(payload.line()).or(() -> Optional.ofNullable(payload.originalLine()))
+                    .map(OptionalInt::of).orElseGet(OptionalInt::empty);
             if (event.getTimestamp() != null) {
                 mergeActivity(latest, event.getPrId(), new PrActivitySummary(
                         event.getEvent(), Optional.ofNullable(event.getActor()), event.getTimestamp(),
-                        Optional.ofNullable(payload.state()), Optional.ofNullable(payload.label()), Optional.ofNullable(payload.requestedReviewer())));
+                        Optional.ofNullable(payload.state()), Optional.ofNullable(payload.label()), Optional.ofNullable(payload.requestedReviewer()),
+                        PrActivitySummary.excerpt(event.getBody()), path, line));
             }
             if ("review_thread".equals(event.getEvent())) {
                 payload.comments().stream().filter(comment -> comment.timestamp() != null).forEach(comment -> mergeActivity(
                         latest, event.getPrId(), new PrActivitySummary(
-                                "review_thread", Optional.ofNullable(comment.actor()), comment.timestamp(), Optional.empty(), Optional.empty(), Optional.empty())));
+                                "review_thread", Optional.ofNullable(comment.actor()), comment.timestamp(), Optional.empty(), Optional.empty(), Optional.empty(),
+                                PrActivitySummary.excerpt(comment.body()), path, line)));
             }
         }
         return ImmutableMap.copyOf(latest);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<Long, List<PrCommitLine>> findCommitsAfter(Map<Long, Instant> since)
+    {
+        requireNonNull(since, "since is null");
+        if (since.isEmpty()) {
+            return ImmutableMap.of();
+        }
+        Instant earliest = since.values().stream().min(Instant::compareTo).orElseThrow();
+        Map<Long, List<PrCommitLine>> commits = new HashMap<>();
+        for (CommitCandidate commit : timelineRepo.findCommitCandidates(since.keySet(), earliest)) {
+            PrTimelinePayload payload = Optional.ofNullable(commit.getPayload()).orElseGet(PrTimelinePayload::empty);
+            List<PrCommitLine> lines = commits.computeIfAbsent(commit.getPrId(), ignored -> new ArrayList<>());
+            if (payload.commitSha() == null || !commit.getTimestamp().isAfter(since.get(commit.getPrId())) || lines.size() >= MAX_COMMITS_PER_PULL_REQUEST) {
+                continue;
+            }
+            String message = Optional.ofNullable(payload.commitMessage()).orElse("").lines().findFirst().orElse("");
+            lines.add(new PrCommitLine(payload.commitSha(), message, Optional.ofNullable(commit.getActor()), commit.getTimestamp()));
+        }
+        return commits.entrySet().stream()
+                .filter(entry -> !entry.getValue().isEmpty())
+                .collect(toImmutableMap(Map.Entry::getKey, entry -> ImmutableList.copyOf(entry.getValue())));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<Long, List<PrCheckRunState>> findCheckRuns(Set<Long> prIds)
+    {
+        requireNonNull(prIds, "prIds is null");
+        if (prIds.isEmpty()) {
+            return ImmutableMap.of();
+        }
+        Map<Long, List<PrCheckRunState>> checkRuns = new HashMap<>();
+        for (PrCheckRunEntity checkRun : checkRunRepo.findByPrIdInOrderByIdAsc(prIds)) {
+            checkRuns.computeIfAbsent(checkRun.getPrId(), ignored -> new ArrayList<>()).add(checkRun.toDomain());
+        }
+        return checkRuns.entrySet().stream().collect(toImmutableMap(Map.Entry::getKey, entry -> ImmutableList.copyOf(entry.getValue())));
     }
 
     private static void mergeActivity(Map<Long, PrActivitySummary> latest, long prId, PrActivitySummary activity)

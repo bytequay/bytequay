@@ -28,6 +28,7 @@ import {
   parseAgentSkillInput,
   parseAgentSkills,
   parseAgentTask,
+  parseAgentTaskActivity,
   parseAgentTaskChanges,
   parseAgentTasks,
   parseAgentTurn,
@@ -100,6 +101,28 @@ describe('agent contract parsing', () => {
       .toEqual({ 't-1': { uncommitted: true, commits: 2 }, 't-2': { uncommitted: false, commits: 0 } });
     expect(() => parseAgentTaskChanges({ 't-1': { uncommitted: true } })).toThrow(/taskChanges\.t-1\.commits/);
     expect(() => parseAgentTaskChanges([])).toThrow();
+  });
+
+  it('reads what each task last said and waits on, dropping fields the contract does not name', () => {
+    expect(parseAgentTaskActivity({
+      't-1': {
+        lastMessage: { author: 'AGENT', text: 'Done.', at: '2026-09-27T10:00:00Z', turnId: 'turn-1' },
+        pendingApproval: {
+          approvalId: 'a-1', taskId: 't-1', turnId: 'turn-1', occurredAt: '2026-09-27T10:01:00Z', title: 'Run command',
+          detail: 'npm test', approvalKind: 'COMMAND', scope: ['command:npm test'], availableDecisions: ['DENY'], actionable: true,
+        },
+        latestTurn: { id: 'turn-1', state: 'RUNNING', endedAt: null },
+      },
+      't-2': { lastMessage: null, pendingApproval: null, latestTurn: null },
+    })).toEqual({
+      't-1': {
+        lastMessage: { author: 'AGENT', text: 'Done.', at: '2026-09-27T10:00:00Z', turnId: 'turn-1' },
+        pendingApproval: { approvalId: 'a-1', occurredAt: '2026-09-27T10:01:00Z', title: 'Run command', detail: 'npm test', approvalKind: 'COMMAND', scope: ['command:npm test'] },
+        latestTurn: { id: 'turn-1', state: 'RUNNING', endedAt: null },
+      },
+      't-2': { lastMessage: null, pendingApproval: null, latestTurn: null },
+    });
+    expect(() => parseAgentTaskActivity({ 't-1': { lastMessage: { author: 'SYSTEM', text: '', at: '' } } })).toThrow(/lastMessage\.author/);
   });
 
   it('reads a completed task with its summary', () => {

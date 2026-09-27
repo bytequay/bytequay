@@ -17,7 +17,7 @@ import { describe, expect, it } from 'vitest';
 import { AgentHomeView } from './AgentHome';
 import { AgentTaskList } from './AgentTasksView';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
-import { createPreviewBridge, previewTask } from './fixtures/previewBridge';
+import { previewTask } from './fixtures/previewBridge';
 import type { AgentTaskStartupPhase, ModelOptionDto, ModelProviderDto } from '../types';
 
 const MODELS: ModelOptionDto[] = [
@@ -52,7 +52,7 @@ const props = {
 
 describe.each(['Home', 'Tasks'])('first-message feedback on %s', (surface) => {
   const render = (overrides: Partial<typeof props>) => renderToStaticMarkup(surface === 'Home'
-    ? <AgentHomeView {...props} {...overrides} repository="bytequay/bytequay" bridge={() => createPreviewBridge('workspace-1')} onShowAll={() => {}} />
+    ? <AgentHomeView {...props} {...overrides} repository="bytequay/bytequay" onShowAll={() => {}} />
     : <AgentTaskList {...props} {...overrides} />);
 
   it('shows the submitted message and images while creation is pending, without mutable creation controls', () => {

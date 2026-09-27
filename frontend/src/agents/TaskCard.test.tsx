@@ -16,10 +16,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence } from './events';
-import { AgentHomeView } from './AgentHome';
+import { AgentHomeView, wantsAttention } from './AgentHome';
 import { createPreviewBridge, previewTask } from './fixtures/previewBridge';
 import { TaskComposer } from './AgentTasksView';
-import { gridColumnWidth, TaskCard, wantsAttention } from './TaskCard';
+import { TaskCard } from './TaskCard';
 import { TaskOverviewView } from './TaskOverview';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import type { ModelOptionDto, ModelProviderDto } from '../types';
@@ -87,20 +87,7 @@ describe('task window', () => {
     expect(live).toContain('npm test');
   });
 
-  it('offers rename and hide only where Home passes them, and scales its screen to the grid column', () => {
-    const markup = renderToStaticMarkup(
-      <TaskCard task={task('t-1', 'Audit storage')} events={[]} providers={PROVIDERS} width={250} now={NOW} onOpen={() => {}} onRename={() => {}} onHide={() => {}} />);
-    expect(markup).toContain('aria-label="Rename task: Audit storage"');
-    expect(markup).toContain('aria-label="Hide task from Home: Audit storage"');
-    expect(markup).toContain('title="Double-click to rename"');
-
-    // Three columns fit in 900px at the 250px minimum, and each is what is left after the gaps.
-    expect(gridColumnWidth(900)).toBe(289);
-    expect(gridColumnWidth(1400)).toBe(267);
-    expect(gridColumnWidth(0)).toBe(250);
-  });
-
-  it('brings a hidden window back only for attention that started after it was put away', () => {
+  it('brings a hidden card back only for attention that started after it was put away', () => {
     const away = Date.parse('2026-08-20T10:05:00Z');
     expect(wantsAttention(away, Date.parse('2026-08-20T10:00:00Z'), null)).toBe(false);
     expect(wantsAttention(away, null, Date.parse('2026-08-20T10:04:59Z'))).toBe(false);
@@ -131,8 +118,9 @@ describe('agent home and overview', () => {
         repository="jackchen/trino"
         laneId="codex"
         providers={PROVIDERS}
-        bridge={bridge}
         tasks={[task('t-1', 'Fix flaky preview', 'TURN'), task('t-2', 'Audit storage')]}
+        onRenameTask={() => {}}
+        onHideTask={() => {}}
         models={MODELS}
         selection={{ model: 'gpt-5.6-sol', effort: 'high' }}
         draft=""
@@ -157,10 +145,12 @@ describe('agent home and overview', () => {
     expect(markup).toContain('lucide-list-checks');
     expect(markup).toContain('Open tasks · 2');
     expect(markup).toContain('⇧⌘\\');
-    // Windows fill a grid whose column is measured in the browser; a static render uses the minimum.
-    expect(markup).toContain('class="agt-windows-grid"');
-    expect(markup.match(/style="--card-w:250"/g)).toHaveLength(2);
+    // Open tasks are compact cards, each renamable and hideable from Home.
+    expect(markup).toContain('class="agt-open-grid"');
+    expect(markup.match(/class="agt-open-card"/g)).toHaveLength(2);
     expect(markup.match(/aria-label="Rename task: /g)).toHaveLength(2);
+    expect(markup.match(/aria-label="Hide task from Home: /g)).toHaveLength(2);
+    expect(markup).not.toContain('agt-card__thumb');
     // The composer docks at the foot of the page, with the starting points beside the repository chip.
     expect(markup.indexOf('agt-open-tasks')).toBeLessThan(markup.indexOf('class="agt-dock"'));
     expect(markup.indexOf('class="agt-repo-chip"')).toBeLessThan(markup.indexOf('class="agt-start"'));
@@ -170,6 +160,48 @@ describe('agent home and overview', () => {
     expect(markup).toContain('aria-label="Describe a task"');
     expect(markup).not.toContain('Describe a task — sending the first message creates it…');
     expect(markup).not.toContain('master');
+  });
+
+  it('draws each open task as a compact card: its state, why it waits or what it last said, and its checkout', () => {
+    const markup = renderToStaticMarkup(
+      <AgentHomeView
+        repository="jackchen/trino"
+        laneId="codex"
+        providers={PROVIDERS}
+        tasks={[
+          task('t-1', 'Fix flaky preview', 'TURN'),
+          task('t-2', 'Audit storage'),
+          { ...task('t-3', 'Keep deletion vectors'), pullRequest: { number: 31264, title: 'Keep deletion vectors', state: 'open', draft: true } },
+        ]}
+        activity={{
+          't-1': { lastMessage: null, latestTurn: null, pendingApproval: {
+            approvalId: 'a', occurredAt: '2026-08-20T10:05:00Z', title: 'Run tests', detail: 'npm test', approvalKind: 'COMMAND', scope: [],
+          } },
+          't-2': { lastMessage: { author: 'AGENT', text: 'All green after 20 reruns.', at: '2026-08-20T10:00:00Z', turnId: 't' }, latestTurn: null, pendingApproval: null },
+        }}
+        changes={{ 't-2': { uncommitted: false, commits: 2 }, 't-3': { uncommitted: true, commits: 0 } }}
+        now={NOW}
+        models={MODELS}
+        selection={{ model: 'gpt-5.6-sol', effort: 'high' }}
+        draft=""
+        blocker={null}
+        onDraftChange={() => {}}
+        onSelectModel={() => {}}
+        onSelectProvider={() => {}}
+        onCreate={() => {}}
+        onOpenTask={() => {}}
+        onShowAll={() => {}}
+      />);
+
+    expect(markup).toContain('<span class="agt-pill is-orange">Needs you</span>');
+    expect(markup).toContain('class="agt-open-card__last is-needs">Approval needed to run a command<');
+    expect(markup).toContain('class="agt-open-card__last">All green after 20 reruns.<');
+    // The lane, model and age name where the task runs; the pull request outranks the checkout's changes.
+    expect(markup).toContain('Codex · 5.6 Sol · 12m');
+    expect(markup).toContain('class="agt-open-card__change">2 commits<');
+    expect(markup).toContain('class="agt-open-card__change is-pr">#31264 draft<');
+    // Without rename or hide handlers a card offers neither.
+    expect(markup).not.toContain('Rename task:');
   });
 
   it('lays every open task out as a closable window with a place to start another', () => {

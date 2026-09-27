@@ -3403,12 +3403,162 @@
   text-align: left;
 }
 
-.agt-windows-grid {
+.agt-open-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
   margin-top: 12px;
 }
+
+/* One open task on Home: name and state, what it last said, and its lane and checkout. */
+.agt-open-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #e3e3e6;
+  border-radius: 10px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: box-shadow 0.12s, border-color 0.12s;
+}
+
+.agt-open-card:hover {
+  border-color: #b6bcc4;
+  box-shadow: 0 4px 14px rgba(140, 149, 159, 0.16);
+}
+
+.agt-open-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 22px;
+}
+
+.agt-open-card__icon {
+  flex: none;
+  color: #8c959f;
+}
+
+.agt-open-card__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agt-open-card__rename {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  outline: none;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.15);
+  color: var(--text-1);
+  font: inherit;
+  font-size: 13px;
+}
+
+/* Rename and hide sit beside the name while the pointer or focus is on the card. */
+.agt-open-card__tools {
+  display: none;
+  flex: none;
+  gap: 2px;
+}
+
+.agt-open-card:is(:hover, :focus-within) .agt-open-card__tools {
+  display: flex;
+}
+
+.agt-open-card__tool {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #57606a;
+  cursor: pointer;
+}
+
+.agt-open-card__tool:hover {
+  background: #eceff2;
+  color: var(--text-1);
+}
+
+.agt-open-card__last {
+  min-height: 17px;
+  font-size: 12.5px;
+  color: #57606a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agt-open-card__last.is-needs {
+  color: #bc4c00;
+}
+
+.agt-open-card__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: #8c959f;
+}
+
+.agt-open-card__meta {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, Menlo, 'Roboto Mono', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agt-open-card__change {
+  flex: none;
+  white-space: nowrap;
+}
+
+.agt-open-card__change.is-pr {
+  color: #8250df;
+}
+
+/* A task card's state: waiting on the user, running, idle, finished or failed. */
+.agt-pill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.agt-pill > .agt-spin {
+  width: 11px;
+  height: 11px;
+}
+
+.agt-pill.is-orange { color: #bc4c00; background: #fff1e5; }
+.agt-pill.is-blue { color: #0969da; background: #ddf4ff; }
+.agt-pill.is-green { color: #1a7f37; background: #dafbe1; }
+.agt-pill.is-neutral { color: #57606a; background: #eceff2; }
+.agt-pill.is-red { color: #cf222e; background: #ffebe9; }
 
 /* ── Task window card ── */
 
@@ -3427,10 +3577,6 @@
   color: var(--text-1);
   box-shadow: 0 1px 2px rgba(31, 35, 40, 0.05);
   transition: box-shadow 0.12s, border-color 0.12s;
-}
-
-.agt-windows-grid .agt-card {
-  width: auto;
 }
 
 .agt-card:hover {
@@ -3460,7 +3606,7 @@
   background: #f6f8fa;
 }
 
-/* The overview keeps the screen's own proportions; Home's fixed-height thumbnail is set above. */
+/* The overview keeps the screen's own proportions. */
 .agt-overview__grid .agt-card {
   --thumb-h: calc(var(--card-w) * 0.625px);
 }
@@ -3475,46 +3621,6 @@
   background: #ffffff;
   pointer-events: none;
   overflow: hidden;
-}
-
-/* Rename and hide, floating over the thumbnail while the pointer is on the card. */
-.agt-card__tools {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 2;
-  display: none;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid #e3e3e6;
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 2px 6px rgba(31, 35, 40, 0.1);
-  animation: agt-fade 0.12s ease-out;
-}
-
-.agt-card:hover .agt-card__tools,
-.agt-card:focus-within .agt-card__tools {
-  display: flex;
-}
-
-.agt-card__tool {
-  width: 26px;
-  height: 26px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #57606a;
-  cursor: pointer;
-}
-
-.agt-card__tool:hover {
-  background: #e4e4e8;
-  color: var(--text-1);
 }
 
 .agt-card__foot {
@@ -3536,21 +3642,6 @@
   text-overflow: ellipsis;
 }
 
-.agt-card__rename {
-  flex: 1;
-  min-width: 0;
-  padding: 2px 6px;
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  outline: none;
-  background: #ffffff;
-  box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.15);
-  color: var(--text-1);
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 400;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .agt-live__label.is-active {
     animation: none;
@@ -3566,8 +3657,7 @@
   .agt-cursor,
   .agt-icon.is-outcome > svg,
   .agt-overview,
-  .agt-selbar,
-  .agt-card__tools {
+  .agt-selbar {
     animation: none;
   }
 

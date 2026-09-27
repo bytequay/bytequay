@@ -683,21 +683,7 @@ export default function AgentTasksView({
       setTasks((list) => list.filter((task) => task.id !== id));
     }
   }, [live, setTasks, workspaceId]);
-  // Reading checkouts takes Git a moment each, so rows paint with the last answer and take the new one when it lands.
-  const changesSeed = `agent-task-changes:${workspaceId}`;
-  const [changes, setChanges] = useState<Record<string, AgentTaskChangesDto>>(() => getCached(changesSeed) ?? {});
-  // Keyed by the ids alone, so archiving a row does not read every checkout again.
-  const taskIds = creation.tasks.map((task) => task.id).join(' ');
-  useEffect(() => {
-    if (taskIds === '') return;
-    let active = true;
-    // A failed read keeps the last answer; a row without one simply names nothing.
-    void live().listAgentTaskChanges(workspaceId).then((found) => {
-      setCached(changesSeed, found);
-      if (active) setChanges(found);
-    }, () => {});
-    return () => { active = false; };
-  }, [live, changesSeed, taskIds, workspaceId]);
+  const changes = useTaskChanges(workspaceId, creation.tasks, live);
   return (
     <AgentTaskList
       headerAction={headerAction}
@@ -868,9 +854,30 @@ export function TaskComposer({
   );
 }
 
-/** One task as a row of a day group: the selection slot, the name, its facts, and what can be done to it. */
+/**
+ * What each listed task's checkout holds, by task id. Reading checkouts takes Git a moment each, so a
+ * page paints with the last answer and takes the new one when it lands.
+ */
+export function useTaskChanges(workspaceId: string, tasks: AgentTaskDto[], bridge: () => AgentBridgePort): Record<string, AgentTaskChangesDto> {
+  const seed = `agent-task-changes:${workspaceId}`;
+  const [changes, setChanges] = useState<Record<string, AgentTaskChangesDto>>(() => getCached(seed) ?? {});
+  // Keyed by the ids alone, so archiving a row does not read every checkout again.
+  const taskIds = tasks.map((task) => task.id).join(' ');
+  useEffect(() => {
+    if (taskIds === '') return;
+    let active = true;
+    // A failed read keeps the last answer; a row without one simply names nothing.
+    void bridge().listAgentTaskChanges(workspaceId).then((found) => {
+      setCached(seed, found);
+      if (active) setChanges(found);
+    }, () => {});
+    return () => { active = false; };
+  }, [bridge, seed, taskIds, workspaceId]);
+  return changes;
+}
+
 /** Commits first, since they are the result a pull request would carry; uncommitted files are work still in the checkout. */
-function changesLabel({ uncommitted, commits }: AgentTaskChangesDto): string {
+export function changesLabel({ uncommitted, commits }: AgentTaskChangesDto): string {
   const committed = commits === 0 ? null : `${commits} ${commits === 1 ? 'commit' : 'commits'}`;
   if (committed === null) return uncommitted ? 'Uncommitted changes' : 'No changes';
   return uncommitted ? `${committed} · uncommitted changes` : committed;

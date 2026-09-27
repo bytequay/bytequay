@@ -922,20 +922,25 @@ repository chip and three starting points that fill it as pills in one row
 above it, the repository's own **Needs attention** cards (drawn from the same
 candidates and ack/snooze store as the application Home, as described below),
 and the open tasks as a responsive
-grid of windows — each a scaled copy of its own screen, anchored to its newest
-work like the screen following its bottom, with finished turns folded. A
-window's footer is its name and state; hovering it shows Rename, which edits
-the name in place through the ordinary rename, and Hide from Home, which keeps
-a renderer-local per-workspace set (`bq.home.hiddenTasks.{workspaceId}`) and
-leaves the task in Tasks and the overview. A hidden window keeps polling and
-comes back on its own when its task needs recovery or an approval. A window
-polls its task and any events it has not shown yet on a shared tick instead of
-streaming, because main keeps one stream per renderer and task and the overview
-draws over a screen that may hold it. A Tab Overview lays every open task out
-as such a window over whichever agent screen is showing; `⇧⌘\` or its pinned
-control opens it, Escape closes it, a window opens its task, its ✕ completes an
-idle task after confirmation, and a dashed card starts a new one. Nothing in a
-window is interactive but the window, its name and its toolbar.
+grid of compact cards. A card names the task and its state (**Needs you**,
+Running, Idle), then why it waits on the user or the start of what it last
+said, then its lane, model and age beside its pull request or what its checkout
+holds. The page reads the task list and `GET /agent/tasks/activity` on one
+short tick rather than each card polling its own task. Hovering a card shows
+Rename, which edits the name in place through the ordinary rename, and Hide
+from Home, which keeps a renderer-local per-workspace set
+(`bq.home.hiddenTasks.{workspaceId}`) and leaves the task in Tasks and the
+overview. A hidden card comes back on its own when its task needs recovery or
+an approval after it was put away. A Tab Overview lays every open task out as a
+window over whichever agent screen is showing: each a scaled copy of its own
+screen, anchored to its newest work like the screen following its bottom, with
+finished turns folded. A window polls its task and any events it has not shown
+yet on a shared tick instead of streaming, because main keeps one stream per
+renderer and task and the overview draws over a screen that may hold it.
+`⇧⌘\` or its pinned control opens the overview, Escape closes it, a window
+opens its task, its ✕ completes an idle task after confirmation, and a dashed
+card starts a new one. Nothing in a window is interactive but the window and
+its close control.
 
 Both Homes draw **Needs attention** as cards in a grid of 360px-minimum
 columns whose cards keep their own height. Each shows at most four cards:

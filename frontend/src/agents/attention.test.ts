@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { attentionCandidates, attentionSummary, handledEntry, stillHandled } from '../home/attention';
 import { pr } from '../pulls/fixtures/pullRequest';
 import type { AgentTaskActivityDto, AgentTaskDto } from '../types';
-import { linkTasks, taskAttentionItems, taskAttentionKind } from './attention';
+import { linkTasks, taskAttentionItems, taskAttentionKind, taskCardState, taskLastMessage } from './attention';
 import { previewTask } from './fixtures/previewBridge';
 
 const WORKSPACE = { id: 'workspace-1', name: 'trino', repository: 'trinodb/trino' };
@@ -94,6 +94,30 @@ describe('task attention', () => {
     expect(stillHandled(acknowledged, first, Date.parse('2026-09-27T12:00:00Z'))).toBe(true);
     const later = taskAttentionItems([task('t')], { t: activity({ latestTurn: { id: 'turn-2', state: 'COMPLETED', endedAt: '2026-09-27T11:00:00Z' } }) }, WORKSPACE)[0];
     expect(stillHandled(acknowledged, later, Date.parse('2026-09-27T12:00:00Z'))).toBe(false);
+  });
+
+  it('names a task card state, waiting on the user before whatever else the task is doing', () => {
+    const running = { mutationClaim: { kind: 'TURN', ownerId: 'turn-1', acquiredAt: '2026-09-27T10:00:00Z' } };
+    expect(taskCardState(task('t', running), activity({ pendingApproval: COMMAND })))
+      .toEqual({ label: 'Needs you', tone: 'orange', spinning: false, reason: 'Approval needed to run a command' });
+    expect(taskCardState(task('t', running), activity({ pendingApproval: { ...COMMAND, scope: ['AskUserQuestion'] } })).reason).toBe('Question for you');
+    expect(taskCardState(task('t', running), null)).toMatchObject({ label: 'Running', spinning: true, reason: null });
+    expect(taskCardState(task('t'), null)).toMatchObject({ label: 'Idle', tone: 'green' });
+    expect(taskCardState(task('t', { state: 'COMPLETED' }), activity({ pendingApproval: COMMAND }))).toMatchObject({ label: 'Finished' });
+    expect(taskCardState(task('t', { state: 'FAILED' }), null)).toMatchObject({ label: 'Failed', tone: 'red' });
+  });
+
+  it('quotes a generated first request as the request it stands for, and every other message as said', () => {
+    const issueSource = {
+      issueId: 9, number: 31190, updatedAt: '', initialTurnId: 'turn-1', instructions: '', host: 'github.com',
+      repo: 'trinodb/trino', url: '', title: 'Checkpoint drops deletion vectors', body: '',
+    };
+    const generated = { author: 'USER' as const, text: 'INTERNAL GENERATED PROMPT', at: '2026-09-27T10:00:00Z', turnId: 'turn-1' };
+    expect(taskLastMessage(task('t', { issueSource }), activity({ lastMessage: generated }))?.text).toBe('Start development · trinodb/trino#31190');
+    expect(taskLastMessage(task('t', { issueSource }), activity({ lastMessage: { ...generated, turnId: 'turn-2', text: 'Also add a test' } }))?.text)
+      .toBe('Also add a test');
+    expect(taskLastMessage(task('t'), activity({ lastMessage: generated }))?.text).toBe('INTERNAL GENERATED PROMPT');
+    expect(taskLastMessage(task('t'), null)).toBeNull();
   });
 
   it('links a pull request card to the task whose branch opened it, in the same repository only', () => {

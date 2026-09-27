@@ -304,7 +304,7 @@ function HomePage({
     () => linkTasks(attentionCandidates(attentionPrs ?? [], issueItems.map<AttentionItem>(item => ({
       ...item, workspaceName: workspaces.find(workspace => workspace.id === item.workspaceId)?.name,
     })).concat(jira.items, tasks.items), login), tasks.tasks),
-    [attentionPrs, issueItems, jira.items, login, tasks, workspaces]);
+    [attentionPrs, issueItems, jira.items, login, tasks.items, tasks.tasks, workspaces]);
 
   function applyHandled(next: Handled) {
     setHandled(next);

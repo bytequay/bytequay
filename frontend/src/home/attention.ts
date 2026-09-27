@@ -328,7 +328,8 @@ function approvalQuestionText(detail: string): string | null {
   }
 }
 
-const QUESTION_TOOL = 'AskUserQuestion';
+/** The tool an approval stands in for when an agent asks the user a question. */
+export const QUESTION_TOOL = 'AskUserQuestion';
 
 function taskSummary(item: AttentionItem, task: NonNullable<AttentionItem['task']>): AttentionSummary {
   const actor: AttentionSummary['actor'] = { name: item.author ?? 'Agent', avatarUrl: null };

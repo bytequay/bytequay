@@ -13,7 +13,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CircleDot, ListChecks, Search, type LucideIcon } from 'lucide-react';
+import { CircleDot, EyeOff, ListChecks, LoaderCircle, Pencil, Search, SquareCheck, type LucideIcon } from 'lucide-react';
 import RepoAvatar from '../RepoAvatar';
 import { getCached, setCached } from '../dataCache';
 import AttentionList from '../home/AttentionList';
@@ -27,11 +27,17 @@ import {
   type AttentionItem,
   type Handled,
 } from '../home/attention';
-import { ComposerDock, StartingAgentTask, TaskComposer, taskArchived, useAgentTaskCreation, type DraftImage, type TaskModelSelection } from './AgentTasksView';
-import { HOME_WINDOW_MIN, TaskWindows } from './TaskCard';
-import { linkTasks, useTaskAttention } from './attention';
+import { relativeTime } from '../relativeTime';
+import { useRenameDraft } from '../renameDraft';
+import { displayModelName, laneLabel } from '../settings/model';
+import {
+  ComposerDock, StartingAgentTask, TaskComposer, changesLabel, taskArchived, useAgentTaskCreation, useTaskChanges, type DraftImage, type TaskModelSelection,
+} from './AgentTasksView';
+import { linkTasks, taskCardState, taskLastMessage, useTaskAttention, type TaskAttention } from './attention';
 import type { AgentBridgePort } from './model';
-import type { AgentTaskDto, AgentTaskStartupPhase, ModelOptionDto, ModelProviderDto, PullRequestDto } from '../types';
+import type {
+  AgentTaskActivityDto, AgentTaskChangesDto, AgentTaskDto, AgentTaskStartupPhase, ModelOptionDto, ModelProviderDto, PullRequestDto,
+} from '../types';
 
 /** Starting points that fill the composer; the user edits or sends them as they are. */
 const SUGGESTIONS: { icon: LucideIcon; title: string; prompt: string }[] = [
@@ -65,6 +71,14 @@ function loadHiddenTasks(workspaceId: string): Map<string, number> {
   }
 }
 
+/**
+ * Whether a task the user put away asks to come back. Only attention that started after they put it
+ * away does, so hiding a task that already wants the user is not undone on the spot.
+ */
+export function wantsAttention(hiddenAt: number | null, recoveryAt: number | null, approvalAt: number | null): boolean {
+  return hiddenAt !== null && Math.max(recoveryAt ?? 0, approvalAt ?? 0) > hiddenAt;
+}
+
 function saveHiddenTasks(workspaceId: string, hidden: ReadonlyMap<string, number>): void {
   try {
     window.localStorage.setItem(hiddenTasksKey(workspaceId), JSON.stringify(Object.fromEntries(hidden)));
@@ -73,7 +87,7 @@ function saveHiddenTasks(workspaceId: string, hidden: ReadonlyMap<string, number
 }
 
 /** The workspace's slice of what Home lists: pull requests and issues of its monitored repository. */
-function useWorkspaceAttention(workspaceId: string, repository: string, bridge: () => AgentBridgePort): {
+function useWorkspaceAttention(workspaceId: string, repository: string, tasks: TaskAttention): {
   candidates: AttentionItem[];
   handled: Handled;
   applyHandled: (handled: Handled) => void;
@@ -143,10 +157,8 @@ function useWorkspaceAttention(workspaceId: string, repository: string, bridge: 
       window.removeEventListener('bytequay:pr-attention-updated', reload);
     };
   }, [login, workspaceId]);
-  const workspaces = useMemo(() => [{ id: workspaceId, name: '', repository }], [repository, workspaceId]);
-  const tasks = useTaskAttention(workspaces, bridge);
   const candidates = useMemo(() => linkTasks(attentionCandidates(
-    prs.filter(pr => pr.repo.toLowerCase() === repository.toLowerCase()), issues.concat(tasks.items), login), tasks.tasks), [issues, login, prs, repository, tasks]);
+    prs.filter(pr => pr.repo.toLowerCase() === repository.toLowerCase()), issues.concat(tasks.items), login), tasks.tasks), [issues, login, prs, repository, tasks.items, tasks.tasks]);
   // The same store as Home, so acknowledging here clears the row there too.
   const applyHandled = useCallback((next: Handled) => {
     setHandled(next);
@@ -174,7 +186,13 @@ export default function AgentHome({
 }: AgentHomeProps): React.JSX.Element {
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
   const creation = useAgentTaskCreation({ workspaceId, bridge: live, onOpenTask });
-  const attention = useWorkspaceAttention(workspaceId, repository, live);
+  const taskWorkspaces = useMemo(() => [{ id: workspaceId, name: '', repository }], [repository, workspaceId]);
+  const taskAttention = useTaskAttention(taskWorkspaces, live);
+  const attention = useWorkspaceAttention(workspaceId, repository, taskAttention);
+  // The polled list is fresher; until its first read lands, the list this page last painted stands in.
+  const listed = taskAttention.tasks.length > 0 ? taskAttention.tasks.map((entry) => entry.task) : creation.tasks;
+  const openTasks = useMemo(() => listed.filter((task) => task.state === 'OPEN' && !taskArchived(task)), [listed]);
+  const changes = useTaskChanges(workspaceId, openTasks, live);
   const [hidden, setHidden] = useState(() => loadHiddenTasks(workspaceId));
   const hide = useCallback((task: AgentTaskDto) => setHidden((previous) => {
     const next = new Map(previous).set(task.id, Date.now());
@@ -188,6 +206,18 @@ export default function AgentHome({
     saveHiddenTasks(workspaceId, next);
     return next;
   }), [workspaceId]);
+  // A task put away from Home comes back on its own when it needs the user after that.
+  useEffect(() => {
+    for (const task of openTasks) {
+      const approval = taskAttention.activity[task.id]?.pendingApproval ?? null;
+      const recoveryAt = task.mutationClaim?.kind === 'RECOVERY' ? Date.parse(task.mutationClaim.acquiredAt) : null;
+      if (wantsAttention(hidden.get(task.id) ?? null, recoveryAt, approval === null ? null : Date.parse(approval.occurredAt))) reveal(task);
+    }
+  }, [hidden, openTasks, reveal, taskAttention.activity]);
+  const { refresh } = taskAttention;
+  const rename = useCallback((task: AgentTaskDto, title: string) => {
+    void live().renameAgentTask(task.id, task.workspaceId, task.version, title).then(refresh).catch(() => {});
+  }, [live, refresh]);
   const openAttention = useCallback((item: AttentionItem) => {
     if (item.task) onOpenTask(item.task.dto.id);
     else if (item.type === 'issue') onOpenIssue?.(item.number);
@@ -198,11 +228,12 @@ export default function AgentHome({
       headerAction={headerAction}
       {...creation.composer}
       repository={repository}
-      bridge={live}
-      tasks={creation.tasks.filter((task) => task.state === 'OPEN' && !taskArchived(task))}
+      tasks={openTasks}
+      activity={taskAttention.activity}
+      changes={changes}
       hiddenTasks={hidden}
       onHideTask={hide}
-      onRevealTask={reveal}
+      onRenameTask={rename}
       attention={attention.candidates}
       handled={attention.handled}
       viewerLogin={attention.login}
@@ -220,9 +251,9 @@ export default function AgentHome({
 }
 
 export function AgentHomeView({
-  repository, headerAction, laneId, providers, bridge, tasks, models, selection, draft, blocker,
+  repository, headerAction, laneId, providers, tasks, models, selection, draft, blocker,
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onShowAll,
-  hiddenTasks, onHideTask, onRevealTask,
+  activity = {}, changes = {}, hiddenTasks, onHideTask, onRenameTask, now = Date.now(),
   attention = [], handled = {}, viewerLogin = null, onHandledChange = () => {}, onOpenAttention = () => {},
   onStartIssue, attentionError,
   images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, error = null, automation,
@@ -230,13 +261,18 @@ export function AgentHomeView({
   repository: string;
   laneId: string;
   providers: ModelProviderDto[];
-  bridge: () => AgentBridgePort;
-  /** The open tasks, drawn as windows under the composer. */
+  /** The open tasks, drawn as compact cards above the composer. */
   tasks: AgentTaskDto[];
-  /** Which windows the user put away, each with when. */
+  /** What each task last said and waits on, by task id. */
+  activity?: Record<string, AgentTaskActivityDto>;
+  /** What each task's checkout holds, by task id, for cards without a pull request to name. */
+  changes?: Record<string, AgentTaskChangesDto>;
+  /** Which cards the user put away, each with when. */
   hiddenTasks?: ReadonlyMap<string, number>;
   onHideTask?: (task: AgentTaskDto) => void;
-  onRevealTask?: (task: AgentTaskDto) => void;
+  onRenameTask?: (task: AgentTaskDto, title: string) => void;
+  /** The clock the cards' ages are drawn against. */
+  now?: number;
   /** The repository's pull requests and issues that need the user, before ack and snooze are applied. */
   attention?: AttentionItem[];
   handled?: Handled;
@@ -297,18 +333,21 @@ export function AgentHomeView({
               Show all <kbd className="agt-kbd">{'⇧⌘\\'}</kbd>
             </button>
           </div>
-          <TaskWindows
-            fluid
-            renamable
-            tasks={tasks}
-            providers={providers}
-            width={HOME_WINDOW_MIN}
-            bridge={bridge}
-            hiddenTasks={hiddenTasks}
-            onHide={onHideTask}
-            onAttention={onRevealTask}
-            onOpen={onOpenTask}
-          />
+          <div className="agt-open-grid">
+            {tasks.filter((task) => !hiddenTasks?.has(task.id)).map((task) => (
+              <HomeTaskCard
+                key={task.id}
+                task={task}
+                activity={activity[task.id] ?? null}
+                changes={changes[task.id] ?? null}
+                providers={providers}
+                now={now}
+                onOpen={() => onOpenTask(task.id)}
+                onRename={onRenameTask === undefined ? undefined : (title) => onRenameTask(task, title)}
+                onHide={onHideTask === undefined ? undefined : () => onHideTask(task)}
+              />
+            ))}
+          </div>
         </section>
         <ComposerDock repository={repository} chips={SUGGESTIONS.map((suggestion) => {
           const Icon = suggestion.icon;
@@ -341,6 +380,81 @@ export function AgentHomeView({
             onOpenSettings={onOpenSettings}
           />
         </ComposerDock>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * One open task as a compact card: its name and state, what it last said or why it waits on the
+ * user, and its lane, age and what its checkout holds. Rename and Hide from Home sit beside the name.
+ */
+function HomeTaskCard({ task, activity, changes, providers, now, onOpen, onRename, onHide }: {
+  task: AgentTaskDto;
+  activity: AgentTaskActivityDto | null;
+  changes: AgentTaskChangesDto | null;
+  providers: ModelProviderDto[];
+  now: number;
+  onOpen: () => void;
+  onRename?: (title: string) => void;
+  onHide?: () => void;
+}): React.JSX.Element {
+  const state = taskCardState(task, activity);
+  const rename = useRenameDraft(task.title, onRename);
+  const provider = providers.find((candidate) => candidate.id === task.laneId);
+  const model = displayModelName(provider?.models.find((option) => option.id === task.defaults.model)?.name ?? task.defaults.model ?? '');
+  const meta = [provider?.label ?? laneLabel(task.laneId), model, relativeTime(task.updatedAt, { suffix: false, now })].filter((part) => part !== '').join(' · ');
+  const pullRequest = task.pullRequest ?? null;
+  const change = pullRequest !== null ? `#${pullRequest.number} ${pullRequest.draft ? 'draft' : pullRequest.state}` : changes === null ? null : changesLabel(changes);
+  return (
+    <div
+      className="agt-open-card"
+      role="button"
+      tabIndex={0}
+      aria-label={`Open task: ${task.title}`}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        onOpen();
+      }}
+    >
+      <div className="agt-open-card__head">
+        <SquareCheck className="agt-open-card__icon" size={14} strokeWidth={1.8} aria-hidden="true" />
+        {rename.editing ? (
+          <input className="agt-open-card__rename" {...rename.inputProps} onClick={(event) => event.stopPropagation()} />
+        ) : (
+          <span className="agt-open-card__title" title={onRename === undefined ? task.title : 'Double-click to rename'}
+            onDoubleClick={(event) => { event.stopPropagation(); rename.start(); }}>
+            {task.title}
+          </span>
+        )}
+        {!rename.editing && (onRename !== undefined || onHide !== undefined) && (
+          <span className="agt-open-card__tools">
+            {onRename !== undefined && (
+              <button type="button" className="agt-open-card__tool" title="Rename" aria-label={`Rename task: ${task.title}`}
+                onClick={(event) => { event.stopPropagation(); rename.start(); }}>
+                <Pencil size={13} aria-hidden="true" />
+              </button>
+            )}
+            {onHide !== undefined && (
+              <button type="button" className="agt-open-card__tool" title="Hide from Home (task stays in Tasks)" aria-label={`Hide task from Home: ${task.title}`}
+                onClick={(event) => { event.stopPropagation(); onHide(); }}>
+                <EyeOff size={13} aria-hidden="true" />
+              </button>
+            )}
+          </span>
+        )}
+        <span className={`agt-pill is-${state.tone}`}>
+          {state.spinning && <LoaderCircle className="agt-spin" aria-hidden="true" />}
+          {state.label}
+        </span>
+      </div>
+      <div className={`agt-open-card__last${state.reason === null ? '' : ' is-needs'}`}>{state.reason ?? taskLastMessage(task, activity)?.text ?? ''}</div>
+      <div className="agt-open-card__foot">
+        <span className="agt-open-card__meta">{meta}</span>
+        {change !== null && <span className={`agt-open-card__change${pullRequest === null ? '' : ' is-pr'}`}>{change}</span>}
       </div>
     </div>
   );

@@ -12,8 +12,8 @@
  * limitations under the License.
  */
 
-import { useEffect, useState } from 'react';
-import type { AttentionItem, AttentionKind, AttentionLink, AttentionTone } from '../home/attention';
+import { useCallback, useEffect, useState } from 'react';
+import { QUESTION_TOOL, type AttentionItem, type AttentionKind, type AttentionLink, type AttentionTone } from '../home/attention';
 import { displayModelName, laneLabel } from '../settings/model';
 import type { AgentTaskActivityDto, AgentTaskDto, AgentTaskPullRequestDto, Bridge } from '../types';
 import { taskArchived, taskStatePill } from './AgentTasksView';
@@ -35,6 +35,46 @@ export function taskAttentionKind(task: AgentTaskDto, activity: AgentTaskActivit
   if (task.mutationClaim != null || task.developmentContinuationUnfinished) return null;
   const turn = activity?.latestTurn ?? null;
   return turn?.state === 'FAILED' ? 'failed' : turn?.state === 'COMPLETED' ? 'finished' : null;
+}
+
+export type TaskCardState = {
+  label: 'Needs you' | 'Running' | 'Idle' | 'Finished' | 'Failed';
+  tone: 'orange' | 'blue' | 'green' | 'neutral' | 'red';
+  spinning: boolean;
+  /** Why a task needs the user, when it does. */
+  reason: string | null;
+};
+
+/** A task's state as its card names it: waiting on the user first, whatever else it is doing. */
+export function taskCardState(task: AgentTaskDto, activity: AgentTaskActivityDto | null): TaskCardState {
+  const approval = activity?.pendingApproval ?? null;
+  if (task.state === 'OPEN' && approval !== null) {
+    const reason = approval.scope.includes(QUESTION_TOOL) ? 'Question for you'
+      : approval.approvalKind === 'COMMAND' ? 'Approval needed to run a command' : 'Approval needed';
+    return { label: 'Needs you', tone: 'orange', spinning: false, reason };
+  }
+  if (task.state === 'OPEN' && task.mutationClaim?.kind === 'RECOVERY') {
+    return { label: 'Needs you', tone: 'orange', spinning: false, reason: 'Could not be shown to have stopped' };
+  }
+  if (task.state === 'OPEN' && (task.mutationClaim?.kind === 'TURN' || task.developmentContinuationUnfinished)) {
+    return { label: 'Running', tone: 'blue', spinning: true, reason: null };
+  }
+  if (task.state === 'OPEN') return { label: 'Idle', tone: 'green', spinning: false, reason: null };
+  return task.state === 'FAILED'
+    ? { label: 'Failed', tone: 'red', spinning: false, reason: null }
+    : { label: 'Finished', tone: 'neutral', spinning: false, reason: null };
+}
+
+/**
+ * The message a task card quotes. A task's generated first request reads as the request it stands
+ * for, never as the prompt ByteQuay wrote for the provider.
+ */
+export function taskLastMessage(task: AgentTaskDto, activity: AgentTaskActivityDto | null): AgentTaskActivityDto['lastMessage'] {
+  const message = activity?.lastMessage ?? null;
+  const initialTurn = task.issueSource?.initialTurnId ?? task.jiraSource?.initialTurnId ?? null;
+  if (message === null || message.author !== 'USER' || initialTurn === null || message.turnId !== initialTurn) return message;
+  const source = task.jiraSource != null ? task.jiraSource.key : task.issueSource != null ? `${task.issueSource.repo}#${task.issueSource.number}` : '';
+  return { ...message, text: `Start development · ${source}` };
 }
 
 /** When the thing the card reports happened; a later one brings an acknowledged card back. */
@@ -117,6 +157,15 @@ export function linkTasks(items: AttentionItem[], tasks: WorkspaceTask[]): Atten
 
 type TaskAttentionBridge = Pick<Bridge, 'listAgentTasks' | 'listAgentTaskActivity' | 'getModelSettings'>;
 
+export type TaskAttention = {
+  items: AttentionItem[];
+  tasks: WorkspaceTask[];
+  /** What each read task last said and waits on, by task id. */
+  activity: Record<string, AgentTaskActivityDto>;
+  /** Reads again now, after a change this page made itself. */
+  refresh: () => void;
+};
+
 /** One function for every render, so the reads below do not restart on each one. */
 const windowBridge = (): TaskAttentionBridge => window.bridge;
 
@@ -128,8 +177,10 @@ const windowBridge = (): TaskAttentionBridge => window.bridge;
 export function useTaskAttention(
   workspaces: TaskAttentionWorkspace[],
   bridge: () => TaskAttentionBridge = windowBridge,
-): { items: AttentionItem[]; tasks: WorkspaceTask[] } {
-  const [state, setState] = useState<{ items: AttentionItem[]; tasks: WorkspaceTask[] }>({ items: [], tasks: [] });
+): TaskAttention {
+  const [state, setState] = useState<Omit<TaskAttention, 'refresh'>>({ items: [], tasks: [], activity: {} });
+  const [tick, setTick] = useState(0);
+  const refresh = useCallback(() => setTick((count) => count + 1), []);
   const [modelNames, setModelNames] = useState<ReadonlyMap<string, string>>(() => new Map());
   const key = JSON.stringify(workspaces);
   useEffect(() => {
@@ -146,7 +197,7 @@ export function useTaskAttention(
   useEffect(() => {
     const listed = JSON.parse(key) as TaskAttentionWorkspace[];
     if (listed.length === 0) {
-      setState({ items: [], tasks: [] });
+      setState({ items: [], tasks: [], activity: {} });
       return;
     }
     let active = true;
@@ -162,12 +213,13 @@ export function useTaskAttention(
         setState({
           items: loaded.flatMap(({ workspace, tasks, activity }) => taskAttentionItems(tasks, activity, workspace, modelNames)),
           tasks: loaded.flatMap(({ workspace, tasks }) => tasks.map((task) => ({ task, workspace }))),
+          activity: Object.assign({}, ...loaded.map(({ activity }) => activity)),
         });
       });
     };
     read();
     const timer = window.setInterval(read, TASK_ATTENTION_POLL_MS);
     return () => { active = false; window.clearInterval(timer); };
-  }, [bridge, key, modelNames]);
-  return state;
+  }, [bridge, key, modelNames, tick]);
+  return { ...state, refresh };
 }

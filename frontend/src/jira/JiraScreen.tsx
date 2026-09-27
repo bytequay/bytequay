@@ -373,13 +373,13 @@ function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }:
       <div className="jira-detail__body"><div className="jira-detail__main">
       <section className="jira-description"><h3>Description</h3><MarkdownBody body={issue.body || 'No description.'} /></section>
       <section className="jira-comments"><h3><MessageSquare size={16} /> Comments <span>{detail.comments.length}</span></h3>
-        {detail.comments.map(value => <article key={value.id}><header><strong>{value.author.displayName}</strong><time dateTime={value.created}>{relativeTime(value.created)}</time></header><MarkdownBody body={value.body} /></article>)}
-        {detail.commentsTruncated && <p className="jira-notice">Some comments are not loaded. Open Jira to read the full discussion.</p>}
-        {detail.comments.length === 0 && !detail.commentsTruncated && <p className="jira-muted">No comments yet.</p>}
         <form onSubmit={event => { event.preventDefault(); const body = comment.trim(); if (!body) return; if (commentRequest.current?.body !== body) commentRequest.current = { body, id: crypto.randomUUID() }; const request = commentRequest.current; void mutate(() => window.bridge.commentJiraIssue(location, request.body, request.id), () => { setComment(''); commentRequest.current = null; }); }}>
           <label>Add a comment<textarea rows={4} value={comment} onChange={event => setComment(event.target.value)} placeholder="Write a reply…" /></label>
           <button type="submit" className="bq-button bq-button--primary" disabled={busy || !comment.trim()}>Send comment</button>
         </form>
+        {detail.comments.toReversed().map(value => <article key={value.id}><header><strong>{value.author.displayName}</strong><time dateTime={value.created}>{relativeTime(value.created)}</time></header><MarkdownBody body={value.body} /></article>)}
+        {detail.commentsTruncated && <p className="jira-notice">Some comments are not loaded. Open Jira to read the full discussion.</p>}
+        {detail.comments.length === 0 && !detail.commentsTruncated && <p className="jira-muted">No comments yet.</p>}
       </section>
       </div><aside className="jira-detail__sidebar" aria-label="Ticket fields"><h3>Details</h3>
       <div className="jira-detail__fields"><span>Assignee <strong>{issue.assignee?.displayName ?? 'Unassigned'}</strong></span><span>Priority <strong>{issue.priority?.name ?? 'None'}</strong></span><span>Due date <strong>{issue.dueDate ?? 'None'}</strong></span>

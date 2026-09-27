@@ -110,7 +110,7 @@
 .jira-comments article { border: 1px solid var(--border, #d8dee4); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
 .jira-comments article header { display: flex; gap: 8px; font-size: 12px; margin-bottom: 12px; }
 .jira-comments time { color: var(--text-3); }
-.jira-comments form { display: grid; gap: 9px; }
+.jira-comments form { display: grid; gap: 9px; margin-bottom: 16px; }
 .jira-comments form button { justify-self: end; }
 .jira-comments textarea { resize: vertical; }
 .jira-empty { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 50px 20px; color: var(--text-3); font-size: 13px; }

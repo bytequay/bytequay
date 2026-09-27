@@ -19,7 +19,8 @@ The first release includes:
   contains “review”; it is not a fourth Jira category or a new transition.
   Unknown categories retain their actual status name. Clicking anywhere on a
   ticket card opens a large centered dialog over the board or list, with a short
-  zoom animation (disabled for reduced motion), description, comments and fields.
+  zoom animation (disabled for reduced motion), description, comments (newest
+  first, under the comment box) and fields.
   Action icons and parent links keep their own actions. Escape or Close returns
   focus to the card; the board keeps its layout and scroll position. Ticket dialogs
   hide while the embedded browser is open and restore with their drafts on return.

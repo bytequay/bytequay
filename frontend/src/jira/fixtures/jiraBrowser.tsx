@@ -123,6 +123,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       const transition = calls.find(call => call.name === 'transition'); assert((transition?.args[1] as { resolution: string }).resolution === '1', 'Chosen transition fields are sent');
       const composer = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Write a reply…"]'); assert(composer !== null, 'Comment composer exists'); edit(composer, 'The fix is ready for review.'); await settle(); button('Send comment').click(); await until(() => document.body.textContent?.includes('Connection lost') ?? false);
       assert(composer.value === 'The fix is ready for review.', 'Failed comment retains draft'); button('Send comment').click(); await until(() => composer.value === '');
+      assert(document.querySelector('.jira-comments article')?.textContent?.includes('The fix is ready for review.') ?? false, 'Newest comment reads first');
       const attempts = calls.filter(call => call.name === 'comment'); assert(attempts.length === 2 && attempts[0].args[1] === attempts[1].args[1], 'Retry retains operation identity');
     },
     async 'assigns a workspace before Goal marking and preserves cancellation and failures'() {

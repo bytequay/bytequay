@@ -72,6 +72,7 @@ const bridge: Bridge = {
   hasPat: () => ipcRenderer.invoke('pat:has'),
   fetchPrs: (workspaceId, page, pageSize) => ipcRenderer.invoke('prs:list', workspaceId, page, pageSize),
   fetchAttentionPrs: () => ipcRenderer.invoke('prs:attention'),
+  findStoredPullRequest: (repo, number) => ipcRenderer.invoke('prs:stored', repo, number),
   setPrMonitored: (prId, monitored) => ipcRenderer.invoke('prs:monitor', prId, monitored),
   setPrAttentionHandled: handled => ipcRenderer.invoke('prs:attention:handled', handled),
   onPrAttentionUpdated: callback => {

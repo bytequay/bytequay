@@ -41,7 +41,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
+import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
@@ -80,6 +82,13 @@ public class PullRequestController
     }
 
     public record AttentionPullRequest(@JsonUnwrapped PullRequest pullRequest, String authorAvatarUrl, PrActivitySummary latestActivity) {}
+
+    @GetMapping("/prs/stored")
+    public Optional<PullRequest> stored(@RequestParam("repo") String repo, @RequestParam("number") int number)
+    {
+        parseRef(repo, number);
+        return pullRequests.findStored(repo, number);
+    }
 
     @PatchMapping("/prs/{prId}/monitor")
     public PullRequest monitor(@PathVariable long prId, @RequestBody MonitorRequest request)

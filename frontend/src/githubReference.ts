@@ -136,6 +136,15 @@ export function zoomReference(target: ZoomedReference): void {
   window.dispatchEvent(new CustomEvent(ZOOM_REFERENCE, { detail: target }));
 }
 
+/** Activity opens a stored PR over Home; every other target stays a web page. */
+export async function openActivityLink(href: string): Promise<void> {
+  const reference = parseGitHubReference(href);
+  const stored = reference === null ? null : await window.bridge
+    .findStoredPullRequest(`${reference.owner}/${reference.repo}`, reference.number).catch((): null => null);
+  if (stored) zoomReference({ kind: 'pull', repo: stored.repo, number: stored.number });
+  else await window.bridge.openInAppBrowser(href);
+}
+
 export async function openGitHubReference(reference: GitHubReference, preview?: GitHubReferencePreview | null): Promise<void> {
   const repo = `${reference.owner}/${reference.repo}`;
   const resolved = preview ?? await resolveGitHubReference(reference).catch((): null => null);

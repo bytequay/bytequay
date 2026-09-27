@@ -36,7 +36,7 @@ import { getCached, getCachedFresh, setCached } from '../dataCache';
 import WatchedReposGrid from './WatchedReposGrid';
 import { pullRequestIsMine, pullRequestNeedsReview } from '../pulls/model';
 import { relativeTime } from '../relativeTime';
-import { zoomReference } from '../githubReference';
+import { openActivityLink, zoomReference } from '../githubReference';
 import {
   workspaceIsUpdating,
   workspaceRoute,
@@ -63,36 +63,6 @@ const SEED = {
   attention: ATTENTION_SEED.prs,
   issues: ATTENTION_SEED.issues,
 };
-
-function openUrl(url: string) {
-  void window.bridge.openInAppBrowser(url);
-}
-
-/** Match a github.com URL of the form {@code /<owner>/<repo>} or
- *  {@code /<owner>/<repo>/pull/<n>}. Returns null for anything else
- *  (profiles, issues, gists, raw, …). */
-function parseGithubUrl(url: string): { owner: string; repo: string; prNumber?: number } | null {
-  try {
-    const u = new URL(url);
-    if (u.hostname !== 'github.com') return null;
-    // Drop leading slash and split. Path shapes:
-    //   /<owner>/<repo>             → repo
-    //   /<owner>/<repo>/pull/<n>    → PR
-    const parts = u.pathname.replace(/^\//, '').split('/');
-    if (parts.length < 2) return null;
-    const [owner, repo] = parts;
-    if (!owner || !repo) return null;
-    if (parts.length === 2) return { owner, repo };
-    if (parts.length >= 4 && parts[2] === 'pull') {
-      const n = Number(parts[3]);
-      if (Number.isFinite(n) && n > 0) return { owner, repo, prNumber: n };
-    }
-    return null;
-  }
-  catch {
-    return null;
-  }
-}
 
 /** Fill the title omitted by some GitHub activity payloads using the
  * existing cached single-PR endpoint. Duplicate events share one lookup. */
@@ -126,16 +96,6 @@ function HomePage({
   onOpenWorkspace,
   onStartIssue,
 }: Props) {
-  /** PR links open over Home; other GitHub links use the embedded browser or repository list. */
-  const handleActivityLink = (url: string) => {
-    const parsed = parseGithubUrl(url);
-    if (parsed) {
-      onSelectRepo(parsed.owner, parsed.repo, parsed.prNumber);
-      return;
-    }
-    openUrl(url);
-  };
-
   const [profile, setProfile] = useState<UserProfileDto | null>(() => getCached<UserProfileDto>(SEED.profile) ?? null);
   const [workspaces, setWorkspaces] = useState<WorkspaceDto[]>(() => getCached<WorkspaceDto[]>(SEED.workspaces) ?? []);
   const [events, setEvents] = useState<RecentEventDto[]>([]);
@@ -427,7 +387,7 @@ function HomePage({
                   actor={null}
                   showActorName={false}
                   formatTime={iso => relativeTime(iso, { suffix: false })}
-                  onOpenUrl={handleActivityLink}
+                  onOpenUrl={openActivityLink}
                 />
               ))}
             </div>
@@ -453,7 +413,7 @@ function HomePage({
                     : null}
                   showActorName={true}
                   formatTime={iso => relativeTime(iso, { suffix: false })}
-                  onOpenUrl={handleActivityLink}
+                  onOpenUrl={openActivityLink}
                 />
               ))}
             </div>

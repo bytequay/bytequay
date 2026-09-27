@@ -1349,6 +1349,7 @@ export type Bridge = JiraBridge & {
   hasPat: () => Promise<boolean>;
   fetchPrs: (workspaceId: string | undefined, page: number, pageSize: number) => Promise<PullRequestPageDto>;
   fetchAttentionPrs: () => Promise<PullRequestDto[]>;
+  findStoredPullRequest: (repo: string, number: number) => Promise<PullRequestDto | null>;
   setPrMonitored: (prId: number, monitored: boolean) => Promise<PullRequestDto>;
   setPrAttentionHandled: (handled: import('./home/attention').Handled) => Promise<void>;
   onPrAttentionUpdated: (callback: (prs: PullRequestDto[]) => void) => () => void;

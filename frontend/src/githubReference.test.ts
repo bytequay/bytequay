@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { openGitHubReference, openWebLink, parseGitHubReference, pullRequestFromRoute, pullRequestRoute, resolveGitHubReference, ZOOM_REFERENCE } from './githubReference';
+import { openActivityLink, openGitHubReference, openWebLink, parseGitHubReference, pullRequestFromRoute, pullRequestRoute, resolveGitHubReference, ZOOM_REFERENCE } from './githubReference';
 import { jiraTicketLink } from './jira/contracts';
 
 const issuePreview = {
@@ -169,6 +169,60 @@ describe('GitHub references', () => {
     await openGitHubReference(reference);
 
     expect(bridge.openInAppBrowser).toHaveBeenCalledWith(reference.href);
+    expect(zoomed(dispatchEvent)).toEqual([]);
+  });
+});
+
+describe('Home activity links', () => {
+  it.each(['pull', 'issues'])('zooms a local PR from a %s link without leaving Home', async kind => {
+    const bridge = {
+      findStoredPullRequest: vi.fn().mockResolvedValue({ repo: 'owner/repo', number: 42 }),
+      fetchPullRequestDetailByRef: vi.fn(),
+      openInAppBrowser: vi.fn(),
+    };
+    const dispatchEvent = vi.fn();
+    const location = { hash: '#/home' };
+    vi.stubGlobal('window', { bridge, dispatchEvent, location });
+
+    await openActivityLink(`https://github.com/owner/repo/${kind}/42?notification=1#discussion`);
+
+    expect(bridge.findStoredPullRequest).toHaveBeenCalledWith('owner/repo', 42);
+    expect(zoomed(dispatchEvent)).toEqual([{ kind: 'pull', repo: 'owner/repo', number: 42 }]);
+    expect(location.hash).toBe('#/home');
+    expect(bridge.openInAppBrowser).not.toHaveBeenCalled();
+    expect(bridge.fetchPullRequestDetailByRef).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'https://github.com/owner/repo',
+    'https://github.com/owner/repo/commits',
+    'https://github.com/owner/repo/commit/abc123',
+    'https://github.com/owner/repo/pull/42',
+    'https://github.com/owner/repo/issues/42',
+    'https://github.com/owner',
+  ])('opens an activity without a local PR in the browser: %s', async href => {
+    const bridge = { findStoredPullRequest: vi.fn().mockResolvedValue(null), openInAppBrowser: vi.fn() };
+    const dispatchEvent = vi.fn();
+    const location = { hash: '#/home' };
+    vi.stubGlobal('window', { bridge, dispatchEvent, location });
+
+    await openActivityLink(href);
+
+    expect(bridge.openInAppBrowser).toHaveBeenCalledWith(href);
+    expect(bridge.findStoredPullRequest).toHaveBeenCalledTimes(parseGitHubReference(href) ? 1 : 0);
+    expect(zoomed(dispatchEvent)).toEqual([]);
+    expect(location.hash).toBe('#/home');
+  });
+
+  it('opens the original link when the local lookup fails', async () => {
+    const bridge = { findStoredPullRequest: vi.fn().mockRejectedValue(new Error('Unavailable')), openInAppBrowser: vi.fn() };
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal('window', { bridge, dispatchEvent });
+    const href = 'https://github.com/owner/repo/pull/42#discussion';
+
+    await openActivityLink(href);
+
+    expect(bridge.openInAppBrowser).toHaveBeenCalledWith(href);
     expect(zoomed(dispatchEvent)).toEqual([]);
   });
 });

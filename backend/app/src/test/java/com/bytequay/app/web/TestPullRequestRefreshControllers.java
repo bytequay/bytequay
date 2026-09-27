@@ -58,6 +58,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
@@ -109,6 +110,30 @@ class TestPullRequestRefreshControllers
                 NOW, NOW, PullRequest.Origin.REVIEW_REQUESTED, ImmutableList.of(), ImmutableMap.of(), false,
                 null, null, null, ImmutableList.of("viewer"), null, 0, 0, 0, "open", null, null,
                 null, null, null, "feature", null, null, null, null);
+    }
+
+    @Test
+    void looksUpStoredPullRequestsWithoutOpeningOrRefreshingThem()
+            throws Exception
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
+        when(pullRequests.findStored("trinodb/trino", 12)).thenReturn(Optional.of(attentionPullRequest(12)));
+        when(pullRequests.findStored("trinodb/trino", 13)).thenReturn(Optional.empty());
+        var mvc = standaloneSetup(new PullRequestController(pullRequests, refresh)).build();
+
+        mvc.perform(get("/prs/stored").queryParam("repo", "trinodb/trino").queryParam("number", "12"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(12))
+                .andExpect(jsonPath("$.repo").value("trinodb/trino"));
+        mvc.perform(get("/prs/stored").queryParam("repo", "trinodb/trino").queryParam("number", "13"))
+                .andExpect(status().isOk())
+                .andExpect(content().string("null"));
+
+        verify(pullRequests).findStored("trinodb/trino", 12);
+        verify(pullRequests).findStored("trinodb/trino", 13);
+        verifyNoMoreInteractions(pullRequests);
+        verifyNoInteractions(refresh);
     }
 
     @Test

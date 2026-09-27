@@ -39,6 +39,7 @@ import {
 } from '../pulls/PullOverview';
 import { SkeletonTimeline } from '../pulls/DetailSkeleton';
 import { CommentIcon, PaneIcon, RefreshIcon } from '../pulls/PullsScreen';
+import { parsePullSearch, pullRequestMatchesSearch } from '../pulls/model';
 import { relativeTime } from '../relativeTime';
 import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
 import { useRecentTouch } from '../recent/useRecentTouch';
@@ -96,6 +97,8 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   const zoom = useZoom(onClose ?? NO_CLOSE, overlay);
   const [snapshot, setSnapshot] = useState<RepositoryIssueSnapshotDto | null>(null);
   const [metadata, setMetadata] = useState<RepositoryMetadataDto | null>(null);
+  const [search, setSearch] = useState('');
+  const [labelFilter, setLabelFilter] = useState('');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [timeline, setTimeline] = useState<WorkspaceIssueTimelineEventDto[]>([]);
   const [issueType, setIssueType] = useState<WorkspaceIssueTypeDto | null>(null);
@@ -245,6 +248,8 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     let cancelled = false;
     setLoading(true);
     setSnapshot(null);
+    setSearch('');
+    setLabelFilter('');
     loadingMoreRequest.current = false;
     // ponytail: the overlay reads the same stored page as the list and keeps only its own issue;
     // give it a single-issue load if that page ever stops being a local read.
@@ -309,6 +314,8 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   }, [snapshot, workspaceId]);
 
   const scrollIssues = (event: ReactUIEvent<HTMLDivElement>) => {
+    // Filtering can clamp the scroll position; only an explicit load should expand filtered results.
+    if (filtering) return;
     const list = event.currentTarget;
     if (list.scrollHeight - list.scrollTop - list.clientHeight < 240) {
       void loadMore();
@@ -393,6 +400,12 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
 
   const paneShown = (paneOpen || overlay) && selected !== null;
   const labelColors = Object.fromEntries((metadata?.labels ?? []).map(label => [label.name, label.color]));
+  const issues = snapshot?.issues ?? [];
+  const searchTerms = parsePullSearch(search);
+  const rows = issues.filter(issue => (searchTerms === null || pullRequestMatchesSearch(issue, searchTerms))
+    && (labelFilter === '' || issue.labels.includes(labelFilter)));
+  const labels = [...new Set([...issues.flatMap(issue => issue.labels), ...(labelFilter ? [labelFilter] : [])])].sort((a, b) => a.localeCompare(b));
+  const filtering = searchTerms !== null || labelFilter !== '';
 
   return (
     <div className={`pulls-page issues-page${overlay ? ' pulls-page--overlay' : ''}`}
@@ -417,14 +430,26 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
             <PaneIcon />
           </button>
         </header>
+        <div className="pulls-search issues-search">
+          <input type="search" value={search} placeholder="⌕  Search by title, #number, or @author"
+            aria-label="Search issues by title, number, or author" onChange={event => setSearch(event.target.value)} />
+          <select aria-label="Filter issues by label" value={labelFilter} onChange={event => setLabelFilter(event.target.value)}>
+            <option value="">All labels</option>
+            {labels.map(label => <option key={label} value={label}>{label}</option>)}
+          </select>
+        </div>
+        {filtering && <div className="issues-freshness" role="status">{rows.length} of {issues.length} loaded issues</div>}
         {snapshot?.syncedAt && <div className="issues-freshness">Updated {relativeTime(snapshot.syncedAt)}</div>}
         {error && <div className="issues-error" role="alert">Could not refresh {repository}. {error}</div>}
         {mutationError && !paneShown && <div className="issues-error" role="alert">Could not update issue. {mutationError}</div>}
         <div className="pulls-list__rows" onScroll={scrollIssues}>
           {loading && !snapshot && <div className="hp-loading">Loading…</div>}
-          {!loading && snapshot?.issues.length === 0 && <div className="hp-empty">No open issues for {repository}.</div>}
-          {snapshot?.issues.map(issue => (
+          {!loading && snapshot && rows.length === 0 && <div className="hp-empty">
+            {filtering ? 'No loaded issues match your filters.' : `No open issues for ${repository}.`}
+          </div>}
+          {rows.map(issue => (
             <IssueRow key={issue.id} issue={issue} repository={repository} labelColors={labelColors}
+              labelFilter={labelFilter} onFilterLabel={label => setLabelFilter(current => current === label ? '' : label)}
               actions={<IssueDevelopmentActions issue={issue} onStart={onStartDevelopment === undefined ? undefined : setStartingIssue} onViewTask={onViewTask}
                 onToggleGoal={() => { void toggleGoal(issue); }} changingGoal={changingGoal !== null} />}
               selected={issue.id === selectedId} onPick={() => {
@@ -433,6 +458,8 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
                 setPaneOpen(true);
               }} />
           ))}
+          {snapshot?.hasMore && <button type="button" className="issues-load-more" disabled={loading || loadingMore}
+            onClick={() => { void loadMore(); }}>Load more issues</button>}
           {loadingMore && <div className="issues-page-loading">Loading more…</div>}
         </div>
       </section>}
@@ -537,10 +564,12 @@ function GoalBadge() {
   return <span className="issues-goal-badge"><Flag size={12} aria-hidden="true" />Goal</span>;
 }
 
-function IssueRow({ issue, repository, labelColors, selected, onPick, actions }: {
+function IssueRow({ issue, repository, labelColors, labelFilter, onFilterLabel, selected, onPick, actions }: {
   issue: Issue;
   repository: string;
   labelColors: Record<string, string>;
+  labelFilter: string;
+  onFilterLabel: (label: string) => void;
   selected: boolean;
   onPick: () => void;
   actions: React.ReactNode;
@@ -553,9 +582,11 @@ function IssueRow({ issue, repository, labelColors, selected, onPick, actions }:
         <span className="pull-row__state issues-row__state" aria-hidden="true"><IssueIcon /></span>
         <span>{issue.title} <small>#{issue.number}</small> {issue.isGoal && <GoalBadge />}</span>
       </span>
+      </button>
       {issue.labels.length > 0 && (
         <span className="pull-row__labels">
-          {issue.labels.map(label => <span key={label} style={labelStyle(labelColors[label])}>{label}</span>)}
+          {issue.labels.map(label => <button type="button" key={label} style={labelStyle(labelColors[label])}
+            aria-label={`Filter by label ${label}`} aria-pressed={labelFilter === label} onClick={() => onFilterLabel(label)}>{label}</button>)}
         </span>
       )}
       {issue.assignees.length > 0 && (
@@ -563,7 +594,6 @@ function IssueRow({ issue, repository, labelColors, selected, onPick, actions }:
           <span className="issues-row__assignees">Assigned to {issue.assignees.join(', ')}</span>
         </span>
       )}
-      </button>
       <div className="issues-row__footer">
         <button type="button" className="issues-row__select" aria-label={`Open issue #${issue.number}`} onClick={onPick}>
           <span className="pull-row__meta">

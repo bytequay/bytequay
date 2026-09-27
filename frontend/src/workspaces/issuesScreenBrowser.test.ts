@@ -15,13 +15,13 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
 
-it('keeps a closed issue in view and zooms a named issue in Chromium', async () => {
+it('filters loaded issues, keeps a closed issue in view and zooms a named issue in Chromium', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
     prefix: 'bytequay-issues-screen-',
     entry: 'src/workspaces/fixtures/issuesScreenBrowser.tsx',
     global: 'IssuesScreenTests',
     styles: true,
   });
-  expect(results).toHaveLength(2);
+  expect(results).toHaveLength(3);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, 30_000);

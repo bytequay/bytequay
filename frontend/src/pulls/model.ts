@@ -178,7 +178,7 @@ export function parsePullSearch(raw: string): PullSearch | null {
 }
 
 /** The author term is a prefix, so `@ab` lists ab and abc as the typing settles. */
-export function pullRequestMatchesSearch(pr: PullRequestDto, search: PullSearch) {
+export function pullRequestMatchesSearch(pr: Pick<PullRequestDto, 'author' | 'number' | 'title'>, search: PullSearch) {
   if (search.author !== null && !(pr.author ?? '').toLowerCase().startsWith(search.author.toLowerCase())) return false;
   if (search.text === '') return true;
   // A `#number` term matches the number, not the title digits of another pull request.

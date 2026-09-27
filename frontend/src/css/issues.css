@@ -10,9 +10,17 @@
 .issues-freshness { flex: 0 0 auto; border-bottom: 1px solid #f0f1f2; color: #8c959f; padding: 5px 12px; font-size: 11px; }
 .issues-page-loading { color: #8c959f; padding: 12px; text-align: center; font-size: var(--ui-font-size); }
 .issues-error { flex: 0 0 auto; background: #fff1f0; color: #cf222e; padding: 9px 12px; font-size: var(--ui-font-size); }
+.issues-search { flex-wrap: wrap; }
+.issues-search input { flex: 1 1 210px; }
+.issues-search select { max-width: 100%; padding: 6px 9px; border: 1px solid #d0d7de; border-radius: 7px; background: #fff; color: #17191c; font: inherit; font-size: 12.5px; }
+.issues-load-more { align-self: center; flex: none; margin: 8px; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
+.issues-load-more:disabled { color: #8c959f; cursor: wait; }
 
 .issues-row__state { color: #1a7f37; }
-.issues-row .pull-row__labels > span,
+.issues-row .pull-row__labels > button { max-width: 100%; padding: 2px 8px; border-radius: 999px; font: inherit; font-size: 11px; font-weight: 500; overflow-wrap: anywhere; cursor: pointer; }
+.issues-row .pull-row__labels > button[aria-pressed="true"] { box-shadow: 0 0 0 1px currentColor; }
+.issues-row .pull-row__labels > button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.issues-row .pull-row__labels > button,
 .issue-rail .pr-label { border: 1px solid transparent; }
 .issues-row__stats { justify-content: space-between; }
 .issues-row__assignees { min-width: 0; overflow: hidden; color: #8b949e; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }

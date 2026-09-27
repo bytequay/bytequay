@@ -38,7 +38,7 @@
 .jira-ticket { cursor: pointer; padding: 12px 13px 8px; border-radius: 8px; border: 1px solid var(--border, #d8dee4); margin-bottom: 8px; background: var(--bg-base); box-shadow: 0 1px 2px #00000008; }
 .jira-ticket:hover, .jira-ticket.is-selected { border-color: #9ebfea; }
 .jira-ticket.is-selected { background: color-mix(in srgb, #1868db 4%, var(--bg-base)); }
-.jira-ticket__title { display: block; width: 100%; background: none; padding: 0; border: 0; text-align: left; font: inherit; font-size: 13px; color: inherit; cursor: pointer; line-height: 1.5; }
+.jira-ticket__title { display: block; width: 100%; background: none; padding: 0; border: 0; text-align: left; font: inherit; font-size: 13px; color: inherit; cursor: pointer; line-height: 1.5; overflow-wrap: anywhere; }
 .jira-ticket__title strong { font-weight: 500; }
 .jira-ticket__title:focus-visible { outline: none; }
 .jira-ticket:has(.jira-ticket__title:focus-visible) { outline: 2px solid var(--accent, #1868db); outline-offset: 2px; }

@@ -58,6 +58,15 @@ The first release includes:
   provider/model/worktree composer; canceling the composer keeps the assignment
   without creating a task. View task opens the resulting task instead of creating
   another one.
+- Show a ticket's subtasks (an epic's child work items) and its linked work
+  items, grouped by how the ticket reads each link ("blocks", "is blocked by").
+  Each row opens that ticket over the current one. Create a child with a summary
+  and a work type Jira offers one level below the ticket, or link another ticket
+  by key or ticket link with an explicitly chosen relationship. Both forms read
+  their choices from Jira when opened. A detail refresh searches children only
+  for a ticket that has some, reads one page of them and says when more exist;
+  links come with the ticket read. A project that requires more fields on create
+  is reported as needing Jira.
 - Surface cached, assigned, unfinished leaf tickets from watched active sprints
   in global Needs attention. Workspace attention requires an explicit mapping;
   Jira project names are never guessed to be repository/workspace names.
@@ -272,8 +281,9 @@ rollback, cache-only agent access, paginated issue reads, stale-edit rejection,
 field conversion, comment retry protection, rich-text links, completed-history
 pagination and scope, completion-date selection, reopened-ticket membership,
 authenticated transport bounds, token validation/replacement, credential
-redaction and OAuth pairing/rotation. Frontend tests and a
-fixture exercise connection, list/board/detail, comments, Goal and Start/View
+redaction, OAuth pairing/rotation, child listing and link direction. Frontend
+tests and a fixture exercise connection, list/board/detail, comments, subtasks
+and links, Goal and Start/View
 task states, completed-history membership, and date grouping across time zones,
 daylight saving and week/year boundaries. Repository backend and frontend gates
 run from the isolated Jira worktree.

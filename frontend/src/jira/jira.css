@@ -108,6 +108,19 @@
 .jira-edit form { display: grid; gap: 8px; }
 .jira-edit .bq-button { justify-self: start; }
 .jira-description { padding-block: 5px 18px; }
+.jira-work-items { border-top: 1px solid var(--border, #d8dee4); padding-block: 15px 18px; }
+.jira-work-items h3 > .bq-iconbtn { margin-left: auto; }
+.jira-work-items h4 { margin: 12px 0 6px; font-size: 12px; font-weight: 500; color: var(--text-3); }
+.jira-work-item-list { border: 1px solid var(--border, #d8dee4); border-radius: 8px; overflow: hidden; }
+.jira-work-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border: 0; border-top: 1px solid var(--border, #d8dee4); background: var(--bg-base); color: var(--text-1); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.jira-work-item:first-child { border-top: 0; }
+.jira-work-item:hover { background: var(--bg-hover); }
+.jira-work-item__key { flex-shrink: 0; color: var(--text-2); font-size: 12px; font-weight: 500; }
+.jira-work-item__title { flex: 1 1 0; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.jira-work-item > .jira-avatar { width: 22px; height: 22px; }
+.jira-work-item > .jira-type, .jira-work-item > .jira-priority, .jira-work-item > .jira-status { flex-shrink: 0; }
+.jira-work-item-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.jira-work-item-form input { flex: 1 1 220px; }
 .jira-detail .markdown-body :is(h1, h2, h3, h4, h5, h6) { display: block; margin: 20px 0 8px; border: 0; padding: 0; font-weight: 600; line-height: 1.3; letter-spacing: normal; }
 .jira-detail .markdown-body :is(h1, h2) { font-size: 20px; }
 .jira-detail .markdown-body h3 { font-size: 16px; }

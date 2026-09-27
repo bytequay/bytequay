@@ -13,7 +13,7 @@
  */
 
 import { Fragment, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { Bookmark, Bug, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, ExternalLink, Flag, Columns3, FolderGit2, List, LoaderCircle, MessageSquare, Minus, Pencil, Play, RefreshCw, Reply, SquareCheck, UserRound, X, Zap } from 'lucide-react';
+import { Bookmark, Bug, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, ExternalLink, Flag, Columns3, FolderGit2, Link2, List, LoaderCircle, MessageSquare, Minus, Pencil, Play, Plus, RefreshCw, Reply, SquareCheck, UserRound, X, Zap } from 'lucide-react';
 import MarkdownBody from '../pulls/MarkdownBody';
 import { relativeTime } from '../relativeTime';
 import { TaskComposer, StartingAgentTask, useAgentTaskCreation } from '../agents/AgentTasksView';
@@ -21,7 +21,8 @@ import type { WorkspaceDto } from '../types';
 import { workspaceAgentTaskRoute } from '../workspaces/model';
 import { settingsRoute } from '../settings/routes';
 import { LayerCovered } from '../Zoom';
-import { JIRA_CHANGED, jiraAccountLabel, jiraSiteDomain, jiraIssueLocation, jiraLocation, jiraRoute, notifyJiraChanged, type JiraBoard, type JiraComment, type JiraConnection, type JiraField, type JiraIssue, type JiraIssueDetail, type JiraIssuePage, type JiraLocation, type JiraSprint } from './contracts';
+import { zoomReference } from '../githubReference';
+import { JIRA_CHANGED, jiraAccountLabel, jiraSiteDomain, jiraIssueKey, jiraIssueLocation, jiraLocation, jiraRoute, notifyJiraChanged, type JiraBoard, type JiraComment, type JiraConnection, type JiraField, type JiraIssue, type JiraIssueDetail, type JiraIssuePage, type JiraLinkType, type JiraLocation, type JiraRelatedIssue, type JiraSprint } from './contracts';
 import JiraIcon from './JiraIcon';
 import { completedGroups, JIRA_WORKFLOW_GROUPS, jiraCommentThreads, jiraWorkflowGroup } from './presentation';
 import './jira.css';
@@ -291,6 +292,71 @@ function JiraCommentRow({ value, nested = false, children }: { value: JiraCommen
   </article>;
 }
 
+function JiraWorkItemRow({ item, onOpen }: { item: JiraRelatedIssue; onOpen: () => void }) {
+  return <button type="button" className="jira-work-item" aria-label={`${item.key}: ${item.title}`} title={`${item.key}: ${item.title}`} onClick={onOpen}>
+    <JiraTypeIcon type={item.type} /><span className="jira-work-item__key">{item.key}</span><span className="jira-work-item__title">{item.title}</span>
+    <JiraPriority priority={item.priority} /><JiraAvatar person={item.assignee} label={`Assignee: ${item.assignee?.displayName ?? 'Unassigned'}`} />
+    <span className={`jira-status is-${item.status.category}`}>{item.status.name}</span>
+  </button>;
+}
+
+/** Subtasks, or an epic's child work items, and linked work items; each row opens its ticket over this one. */
+function JiraWorkItems({ detail, location, busy, mutate }: { detail: JiraIssueDetail; location: JiraLocation; busy: boolean; mutate: (action: () => Promise<JiraIssueDetail>, success?: () => void) => Promise<void> }) {
+  const [form, setForm] = useState<'child' | 'link' | null>(null);
+  const [childTypes, setChildTypes] = useState<{ id: string; name: string }[] | null>(null);
+  const [linkTypes, setLinkTypes] = useState<JiraLinkType[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [typeId, setTypeId] = useState('');
+  const [summary, setSummary] = useState('');
+  const [relation, setRelation] = useState('');
+  const [key, setKey] = useState('');
+  const epic = detail.hierarchyLevel > 0;
+  const noun = epic ? 'child work item' : 'subtask';
+  const target = jiraIssueKey(key);
+  const relations = (linkTypes ?? []).flatMap(type => type.inward === type.outward ? [{ value: `${type.id}:outward`, label: type.outward }]
+    : [{ value: `${type.id}:outward`, label: type.outward }, { value: `${type.id}:inward`, label: type.inward }]);
+  const open = (item: JiraRelatedIssue) => zoomReference({ kind: 'jira', ...location, issueId: item.id });
+  const show = (next: 'child' | 'link') => {
+    setForm(next); setLoadError(null);
+    // Work types and link types come from Jira only when a form needs them.
+    if (next === 'child' && childTypes === null) void window.bridge.listJiraChildTypes(location).then(value => { setChildTypes(value); setTypeId(value[0]?.id ?? ''); }).catch(cause => setLoadError(message(cause)));
+    if (next === 'link' && linkTypes === null) void window.bridge.listJiraLinkTypes(location.connectionId, location.cloudId).then(setLinkTypes).catch(cause => setLoadError(message(cause)));
+  };
+  // Escape closes the form, not the ticket.
+  const escape = (event: React.KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); setForm(null); } };
+  const create = () => { const text = summary.trim(); if (text && typeId) void mutate(() => window.bridge.createJiraChild(location, typeId, text), () => setSummary('')); };
+  const link = () => { const [id, side] = relation.split(':'); if (target && id) void mutate(() => window.bridge.linkJiraIssue(location, id, side === 'outward', target), () => { setKey(''); setForm(null); }); };
+  const title = epic ? 'Child work items' : 'Subtasks';
+  const childNote = loadError ?? (childTypes === null ? 'Loading work types…' : childTypes.length === 0 ? `Jira offers no work type for a ${noun} here.` : null);
+  return <>
+    {detail.hierarchyLevel >= 0 && <section className="jira-work-items" aria-label={title}>
+      <h3>{title} <span>{detail.children.length}</span><button type="button" className="bq-iconbtn" aria-label={`Create ${noun}`} title={`Create ${noun}`} disabled={busy} onClick={() => show('child')}><Plus size={16} /></button></h3>
+      {detail.children.length > 0 && <div className="jira-work-item-list">{detail.children.map(child => <JiraWorkItemRow key={child.id} item={child} onOpen={() => open(child)} />)}</div>}
+      {detail.childrenTruncated && <p className="jira-notice">Only the first {detail.children.length} are shown. Open Jira to see the rest.</p>}
+      {form === 'child' && <form className="jira-work-item-form" onKeyDown={escape} onSubmit={event => { event.preventDefault(); create(); }}>
+        {childTypes !== null && childTypes.length > 1 && <select aria-label="Work type" value={typeId} disabled={busy} onChange={event => setTypeId(event.target.value)}>{childTypes.map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select>}
+        <input aria-label={`New ${noun}`} placeholder="What needs to be done?" maxLength={255} autoFocus value={summary} onChange={event => setSummary(event.target.value)} />
+        <button type="button" className="bq-button" disabled={busy} onClick={() => setForm(null)}>Cancel</button>
+        <button type="submit" className="bq-button bq-button--primary" disabled={busy || !typeId || !summary.trim()}>Create</button>
+        {childNote && <span className="jira-muted">{childNote}</span>}
+      </form>}
+    </section>}
+    <section className="jira-work-items" aria-label="Linked work items">
+      <h3>Linked work items <span>{detail.links.length}</span><button type="button" className="bq-iconbtn" aria-label="Link work item" title="Link work item" disabled={busy} onClick={() => show('link')}><Link2 size={16} /></button></h3>
+      {[...new Set(detail.links.map(value => value.relation))].map(value => <Fragment key={value}><h4>{value}</h4>
+        <div className="jira-work-item-list">{detail.links.filter(item => item.relation === value).map(item => <JiraWorkItemRow key={item.id} item={item.issue} onOpen={() => open(item.issue)} />)}</div></Fragment>)}
+      {form === 'link' && <form className="jira-work-item-form" onKeyDown={escape} onSubmit={event => { event.preventDefault(); link(); }}>
+        <select aria-label="Link relationship" value={relation} disabled={busy || linkTypes === null} onChange={event => setRelation(event.target.value)}>
+          <option value="" disabled>{linkTypes === null ? 'Loading…' : 'This ticket…'}</option>{relations.map(value => <option key={value.value} value={value.value}>{value.label}</option>)}</select>
+        <input aria-label="Work item to link" placeholder="ENG-123 or a ticket link" autoFocus value={key} onChange={event => setKey(event.target.value)} />
+        <button type="button" className="bq-button" disabled={busy} onClick={() => setForm(null)}>Cancel</button>
+        <button type="submit" className="bq-button bq-button--primary" disabled={busy || !relation || target === null}>Link</button>
+        {loadError && <span className="jira-muted">{loadError}</span>}
+      </form>}
+    </section>
+  </>;
+}
+
 /** A ticket a link opened over its page. It has no board, so moving between sprints stays on the Jira page. */
 export function JiraTicketLayer({ location, start = false, onClose }: { location: JiraLocation; start?: boolean; onClose: () => void }) {
   const [launch, setLaunch] = useState<{ issue: JiraIssue; onChanged?: (detail: JiraIssueDetail) => void } | null>(null);
@@ -415,6 +481,7 @@ function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }:
       {issue.hasChildren && <p className="jira-notice">This ticket has children. Start development from an individual child ticket.</p>}
       <div className="jira-detail__body"><div className="jira-detail__main">
       <section className="jira-description"><h3>Description</h3><MarkdownBody body={issue.body || 'No description.'} /></section>
+      <JiraWorkItems detail={detail} location={location} busy={busy} mutate={mutate} />
       <section className="jira-comments"><h3><MessageSquare size={16} /> Comments <span>{detail.comments.length}</span></h3>
         <form onSubmit={event => { event.preventDefault(); const body = comment.trim(); if (!body) return; if (commentRequest.current?.body !== body) commentRequest.current = { body, id: crypto.randomUUID() }; const request = commentRequest.current; void mutate(() => window.bridge.commentJiraIssue(location, request.body, request.id), () => { setComment(''); commentRequest.current = null; }); }}>
           <label>Add a comment<textarea rows={4} value={comment} onChange={event => setComment(event.target.value)} placeholder="Write a reply…" /></label>

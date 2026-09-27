@@ -21,6 +21,7 @@ import { jiraRoute, type JiraConnection, type JiraIssue, type JiraIssueDetail, t
 import type { Bridge, CreateAgentTaskRequest, WorkspaceDto } from '../../types';
 import { createPreviewBridge, previewTask } from '../../agents/fixtures/previewBridge';
 import { assert, settle } from '../../fixtures/harness';
+import { ZOOM_REFERENCE } from '../../githubReference';
 import '../../css/base.css';
 import '../../css/pulls.css';
 import '../../css/agents.css';
@@ -103,6 +104,10 @@ export async function mountPreview(offline = false, openIssue = true, body = jir
     commentJiraIssue: async (_location, body, operationId, parentId) => { record('comment', body, operationId, parentId); if (commentFails) { commentFails = false; throw new Error('Connection lost; draft retained'); } detail = { ...detail, comments: [...detail.comments, { id: `posted-${detail.comments.length}`, parentId: parentId ?? null, body, author: { accountId: 'me', displayName: 'Alex Chen', avatarUrl: null }, created: issue.updatedAt, updated: issue.updatedAt, mine: true, editableText: body }] }; return { ...detail, issue }; },
     editJiraComment: async (_location, commentId, body, expectedUpdated) => { record('edit', commentId, body, expectedUpdated); detail = { ...detail, comments: detail.comments.map(value => value.id === commentId ? { ...value, body, editableText: body, updated: issue.updatedAt } : value) }; return { ...detail, issue }; },
     moveJiraIssue: async (_location, sprintId, boardId, expectedUpdatedAt) => { record('sprint', sprintId, boardId, expectedUpdatedAt); return { ...detail, issue }; },
+    listJiraChildTypes: async () => [{ id: '10003', name: 'Subtask' }, { id: '10004', name: 'Bug subtask' }],
+    createJiraChild: async (_location, issueTypeId, summary) => { record('child', issueTypeId, summary); detail = { ...detail, children: [...detail.children, { id: '1030', key: 'ENG-1030', title: summary, type: 'Subtask', status: { id: 'todo', name: 'To do', category: 'new' }, priority: null, assignee: null }] }; issue = { ...issue, hasChildren: true }; return { ...detail, issue }; },
+    listJiraLinkTypes: async () => [{ id: '10000', name: 'Blocks', inward: 'is blocked by', outward: 'blocks' }, { id: '10003', name: 'Relates', inward: 'relates to', outward: 'relates to' }],
+    linkJiraIssue: async (_location, typeId, outward, key) => { record('link', typeId, outward, key); detail = { ...detail, links: [...detail.links, { id: 'l3', relation: outward ? 'blocks' : 'is blocked by', issue: { id: '1013', key, title: 'Upgrade the metastore client', type: 'Task', status: { id: 'todo', name: 'To do', category: 'new' }, priority: null, assignee: null } }] }; return { ...detail, issue }; },
     listWorkspaces: async () => workspaces,
     createAgentTask: async request => { taskRequest = request; return previewTask('workspace', request.taskId); },
     openInAppBrowser: async url => { record('browser', url); },
@@ -473,6 +478,41 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       assert(document.activeElement === title, 'Close restores focus to the keyboard trigger');
       button('Connector reliability', card).click(); await until(() => window.location.hash.includes('issueId=1000'));
       assert(!window.location.hash.includes('issueId=1007'), 'Parent ticket action remains independent of card click');
+    },
+    async 'lists subtasks and linked work items, creates a subtask and links a ticket'() {
+      await mountPreview();
+      const related = (id: string, key: string, title: string): JiraIssueDetail['children'][number] => ({ id, key, title, type: 'Subtask', status: { id: 'progress', name: 'In Progress', category: 'indeterminate' }, priority: { id: '2', name: 'P2' }, assignee: { accountId: 'sam', displayName: 'Sam Rivera', avatarUrl: null } });
+      issue = { ...issue, hasChildren: true };
+      detail = { ...detail, children: [related('1011', 'ENG-1011', 'Test the rollout against the query history table of the online cluster before enabling remote split generation for every customer')],
+        links: [{ id: 'l1', relation: 'relates to', issue: { ...related('1000', 'ENG-1000', 'Connector reliability'), type: 'Epic' } }, { id: 'l2', relation: 'is blocked by', issue: related('1012', 'ENG-1012', 'Upgrade the metastore client') }] };
+      button('Refresh ticket').click(); await until(() => document.querySelectorAll('.jira-work-item').length === 3);
+      const subtasks = document.querySelector<HTMLElement>('section[aria-label="Subtasks"]'); const links = document.querySelector<HTMLElement>('section[aria-label="Linked work items"]');
+      const description = document.querySelector('.jira-description'); const comments = document.querySelector('.jira-comments');
+      assert(subtasks !== null && links !== null && description !== null && comments !== null, 'Subtasks and linked work items have their own sections');
+      assert([description, subtasks, links, comments].every((section, index, all) => index === 0 || Boolean(all[index - 1].compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING)), 'Work items sit between the description and comments');
+      assert([...links.querySelectorAll('h4')].map(heading => heading.textContent).join('|') === 'relates to|is blocked by', 'Links are grouped by how this ticket reads them');
+      const row = subtasks.querySelector<HTMLElement>('.jira-work-item'); const title = row?.querySelector<HTMLElement>('.jira-work-item__title'); const status = row?.querySelector<HTMLElement>('.jira-status');
+      assert(row != null && title != null && status != null && row.textContent?.includes('ENG-1011') === true && status.textContent === 'In Progress', 'A subtask row shows its key, title and status');
+      assert(title.scrollWidth > title.clientWidth && status.getBoundingClientRect().right <= row.getBoundingClientRect().right && row.scrollWidth <= row.clientWidth + 1, 'A long title truncates and keeps the status inside the row');
+      let zoomed: unknown = null; const listen = (event: Event) => { zoomed = (event as CustomEvent).detail; };
+      window.addEventListener(ZOOM_REFERENCE, listen); row.click(); window.removeEventListener(ZOOM_REFERENCE, listen);
+      assert(JSON.stringify(zoomed) === JSON.stringify({ kind: 'jira', connectionId: 'connection', cloudId: 'site', issueId: '1011' }), 'A subtask opens as its own ticket over this one');
+
+      button('Create subtask').click(); await until(() => document.querySelector('select[aria-label="Work type"]') !== null);
+      const summary = document.querySelector<HTMLInputElement>('input[aria-label="New subtask"]'); assert(summary !== null && document.activeElement === summary, 'The new subtask summary is focused');
+      choose(select('Work type'), '10004'); edit(summary, '  Verify the rollout flag '); await settle(); button('Create').click(); await until(() => calls.some(call => call.name === 'child'));
+      const created = calls.find(call => call.name === 'child'); assert(created?.args[0] === '10004' && created.args[1] === 'Verify the rollout flag', 'Create sends the chosen work type and the trimmed summary');
+      await until(() => subtasks.querySelectorAll('.jira-work-item').length === 2 && summary.value === '', 'The new subtask appears and the form stays ready for another');
+      await keyPress('Escape'); await until(() => document.querySelector('input[aria-label="New subtask"]') === null, 'Escape closes the create form');
+      assert(document.querySelector('dialog.jira-detail[open]') !== null, 'Escape in the form keeps the ticket open');
+
+      button('Link work item').click(); await until(() => document.querySelector<HTMLSelectElement>('select[aria-label="Link relationship"]')?.options.length === 4);
+      assert([...select('Link relationship').options].map(option => option.textContent).join('|') === 'This ticket…|blocks|is blocked by|relates to', 'A symmetric link type is offered once');
+      const target = document.querySelector<HTMLInputElement>('input[aria-label="Work item to link"]'); assert(target !== null, 'Link form asks for the other ticket');
+      edit(target, 'https://example.atlassian.net/browse/eng-1013'); await settle(); assert(button('Link').disabled, 'A relationship is chosen explicitly');
+      choose(select('Link relationship'), '10000:inward'); await settle(); button('Link').click(); await until(() => calls.some(call => call.name === 'link'));
+      const linked = calls.find(call => call.name === 'link'); assert(linked?.args[0] === '10000' && linked.args[1] === false && linked.args[2] === 'ENG-1013', 'An inward relation sends the key a pasted link names');
+      await until(() => document.querySelector('input[aria-label="Work item to link"]') === null && links.querySelectorAll('.jira-work-item').length === 3, 'The link appears and the form closes');
     },
   })) {
     try { await test(); results.push({ name }); } catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }

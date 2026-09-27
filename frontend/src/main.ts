@@ -1731,6 +1731,14 @@ function registerIpc(): void {
   ipcMain.handle('jira:issue:workspace', (_event, location: JiraLocation, workspaceId: string) =>
     backendJson(`${jiraIssuePath(location)}/workspace`, jsonInit('PUT', { workspaceId }, agentHeaders())));
   ipcMain.handle('jira:attention', () => backendJson(`${backendBase()}/api/jira/attention`, { headers: agentHeaders() }));
+  ipcMain.handle('jira:issue:child-types', (_event, location: JiraLocation) =>
+    backendJson(`${jiraIssuePath(location)}/child-types`, { method: 'POST', headers: agentHeaders() }));
+  ipcMain.handle('jira:issue:child', (_event, location: JiraLocation, issueTypeId: string, summary: string) =>
+    backendJson(`${jiraIssuePath(location)}/children`, jsonInit('POST', { issueTypeId, summary }, agentHeaders())));
+  ipcMain.handle('jira:link-types', (_event, connectionId: string, cloudId: string) =>
+    backendJson(`${jiraSitePath(connectionId, cloudId)}/link-types`, { method: 'POST', headers: agentHeaders() }));
+  ipcMain.handle('jira:issue:link', (_event, location: JiraLocation, typeId: string, outward: boolean, key: string) =>
+    backendJson(`${jiraIssuePath(location)}/links`, jsonInit('POST', { typeId, outward, key }, agentHeaders())));
   ipcMain.handle('workspaces:list', () => backendJson(`${backendBase()}/api/workspaces`));
   ipcMain.handle('workspaces:list-retired', () => backendJson(`${backendBase()}/api/workspaces/retired`));
   ipcMain.handle('workspaces:get', (_event, workspaceId: string) =>

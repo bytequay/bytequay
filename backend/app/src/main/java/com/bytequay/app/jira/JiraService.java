@@ -49,7 +49,8 @@ import static java.util.stream.Collectors.joining;
 public class JiraService
 {
     private static final String BOARD_FIELDS = "summary,issuetype,status,assignee,labels,priority,parent,subtasks,updated,duedate,resolutiondate,statuscategorychangedate";
-    private static final String FIELDS = BOARD_FIELDS + ",description";
+    private static final String FIELDS = BOARD_FIELDS + ",description,issuelinks";
+    private static final String KEY = "[A-Z][A-Z0-9_]*-[1-9][0-9]*";
     private static final int MAX_PAGES = 20;
     private final JiraConnections connections;
     private final JiraCache cache;
@@ -171,8 +172,17 @@ public class JiraService
 
     public JiraIssue refreshIssue(String connectionId, String cloudId, String issueId)
     {
-        JiraIssue issue = JiraMapping.issue(connectionId, cloudId, connections.site(connectionId, cloudId).url(),
-                get(connectionId, cloudId, query(issuePath(issueId), ImmutableMap.of("fields", FIELDS))));
+        return refreshIssue(connectionId, cloudId, fetch(connectionId, cloudId, issueId));
+    }
+
+    private JsonNode fetch(String connectionId, String cloudId, String issueId)
+    {
+        return get(connectionId, cloudId, query(issuePath(issueId), ImmutableMap.of("fields", FIELDS)));
+    }
+
+    private JiraIssue refreshIssue(String connectionId, String cloudId, JsonNode value)
+    {
+        JiraIssue issue = JiraMapping.issue(connectionId, cloudId, connections.site(connectionId, cloudId).url(), value);
         if (!issue.hasChildren()) {
             JsonNode children = get(connectionId, cloudId, query("/rest/api/3/search/jql",
                     ImmutableMap.of("jql", "parent = " + segment(issue.id()), "maxResults", 1, "fields", "id")));
@@ -184,7 +194,7 @@ public class JiraService
     /** Resolves the key in a ticket link; the ticket stays cached and addressed by its issue id, never by the key. */
     public JiraIssue refreshIssueByKey(String connectionId, String cloudId, String key)
     {
-        checkArgument(key.matches("[A-Z][A-Z0-9_]*-[1-9][0-9]*"), "Invalid Jira issue key");
+        checkArgument(key.matches(KEY), "Invalid Jira issue key");
         return refreshIssue(connectionId, cloudId, key);
     }
 
@@ -196,9 +206,9 @@ public class JiraService
         JiraIssue issue = issue(connectionId, cloudId, issueId);
         return cache.read(issueKey(connectionId, cloudId, issueId) + ".detail", JiraDtos.Detail.class)
                 .map(saved -> new JiraDtos.Detail(issue, issue.comments(), saved.transitions(), saved.editableFields(), saved.assignees(), saved.fetchedAt(),
-                        saved.error(), issue.commentsTruncated()))
+                        saved.error(), issue.commentsTruncated(), saved.hierarchyLevel(), saved.children(), saved.childrenTruncated(), saved.links()))
                 .orElseGet(() -> new JiraDtos.Detail(issue, issue.comments(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(),
-                        Optional.empty(), issue.commentsTruncated()));
+                        Optional.empty(), issue.commentsTruncated(), 0, ImmutableList.of(), false, ImmutableList.of()));
     }
 
     public JiraDtos.Detail refreshDetail(String connectionId, String cloudId, String issueId, boolean automatic)
@@ -208,7 +218,8 @@ public class JiraService
 
     private JiraDtos.Detail refreshDetail(String connectionId, String cloudId, String issueId)
     {
-        JiraIssue issue = refreshIssue(connectionId, cloudId, issueId);
+        JsonNode value = fetch(connectionId, cloudId, issueId);
+        JiraIssue issue = refreshIssue(connectionId, cloudId, value);
         String path = issuePath(issueId);
         String siteUrl = connections.site(connectionId, cloudId).url();
         Optional<String> account = connections.get(connectionId).account().map(JiraDtos.Account::accountId);
@@ -229,9 +240,15 @@ public class JiraService
         catch (ResponseStatusException e) {
             error = Optional.of("Some editing options are unavailable. Open in Jira for additional fields or assignees.");
         }
+        // refreshIssue already asked Jira whether a ticket without subtasks has children, so only parents need the listing.
+        JsonNode children = issue.hasChildren() ? get(connectionId, cloudId, query("/rest/api/3/search/jql", ImmutableMap.of(
+                "jql", "parent = " + segment(issue.id()) + " ORDER BY created ASC", "maxResults", 100, "fields", "summary,issuetype,status,priority,assignee")))
+                : MissingNode.getInstance();
         JiraIssue complete = saveIssue(issue.withComments(comments, commentPage.partial()), true, false);
         JiraDtos.Detail detail = new JiraDtos.Detail(complete, complete.comments(), transitions, fields, assignees,
-                Optional.of(Instant.now()), error, complete.commentsTruncated());
+                Optional.of(Instant.now()), error, complete.commentsTruncated(), value.path("fields").path("issuetype").path("hierarchyLevel").asInt(),
+                nodes(children.path("issues")).stream().map(JiraMapping::related).collect(toImmutableList()), JiraMapping.text(children, "nextPageToken").isPresent(),
+                JiraMapping.links(value.path("fields").path("issuelinks")));
         cache.write(issueKey(connectionId, cloudId, issueId) + ".detail", detail);
         return detail;
     }
@@ -267,6 +284,63 @@ public class JiraService
             }
             cache.write("workspace." + segment(cloudId) + "." + segment(issueId), workspaceId);
             return detail(connectionId, cloudId, issueId, false);
+        });
+    }
+
+    /** Work types a new child of this ticket can have: subtask types under a standard ticket, standard types under an epic. */
+    public List<JiraDtos.Choice> childTypes(String connectionId, String cloudId, String issueId)
+    {
+        JsonNode parent = get(connectionId, cloudId, query(issuePath(issueId), ImmutableMap.of("fields", "project,issuetype")));
+        int level = parent.path("fields").path("issuetype").path("hierarchyLevel").asInt();
+        JsonNode types = get(connectionId, cloudId, query("/rest/api/3/issue/createmeta/" + segment(parent.path("fields").path("project").path("id").asText()) + "/issuetypes",
+                ImmutableMap.of("maxResults", 200)));
+        return nodes(types.path("issueTypes")).stream().filter(type -> type.path("hierarchyLevel").asInt() == level - 1).map(JiraMapping::choice).collect(toImmutableList());
+    }
+
+    public JiraDtos.Detail createChild(String connectionId, String cloudId, String issueId, String issueTypeId, String summary)
+    {
+        checkArgument(issueTypeId != null && issueTypeId.matches("[0-9]+"), "Invalid work type");
+        checkArgument(summary != null && !summary.isBlank() && summary.strip().length() <= 255, "Summary must contain 1–255 characters");
+        return JiraIssueLocks.withLock(cloudId, issueId, () -> {
+            JsonNode parent = get(connectionId, cloudId, query(issuePath(issueId), ImmutableMap.of("fields", "project")));
+            try {
+                write(connectionId, cloudId, "/rest/api/3/issue", "POST", ImmutableMap.of("fields", ImmutableMap.of(
+                        "project", ImmutableMap.of("id", parent.path("fields").path("project").path("id").asText()),
+                        "parent", ImmutableMap.of("id", parent.path("id").asText()),
+                        "issuetype", ImmutableMap.of("id", issueTypeId),
+                        "summary", summary.strip())));
+            }
+            catch (ResponseStatusException e) {
+                if (HttpStatus.UNPROCESSABLE_ENTITY.equals(e.getStatusCode())) {
+                    throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
+                            "Jira did not accept the new work item. Its project may require fields ByteQuay does not set; create it in Jira.");
+                }
+                throw e;
+            }
+            return afterWrite(connectionId, cloudId, issueId);
+        });
+    }
+
+    public List<JiraDtos.LinkType> linkTypes(String connectionId, String cloudId)
+    {
+        return nodes(get(connectionId, cloudId, "/rest/api/3/issueLinkType").path("issueLinkTypes")).stream()
+                .map(type -> new JiraDtos.LinkType(type.path("id").asText(), type.path("name").asText(), type.path("inward").asText(), type.path("outward").asText()))
+                .collect(toImmutableList());
+    }
+
+    /** {@code outward} reads this ticket with the type's outward description, as in "this ticket blocks ENG-7". */
+    public JiraDtos.Detail link(String connectionId, String cloudId, String issueId, String typeId, boolean outward, String key)
+    {
+        checkArgument(typeId != null && typeId.matches("[0-9]+"), "Invalid link type");
+        checkArgument(key != null && key.matches(KEY), "Invalid Jira issue key");
+        return JiraIssueLocks.withLock(cloudId, issueId, () -> {
+            checkArgument(!issue(connectionId, cloudId, issueId).key().equals(key), "A ticket cannot be linked to itself");
+            Map<String, String> self = ImmutableMap.of("id", issueId);
+            Map<String, String> other = ImmutableMap.of("key", key);
+            // Jira reads a created link's inwardIssue with the outward description: inward A, outward B and Blocks mean "A blocks B".
+            write(connectionId, cloudId, "/rest/api/3/issueLink", "POST", ImmutableMap.of("type", ImmutableMap.of("id", typeId),
+                    "inwardIssue", outward ? self : other, "outwardIssue", outward ? other : self));
+            return afterWrite(connectionId, cloudId, issueId);
         });
     }
 
@@ -335,7 +409,8 @@ public class JiraService
             JiraDtos.Detail detail = afterWrite(connectionId, cloudId, issueId);
             if (parentId.isPresent() && !parentId.equals(JiraMapping.text(created, "parentId"))) {
                 return new JiraDtos.Detail(detail.issue(), detail.comments(), detail.transitions(), detail.editableFields(), detail.assignees(), detail.fetchedAt(),
-                        Optional.of("Jira saved your reply as a new comment instead of a reply."), detail.commentsTruncated());
+                        Optional.of("Jira saved your reply as a new comment instead of a reply."), detail.commentsTruncated(), detail.hierarchyLevel(),
+                        detail.children(), detail.childrenTruncated(), detail.links());
             }
             return detail;
         });
@@ -424,7 +499,8 @@ public class JiraService
         catch (RuntimeException ignored) {
             JiraDtos.Detail saved = detail(connectionId, cloudId, issueId, false);
             return new JiraDtos.Detail(saved.issue(), saved.comments(), ImmutableList.of(), ImmutableList.of(), saved.assignees(), saved.fetchedAt(),
-                    Optional.of("Saved to Jira, but refreshing failed. Refresh before making another change."), saved.commentsTruncated());
+                    Optional.of("Saved to Jira, but refreshing failed. Refresh before making another change."), saved.commentsTruncated(), saved.hierarchyLevel(),
+                    saved.children(), saved.childrenTruncated(), saved.links());
         }
     }
 

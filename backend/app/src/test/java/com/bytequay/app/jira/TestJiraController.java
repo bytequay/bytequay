@@ -222,11 +222,30 @@ class TestJiraController
         verify(jira).refreshIssueByKey("connection", "cloud", "APP-7");
     }
 
+    @Test
+    void childAndLinkRoutesReachJiraOnlyThroughPosts()
+            throws Exception
+    {
+        when(jira.childTypes("connection", "cloud", "10001")).thenReturn(ImmutableList.of(new JiraDtos.Choice("3", "Task")));
+        JsonNode types = mapper.readTree(mvc.perform(post(ISSUE + "/child-types")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        assertThat(types.at("/0/name").asText()).isEqualTo("Task");
+        mvc.perform(get(ISSUE + "/child-types")).andExpect(status().isMethodNotAllowed());
+        mvc.perform(post(SITE + "/link-types")).andExpect(status().isOk());
+        verify(jira).linkTypes("connection", "cloud");
+        mvc.perform(post(ISSUE + "/children").contentType(MediaType.APPLICATION_JSON).content("{\"issueTypeId\":\"3\",\"summary\":\"Add the flag\"}"))
+                .andExpect(status().isOk());
+        verify(jira).createChild("connection", "cloud", "10001", "3", "Add the flag");
+        mvc.perform(post(ISSUE + "/links").contentType(MediaType.APPLICATION_JSON).content("{\"typeId\":\"10000\",\"outward\":false,\"key\":\"APP-8\"}"))
+                .andExpect(status().isOk());
+        verify(jira).link("connection", "cloud", "10001", "10000", false, "APP-8");
+    }
+
     private static JiraDtos.Detail detail()
     {
         JiraIssue issue = new JiraIssue("connection", "cloud", "10001", "APP-7", "https://example.atlassian.net/browse/APP-7", "Selection", "Body",
                 "Story", new JiraDtos.Status("3", "In progress", "indeterminate"), Optional.empty(), ImmutableList.of(), Optional.empty(), Optional.empty(), false, false,
                 UPDATED, Optional.empty(), Optional.empty(), ImmutableList.of(), false, Optional.empty(), Optional.empty());
-        return new JiraDtos.Detail(issue, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.of(UPDATED), Optional.empty(), false);
+        return new JiraDtos.Detail(issue, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.of(UPDATED), Optional.empty(), false,
+                0, ImmutableList.of(), false, ImmutableList.of());
     }
 }

@@ -104,6 +104,23 @@ final class JiraMapping
         return new JiraDtos.Choice(value.path("id").asText(), value.path("name").asText(value.path("value").asText()));
     }
 
+    static JiraDtos.RelatedIssue related(JsonNode value)
+    {
+        JsonNode fields = value.path("fields");
+        return new JiraDtos.RelatedIssue(value.path("id").asText(), value.path("key").asText(), fields.path("summary").asText(), fields.path("issuetype").path("name").asText(),
+                status(fields.path("status")), optional(fields.path("priority")).map(JiraMapping::choice), optional(fields.path("assignee")).map(JiraMapping::person));
+    }
+
+    static List<JiraDtos.IssueLink> links(JsonNode values)
+    {
+        // Each link names only the other ticket, on the side that says how this ticket reads it.
+        return nodes(values).stream().filter(link -> link.has("outwardIssue") || link.has("inwardIssue"))
+                .map(link -> link.has("outwardIssue")
+                        ? new JiraDtos.IssueLink(link.path("id").asText(), link.path("type").path("outward").asText(), related(link.path("outwardIssue")))
+                        : new JiraDtos.IssueLink(link.path("id").asText(), link.path("type").path("inward").asText(), related(link.path("inwardIssue"))))
+                .collect(toImmutableList());
+    }
+
     static List<JiraDtos.Field> fields(JsonNode value)
     {
         ImmutableList.Builder<JiraDtos.Field> fields = ImmutableList.builder();

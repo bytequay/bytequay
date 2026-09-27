@@ -213,6 +213,31 @@ public class JiraController
         return jira.assignWorkspace(connectionId, cloudId, issueId, request.workspaceId());
     }
 
+    /** Reads Jira for the create form; like the refresh routes it is a POST, so every GET stays cache-only. */
+    @PostMapping(ISSUE + "/child-types")
+    public List<JiraDtos.Choice> childTypes(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId)
+    {
+        return jira.childTypes(connectionId, cloudId, issueId);
+    }
+
+    @PostMapping(ISSUE + "/children")
+    public JiraDtos.Detail createChild(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId, @RequestBody Child request)
+    {
+        return jira.createChild(connectionId, cloudId, issueId, request.issueTypeId(), request.summary());
+    }
+
+    @PostMapping(SITE + "/link-types")
+    public List<JiraDtos.LinkType> linkTypes(@PathVariable String connectionId, @PathVariable String cloudId)
+    {
+        return jira.linkTypes(connectionId, cloudId);
+    }
+
+    @PostMapping(ISSUE + "/links")
+    public JiraDtos.Detail link(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId, @RequestBody Link request)
+    {
+        return jira.link(connectionId, cloudId, issueId, request.typeId(), request.outward(), request.key());
+    }
+
     public record Config(boolean configured) {}
 
     public record Token(String siteUrl, String email, String token)
@@ -237,4 +262,8 @@ public class JiraController
     public record Goal(boolean isGoal) {}
 
     public record Workspace(String workspaceId) {}
+
+    public record Child(String issueTypeId, String summary) {}
+
+    public record Link(String typeId, boolean outward, String key) {}
 }

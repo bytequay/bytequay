@@ -32,12 +32,18 @@ export type JiraIssue = {
 export type JiraField = { id: string; name: string; required: boolean; schemaType: string; allowedValues: { id: string; name: string }[] };
 /** `editableText` is set only on your own comments that plain text can rewrite without losing formatting. */
 export type JiraComment = { id: string; parentId: string | null; author: JiraUser; body: string; created: string; updated: string; mine: boolean; editableText: string | null };
+export type JiraRelatedIssue = { id: string; key: string; title: string; type: string; status: JiraStatus; priority: { id: string; name: string } | null; assignee: JiraUser | null };
+/** `relation` reads from the ticket holding the link, for example "is blocked by". */
+export type JiraIssueLink = { id: string; relation: string; issue: JiraRelatedIssue };
+export type JiraLinkType = { id: string; name: string; inward: string; outward: string };
 export type JiraIssueDetail = {
   issue: JiraIssue;
   comments: JiraComment[];
   transitions: { id: string; name: string; to: JiraStatus; fields: JiraField[] }[];
   editableFields: JiraField[]; assignees: JiraUser[];
   fetchedAt: string | null; error: string | null; commentsTruncated: boolean;
+  /** Jira's level: subtasks are -1, standard tickets 0 and epics 1. */
+  hierarchyLevel: number; children: JiraRelatedIssue[]; childrenTruncated: boolean; links: JiraIssueLink[];
 };
 export type JiraIssuePage = { issues: JiraIssue[]; fetchedAt: string | null; partial: boolean; error: string | null };
 export type JiraSourceRequest = { connectionId: string; cloudId: string; issueId: string; key: string; title: string; body: string; updatedAt: string };
@@ -67,6 +73,12 @@ export type JiraBridge = {
   setJiraGoal: (location: JiraLocation, isGoal: boolean) => Promise<JiraIssueDetail>;
   assignJiraWorkspace: (location: JiraLocation, workspaceId: string) => Promise<JiraIssueDetail>;
   listJiraAttention: () => Promise<JiraIssue[]>;
+  /** Work types a new child of the ticket can have; read from Jira when the create form opens. */
+  listJiraChildTypes: (location: JiraLocation) => Promise<{ id: string; name: string }[]>;
+  createJiraChild: (location: JiraLocation, issueTypeId: string, summary: string) => Promise<JiraIssueDetail>;
+  listJiraLinkTypes: (connectionId: string, cloudId: string) => Promise<JiraLinkType[]>;
+  /** `outward` reads the ticket at `location` with the type's outward description, as in "blocks `key`". */
+  linkJiraIssue: (location: JiraLocation, typeId: string, outward: boolean, key: string) => Promise<JiraIssueDetail>;
 };
 
 export function jiraRoute(location?: JiraLocation, workspaceId?: string): string {
@@ -92,6 +104,11 @@ export function jiraTicketLink(href: string): { origin: string; key: string } | 
   catch {
     return null;
   }
+}
+/** A ticket key typed or pasted as `ENG-7`, `eng-7` or a ticket link. */
+export function jiraIssueKey(value: string): string | null {
+  const text = value.trim();
+  return jiraTicketLink(text)?.key ?? (/^[a-z][a-z0-9_]*-[1-9][0-9]*$/i.test(text) ? text.toUpperCase() : null);
 }
 export function jiraIssueLocation(issue: JiraIssue): JiraLocation {
   return { connectionId: issue.connectionId, cloudId: issue.cloudId, issueId: issue.id };

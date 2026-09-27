@@ -78,8 +78,18 @@ public final class JiraDtos
         }
     }
 
+    /** Another ticket as a subtask, child or linked work item row shows it. */
+    public record RelatedIssue(String id, String key, String title, String type, Status status, Optional<Choice> priority, Optional<Person> assignee) {}
+
+    /** A link as the ticket holding it reads it, for example "is blocked by" and the blocking ticket. */
+    public record IssueLink(String id, String relation, RelatedIssue issue) {}
+
+    public record LinkType(String id, String name, String inward, String outward) {}
+
+    /** {@code hierarchyLevel} is Jira's: subtasks are -1, standard tickets 0 and epics 1. */
     public record Detail(JiraIssue issue, List<Comment> comments, List<Transition> transitions, List<Field> editableFields,
-            List<Person> assignees, Optional<Instant> fetchedAt, Optional<String> error, boolean commentsTruncated)
+            List<Person> assignees, Optional<Instant> fetchedAt, Optional<String> error, boolean commentsTruncated,
+            int hierarchyLevel, List<RelatedIssue> children, boolean childrenTruncated, List<IssueLink> links)
     {
         public Detail
         {
@@ -87,6 +97,9 @@ public final class JiraDtos
             transitions = ImmutableList.copyOf(transitions);
             editableFields = ImmutableList.copyOf(editableFields);
             assignees = ImmutableList.copyOf(assignees);
+            // A detail cached before children and links were read has neither until its next refresh.
+            children = children == null ? ImmutableList.of() : ImmutableList.copyOf(children);
+            links = links == null ? ImmutableList.of() : ImmutableList.copyOf(links);
         }
     }
 

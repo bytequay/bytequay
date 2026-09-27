@@ -235,6 +235,82 @@ class TestJiraService
     }
 
     @Test
+    void detailListsChildrenAndLinksAsThisTicketReadsThem()
+            throws Exception
+    {
+        assertThat(jira.detail("connection", "cloud", "1001", true).children()).isEmpty();
+        verify(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/search/jql"), eq("GET"), any());
+
+        ObjectNode parent = (ObjectNode) ticket();
+        ((ObjectNode) parent.path("fields")).set("subtasks", json("[{\"id\":\"1002\"}]"));
+        ((ObjectNode) parent.path("fields")).set("issuelinks", json("""
+                [{"id":"1","type":{"inward":"is blocked by","outward":"blocks"},"outwardIssue":{"id":"2001","key":"ENG-9","fields":{"summary":"Blocked"}}},
+                 {"id":"2","type":{"inward":"is blocked by","outward":"blocks"},"inwardIssue":{"id":"2002","key":"ENG-10","fields":{"summary":"Blocker"}}}]
+                """));
+        doReturn(parent).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/1001?"), eq("GET"), any());
+        List<String> searches = new ArrayList<>();
+        when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/search/jql"), eq("GET"), any())).thenAnswer(call -> {
+            searches.add(URLDecoder.decode(call.getArgument(2), StandardCharsets.UTF_8));
+            return json("""
+                    {"issues":[{"id":"1002","key":"ENG-8","fields":{"summary":"Add the flag","issuetype":{"name":"Subtask"},"priority":{"id":"2","name":"P2"},
+                      "status":{"id":"3","name":"In Progress","statusCategory":{"key":"indeterminate"}},"assignee":{"accountId":"alice","displayName":"Alice"}}}],
+                     "nextPageToken":"next"}
+                    """);
+        });
+
+        JiraDtos.Detail detail = jira.detail("connection", "cloud", "1001", true);
+        assertThat(searches).singleElement().asString().contains("parent = 1001 ORDER BY created ASC", "fields=summary,issuetype,status,priority,assignee");
+        assertThat(detail.children()).containsExactly(new JiraDtos.RelatedIssue("1002", "ENG-8", "Add the flag", "Subtask", new JiraDtos.Status("3", "In Progress", "indeterminate"),
+                Optional.of(new JiraDtos.Choice("2", "P2")), Optional.of(new JiraDtos.Person("alice", "Alice", Optional.empty()))));
+        assertThat(detail.childrenTruncated()).isTrue();
+        assertThat(detail.links()).extracting(link -> link.relation() + " " + link.issue().key()).containsExactly("blocks ENG-9", "is blocked by ENG-10");
+        JiraDtos.Detail cached = jira.detail("connection", "cloud", "1001", false);
+        assertThat(cached.children()).isEqualTo(detail.children());
+        assertThat(cached.links()).isEqualTo(detail.links());
+    }
+
+    @Test
+    void newChildUsesTheParentProjectAndATypeOneLevelBelowIt()
+            throws Exception
+    {
+        doReturn(json("{\"id\":\"1001\",\"fields\":{\"project\":{\"id\":\"100\"},\"issuetype\":{\"hierarchyLevel\":1}}}")).when(remote)
+                .request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/1001?fields=project"), eq("GET"), any());
+        doReturn(json("""
+                {"issueTypes":[{"id":"1","name":"Epic","hierarchyLevel":1},{"id":"2","name":"Story","hierarchyLevel":0},
+                  {"id":"3","name":"Task","hierarchyLevel":0},{"id":"4","name":"Subtask","hierarchyLevel":-1,"subtask":true}]}
+                """)).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/createmeta/100/issuetypes?"), eq("GET"), any());
+        assertThat(jira.childTypes("connection", "cloud", "1001")).containsExactly(new JiraDtos.Choice("2", "Story"), new JiraDtos.Choice("3", "Task"));
+
+        jira.createChild("connection", "cloud", "1001", "3", "  Add the flag ");
+        verify(remote).request("connection", "cloud", "/rest/api/3/issue", "POST", Optional.of(ImmutableMap.of("fields", ImmutableMap.of("project", ImmutableMap.of("id", "100"),
+                "parent", ImmutableMap.of("id", "1001"), "issuetype", ImmutableMap.of("id", "3"), "summary", "Add the flag"))));
+        assertThatThrownBy(() -> jira.createChild("connection", "cloud", "1001", "3", " ")).isInstanceOf(IllegalArgumentException.class);
+        when(remote.request("connection", "cloud", "/rest/api/3/issue", "POST", Optional.of(ImmutableMap.of("fields", ImmutableMap.of("project", ImmutableMap.of("id", "100"),
+                "parent", ImmutableMap.of("id", "1001"), "issuetype", ImmutableMap.of("id", "3"), "summary", "Needs a team")))))
+                .thenThrow(new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY));
+        assertThatThrownBy(() -> jira.createChild("connection", "cloud", "1001", "3", "Needs a team")).hasMessageContaining("create it in Jira");
+    }
+
+    @Test
+    void linksPutThisTicketOnTheSideItsRelationReads()
+            throws Exception
+    {
+        doReturn(json("{\"issueLinkTypes\":[{\"id\":\"10000\",\"name\":\"Blocks\",\"inward\":\"is blocked by\",\"outward\":\"blocks\"}]}")).when(remote)
+                .request("connection", "cloud", "/rest/api/3/issueLinkType", "GET", Optional.empty());
+        assertThat(jira.linkTypes("connection", "cloud")).containsExactly(new JiraDtos.LinkType("10000", "Blocks", "is blocked by", "blocks"));
+        jira.refreshIssue("connection", "cloud", "1001");
+
+        jira.link("connection", "cloud", "1001", "10000", true, "ENG-9");
+        verify(remote).request("connection", "cloud", "/rest/api/3/issueLink", "POST", Optional.of(ImmutableMap.of("type", ImmutableMap.of("id", "10000"),
+                "inwardIssue", ImmutableMap.of("id", "1001"), "outwardIssue", ImmutableMap.of("key", "ENG-9"))));
+        jira.link("connection", "cloud", "1001", "10000", false, "ENG-10");
+        verify(remote).request("connection", "cloud", "/rest/api/3/issueLink", "POST", Optional.of(ImmutableMap.of("type", ImmutableMap.of("id", "10000"),
+                "inwardIssue", ImmutableMap.of("key", "ENG-10"), "outwardIssue", ImmutableMap.of("id", "1001"))));
+        assertThatThrownBy(() -> jira.link("connection", "cloud", "1001", "10000", true, "ENG-7")).hasMessageContaining("itself");
+        assertThatThrownBy(() -> jira.link("connection", "cloud", "1001", "10000", true, "eng-9")).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void staleEditNeverSendsMutation()
     {
         assertThatThrownBy(() -> jira.update("connection", "cloud", "1001", UPDATED.minusSeconds(1), ImmutableMap.of("assignee", "alice")))

@@ -358,6 +358,14 @@ it('routes Jira reads and versioned writes through the authenticated native API'
   expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/comments/5`, expect.objectContaining({ method: 'PUT', body: JSON.stringify({ body: 'Updated', expectedUpdated: '2026-09-26T01:00:00.000+0000' }), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
   await desktop.handlers.get('jira:issue:workspace')?.({}, location, 'workspace-one');
   expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/workspace`, expect.objectContaining({ method: 'PUT', body: JSON.stringify({ workspaceId: 'workspace-one' }), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  await desktop.handlers.get('jira:issue:child-types')?.({}, location);
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/child-types`, expect.objectContaining({ method: 'POST', headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  await desktop.handlers.get('jira:issue:child')?.({}, location, '10003', 'Add the flag');
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/children`, expect.objectContaining({ method: 'POST', body: JSON.stringify({ issueTypeId: '10003', summary: 'Add the flag' }), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  await desktop.handlers.get('jira:link-types')?.({}, 'connection/one', 'site/one');
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/link-types`, expect.objectContaining({ method: 'POST', headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  await desktop.handlers.get('jira:issue:link')?.({}, location, '10000', false, 'ENG-8');
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/links`, expect.objectContaining({ method: 'POST', body: JSON.stringify({ typeId: '10000', outward: false, key: 'ENG-8' }), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
   await desktop.handlers.get('jira:connections')?.({});
   expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/jira/connections', expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
 });

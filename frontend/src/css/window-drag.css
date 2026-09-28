@@ -2,16 +2,18 @@
   position: relative;
 }
 
-/* Loading and onboarding have no sidebar or page header to drag. */
-.app-content:only-child::before {
+/* The shell owns a window handle on every page, including blank header padding.
+   It stays outside each page's scroll area and does not intercept its controls. */
+.app-content::before {
   content: '';
   position: absolute;
   inset: 0 0 auto;
-  height: var(--space-4);
+  height: 40px;
+  pointer-events: none;
 }
 
-/* Existing headers provide window handles without adding a blank strip above every page. */
-.app-content:only-child::before,
+/* Larger existing headers remain handles too; new pages need no drag-specific code. */
+.app-content::before,
 :is(
   .app-sidebar__traffic,
   .agt-screen-head,
@@ -34,6 +36,7 @@
 }
 
 /* Electron hit testing also sees overlapping controls outside the app shell. */
+dialog::backdrop,
 :is(
   button,
   a,
@@ -42,6 +45,7 @@
   textarea,
   label,
   summary,
+  dialog,
   .app-shell [title],
   [contenteditable]:not([contenteditable="false"]),
   [role="button"],
@@ -55,6 +59,7 @@
   .cmt-menu,
   .find-bar,
   .modal-overlay,
+  .zoom-scrim,
   .pull-detail.is-zoomed,
   .pulls-page--overlay,
   .inapp-browser

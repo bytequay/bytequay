@@ -174,6 +174,16 @@ describe('rowsForTab', () => {
     expect(updated.origin).toBe('REVIEW_REQUESTED');
     expect(removed.origin).toBe('OTHER');
   });
+
+  it('preserves a newer review request when cached detail has older reviewers', () => {
+    const current = pr({ origin: 'REVIEW_REQUESTED', requestedReviewers: ['bob'], labels: ['new'], updatedAt: '2026-09-28T01:00:00Z' });
+    const updated = reconcilePullRequestDetail(current, {
+      state: 'open', updatedAt: '2026-09-28T00:00:00Z', author: 'alice', labels: [], reviewers: [],
+    }, 'bob');
+
+    expect(updated).toBe(current);
+    expect(rowsForTab([updated], 'req').map(row => row.id)).toEqual([current.id]);
+  });
 });
 
 describe('pull search', () => {

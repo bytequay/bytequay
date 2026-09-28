@@ -20,6 +20,7 @@ import DevelopmentLearningPanel from '../DevelopmentLearningPanel';
 import type { TaskReviewOptions } from '../../pulls/agent-review/TaskReviewSummary';
 import { useLocalReviewThreads } from '../../pulls/local-review/useLocalReviewThreads';
 import { PullDetailHeader } from '../../pulls/PullsScreen';
+import { loadHandled } from '../../home/attention';
 import WorktreeChanges from '../../pulls/code-tests/WorktreeChanges';
 import { initialAgentTaskState } from '../model';
 import { createPreviewBridge, previewTask, TASK_BODY_NOOPS } from './previewBridge';
@@ -194,6 +195,8 @@ export async function utilityTabs(): Promise<string> {
   // Only an interactive task has discussions, and its Summary asks the page bridge for a review.
   const getTask = bridge.getAgentTask;
   bridge.getAgentTask = async (taskId, workspaceId) => ({ ...await getTask(taskId, workspaceId), interactive: true });
+  const getTurn = bridge.getAgentTurn;
+  bridge.getAgentTurn = async turnId => ({ ...await getTurn(turnId), id: turnId });
   bridge.listTaskDiscussions = async () => [discussion];
   const originalBridge = window.bridge;
   Object.defineProperty(window, 'bridge', { configurable: true, value: { ...bridge, findTaskAgentReview: async (): Promise<null> => null } });
@@ -214,6 +217,10 @@ export async function utilityTabs(): Promise<string> {
   try {
     flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={answer.taskId} bridge={bridge} onBack={() => {}} />));
     await footer();
+    for (let frame = 0; frame < 60 && host.querySelector('.attention-visit-status') === null; frame++) await settle();
+    const attentionKey = `task:${answer.taskId}`;
+    assert(host.querySelector('.attention-visit-status')?.textContent === 'Viewed', 'A successfully opened task must show Viewed');
+    assert(loadHandled()[attentionKey] === undefined, 'The task must stay in attention while its detail remains open');
     host.querySelector<HTMLButtonElement>('[aria-label="Show or hide the side panel"]')?.click(); await settle();
     assert(panel() === 'Summary' && !tab(), 'The panel must not show a Discussions tab the conversation never opened');
     (await footer()).click(); await settle();
@@ -226,6 +233,9 @@ export async function utilityTabs(): Promise<string> {
     assert(panel() === 'Summary' && !tab(), 'Closing the showing tab must remove it and return to the view it covered');
     (await footer()).click(); await settle();
     assert(panel() === 'Discussions' && tab(), 'The footer must reopen a closed tab');
+    assert(loadHandled()[attentionKey] === undefined, 'Switching task utility tabs must not consume its notification');
+    flushSync(() => root.render(null)); await settle();
+    assert(loadHandled()[attentionKey]?.label === 'Viewed', 'Leaving a task detail must acknowledge the displayed revision as Viewed');
     return 'Discussions opens from the conversation and closes back to the covered view';
   }
   finally {

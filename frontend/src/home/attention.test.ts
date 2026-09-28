@@ -100,17 +100,17 @@ describe('attentionKind', () => {
     expect(attentionKind({ ...changed, monitoredAt: null, ciStatus: 'FAILING' })).toBeNull();
   });
 
-  it('sorts by reason first, then by most recently updated', () => {
+  it('sorts by the most recent update before the attention reason', () => {
     const rows = attentionCandidates([
       pr({ id: 1, number: 1, mergeableState: 'blocked' }),
       pr({ id: 2, number: 2, origin: 'REVIEW_REQUESTED', updatedAt: '2026-08-10T00:00:00Z' }),
       pr({ id: 3, number: 3, origin: 'REVIEW_REQUESTED', updatedAt: '2026-08-14T00:00:00Z' }),
     ]);
 
-    expect(rows.map(row => row.number)).toEqual([3, 2, 1]);
+    expect(rows.map(row => row.number)).toEqual([1, 3, 2]);
   });
 
-  it('orders equal-priority rows by GitHub activity instead of local observation time', () => {
+  it('orders rows by GitHub activity instead of local observation time', () => {
     const rows = attentionCandidates([
       pr({ id: 1, number: 1, origin: 'REVIEW_REQUESTED', activityAt: '2026-09-08T01:47:58Z',
         latestActivity: { event: 'commented', actor: 'bob', timestamp: '2026-08-16T00:00:00Z', state: null, label: null, requestedReviewer: null } }),
@@ -119,7 +119,14 @@ describe('attentionKind', () => {
     expect(rows.map(row => row.number)).toEqual([2, 1]);
   });
 
-  it('places assigned issues right after review requests', () => {
+  it('uses the updated source timestamp when the cached timeline is older', () => {
+    const [row] = attentionCandidates([pr({ updatedAt: '2026-09-28T12:00:00Z',
+      latestActivity: { event: 'commented', actor: 'bob', timestamp: '2026-09-27T10:00:00Z', state: null, label: null, requestedReviewer: null } })]);
+    expect(attentionTime(row)).toBe('2026-09-28T12:00:00Z');
+    expect(attentionTime({ ...row, updatedAt: '2026-09-26T10:00:00Z' })).toBe('2026-09-27T10:00:00Z');
+  });
+
+  it('uses reason priority only when the source update times match', () => {
     const rows = attentionCandidates(
       [pr({ number: 1, ciStatus: 'FAILING' }), pr({ number: 2, origin: 'REVIEW_REQUESTED' })],
       assignedIssues(snapshot(), 'workspace-id', 'JACK'),
@@ -224,7 +231,6 @@ describe('snooze targets', () => {
     expect(new Date(snoozeUntil('hour', saturday)).getHours()).toBe(15);
     expect(new Date(snoozeUntil('tomorrow', saturday))).toEqual(new Date(2026, 7, 16, 9, 0, 0, 0));
     expect(new Date(snoozeUntil('monday', saturday))).toEqual(new Date(2026, 7, 17, 9, 0, 0, 0));
-    expect(snoozeUntil('activity', saturday)).toBeNull();
   });
 
   it('skips today when today is already Monday', () => {

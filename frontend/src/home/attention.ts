@@ -15,7 +15,7 @@ import type { JiraIssue } from '../jira/contracts';
 import type { AgentTaskActivityDto, AgentTaskDto, PullRequestDto, RepositoryIssueSnapshotDto } from '../types';
 import { pullRequestIsMine } from '../pulls/model';
 
-/** Why an item is on the "Needs attention" list, in priority order. */
+/** Why an item is on the "Needs attention" list. */
 export type AttentionKind = 'approval' | 'review' | 'assigned' | 'changes' | 'failed' | 'blocked' | 'ci' | 'commits' | 'merge' | 'finished' | 'updated';
 
 /** Where an item comes from; it picks the card's colours, icon and filter tab. */
@@ -28,7 +28,7 @@ export const ATTENTION_SOURCES: Record<AttentionSource, { label: string; filter:
   task: { label: 'Agent task', filter: 'Tasks' },
 };
 
-// A task waiting on the user comes first: nothing moves until they answer it.
+// For simultaneous updates, show work waiting on the user first.
 const PRIORITY: AttentionKind[] = ['approval', 'review', 'assigned', 'changes', 'failed', 'ci', 'blocked', 'commits', 'merge', 'finished', 'updated'];
 
 /** One card: a pull request, an issue or ticket assigned to you, or an agent task that waits on you. */
@@ -54,6 +54,8 @@ export type AttentionItem = {
   /** Issues carry their body and comment count in the list payload. */
   body: string;
   commentCount: number;
+  /** Retained reminders can outlive the workspace's open-issue cache. */
+  issueState?: string;
   /** Issues open inside their workspace. */
   workspaceId: string | null;
   workspaceName?: string;
@@ -99,7 +101,7 @@ function hasCommitsSinceReview(pr: PullRequestDto): boolean {
   return since != null && pr.headPushedAt !== null && Date.parse(pr.headPushedAt) > Date.parse(since);
 }
 
-function pullRequestItem(pr: PullRequestDto, kind: AttentionKind): AttentionItem {
+export function pullRequestItem(pr: PullRequestDto, kind: AttentionKind = 'updated'): AttentionItem {
   return {
     key: `${pr.repo}#${pr.number}`,
     type: 'pr',
@@ -119,6 +121,16 @@ function pullRequestItem(pr: PullRequestDto, kind: AttentionKind): AttentionItem
   };
 }
 
+/** The same source identity and snapshot for an issue card and its detail page. */
+export function issueAttentionItem(issue: RepositoryIssueSnapshotDto['issues'][number], repo: string, workspaceId: string | null): AttentionItem {
+  return {
+    key: `${repo}#${issue.number}`, sourceKey: `github.com:issue:${issue.id}`, type: 'issue', kind: 'assigned',
+    repo, number: issue.number, title: issue.title, author: issue.author, authorAvatarUrl: issue.authorAvatarUrl,
+    createdAt: issue.createdAt, updatedAt: issue.updatedAt, labels: issue.labels, pr: null,
+    body: issue.body, commentCount: issue.commentCount, workspaceId,
+  };
+}
+
 /** Open issues in one workspace that are assigned to the signed-in user. */
 export function assignedIssues(
   snapshot: RepositoryIssueSnapshotDto,
@@ -130,24 +142,7 @@ export function assignedIssues(
   return snapshot.issues
     .filter(issue => !issue.isGoal && issue.developmentTask == null
       && issue.assignees.some(assignee => assignee.toLowerCase() === me))
-    .map(issue => ({
-      key: `${repo}#${issue.number}`,
-      sourceKey: `github.com:issue:${issue.id}`,
-      type: 'issue' as const,
-      kind: 'assigned' as const,
-      repo,
-      number: issue.number,
-      title: issue.title,
-      author: issue.author,
-      authorAvatarUrl: issue.authorAvatarUrl,
-      createdAt: issue.createdAt,
-      updatedAt: issue.updatedAt,
-      labels: issue.labels,
-      pr: null as PullRequestDto | null,
-      body: issue.body,
-      commentCount: issue.commentCount,
-      workspaceId,
-    }));
+    .map(issue => issueAttentionItem(issue, repo, workspaceId));
 }
 
 /**
@@ -174,14 +169,18 @@ export function attentionCandidates(
     .filter((row): row is { pr: PullRequestDto; kind: AttentionKind } => row.kind !== null)
     .map(row => pullRequestItem(row.pr, row.kind))
     .concat([...bySource.values()]);
-  return items.sort((left, right) =>
-    PRIORITY.indexOf(left.kind) - PRIORITY.indexOf(right.kind)
-    || Date.parse(attentionTime(right)) - Date.parse(attentionTime(left)));
+  return items.sort(compareAttention);
 }
 
-/** When the item last moved: the latest known source event, else the source's own update time. */
+/** The source may have changed since its latest cached timeline event. */
 export function attentionTime(item: AttentionItem): string {
-  return item.pr?.latestActivity?.timestamp ?? item.jira?.latestActivity?.at ?? item.updatedAt;
+  const eventTime = item.pr?.latestActivity?.timestamp ?? item.jira?.latestActivity?.at;
+  return eventTime !== undefined && Date.parse(eventTime) > Date.parse(item.updatedAt) ? eventTime : item.updatedAt;
+}
+
+function compareAttention(left: AttentionItem, right: AttentionItem): number {
+  return (Date.parse(attentionTime(right)) || 0) - (Date.parse(attentionTime(left)) || 0)
+    || PRIORITY.indexOf(left.kind) - PRIORITY.indexOf(right.kind);
 }
 
 export function attentionSource(item: AttentionItem): AttentionSource {
@@ -331,6 +330,10 @@ function taskSummary(item: AttentionItem, task: NonNullable<AttentionItem['task'
   const approval = task.activity?.pendingApproval ?? null;
   const message = task.activity?.lastMessage ?? null;
   const said: AttentionDetail | null = message !== null && message.author === 'AGENT' ? { kind: 'quote', text: message.text, file: null } : null;
+  if (task.dto.state !== 'OPEN') return {
+    tag: { label: task.dto.state === 'FAILED' ? 'Failed' : 'Completed', tone: task.dto.state === 'FAILED' ? 'red' : 'neutral' },
+    actor, verb: task.dto.state === 'FAILED' ? 'stopped with an error' : 'completed this task', detail: said,
+  };
   if (approval !== null && approval.scope.includes(QUESTION_TOOL)) {
     const question = approvalQuestionText(approval.detail);
     return { tag: { label: 'Question for you', tone: 'amber' }, actor, verb: 'asked you a question', detail: question === null ? said : { kind: 'quote', text: question, file: null } };
@@ -342,6 +345,10 @@ function taskSummary(item: AttentionItem, task: NonNullable<AttentionItem['task'
   if (task.dto.mutationClaim?.kind === 'RECOVERY') {
     return { tag: { label: 'Recovery required', tone: 'red' }, actor, verb: 'could not be shown to have stopped', detail: said };
   }
+  if (task.dto.mutationClaim != null || task.dto.developmentContinuationUnfinished) {
+    return { tag: { label: 'Running', tone: 'blue' }, actor, verb: 'is working on this task', detail: said };
+  }
+  if (task.activity?.latestTurn == null) return { tag: { label: 'Idle', tone: 'green' }, actor, verb: 'is ready for a prompt', detail: said };
   if (item.kind === 'failed') return { tag: KIND_TAGS.failed, actor, verb: 'stopped with an error', detail: said };
   return { tag: KIND_TAGS.finished, actor, verb: 'finished a turn', detail: said };
 }
@@ -352,7 +359,9 @@ function words(names: string[]): string {
 
 /** A ticket stays assigned to you; its actor line says what last changed on it, or else where it stands. */
 function jiraSummary(item: AttentionItem, jira: NonNullable<AttentionItem['jira']>, labels: AttentionDetail | null): AttentionSummary {
-  const tag = KIND_TAGS.assigned;
+  const tag: AttentionSummary['tag'] = jira.status.category === 'done'
+    ? { label: jira.status.name, tone: 'green' }
+    : jira.task !== null ? { label: 'In development', tone: 'blue' } : KIND_TAGS.assigned;
   const activity = jira.latestActivity ?? null;
   if (activity?.kind === 'STATUS_CHANGED' && activity.from !== null && activity.to !== null) {
     return {
@@ -384,7 +393,7 @@ export function attentionSummary(item: AttentionItem, viewerLogin: string | null
   const detail: AttentionDetail | null = labels.length === 0 ? null : { kind: 'labels', lead: null, labels };
   if (item.jira) return jiraSummary(item, item.jira, detail);
   return {
-    tag: KIND_TAGS[item.kind],
+    tag: item.issueState === 'closed' ? { label: 'Closed', tone: 'neutral' } : KIND_TAGS[item.kind],
     actor: item.author === null ? null : { name: item.author, avatarUrl: item.authorAvatarUrl },
     verb: 'opened this issue',
     detail,
@@ -403,7 +412,7 @@ export function attentionCards(live: AttentionItem[], filter: AttentionFilter, l
 } {
   const counts: Record<AttentionFilter, number> = { all: live.length, pr: 0, issue: 0, jira: 0, task: 0 };
   for (const item of live) counts[attentionSource(item)] += 1;
-  return { cards: live.filter(item => filter === 'all' || attentionSource(item) === filter).slice(0, limit), counts };
+  return { cards: live.filter(item => filter === 'all' || attentionSource(item) === filter).sort(compareAttention).slice(0, limit), counts };
 }
 
 /* ── Acknowledged and snoozed rows ──────────────────────────────── */
@@ -418,6 +427,8 @@ export type HandledEntry = {
   seenActivityVersion?: string;
   /** Toast/footer wording, e.g. "next monday". */
   label: string;
+  /** A timed reminder survives the item leaving the ordinary attention candidates. */
+  snoozedItem?: AttentionItem;
 };
 
 export type Handled = Record<string, HandledEntry>;
@@ -446,15 +457,23 @@ export function saveHandled(handled: Handled): void {
 }
 
 export function attentionActivityVersion(item: AttentionItem): string {
+  if (item.task) {
+    const { dto, activity } = item.task;
+    return JSON.stringify([dto.updatedAt, dto.state, activity?.latestTurn?.id, activity?.latestTurn?.state,
+      activity?.latestTurn?.endedAt, activity?.pendingApproval?.approvalId]);
+  }
+  if (item.jira) return JSON.stringify([item.updatedAt, item.title, item.jira.status.id, item.jira.assignee?.accountId,
+    [...item.labels].sort(), item.jira.priority?.id, item.jira.dueDate]);
   const pr = item.pr;
-  return JSON.stringify(pr === null ? [item.updatedAt] : [
+  return JSON.stringify(pr === null ? [item.updatedAt, item.title, item.body, item.commentCount, [...item.labels].sort(), item.issueState ?? 'open'] : [
     pr.activityAt, pr.updatedAt, pr.title, pr.state, pr.draft, pr.ciStatus, pr.mergeable, pr.mergeableState,
     pr.reviewDecision, pr.reviewRequestedAt, pr.headPushedAt, pr.commentCount, [...pr.labels].sort(),
   ]);
 }
 
 export function handledEntry(item: AttentionItem, kind: HandledEntry['kind'], until: number | null, label: string): HandledEntry {
-  return { kind, until, label, seenUpdatedAt: item.updatedAt, seenActivityVersion: attentionActivityVersion(item) };
+  return { kind, until, label, seenUpdatedAt: item.updatedAt, seenActivityVersion: attentionActivityVersion(item),
+    ...(kind === 'snooze' && until !== null ? { snoozedItem: item } : {}) };
 }
 
 /** Timed snoozes stay quiet through activity; acknowledgment and activity snoozes wake on a change. */
@@ -477,13 +496,12 @@ export function visibleAttention(
 
 /* ── Snooze menu ────────────────────────────────────────────────── */
 
-export type SnoozeId = 'hour' | 'tomorrow' | 'monday' | 'activity';
+export type SnoozeId = 'hour' | 'tomorrow' | 'monday';
 
 export const SNOOZE_OPTIONS: { id: SnoozeId; label: string; icon: string }[] = [
   { id: 'hour', label: '1 hour', icon: '◷' },
   { id: 'tomorrow', label: 'Tomorrow', icon: '☀' },
   { id: 'monday', label: 'Next Monday', icon: '▤' },
-  { id: 'activity', label: 'Until new activity', icon: '⟳' },
 ];
 
 function atNineAm(from: Date, addDays: number): Date {
@@ -498,19 +516,17 @@ function nextMonday(from: Date): Date {
   return atNineAm(from, ((8 - from.getDay()) % 7) || 7);
 }
 
-export function snoozeUntil(id: SnoozeId, now: number): number | null {
+export function snoozeUntil(id: SnoozeId, now: number): number {
   const from = new Date(now);
   switch (id) {
     case 'hour': return now + 3_600_000;
     case 'tomorrow': return atNineAm(from, 1).getTime();
     case 'monday': return nextMonday(from).getTime();
-    case 'activity': return null;
   }
 }
 
 export function snoozeHint(id: SnoozeId, now: number): string {
   const until = snoozeUntil(id, now);
-  if (until === null) return '';
   const date = new Date(until);
   return id === 'monday'
     ? date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })

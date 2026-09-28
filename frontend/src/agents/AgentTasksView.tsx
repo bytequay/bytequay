@@ -22,6 +22,7 @@ import { INTERACTIVE_LANE_ID, displayModelName, isDeepSeekKeyLane, laneLabel, pr
 import { settingsRoute } from '../settings/routes';
 import { getCached, setCached } from '../dataCache';
 import Toast from '../Toast';
+import { recordAttentionAction } from '../home/useAttentionVisit';
 import { notifyIssueDevelopmentChanged, type DevelopmentIssue } from '../workspaces/issueDevelopment';
 import { workspaceAgentTaskRoute } from '../workspaces/model';
 import { IssueAttachment } from './IssueAttachment';
@@ -434,7 +435,10 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
     const acceptCreatedTask = (task: AgentTaskDto) => {
       submissions.settled(request.taskId);
       if (task.workspaceId === workspaceId) setTasks((current) => [task, ...current.filter((existing) => existing.id !== task.id)]);
-      if (issue !== null) notifyIssueDevelopmentChanged(issue.id);
+      if (issue !== null) {
+        if (task.issueSource !== null && task.issueSource !== undefined) recordAttentionAction(`${task.issueSource.repo}#${task.issueSource.number}`, 'prompt');
+        notifyIssueDevelopmentChanged(issue.id);
+      }
       if (sourceJira !== null) notifyJiraChanged();
       setDraft('');
       setLocalOnly(false);

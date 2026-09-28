@@ -26,6 +26,7 @@ import type { AgentReviewDto, ReviewDraftDto } from '../agent-review/contracts';
 import { reviewFixture } from '../agent-review/fixtures/review';
 import '../../css/base.css';
 import { assert, settle } from '../../fixtures/harness';
+import { loadHandled } from '../../home/attention';
 
 const payload: PullTimelinePayloadDto = {
   actorAvatarUrl: null, actorBot: false, state: null, htmlUrl: null, label: null, labelColor: null,
@@ -99,7 +100,9 @@ export async function runMainScreen(keepMounted = false): Promise<string> {
   };
   try {
     flushSync(() => root.render(<PullsScreen />));
-    await settle();
+    for (let attempts = 0; attempts < 45 && host.querySelector('.attention-visit-status')?.textContent !== 'Viewed'; attempts++) await settle();
+    assert(host.querySelector('.attention-visit-status')?.textContent === 'Viewed' && loadHandled()['owner/repo#7'] === undefined,
+      'A loaded PR is Viewed while its attention notification remains visible');
     button('WorkBench').click(); await settle();
     button('Changes').click();
     await settle();
@@ -199,6 +202,8 @@ export async function runMainScreen(keepMounted = false): Promise<string> {
     await settle();
     assert(host.querySelector('.pull-detail.zoom-card') === null && host.querySelector('.pulls-list') !== null,
       'Escape must leave the zoom layer for the list, even from full screen');
+    assert(host.querySelector('.pull-detail') !== null && loadHandled()['owner/repo#7']?.label === 'Viewed',
+      'Leaving zoom acknowledges the visit even when the PR remains in the regular detail pane');
     return 'Main PR page shares commit selection, timeline polling, row reconciliation, range invalidation, and the zoom layer';
   }
   finally {

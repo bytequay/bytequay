@@ -69,6 +69,7 @@ public interface PullRequestStore
 
     void updateEnrichment(
             long prId,
+            Instant sourceUpdatedAt,
             PullRequestDetail.CiStatus ciStatus,
             int additions,
             int deletions,

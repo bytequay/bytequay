@@ -85,7 +85,7 @@ public class PullRequestSyncJob
             return;
         }
         lastRefreshedAt = now;
-        refresh("global dashboard", refreshService::refreshDashboard);
+        refresh("global dashboard", refreshService::refreshScheduledDashboard);
         List<Workspace> configuredWorkspaces = workspaces.findAll();
         Set<Long> metadataRepositories = new HashSet<>();
         configuredWorkspaces.stream()

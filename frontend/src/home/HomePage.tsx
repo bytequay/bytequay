@@ -112,15 +112,19 @@ function HomePage({
 
   useEffect(() => {
     let active = true;
+    let request = 0;
     const reload = () => {
+      const current = ++request;
       void window.bridge.fetchAttentionPrs().then(rows => {
+        if (!active || current !== request) return;
         setCached(SEED.attention, rows);
-        if (active) { setAttentionPrs(rows); setAttentionError(null); }
+        setAttentionPrs(rows); setAttentionError(null);
       }).catch(error => {
-        if (active) setAttentionError(error instanceof Error ? error.message : String(error));
+        if (active && current === request) setAttentionError(error instanceof Error ? error.message : String(error));
       });
     };
     const updated = (event: Event) => {
+      request++;
       const rows = (event as CustomEvent<PullRequestDto[]>).detail;
       setCached(SEED.attention, rows);
       setAttentionPrs(rows);

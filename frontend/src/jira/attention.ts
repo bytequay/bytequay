@@ -17,13 +17,17 @@ import type { AttentionItem } from '../home/attention';
 import { JIRA_CHANGED, anyJiraConnected, type JiraIssue } from './contracts';
 
 export function jiraAttentionItems(issues: JiraIssue[]): AttentionItem[] {
-  return issues.filter(issue => !issue.isGoal && !issue.hasChildren && issue.task === null && issue.status.category !== 'done').map<AttentionItem>(issue => ({
+  return issues.filter(issue => !issue.isGoal && !issue.hasChildren && issue.task === null && issue.status.category !== 'done').map(jiraAttentionItem);
+}
+
+export function jiraAttentionItem(issue: JiraIssue): AttentionItem {
+  return {
     key: `jira:${issue.cloudId}:${issue.id}`, sourceKey: `jira:${issue.cloudId}:${issue.id}`, type: 'issue', kind: 'assigned',
     jira: issue, reference: issue.key, repo: '', number: Number(issue.key.split('-').pop()) || 0,
     title: issue.title, author: issue.assignee?.displayName ?? null, authorAvatarUrl: issue.assignee?.avatarUrl ?? null,
     createdAt: null, updatedAt: issue.updatedAt, labels: issue.labels, pr: null, body: issue.body, commentCount: 0,
     workspaceId: null, workspaceName: 'Jira · Current sprint',
-  }));
+  };
 }
 /** The Jira tickets that need you, and whether Jira is connected at all, so a Home without it names no Jira. */
 export function useJiraAttention(): { items: AttentionItem[]; error: string | null; connected: boolean } {

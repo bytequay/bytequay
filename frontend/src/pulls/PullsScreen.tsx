@@ -40,6 +40,9 @@ import { reviewCommentGroups } from './lineRangeSelection';
 import { mergePullRequestDetailStatus, usePullRequestDetail } from './usePullRequestDetail';
 import { pullRequestDiffRevision, usePullRequestChanges } from './usePullRequestChanges';
 import { useRecentTouch } from '../recent/useRecentTouch';
+import { pullRequestItem } from '../home/attention';
+import PinButton from '../home/PinButton';
+import { completeAttentionVisit, recordAttentionAction, useAttentionVisit } from '../home/useAttentionVisit';
 import { workspaceReviewTaskRoute } from '../workspaces/model';
 import TaskPaneDivider, { useTaskPane } from '../agents/TaskPaneDivider';
 import { useResizablePane } from '../useResizablePane';
@@ -363,14 +366,22 @@ export default function PullsScreen({
     if (codeUnsaved.current === 0) act();
     else setDiscardDrafts({ files: codeUnsaved.current, act });
   }, []);
-  const closePane = useMemo(() => onClose === undefined ? undefined : () => withCodeDrafts(onClose), [withCodeDrafts, onClose]);
+  const closePane = useMemo(() => onClose === undefined ? undefined : () => withCodeDrafts(() => {
+    const pr = selectedPullRequest.current?.pr;
+    if (pr !== undefined) void completeAttentionVisit(`${pr.repo}#${pr.number}`);
+    onClose();
+  }), [withCodeDrafts, onClose]);
   const [pendingReviewComments, setPendingReviewComments] = useState<InlineReviewCommentDto[]>([]);
   const [paneOpen, setPaneOpen] = useState(true);
   const [detailZoomed, setDetailZoomed] = useState(false);
   // One layer for both hosts: the list zooms its own pane, a preview opens already zoomed.
   const zoomLayer = detailZoomed || overlay;
   const leaveZoom = useCallback(() => {
-    if (closePane === undefined) setDetailZoomed(false);
+    if (closePane === undefined) {
+      const pr = selectedPullRequest.current?.pr;
+      if (pr !== undefined) void completeAttentionVisit(`${pr.repo}#${pr.number}`);
+      setDetailZoomed(false);
+    }
     else closePane();
   }, [closePane]);
   const zoom = useZoom(leaveZoom, zoomLayer);
@@ -441,7 +452,7 @@ export default function PullsScreen({
       ? result.pullRequests.map(pr => pr.id === selected.id
           ? reconcilePullRequestDetail(pr, {
               state: pr.state,
-              updatedAt: pr.updatedAt,
+              updatedAt: selectedDetail.updatedAt,
               author: selectedDetail.author,
               labels: selectedDetail.labels,
               reviewers: selectedDetail.reviewers,
@@ -1309,6 +1320,7 @@ export function PullDetailHeader({
   zoom?: ZoomControls;
   onClose?: () => void;
 }) {
+  const visit = useAttentionVisit(pr === null || detail === null ? null : pullRequestItem(pr));
   const [mergeQueue, setMergeQueue] = useState<boolean | null | undefined>(undefined);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -1375,6 +1387,9 @@ export function PullDetailHeader({
           {agentTab}
         </nav>
         <div className="pull-detail__header-actions">
+          {pr !== null && <><span className="attention-visit-status" role="status">{visit.status}</span>
+            <PinButton className="pull-detail__icon-action" item={{ key: `${pr.repo}#${pr.number}`, title: detail?.title ?? pr.title,
+              reference: `${pr.repo} #${pr.number}`, target: { kind: 'pull', repo: pr.repo, number: pr.number } }} /></>}
           {zoom
             ? <ZoomActions {...zoom} label="pull request details" className="pull-detail__icon-action" />
             : onClose ? <button className="pull-detail__icon-action" type="button"
@@ -1656,6 +1671,8 @@ export function ReviewDialog({
           onPendingCommentsChange(remaining);
         }
         await window.bridge.submitReviewDraft(detail.repo, detail.number, version, body.trim(), event);
+        recordAttentionAction(`${detail.repo}#${detail.number}`, event === 'COMMENT' ? 'comment' : 'review',
+          event === 'COMMENT' ? Math.max(1, pendingComments.length + promoted.length + Number(body.trim().length > 0)) : 1);
         reloadReview();
         // The draft answers with itself alone; the stored detail already carries the new review.
         void window.bridge.fetchPullRequestDetailByRef(detail.repo, detail.number)
@@ -1679,6 +1696,8 @@ export function ReviewDialog({
             verdict ? body.trim() : '',
             group,
           );
+          recordAttentionAction(`${detail.repo}#${detail.number}`, verdict && event !== 'COMMENT' ? 'review' : 'comment',
+            verdict && event !== 'COMMENT' ? 1 : Math.max(1, group.length + Number(verdict && body.trim().length > 0)));
           remaining = remaining.filter(comment => !group.includes(comment));
           onPendingCommentsChange(remaining);
         }
@@ -1833,6 +1852,7 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
       else {
         await window.bridge.mergePr(pr.id, detail.repo, detail.number, mergeQueue ? 'queue' : 'rebase');
       }
+      recordAttentionAction(`${detail.repo}#${detail.number}`, 'update');
       submitted.current = true;
       if (!mounted.current) return;
       onClose();

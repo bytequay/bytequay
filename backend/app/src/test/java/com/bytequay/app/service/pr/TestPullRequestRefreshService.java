@@ -234,6 +234,19 @@ class TestPullRequestRefreshService
     }
 
     @Test
+    void scheduledRefreshDoesNotSkipAnIntervalBecauseThePreviousScanFinishedRecently()
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestRefreshService service = service(pullRequests);
+
+        service.refreshDashboard();
+        service.refreshScheduledDashboard();
+        service.refreshDashboard();
+
+        verify(pullRequests, times(2)).syncFromGitHub();
+    }
+
+    @Test
     void coalescesConcurrentDashboardRefreshes()
             throws Exception
     {

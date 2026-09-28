@@ -128,6 +128,8 @@ public class PullRequestService
     // requests ("too many files changed"), which without this would cost a
     // full fan-out every six minutes forever.
     private final Map<String, Instant> detailFailures = new ConcurrentHashMap<>();
+    private final Map<String, AttentionPrRef> observedNotifications = new HashMap<>();
+    private String summaryCredential;
 
     private final GitHubPullRequestReadClient gitHub;
     private final GitHubPullRequestWriteClient pullRequestWrites;
@@ -388,6 +390,82 @@ public class PullRequestService
         syncFromGitHub(true);
     }
 
+    /** Bounded discovery of recent changes; never downloads details or completes a partial sweep. */
+    public synchronized void syncAttentionSummaries()
+    {
+        GitHubCredential credential = credentialService.resolveGitHubCredential();
+        String pat = credential.token();
+        if (!pat.equals(summaryCredential)) {
+            summaryCredential = pat;
+            observedNotifications.clear();
+        }
+        Map<String, FetchedPullRequest> seen = new HashMap<>();
+        try {
+            syncAttentionQuery(pat, seen, "is:pr is:open author:@me", AUTHORED);
+            String sinceDate = LocalDate.now(ZoneOffset.UTC).minusDays(CLOSED_RETENTION_DAYS).toString();
+            syncAttentionQuery(pat, seen, "is:pr is:closed author:@me updated:>=" + sinceDate, AUTHORED);
+            syncAttentionQuery(pat, seen, "is:pr is:open user-review-requested:@me", REVIEW_REQUESTED);
+            syncAttentionQuery(pat, seen, "is:pr is:open reviewed-by:@me", OTHER);
+        }
+        catch (RuntimeException failure) {
+            if (!isRateLimit(failure)) {
+                log.info("Attention summary search failed: {}", failure.getMessage());
+            }
+        }
+        // Search and notification endpoints have separate rate-limit buckets.
+        syncAttentionNotifications(pat, credential.profile().login(), seen);
+    }
+
+    private void syncAttentionQuery(String pat, Map<String, FetchedPullRequest> seen, String query, PullRequest.Origin origin)
+    {
+        PullRequestHistoryPage result = gitHub.searchPullRequestsPaged(pat, query, 1, SEARCH_PAGE_SIZE);
+        for (FetchedPullRequest fetched : result.items()) {
+            FetchedPullRequest pullRequest = fetched.withOrigin(origin);
+            if (seen.putIfAbsent(pullRequest.repo() + "#" + pullRequest.number(), pullRequest) == null) {
+                store.saveObserved(pullRequest);
+            }
+        }
+    }
+
+    private void syncAttentionNotifications(String pat, String currentLogin, Map<String, FetchedPullRequest> seen)
+    {
+        List<AttentionPrRef> notifications = gitHub.fetchPrNotificationRefs(pat);
+        Set<String> eligible = notifications.stream().anyMatch(notification -> !notification.attentionRequested())
+                ? store.findAttentionCandidates().stream().map(pullRequest -> pullRequest.repo() + "#" + pullRequest.number()).collect(toImmutableSet())
+                : ImmutableSet.of();
+        Set<String> current = new HashSet<>();
+        for (AttentionPrRef attention : notifications) {
+            PullRequestRef ref = attention.ref();
+            String key = ref.fullName();
+            current.add(key);
+            if (!attention.attentionRequested() && !eligible.contains(key)) {
+                continue;
+            }
+            if (attention.equals(observedNotifications.get(key))) {
+                continue;
+            }
+            try {
+                FetchedPullRequest pullRequest = seen.get(key);
+                if (pullRequest == null || (attention.updatedAt() != null && attention.updatedAt().isAfter(pullRequest.updatedAt()))) {
+                    pullRequest = gitHub.getPullRequest(pat, ref).withViewerOrigin(currentLogin);
+                }
+                if ("open".equals(pullRequest.state()) || eligible.contains(key)) {
+                    store.saveObserved(attention.reviewRequested() && pullRequest.origin() != AUTHORED
+                            ? pullRequest.withOrigin(REVIEW_REQUESTED)
+                            : pullRequest);
+                }
+                observedNotifications.put(key, attention);
+            }
+            catch (RuntimeException failure) {
+                if (isRateLimit(failure)) {
+                    throw failure;
+                }
+                log.info("Attention summary PR {} fetch failed: {}", key, failure.getMessage());
+            }
+        }
+        observedNotifications.keySet().retainAll(current);
+    }
+
     void syncFromGitHub(boolean refreshDetails)
     {
         GitHubCredential credential = credentialService.resolveGitHubCredential();
@@ -413,9 +491,9 @@ public class PullRequestService
                 "is:pr is:open user-review-requested:@me",
                 REVIEW_REQUESTED,
                 refreshDetails);
+        syncNotificationPullRequests(pat, currentLogin, syncMarker, seen, refreshDetails);
         syncDashboardQuery(
                 pat, currentLogin, syncMarker, seen, "is:pr is:open reviewed-by:@me", OTHER, refreshDetails);
-        syncNotificationPullRequests(pat, currentLogin, syncMarker, seen, refreshDetails);
         if (refreshDetails) {
             refreshRetainedAttentionCandidates(seen);
         }
@@ -1310,6 +1388,10 @@ public class PullRequestService
     private void storeDetail(PullRequest pullRequest, StoredPrDetail detail, String currentLogin)
     {
         long prId = pullRequest.id();
+        PullRequest current = store.findById(prId).orElse(pullRequest);
+        if (detail.raw().updatedAt() != null && current.updatedAt().isAfter(detail.raw().updatedAt())) {
+            return;
+        }
         updateListState(prId, detail);
         PrViewState viewState = viewStateStore.findByPrIds(ImmutableSet.of(prId)).get(prId);
         reconcileHandledActionFromReviews(prId, detail.reviews(), currentLogin, viewState);
@@ -1319,6 +1401,7 @@ public class PullRequestService
         }
         store.updateEnrichment(
                 prId,
+                detail.raw().updatedAt(),
                 detail.checkRunsComplete() ? PullRequestDetailMapper.aggregateCiStatus(detail.checkRuns()) : pullRequest.ciStatus(),
                 detail.raw().additions(),
                 detail.raw().deletions(),

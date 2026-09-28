@@ -33,6 +33,7 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -227,6 +228,18 @@ public class GitHubRepoClient
                     issue.pullRequest() != null);
         });
     }
+
+    public IssueActivity fetchIssueActivity(String pat, RepoRef repo, int issueNumber)
+    {
+        checkArgument(issueNumber > 0, "issueNumber must be positive");
+        return translating(() -> {
+            IssueResponse issue = requireBody(get(gitHubRestClient, pat, "/repos/{owner}/{repo}/issues/{number}", repo.owner(), repo.repo(), issueNumber)
+                    .retrieve().body(IssueResponse.class), "Empty issue response from GitHub");
+            return new IssueActivity(Math.max(0, issue.comments()), requireNonNull(issue.updatedAt(), "issue updatedAt is null"));
+        });
+    }
+
+    public record IssueActivity(int commentCount, Instant updatedAt) {}
 
     /** One explicit bounded search; fixed repository/state qualifiers cannot be replaced by caller search syntax. */
     public GitHubSearchResponse searchHistory(String pat, RepoRef repo, boolean pullRequests, String plainTerms)

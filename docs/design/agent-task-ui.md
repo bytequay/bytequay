@@ -972,8 +972,10 @@ card starts a new one. Nothing in a window is interactive but the window and
 its close control.
 
 Both Homes draw **Needs attention** as cards in a grid of 360px-minimum columns
-whose cards keep their own height. Each shows at most four cards: acknowledging
-or snoozing one brings in the next eligible item, and the count reads `4 of N`.
+whose cards keep their own height. Each shows at most four cards, newest source
+update or event first across all reasons. An older high-priority reason cannot
+bury a newer update; reason priority only breaks ties. Acknowledging or
+snoozing one brings in the next eligible item, and the count reads `4 of N`.
 Filter tabs above the grid (**All · PRs · Issues · Jira · Tasks**, each with its
 count) narrow the cards to one source; the cap applies after filtering. There
 are no **All issues** or **All pull requests** links. A card is a strip tinted
@@ -997,8 +999,32 @@ its opening Markdown, a label change names the label, and an event with nothing
 to show falls back to what the item waits on, such as the commits since your
 last review or the failing check. Linked items start folded to one row of icons
 and keys and unfold to a row per item with its title and status. Ack and snooze
-keep the shared store, undo toast and session **Bring back**. Cards never fetch
-per card: every detail comes from what ByteQuay already stores, and there is no
+keep the shared store, undo toast and session **Bring back**. **ACK** records
+only acknowledgment, never a review, prompt or source mutation. It clears that
+snapshot until the item changes. Snooze is a timed reminder: activity does not
+end it early, and the deadline brings back the latest card even without new
+activity. The menu offers one hour, tomorrow and next Monday.
+
+Opening an item marks its notification **Viewed** while its details remain
+open. Successful actions replace or extend that status with **Reviewed**,
+**Prompted**, **Updated state**, or **Posted N comments**. Failed actions and
+drafts do not count. Closing its zoom, leaving its detail page or selecting
+another item clears the last displayed snapshot; a later source update makes
+it eligible again. Multiple mounted details of the same item share one visit.
+Source snapshots returned by successful writes are consumed before clearing,
+so the user's own action does not immediately reappear after refresh.
+
+A pin action on every attention card and item detail adds the item to the
+global **Pinned** sidebar section. PRs, issues, Jira tickets and tasks retain
+their explicit source or workspace destination across navigation and app
+restart. Pinned items stay out of both Needs attention views and monitored PR
+desktop notifications, including after source changes. Unpinning restores
+normal attention eligibility while preserving any ACK or snooze. Pinning and
+handling are renderer-local preferences and never write to GitHub or Jira.
+
+Ordinary cards render the shared stored projections. Timed snoozes retain a
+snapshot and reread their source after expiry, so closed or otherwise
+ineligible items still return with their latest available state. There is no
 hover preview. With nothing left, the section says **Nothing needs you right
 now.**
 

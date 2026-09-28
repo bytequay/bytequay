@@ -11,11 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Toast from '../Toast';
 import { anchorPanel } from '../ReferenceCard';
 import AttentionCard from './AttentionCard';
+import { usePinnedItems } from './pinned';
+import { useSnoozedAttention } from './useSnoozedAttention';
 import {
   ATTENTION_SOURCES,
   attentionCards,
@@ -34,8 +36,8 @@ import {
 } from './attention';
 
 const MENU_WIDTH = 210;
-/** Header plus four options; kept in step with .atn-menu in home.css. */
-const MENU_HEIGHT = 160;
+/** Header plus three options; kept in step with .atn-menu in home.css. */
+const MENU_HEIGHT = 130;
 const FILTERS: AttentionFilter[] = ['all', 'pr', 'issue', 'jira', 'task'];
 
 type Props = {
@@ -48,6 +50,7 @@ type Props = {
   viewerLogin?: string | null;
   /** Home spans every watched repository and names each card's; a workspace shows only its own. */
   variant?: 'home' | 'workspace';
+  scope?: { workspaceId: string; repository: string };
   /** The pinned goal each card can join or leave; absent where no goal can hold the card. */
   goal?: (item: AttentionItem) => GoalToggle | null;
   /** Whether Jira is connected; without it there is no Jira tab unless a Jira card is listed anyway. */
@@ -61,16 +64,27 @@ type Anchored = { item: AttentionItem; anchor: DOMRect };
 type ToastState = { id: number; text: string; key: string };
 
 export default function AttentionList({
-  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home', goal, jiraConnected = false,
+  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home', scope, goal, jiraConnected = false,
 }: Props) {
   const [filter, setFilter] = useState<AttentionFilter>('all');
   const [snooze, setSnooze] = useState<Anchored | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [session, setSession] = useState<string[]>([]);
   const toastId = useRef(0);
+  const pinned = usePinnedItems();
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const deadlines = Object.values(handled).flatMap(entry =>
+      entry.kind === 'snooze' && entry.until !== null && entry.until > Date.now() ? [entry.until] : []);
+    if (deadlines.length === 0) return;
+    const timer = window.setTimeout(() => setNow(Date.now()), Math.min(Math.min(...deadlines) - Date.now(), 2_147_483_647));
+    return () => window.clearTimeout(timer);
+  }, [handled, now]);
 
   // Handled items drop out before the cap, so the next eligible item takes a handled card's place.
-  const live = visibleAttention(candidates, handled, Date.now());
+  const reminders = useSnoozedAttention(candidates, handled, Math.max(now, Date.now()), scope);
+  const live = visibleAttention(reminders, handled, Math.max(now, Date.now()))
+    .filter(item => !pinned.some(pin => pin.key === item.key));
   const filters = FILTERS.filter(id => id !== 'jira' || jiraConnected || live.some(item => attentionSource(item) === 'jira'));
   const { cards, counts } = attentionCards(live, filters.includes(filter) ? filter : 'all');
   const sessionEntries = session
@@ -112,7 +126,8 @@ export default function AttentionList({
   }
 
   const count = cards.length < live.length ? `${cards.length} of ${live.length}` : `${live.length}`;
-  const startable = (item: AttentionItem) => item.type === 'issue' && onStartIssue !== undefined;
+  const startable = (item: AttentionItem) => item.type === 'issue' && onStartIssue !== undefined && item.issueState !== 'closed'
+    && (item.jira === undefined || item.jira.status.category !== 'done' && item.jira.task === null);
 
   return (
     <section className={`atn-section is-${variant}`} aria-label="Needs attention">
@@ -132,7 +147,7 @@ export default function AttentionList({
       {cards.length > 0 ? (
         <div className="atn-grid">
           {cards.map(item => {
-            const membership = goal?.(item) ?? null;
+            const membership = item.issueState === 'closed' ? null : goal?.(item) ?? null;
             return (
               <AttentionCard
                 key={item.key}

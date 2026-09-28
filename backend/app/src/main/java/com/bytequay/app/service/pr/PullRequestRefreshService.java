@@ -122,6 +122,19 @@ public class PullRequestRefreshService
         }
     }
 
+    /** The scheduler already enforces its interval; a completed-scan cache must not skip the next due scan. */
+    public void refreshScheduledDashboard()
+    {
+        refresh(() -> {
+            GitHubCredential credential = credentials.resolveGitHubCredential();
+            pullRequests.syncFromGitHub();
+            if (credentials.resolveGitHubCredential() == credential) {
+                dashboardSnapshot = new DashboardSnapshot(credential, Instant.now());
+            }
+        });
+        events.publishEvent(new PullRequestsRefreshed());
+    }
+
     /** Uses the existing list scans without fetching pull-request detail or diffs. */
     public void refreshDashboardRows()
     {

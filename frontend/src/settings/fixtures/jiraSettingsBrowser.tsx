@@ -215,7 +215,9 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(quietWrites.length === 1 && quietWrites[0].startMinute === 1350 && quietWrites[0].endMinute === 420, 'One shared API updates only the selected boundary');
       finish?.(quietWrites[0]); await settled();
       button('GitHub').click(); await settled();
-      assert(!document.querySelector('[aria-label="Quiet hours start"]') && button('Refresh interval').textContent?.includes('6 minutes'), 'GitHub retains only its own refresh interval');
+      assert(!document.querySelector('[aria-label="Quiet hours start"]') && button('Detail refresh interval').textContent?.includes('6 minutes'), 'GitHub keeps its detail refresh interval separate from shared quiet hours');
+      assert(document.querySelector('.setw-footnote')?.textContent?.includes('PR details and repository sync. PR summaries are checked every 15 seconds.'),
+        'The GitHub page distinguishes slow detail refresh from fast notification summaries');
       const fromGithub = document.querySelector<HTMLAnchorElement>(`a[href="${settingsRoute('general')}"]`); assert(fromGithub !== null, 'GitHub links to the same General setting'); fromGithub.click(); await settled();
       assert(button('Quiet hours start').textContent?.includes('10:30 PM'), 'The confirmed setting persists across navigation');
       const pane = document.querySelector('.setw-page'); assert(pane instanceof HTMLElement && pane.scrollWidth <= pane.clientWidth, 'Quiet hours fit a narrow settings pane');

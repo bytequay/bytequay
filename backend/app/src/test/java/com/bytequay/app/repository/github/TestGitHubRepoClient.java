@@ -42,6 +42,20 @@ class TestGitHubRepoClient
     private static final RepoRef REPOSITORY = RepoRef.of("owner", "repo");
 
     @Test
+    void readsExactIssueActivityAfterAWrite()
+    {
+        Fixture fixture = fixture();
+        fixture.server().expect(requestTo("https://api.github.test/repos/owner/repo/issues/7"))
+                .andRespond(withSuccess("""
+                        {"number":7,"comments":5,"updated_at":"2026-09-16T00:00:01Z"}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(fixture.client().fetchIssueActivity("pat", REPOSITORY, 7))
+                .isEqualTo(new GitHubRepoClient.IssueActivity(5, Instant.parse("2026-09-16T00:00:01Z")));
+        fixture.server().verify();
+    }
+
+    @Test
     void fetchesFreshIssueSourceAndRefusesClosedOrPullRequestSources()
     {
         Fixture fixture = fixture();

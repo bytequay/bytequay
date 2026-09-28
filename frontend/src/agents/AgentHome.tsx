@@ -19,6 +19,8 @@ import AttentionList, { type GoalToggle } from '../home/AttentionList';
 import { Card, CardActions, IconButton, InGoalBadge, Pill } from '../cards/Card';
 import type { AttentionItem, Handled } from '../home/attention';
 import type { WorkspaceAttention } from '../workspaces/workspaceAttention';
+import { zoomReference } from '../githubReference';
+import { jiraIssueLocation } from '../jira/contracts';
 import { relativeTime } from '../relativeTime';
 import { useRenameDraft } from '../renameDraft';
 import { displayModelName, laneLabel } from '../settings/model';
@@ -136,6 +138,7 @@ export default function AgentHome({
   }, [live, refresh]);
   const openAttention = useCallback((item: AttentionItem) => {
     if (item.task) onOpenTask(item.task.dto.id);
+    else if (item.jira) zoomReference({ kind: 'jira', ...jiraIssueLocation(item.jira) });
     else if (item.type === 'issue') onOpenIssue?.(item.number);
     else onOpenPullRequest?.(item.number);
   }, [onOpenIssue, onOpenPullRequest, onOpenTask]);
@@ -144,6 +147,7 @@ export default function AgentHome({
       headerAction={headerAction}
       {...creation.composer}
       repository={repository}
+      workspaceId={workspaceId}
       tasks={openTasks}
       activity={taskAttention.activity}
       changes={changes}
@@ -158,7 +162,10 @@ export default function AgentHome({
       inGoal={inGoal}
       onHandledChange={attention.applyHandled}
       onOpenAttention={openAttention}
-      onStartIssue={onStartIssue ? item => onStartIssue(item.number) : undefined}
+      onStartIssue={onStartIssue ? item => {
+        if (item.jira) zoomReference({ kind: 'jira', ...jiraIssueLocation(item.jira), start: true });
+        else onStartIssue(item.number);
+      } : undefined}
       attentionError={attention.error}
       error={creation.error}
       startup={creation.startup}
@@ -170,7 +177,7 @@ export default function AgentHome({
 }
 
 export function AgentHomeView({
-  repository, headerAction, laneId, providers, tasks, models, selection, draft, blocker,
+  repository, workspaceId = '', headerAction, laneId, providers, tasks, models, selection, draft, blocker,
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onShowAll,
   activity = {}, changes = {}, hiddenTasks, onHideTask, onRenameTask, now = Date.now(),
   attention = [], handled = {}, viewerLogin = null, onHandledChange = () => {}, onOpenAttention = () => {},
@@ -178,6 +185,7 @@ export function AgentHomeView({
   images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, error = null, automation,
 }: {
   repository: string;
+  workspaceId?: string;
   laneId: string;
   providers: ModelProviderDto[];
   /** The open tasks, drawn as compact cards above the composer. */
@@ -241,6 +249,7 @@ export function AgentHomeView({
         {attentionError && <div className="ws-error" role="alert">{attentionError}</div>}
         <AttentionList
           variant="workspace"
+          scope={{ workspaceId, repository }}
           candidates={attention}
           handled={handled}
           viewerLogin={viewerLogin}

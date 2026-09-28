@@ -228,6 +228,28 @@ class TestSqliteIssueDevelopmentStore
         assertThat(issues.find(REPOSITORY_ID, 99)).isEmpty();
     }
 
+    @Test
+    void keepsNewerActivityAndTheSyncMarkerAfterAnIssueWrite()
+    {
+        RepositoryIssue issue = issue(42, "alice");
+        issues.saveSyncPage(REPOSITORY_ID, ImmutableList.of(issue), "sync-1");
+        issues.updateActivity(REPOSITORY_ID, issue.number(), 4, NOW);
+        issues.updateActivity(REPOSITORY_ID, issue.number(), 1, NOW.minusSeconds(1));
+        issues.updateActivity(REPOSITORY_ID, 99, 1, NOW);
+        issues.completeSync(REPOSITORY_ID, "sync-1", NOW.plusSeconds(1));
+        entityManager.flush();
+        entityManager.clear();
+
+        RepositoryIssue refreshed = issues.find(REPOSITORY_ID, issue.number()).orElseThrow();
+        assertThat(refreshed.commentCount()).isEqualTo(4);
+        assertThat(refreshed.updatedAt()).isEqualTo(NOW);
+        assertThat(refreshed.title()).isEqualTo(issue.title());
+        assertThat(refreshed.body()).isEqualTo(issue.body());
+        assertThat(refreshed.assignees()).isEqualTo(issue.assignees());
+        assertThat(refreshed.labels()).isEqualTo(issue.labels());
+        assertThat(issues.find(REPOSITORY_ID, 99)).isEmpty();
+    }
+
     private static GitHubIssueSource source(RepositoryIssue issue)
     {
         return new GitHubIssueSource("GitHub.COM", issue.id(), "Owner/Repo", issue.number(), issue.htmlUrl(), issue.title(), issue.body(), issue.updatedAt());

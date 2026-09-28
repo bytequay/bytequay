@@ -19,6 +19,7 @@ import JiraScreen, { JiraTicketLayer } from './jira/JiraScreen';
 import { JIRA_CHANGED, anyJiraConnected } from './jira/contracts';
 import HomePage from './home/HomePage';
 import { loadHandled } from './home/attention';
+import { loadPinned } from './home/pinned';
 import { pullRequestFromRoute, pullRequestRoute, zoomReference, ZOOM_REFERENCE, type ZoomedReference } from './githubReference';
 import InAppBrowser from './InAppBrowser';
 import LogoLoading from './LogoLoading';
@@ -175,6 +176,7 @@ export default function App() {
 
   useEffect(() => {
     void window.bridge.setPrAttentionHandled(loadHandled()).catch(() => {});
+    void window.bridge.setPrAttentionPinned?.(loadPinned().map(item => item.key)).catch(() => {});
     const stopAttention = window.bridge.onPrAttentionUpdated(prs => {
       window.dispatchEvent(new CustomEvent('bytequay:pr-attention-updated', { detail: prs }));
     });

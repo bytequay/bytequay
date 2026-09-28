@@ -14,10 +14,12 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
+import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RecentReason;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
@@ -56,6 +58,7 @@ class TestDefaultWorkspaceIssueService
     private final RepositoryIssueStore issueStore = mock(RepositoryIssueStore.class);
     private final RepositoryIssueDetailStore detailStore = mock(RepositoryIssueDetailStore.class);
     private final GitHubPullRequestWriteClient issueWrites = mock(GitHubPullRequestWriteClient.class);
+    private final GitHubRepoClient issueReads = mock(GitHubRepoClient.class);
     private final CredentialService credentials = mock(CredentialService.class);
     private final RecentTouchRecorder recent = mock(RecentTouchRecorder.class);
     private DefaultWorkspaceIssueService service;
@@ -71,6 +74,7 @@ class TestDefaultWorkspaceIssueService
                 issueStore,
                 detailStore,
                 issueWrites,
+                issueReads,
                 credentials,
                 recent,
                 Clock.fixed(NOW, ZoneOffset.UTC));
@@ -114,9 +118,27 @@ class TestDefaultWorkspaceIssueService
         PrTimelineEvent created = event(3, "commented", NOW);
         when(detailStore.find(300, 9)).thenReturn(Optional.of(detail(300, 9, "Task", assigned)));
         when(issueWrites.createIssueComment("token", ref, "Looks good")).thenReturn(created);
+        when(issueStore.find(300, 9)).thenReturn(Optional.of(issue(9)));
+        when(issueReads.fetchIssueActivity("token", UPSTREAM, 9)).thenReturn(new GitHubRepoClient.IssueActivity(5, NOW.plusSeconds(1)));
 
         assertThat(service.comment("fork", 9, "  Looks good  ")).isEqualTo(created);
         verify(detailStore).save(detail(300, 9, "Task", assigned, created));
+        verify(issueStore).updateActivity(300, 9, 2, NOW);
+        verify(issueStore).updateActivity(300, 9, 5, NOW.plusSeconds(1));
+    }
+
+    @Test
+    void keepsAnAcceptedCommentWhenItsFollowUpReadFails()
+    {
+        workspaces.put("fork", workspace("fork", 300, UPSTREAM, Topology.FORK));
+        PrTimelineEvent created = event(3, "commented", NOW);
+        when(issueStore.find(300, 9)).thenReturn(Optional.of(issue(9)));
+        when(issueWrites.createIssueComment("token", PullRequestRef.of("upstream", "project", 9), "Posted once")).thenReturn(created);
+        when(issueReads.fetchIssueActivity("token", UPSTREAM, 9)).thenThrow(new IllegalStateException("GitHub unavailable"));
+
+        assertThat(service.comment("fork", 9, "Posted once")).isEqualTo(created);
+        verify(issueStore).updateActivity(300, 9, 2, NOW);
+        verify(recent).issueAction("fork", 9, RecentReason.COMMENTED);
     }
 
     @Test
@@ -140,10 +162,12 @@ class TestDefaultWorkspaceIssueService
         RepositoryIssueDetail stored = detail(300, 9, "Task");
         when(detailStore.find(300, 9)).thenReturn(Optional.of(stored));
         when(issueWrites.updateIssueType("token", ref, "Bug")).thenReturn("Bug");
+        when(issueReads.fetchIssueActivity("token", UPSTREAM, 9)).thenReturn(new GitHubRepoClient.IssueActivity(3, NOW.plusSeconds(2)));
 
         assertThat(service.updateIssueType("fork", 9, " Bug "))
                 .isEqualTo(new WorkspaceIssueService.IssueTypeOptions("Bug", ImmutableList.of("Task", "Bug")));
         verify(detailStore).save(stored.withType("Bug"));
+        verify(issueStore).updateActivity(300, 9, 3, NOW.plusSeconds(2));
     }
 
     @Test

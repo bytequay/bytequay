@@ -29,7 +29,7 @@ class TestGitHubClientAggregation
 
     private static GitHubNotification notification(String reason, String type, String repo, String url)
     {
-        return new GitHubNotification(reason, new Subject(url, type), new NotificationRepo(repo));
+        return new GitHubNotification(reason, new Subject(url, type), new NotificationRepo(repo), Instant.parse("2026-09-28T00:00:00Z"));
     }
 
     @Test

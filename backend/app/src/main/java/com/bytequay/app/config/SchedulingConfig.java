@@ -14,12 +14,30 @@
 package com.bytequay.app.config;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 @Configuration
 @EnableScheduling
 @ConditionalOnProperty(name = "bytequay.scheduling.enabled", havingValue = "true", matchIfMissing = true)
 class SchedulingConfig
 {
+    @Bean
+    ThreadPoolTaskScheduler taskScheduler()
+    {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setThreadNamePrefix("background-sync-");
+        return scheduler;
+    }
+
+    /** Slow repository and detail scans must not occupy the notification polling thread. */
+    @Bean
+    ThreadPoolTaskScheduler attentionScheduler()
+    {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setThreadNamePrefix("attention-sync-");
+        return scheduler;
+    }
 }

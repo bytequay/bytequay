@@ -79,7 +79,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
     group: 'Integrations',
     label: 'GitHub',
     slug: 'github',
-    rows: ['Account', 'Refresh interval'],
+    rows: ['Account', 'Detail refresh interval', 'Notification summaries'],
   },
   { section: 'jira', group: 'Integrations', label: 'Jira', slug: 'jira', rows: ['Accounts', 'Add account', 'Reconnect', 'Sites'] },
   {

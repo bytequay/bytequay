@@ -225,6 +225,12 @@ public class SqlitePullRequestStore
             BiConsumer<PullRequestEntity, PullRequestEntity> mark)
     {
         PullRequestEntity previous = storedByRef(pullRequest).orElse(null);
+        if (previous != null && previous.getUpdatedAt() != null && pullRequest.updatedAt() != null
+                && pullRequest.updatedAt().isBefore(previous.getUpdatedAt())) {
+            // A slower scan still saw this row, but must not undo a newer summary refresh.
+            mark.accept(previous, previous);
+            return jpaRepository.save(previous).toDomain(null);
+        }
         PullRequestEntity entity = PullRequestEntity.from(pullRequest, now);
         entity.setId(previous == null ? null : previous.getId());
         mark.accept(entity, previous);
@@ -343,6 +349,9 @@ public class SqlitePullRequestStore
         requireNonNull(detail, "detail is null");
         String normalizedState = canonicalState(detail.state(), detail.mergedAt());
         jpaRepository.findById(prId).ifPresent(entity -> {
+            if (detail.updatedAt() != null && entity.getUpdatedAt() != null && detail.updatedAt().isBefore(entity.getUpdatedAt())) {
+                return;
+            }
             if (!Objects.equals(canonicalState(entity.getState(), entity.getMergedAt()), normalizedState)
                     || (detail.updatedAt() != null && !Objects.equals(entity.getUpdatedAt(), detail.updatedAt()))
                     || !Objects.equals(entity.getMergedAt(), detail.mergedAt())
@@ -369,6 +378,7 @@ public class SqlitePullRequestStore
     @Transactional
     public void updateEnrichment(
             long prId,
+            Instant sourceUpdatedAt,
             PullRequestDetail.CiStatus ciStatus,
             int additions,
             int deletions,
@@ -384,6 +394,9 @@ public class SqlitePullRequestStore
             Map<String, String> activityFingerprints)
     {
         jpaRepository.findById(prId).ifPresent(entity -> {
+            if (sourceUpdatedAt != null && entity.getUpdatedAt() != null && sourceUpdatedAt.isBefore(entity.getUpdatedAt())) {
+                return;
+            }
             Map<String, String> previousFingerprints = Optional.ofNullable(entity.getActivityFingerprints()).orElse(ImmutableMap.of());
             if (activityFingerprints.entrySet().stream().anyMatch(entry -> previousFingerprints.containsKey(entry.getKey())
                     && !Objects.equals(previousFingerprints.get(entry.getKey()), entry.getValue()))) {

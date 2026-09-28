@@ -12,10 +12,10 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { attentionCandidates, attentionSummary, handledEntry, stillHandled } from '../home/attention';
+import { attentionActivityVersion, attentionCandidates, attentionSummary, handledEntry, stillHandled } from '../home/attention';
 import { pr } from '../pulls/fixtures/pullRequest';
 import type { AgentTaskActivityDto, AgentTaskDto } from '../types';
-import { linkTasks, taskAttentionItems, taskAttentionKind, taskCardState, taskLastMessage } from './attention';
+import { linkTasks, taskAttentionAfterQueue, taskAttentionItem, taskAttentionItems, taskAttentionKind, taskCardState, taskLastMessage } from './attention';
 import { previewTask } from './fixtures/previewBridge';
 
 const WORKSPACE = { id: 'workspace-1', name: 'trino', repository: 'trinodb/trino' };
@@ -38,6 +38,40 @@ const COMMAND = {
 };
 
 describe('task attention', () => {
+  it('consumes an accepted queue timestamp without consuming a later approval or assistant completion', () => {
+    const running = task('t', { mutationClaim: { kind: 'TURN', ownerId: 'turn-1', acquiredAt: '2026-09-27T10:00:00Z' } });
+    const facts = activity({ pendingApproval: COMMAND, latestTurn: { id: 'turn-1', state: 'RUNNING', endedAt: null } });
+    const original = taskAttentionItem(running, facts, WORKSPACE);
+    const queued = { taskId: 't', createdAt: '2026-09-27T10:10:00Z' };
+    const accepted = taskAttentionAfterQueue(original, queued);
+    if (accepted === undefined) throw new Error('The accepted queue must retain this task snapshot');
+    const acknowledged = handledEntry(accepted, 'ack', null, 'Prompted');
+    const refreshed = { ...running, updatedAt: queued.createdAt };
+    expect(stillHandled(acknowledged, taskAttentionItem(refreshed, facts, WORKSPACE), 0)).toBe(true);
+    expect(stillHandled(acknowledged, taskAttentionItem(refreshed, { ...facts, pendingApproval: { ...COMMAND, approvalId: 'approval-2' } }, WORKSPACE), 0)).toBe(false);
+    expect(stillHandled(acknowledged, taskAttentionItem({ ...refreshed, mutationClaim: null }, activity({
+      latestTurn: { id: 'turn-1', state: 'COMPLETED', endedAt: '2026-09-27T10:20:00Z' },
+    }), WORKSPACE), 0)).toBe(false);
+    expect(taskAttentionAfterQueue(accepted, { ...queued, createdAt: '2026-09-27T10:09:00Z' })).toBe(accepted);
+    expect(taskAttentionAfterQueue(original, { ...queued, taskId: 'different-task' })).toBeUndefined();
+  });
+
+  it('shares a detail revision with the card and brings a prompted task back when its turn finishes', () => {
+    const running = task('t', { mutationClaim: { kind: 'TURN', ownerId: 'turn-2', acquiredAt: '2026-09-27T11:00:00Z' } });
+    const facts = activity({ latestTurn: { id: 'turn-2', state: 'RUNNING', endedAt: null } });
+    const detail = taskAttentionItem(running, facts, WORKSPACE);
+    expect(detail.key).toBe('task:t');
+    expect(taskAttentionItems([running], { t: facts }, WORKSPACE)).toEqual([]);
+    const prompted = handledEntry(detail, 'ack', null, 'Prompted');
+    const finished: AgentTaskDto = { ...running, mutationClaim: null };
+    const done = activity({ latestTurn: { id: 'turn-2', state: 'COMPLETED', endedAt: '2026-09-27T12:00:00Z' } });
+    const [card] = taskAttentionItems([finished], { t: { ...done, lastMessage: {
+      author: 'AGENT', text: 'Done.', at: '2026-09-27T12:00:00Z', turnId: 'turn-2',
+    } } }, WORKSPACE);
+    expect(attentionActivityVersion(taskAttentionItem(finished, done, WORKSPACE))).toBe(attentionActivityVersion(card));
+    expect(stillHandled(prompted, card, Date.parse('2026-09-27T12:01:00Z'))).toBe(false);
+  });
+
   it('asks for the user while a task waits on an approval, fails, or finishes a turn, and stays quiet while it works', () => {
     const finished = activity({ latestTurn: { id: 'turn-1', state: 'COMPLETED', endedAt: '2026-09-27T10:00:00Z' } });
     expect(taskAttentionKind(task('t'), activity({ pendingApproval: COMMAND }))).toBe('approval');

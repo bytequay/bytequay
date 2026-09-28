@@ -87,20 +87,20 @@ class TestSqlitePullRequestWorkspaceScope
     void activityChangesOnlyWhenObservedGithubFactsChange()
     {
         PullRequest row = store.saveObserved(pullRequest(1, "owner/project", 1));
-        store.updateEnrichment(row.id(), PullRequestDetail.CiStatus.PENDING, 1, 0, 0, true, "clean", null, "feature",
+        store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PENDING, 1, 0, 0, true, "clean", null, "feature",
                 ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.empty(), ImmutableMap.of("checks", "pending"));
         store.setMonitored(row.id(), true);
         Instant baselineActivity = store.findById(row.id()).orElseThrow().activityAt();
-        store.updateEnrichment(row.id(), PullRequestDetail.CiStatus.PENDING, 1, 0, 0, true, "clean", null, "feature",
+        store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PENDING, 1, 0, 0, true, "clean", null, "feature",
                 ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.empty(), ImmutableMap.of("checks", "pending"));
         assertThat(store.findById(row.id()).orElseThrow().activityAt()).isEqualTo(baselineActivity);
 
-        store.updateEnrichment(row.id(), PullRequestDetail.CiStatus.FAILING, 1, 0, 0, true, "clean", null, "feature",
+        store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.FAILING, 1, 0, 0, true, "clean", null, "feature",
                 ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.empty(), ImmutableMap.of("checks", "failed"));
         PullRequest changed = store.findById(row.id()).orElseThrow();
         assertThat(changed.updatedAt()).isEqualTo(row.updatedAt());
         assertThat(changed.activityAt()).isAfter(changed.monitoredAt());
-        store.updateEnrichment(row.id(), PullRequestDetail.CiStatus.FAILING, 1, 0, 0, true, "clean", null, "feature",
+        store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.FAILING, 1, 0, 0, true, "clean", null, "feature",
                 ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.empty(), ImmutableMap.of("checks", "failed"));
         assertThat(store.findById(row.id()).orElseThrow().activityAt()).isEqualTo(changed.activityAt());
     }
@@ -151,6 +151,61 @@ class TestSqlitePullRequestWorkspaceScope
     }
 
     @Test
+    void staleObservedAndScanRowsPreserveNewerFactsAndCompleteTheirSyncMarkers()
+    {
+        Instant freshTime = Instant.parse("2026-08-22T00:00:00Z");
+        PullRequest fresh = store.saveObserved(new FetchedPullRequest(
+                1L, "owner/project", 1, "Current title", "alice", "url", freshTime, freshTime, PullRequest.Origin.REVIEW_REQUESTED,
+                ImmutableList.of("current"), ImmutableMap.of("current", "abcdef"), true, "closed", freshTime, null, ImmutableList.of("bob"), null, null, "feature"));
+        FetchedPullRequest stale = pullRequest(2, "owner/project", 1, "open", null, freshTime.minusSeconds(60)).withOrigin(PullRequest.Origin.OTHER);
+
+        assertThat(store.saveObserved(stale)).isEqualTo(fresh);
+        assertThat(store.saveDashboardSyncPage(ImmutableList.of(stale), "dashboard-current")).containsExactly(fresh);
+        assertThat(store.saveRepositorySyncPage("owner/project", ImmutableList.of(stale), "workspace-current")).containsExactly(fresh);
+
+        assertThat(store.findRepositoryRowsMissingSync("owner/project", "workspace-current")).isEmpty();
+        assertThat(store.completeDashboardSync("dashboard-current", "alice")).isEmpty();
+        assertThat(store.findById(fresh.id())).contains(fresh);
+    }
+
+    @Test
+    void staleDetailCannotRegressANewerSummaryOrCreateActivity()
+    {
+        Instant freshTime = Instant.parse("2026-08-22T00:00:00Z");
+        PullRequest fresh = store.saveObserved(pullRequest(1, "owner/project", 1, "closed", freshTime, freshTime));
+        store.updateDetails(fresh.id(), new PrRawDetail(
+                "Old title", "url", "open", "alice", null, fresh.createdAt(), freshTime.minusSeconds(60), null, "body",
+                ImmutableList.of("old"), ImmutableMap.of(), ImmutableList.of(), null, true, null, null,
+                0, 0, 0, 0, ImmutableList.of(), "head", "feature", "main"));
+        assertThat(store.findById(fresh.id())).contains(fresh);
+
+        store.updateDetails(fresh.id(), new PrRawDetail(
+                "Current title", "url", "closed", "alice", null, fresh.createdAt(), freshTime, null, "body",
+                ImmutableList.of("current"), ImmutableMap.of(), ImmutableList.of(), null, true, null, null,
+                0, 0, 0, 0, ImmutableList.of(), "head", "feature", "main"));
+        PullRequest current = store.findById(fresh.id()).orElseThrow();
+        assertThat(current.title()).isEqualTo("Current title");
+        assertThat(current.labels()).containsExactly("current");
+        assertThat(current.draft()).isTrue();
+        assertThat(current.updatedAt()).isEqualTo(freshTime);
+    }
+
+    @Test
+    void staleEnrichmentCannotClearANewerReviewRequest()
+    {
+        Instant freshTime = Instant.parse("2026-08-22T00:00:00Z");
+        PullRequest fresh = store.saveObserved(pullRequest(1, "owner/project", 1, "open", null, freshTime).withOrigin(PullRequest.Origin.REVIEW_REQUESTED));
+        store.updateEnrichment(fresh.id(), freshTime, PullRequestDetail.CiStatus.PENDING, 1, 0, 2, true, "clean", null, "feature",
+                ImmutableList.of("bob"), PullRequest.Origin.REVIEW_REQUESTED, Optional.empty(), Optional.empty(), ImmutableMap.of("raw", "current"));
+        PullRequest baseline = store.findById(fresh.id()).orElseThrow();
+
+        store.updateEnrichment(fresh.id(), freshTime.minusSeconds(60), PullRequestDetail.CiStatus.FAILING, 0, 0, 0, false, "blocked", null, "old-feature",
+                ImmutableList.of(), PullRequest.Origin.OTHER, Optional.empty(), Optional.of("APPROVED"), ImmutableMap.of("raw", "stale"));
+
+        assertThat(store.findById(fresh.id())).contains(baseline);
+    }
+
+    @Test
     void newReviewRequestsAdvanceTheirTimestampAndSearchDoesNotInventRequests()
     {
         FetchedPullRequest fetched = pullRequest(1, "owner/project", 1);
@@ -164,10 +219,14 @@ class TestSqlitePullRequestWorkspaceScope
         assertThat(requestedAgainAt).isAfter(reviewedAt);
 
         FetchedPullRequest searchRow = pullRequest(1, "owner/project", 1, "open", null, fetched.updatedAt(), null).withOrigin(PullRequest.Origin.OTHER);
+        store.saveObserved(searchRow);
+        store.saveObserved(searchRow);
+        assertThat(store.findById(row.id()).orElseThrow().origin()).isEqualTo(PullRequest.Origin.REVIEW_REQUESTED);
+        assertThat(store.findById(row.id()).orElseThrow().reviewRequestedAt()).isEqualTo(requestedAgainAt);
         store.saveRepositorySyncPage("owner/project", ImmutableList.of(searchRow), "generic-search");
         store.saveRepositorySyncPage("owner/project", ImmutableList.of(searchRow.withOrigin(PullRequest.Origin.REVIEW_REQUESTED)), "review-search");
         assertThat(store.findById(row.id()).orElseThrow().reviewRequestedAt()).isEqualTo(requestedAgainAt);
-        store.updateEnrichment(row.id(), PullRequestDetail.CiStatus.PASSING, 0, 0, 0, true, "clean", null, "feature",
+        store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PASSING, 0, 0, 0, true, "clean", null, "feature",
                 ImmutableList.of("alice"), PullRequest.Origin.REVIEW_REQUESTED, Optional.of(firstRequestedAt), Optional.empty(), ImmutableMap.of());
         assertThat(store.findById(row.id()).orElseThrow().reviewRequestedAt()).isEqualTo(requestedAgainAt);
     }

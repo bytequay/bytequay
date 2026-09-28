@@ -28,6 +28,9 @@ X
 import React,{ useCallback,useEffect,useReducer,useRef,useState } from 'react';
 import { Chevron } from '../Chevron';
 import { ConfirmDialog } from '../ConfirmDialog';
+import type { AttentionItem } from '../home/attention';
+import PinButton from '../home/PinButton';
+import { useAttentionVisit } from '../home/useAttentionVisit';
 import '../css/agents.css';
 import { relativeTime } from '../relativeTime';
 import { useRenameDraft } from '../renameDraft';
@@ -87,6 +90,7 @@ import { developmentQuestion, stoppingEndsDevelopment } from './developmentAutom
 import { ciActivity, ciMessage, ciMessageUnavailable } from './ciAutofix';
 import { AgentMark } from './AgentMark';
 import { taskArchived } from './AgentTasksView';
+import { taskAttentionAfterQueue, taskAttentionItem } from './attention';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { pasteImage } from './clipboard';
 import { agentProviderUnavailableFrom } from './contracts';
@@ -1060,12 +1064,14 @@ export function AgentTaskBody({
   pendingApprovals = null,
   automation,
   headerAction,
+  attentionStatus,
   submissionBlocked = false,
   onAskAgent, onAskAgentDisabled, localReview, learning, contextActivity, reviewFocus, onOpenReview,
 }: {
   state: AgentTaskState;
   automation?: React.ReactNode;
   headerAction?: React.ReactNode;
+  attentionStatus?: string;
   submissionBlocked?: boolean;
   onAskAgent?: (comment: DiffAgentComment) => Promise<void>;
   onAskAgentDisabled?: string | null;
@@ -1297,6 +1303,11 @@ export function AgentTaskBody({
           {(status === 'loading' || (status === 'running' && waiting)) && <span className="agt-state__dot" aria-hidden="true" />}
           {statusLabel}
         </span>
+        {attentionStatus && <span className="attention-visit-status" role="status">{attentionStatus}</span>}
+        {state.task !== null && <PinButton className="agt-headbtn" item={{
+          key: `task:${state.task.id}`, title: state.task.title, reference: 'Task',
+          target: { kind: 'task', workspaceId: state.task.workspaceId, taskId: state.task.id },
+        }} />}
         {state.task !== null && onArchive !== undefined && (
           <button
             type="button"
@@ -1862,6 +1873,24 @@ export default function AgentTaskScreen({
   // beyond the transcript window, so each triggers a re-read.
   const { lifecycleEpoch } = state;
   const latestTurnId = state.task?.mutationClaim?.kind === 'TURN' ? state.task.mutationClaim.ownerId : state.latestTurnId;
+  const viewedItem = useRef<AttentionItem | null>(null);
+  if (viewedItem.current !== null
+    && (viewedItem.current.task?.dto.id !== taskId || viewedItem.current.workspaceId !== workspaceId)) viewedItem.current = null;
+  if (state.task?.id === taskId && state.task.workspaceId === workspaceId && state.connection === 'open'
+    && (latestTurnId === null || (state.turn?.id === latestTurnId && pendingApprovals !== null))) {
+    // A transient reload must not end the visit or forget the activity already shown.
+    viewedItem.current = taskAttentionItem(state.task, {
+      lastMessage: null,
+      latestTurn: state.turn,
+      pendingApproval: pendingApprovals?.reduce<AgentPendingApprovalDto | null>((latest, approval) =>
+        latest === null || approval.occurredAt > latest.occurredAt ? approval : latest, null) ?? null,
+    }, {
+      id: workspaceId,
+      name: workspace?.name ?? '',
+      repository: workspace === undefined ? '' : `${workspace.monitoredOwner}/${workspace.monitoredRepo}`,
+    });
+  }
+  const { status: attentionStatus, onAction: attentionAction } = useAttentionVisit(viewedItem.current);
   useEffect(() => {
     if (latestTurnId === null && lifecycleEpoch === 0) return;
     void refreshProjection(latestTurnId).catch((failure: unknown) => {
@@ -2061,6 +2090,7 @@ export default function AgentTaskScreen({
       permissionPolicy: task.defaults.permissionPolicy,
       developmentAutomation: task.defaults.developmentAutomation,
     });
+    attentionAction('update');
     const draft = stateRef.current;
     submissions.draftChanged(taskId, draft.composer, draft.attachments.map((attachment) => attachment.id), updated.defaults);
     applyTask(updated);
@@ -2068,19 +2098,21 @@ export default function AgentTaskScreen({
       type: 'settings/loaded',
       settings: await live().getEffectiveTurnSettings(taskId, workspaceId),
     });
-  }), [applyTask, live, run, state.task, submissions, taskId, workspaceId]);
+  }), [applyTask, attentionAction, live, run, state.task, submissions, taskId, workspaceId]);
 
   const rename = useCallback((title: string) => run(async () => {
     const task = state.task;
     if (task === null) return;
     applyTask(await live().renameAgentTask(taskId, workspaceId, task.version, title));
-  }), [applyTask, live, run, state.task, taskId, workspaceId]);
+    attentionAction('update');
+  }), [applyTask, attentionAction, live, run, state.task, taskId, workspaceId]);
 
   const archive = useCallback((archived: boolean) => run(async () => {
     const task = state.task;
     if (task === null) return;
     applyTask(await live().archiveAgentTask(taskId, workspaceId, task.version, archived));
-  }), [applyTask, live, run, state.task, taskId, workspaceId]);
+    attentionAction('update');
+  }), [applyTask, attentionAction, live, run, state.task, taskId, workspaceId]);
 
   const startTurn = useCallback(async (message: string, attachments: string[], idempotencyKey: string, expectedTaskVersion: number, developmentAutomation?: DevelopmentAutomationDto) => {
     dispatch({ type: 'composer/sending', sending: true });
@@ -2094,6 +2126,7 @@ export default function AgentTaskScreen({
         attachments,
       });
       submissions.settled(idempotencyKey);
+      attentionAction('prompt');
       applyTurn(turn);
       try {
         // Starting also bumps the task version. Keep the composer busy until that authoritative
@@ -2112,7 +2145,7 @@ export default function AgentTaskScreen({
     finally {
       dispatch({ type: 'composer/sending', sending: false });
     }
-  }, [applyTurn, live, recordProviderUnavailable, refreshProjection, submissions, taskId]);
+  }, [applyTurn, attentionAction, live, recordProviderUnavailable, refreshProjection, submissions, taskId]);
 
   const send = useCallback(() => run(async () => {
     const draft = stateRef.current;
@@ -2132,6 +2165,7 @@ export default function AgentTaskScreen({
         if (result.id !== ci.runId || result.parentTaskId !== taskId || result.workspaceId !== workspaceId) {
           throw new Error('CI run does not belong to this development task');
         }
+        attentionAction('prompt');
         ciRequest.current = null;
         dispatch({ type: 'composer/changed', text: '' });
         dispatch({ type: 'notice/changed', notice: 'Message sent to CI Autofix.' });
@@ -2168,7 +2202,7 @@ export default function AgentTaskScreen({
       dispatch({ type: 'attachments/added', attachments: state.attachments });
       throw failure;
     }
-  }), [automationBlocked, ciPollingError, confirmation, confirming, live, refreshProjection, run, startTurn, state.attachments, state.composer, state.latestTurnId, state.task, submissionAutomation, submissions, taskId, workspaceId]);
+  }), [attentionAction, automationBlocked, ciPollingError, confirmation, confirming, live, refreshProjection, run, startTurn, state.attachments, state.composer, state.latestTurnId, state.task, submissionAutomation, submissions, taskId, workspaceId]);
 
   const taskCommentDisabled = state.task?.state !== 'OPEN' ? 'This task is closed.'
     : state.task?.developmentContinuationUnfinished ? 'Wait for the current follow-up to finish.'
@@ -2182,7 +2216,7 @@ export default function AgentTaskScreen({
     bridge: explicitBridge,
     disabledReason: agentCommentDisabled,
     learningDisabledReason: taskCommentDisabled,
-    onDispatch: () => refreshProjection(stateRef.current.latestTurnId),
+    onDispatch: async () => { attentionAction('prompt'); await refreshProjection(stateRef.current.latestTurnId); },
   });
   const discussions = useTaskDiscussions(
     state.task?.interactive === true ? { taskId, workspaceId } : null,
@@ -2234,6 +2268,7 @@ export default function AgentTaskScreen({
         idempotencyKey,
         attachments: attachmentIds,
       });
+      if (delivery.state === 'DELIVERED') attentionAction('prompt');
       submissions.settled(idempotencyKey);
       dispatch({ type: 'composer/changed', text: '' });
       dispatch({ type: 'attachments/cleared' });
@@ -2249,7 +2284,7 @@ export default function AgentTaskScreen({
     finally {
       dispatch({ type: 'composer/sending', sending: false });
     }
-  }), [live, run, state.attachments, state.composer, state.task, state.turn, submissions, taskId]);
+  }), [attentionAction, live, run, state.attachments, state.composer, state.task, state.turn, submissions, taskId]);
 
   const queueNext = useCallback(() => run(async () => {
     if (attachmentPendingRef.current || automationBlocked || !canQueue(stateRef.current)) return;
@@ -2270,6 +2305,7 @@ export default function AgentTaskScreen({
         idempotencyKey,
         attachments: attachmentIds,
       });
+      attentionAction('prompt', 1, taskAttentionAfterQueue(viewedItem.current, queued));
       submissions.settled(idempotencyKey);
       applyQueuedInput(queued);
       dispatch({ type: 'composer/changed', text: '' });
@@ -2280,19 +2316,21 @@ export default function AgentTaskScreen({
     finally {
       dispatch({ type: 'composer/sending', sending: false });
     }
-  }), [applyQueuedInput, automationBlocked, live, refreshProjection, run, state.attachments, state.composer, state.latestTurnId, state.task, submissionAutomation, submissions, taskId, workspaceId]);
+  }), [applyQueuedInput, attentionAction, automationBlocked, live, refreshProjection, run, state.attachments, state.composer, state.latestTurnId, state.task, submissionAutomation, submissions, taskId, workspaceId]);
 
   const removeQueued = useCallback((queuedInputId: string) => run(async () => {
     await live().removeAgentQueuedInput(taskId, workspaceId, queuedInputId);
+    attentionAction('update');
     removeQueuedInput(queuedInputId);
     await refreshProjection(state.latestTurnId);
-  }), [live, refreshProjection, removeQueuedInput, run, state.latestTurnId, taskId, workspaceId]);
+  }), [attentionAction, live, refreshProjection, removeQueuedInput, run, state.latestTurnId, taskId, workspaceId]);
 
   const resumeQueue = useCallback(() => run(async () => {
     const current = stateRef.current;
     if (runtimeStatus(current) !== 'idle' || current.task?.developmentContinuationUnfinished || developmentQuestion(current) !== null) return;
     try {
       const turn = await live().resumeAgentQueue(taskId, workspaceId);
+      attentionAction('prompt');
       applyTurn(turn);
       await refreshProjection(turn.id);
     }
@@ -2300,7 +2338,7 @@ export default function AgentTaskScreen({
       recordProviderUnavailable(failure);
       throw failure;
     }
-  }), [applyTurn, live, recordProviderUnavailable, refreshProjection, run, taskId, workspaceId]);
+  }), [applyTurn, attentionAction, live, recordProviderUnavailable, refreshProjection, run, taskId, workspaceId]);
 
   const attach = useCallback((source: 'picker' | 'clipboard' = 'picker') => run(async () => {
     const current = stateRef.current;
@@ -2426,6 +2464,7 @@ export default function AgentTaskScreen({
   const cancel = useCallback(() => run(async () => {
     if (state.turn === null) return;
     const turn = await live().cancelAgentTurn(state.turn.id);
+    attentionAction('update');
     applyTurn(turn);
     try {
       await refreshProjection(turn.id);
@@ -2433,12 +2472,13 @@ export default function AgentTaskScreen({
     catch {
       // Terminal lifecycle replay can repair a projection read that failed here.
     }
-  }), [applyTurn, live, refreshProjection, run, state.turn]);
+  }), [applyTurn, attentionAction, live, refreshProjection, run, state.turn]);
 
   const completeTask = useCallback(() => run(async () => {
     await live().completeAgentTask(taskId, workspaceId);
+    attentionAction('update');
     await refreshProjection(stateRef.current.latestTurnId);
-  }), [live, refreshProjection, run, taskId, workspaceId]);
+  }), [attentionAction, live, refreshProjection, run, taskId, workspaceId]);
 
   const complete = useCallback(() => {
     if (attachmentPendingRef.current || !canComplete(state)) return;
@@ -2453,7 +2493,8 @@ export default function AgentTaskScreen({
 
   const cleanupWorktree = useCallback(() => run(async () => {
     applyTask(await live().cleanupAgentTaskWorktree(taskId, workspaceId));
-  }), [applyTask, live, run, taskId, workspaceId]);
+    attentionAction('update');
+  }), [applyTask, attentionAction, live, run, taskId, workspaceId]);
 
   const stopServer = useCallback(() => {
     const request = ++confirmationRequestRef.current;
@@ -2482,6 +2523,7 @@ export default function AgentTaskScreen({
           ? await live().stopAgentRuntime(taskId, workspaceId, confirmation.impact.generation)
           : await live().markAgentTaskFailed(taskId, workspaceId, 'Marked failed by the user during recovery');
         applyTask(task);
+        attentionAction('update');
         await refreshProjection(stateRef.current.latestTurnId);
       });
     }
@@ -2492,7 +2534,7 @@ export default function AgentTaskScreen({
         setConfirming(false);
       }
     }
-  }, [applyTask, confirmation, live, refreshProjection, run, taskId, workspaceId]);
+  }, [applyTask, attentionAction, confirmation, live, refreshProjection, run, taskId, workspaceId]);
 
   const refreshProvider = useCallback(() => run(async () => {
     setProviderChecking(true);
@@ -2542,12 +2584,14 @@ export default function AgentTaskScreen({
 
   const decide = useCallback((approvalId: string, decision: AgentApprovalDecision, answers?: Record<string, string>) => run(async () => {
     await live().resolveAgentApproval(approvalId, decision, undefined, answers);
+    attentionAction('update');
+    setPendingApprovals(current => current?.filter(approval => approval.approvalId !== approvalId) ?? null);
     setCiApprovalState(current => current === null ? null : {
       ...current, approvals: current.approvals.filter(approval => approval.approvalId !== approvalId),
     });
     // The buttons that had focus disappear with the decision; the composer is the next thing to do.
     composerRef.current?.focus();
-  }), [live, run]);
+  }), [attentionAction, live, run]);
 
   const currentCiApprovals = ciApprovalState?.runId === state.task?.developmentCi?.runId ? ciApprovalState : null;
 
@@ -2566,6 +2610,7 @@ export default function AgentTaskScreen({
     {localReview.error !== null && <div className="agt-notice" role="alert">Local review comments: {localReview.error}</div>}
     <AgentTaskBody
       state={state}
+      attentionStatus={attentionStatus}
       headerAction={headerAction}
       submissionBlocked={automationBlocked}
       onAskAgent={state.task?.interactive === true ? sendAgentComment : undefined}

@@ -75,6 +75,7 @@ const bridge: Bridge = {
   findStoredPullRequest: (repo, number) => ipcRenderer.invoke('prs:stored', repo, number),
   setPrMonitored: (prId, monitored) => ipcRenderer.invoke('prs:monitor', prId, monitored),
   setPrAttentionHandled: handled => ipcRenderer.invoke('prs:attention:handled', handled),
+  setPrAttentionPinned: keys => ipcRenderer.invoke('prs:attention:pinned', keys),
   onPrAttentionUpdated: callback => {
     const listener = (_event: Electron.IpcRendererEvent, prs: PullRequestDto[]) => callback(prs);
     ipcRenderer.on('prs:attention-updated', listener);

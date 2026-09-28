@@ -13,9 +13,9 @@
  */
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  Bot, ChevronDown, ChevronLeft, CircleDot, CircleUser, GitBranch, Globe, History, House, KeyRound,
+  Bot, ChevronDown, ChevronLeft, ChevronRight, CircleDot, CircleUser, GitBranch, GitPullRequest, Globe, History, House, KeyRound,
   LayoutDashboard, LayoutGrid, ListChecks, Network, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
-  Sparkles, Sun, Tags, TriangleAlert,
+  Pin, Sparkles, Sun, Tags, TriangleAlert,
 } from 'lucide-react';
 import Avatar from './Avatar';
 import JiraIcon from './jira/JiraIcon';
@@ -29,6 +29,8 @@ import {
   matchesSearch,
 } from './settings/routes';
 import { workspaceHasReadableCode, type WorkspaceTab } from './workspaces/model';
+import PinButton from './home/PinButton';
+import { openPinned, usePinnedItems } from './home/pinned';
 
 /** What the sidebar needs to be the settings window's nav. Absent on every other page. */
 export type SettingsNav = {
@@ -125,6 +127,8 @@ export default function AppSidebar({
   const [collapsed, setCollapsed] = useState(false);
   const [query, setQuery] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [pinsExpanded, setPinsExpanded] = useState(true);
+  const pinnedItems = usePinnedItems();
   const pickerMenu = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (pickerOpen) pickerMenu.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -299,6 +303,28 @@ export default function AppSidebar({
         {GLOBAL_NAV_ITEMS.map(navItem)}
         <div className="app-sidebar__rule" />
       </nav>
+      {pinnedItems.length > 0 && <section className="app-sidebar__pinned" aria-label="Pinned">
+        <button type="button" className="app-sidebar__pinned-heading" aria-label="Pinned items"
+          aria-expanded={pinsExpanded} aria-controls="pinned-items" onClick={() => setPinsExpanded(value => !value)}>
+          <Pin size={14} aria-hidden="true" />
+          <span className="app-sidebar__label">Pinned</span>
+          {pinsExpanded ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />}
+        </button>
+        {pinsExpanded && <nav id="pinned-items" className="app-sidebar__nav app-sidebar__pinned-list" aria-label="Pinned navigation">
+          {pinnedItems.map(item => <div key={item.key} className="app-sidebar__pinned-row">
+            {row({
+              key: item.key,
+              label: item.title,
+              title: item.reference ? `${item.reference} · ${item.title}` : item.title,
+              icon: item.target.kind === 'pull' ? <GitPullRequest size={16} /> : item.target.kind === 'jira' ? <JiraIcon size={16} />
+                : item.target.kind === 'task' || item.target.kind === 'review' ? <SquareCheck size={16} /> : <CircleDot size={16} />,
+              active: false,
+              onClick: () => openPinned(item),
+            })}
+            <PinButton item={item} />
+          </div>)}
+        </nav>}
+      </section>}
       {workspace === null ? (
         <nav className="app-sidebar__nav" aria-label="Application navigation">
           {APP_NAV_ITEMS.filter(item => item.page !== 'jira' || jiraConnected).map(navItem)}

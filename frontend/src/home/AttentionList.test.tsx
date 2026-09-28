@@ -14,6 +14,8 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import AttentionList from './AttentionList';
+import { taskAttentionItem } from '../agents/attention';
+import { previewTask } from '../agents/fixtures/previewBridge';
 import { jiraAttentionItems } from '../jira/attention';
 import { jiraIssue } from '../jira/fixtures/jira';
 import { attentionCards, handledEntry, visibleAttention, type AttentionItem, type Handled } from './attention';
@@ -53,6 +55,18 @@ function list(candidates: AttentionItem[], handled: Handled = {}, variant: 'home
 
 describe('AttentionList', () => {
   afterEach(() => { vi.restoreAllMocks(); });
+
+  it('keeps resolved reminders readable without offering to start development again', () => {
+    const closed = { ...issueItem(99), issueState: 'closed' };
+    const ticket = jiraAttentionItems([jiraIssue])[0];
+    const done = { ...ticket, jira: { ...jiraIssue, status: { id: 'done', name: 'Done', category: 'done' } } };
+    for (const item of [closed, done]) {
+      const html = list([item]);
+      expect(html).toContain(item.title);
+      expect(html).not.toContain('aria-label="Start development');
+    }
+    expect(list([issueItem(99)])).toContain('aria-label="Start development for #99"');
+  });
 
   it('draws a card tinted by its source, with the reason, the actor and what happened', () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-30T00:00:00Z'));
@@ -139,6 +153,39 @@ describe('AttentionList', () => {
     const issues = attentionCards(items, 'issue');
     expect(issues.cards.map(item => item.number)).toEqual([7]);
     expect(issues.counts).toEqual({ all: 6, pr: 5, issue: 1, jira: 0, task: 0 });
+  });
+
+  it('selects the newest cards across sources and within a filter before applying the cap', () => {
+    const approval = { ...taskAttentionItem({ ...previewTask('workspace-1', 'task-1'), updatedAt: '2026-08-28T00:00:00Z' }, null,
+      { id: 'workspace-1', name: 'Workspace', repository: 'trinodb/trino' }), kind: 'approval' as const };
+    const newest = { ...prItem(3, 'updated'), updatedAt: '2026-09-28T13:00:00Z' };
+    const issue = { ...issueItem(7), updatedAt: '2026-09-28T11:00:00Z' };
+    const [ticket] = jiraAttentionItems([{ ...jiraIssue, updatedAt: '2026-09-28T12:00:00Z' }]);
+    const items = [approval, prItem(1), { ...prItem(2), updatedAt: '2026-09-28T09:00:00Z' }, newest, issue, ticket];
+    expect(attentionCards(items, 'all').cards.map(item => item.key)).toEqual([newest.key, ticket.key, issue.key, items[2].key]);
+    expect(attentionCards(items, 'pr').cards.map(item => item.number)).toEqual([3, 2, 1]);
+    expect(items[0]).toBe(approval);
+  });
+
+  it('puts the newest update first in both Homes even when four older review requests precede it', () => {
+    const items = [1, 2, 3, 4].map(number => prItem(number));
+    items.push({ ...prItem(5, 'updated'), updatedAt: '2026-09-28T13:00:00Z' });
+    for (const variant of ['home', 'workspace'] as const) {
+      const html = list(items, {}, variant);
+      expect([...html.matchAll(/class="atn-card__key">#(\d+)</g)].map(match => Number(match[1]))).toEqual([5, 1, 2, 3]);
+      expect(html).toContain('class="atn-count">4 of 5<');
+    }
+  });
+
+  it('sorts an expired retained snooze with the other cards before applying the cap', () => {
+    const now = Date.parse('2026-09-30T00:00:00Z');
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    const items = [1, 2, 3, 4].map(number => prItem(number));
+    const reminder = { ...prItem(5, 'updated'), updatedAt: '2026-09-28T13:00:00Z' };
+    const handled = { [reminder.key]: handledEntry(reminder, 'snooze', now, '1 hour') };
+    const html = list(items, handled);
+    expect([...html.matchAll(/class="atn-card__key">#(\d+)</g)].map(match => Number(match[1]))).toEqual([5, 1, 2, 3]);
+    expect(html).toContain('class="atn-count">4 of 5<');
   });
 
   it('brings in the next item when a card is acknowledged or snoozed, still capped at four', () => {

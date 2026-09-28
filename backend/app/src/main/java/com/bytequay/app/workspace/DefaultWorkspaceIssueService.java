@@ -14,6 +14,7 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
+import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.core.domain.PrTimelineEvent;
@@ -27,6 +28,8 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.RepositoryIssueDetailStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -43,10 +46,13 @@ import static java.util.Objects.requireNonNull;
 public final class DefaultWorkspaceIssueService
         implements WorkspaceIssueService
 {
+    private static final Logger log = LoggerFactory.getLogger(DefaultWorkspaceIssueService.class);
+
     private final WorkspaceStore workspaces;
     private final RepositoryIssueStore issues;
     private final RepositoryIssueDetailStore details;
     private final GitHubPullRequestWriteClient issueWrites;
+    private final GitHubRepoClient issueReads;
     private final CredentialService credentials;
     private final RecentTouchRecorder recent;
     private final Clock clock;
@@ -56,6 +62,7 @@ public final class DefaultWorkspaceIssueService
             RepositoryIssueStore issues,
             RepositoryIssueDetailStore details,
             GitHubPullRequestWriteClient issueWrites,
+            GitHubRepoClient issueReads,
             CredentialService credentials,
             RecentTouchRecorder recent,
             Clock clock)
@@ -64,6 +71,7 @@ public final class DefaultWorkspaceIssueService
         this.issues = requireNonNull(issues, "issues is null");
         this.details = requireNonNull(details, "details is null");
         this.issueWrites = requireNonNull(issueWrites, "issueWrites is null");
+        this.issueReads = requireNonNull(issueReads, "issueReads is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.recent = requireNonNull(recent, "recent is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -105,11 +113,16 @@ public final class DefaultWorkspaceIssueService
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
             requireNotBlank(body, "comment body must not be blank");
             Workspace workspace = requireWorkspace(workspaces, workspaceId);
+            Optional<RepositoryIssue> previous = issues.find(workspace.monitoredRepositoryId(), issueNumber);
             PrTimelineEvent created = issueWrites.createIssueComment(
                     credentials.resolveGitHubToken(), issueRef(workspace, issueNumber), body.trim());
             RepositoryIssueDetail current = details.find(workspace.monitoredRepositoryId(), issueNumber)
                     .orElseGet(() -> RepositoryIssueDetail.empty(workspace.monitoredRepositoryId(), issueNumber));
             details.save(current.append(created));
+            if (created.timestamp() != null) {
+                previous.ifPresent(issue -> issues.updateActivity(workspace.monitoredRepositoryId(), issueNumber, issue.commentCount() + 1, created.timestamp()));
+            }
+            refreshActivity(workspace, issueNumber);
             recent.issueAction(workspaceId, issueNumber, RecentReason.COMMENTED);
             recent.wroteOnIssue(
                     workspaceId,
@@ -148,6 +161,7 @@ public final class DefaultWorkspaceIssueService
                     .orElseGet(() -> RepositoryIssueDetail.empty(workspace.monitoredRepositoryId(), issueNumber))
                     .withType(current);
             details.save(detail);
+            refreshActivity(workspace, issueNumber);
             recent.issueAction(workspaceId, issueNumber, RecentReason.EDITED);
             return new IssueTypeOptions(current, detail.availableTypes());
         });
@@ -185,5 +199,18 @@ public final class DefaultWorkspaceIssueService
         checkArgument(issueNumber > 0, "issueNumber must be positive");
         return PullRequestRef.of(
                 workspace.monitoredRepository().owner(), workspace.monitoredRepository().repo(), issueNumber);
+    }
+
+    private void refreshActivity(Workspace workspace, int issueNumber)
+    {
+        try {
+            GitHubRepoClient.IssueActivity activity = issueReads.fetchIssueActivity(
+                    credentials.resolveGitHubToken(), workspace.monitoredRepository(), issueNumber);
+            issues.updateActivity(workspace.monitoredRepositoryId(), issueNumber, activity.commentCount(), activity.updatedAt());
+        }
+        catch (RuntimeException failure) {
+            // The GitHub write already succeeded; failing it here would invite posting the same comment twice.
+            log.warn("Issue {}/{} activity refresh failed after a successful write", workspace.monitoredRepository().fullName(), issueNumber, failure);
+        }
     }
 }

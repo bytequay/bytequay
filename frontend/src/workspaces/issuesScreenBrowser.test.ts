@@ -22,6 +22,6 @@ it('filters loaded issues, keeps a closed issue in view and zooms a named issue 
     global: 'IssuesScreenTests',
     styles: true,
   });
-  expect(results).toHaveLength(3);
+  expect(results).toHaveLength(4);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, 30_000);

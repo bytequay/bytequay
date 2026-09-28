@@ -22,6 +22,9 @@ import { workspaceAgentTaskRoute } from '../workspaces/model';
 import { settingsRoute } from '../settings/routes';
 import { LayerCovered } from '../Zoom';
 import { zoomReference } from '../githubReference';
+import PinButton from '../home/PinButton';
+import { completeAttentionVisit, recordAttentionAction, useAttentionVisit } from '../home/useAttentionVisit';
+import { jiraAttentionItem } from './attention';
 import { JIRA_CHANGED, jiraAccountLabel, jiraSiteDomain, jiraIssueKey, jiraIssueLocation, jiraLocation, jiraRoute, notifyJiraChanged, type JiraBoard, type JiraComment, type JiraConnection, type JiraField, type JiraIssue, type JiraIssueDetail, type JiraIssuePage, type JiraLinkType, type JiraLocation, type JiraRelatedIssue, type JiraSprint } from './contracts';
 import JiraIcon from './JiraIcon';
 import { completedGroups, JIRA_WORKFLOW_GROUPS, jiraCommentThreads, jiraWorkflowGroup } from './presentation';
@@ -380,6 +383,11 @@ export function JiraTicketLayer({ location, start = false, onClose }: { location
 function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }: { location: JiraLocation; sprints: JiraSprint[]; boardId: number | null; onClose: () => void; onChanged: (detail: JiraIssueDetail, refresh?: boolean) => void; onStart: (issue: JiraIssue, onChanged: (detail: JiraIssueDetail) => void) => void }) {
   const dialog = useJiraDialog();
   const [detail, setDetail] = useState<JiraIssueDetail | null>(null);
+  const visit = useAttentionVisit(detail === null ? null : jiraAttentionItem(detail.issue));
+  const close = () => {
+    if (detail !== null) void completeAttentionVisit(`jira:${detail.issue.cloudId}:${detail.issue.id}`);
+    onClose();
+  };
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -435,10 +443,14 @@ function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }:
     void window.bridge.getJiraIssue(location).then(value => { if (active) { setDetail(value); onChangedRef.current(value, false); } }).catch(() => {});
     return () => { active = false; };
   }, [covered, location]);
-  const mutate = async (action: () => Promise<JiraIssueDetail>, success?: () => void) => {
+  const mutate = async (action: () => Promise<JiraIssueDetail>, success?: () => void, handled: 'comment' | 'update' | null = 'update') => {
     if (busy) return;
     setBusy(true); setError(null);
-    try { const value = await action(); setDetail(value); setError(value.error); onChanged(value); success?.(); }
+    try {
+      const value = await action();
+      if (handled !== null) visit.onAction(handled, 1, jiraAttentionItem(value.issue));
+      setDetail(value); setError(value.error); onChanged(value); success?.();
+    }
     catch (cause) { setError(message(cause)); }
     finally { setBusy(false); }
   };
@@ -469,10 +481,12 @@ function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }:
     if (field('duedate')) fields.duedate = dueDate || null;
     void mutate(() => window.bridge.updateJiraIssue(location, fields, editVersion), () => setEditing(false));
   };
-  return <dialog ref={dialog} className="jira-detail" aria-label="Ticket details" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}><div className="jira-detail__toolbar">
+  return <dialog ref={dialog} className="jira-detail" aria-label="Ticket details" onCancel={event => { event.preventDefault(); if (!busy) close(); }}><div className="jira-detail__toolbar">
     {issue && <span className="jira-detail__reference"><JiraTypeIcon type={issue.type} />{issue.key}<span className="jira-muted">{issue.type}</span></span>}<span className="jira-spacer" />
-    <button type="button" className="bq-iconbtn" aria-label="Refresh ticket" title="Refresh ticket" disabled={busy || loading} onClick={() => { void mutate(() => window.bridge.getJiraIssue(location, true)); }}><RefreshCw size={16} /></button>
-    <button type="button" className="bq-iconbtn" aria-label="Close ticket" title="Close ticket" disabled={busy} onClick={onClose}><X size={18} /></button></div>
+    {issue && <><span className="attention-visit-status" role="status">{visit.status}</span>
+      <PinButton item={{ key: `jira:${issue.cloudId}:${issue.id}`, title: issue.title, reference: issue.key, target: { kind: 'jira', ...jiraIssueLocation(issue) } }} /></>}
+    <button type="button" className="bq-iconbtn" aria-label="Refresh ticket" title="Refresh ticket" disabled={busy || loading} onClick={() => { void mutate(() => window.bridge.getJiraIssue(location, true), undefined, null); }}><RefreshCw size={16} /></button>
+    <button type="button" className="bq-iconbtn" aria-label="Close ticket" title="Close ticket" disabled={busy} onClick={close}><X size={18} /></button></div>
     {error && <div className="ws-error" role="alert">{error}</div>}
     {!issue || !detail ? <div className="jira-empty">{loading ? 'Loading ticket…' : 'This ticket could not be loaded.'}</div> : <>
       <h2>{issue.title}</h2>
@@ -483,7 +497,7 @@ function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }:
       <section className="jira-description"><h3>Description</h3><MarkdownBody body={issue.body || 'No description.'} /></section>
       <JiraWorkItems detail={detail} location={location} busy={busy} mutate={mutate} />
       <section className="jira-comments"><h3><MessageSquare size={16} /> Comments <span>{detail.comments.length}</span></h3>
-        <form onSubmit={event => { event.preventDefault(); const body = comment.trim(); if (!body) return; if (commentRequest.current?.body !== body) commentRequest.current = { body, id: crypto.randomUUID() }; const request = commentRequest.current; void mutate(() => window.bridge.commentJiraIssue(location, request.body, request.id), () => { setComment(''); commentRequest.current = null; }); }}>
+        <form onSubmit={event => { event.preventDefault(); const body = comment.trim(); if (!body) return; if (commentRequest.current?.body !== body) commentRequest.current = { body, id: crypto.randomUUID() }; const request = commentRequest.current; void mutate(() => window.bridge.commentJiraIssue(location, request.body, request.id), () => { setComment(''); commentRequest.current = null; }, 'comment'); }}>
           <label>Add a comment<textarea rows={4} value={comment} onChange={event => setComment(event.target.value)} placeholder="Write a reply…" /></label>
           <button type="submit" className="bq-button bq-button--primary" disabled={busy || !comment.trim()}>Send comment</button>
         </form>
@@ -495,7 +509,7 @@ function JiraDetail({ location, sprints, boardId, onClose, onChanged, onStart }:
             {commentRow(comment, comment.id, parentId)}
             {(replies.length > 0 || replying) && <div className="jira-comment-replies">
               {replies.map(value => commentRow(value, comment.id, parentId, true))}
-              {replying && <form className="jira-comment-form" onSubmit={event => { event.preventDefault(); const body = replying.body.trim(); if (!body) return; if (replyRequest.current?.body !== body || replyRequest.current.parentId !== replying.parentId) replyRequest.current = { body, parentId: replying.parentId, id: crypto.randomUUID() }; const request = replyRequest.current; void mutate(() => window.bridge.commentJiraIssue(location, request.body, request.id, request.parentId), () => { setReply(null); replyRequest.current = null; }); }}>
+              {replying && <form className="jira-comment-form" onSubmit={event => { event.preventDefault(); const body = replying.body.trim(); if (!body) return; if (replyRequest.current?.body !== body || replyRequest.current.parentId !== replying.parentId) replyRequest.current = { body, parentId: replying.parentId, id: crypto.randomUUID() }; const request = replyRequest.current; void mutate(() => window.bridge.commentJiraIssue(location, request.body, request.id, request.parentId), () => { setReply(null); replyRequest.current = null; }, 'comment'); }}>
                 <label>Replying to {replying.to}<textarea rows={3} autoFocus value={replying.body} onChange={event => setReply({ ...replying, body: event.target.value })} /></label>
                 <div className="jira-comment-form__actions"><button type="button" className="bq-button" disabled={busy} onClick={() => setReply(null)}>Cancel</button><button type="submit" className="bq-button bq-button--primary" disabled={busy || !replying.body.trim()}>Reply</button></div>
               </form>}
@@ -569,7 +583,11 @@ function JiraWorkspaceDialog({ issue, onClose, onAssigned }: { issue: JiraIssue;
   const assign = async () => {
     if (busy || loading || !workspaceId || workspaceId === issue.workspace?.id) return;
     setBusy(true); setError(null);
-    try { onAssigned(await window.bridge.assignJiraWorkspace(jiraIssueLocation(issue), workspaceId)); }
+    try {
+      const value = await window.bridge.assignJiraWorkspace(jiraIssueLocation(issue), workspaceId);
+      recordAttentionAction(`jira:${issue.cloudId}:${issue.id}`, 'update', 1, jiraAttentionItem(value.issue));
+      onAssigned(value);
+    }
     catch (cause) { setError(message(cause)); setBusy(false); }
   };
   return <dialog ref={dialog} aria-label={`Assign workspace for ${issue.key}`} className="jira-launch jira-assignment" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
@@ -615,7 +633,10 @@ function JiraLaunchContent({ issue, workspaceId, onClose, onChanged }: { issue: 
 }
 function JiraLaunchComposer({ issue, workspaceId, onBusy, refreshing }: { issue: JiraIssue; workspaceId: string; onBusy: (busy: boolean) => void; refreshing: boolean }) {
   const onOpenTask = useCallback((id: string) => { window.location.hash = workspaceAgentTaskRoute(workspaceId, id); }, [workspaceId]);
-  const creation = useAgentTaskCreation({ workspaceId, bridge, sourceJira: issue, onOpenTask, onOpenCreatedTask: task => { window.location.hash = workspaceAgentTaskRoute(task.workspaceId, task.id); } });
+  const creation = useAgentTaskCreation({ workspaceId, bridge, sourceJira: issue, onOpenTask, onOpenCreatedTask: task => {
+    recordAttentionAction(`jira:${issue.cloudId}:${issue.id}`, 'prompt');
+    window.location.hash = workspaceAgentTaskRoute(task.workspaceId, task.id);
+  } });
   useEffect(() => { onBusy(creation.busy); }, [creation.busy, onBusy]);
   return <>{creation.error && <div className="ws-error" role="alert">{creation.error}</div>}{creation.busy && creation.startup !== null
     ? <StartingAgentTask draft={creation.draft} images={creation.images} laneId={creation.laneId} providers={creation.catalog?.providers ?? []} models={creation.models} selection={creation.selection} startup={creation.startup} />

@@ -12,8 +12,10 @@
  * limitations under the License.
  */
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import AppSidebar, { type AppPage } from './AppSidebar';
+import { loadPinned, openPinned, PINNED_CHANGED, setPinned, type PinnedItem } from './home/pinned';
+import { ZOOM_REFERENCE } from './githubReference';
 import type { WorkspaceDto } from './types';
 import type { WorkspaceTab } from './workspaces/model';
 
@@ -129,5 +131,74 @@ describe('app sidebar', () => {
       expect(markup).toContain('class="app-sidebar__resize"');
       expect(markup).toContain('aria-label="Window controls"');
     }
+  });
+});
+
+describe('global pinned items', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  const pull: PinnedItem = { key: 'trinodb/trino#42', title: 'Fix the connector', reference: '#42', target: { kind: 'pull', repo: 'trinodb/trino', number: 42 } };
+  const task: PinnedItem = { key: 'task:task-1', title: 'Implement the connector', target: { kind: 'task', workspaceId: 'ws-2', taskId: 'task-1' } };
+
+  function storage() {
+    const values = new Map<string, string>();
+    const dispatchEvent = vi.fn();
+    const setPrAttentionPinned = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('window', {
+      localStorage: { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) },
+      location: { hash: '#/' },
+      bridge: { setPrAttentionPinned },
+      dispatchEvent,
+    });
+    return { values, dispatchEvent, setPrAttentionPinned };
+  }
+
+  it('retains pins across remounts and workspace navigation and removes only the unpinned item', () => {
+    const { dispatchEvent, setPrAttentionPinned } = storage();
+    setPinned(pull, true);
+    setPinned(task, true);
+    setPinned(pull, true);
+    expect(loadPinned()).toEqual([pull, task]);
+    expect(dispatchEvent.mock.calls.at(-1)?.[0].type).toBe(PINNED_CHANGED);
+    expect(setPrAttentionPinned).toHaveBeenLastCalledWith([pull.key, task.key]);
+    for (const markup of [render('home', null), render('workspaces', WORKSPACE), render('workspaces', { ...WORKSPACE, id: 'ws-2' })]) {
+      expect(navLabels(markup, 'Pinned navigation')).toEqual([pull.title, `Unpin ${pull.title}`, task.title, `Unpin ${task.title}`]);
+      expect(markup).toContain('aria-label="Pinned items" aria-expanded="true"');
+      expect(markup).toContain('aria-pressed="true"');
+    }
+    setPinned(pull, false);
+    expect(loadPinned()).toEqual([task]);
+    expect(render('home', null)).not.toContain(pull.title);
+  });
+
+  it('opens stored references and routes a task to its own workspace', () => {
+    const { dispatchEvent } = storage();
+    const issue: PinnedItem = { key: 'trinodb/trino#5', title: 'Connector issue', target: { kind: 'issue', repo: 'trinodb/trino', number: 5, workspaceId: 'ws-2' } };
+    const jira: PinnedItem = { key: 'jira:cloud:6', title: 'Connector ticket', target: { kind: 'jira', connectionId: 'connection', cloudId: 'cloud', issueId: '6' } };
+    for (const item of [pull, issue, jira]) {
+      setPinned(item, true);
+      const restored = loadPinned().find(candidate => candidate.key === item.key);
+      expect(restored).toBeDefined();
+      if (restored === undefined) throw new Error('Pin was not restored');
+      openPinned(restored);
+      const event = dispatchEvent.mock.calls.at(-1)?.[0] as CustomEvent;
+      expect(event.type).toBe(ZOOM_REFERENCE);
+      expect(event.detail).toEqual(item.target.kind === 'jira' ? { ...item.target, start: false } : item.target);
+    }
+    openPinned(task);
+    expect(window.location.hash).toBe('#/workspaces/ws-2/tasks/agent/task-1');
+    const review: PinnedItem = { key: 'review:review-1', title: 'Local review', target: { kind: 'review', workspaceId: 'ws-3', reviewId: 'review-1' } };
+    setPinned(review, true);
+    expect(loadPinned()).toContainEqual(review);
+    openPinned(review);
+    expect(window.location.hash).toBe('#/workspaces/ws-3/tasks/review/review-1');
+  });
+
+  it('ignores malformed persisted pins instead of exposing a broken navigation control', () => {
+    const { values } = storage();
+    values.set('bytequay.attention.pinned.v1', JSON.stringify([pull, { title: 'Broken' }, { ...task, target: { kind: 'task' } }]));
+    expect(loadPinned()).toEqual([pull]);
+    values.set('bytequay.attention.pinned.v1', '{');
+    expect(loadPinned()).toEqual([]);
   });
 });

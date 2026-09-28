@@ -540,15 +540,23 @@ Repository refresh discovers every pull request updated within 30 days without f
 plus older pull requests that remain open. Search results can add or update rows but their absence
 never deletes a row. A known row omitted by the current search is reconciled through GitHub's exact
 repository-and-number endpoint before retention runs. Closed rows expire only after both their close
-time and last GitHub update are older than 30 days. The background job runs six minutes after its
-previous refresh completes. New PRs, changed GitHub update timestamps, and missing local details
-refresh the full aggregate immediately. An unchanged open dashboard PR refreshes mergeability and CI
+time and last GitHub update are older than 30 days. A dedicated summary job checks every 15 seconds,
+reading the newest 100 rows from each personal dashboard search without fetching detail, checks,
+or diffs. This bounded scan only adds or updates rows; it never prunes omitted rows. GitHub's
+notification feed supplements search and respects its conditional responses and server-specified
+polling interval. The summary job has its own scheduler so a slow repository or detail scan cannot
+hold up new cards. Older responses cannot overwrite newer stored summaries.
+
+The separate full background refresh uses the configured interval, six minutes by default.
+New PRs, changed GitHub update timestamps, and missing local details refresh the full aggregate
+during that scan. An unchanged open dashboard PR refreshes mergeability and CI
 when its stored status is at least six minutes old, including older open PRs. Explicitly monitored
 PRs continue refreshing after closure; unmonitored unchanged closed PRs are skipped. Authored closed
 PR discovery uses recent activity, so a new comment can bring an older closed PR back into the snapshot.
 
 Dashboard refresh requests for the same GitHub credential join an in-flight dashboard refresh and
-reuse a successful dashboard snapshot for six minutes after it completes. A credential change waits
+reuse a successful dashboard snapshot for six minutes after it completes. Scheduled full refreshes
+already enforce their interval and bypass this cache, avoiding a skipped six-minute cycle. A credential change waits
 for older in-flight work and then starts a new scan. This keeps a manual refresh from queuing behind
 scheduled repository work and then repeating the same GitHub discovery scan. The frontend keeps the
 persisted list visible while a refresh is in progress, reloads the current search when it completes,
@@ -582,15 +590,20 @@ Attention rows display the latest known GitHub action, its actor, and its own ev
 The local timeline supplies this summary in one batch read; display never fetches GitHub or loads
 full PR details per row. Local workflow events and subscription bookkeeping are excluded. When
 GitHub's PR update timestamp is newer than the known timeline action, the row says `Updated`
-without attributing it to a person. The row's age and ordering within each attention reason use
-this GitHub timestamp, while the reason remains on the icon tooltip and preview. Local activity
+without attributing it to a person. All cards sort by their newest source update or event timestamp
+before filtering and the four-card limit; attention reason only breaks equal-time ties. The row's
+age uses this same source timestamp. Local activity
 timestamps continue to drive monitoring and acknowledgment, independently of the displayed age.
 
-Electron checks the local attention projection every 30 seconds and shows a native notification for
+Electron checks the local attention projection every five seconds, forwards it to both Home views,
+and shows a native notification for
 new monitored activity discovered by GitHub refresh. This continues while the app runs with its window
 closed. Notification clicks open the PR in ByteQuay. Delivery marks and a copy of the renderer's local
-acknowledgment/snooze state survive restart in Electron's application data. Acknowledgment and
-"until new activity" snoozes wake on changed activity; timed snoozes remain quiet until their deadline.
+acknowledgment/snooze state and pinned item keys survive restart in Electron's application data.
+Acknowledgment and completed detail visits wake on changed activity; timed snoozes remain quiet
+until their deadline and remind again even without a source change. Pinned items stay quiet until
+unpinned. The renderer persists the global pinned destinations and shares pin/handling changes
+between Home, workspace Home, item details and the sidebar.
 The bell does not announce activity that predates enabling it.
 
 ### 6.2 Issue flow

@@ -21,6 +21,7 @@ import { parseUnifiedDiff } from '../diffParse';
 import RepoAvatar from '../RepoAvatar';
 import { relativeTime } from '../relativeTime';
 import UserAvatar from '../UserAvatar';
+import { recordAttentionAction } from '../home/useAttentionVisit';
 import type {
   Bridge,
   PullCommentTarget,
@@ -185,6 +186,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, loca
         onClose={state.toLowerCase() === 'open' && (detail.viewerCanWrite || pr.origin === 'AUTHORED')
           ? async () => {
               await window.bridge.closePr(pr.repo, pr.number);
+              recordAttentionAction(`${pr.repo}#${pr.number}`, 'update');
               await onRefresh();
             }
           : undefined}
@@ -290,6 +292,7 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate }: {
     onDetailUpdate(visibleDetail.repo, visibleDetail.number, optimistic);
     try {
       await action();
+      recordAttentionAction(`${visibleDetail.repo}#${visibleDetail.number}`, 'update');
       onDetailUpdate(visibleDetail.repo, visibleDetail.number, optimistic);
       setOptimisticDetail(null);
       setOpen(null);
@@ -628,6 +631,7 @@ function DescriptionCard({ pr, detail, fallbackAuthor, fallbackUrl, onDetailUpda
     onDetailUpdate(detail.repo, detail.number, current => ({ ...current, body: nextBody }));
     try {
       await window.bridge.updatePrDescription(detail.repo, detail.number, nextBody);
+      recordAttentionAction(`${detail.repo}#${detail.number}`, 'update');
       onDetailUpdate(detail.repo, detail.number, current => ({ ...current, body: nextBody }));
       return true;
     }
@@ -976,6 +980,7 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
     setError('');
     try {
       await window.bridge.replyToReviewComment(pr.repo, pr.number, rootCommentId, body.trim());
+      recordAttentionAction(`${pr.repo}#${pr.number}`, 'comment');
     }
     catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not post reply.');
@@ -1001,6 +1006,7 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
       current, activity.githubId, rootCommentId, desired));
     try {
       await window.bridge.setReviewThreadResolved(pr.repo, pr.number, rootCommentId, desired);
+      recordAttentionAction(`${pr.repo}#${pr.number}`, 'update');
       onDetailUpdate(pr.repo, pr.number, current => updateReviewThreadResolution(
         current, activity.githubId, rootCommentId, desired));
     }
@@ -1200,6 +1206,7 @@ export function CommentEditor({ pr, target, commentId, body, draft, suggestion, 
     setError('');
     try {
       const response = await window.bridge.editPrComment(pr.repo, pr.number, target, commentId, draft);
+      recordAttentionAction(`${pr.repo}#${pr.number}`, 'update');
       onDetailUpdate(pr.repo, pr.number, current => mergePullRequestWriteDetail(current, response));
       onClose();
     }
@@ -1484,6 +1491,7 @@ function ChecksCard({ pr, detail, onRefresh }: {
     setRerunError(null);
     try {
       await window.bridge.rerunFailedPrChecks(pr.repo, pr.number);
+      recordAttentionAction(`${pr.repo}#${pr.number}`, 'update');
       setRerunRequested(true);
       await onRefresh();
     }
@@ -2042,6 +2050,7 @@ function useReactionAction(
     }
     try {
       const result = await submitPullReaction(window.bridge, { repo, number, target, commentId, reactions: base }, content);
+      recordAttentionAction(`${repo}#${number}`, 'update');
       const confirmed = applyViewerReaction(
         optimistic ?? base, content, result.viewerHasReacted);
       confirmation.current = { key, content, viewerHasReacted: result.viewerHasReacted };
@@ -2113,6 +2122,7 @@ export async function submitPullRequestComment(
   onDetailChange: (detail: PullRequestDetailDto) => void,
 ) {
   onDetailChange(await bridge.commentPr(repo, number, body));
+  recordAttentionAction(`${repo}#${number}`, 'comment');
 }
 
 function Reactions({ reactions, reaction, alwaysShowPicker = false }: {

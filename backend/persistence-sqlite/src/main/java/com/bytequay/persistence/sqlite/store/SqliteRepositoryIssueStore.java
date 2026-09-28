@@ -163,4 +163,13 @@ public class SqliteRepositoryIssueStore
         requireNonNull(updatedAt, "updatedAt is null");
         issueRows.findByRepositoryIdAndNumber(repositoryId, issueNumber).ifPresent(issue -> issue.updateContent(title, body, updatedAt));
     }
+
+    @Override
+    @Transactional
+    public void updateActivity(long repositoryId, int issueNumber, int commentCount, Instant updatedAt)
+    {
+        checkArgument(commentCount >= 0, "commentCount is negative");
+        requireNonNull(updatedAt, "updatedAt is null");
+        issueRows.findByRepositoryIdAndNumber(repositoryId, issueNumber).ifPresent(issue -> issue.updateActivity(commentCount, updatedAt));
+    }
 }

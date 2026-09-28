@@ -23,19 +23,20 @@ import {
 export type PrNotificationState = {
   handled: Handled;
   delivered: Record<string, string>;
+  pinnedKeys?: string[];
 };
 
-export function notificationVersion(item: AttentionItem): string {
-  return JSON.stringify([item.pr?.monitoredAt, attentionActivityVersion(item)]);
+export function notificationVersion(item: AttentionItem, handled?: Handled[string]): string {
+  return JSON.stringify([item.pr?.monitoredAt, attentionActivityVersion(item), handled?.kind === 'snooze' ? handled.until : null]);
 }
 
 /** The monitoring baseline prevents enabling the bell from announcing existing activity. */
 export function pendingPrNotifications(prs: PullRequestDto[], state: PrNotificationState, now: number): AttentionItem[] {
   return visibleAttention(attentionCandidates(prs), state.handled, now).filter(item => {
     const pr = item.pr;
-    return pr?.monitoredAt != null
+    return !state.pinnedKeys?.includes(item.key) && pr?.monitoredAt != null
       && Date.parse(pr.activityAt ?? pr.updatedAt) > Date.parse(pr.monitoredAt)
-      && state.delivered[item.key] !== notificationVersion(item);
+      && state.delivered[item.key] !== notificationVersion(item, state.handled[item.key]);
   });
 }
 
@@ -47,6 +48,7 @@ function object(value: unknown): value is Record<string, unknown> {
 export function parsePrNotificationState(value: unknown): PrNotificationState {
   const state: PrNotificationState = { handled: {}, delivered: {} };
   if (!object(value)) return state;
+  if (Array.isArray(value.pinnedKeys)) state.pinnedKeys = value.pinnedKeys.filter((key): key is string => typeof key === 'string');
   if (object(value.delivered)) {
     state.delivered = Object.fromEntries(Object.entries(value.delivered).filter((entry): entry is [string, string] =>
       typeof entry[1] === 'string'));

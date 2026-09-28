@@ -56,12 +56,19 @@ export function useWorkspaceAttention(workspaceId: string, repository: string, t
   const tickets = useMemo(() => jira.items.filter(item => item.jira?.workspace?.id === workspaceId), [jira.items, workspaceId]);
   useEffect(() => {
     let active = true;
+    let request = 0;
     const apply = (rows: PullRequestDto[]) => {
       setCached(ATTENTION_SEED.prs, rows);
-      if (active) setPrs(rows);
+      setPrs(rows);
     };
-    const reload = () => { void window.bridge.fetchAttentionPrs().then(apply).catch(() => {}); };
-    const updated = (event: Event) => apply((event as CustomEvent<PullRequestDto[]>).detail);
+    const reload = () => {
+      const current = ++request;
+      void window.bridge.fetchAttentionPrs().then(rows => { if (active && current === request) apply(rows); }).catch(() => {});
+    };
+    const updated = (event: Event) => {
+      request++;
+      apply((event as CustomEvent<PullRequestDto[]>).detail);
+    };
     const handledChanged = () => setHandled(loadHandled());
     reload();
     const stopSync = window.bridge.onPullRequestsSynced(reload);

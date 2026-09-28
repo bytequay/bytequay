@@ -15,7 +15,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import App from '../App';
 import { createPreviewBridge } from '../agents/fixtures/previewBridge';
-import { jiraRoute, type JiraConnection, type JiraIssueDetail } from '../jira/contracts';
+import { jiraRoute, notifyJiraChanged, type JiraConnection, type JiraIssueDetail } from '../jira/contracts';
 import { jiraDetail, jiraIssue } from '../jira/fixtures/jira';
 import type { Bridge, InAppBrowserState, RepositoryIssueSnapshotDto, WorkspaceDto } from '../types';
 import { assert, changeInput, settle } from './harness';
@@ -113,6 +113,7 @@ function installBridge() {
 }
 
 async function withApp(hash: string, scenario: () => Promise<void>): Promise<void> {
+  window.localStorage.clear();
   installBridge();
   window.location.hash = hash;
   const host = document.createElement('div');
@@ -120,7 +121,7 @@ async function withApp(hash: string, scenario: () => Promise<void>): Promise<voi
   const root = createRoot(host);
   flushSync(() => root.render(<App />));
   try { await scenario(); }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { flushSync(() => root.unmount()); host.remove(); await settle(); }
 }
 
 async function ticketLinksOverThePage(): Promise<void> {
@@ -188,7 +189,10 @@ async function homeRowsOverHome(): Promise<void> {
     await until(() => ticketLayer()?.matches(':modal') ?? false, 'The Home row opened the ticket');
     assert(window.location.hash === '#/home' && onTop(ticketLayer()), 'The ticket is drawn over Home instead of leaving it');
     ticketLayer()?.querySelector<HTMLButtonElement>('button[aria-label="Close ticket"]')?.click();
-    await until(() => ticketLayer() === null && row() !== null, 'Closing the ticket returns to Home');
+    await until(() => ticketLayer() === null && row() === null, 'Closing the viewed ticket clears its notification on Home');
+    ticket.updatedAt = new Date(Date.parse(ticket.updatedAt) + 60_000).toISOString();
+    notifyJiraChanged();
+    await until(() => row() !== null, 'A later ticket update returns to Home');
 
     row()?.querySelector<HTMLButtonElement>(`button[aria-label="Start development for ${ticket.key}"]`)?.click();
     const assignment = () => document.querySelector<HTMLDialogElement>(`dialog[aria-label="Assign workspace for ${ticket.key}"]`);

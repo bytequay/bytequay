@@ -198,6 +198,7 @@ export function reconcilePullRequestDetail(
     & Partial<Pick<PullRequestDetailDto, 'author' | 'labels' | 'reviewers'>>,
   viewerLogin?: string | null,
 ): PullRequestDto {
+  if (detail.updatedAt !== null && Date.parse(detail.updatedAt) < Date.parse(pr.updatedAt)) return pr;
   const state = detail.state?.toLowerCase() ?? pr.state;
   const updatedAt = detail.updatedAt ?? pr.updatedAt;
   const labels = detail.labels?.map(label => label.name) ?? pr.labels;

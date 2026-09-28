@@ -43,6 +43,9 @@ import { parsePullSearch, pullRequestMatchesSearch } from '../pulls/model';
 import { relativeTime } from '../relativeTime';
 import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
 import { useRecentTouch } from '../recent/useRecentTouch';
+import { issueAttentionItem, loadHandled } from '../home/attention';
+import PinButton from '../home/PinButton';
+import { completeAttentionVisit, recordAttentionAction, useAttentionVisit } from '../home/useAttentionVisit';
 import type {
   Bridge,
   IssueDevelopmentTaskDto,
@@ -64,7 +67,6 @@ const DETAIL_MAX = 1600;
 const DETAIL_DEFAULT = 1120;
 const PAGE_SIZE = 50;
 const HIDDEN_EVENTS = new Set(['comment_deleted', 'mentioned', 'subscribed', 'unsubscribed']);
-const NO_CLOSE = () => {};
 
 type IssueDetailBridge = Pick<Bridge, 'fetchWorkspaceIssueDetail' | 'refreshWorkspaceIssueDetail'>;
 
@@ -94,8 +96,13 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
 }) {
   const overlay = onClose !== undefined;
   const overlayRef = useRef<HTMLDivElement | null>(null);
-  const zoom = useZoom(onClose ?? NO_CLOSE, overlay);
+  const close = useCallback(() => {
+    if (initialIssueNumber !== null) void completeAttentionVisit(`${repository}#${initialIssueNumber}`);
+    onClose?.();
+  }, [initialIssueNumber, onClose, repository]);
+  const zoom = useZoom(close, overlay);
   const [snapshot, setSnapshot] = useState<RepositoryIssueSnapshotDto | null>(null);
+  const [previewIssue, setPreviewIssue] = useState<(Issue & { state: string }) | null>(null);
   const [metadata, setMetadata] = useState<RepositoryMetadataDto | null>(null);
   const [search, setSearch] = useState('');
   const [labelFilter, setLabelFilter] = useState('');
@@ -118,6 +125,34 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   const openedInitialIssue = useRef<number | null>(null);
   const routingInitialIssue = useRef<number | null>(null);
 
+  const readPreview = useCallback(async (number: number): Promise<Issue & { state: string }> => {
+    const [owner, repo] = repository.split('/');
+    const preview = await window.bridge.fetchGitHubIssuePreview(owner, repo, number);
+    if (preview.pullRequest) throw new Error('This reference is a pull request, not an issue.');
+    const commentCount = loadHandled()[`${repository}#${number}`]?.snoozedItem?.commentCount ?? 0;
+    // The read-only preview has no cache-row identity; its negative key stays in this component.
+    return { ...preview, id: -number, number, authorAvatarUrl: '', htmlUrl: `https://github.com/${repository}/issues/${number}`,
+      assignees: [], commentCount, createdAt: '' };
+  }, [repository]);
+
+  const refreshPreview = async (number: number) => {
+    setDetailLoading(true); setDetailError(null);
+    try {
+      const issue = await readPreview(number);
+      setPreviewIssue(current => current?.number === number ? issue : current);
+      setClosedIssueId(issue.state.toLowerCase() === 'closed' ? issue.id : null);
+    }
+    catch (failure) { setDetailError(remoteErrorMessage(failure)); }
+    finally { setDetailLoading(false); }
+  };
+
+  const refreshIssueRow = useCallback(async (issueNumber: number) => {
+    const issue = await window.bridge.fetchWorkspaceIssue(workspaceId, issueNumber).catch((): null => null);
+    if (issue !== null) setSnapshot(current => current === null || `${current.repository.owner}/${current.repository.repo}` !== repository ? current : {
+      ...current, issues: current.issues.map(candidate => candidate.number === issueNumber ? issue : candidate),
+    });
+  }, [workspaceId, repository]);
+
   const apply = useCallback((value: RepositoryIssueSnapshotDto) => {
     setSnapshot(value);
     setSelectedId(current => value.issues.some(issue => issue.id === current)
@@ -135,6 +170,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
       if (request === detailRequest.current) {
         setTimeline(detail.timeline);
         setIssueType({ current: detail.currentType, available: detail.availableTypes });
+        await refreshIssueRow(issueNumber);
       }
     }
     catch (failure) {
@@ -145,15 +181,17 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     finally {
       if (request === detailRequest.current) setDetailLoading(false);
     }
-  }, [workspaceId]);
+  }, [workspaceId, refreshIssueRow]);
 
   const updateIssueType = useCallback(async (issueNumber: number, type: string | null) => {
     const request = ++detailRequest.current;
     setMutationError(null);
     try {
       const nextType = await window.bridge.updateWorkspaceIssueType(workspaceId, issueNumber, type);
+      recordAttentionAction(`${repository}#${issueNumber}`, 'update');
       if (request !== detailRequest.current) return;
       setIssueType(nextType);
+      await refreshIssueRow(issueNumber);
     }
     catch (failure) {
       if (request === detailRequest.current) {
@@ -161,7 +199,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
         throw failure;
       }
     }
-  }, [workspaceId]);
+  }, [workspaceId, repository, refreshIssueRow]);
 
   const updateIssueMetadata = useCallback(async (
     issueNumber: number,
@@ -176,24 +214,27 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
         assignees,
         labels,
       );
+      recordAttentionAction(`${repository}#${issueNumber}`, 'update');
       setSnapshot(current => current ? {
         ...current,
         issues: current.issues.map(issue => issue.number === issueNumber
           ? { ...issue, assignees: updated.assignees, labels: updated.labels }
           : issue),
       } : current);
+      await refreshIssueRow(issueNumber);
     }
     catch (failure) {
       setMutationError(remoteErrorMessage(failure));
       throw failure;
     }
-  }, [workspaceId]);
+  }, [workspaceId, repository, refreshIssueRow]);
 
   const toggleGoal = useCallback(async (issue: Issue) => {
     setChangingGoal(issue.id);
     setMutationError(null);
     try {
       const development = await window.bridge.setWorkspaceIssueGoal(workspaceId, issue.number, !issue.isGoal);
+      recordAttentionAction(`${repository}#${issue.number}`, 'update');
       setSnapshot(current => current === null ? null : {
         ...current,
         issues: current.issues.map(candidate => candidate.id === issue.id ? { ...candidate, ...development } : candidate),
@@ -204,12 +245,13 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
       setMutationError(remoteErrorMessage(failure));
     }
     finally { setChangingGoal(null); }
-  }, [workspaceId]);
+  }, [workspaceId, repository]);
 
   const closeIssue = useCallback(async (issue: Issue) => {
     setMutationError(null);
     try {
       await window.bridge.closeWorkspaceIssue(workspaceId, issue.number);
+      recordAttentionAction(`${repository}#${issue.number}`, 'update');
       notifyIssueDevelopmentChanged();
       // The store has already dropped the issue, so reloading the list here would swap the issue being read.
       setClosedIssueId(issue.id);
@@ -217,7 +259,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     catch (failure) {
       setMutationError(remoteErrorMessage(failure));
     }
-  }, [workspaceId]);
+  }, [workspaceId, repository]);
 
   const refreshIssues = useCallback(async () => {
     setLoading(true);
@@ -248,6 +290,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     let cancelled = false;
     setLoading(true);
     setSnapshot(null);
+    setPreviewIssue(null);
     setSearch('');
     setLabelFilter('');
     loadingMoreRequest.current = false;
@@ -281,9 +324,14 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     }
     let cancelled = false;
     void window.bridge.fetchWorkspaceIssue(workspaceId, initialIssueNumber)
+      .catch(() => readPreview(initialIssueNumber))
       .then(issue => {
         if (cancelled) return;
-        setSnapshot(current => current ? {
+        if ('state' in issue) {
+          setPreviewIssue(issue);
+          setClosedIssueId(issue.state.toLowerCase() === 'closed' ? issue.id : null);
+        }
+        else setSnapshot(current => current ? {
           ...current,
           issues: [issue, ...current.issues.filter(candidate => candidate.id !== issue.id)],
         } : current);
@@ -294,7 +342,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
         if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
       });
     return () => { cancelled = true; };
-  }, [initialIssueNumber, loading, snapshot, workspaceId]);
+  }, [initialIssueNumber, loading, snapshot, workspaceId, readPreview]);
 
   const loadMore = useCallback(async () => {
     if (!snapshot?.hasMore || loadingMoreRequest.current) return;
@@ -322,7 +370,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     }
   };
 
-  const selected = snapshot?.issues.find(issue => issue.id === selectedId) ?? null;
+  const selected = snapshot?.issues.find(issue => issue.id === selectedId) ?? (previewIssue?.id === selectedId ? previewIssue : null);
   const selectedNumber = selected?.number ?? null;
 
   useEffect(() => {
@@ -348,14 +396,14 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     setTimeline([]);
     setIssueType(null);
     setMutationError(null);
-    if (selectedNumber !== null) {
+    if (selectedNumber !== null && selectedId !== previewIssue?.id) {
       void loadDetail(selectedNumber);
     }
     else {
       detailRequest.current += 1;
       setDetailLoading(false);
     }
-  }, [loadDetail, selectedNumber]);
+  }, [loadDetail, selectedNumber, selectedId, previewIssue?.id]);
 
   const resizeDetail = (event: ReactMouseEvent) => {
     event.preventDefault();
@@ -399,6 +447,10 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   });
 
   const paneShown = (paneOpen || overlay) && selected !== null;
+  const visit = useAttentionVisit(selected === null ? null : {
+    ...issueAttentionItem(selected, repository, workspaceId),
+    issueState: selected === previewIssue ? previewIssue.state : closedIssueId === selected.id ? 'closed' : 'open',
+  }, paneShown);
   const labelColors = Object.fromEntries((metadata?.labels ?? []).map(label => [label.name, label.color]));
   const issues = snapshot?.issues ?? [];
   const searchTerms = parsePullSearch(search);
@@ -485,8 +537,11 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
             <div className="pull-detail__title-row">
               <h1>{linkIssueNumbers(selected.title, repository, true)} {selected.isGoal && <GoalBadge />}</h1>
               <div className="pull-detail__header-actions">
+                <span className="attention-visit-status" role="status">{visit.status}</span>
+                <PinButton className="pull-detail__icon-action" item={{ key: `${repository}#${selected.number}`, title: selected.title,
+                  reference: `${repository} #${selected.number}`, target: { kind: 'issue', repo: repository, number: selected.number, workspaceId } }} />
                 <button className="pull-detail__icon-action" type="button" title="Refresh" aria-label="Refresh" disabled={detailLoading}
-                  onClick={() => { void loadDetail(selected.number, true); }}><RefreshIcon /></button>
+                  onClick={() => { void (selected === previewIssue ? refreshPreview(selected.number) : loadDetail(selected.number, true)); }}><RefreshIcon /></button>
                 {overlay
                   ? <ZoomActions {...zoom} label="issue details" className="pull-detail__icon-action" />
                   : <button className="pull-detail__review-action" type="button"
@@ -503,15 +558,16 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
           )}
           {mutationError && <div className="pull-detail__error" role="alert">Could not update issue. {mutationError}</div>}
           <div className="pull-detail__body">
-            <IssueOverview key={selected.id} issue={selected} closed={selected.id === closedIssueId} metadata={metadata} timeline={timeline} issueType={issueType}
+            <IssueOverview key={selected.id} issue={selected} closed={selected.id === closedIssueId} readOnly={selected === previewIssue} metadata={metadata} timeline={timeline} issueType={issueType}
               repository={repository} workspaceId={workspaceId}
-              actions={<IssueDevelopmentActions issue={selected} onStart={onStartDevelopment === undefined ? undefined : setStartingIssue} onViewTask={onViewTask}
+              actions={selected === previewIssue ? undefined : <IssueDevelopmentActions issue={selected} onStart={onStartDevelopment === undefined ? undefined : setStartingIssue} onViewTask={onViewTask}
                 onToggleGoal={() => { void toggleGoal(selected); }} changingGoal={changingGoal !== null} />}
               timelineLoading={detailLoading} onTypeChange={type => updateIssueType(selected.number, type)}
               onMetadataChange={(assignees, labels) => updateIssueMetadata(selected.number, assignees, labels)}
               onClose={() => closeIssue(selected)}
               onComment={async body => {
                 await window.bridge.commentWorkspaceIssue(workspaceId, selected.number, body);
+                visit.onAction('comment');
                 await loadDetail(selected.number);
               }} />
           </div>
@@ -619,6 +675,7 @@ type IssueMetadataPickerKind = 'participants' | 'assignees' | 'labels';
 export function IssueOverview({
   issue,
   closed = false,
+  readOnly = false,
   metadata,
   timeline,
   issueType,
@@ -633,6 +690,7 @@ export function IssueOverview({
 }: {
   issue: Issue;
   closed?: boolean;
+  readOnly?: boolean;
   metadata: RepositoryMetadataDto | null;
   timeline: WorkspaceIssueTimelineEventDto[];
   issueType: WorkspaceIssueTypeDto | null;
@@ -773,6 +831,7 @@ export function IssueOverview({
         </div>
         <div className="pr-meta__picker">
           <button type="button" className={`pr-meta__chip${open === 'assignees' ? ' is-open' : ''}`}
+            disabled={readOnly}
             aria-expanded={open === 'assignees'} aria-haspopup="listbox" onClick={() => togglePicker('assignees')}>
             <User size={15} strokeWidth={1.4} aria-hidden="true" /> <small>Assignees</small>{issue.assignees.length > 0 ? ` ${issue.assignees.length}` : ''}
           </button>
@@ -783,6 +842,7 @@ export function IssueOverview({
         </div>
         <div className="pr-meta__picker">
           <button type="button" className={`pr-meta__chip${open === 'labels' ? ' is-open' : ''}`}
+            disabled={readOnly}
             aria-expanded={open === 'labels'} aria-haspopup="listbox" onClick={() => togglePicker('labels')}>
             <span className="pr-meta__label-dots" aria-hidden="true">
               {issue.labels.slice(0, 2).map(label => <i className="pr-meta__label-dot" style={{ background: labelColor(colors[label]) }} key={label} />)}
@@ -794,7 +854,7 @@ export function IssueOverview({
             loadingText="Loading repository labels…" emptyText="No labels found"
             onToggle={option => { void updateMetadata(issue.assignees, toggleSelection(issue.labels, option.key)); }} />}
         </div>
-        <IssueTypeChip issueType={issueType} onChange={onTypeChange} />
+        {!readOnly && <IssueTypeChip issueType={issueType} onChange={onTypeChange} />}
         {pickerError && <div className="pr-meta__error" role="alert">Could not load metadata options. {pickerError}</div>}
       </div>
 
@@ -822,9 +882,9 @@ export function IssueOverview({
             ? <SkeletonTimeline label="Loading activity…" />
             : <div className="pr-event issues-activity-loading"><span className="issues-event-marker">…</span><span>Loading activity…</span></div>)}
         </section>
-        <DiscussionComposer betterWords workspaceId={workspaceId}
+        {!readOnly && <DiscussionComposer betterWords workspaceId={workspaceId}
           candidates={candidates} repository={repository} quotedReply={quotedReply} closeLabel="Close issue"
-          onClose={closed ? undefined : onClose} onSubmit={onComment} />
+          onClose={closed ? undefined : onClose} onSubmit={onComment} />}
       </main>
     </div>
   );

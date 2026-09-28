@@ -14,7 +14,7 @@
 
 import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
-import JiraScreen from '../JiraScreen';
+import JiraScreen, { JiraTicketLayer } from '../JiraScreen';
 import { LayerCovered } from '../../Zoom';
 import { jiraDetail, jiraIssue } from './jira';
 import { jiraRoute, type JiraConnection, type JiraIssue, type JiraIssueDetail, type JiraQuery, type JiraUser } from '../contracts';
@@ -22,6 +22,9 @@ import type { Bridge, CreateAgentTaskRequest, WorkspaceDto } from '../../types';
 import { createPreviewBridge, previewTask } from '../../agents/fixtures/previewBridge';
 import { assert, settle } from '../../fixtures/harness';
 import { ZOOM_REFERENCE } from '../../githubReference';
+import { loadHandled, visibleAttention } from '../../home/attention';
+import { loadPinned } from '../../home/pinned';
+import { jiraAttentionItem } from '../attention';
 import '../../css/base.css';
 import '../../css/pulls.css';
 import '../../css/agents.css';
@@ -122,6 +125,43 @@ export async function mountPreview(offline = false, openIssue = true, body = jir
 export async function run(richDescription: string): Promise<{ name: string; error?: string }[]> {
   const results: { name: string; error?: string }[] = [];
   for (const [name, test] of Object.entries({
+    async 'handles a ticket only after closing and records successful comments and global pins'() {
+      await mountPreview();
+      const status = () => document.querySelector('.jira-detail .attention-visit-status')?.textContent;
+      const key = `jira:${issue.cloudId}:${issue.id}`;
+      assert(status() === 'Viewed' && loadHandled()[key] === undefined, 'Opening a ticket marks Viewed without removing its notification');
+      button('Refresh ticket').click(); await until(() => !button('Refresh ticket').disabled);
+      assert(status() === 'Viewed', 'Reading updated ticket data is not a state mutation');
+      const composer = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Write a reply…"]');
+      assert(composer !== null, 'Comment composer exists');
+      edit(composer, 'First reply'); await settle(); button('Send comment').click();
+      await until(() => document.body.textContent?.includes('Connection lost') ?? false);
+      assert(status() === 'Viewed', 'A failed write does not count as a posted comment');
+      issue = { ...issue, updatedAt: '2026-09-26T09:00:00Z' };
+      button('Send comment').click(); await until(() => composer.value === '');
+      assert(status() === 'Posted 1 comment' && loadHandled()[key] === undefined, 'Successful comments stay visible during the visit');
+      edit(composer, 'Second reply'); await settle(); button('Send comment').click(); await until(() => composer.value === '');
+      assert(status() === 'Posted 2 comments', 'Comment count tracks both successful sends');
+      button(`Pin ${issue.title}`).click(); await settle();
+      assert(loadPinned().some(item => item.key === key), 'The header stores a global pin');
+      button(`Unpin ${issue.title}`).click(); await settle();
+      const zoomHost = document.createElement('div'); document.body.append(zoomHost);
+      const zoomRoot = createRoot(zoomHost);
+      try {
+        flushSync(() => zoomRoot.render(<JiraTicketLayer location={{ connectionId: issue.connectionId, cloudId: issue.cloudId, issueId: issue.id }} onClose={() => zoomRoot.unmount()} />));
+        await until(() => zoomHost.querySelector('.attention-visit-status')?.textContent === 'Posted 2 comments');
+        button('Close ticket', zoomHost).click();
+        await until(() => loadHandled()[key]?.label === 'Posted 2 comments');
+        assert(document.querySelector('.jira-detail') !== null && zoomHost.querySelector('.jira-detail') === null,
+          'Closing a second view handles the ticket while the original detail remains mounted');
+      }
+      finally { zoomRoot.unmount(); zoomHost.remove(); }
+      button('Close ticket').click(); await until(() => document.querySelector('.jira-detail') === null); await settle();
+      assert(loadHandled()[key]?.label === 'Posted 2 comments', 'Closing acknowledges the visited ticket with its actual actions');
+      assert(visibleAttention([jiraAttentionItem(issue)], loadHandled(), Date.now()).length === 0, 'The final displayed version stays handled');
+      assert(visibleAttention([jiraAttentionItem({ ...issue, updatedAt: '2026-09-27T09:00:00Z' })], loadHandled(), Date.now()).length === 1,
+        'Later ticket activity creates a new notification');
+    },
     async 'renders Jira rich descriptions as headings, tables and formatted code'() {
       await mountPreview(false, true, richDescription);
       const description = document.querySelector<HTMLElement>('.jira-description .markdown-body'); assert(description !== null, 'Description exists');

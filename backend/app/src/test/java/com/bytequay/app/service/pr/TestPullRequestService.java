@@ -24,6 +24,7 @@ import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubActionsClient.PrCheckRunsFetch;
 import com.bytequay.app.repository.github.GitHubMergeClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient.AttentionPrRef;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullRequestFetch;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
@@ -269,7 +270,7 @@ class TestPullRequestService
         var order = inOrder(detailStore, store);
         order.verify(detailStore).save(row.id(), baseline);
         order.verify(store).updateEnrichment(
-                eq(row.id()), any(), anyInt(), anyInt(), anyInt(), any(), any(), any(), any(), anyList(), any(), any(), any(),
+                eq(row.id()), any(), any(), anyInt(), anyInt(), anyInt(), any(), any(), any(), any(), anyList(), any(), any(), any(),
                 eq(PullRequestService.activityFingerprints(baseline)));
         order.verify(store).setMonitored(row.id(), true);
         verify(gitHub).fetchPrDetail("pat", ref);
@@ -363,6 +364,123 @@ class TestPullRequestService
         monitoredService.syncFromGitHub();
 
         verify(monitoredService).refreshPullRequestDetailFromGitHub("owner/repo", 7);
+    }
+
+    @Test
+    void fastSummarySyncReadsOnlyTheNewestPageWithoutDetailsOrPruning()
+    {
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(pullRequest()), true));
+
+        service.syncAttentionSummaries();
+
+        verify(gitHub, times(4)).searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100));
+        verify(gitHub).fetchPrNotificationRefs("pat");
+        verifyNoMoreInteractions(gitHub);
+        verify(store).saveObserved(pullRequest().withOrigin(PullRequest.Origin.AUTHORED));
+        verifyNoMoreInteractions(store);
+        verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
+    }
+
+    @Test
+    void fastSummaryNotificationsFetchOnlyWhenTheirVersionChanges()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        AttentionPrRef first = new AttentionPrRef(ref, "review_requested", REVIEWED_AT);
+        AttentionPrRef changed = new AttentionPrRef(ref, "review_requested", REVIEWED_AT.plusSeconds(60));
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
+        when(gitHub.fetchPrNotificationRefs("pat"))
+                .thenReturn(ImmutableList.of(first), ImmutableList.of(first), ImmutableList.of(changed));
+        when(gitHub.getPullRequest("pat", ref)).thenReturn(pullRequest());
+
+        service.syncAttentionSummaries();
+        service.syncAttentionSummaries();
+        service.syncAttentionSummaries();
+
+        verify(gitHub, times(2)).getPullRequest("pat", ref);
+        verify(store, times(2)).saveObserved(pullRequest().withOrigin(PullRequest.Origin.REVIEW_REQUESTED));
+        verifyNoMoreInteractions(store);
+        verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
+    }
+
+    @Test
+    void fastSummaryNotificationsStillDiscoverRequestsWhenSearchIsRateLimited()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+                .thenThrow(new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Search limit reached"));
+        when(gitHub.fetchPrNotificationRefs("pat"))
+                .thenReturn(ImmutableList.of(new AttentionPrRef(ref, "review_requested", REVIEWED_AT)));
+        when(gitHub.getPullRequest("pat", ref)).thenReturn(pullRequest());
+
+        service.syncAttentionSummaries();
+
+        verify(store).saveObserved(pullRequest().withOrigin(PullRequest.Origin.REVIEW_REQUESTED));
+        verifyNoMoreInteractions(store);
+        verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
+    }
+
+    @Test
+    void notificationReviewRequestsPromotePreviouslyReviewedSearchResultsWithoutAnotherFetch()
+    {
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
+        when(gitHub.searchPullRequestsPaged("pat", "is:pr is:open reviewed-by:@me", 1, 100))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(pullRequest()), false));
+        when(gitHub.fetchPrNotificationRefs("pat"))
+                .thenReturn(ImmutableList.of(new AttentionPrRef(PullRequestRef.of("owner", "repo", 7), "review_requested", pullRequest().updatedAt())));
+
+        service.syncAttentionSummaries();
+
+        var order = inOrder(store);
+        order.verify(store).saveObserved(pullRequest().withOrigin(PullRequest.Origin.OTHER));
+        order.verify(store).saveObserved(pullRequest().withOrigin(PullRequest.Origin.REVIEW_REQUESTED));
+        verify(gitHub, never()).getPullRequest(anyString(), any());
+    }
+
+    @Test
+    void newerNotificationReadsAnExactSummaryWhenSearchHasNotCaughtUp()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        Instant updatedAt = pullRequest().updatedAt().plusSeconds(60);
+        FetchedPullRequest updated = pullRequest("open", updatedAt, null);
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
+        when(gitHub.searchPullRequestsPaged("pat", "is:pr is:open reviewed-by:@me", 1, 100))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(pullRequest()), false));
+        when(gitHub.fetchPrNotificationRefs("pat"))
+                .thenReturn(ImmutableList.of(new AttentionPrRef(ref, "review_requested", updatedAt)));
+        when(gitHub.getPullRequest("pat", ref)).thenReturn(updated);
+
+        service.syncAttentionSummaries();
+        service.syncAttentionSummaries();
+
+        verify(gitHub).getPullRequest("pat", ref);
+        verify(store).saveObserved(updated.withOrigin(PullRequest.Origin.REVIEW_REQUESTED));
+        verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
+    }
+
+    @Test
+    void fastSummaryNotificationsRefreshOtherReasonsOnlyForRetainedAttentionCandidates()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
+        when(gitHub.fetchPrNotificationRefs("pat")).thenReturn(ImmutableList.of(
+                new AttentionPrRef(ref, "comment", REVIEWED_AT),
+                new AttentionPrRef(PullRequestRef.of("unrelated", "repo", 8), "subscribed", REVIEWED_AT)));
+        when(store.findAttentionCandidates()).thenReturn(ImmutableList.of(storedPullRequest()));
+        FetchedPullRequest closed = pullRequest("closed", REVIEWED_AT.plusSeconds(60), REVIEWED_AT.plusSeconds(60));
+        when(gitHub.getPullRequest("pat", ref)).thenReturn(closed);
+
+        service.syncAttentionSummaries();
+        service.syncAttentionSummaries();
+
+        verify(gitHub).getPullRequest("pat", ref);
+        verify(gitHub, never()).getPullRequest(eq("pat"), eq(PullRequestRef.of("unrelated", "repo", 8)));
+        verify(store).saveObserved(closed.withOrigin(PullRequest.Origin.OTHER));
+        verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
     }
 
     @Test
@@ -637,7 +755,7 @@ class TestPullRequestService
         verify(store).completeDashboardSync(anyString(), eq("me"));
         verify(store, never()).findUpdatedAtByIds(any());
         verify(store, never()).updateEnrichment(
-                eq(12L), any(), anyInt(), anyInt(), anyInt(), any(), any(), any(), any(), anyList(), any(), any(), any(), any());
+                eq(12L), any(), any(), anyInt(), anyInt(), anyInt(), any(), any(), any(), any(), anyList(), any(), any(), any(), any());
         verify(accounts, never()).fetchViewerCanWrite(anyString(), any());
         verify(gitHub, never()).fetchPrDetail(anyString(), any());
         verify(actions, never()).fetchPrCheckRuns(anyString(), anyString(), anyString(), anyString());

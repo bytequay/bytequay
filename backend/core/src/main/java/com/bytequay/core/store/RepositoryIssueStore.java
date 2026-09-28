@@ -37,5 +37,7 @@ public interface RepositoryIssueStore
 
     void updateContent(long repositoryId, int issueNumber, String title, String body, Instant updatedAt);
 
+    void updateActivity(long repositoryId, int issueNumber, int commentCount, Instant updatedAt);
+
     void delete(long repositoryId, int issueNumber);
 }

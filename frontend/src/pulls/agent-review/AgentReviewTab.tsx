@@ -40,7 +40,7 @@ import type { LocalReviewThreads } from '../local-review/types';
 import ReviewActivity from './ReviewActivity';
 import ReviewFindingCard from './ReviewFindingCard';
 import ReviewDetails from './ReviewDetails';
-import { useFindingActions } from './useFindingActions';
+import { recordReviewAttentionAction, useFindingActions } from './useFindingActions';
 import ReviewSummaryCard from './ReviewSummaryCard';
 import { findingLines } from './contracts';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
@@ -240,6 +240,7 @@ export default function AgentReviewTab({
     const request = recoveryRequest.current;
     void run_(async () => {
       const updated = await window.bridge.stopAgentReviewRuntime(confirmed.reviewId, confirmed.impact.generation);
+      recordReviewAttentionAction(updated, 'update');
       if (recoveryRequest.current === request && currentReviewId.current === confirmed.reviewId) onReviewChange(updated);
     }).finally(() => {
       recoveryPending.current = false;
@@ -367,7 +368,7 @@ export default function AgentReviewTab({
     setStarting(true);
     setError(null);
     void window.bridge.startAgentReview(workspaceId, detail.repo, detail.number)
-      .then(onReviewChange)
+      .then(updated => { onReviewChange(updated); recordReviewAttentionAction(updated, 'prompt'); })
       .catch(failure => setError(remoteErrorMessage(failure)))
       .finally(() => setStarting(false));
   };
@@ -449,6 +450,7 @@ export default function AgentReviewTab({
     const key = `review-${delivery.toLowerCase()}:${review.id}:${text.length}:${Date.now()}`;
     if (delivery !== 'TURN') {
       onReviewChange(await window.bridge.messageAgentReview(review.id, text, delivery, key));
+      recordReviewAttentionAction(review, 'prompt');
       setComposer('');
       return;
     }
@@ -457,6 +459,7 @@ export default function AgentReviewTab({
     setComposer('');
     try {
       onReviewChange(await window.bridge.messageAgentReview(review.id, text, delivery, key));
+      recordReviewAttentionAction(review, 'prompt');
     }
     catch (failure) {
       dispatchConversation({ type: 'message/cleared' });
@@ -484,22 +487,22 @@ export default function AgentReviewTab({
         )}
         {running && (
           <button type="button" className="agr-action is-danger" disabled={busy}
-            onClick={() => { void run_(async () => onReviewChange(await window.bridge.stopAgentReview(review.id))); }}>Stop</button>
+            onClick={() => { void run_(async () => { onReviewChange(await window.bridge.stopAgentReview(review.id)); recordReviewAttentionAction(review, 'update'); }); }}>Stop</button>
         )}
         {!running && review.state === 'OPEN' && status?.status === 'stopped' && (
           <button type="button" className="agr-action" disabled={busy || recovery || localRun} title={localRunReason}
-            onClick={() => { void run_(async () => onReviewChange(await window.bridge.resumeAgentReview(review.id)), 'resume'); }}>
+            onClick={() => { void run_(async () => { onReviewChange(await window.bridge.resumeAgentReview(review.id)); recordReviewAttentionAction(review, 'prompt'); }, 'resume'); }}>
             {resuming ? 'Starting…' : 'Resume'}
           </button>
         )}
         {!running && review.state === 'OPEN' && (
           <button type="button" className="agr-action" disabled={busy || recovery || localRun} title={localRunReason}
-            onClick={() => { void run_(async () => onReviewChange(await window.bridge.updateAgentReview(review.id))); }}>Update review</button>
+            onClick={() => { void run_(async () => { onReviewChange(await window.bridge.updateAgentReview(review.id)); recordReviewAttentionAction(review, 'prompt'); }); }}>Update review</button>
         )}
         {!running && review.state === 'OPEN' && (
           <button type="button" className="agr-action is-quiet" disabled={busy || recovery || localRun}
             title={localRunReason ?? 'Completes the task and cleans the worktree; the summary, findings and discussion stay'}
-            onClick={() => { void run_(async () => onReviewChange(await window.bridge.endAgentReview(review.id))); }}>End review</button>
+            onClick={() => { void run_(async () => { onReviewChange(await window.bridge.endAgentReview(review.id)); recordReviewAttentionAction(review, 'update'); }); }}>End review</button>
         )}
       </div>}
 
@@ -553,7 +556,7 @@ export default function AgentReviewTab({
                   {' '}Finding comments stay attached to their reviewed commit.</>}
               </div>
               <button type="button" className="agr-action is-primary" disabled={busy || running || recovery || localRun} title={localRunReason}
-                onClick={() => { void run_(async () => onReviewChange(await window.bridge.updateAgentReview(review.id))); }}>Update review</button>
+                onClick={() => { void run_(async () => { onReviewChange(await window.bridge.updateAgentReview(review.id)); recordReviewAttentionAction(review, 'prompt'); }); }}>Update review</button>
             </div>
           )}
           {status?.status === 'stopped' && (
@@ -576,6 +579,7 @@ export default function AgentReviewTab({
             busy={busy || recovery}
             onAsk={(text, revision, cardId) => run_(async () => {
               onReviewChange(await window.bridge.askAgentReview(review.id, null, revision, text, cardId));
+              recordReviewAttentionAction(review, 'prompt');
             }, 'other', true)}
             onSelectFinding={finding => {
               scrollToFinding(finding.id);
@@ -663,15 +667,16 @@ export default function AgentReviewTab({
           onSend={() => { void message('TURN'); }}
           onSteer={() => { void message('STEER'); }}
           onQueue={() => { void message('QUEUE'); }}
-          onStop={() => { void run_(async () => onReviewChange(await window.bridge.stopAgentReview(review.id))); }}
+          onStop={() => { void run_(async () => { onReviewChange(await window.bridge.stopAgentReview(review.id)); recordReviewAttentionAction(review, 'update'); }); }}
           onDecide={(approvalId: string, decision: AgentApprovalDecision, answers?: Record<string, string>) => {
             void run_(async () => {
               await window.bridge.resolveAgentReviewApproval(review.id, approvalId, decision, answers);
+              recordReviewAttentionAction(review, 'update');
               await refresh(review.id);
             });
           }}
           onRemoveQueued={queuedInputId => {
-            void run_(async () => onReviewChange(await window.bridge.removeAgentReviewQueued(review.id, queuedInputId)));
+            void run_(async () => { onReviewChange(await window.bridge.removeAgentReviewQueued(review.id, queuedInputId)); recordReviewAttentionAction(review, 'update'); });
           }} />
       )}
       {recovery && recoveryConfirmation?.reviewId === review.id && (

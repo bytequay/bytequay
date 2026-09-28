@@ -63,4 +63,19 @@ describe('monitored PR notifications', () => {
     expect(parsePrNotificationState(null)).toEqual(empty());
     expect(parsePrNotificationState({ handled: { bad: { kind: 'snooze', until: 'forever' } }, delivered: { bad: false } })).toEqual(empty());
   });
+
+  it('reminds again at the snooze deadline without a source update and keeps pinned items quiet', () => {
+    const item = attentionCandidates([pr])[0];
+    const entry = handledEntry(item, 'snooze', now + 1000, 'later');
+    const state: PrNotificationState = {
+      handled: { [item.key]: entry }, delivered: { [item.key]: notificationVersion(item) },
+    };
+    expect(pendingPrNotifications([pr], state, now)).toEqual([]);
+    expect(pendingPrNotifications([pr], state, now + 1000)).toHaveLength(1);
+    state.delivered[item.key] = notificationVersion(item, entry);
+    expect(pendingPrNotifications([pr], state, now + 2000)).toEqual([]);
+    const pinned = parsePrNotificationState({ ...empty(), pinnedKeys: [item.key, 7] });
+    expect(pinned.pinnedKeys).toEqual([item.key]);
+    expect(pendingPrNotifications([pr], pinned, now)).toEqual([]);
+  });
 });

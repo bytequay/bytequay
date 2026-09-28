@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { recordAttentionAction } from '../../home/useAttentionVisit';
 import type { Bridge } from '../../types';
 import type { DiffAgentComment } from '../PullChanges';
 import { remoteErrorMessage } from '../PullOverview';
@@ -148,6 +149,7 @@ export function useLocalReviewThreads(query: LocalReviewQuery | null, options: {
         taskId: thread.taskId, workspaceId: thread.workspaceId, threadId,
         idempotencyKey: request.key, resolved, expectedVersion: thread.version,
       }), scope);
+      recordAttentionAction(`task:${thread.taskId}`, 'update');
       operations.current.delete(signature);
     }
     catch (failure) { await refresh(); throw failure; }

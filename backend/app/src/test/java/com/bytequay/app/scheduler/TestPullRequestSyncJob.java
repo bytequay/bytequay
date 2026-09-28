@@ -56,7 +56,7 @@ class TestPullRequestSyncJob
         job.tick();
 
         var order = inOrder(refreshService);
-        order.verify(refreshService).refreshDashboard();
+        order.verify(refreshService).refreshScheduledDashboard();
         order.verify(refreshService).refreshWorkspace(first.id());
         order.verify(refreshService).refreshWorkspace(third.id());
         verify(refreshService, never()).refreshWorkspace(second.id());
@@ -78,7 +78,7 @@ class TestPullRequestSyncJob
 
         job.tick();
 
-        verify(refreshService, never()).refreshDashboard();
+        verify(refreshService, never()).refreshScheduledDashboard();
     }
 
     @Test
@@ -95,11 +95,11 @@ class TestPullRequestSyncJob
         job.tick();
         clock.advance(Duration.ofMinutes(10));
         job.tick();
-        verify(refreshService).refreshDashboard();
+        verify(refreshService).refreshScheduledDashboard();
 
         clock.advance(Duration.ofMinutes(21));
         job.tick();
-        verify(refreshService, org.mockito.Mockito.times(2)).refreshDashboard();
+        verify(refreshService, org.mockito.Mockito.times(2)).refreshScheduledDashboard();
     }
 
     @Test
@@ -116,7 +116,7 @@ class TestPullRequestSyncJob
 
         job.tick();
 
-        verify(refreshService, never()).refreshDashboard();
+        verify(refreshService, never()).refreshScheduledDashboard();
     }
 
     /** Settings whose refresh interval has already elapsed, so the tick under test is the one being asserted. */

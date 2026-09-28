@@ -140,4 +140,12 @@ public class RepositoryIssueEntity
         this.body = body;
         this.updatedAt = updatedAt;
     }
+
+    public void updateActivity(int commentCount, Instant updatedAt)
+    {
+        if (!updatedAt.isBefore(this.updatedAt)) {
+            this.commentCount = commentCount;
+            this.updatedAt = updatedAt;
+        }
+    }
 }

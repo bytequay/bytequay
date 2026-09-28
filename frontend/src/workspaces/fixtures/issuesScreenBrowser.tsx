@@ -17,6 +17,10 @@ import { createRoot } from 'react-dom/client';
 import type { Bridge, RepositoryIssueSnapshotDto, RepositoryMetadataDto, WorkspaceIssueDetailDto } from '../../types';
 import WorkspaceIssuesScreen from '../WorkspaceIssuesScreen';
 import { assert, settle } from '../../fixtures/harness';
+import { handledEntry, issueAttentionItem, loadHandled, saveHandled, visibleAttention } from '../../home/attention';
+import { refreshSnoozedItem } from '../../home/useSnoozedAttention';
+import { LayerCovered } from '../../Zoom';
+import { loadPinned } from '../../home/pinned';
 
 type Issue = RepositoryIssueSnapshotDto['issues'][number];
 
@@ -40,6 +44,7 @@ async function closeKeepsIssue(): Promise<void> {
   });
   window.bridge = {
     fetchWorkspaceIssues: async () => snapshot(),
+    fetchWorkspaceIssue: async (_workspace: string, number: number) => issues.find(issue => issue.number === number),
     getWorkspaceMetadata: async () => metadata,
     fetchWorkspaceIssueDetail: async (_workspace: string, number: number) => detail(number),
     recordRecentTouch: async () => {},
@@ -72,6 +77,8 @@ async function closeKeepsIssue(): Promise<void> {
   try {
     flushSync(() => root.render(<WorkspaceIssuesScreen workspaceId="workspace-1" repository="upstream/app" initialIssueNumber={7} onSelectIssue={() => {}} />));
     await settle();
+    assert(host.querySelector('.attention-visit-status')?.textContent === 'Viewed' && loadHandled()['upstream/app#7'] === undefined,
+      'Viewing an issue retains its notification while its detail stays open');
     type('Fixed in #30786'); await settle();
     const close = host.querySelector<HTMLButtonElement>('.pr-composer__close');
     assert(close?.textContent === 'Close with comment', 'A typed draft turns Close into Close with comment');
@@ -80,11 +87,15 @@ async function closeKeepsIssue(): Promise<void> {
     assert(host.querySelector('.issues-detail h1')?.textContent?.trim() === 'Issue 7' && host.querySelector('.pr-state')?.textContent?.trim() === 'Closed',
       'The closed issue stays open and shows its new state');
     assert(composer().value === '' && host.querySelector('.pr-composer__close') === null, 'The posted draft clears and a closed issue offers no close');
+    assert(host.querySelector('.attention-visit-status')?.textContent === 'Updated state · Posted 1 comment',
+      'Only completed issue actions appear in the visit status');
     open(8); await settle();
+    assert(loadHandled()['upstream/app#7']?.label === 'Updated state · Posted 1 comment', 'Leaving the issue acknowledges the completed visit');
     assert(row(7) === undefined && host.querySelector('.issues-list__count')?.textContent === '2', 'Leaving the closed issue drops it from the open list');
     type('Draft for #8'); await settle();
     open(9); await settle();
     assert(composer().value === '', 'A draft never follows the reader to another issue');
+    assert(loadHandled()['upstream/app#8']?.label === 'Viewed', 'Unsent draft text does not count as a posted comment');
   }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
@@ -97,6 +108,7 @@ async function zoomsOneIssue(): Promise<void> {
   }));
   const repository = { owner: 'upstream', repo: 'app' };
   window.bridge = {
+    fetchWorkspaceIssue: async (_workspace: string, number: number) => issues.find(issue => issue.number === number),
     fetchWorkspaceIssues: async (): Promise<RepositoryIssueSnapshotDto> => ({
       repositoryId: 40, repository, issues, page: 0, pageSize: 50, totalIssues: issues.length, hasMore: false, syncedAt: null,
     }),
@@ -109,11 +121,15 @@ async function zoomsOneIssue(): Promise<void> {
     recordRecentTouch: async () => {},
   } as unknown as Bridge;
   let closed = 0;
+  const baseHost = document.createElement('div'); document.body.append(baseHost);
+  const baseRoot = createRoot(baseHost);
   const host = document.createElement('div'); document.body.append(host);
   const root = createRoot(host);
   try {
+    flushSync(() => baseRoot.render(<LayerCovered.Provider value={true}><WorkspaceIssuesScreen workspaceId="workspace-1" repository="upstream/app" initialIssueNumber={8} /></LayerCovered.Provider>));
+    await settle();
     flushSync(() => root.render(<WorkspaceIssuesScreen workspaceId="workspace-1" repository="upstream/app"
-      initialIssueNumber={8} onClose={() => { closed += 1; }} />));
+      initialIssueNumber={8} onClose={() => { closed += 1; root.unmount(); }} />));
     await settle();
     assert(host.querySelector('.pulls-list') === null, 'The zoom layer shows one issue, never the list');
     const card = host.querySelector<HTMLElement>('.issues-detail.zoom-card');
@@ -125,11 +141,18 @@ async function zoomsOneIssue(): Promise<void> {
     const body = card.querySelector<HTMLElement>('.pull-detail__body');
     assert(body !== null && body.getBoundingClientRect().bottom <= Math.ceil(box.bottom),
       'The issue body scrolls inside the card instead of running past it');
+    const pin = card.querySelector<HTMLButtonElement>('[aria-label="Pin Issue 8"]');
+    assert(pin !== null, 'An issue zoom offers a pin action');
+    pin.click(); await settle();
+    assert(loadPinned().some(item => item.key === 'upstream/app#8' && item.target.kind === 'issue' && item.target.workspaceId === 'workspace-1'),
+      'The issue pin keeps its workspace route');
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     await settle();
     assert(closed === 1, 'Escape leaves the zoom layer');
+    assert(baseHost.querySelector('.issues-detail') !== null && loadHandled()['upstream/app#8']?.label === 'Viewed',
+      'Leaving zoom handles the issue while the original detail stays mounted');
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { flushSync(() => { root.unmount(); baseRoot.unmount(); }); host.remove(); baseHost.remove(); }
 }
 
 async function filtersLoadedIssues(): Promise<void> {
@@ -148,6 +171,7 @@ async function filtersLoadedIssues(): Promise<void> {
   let writes = 0;
   const originalBridge = window.bridge;
   window.bridge = {
+    fetchWorkspaceIssue: async (_workspace: string, number: number) => issues.find(issue => issue.number === number),
     fetchWorkspaceIssues: async (_workspace: string, page: number): Promise<RepositoryIssueSnapshotDto> => {
       listReads.push(page);
       return { repositoryId: 40, repository,
@@ -253,14 +277,62 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['Closing an issue keeps it in view until the reader leaves', closeKeepsIssue],
     ['An issue reference zooms that issue over the page it came from', zoomsOneIssue],
     ['Search and clickable labels filter only the loaded issues', filtersLoadedIssues],
+    ['A closed issue reminder opens the latest read-only preview', closedIssueReminder],
   ];
   const results: { name: string; error?: string }[] = [];
   for (const [name, scenario] of scenarios) {
     try {
+      await settle(); saveHandled({});
       await scenario();
       results.push({ name });
     }
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
   }
   return results;
+}
+
+async function closedIssueReminder(): Promise<void> {
+  let preview = { title: 'Closed issue title', body: 'Latest closed issue description', author: 'alice', labels: ['fixed'],
+    updatedAt: '2026-09-25T10:00:00Z', state: 'closed', pullRequest: false };
+  const repository = { owner: 'upstream', repo: 'app' };
+  let previewReads = 0;
+  window.bridge = {
+    fetchWorkspaceIssues: async (): Promise<RepositoryIssueSnapshotDto> => ({ repositoryId: 40, repository, issues: [], page: 0, pageSize: 50, totalIssues: 0, hasMore: false, syncedAt: null }),
+    fetchWorkspaceIssue: async () => { throw new Error('The closed issue is no longer cached'); },
+    fetchGitHubIssuePreview: async (owner: string, repo: string, number: number) => {
+      assert(owner === 'upstream' && repo === 'app' && number === 99, 'The fallback reads the exact original issue');
+      previewReads++; return preview;
+    },
+    getWorkspaceMetadata: async (): Promise<RepositoryMetadataDto> => ({ repositoryId: 40, repository, contributors: [], labels: [], topics: [], contributorsSyncedAt: null, labelsTopicsSyncedAt: null }),
+    recordRecentTouch: async () => {},
+  } as unknown as Bridge;
+  const reminder = issueAttentionItem({ id: 7099, number: 99, title: 'Original title', body: 'Original body', author: 'alice', authorAvatarUrl: '',
+    htmlUrl: 'https://github.com/upstream/app/issues/99', labels: [], assignees: ['bob'], commentCount: 7, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z' },
+  'upstream/app', 'workspace-1');
+  saveHandled({ [reminder.key]: handledEntry(reminder, 'snooze', Date.now() - 1000, '1 hour') });
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    flushSync(() => root.render(<WorkspaceIssuesScreen workspaceId="workspace-1" repository="upstream/app" initialIssueNumber={99}
+      onStartDevelopment={() => { throw new Error('Closed issues cannot launch development'); }} onClose={() => root.unmount()} />));
+    await settle();
+    assert(host.querySelector('.issues-detail h1')?.textContent?.trim() === preview.title && host.textContent?.includes(preview.body),
+      'The closed issue displays the latest title and description');
+    assert(host.querySelector('.pr-state.is-closed')?.textContent?.includes('Closed') && host.textContent?.includes('fixed'),
+      'The preview preserves the latest source state and labels');
+    assert(host.querySelector('.pr-composer, [aria-label="Start development"], [aria-label="Mark as Goal"], [aria-label="Issue type"]') === null,
+      'The read-only preview offers no source mutations or development');
+    assert(host.querySelector('[aria-label="Pin Closed issue title"]') !== null && host.querySelector('.attention-visit-status')?.textContent === 'Viewed',
+      'Closed issue previews retain pinning and the attention visit');
+    preview = { ...preview, title: 'Updated closed issue', body: 'Description changed after closure', updatedAt: '2026-09-26T10:00:00Z' };
+    host.querySelector<HTMLButtonElement>('[aria-label="Refresh"]')?.click(); await settle();
+    assert(previewReads === 2 && host.textContent?.includes(preview.body), 'Manual refresh updates the closed issue preview');
+    host.querySelector<HTMLButtonElement>('[aria-label="Close issue details"]')?.click(); await settle();
+    assert(loadHandled()['upstream/app#99']?.label === 'Viewed' && loadHandled()['upstream/app#99']?.seenUpdatedAt === preview.updatedAt,
+      'Closing acknowledges the exact latest preview that was read');
+    const latestReminder = await refreshSnoozedItem(reminder, window.bridge);
+    assert(visibleAttention([latestReminder], loadHandled(), Date.now()).length === 0,
+      'The handled closed preview matches the retained reminder, including its source state and comment count');
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); }
 }

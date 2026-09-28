@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { recordAttentionAction } from '../../home/useAttentionVisit';
 import { remoteErrorMessage } from '../../pulls/PullOverview';
 import type {
   AskCommentDiscussionRequest, AskDiscussionRequest, DiscussionQuery, DraftDiscussionReplyRequest, OpenDiscussionRequest,
@@ -124,12 +125,14 @@ export function useTaskDiscussions(query: DiscussionQuery | null, options: {
 
   const write = useCallback(async (
     action: (bridge: DiscussionBridgePort, target: DiscussionQuery) => Promise<TaskDiscussionDto>,
+    attentionAction: 'prompt' | 'update' = 'prompt',
   ): Promise<TaskDiscussionDto> => {
     const current = latest.current;
     if (current.query === null) throw new Error('This task is no longer open.');
     try {
       const discussion = await action(live(), current.query);
       accept(discussion, current.key);
+      recordAttentionAction(`task:${current.query.taskId}`, attentionAction);
       return discussion;
     }
     catch (failure) {
@@ -152,7 +155,7 @@ export function useTaskDiscussions(query: DiscussionQuery | null, options: {
       await write((bridge, target) => bridge.askTaskDiscussion({ ...target, discussionId, question }));
     },
     resolve: async (discussionId, resolved, expectedVersion) => {
-      await write((bridge, target) => bridge.resolveTaskDiscussion({ ...target, discussionId, resolved, expectedVersion }));
+      await write((bridge, target) => bridge.resolveTaskDiscussion({ ...target, discussionId, resolved, expectedVersion }), 'update');
     },
     retry: async (discussionId, messageId) => {
       await write((bridge, target) => bridge.retryTaskDiscussion({ ...target, discussionId, messageId }));

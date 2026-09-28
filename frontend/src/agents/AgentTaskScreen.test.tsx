@@ -2148,4 +2148,18 @@ describe('task list tabs, today cards, older rows and row actions', () => {
     // Without a handler the header offers nothing, as the static states are rendered.
     expect(body({ task: task('t-1', 'OPEN', 'x'), connection: 'open' })).not.toContain('is-shelf');
   });
+
+  it('offers a global pin on open and completed task details and displays the current visit action', () => {
+    for (const state of ['OPEN', 'COMPLETED']) {
+      const markup = renderToStaticMarkup(<AgentTaskBody
+        state={{ ...initialAgentTaskState(), task: task('t-1', state, 'Fix upload timeout'), connection: 'open' }}
+        attentionStatus="Prompted"
+        models={MODELS}
+        {...TASK_BODY_NOOPS}
+      />);
+      expect(markup).toContain('aria-label="Pin Fix upload timeout"');
+      expect(markup).toContain('class="attention-visit-status" role="status">Prompted</span>');
+    }
+    expect(body({ connection: 'connecting' })).not.toContain('aria-label="Pin');
+  });
 });

@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { QUESTION_TOOL, type AttentionItem, type AttentionKind, type AttentionLink, type AttentionTone } from '../home/attention';
 import { isDeepSeekKeyLane, laneLabel } from '../settings/model';
-import type { AgentTaskActivityDto, AgentTaskDto, AgentTaskPullRequestDto, Bridge } from '../types';
+import type { AgentQueuedInputDto, AgentTaskActivityDto, AgentTaskDto, AgentTaskPullRequestDto, Bridge } from '../types';
 import { taskArchived, taskStatePill } from './AgentTasksView';
 
 /** How often a Home re-reads what its tasks wait on: a local read, frequent enough for an approval to show promptly. */
@@ -117,33 +117,48 @@ export function taskAttentionItems(
 ): AttentionItem[] {
   return tasks.flatMap((task): AttentionItem[] => {
     const facts = activity[task.id] ?? null;
-    const kind = taskAttentionKind(task, facts);
-    if (kind === null) return [];
-    const provider = laneNames.get(task.laneId) ?? laneLabel(task.laneId);
-    // A card names the lane without its model, and a DeepSeek key lane by the key: "DeepSeek · ds-001" reads "ds-001".
-    const lane = isDeepSeekKeyLane(task.laneId) && provider.includes(' · ') ? provider.slice(provider.indexOf(' · ') + 3) : provider;
-    return [{
-      key: `task:${task.id}`,
-      type: 'task',
-      kind,
-      task: { dto: task, activity: facts },
-      reference: lane,
-      repo: workspace.repository,
-      number: 0,
-      title: task.title,
-      author: lane,
-      authorAvatarUrl: null,
-      createdAt: task.createdAt,
-      updatedAt: eventTime(task, facts),
-      labels: [],
-      pr: null,
-      body: '',
-      commentCount: 0,
-      workspaceId: workspace.id,
-      workspaceName: workspace.name,
-      links: taskLinks(task),
-    }];
+    return taskAttentionKind(task, facts) === null ? [] : [taskAttentionItem(task, facts, workspace, laneNames)];
   });
+}
+
+/** Detail views use the same identity and activity revision even while a task needs no attention. */
+export function taskAttentionItem(
+  task: AgentTaskDto,
+  activity: AgentTaskActivityDto | null,
+  workspace: TaskAttentionWorkspace,
+  laneNames: ReadonlyMap<string, string> = new Map(),
+): AttentionItem {
+  const provider = laneNames.get(task.laneId) ?? laneLabel(task.laneId);
+  // A card names the lane without its model, and a DeepSeek key lane by the key: "DeepSeek · ds-001" reads "ds-001".
+  const lane = isDeepSeekKeyLane(task.laneId) && provider.includes(' · ') ? provider.slice(provider.indexOf(' · ') + 3) : provider;
+  return {
+    key: `task:${task.id}`,
+    type: 'task',
+    kind: taskAttentionKind(task, activity) ?? 'finished',
+    task: { dto: task, activity },
+    reference: lane,
+    repo: workspace.repository,
+    number: 0,
+    title: task.title,
+    author: lane,
+    authorAvatarUrl: null,
+    createdAt: task.createdAt,
+    updatedAt: eventTime(task, activity),
+    labels: [],
+    pr: null,
+    body: '',
+    commentCount: 0,
+    workspaceId: workspace.id,
+    workspaceName: workspace.name,
+    links: taskLinks(task),
+  };
+}
+
+/** Queue creation advances the task at the returned timestamp, before the detail reload can finish. */
+export function taskAttentionAfterQueue(item: AttentionItem | null, queued: Pick<AgentQueuedInputDto, 'taskId' | 'createdAt'>): AttentionItem | undefined {
+  if (item?.task === undefined || item.task.dto.id !== queued.taskId) return undefined;
+  if (Date.parse(queued.createdAt) <= Date.parse(item.task.dto.updatedAt)) return item;
+  return { ...item, task: { ...item.task, dto: { ...item.task.dto, updatedAt: queued.createdAt } } };
 }
 
 /** Ties each pull request's card to the tasks whose branch opened it. */

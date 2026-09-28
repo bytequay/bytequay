@@ -21,6 +21,7 @@ import { ConfirmDialog } from '../ConfirmDialog';
 import type { ReviewCardFocus } from './ReviewRequestCard';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import { remoteErrorMessage } from '../pulls/PullOverview';
+import PinButton from '../home/PinButton';
 import '../css/review-tasks.css';
 
 export default function ReviewTaskScreen({ workspaceId, reviewId, onBack, headerAction, browserOpen }: {
@@ -53,10 +54,16 @@ export default function ReviewTaskScreen({ workspaceId, reviewId, onBack, header
       {error !== null && <button type="button" className="agt-action" onClick={() => setRetry(value => value + 1)}>Retry</button>}
     </div>
   </section>;
-  if (review.number === null) return <LocalReviewWorkspace key={review.id} review={review} onReviewChange={setReview} onBack={onBack} headerAction={headerAction} />;
+  const reviewActions = <><PinButton className="agt-headbtn" item={{
+    key: `review:${review.id}`,
+    title: review.pullRequest?.title ?? `${review.repo} ${review.number === null ? 'local review' : `#${review.number} review`}`,
+    reference: 'Review',
+    target: { kind: 'review', workspaceId, reviewId: review.id },
+  }} />{headerAction}</>;
+  if (review.number === null) return <LocalReviewWorkspace key={review.id} review={review} onReviewChange={setReview} onBack={onBack} headerAction={reviewActions} />;
   return <PullsScreen initialPr={{ repo: review.repo, number: review.number }} initialReviewId={review.id}
     repositoryScope={{ workspaceId, repository: review.repo }} browserOpen={browserOpen}
-    reviewWorkspace={{ onBack, headerAction }} />;
+    reviewWorkspace={{ onBack, headerAction: reviewActions }} />;
 }
 
 

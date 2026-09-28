@@ -12,9 +12,16 @@
  * limitations under the License.
  */
 import { useCallback, useRef, useState } from 'react';
+import { recordAttentionAction, type AttentionAction } from '../../home/useAttentionVisit';
 import { remoteErrorMessage } from '../PullOverview';
 import type { FindingActions } from './ReviewFindingCard';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
+
+/** A review belongs to its pull request and, for local reviews, the source development task. */
+export function recordReviewAttentionAction(review: AgentReviewDto, action: AttentionAction): void {
+  if (review.number !== null) recordAttentionAction(`${review.repo}#${review.number}`, action);
+  if (review.sourceTaskId != null) recordAttentionAction(`task:${review.sourceTaskId}`, action);
+}
 
 /**
  * The private and outgoing actions a finding offers, defined once so the Agent review tab and the
@@ -86,15 +93,19 @@ export function useFindingActions({
         await window.bridge.startAgentTurn({ taskId: sourceTaskId, expectedTaskVersion: task.version, message, idempotencyKey });
       }
       fixKeys.current.delete(identity);
+      recordReviewAttentionAction(review, 'prompt');
     }, true),
     onAsk: (finding, message) => guard(async () => {
       onReviewChange(await window.bridge.askAgentReview(review.id, finding.id, finding.revision, message));
+      recordReviewAttentionAction(review, 'prompt');
     }, true),
     onResolve: (finding, reason) => guard(async () => {
       onReviewChange(await window.bridge.resolveAgentReviewFinding(review.id, finding.id, finding.version, reason));
+      recordReviewAttentionAction(review, 'update');
     }, true),
     onReopen: finding => guard(async () => {
       onReviewChange(await window.bridge.reopenAgentReviewFinding(review.id, finding.id, finding.version));
+      recordReviewAttentionAction(review, 'update');
     }),
     onAddToReview: finding => guard(async () => {
       await window.bridge.addReviewDraftFinding(review.repo, number(), draftVersion(), review.id, finding.id);
@@ -116,6 +127,7 @@ export function useFindingActions({
         version = (await window.bridge.editReviewDraftComment(review.repo, number(), version, itemId, body, true)).version;
       }
       await window.bridge.publishReviewDraftComment(review.repo, number(), version, itemId);
+      recordAttentionAction(`${review.repo}#${number()}`, 'comment');
       await reload();
     }, true),
     onEditDraft: (finding, body) => guard(async () => {

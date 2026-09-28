@@ -15,6 +15,7 @@ import { Fragment, type CSSProperties, type MouseEvent as ReactMouseEvent, type 
 import { createPortal } from 'react-dom';
 import { Check, ChevronRight, FileDiff, Folder, GitCommitHorizontal, PanelLeft } from 'lucide-react';
 import Avatar from '../Avatar';
+import { recordAttentionAction } from '../home/useAttentionVisit';
 import { parseUnifiedDiff, type DiffRow } from '../diffParse';
 import type {
   Bridge,
@@ -1313,6 +1314,7 @@ export async function submitInlineReviewComment(
   onDetailChange: (detail: PullRequestDetailDto) => void,
 ) {
   onDetailChange(await bridge.postPrReviewComment(repo, number, comment));
+  recordAttentionAction(`${repo}#${number}`, 'comment');
 }
 
 /** Stands in while a file card has no review; its actions are unreachable without one. */

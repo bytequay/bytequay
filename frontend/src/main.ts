@@ -166,7 +166,7 @@ async function pollPrNotifications(): Promise<void> {
     for (const item of pendingPrNotifications(prs, state, Date.now())) {
       const pr = item.pr;
       if (pr === null || showingPrNotifications.has(pr.id)) continue;
-      const version = notificationVersion(item);
+      const version = notificationVersion(item, state.handled[item.key]);
       const notification = new Notification({
         title: `PR updated · ${item.repo}#${item.number}`,
         body: item.title,
@@ -1507,6 +1507,10 @@ function registerIpc(): void {
     notificationState().handled = parsePrNotificationState({ handled }).handled;
     saveNotificationState();
   });
+  ipcMain.handle('prs:attention:pinned', (_event, keys: unknown) => {
+    notificationState().pinnedKeys = parsePrNotificationState({ pinnedKeys: keys }).pinnedKeys;
+    saveNotificationState();
+  });
   ipcMain.handle('prs:sync', (_event, workspaceId?: string) => backendVoid(workspaceId
     ? `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/pull-requests/sync`
     : `${backendBase()}/api/settings/sync/trigger?listOnly=true`, {
@@ -1908,7 +1912,7 @@ app.on('ready', async () => {
   if (!backendReady) return;
   refreshDashboardInBackground();
   void pollPrNotifications();
-  prNotificationTimer = setInterval(() => { void pollPrNotifications(); }, 30_000);
+  prNotificationTimer = setInterval(() => { void pollPrNotifications(); }, 5_000);
 });
 
 app.on('window-all-closed', () => {

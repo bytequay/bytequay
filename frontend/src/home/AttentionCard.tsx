@@ -18,6 +18,10 @@ import { Card, CardActions, CardAge, Fold, GoalIcon, IconButton, InGoalBadge, Li
 import MarkdownBody from '../pulls/MarkdownBody';
 import { previewMarkdown } from '../ReferenceCard';
 import RepoAvatar from '../RepoAvatar';
+import PinButton from './PinButton';
+import type { PinnedItem } from './pinned';
+import { useAttentionStatus } from './useAttentionVisit';
+import { jiraIssueLocation } from '../jira/contracts';
 import {
   ATTENTION_SOURCES,
   attentionSource,
@@ -143,6 +147,12 @@ type Props = {
 export default function AttentionCard({ item, viewerLogin, showRepo, onOpen, onAcknowledge, onSnooze, onStart, inGoal = false, onToggleGoal }: Props) {
   const source = attentionSource(item);
   const summary = attentionSummary(item, viewerLogin);
+  const status = useAttentionStatus(item.key);
+  const target: PinnedItem['target'] | null = item.task
+    ? { kind: 'task', workspaceId: item.task.dto.workspaceId, taskId: item.task.dto.id }
+    : item.jira ? { kind: 'jira', ...jiraIssueLocation(item.jira) }
+      : item.type === 'pr' ? { kind: 'pull', repo: item.repo, number: item.number }
+        : item.workspaceId === null ? null : { kind: 'issue', repo: item.repo, number: item.number, workspaceId: item.workspaceId };
   const reference = item.reference ?? `#${item.number}`;
   const [owner, repo = ''] = item.repo.split('/');
   const said = <>
@@ -160,10 +170,11 @@ export default function AttentionCard({ item, viewerLogin, showRepo, onOpen, onA
           // An issue names the workspace it would start in, so a repository watched twice is never ambiguous.
           <span className="atn-card__repo"><RepoAvatar owner={owner} repo={repo} size={12} radius={3} />{item.workspaceName || item.repo}</span>
         )}
-        <Pill outline>{summary.tag.label}</Pill>
+        <Pill outline>{status ?? summary.tag.label}</Pill>
         {inGoal && <InGoalBadge />}
         <span className="atn-spacer" />
         <CardActions label={`Actions for ${reference}`}>
+          {target !== null && <PinButton item={{ key: item.key, title: item.title, reference, target }} className="card-iconbtn" />}
           {onToggleGoal !== undefined && (
             <IconButton label={`${inGoal ? 'Remove' : 'Add'} ${reference} ${inGoal ? 'from' : 'to'} the goal`} title={inGoal ? 'Remove from goal' : 'Add to goal'}
               tone={inGoal ? 'active' : undefined} pressed={inGoal} onClick={onToggleGoal}>

@@ -1375,6 +1375,7 @@ export type Bridge = JiraBridge & {
   findStoredPullRequest: (repo: string, number: number) => Promise<PullRequestDto | null>;
   setPrMonitored: (prId: number, monitored: boolean) => Promise<PullRequestDto>;
   setPrAttentionHandled: (handled: import('./home/attention').Handled) => Promise<void>;
+  setPrAttentionPinned: (keys: string[]) => Promise<void>;
   onPrAttentionUpdated: (callback: (prs: PullRequestDto[]) => void) => () => void;
   onPrNotificationOpen: (callback: (reference: { repo: string; number: number }) => void) => () => void;
   syncPrs: (workspaceId?: string) => Promise<void>;

@@ -101,10 +101,10 @@ export default function GitHubPage({
 
       <div className="setw-section"><span className="setw-section-title">Refresh</span></div>
       <SettingsCard>
-        <SettingsRow title="Refresh interval">
+        <SettingsRow title="Detail refresh interval">
           <SelectPill
             quiet
-            ariaLabel="Refresh interval"
+            ariaLabel="Detail refresh interval"
             value={String(preferences.refreshIntervalMinutes)}
             label={refreshLabel(preferences.refreshIntervalMinutes)}
             options={REFRESH_MINUTES.map(minutes => ({ value: String(minutes), label: refreshLabel(minutes) }))}
@@ -112,7 +112,7 @@ export default function GitHubPage({
           />
         </SettingsRow>
       </SettingsCard>
-      <div className="setw-footnote">This interval applies to GitHub pull requests. <a href={settingsRoute('general')}>Manage quiet hours in General</a>.</div>
+      <div className="setw-footnote">This interval applies to PR details and repository sync. PR summaries are checked every 15 seconds. <a href={settingsRoute('general')}>Manage quiet hours in General</a>.</div>
     </div>
   );
 }

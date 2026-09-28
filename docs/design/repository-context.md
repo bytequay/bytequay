@@ -1,5 +1,11 @@
 # Repository Context
 
+The approved [discover, learn, and use refactor](repository-context-refactor.md)
+supersedes automatic note selection, direct generated-note activation,
+one-note-per-scope, and manual-first discovery here. Delivery status is in the
+[refactor checkpoints](repository-context-impl-tmp.md#refactor-development-checkpoints).
+Retained detail below governs unchanged source, ownership, snapshot, and receipt boundaries.
+
 Status: approved implementation design. The user authorized development from
 this design, including default-on review use and the workspace Off switch.
 Implementation progress and provider/performance acceptance are recorded in

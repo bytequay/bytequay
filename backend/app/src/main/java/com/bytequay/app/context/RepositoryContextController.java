@@ -67,6 +67,24 @@ public class RepositoryContextController
         return context.editEntry(workspaceId, request.expectedRevision(), edit);
     }
 
+    @PutMapping("/drafts")
+    public RepositoryNotebook editDraft(@PathVariable String workspaceId, @RequestBody DraftEditRequest request)
+    {
+        return context.editDraft(workspaceId, request.expectedRevision(), request.draftId(), request.title(), request.summary(), request.body(), request.claims());
+    }
+
+    @PostMapping("/drafts/approve")
+    public RepositoryNotebook approveDraft(@PathVariable String workspaceId, @RequestBody DraftActionRequest request)
+    {
+        return context.approveDraft(workspaceId, request.expectedRevision(), request.draftId());
+    }
+
+    @DeleteMapping("/drafts")
+    public RepositoryNotebook dismissDraft(@PathVariable String workspaceId, @RequestBody DraftActionRequest request)
+    {
+        return context.dismissDraft(workspaceId, request.expectedRevision(), request.draftId());
+    }
+
     @PutMapping("/entries/enabled")
     public RepositoryNotebook enable(@PathVariable String workspaceId, @RequestBody EnabledRequest request)
     {
@@ -175,6 +193,28 @@ public class RepositoryContextController
             requireRevision(expectedRevision);
             requireNonNull(entryId, "entryId is null");
             requireNonNull(enabled, "enabled is null");
+        }
+    }
+
+    public record DraftEditRequest(Long expectedRevision, String draftId, String title, String summary, String body, List<ContextClaim> claims)
+    {
+        public DraftEditRequest
+        {
+            requireRevision(expectedRevision);
+            requireNonNull(draftId, "draftId is null");
+            requireNonNull(title, "title is null");
+            requireNonNull(summary, "summary is null");
+            requireNonNull(body, "body is null");
+            claims = ImmutableList.copyOf(claims);
+        }
+    }
+
+    public record DraftActionRequest(Long expectedRevision, String draftId)
+    {
+        public DraftActionRequest
+        {
+            requireRevision(expectedRevision);
+            requireNonNull(draftId, "draftId is null");
         }
     }
 

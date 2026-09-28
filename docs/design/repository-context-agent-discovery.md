@@ -1,5 +1,10 @@
 # Repository Context discovery during agent work
 
+The approved [discover, learn, and use refactor](repository-context-refactor.md)
+replaces automatic offers/ranking with agent-owned paginated literal lookup.
+See [refactor checkpoints](repository-context-impl-tmp.md#refactor-development-checkpoints)
+for delivery status. Retained source/receipt ownership remains applicable.
+
 This is the first agent-discovery extension to [Repository Context](repository-context.md).
 The bounded development offer, review/development search and exact read, retained
 receipts, and usage view are implemented. Live provider acceptance and controlled

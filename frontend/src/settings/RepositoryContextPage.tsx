@@ -14,12 +14,13 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { WorkspaceDto } from '../types';
 import ContextEntryEditor, { ContextDialog, type ContextEntryDraft } from '../repository-context/ContextEntryEditor';
-import type { ContextClaimDto, ContextEntryDto, ContextScopeConfigurationDto, ContextScopeDto, ContextSourceConfigurationDto, ContextSourceDto, RepositoryNotebookDto } from '../repository-context/contracts';
+import type { ContextClaimDto, ContextEntryDto, ContextKnowledgeDraftDto, ContextScopeConfigurationDto, ContextScopeDto, ContextSourceConfigurationDto, ContextSourceDto, RepositoryNotebookDto } from '../repository-context/contracts';
 import { Badge, SettingsCard, SettingsRow, Toggle } from './primitives';
 import RepositoryContextBuild from './RepositoryContextBuild';
 import RepositoryContextUsage from './RepositoryContextUsage';
 
-type Editor = { kind: 'entry'; entry: ContextEntryDto | null; initial: ContextEntryDraft; claims: ContextClaimDto[] }
+type Editor = { kind: 'entry'; id: string; entry: ContextEntryDto | null; initial: ContextEntryDraft; claims: ContextClaimDto[] }
+  | { kind: 'draft'; draft: ContextKnowledgeDraftDto; initial: ContextEntryDraft; claims: ContextClaimDto[] }
   | { kind: 'source'; source: ContextSourceDto | null } | { kind: 'scope'; scope: ContextScopeDto | null };
 const failureText = (failure: unknown) => failure instanceof Error ? failure.message : String(failure);
 const lines = (text: string) => [...new Set(text.split('\n').map(line => line.trim()).filter(Boolean))];
@@ -81,8 +82,7 @@ export default function RepositoryContextPage({ workspace }: { workspace: Worksp
   const closeEditor = () => { if (!busy) setEditor(null); };
   const reloadControl = <div className="rc-actions"><button className="rc-button" type="button" disabled={busy} onClick={() => void reload()}>Reload saved notebook</button>
     {needsReload && <span className="rc-muted">Your changes have not been retried. Reload before saving again.</span>}</div>;
-  const availableScopes = notebook?.scopes.filter(scope => !notebook.entries.some(entry => entry.id === 'knowledge:' + scope.id)
-    && !notebook.suppressedKnowledgeIds.includes('knowledge:' + scope.id)) ?? [];
+  const availableScopes = notebook?.scopes ?? [];
   const disabled = busy || needsReload;
   const discoveryEvidence = (reference: string | null) => {
     if (reference === null) return null;
@@ -98,7 +98,12 @@ export default function RepositoryContextPage({ workspace }: { workspace: Worksp
     const scopeId = entry?.scopeId ?? availableScopes[0]?.id;
     if (scopeId === undefined) return;
     setStatus('');
-    setEditor({ kind: 'entry', entry, claims: entry?.claims ?? [], initial: entry ?? { scopeId, title: '', summary: '', body: '' } });
+    setEditor({ kind: 'entry', id: entry?.id ?? crypto.randomUUID(), entry,
+      claims: entry?.claims ?? [], initial: entry ?? { scopeId, title: '', summary: '', body: '' } });
+  };
+  const openDraft = (draft: ContextKnowledgeDraftDto) => {
+    setStatus('');
+    setEditor({ kind: 'draft', draft, claims: draft.entry.claims, initial: draft.entry });
   };
 
   const entryRows = (kind: ContextEntryDto['kind']) => notebook?.entries.filter(entry => entry.kind === kind).map(entry => {
@@ -137,48 +142,77 @@ export default function RepositoryContextPage({ workspace }: { workspace: Worksp
       </SettingsRow></SettingsCard>
       <RepositoryContextBuild workspaceId={workspace.id} notebook={notebook} onNotebookChange={setNotebook} disabled={disabled} />
       <RepositoryContextUsage workspaceId={workspace.id} notebook={notebook} />
+      {notebook.pendingDrafts.length > 0 && <><div className="setw-section"><span className="setw-section-title">Pending knowledge drafts</span></div>
+        <p className="rc-muted">Drafts are not available to agents until you approve them. Editing keeps a draft pending.</p>
+        <SettingsCard>{notebook.pendingDrafts.map(draft => {
+          const scope = notebook.scopes.find(item => item.id === draft.entry.scopeId);
+          const current = notebook.entries.find(item => item.id === draft.entry.id);
+          return <article key={draft.id} className="rc-note">
+            <div className="rc-note-head"><div><strong>{draft.entry.title}</strong><small>{scope?.title ?? draft.entry.scopeId} · Pending draft
+              {draft.replacesVersion !== null && ` · Proposed for version ${draft.replacesVersion}`}</small></div><Badge>Awaiting approval</Badge></div>
+            <p>{draft.entry.summary}</p><p className="rc-muted">{draft.explanation}</p>
+            {current && <p className="rc-muted">The current note remains available until this draft is approved.</p>}
+            {(current?.version ?? null) !== draft.replacesVersion &&
+              <p className="rc-error">The active note changed since this draft was proposed. Review the latest note before approving.</p>}
+            <details><summary>Draft details and sources</summary><pre>{draft.entry.body}</pre>
+              {draft.entry.claims.length > 0 && <ul>{draft.entry.claims.map((claim, index) => <li key={index}>{claim.text} <span className="rc-muted">({claim.basis.toLowerCase().replaceAll('_', ' ')})</span></li>)}</ul>}
+              {draft.entry.sourceIds.map(id => {
+                const source = notebook.sourceEvidence.find(value => value.id === id);
+                return source === undefined ? <p key={id}>Source unavailable: {id}</p>
+                  : <details key={id}><summary>{source.provenance}</summary><pre>{source.excerpt}</pre></details>;
+              })}
+              <p className="rc-muted">Baseline: <code>{draft.baselineSha}</code></p>
+            </details>
+            <div className="rc-actions"><button className="rc-button is-primary" disabled={disabled || (current?.version ?? null) !== draft.replacesVersion} onClick={() => void mutate(revision =>
+              window.bridge.approveRepositoryContextDraft(workspace.id, { expectedRevision: revision, draftId: draft.id }), 'Draft approved for future tasks and reviews.')}>Approve and use</button>
+              <button className="rc-button" disabled={disabled} onClick={() => openDraft(draft)}>Edit draft</button>
+              <button className="rc-button is-danger" disabled={disabled} onClick={() => void mutate(revision =>
+                window.bridge.dismissRepositoryContextDraft(workspace.id, { expectedRevision: revision, draftId: draft.id }), 'Draft dismissed. The active note was unchanged.')}>Dismiss draft</button></div>
+          </article>;
+        })}</SettingsCard></>}
       {notebook.activePreparation !== null && <div className="rc-status" role="status">Shared preparation is claimed for {notebook.activePreparation.inputs
         .map(input => notebook.scopes.find(scope => scope.id === input.scopeId)?.title ?? input.scopeId).join(', ')}. Saved notes remain available.
         <details><summary>Preparation owner</summary><p>Task: {notebook.activePreparation.ownerTaskId}</p>
           <p>Task activity determines whether the agent is running, waiting or stopped.</p></details></div>}
       <div className="setw-section"><span className="setw-section-title">Knowledge</span><button className="rc-button" disabled={disabled || availableScopes.length === 0} onClick={() => openNote(null)}>Add note</button></div>
-      <SettingsCard>{notebook.entries.some(entry => entry.kind === 'KNOWLEDGE') ? entryRows('KNOWLEDGE') : <div className="setw-row-empty">No saved knowledge notes. Preparation results below show whether sources have been checked.</div>}</SettingsCard>
+      <SettingsCard>{notebook.entries.some(entry => entry.kind === 'KNOWLEDGE') ? entryRows('KNOWLEDGE') : <div className="setw-row-empty">No saved knowledge notes. Use Learn / Refresh to prepare a draft, or add a note.</div>}</SettingsCard>
       <div className="setw-section"><span className="setw-section-title">Saved lessons</span></div>
       <SettingsCard>{notebook.entries.some(entry => entry.kind === 'MEMORY') ? entryRows('MEMORY') : <div className="setw-row-empty">Use Save lesson on a private review discussion to keep a useful conclusion and its evidence.</div>}</SettingsCard>
-      <div className="setw-section"><span className="setw-section-title">Matching scopes</span><button className="rc-button" disabled={disabled} onClick={() => setEditor({ kind: 'scope', scope: null })}>Add scope</button></div>
-      <p className="rc-muted">Scopes choose where knowledge and lessons apply. Project overview is a scope; its saved note appears under Knowledge.</p>
-      <SettingsCard>{notebook.scopes.map(scope => <SettingsRow key={scope.id} title={scope.title} badge={!scope.enabled ? <Badge>Disabled</Badge> : undefined}
+      <details className="rc-advanced"><summary>Advanced configuration</summary>
+        <p className="rc-muted">Manage matching scopes, documentation sources and removed notes.</p>
+        <div className="setw-section"><span className="setw-section-title">Matching scopes</span><button className="rc-button" disabled={disabled} onClick={() => setEditor({ kind: 'scope', scope: null })}>Add scope</button></div>
+        <SettingsCard>{notebook.scopes.map(scope => <SettingsRow key={scope.id} title={scope.title} badge={!scope.enabled ? <Badge>Disabled</Badge> : undefined}
         subtitle={<>{scope.match.kind === 'REPOSITORY' ? 'Applies across this repository' : [...scope.match.pathPrefixes, ...scope.match.terms].join(' · ')}
           {discoveryEvidence(scope.discoveryEvidenceRef)}
-          {!notebook.entries.some(entry => entry.kind === 'KNOWLEDGE' && entry.scopeId === scope.id) && <div>No saved knowledge note for this scope.</div>}
-          {scope.preparation === null ? <div>No completed preparation recorded.</div> : <details><summary>Last preparation: {{ READY: 'Note prepared', EMPTY: 'No useful note found', FAILED: 'Failed' }[scope.preparation.outcome]}</summary>
+          {scope.preparation === null ? <div>No completed preparation recorded.</div> : <details><summary>Last preparation: {{ READY: 'Useful context found', EMPTY: 'No useful note found', FAILED: 'Failed' }[scope.preparation.outcome]}</summary>
             <p>{scope.preparation.explanation}</p><p>{scope.preparation.checkedReads.length} source reads retained. This result applies to the checked inputs; it does not verify the note against a new review.</p>
           </details>}</>}>
         <button className="rc-button" disabled={disabled} onClick={() => setEditor({ kind: 'scope', scope })}>Edit</button>
         <button className="rc-button" disabled={disabled} onClick={() => void mutate(revision => window.bridge.configureRepositoryContext(workspace.id,
           { expectedRevision: revision, scopes: notebook.scopes.map(value => value.id === scope.id ? { ...value, enabled: !value.enabled } : value) }), 'Scope updated for future tasks and reviews.')}>{scope.enabled ? 'Disable' : 'Enable'}</button>
-      </SettingsRow>)}</SettingsCard>
-      <div className="setw-section"><span className="setw-section-title">Documentation sources</span><button className="rc-button" disabled={disabled} onClick={() => setEditor({ kind: 'source', source: null })}>Add source</button></div>
-      <SettingsCard>{notebook.sources.length === 0 && <div className="setw-row-empty">Add a documentation website or page. Saving a link does not fetch it.</div>}
+        </SettingsRow>)}</SettingsCard>
+        <div className="setw-section"><span className="setw-section-title">Documentation sources</span><button className="rc-button" disabled={disabled} onClick={() => setEditor({ kind: 'source', source: null })}>Add source</button></div>
+        <SettingsCard>{notebook.sources.length === 0 && <div className="setw-row-empty">Add a documentation website or page. Saving a link does not fetch it.</div>}
         {notebook.sources.map(source => <SettingsRow key={source.id} title={source.kind === 'DOCUMENTATION_ROOT' ? 'Documentation website' : 'Single page'}
           subtitle={<>{source.url}{discoveryEvidence(source.discoveryEvidenceRef)}</>}>
           <button className="rc-button" disabled={disabled} onClick={() => setEditor({ kind: 'source', source })}>Edit</button>
           <button className="rc-button is-danger" disabled={disabled} onClick={() => void mutate(revision => window.bridge.configureRepositoryContext(workspace.id,
             { expectedRevision: revision, sources: notebook.sources.filter(value => value.id !== source.id).map(({ id, kind, url }) => ({ id, kind, url })) }), 'Documentation source removed. Captured review evidence is kept.')}>Remove</button>
         </SettingsRow>)}</SettingsCard>
-      {notebook.suppressedKnowledgeIds.length > 0 && <><div className="setw-section"><span className="setw-section-title">Removed knowledge</span></div>
-        <SettingsCard>{notebook.suppressedKnowledgeIds.map(id => {
-          const scope = notebook.scopes.find(value => 'knowledge:' + value.id === id);
-          return <SettingsRow key={id} title={scope?.title ?? id} subtitle="Removal prevents this note from being recreated. Reset allows adding it again; it does not restore deleted text.">
+        {notebook.suppressedKnowledgeIds.length > 0 && <><div className="setw-section"><span className="setw-section-title">Removed knowledge</span></div>
+          <SettingsCard>{notebook.suppressedKnowledgeIds.map(id => {
+          const scope = notebook.scopes.find(value => id === 'knowledge:' + value.id || id.startsWith('knowledge:' + value.id + ':'));
+          return <SettingsRow key={id} title={scope?.title ?? id} subtitle="Removal prevents this exact note from being recreated. Reset clears removals for this scope; it does not restore deleted text.">
             <button className="rc-button" disabled={disabled || scope === undefined} onClick={() => scope && void mutate(revision => window.bridge.resetRepositoryContext(workspace.id,
-              { expectedRevision: revision, scopeIds: [scope.id] }), 'Removal reset. You can add a new note for this scope.')}>Reset removal</button></SettingsRow>;
-        })}</SettingsCard></>}
-      <p className="rc-muted">Reviews can prepare reusable knowledge for configured scopes. New review runs and development turns can use saved context when their switches are on. Learn / Refresh starts an explicit learning task. Opening this page does not start learning.</p>
+              { expectedRevision: revision, scopeIds: [scope.id] }), 'Scope removals reset. You can add new notes for this scope.')}>Reset scope removals</button></SettingsRow>;
+          })}</SettingsCard></>}
+      </details>
       {editor?.kind === 'entry' && <ContextEntryEditor initialValue={editor.initial} scopes={editor.entry === null ? availableScopes : notebook.scopes}
         scopeLocked={editor.entry !== null} busy={busy} error={error} submitDisabled={needsReload || sourceLinksChanged || editor.claims.some(claim => claim.text.trim() === '' || new TextEncoder().encode(claim.text).length > 2000)
           || (editor.entry !== null && !notebook.entries.some(entry => entry.id === editor.entry?.id))} title={editor.entry === null ? 'Add knowledge note' : 'Edit note'} onCancel={closeEditor}
         onSave={draft => void mutate(revision => window.bridge.editRepositoryContextEntry(workspace.id, { expectedRevision: revision, ...draft,
-          id: editor.entry?.id ?? 'knowledge:' + draft.scopeId, claims: editor.claims, sourceIds: editor.entry?.sourceIds ?? [] }), 'Note saved for future tasks and reviews.', true)}>
+          id: editor.entry?.id ?? 'knowledge:' + draft.scopeId + ':' + editor.id, claims: editor.claims,
+          sourceIds: editor.entry?.sourceIds ?? [] }), 'Note saved for future tasks and reviews.', true)}>
         {editor.entry?.origin === 'GENERATED' && <p className="rc-muted">Saving makes this a user-managed note.</p>}
         {sourceLinksChanged && <p className="rc-error" role="alert">The saved sources or claim structure changed. Copy any draft text you want to keep, then cancel and reopen this note to edit its latest sources.</p>}
         {editor.claims.length > 0 && <details open><summary>Supporting claims</summary>{editor.claims.map((claim, index) => <label key={index}>
@@ -191,6 +225,19 @@ export default function RepositoryContextPage({ workspace }: { workspace: Worksp
           return saved === undefined ? 'This note has been removed. Cancel to return to the notebook.' : [saved.title, saved.summary, saved.body, ...saved.claims.map(claim => claim.text)].join('\n\n');
         })()}</pre></details>}{reloadControl}
       </ContextEntryEditor>}
+      {editor?.kind === 'draft' && <ContextEntryEditor initialValue={editor.initial} scopes={notebook.scopes} scopeLocked busy={busy} error={error}
+        title="Edit pending draft" confirmLabel="Save draft" helperText="Save changes to this pending draft. It stays unavailable to agents until you approve it."
+        submitDisabled={needsReload || !notebook.pendingDrafts.some(draft => draft.id === editor.draft.id)
+          || editor.claims.some(claim => claim.text.trim() === '' || new TextEncoder().encode(claim.text).length > 2000)} onCancel={closeEditor}
+        onSave={draft => void mutate(revision => window.bridge.editRepositoryContextDraft(workspace.id,
+          { expectedRevision: revision, draftId: editor.draft.id, title: draft.title, summary: draft.summary, body: draft.body, claims: editor.claims }),
+        'Draft updated. Review it, then approve when ready.', true)}>
+        {editor.claims.length > 0 && <details open><summary>Supporting claims</summary>{editor.claims.map((claim, index) => <label key={index}>
+          {claim.basis.toLowerCase().replaceAll('_', ' ')}<textarea rows={2} disabled={busy} value={claim.text} onChange={event => setEditor({ ...editor,
+            claims: editor.claims.map((value, position) => position === index ? { ...value, text: event.target.value } : value) })} />
+        </label>)}</details>}
+        <p className="rc-muted">Source links remain attached to the draft.</p>{reloadControl}
+      </ContextEntryEditor>}
       {editor?.kind === 'source' && <SourceEditor source={editor.source} busy={busy} error={error} needsReload={needsReload} onCancel={closeEditor} reloadControl={reloadControl}
         onSave={source => void mutate(revision => window.bridge.configureRepositoryContext(workspace.id, { expectedRevision: revision,
           sources: [...notebook.sources.filter(value => value.id !== source.id).map(({ id, kind, url }) => ({ id, kind, url })), source] }), 'Documentation source saved.', true)} />}
@@ -200,7 +247,7 @@ export default function RepositoryContextPage({ workspace }: { workspace: Worksp
       {removing !== null && <ContextDialog title="Remove saved note?" busy={busy} onCancel={() => setRemoving(null)}><form onSubmit={event => { event.preventDefault();
         void mutate(revision => window.bridge.removeRepositoryContextEntry(workspace.id, { expectedRevision: revision, entryId: removing.id }), 'Note removed. Previous review records are unchanged.', true);
       }}><div className="rc-dialog-body"><p>Remove “{removing.title}” from future tasks and reviews?</p>
-        <p className="rc-muted">Past review records stay available.{removing.kind === 'KNOWLEDGE' ? ' This scope stays excluded from recreation until you reset its removal.' : ' The saved lesson will be deleted.'}</p>
+        <p className="rc-muted">Past review records stay available.{removing.kind === 'KNOWLEDGE' ? ' This exact note stays excluded from recreation until you reset its removal.' : ' The saved lesson will be deleted.'}</p>
         {error && <div className="rc-error" role="alert">{error}{reloadControl}</div>}</div><footer><button type="button" className="rc-button" disabled={busy} onClick={() => setRemoving(null)}>Cancel</button>
           <button className="rc-button is-danger" type="submit" disabled={disabled}>Remove note</button></footer></form></ContextDialog>}
     </>}

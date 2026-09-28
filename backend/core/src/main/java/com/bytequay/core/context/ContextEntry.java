@@ -22,7 +22,7 @@ import java.util.Set;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** One sourced note; generated knowledge has one canonical identity per scope. */
+/** One sourced note; knowledge may be an overview or a focused topic within its scope. */
 public record ContextEntry(
         String id,
         ContextEntryKind kind,
@@ -52,7 +52,8 @@ public record ContextEntry(
         checkArgument(claims.stream().allMatch(claim -> retainedSources.containsAll(claim.sourceIds())), "Claim sources must belong to the entry");
         requireNonNull(origin, "origin is null");
         checkArgument(version > 0, "Entry version must be positive");
-        checkArgument(kind != ContextEntryKind.KNOWLEDGE || id.equals(knowledgeId(scopeId)), "Knowledge id must be %s for scope %s", knowledgeId(scopeId), scopeId);
+        checkArgument(kind != ContextEntryKind.KNOWLEDGE || belongsToKnowledgeScope(id, scopeId),
+                "Knowledge id must belong to scope %s", scopeId);
         checkArgument(kind != ContextEntryKind.MEMORY || origin == ContextEntryOrigin.USER, "Memory must be user-owned");
         checkArgument(kind != ContextEntryKind.MEMORY || !sourceIds.isEmpty(), "Memory needs retained evidence");
         checkArgument(origin != ContextEntryOrigin.GENERATED || !sourceIds.isEmpty(), "Generated knowledge needs retained evidence");
@@ -61,6 +62,12 @@ public record ContextEntry(
     public static String knowledgeId(String scopeId)
     {
         return "knowledge:" + scopeId;
+    }
+
+    public static boolean belongsToKnowledgeScope(String id, String scopeId)
+    {
+        String overview = knowledgeId(scopeId);
+        return id.equals(overview) || (id.startsWith(overview + ":") && id.length() > overview.length() + 1);
     }
 
     public long proseBytes()

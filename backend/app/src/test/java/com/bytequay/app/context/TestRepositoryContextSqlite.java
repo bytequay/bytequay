@@ -26,6 +26,7 @@ import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.ContextInputFingerprint;
+import com.bytequay.core.context.ContextKnowledgeDraft;
 import com.bytequay.core.context.ContextMatch;
 import com.bytequay.core.context.ContextPreparationResult;
 import com.bytequay.core.context.ContextReference;
@@ -183,6 +184,31 @@ class TestRepositoryContextSqlite
         assertThatThrownBy(() -> recreated.setUseInReviews(workspaceId, 1, true)).isInstanceOf(ContextConflictException.class);
         assertThat(recreated.getNotebook(workspaceId)).isEqualTo(saved);
         assertThat(recreated.setUseInReviews(workspaceId, saved.revision(), true).entries()).isEqualTo(saved.entries());
+    }
+
+    @Test
+    void pendingDraftRoundTripsAndBecomesActiveOnlyAfterApproval()
+    {
+        ContextSourceEvidence source = new ContextSourceEvidence("captured", new ContextReference.Document("docs", "https://example.com/docs/page"),
+                "Captured document", "Connector contract", ContextSourceEvidence.Capture.BYTEQUAY_READ,
+                Optional.of(Instant.EPOCH), Optional.empty(), Optional.empty(), false);
+        ContextEntry proposed = new ContextEntry("knowledge:project:connector", KNOWLEDGE, "project", "Connector", "Contract summary", "Contract body",
+                ImmutableList.of(new ContextClaim("Contract", ContextClaim.Basis.DOCUMENTED, ImmutableList.of(source.id()))),
+                ImmutableList.of(source.id()), ContextEntryOrigin.GENERATED, true, 1);
+        ContextKnowledgeDraft draft = new ContextKnowledgeDraft("draft:connector", proposed, Optional.empty(), "a".repeat(40), "Read connector documentation");
+        RepositoryNotebook empty = context.getNotebook(workspaceId);
+        RepositoryNotebook pending = context.savePreparation(workspaceId, empty, new RepositoryNotebook(1, 1, true, true,
+                empty.sources(), empty.scopes(), empty.entries(), ImmutableList.of(draft), empty.suppressedKnowledgeIds(),
+                ImmutableList.of(source), Optional.empty()));
+        RepositoryContextService recreated = new RepositoryContextService(settings, mapper, workspaces, reviews);
+        assertThat(recreated.getNotebook(workspaceId)).isEqualTo(pending);
+        assertThat(pending.entries()).isEmpty();
+
+        RepositoryNotebook approved = recreated.approveDraft(workspaceId, pending.revision(), draft.id());
+        assertThat(approved.pendingDrafts()).isEmpty();
+        assertThat(approved.entries()).containsExactly(new ContextEntry(proposed.id(), proposed.kind(), proposed.scopeId(), proposed.title(),
+                proposed.summary(), proposed.body(), proposed.claims(), proposed.sourceIds(), proposed.origin(), true, approved.revision()));
+        assertThat(context.getNotebook(workspaceId)).isEqualTo(approved);
     }
 
     @Test

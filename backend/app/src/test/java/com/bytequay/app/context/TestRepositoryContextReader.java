@@ -181,8 +181,8 @@ class TestRepositoryContextReader
 
         RepositoryContextReader.Selection selected = select(componentNotebook());
 
-        assertThat(selected.notes().scopes()).extracting(RepositoryContextMatcher.ScopeMatch::rank)
-                .containsExactly(RepositoryContextMatcher.Rank.REPOSITORY, RepositoryContextMatcher.Rank.TERM);
+        assertThat(selected.notes().scopes()).extracting(match -> match.scope().id()).containsExactly("project", "iceberg");
+        assertThat(selected.notes().scopes().getLast().matchReasons()).containsExactly("Task text contains term: Iceberg");
         assertThat(selected.gaps()).contains(
                 "Frozen matching paths are unavailable or truncated; path matching and history were skipped, while repository and text matching remain available.");
         verifyNoInteractions(browse, enrichment);
@@ -196,8 +196,8 @@ class TestRepositoryContextReader
 
         RepositoryContextReader.Selection selected = select(componentNotebook());
 
-        assertThat(selected.notes().scopes()).extracting(RepositoryContextMatcher.ScopeMatch::rank)
-                .containsExactly(RepositoryContextMatcher.Rank.REPOSITORY, RepositoryContextMatcher.Rank.PATH);
+        assertThat(selected.notes().scopes()).extracting(match -> match.scope().id()).containsExactly("project", "iceberg");
+        assertThat(selected.notes().scopes().getLast().matchReasons()).contains("Changed path matches prefix: plugin/iceberg/");
         assertThat(selected.gaps()).contains("Some Git paths are outside the supported context path grammar and were excluded from path matching and history.");
     }
 
@@ -210,8 +210,8 @@ class TestRepositoryContextReader
 
         RepositoryContextReader.Selection selected = select(componentNotebook());
 
-        assertThat(selected.notes().scopes()).extracting(RepositoryContextMatcher.ScopeMatch::rank)
-                .containsExactly(RepositoryContextMatcher.Rank.REPOSITORY, RepositoryContextMatcher.Rank.PATH);
+        assertThat(selected.notes().scopes()).extracting(match -> match.scope().id()).containsExactly("project", "iceberg");
+        assertThat(selected.notes().scopes().getLast().matchReasons()).contains("Changed path matches prefix: plugin/iceberg/");
         assertThat(selected.gaps()).contains("Matching paths exceed the 10000-path or 1024 KiB UTF-8 budget; only complete supported paths within the budget were considered.");
     }
 

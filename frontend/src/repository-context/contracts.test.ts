@@ -24,6 +24,8 @@ import {
   parseContextUsageOverview,
   parseContextUsagePage,
   parseContextUsageWindow,
+  parseContextDraftActionRequest,
+  parseEditContextDraftRequest,
   parseDiscoverRepositoryContextRequest,
   parseEditRepositoryContextEntryRequest,
   parseRepositoryNotebook,
@@ -49,7 +51,7 @@ const notebook: RepositoryNotebookDto = {
   scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, preparation: null, discoveryEvidenceRef: null }],
   entries: [{ id: 'knowledge:project', kind: 'KNOWLEDGE', scopeId: 'project', title: 'Project', summary: 'Summary', body: 'Keep the condition.',
     claims: [{ text: 'Conditional claim', basis: 'INFERENCE', sourceIds: ['source'] }], sourceIds: ['source'], origin: 'GENERATED', enabled: false, version: 2 }],
-  suppressedKnowledgeIds: [], sourceEvidence: [{ id: 'source', reference: { kind: 'DOCUMENT', sourceId: 'docs', url: 'https://example.com/docs/page' },
+  pendingDrafts: [], suppressedKnowledgeIds: [], sourceEvidence: [{ id: 'source', reference: { kind: 'DOCUMENT', sourceId: 'docs', url: 'https://example.com/docs/page' },
     provenance: 'Captured page', excerpt: 'Original text', capture: 'BYTEQUAY_READ', retrievedAt: null, contentHash: null, version: null, truncated: true }],
 };
 const usage: ContextUsageOverviewDto = {
@@ -127,6 +129,18 @@ describe('repository context contracts', () => {
     expect(parseRepositoryNotebook(notebook)).toEqual(notebook);
     expect(parseRepositoryNotebook({ ...notebook, useInReviews: false }).useInReviews).toBe(false);
     expect(parseRepositoryNotebook({ ...notebook, useInDevelopment: false }).useInDevelopment).toBe(false);
+  });
+
+  it('keeps pending drafts separate from active entries and validates draft edits', () => {
+    const draft = { id: 'draft:one', entry: { ...notebook.entries[0], enabled: true }, replacesVersion: 2,
+      baselineSha: 'a'.repeat(40), explanation: 'Compared the repository source.' };
+    expect(parseRepositoryNotebook({ ...notebook, pendingDrafts: [draft] }).pendingDrafts).toEqual([draft]);
+    expect(() => parseRepositoryNotebook({ ...notebook, pendingDrafts: undefined })).toThrow('pending drafts');
+    expect(() => parseRepositoryNotebook({ ...notebook, pendingDrafts: [{ ...draft, entry: { ...draft.entry, kind: 'MEMORY' } }] })).toThrow('knowledge draft entry');
+    expect(parseContextDraftActionRequest({ expectedRevision: 7, draftId: draft.id })).toEqual({ expectedRevision: 7, draftId: draft.id });
+    expect(parseEditContextDraftRequest({ expectedRevision: 7, draftId: draft.id, title: 'Revised', summary: 'Condition', body: 'Check the code', claims: [] }).title)
+      .toBe('Revised');
+    expect(() => parseContextDraftActionRequest({ expectedRevision: 7, draftId: draft.id, body: 'activate' })).toThrow('unsupported request field');
   });
 
   it('requires nullable discovery provenance on stored scopes and registered sources', () => {

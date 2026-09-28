@@ -528,42 +528,6 @@ class TestContextInputReader
                 .anySatisfy(gap -> assertThat(gap).contains("ISSUE"));
     }
 
-    @Test
-    void reviewedIdentitiesIncludeLessonFilesAtFrozenHeadWithoutChangingPreparationReuse()
-            throws IOException
-    {
-        initialize();
-        write("pom.xml", "Original declarations");
-        write("plugin/iceberg/Metadata.java", "Original component");
-        write("rules/contract.md", "Original lesson source");
-        String reviewedHead = commit();
-        String originalBlob = command("rev-parse", reviewedHead + ":rules/contract.md").strip();
-        ContextSourceEvidence source = new ContextSourceEvidence("lesson-source", new ContextReference.RepositoryFile(7, MONITORED, "rules/contract.md", reviewedHead),
-                "Captured lesson source", "Original lesson source", ContextSourceEvidence.Capture.BYTEQUAY_READ,
-                Optional.of(Instant.EPOCH), Optional.of(originalBlob), Optional.empty(), false);
-        ContextEntry lesson = new ContextEntry("lesson:contract", ContextEntryKind.MEMORY, COMPONENT.id(), "Contract", "Summary", "Conditional lesson",
-                ImmutableList.of(), ImmutableList.of(source.id()), ContextEntryOrigin.USER, true, 1);
-        RepositoryNotebook notebook = new RepositoryNotebook(1, 0, true, ImmutableList.of(), ImmutableList.of(ContextScope.project(), COMPONENT),
-                ImmutableList.of(lesson), ImmutableList.of(), ImmutableList.of(source), Optional.empty());
-        ContextInputReader reader = new ContextInputReader(git);
-        ContextInputFingerprint preparation = capture(reviewedHead, notebook).getLast();
-
-        write("rules/contract.md", "A later committed source");
-        write("pom.xml", "Later declarations");
-        String later = commit();
-        command("replace", reviewedHead, later);
-        write("rules/contract.md", "An uncommitted experiment");
-        ContextInputFingerprint frozen = reader.captureReviewed(workspace(), reviewedHead, notebook, ImmutableList.of(COMPONENT), ImmutableList.of(lesson)).getFirst();
-        ContextInputFingerprint current = reader.captureReviewed(workspace(), later, notebook, ImmutableList.of(COMPONENT), ImmutableList.of(lesson)).getFirst();
-
-        assertThat(frozen.digest()).isPresent();
-        assertThat(frozen.inputs()).containsEntry("git:rules/contract.md", "100644 blob " + originalBlob);
-        assertThat(current.inputs().get("git:rules/contract.md")).isNotEqualTo(frozen.inputs().get("git:rules/contract.md"));
-        assertThat(current.inputs().get("git:pom.xml")).isNotEqualTo(frozen.inputs().get("git:pom.xml"));
-        assertThat(preparation.inputs()).doesNotContainKey("git:rules/contract.md");
-        assertThat(capture(reviewedHead, notebook).getLast()).isEqualTo(preparation);
-    }
-
     private List<ContextInputFingerprint> capture(String baseline, RepositoryNotebook notebook)
     {
         return new ContextInputReader(git).capture(workspace(), Optional.of(baseline), notebook, notebook.scopes());

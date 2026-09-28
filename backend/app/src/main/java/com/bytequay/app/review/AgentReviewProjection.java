@@ -313,7 +313,7 @@ public record AgentReviewProjection(
             int omitted = nonnegativeInt(result, "omittedCount");
             checkArgument(frozenCount <= hintCount && paths.size() + omittedPaths <= hintCount, "Invalid path-hint count");
             JsonNode savedHits = result.path("hits");
-            checkArgument(savedHits.isArray() && savedHits.size() <= 5 && (savedHits.isEmpty() == state.equals("NO_MATCH")), "Invalid saved search hits");
+            checkArgument(savedHits.isArray() && savedHits.size() <= 10 && (savedHits.isEmpty() == state.equals("NO_MATCH")), "Invalid saved search hits");
             List<ContextNoteSearchHit> hits = new ArrayList<>();
             for (JsonNode hit : savedHits) {
                 String id = requiredText(hit, "entryId");
@@ -341,7 +341,10 @@ public record AgentReviewProjection(
     private static Optional<ContextNoteSearchRead> dynamicRead(
             ReviewRun run, String searchRef, String entryId, long version, List<ContextUsageEvent> usage, boolean usageTruncated)
     {
-        String digest = Hashing.sha256().hashString(searchRef + "\n" + entryId + "\n" + version, StandardCharsets.UTF_8).toString();
+        String directDigest = Hashing.sha256().hashString(run.id() + "\n" + entryId + "\n" + version, StandardCharsets.UTF_8).toString();
+        String legacyDigest = Hashing.sha256().hashString(searchRef + "\n" + entryId + "\n" + version, StandardCharsets.UTF_8).toString();
+        boolean direct = run.operations().containsKey("context-note:" + directDigest);
+        String digest = direct ? directDigest : legacyDigest;
         String ref = "context-note:" + digest;
         ReviewOperation operation = run.operations().get(ref);
         if (operation == null) {
@@ -351,7 +354,8 @@ public record AgentReviewProjection(
         try {
             JsonNode result = ACTIVITY_MAPPER.readTree(operation.result());
             checkArgument(operation.payloadDigest().equals(digest) && result.isObject() && "AVAILABLE".equals(requiredText(result, "status"))
-                    && searchRef.equals(requiredText(result, "searchRef")) && entryId.equals(requiredText(result, "entryId"))
+                    && (direct ? result.path("searchRef").isMissingNode() : searchRef.equals(requiredText(result, "searchRef")))
+                    && entryId.equals(requiredText(result, "entryId"))
                     && version == positiveLong(result, "entryVersion") && ref.equals(requiredText(result, "evidenceRef")), "Invalid exact read identity");
             String text = requiredText(result, "text");
             checkArgument(run.evidence().containsKey(ref) && run.evidence().get(ref).excerpt().equals(text), "Exact note evidence differs");

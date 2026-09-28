@@ -131,7 +131,9 @@ public class ContextBuildTools
                         readSchema(), arguments -> call(task.id().toString(), turn, arguments, false)),
                 new ReviewTool("repository_context_prepare", "BEGIN shared knowledge preparation after all default source attempts; SUBMIT a generated report. "
                         + "Reuse exact requestKey/operationKey only with identical input. Source IDs are retained readId values. "
-                        + "READY produces exactly one entry per scope: id=knowledge:<scopeId> (knowledge:project for project), and noteIds contains only that ID. "
+                        + "READY proposes one or more focused notes per scope. Use id=knowledge:<scopeId> for an overview, or "
+                        + "knowledge:<scopeId>:<stable-topic> for a topic; noteIds must name exactly the proposed entries for that scope. "
+                        + "SUBMIT saves pending drafts for user approval; it does not activate knowledge. "
                         + "EMPTY/FAILED use empty noteIds and no entry. checkedSourceIds allows up to " + ContextLimits.MAX_SOURCE_READS + " readIds; "
                         + "each entry/claim sourceIds allows up to " + ContextLimits.MAX_SOURCES + " readIds. "
                         + "entry sources must be checkedSourceIds, and claim sources must belong to the entry. "
@@ -460,7 +462,7 @@ public class ContextBuildTools
         ObjectNode node = mapper.createObjectNode().put("status", admission.status().name()).put("notebookRevision", admission.notebookRevision());
         admission.attempt().ifPresentOrElse(active -> node.putObject("attempt").put("attemptId", active.attemptId())
                         .putPOJO("scopes", active.inputs().stream().map(input -> ImmutableMap.of("scopeId", input.scopeId(),
-                                        "expectedNoteId", ContextEntry.knowledgeId(input.scopeId()), "digest", input.digest().orElseThrow()))
+                                        "suggestedOverviewId", ContextEntry.knowledgeId(input.scopeId()), "digest", input.digest().orElseThrow()))
                                 .collect(toImmutableList())), () -> node.putNull("attempt"));
         return node.putPOJO("reused", admission.reused().stream().map(ContextBuildTools::outcome).collect(toImmutableList()))
                 .putPOJO("gaps", admission.gaps()).putPOJO("packet", admission.packet());
@@ -625,13 +627,13 @@ public class ContextBuildTools
                 ImmutableList.of("DOCUMENTED", "RECORDED_DECISION", "INFERENCE", "QUESTION")), "sourceIds", stringArray(ContextLimits.MAX_SOURCES, 500)),
                 ImmutableList.of("text", "basis", "sourceIds"));
         Map<String, Object> entry = schema(ImmutableMap.of("id", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1200,
-                        "description", "Exactly knowledge:<scopeId>; use knowledge:project for scope project, or the BEGIN expectedNoteId."),
+                        "description", "Use knowledge:<scopeId> for an overview, or knowledge:<scopeId>:<stable-topic> for a focused note."),
                 "scopeId", textSchema(1100), "title", textSchema(200), "summary", textSchema(1000),
                 "body", textSchema(ContextLimits.MAX_BODY_BYTES), "claims", ImmutableMap.of("type", "array", "maxItems", 12, "items", claim),
                 "sourceIds", stringArray(ContextLimits.MAX_SOURCES, 500)), ImmutableList.of("id", "scopeId", "title", "summary", "body", "claims", "sourceIds"));
         Map<String, Object> scope = schema(ImmutableMap.of("scopeId", textSchema(1100), "outcome", ImmutableMap.of("type", "string", "enum",
-                ImmutableList.of("READY", "EMPTY", "FAILED")), "noteIds", ImmutableMap.of("type", "array", "maxItems", 1, "items", textSchema(1200),
-                        "description", "READY requires exactly [knowledge:<scopeId>] and the matching entry; EMPTY/FAILED require []."),
+                ImmutableList.of("READY", "EMPTY", "FAILED")), "noteIds", ImmutableMap.of("type", "array", "maxItems", ContextLimits.MAX_ENTRIES,
+                        "items", textSchema(1200), "description", "READY lists one or more proposed knowledge IDs in this scope; EMPTY/FAILED require []."),
                 "checkedSourceIds", stringArray(ContextLimits.MAX_SOURCE_READS, 100), "explanation", textSchema(2000)),
                 ImmutableList.of("scopeId", "outcome", "noteIds", "checkedSourceIds", "explanation"));
         return schema(ImmutableMap.of("operation", ImmutableMap.of("type", "string", "enum", ImmutableList.of("BEGIN", "SUBMIT")), "requestKey", textSchema(100),

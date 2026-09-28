@@ -26,7 +26,6 @@ import com.bytequay.core.context.ContextPreparationResult;
 import com.bytequay.core.context.ContextReference;
 import com.bytequay.core.context.ContextRepositoryRead;
 import com.bytequay.core.context.ContextScope;
-import com.bytequay.core.context.ContextSelectedEntry;
 import com.bytequay.core.context.ContextSourceEvidence;
 import com.bytequay.core.context.ContextUsageEvent;
 import com.bytequay.core.context.RepositoryNotebook;
@@ -54,7 +53,6 @@ import java.util.OptionalLong;
 import java.util.stream.IntStream;
 
 import static com.bytequay.core.context.ContextEntryKind.KNOWLEDGE;
-import static com.bytequay.core.context.ContextEntryKind.MEMORY;
 import static com.bytequay.core.context.ContextEntryOrigin.GENERATED;
 import static com.bytequay.core.context.ContextEntryOrigin.USER;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -62,7 +60,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -138,7 +135,7 @@ class TestReviewContextService
     }
 
     @Test
-    void freezesRenderedClaimsAndCopiedEvidenceWithoutPromotingTheirApplicability()
+    void suppliesLookupInstructionsWithoutSelectingNotesOrCopyingTheirEvidence()
     {
         ContextEntry note = new ContextEntry("knowledge:project", KNOWLEDGE, "project", "Project architecture", "Connector summary", "Connector body",
                 ImmutableList.of(new ContextClaim("The connector owns the transaction", ContextClaim.Basis.DOCUMENTED, ImmutableList.of(SOURCE.id()))),
@@ -150,98 +147,15 @@ class TestReviewContextService
 
         ReviewRun captured = service.prepareRun(REVIEW, original, WORKSPACE, Optional.empty());
         ReviewContextSnapshot context = captured.context().orElseThrow();
-        ContextSelectedEntry selected = context.selectedEntries().getFirst();
-        String evidenceRef = selected.sourceEvidenceRefs().get(SOURCE.id());
-        ReviewEvidence evidence = captured.evidence().get(evidenceRef);
-        String noteRef = ReviewContextService.bootstrapNoteRef(original.id(), note.id(), note.version());
 
         assertThat(context.notebookRevision()).isEqualTo(notebook.revision());
-        assertThat(context.baselineSha()).contains(BASE);
-        assertThat(selected.entryVersion()).isEqualTo(4);
-        assertThat(selected.applicability()).isEqualTo(ContextSelectedEntry.Applicability.UNVERIFIED);
-        assertThat(selected.text().orElseThrow()).contains(note.title(), note.summary(), note.body(), note.claims().getFirst().text(), "DOCUMENTED", evidenceRef, noteRef);
-        assertThat(captured.evidence().get(noteRef).excerpt()).isEqualTo(selected.text().orElseThrow());
-        assertThat(evidence.excerpt()).isEqualTo(SOURCE.excerpt());
-        assertThat(evidence.source()).contains("https://example.com/docs/page");
-        assertThat(evidence.provenance()).contains(SOURCE.provenance(), "capture=BYTEQUAY_READ", "version=release-1", "contentHash=sha256:source", "truncated=false");
-        assertThat(context.bootstrap().orElseThrow().text()).contains(selected.text().orElseThrow());
-        assertThat(captured.evidence()).containsEntry("existing", original.evidence().get("existing"));
-        assertThat(original.context()).isEmpty();
+        assertThat(context.selectedEntries()).isEmpty();
+        assertThat(context.bootstrap().orElseThrow().text()).contains("note_list", "note_search", "entryId and entryVersion")
+                .doesNotContain(note.body(), note.summary(), SOURCE.excerpt());
+        assertThat(captured.evidence()).isEqualTo(original.evidence());
         ArgumentCaptor<ContextUsageEvent> events = ArgumentCaptor.forClass(ContextUsageEvent.class);
-        verify(usage, times(3)).record(events.capture());
-        assertThat(events.getAllValues()).extracting(ContextUsageEvent::stage)
-                .containsExactly(ContextUsageEvent.Stage.ELIGIBLE, ContextUsageEvent.Stage.SELECTED, ContextUsageEvent.Stage.PROVIDED);
-        assertThat(events.getAllValues().getLast().delivery()).isEqualTo(ContextUsageEvent.Delivery.PREPARED);
-
-        when(notebooks.getNotebook("workspace")).thenReturn(RepositoryNotebook.empty());
-        clearInvocations(notebooks, reader, inputs, reviews);
-        assertThat(service.prepareRun(REVIEW, captured, WORKSPACE, Optional.empty())).isSameAs(captured);
-        assertThat(captured.evidence().get(evidenceRef)).isEqualTo(evidence);
-        verifyNoInteractions(notebooks, reader, inputs, reviews);
-    }
-
-    @Test
-    void measuresRenderedNotesInUtf8AndDefersWholeEntries()
-    {
-        ContextEntry first = note("project", "你".repeat(2500));
-        ContextEntry second = note("extra", "é".repeat(1000));
-        RepositoryNotebook notebook = notebook(true, ImmutableList.of(first, second), ImmutableList.of());
-        ReviewRun original = run();
-        select(notebook, original, ImmutableList.of());
-        captureWrites();
-
-        ReviewContextSnapshot context = service.prepareRun(REVIEW, original, WORKSPACE, Optional.empty()).context().orElseThrow();
-        ContextSelectedEntry included = context.selectedEntries().get(0);
-        ContextSelectedEntry deferred = context.selectedEntries().get(1);
-
-        assertThat(included.inclusion()).isEqualTo(ContextSelectedEntry.Inclusion.INCLUDED);
-        assertThat(included.text().orElseThrow()).contains(first.body());
-        assertThat(ContextLimits.bytes(included.text().orElseThrow())).isLessThanOrEqualTo(ReviewContextSnapshot.MAXIMUM_SELECTED_TEXT_BYTES);
-        assertThat(deferred.inclusion()).isEqualTo(ContextSelectedEntry.Inclusion.DEFERRED);
-        assertThat(deferred.text()).isEmpty();
-        assertThat(deferred.sourceEvidenceRefs()).isEmpty();
-        assertThat(context.gaps()).isNotEmpty();
-        ContextPacket packet = context.bootstrap().orElseThrow();
-        assertThat(packet.text()).doesNotContain(second.body());
-        assertThat(packet.utf8Bytes()).isEqualTo(ContextLimits.bytes(packet.text())).isLessThanOrEqualTo(ContextPacket.MAXIMUM_BYTES);
-    }
-
-    @Test
-    void givesTopicMatchedLessonBudgetBeforeScopeOnlyLessonAndFreezesTheReasons()
-    {
-        ContextScope iceberg = new ContextScope("iceberg", "Iceberg",
-                new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/"), ImmutableList.of()), true, Optional.empty(), Optional.empty());
-        ContextEntry configuration = new ContextEntry("lesson:configuration", MEMORY, iceberg.id(), "Configuration validation", "Catalog configuration",
-                "Configuration guidance. ".repeat(250), ImmutableList.of(), ImmutableList.of(SOURCE.id()), USER, true, 1);
-        ContextEntry snapshot = new ContextEntry("lesson:snapshot", MEMORY, iceberg.id(), "Snapshot isolation", "Validate the snapshot isolation contract",
-                "Snapshot guidance. ".repeat(300), ImmutableList.of(), ImmutableList.of(SOURCE.id()), USER, true, 1);
-        RepositoryNotebook notebook = new RepositoryNotebook(1, 4, true, ImmutableList.of(), ImmutableList.of(ContextScope.project(), iceberg),
-                ImmutableList.of(configuration, snapshot), ImmutableList.of(), ImmutableList.of(SOURCE), Optional.empty());
-        ReviewRun original = run();
-        when(notebooks.getNotebook("workspace")).thenReturn(notebook);
-        RepositoryContextMatcher.Selection matches = new RepositoryContextMatcher().select(notebook, ImmutableList.of("plugin/iceberg/Metadata.java"),
-                "Fix snapshot isolation", ImmutableList.of());
-        when(reader.select(REVIEW, original, WORKSPACE, Optional.empty(), notebook)).thenReturn(new RepositoryContextReader.Selection(Optional.of(BASE), matches,
-                ImmutableList.of(), ImmutableList.of()));
-        captureWrites();
-
-        ReviewRun captured = service.prepareRun(REVIEW, original, WORKSPACE, Optional.empty());
-        ReviewContextSnapshot context = captured.context().orElseThrow();
-
-        assertThat(context.selectedEntries()).extracting(ContextSelectedEntry::entryId).containsExactly(snapshot.id(), configuration.id());
-        ContextSelectedEntry included = context.selectedEntries().getFirst();
-        ContextSelectedEntry deferred = context.selectedEntries().getLast();
-        assertThat(included.inclusion()).isEqualTo(ContextSelectedEntry.Inclusion.INCLUDED);
-        assertThat(included.matchReasons()).contains("Lesson title/summary words also occur in PR text or changed filenames: snapshot, isolation");
-        assertThat(deferred.inclusion()).isEqualTo(ContextSelectedEntry.Inclusion.DEFERRED);
-        assertThat(deferred.text()).isEmpty();
-        assertThat(deferred.matchReasons()).anySatisfy(reason -> assertThat(reason).contains("no lesson-specific words"));
-        assertThat(context.selectedEntries()).allSatisfy(entry -> assertThat(entry.applicability()).isEqualTo(ContextSelectedEntry.Applicability.UNVERIFIED));
-        assertThat(context.bootstrap().orElseThrow().text()).contains(snapshot.body()).doesNotContain(configuration.body());
-
-        clearInvocations(notebooks, reader, inputs, reviews);
-        assertThat(service.prepareRun(REVIEW, captured, WORKSPACE, Optional.empty())).isSameAs(captured);
-        verifyNoInteractions(notebooks, reader, inputs, reviews);
+        verify(usage).record(events.capture());
+        assertThat(events.getValue().stage()).isEqualTo(ContextUsageEvent.Stage.ELIGIBLE);
     }
 
     @Test
@@ -260,7 +174,7 @@ class TestReviewContextService
 
         assertThat(context.inputFingerprints()).containsExactly(fingerprint);
         assertThat(context.bootstrap().orElseThrow().text()).contains("Local input inventories: 1 complete of 1", "remote document freshness are unverified");
-        assertThat(context.selectedEntries().getFirst().applicability()).isEqualTo(ContextSelectedEntry.Applicability.UNVERIFIED);
+        assertThat(context.selectedEntries()).isEmpty();
         verify(inputs).capture(WORKSPACE, Optional.of(BASE), notebook, ImmutableList.of(ContextScope.project()));
         clearInvocations(notebooks, reader, inputs, reviews);
 
@@ -313,27 +227,6 @@ class TestReviewContextService
     }
 
     @Test
-    void defersValidBodyWhenWholeRenderedNoteExceedsBudget()
-    {
-        ContextEntry large = new ContextEntry("knowledge:project", KNOWLEDGE, "project", "Project", "Summary", "你".repeat(2730), ImmutableList.of(),
-                ImmutableList.of(SOURCE.id()), USER, true, 4);
-        RepositoryNotebook notebook = notebook(true, ImmutableList.of(large), ImmutableList.of(SOURCE));
-        ReviewRun original = run();
-        select(notebook, original, ImmutableList.of());
-        captureWrites();
-
-        ReviewRun captured = service.prepareRun(REVIEW, original, WORKSPACE, Optional.empty());
-        ReviewContextSnapshot context = captured.context().orElseThrow();
-
-        assertThat(ContextLimits.bytes(large.body())).isLessThanOrEqualTo(ContextLimits.MAX_BODY_BYTES);
-        assertThat(context.selectedEntries().getFirst().inclusion()).isEqualTo(ContextSelectedEntry.Inclusion.DEFERRED);
-        assertThat(context.selectedEntries().getFirst().text()).isEmpty();
-        assertThat(context.selectedEntries().getFirst().sourceEvidenceRefs()).isEmpty();
-        assertThat(captured.evidence()).isEqualTo(original.evidence());
-        assertThat(context.gaps()).isNotEmpty();
-    }
-
-    @Test
     void boundsHistoryAndMetadataWithoutPartiallyIncludingSources()
     {
         RepositoryNotebook notebook = notebook(true, ImmutableList.of(note("project", "你".repeat(2300))), ImmutableList.of());
@@ -365,9 +258,9 @@ class TestReviewContextService
         ReviewRun original = run();
         when(notebooks.getNotebook("workspace")).thenReturn(notebook);
         RepositoryContextMatcher.ScopeMatch missing = new RepositoryContextMatcher.ScopeMatch(ContextScope.project(), ImmutableList.of("Repository-wide scope"),
-                RepositoryContextMatcher.Rank.REPOSITORY, true);
+                true);
         RepositoryContextReader.Selection selection = new RepositoryContextReader.Selection(Optional.empty(),
-                new RepositoryContextMatcher.Selection(ImmutableList.of(), ImmutableList.of(missing)), ImmutableList.of(), ImmutableList.of("Baseline unavailable locally"));
+                new RepositoryContextMatcher.Selection(ImmutableList.of(missing)), ImmutableList.of(), ImmutableList.of("Baseline unavailable locally"));
         when(reader.select(REVIEW, original, WORKSPACE, Optional.empty(), notebook)).thenReturn(selection);
         captureWrites();
 
@@ -386,9 +279,9 @@ class TestReviewContextService
         ReviewRun original = run();
         when(notebooks.getNotebook("workspace")).thenReturn(notebook);
         RepositoryContextMatcher.ScopeMatch missing = new RepositoryContextMatcher.ScopeMatch(ContextScope.project(), ImmutableList.of("Repository-wide scope"),
-                RepositoryContextMatcher.Rank.REPOSITORY, true);
+                true);
         when(reader.select(REVIEW, original, WORKSPACE, Optional.empty(), notebook)).thenReturn(new RepositoryContextReader.Selection(Optional.of(BASE),
-                new RepositoryContextMatcher.Selection(ImmutableList.of(), ImmutableList.of(missing)), ImmutableList.of(), ImmutableList.of()));
+                new RepositoryContextMatcher.Selection(ImmutableList.of(missing)), ImmutableList.of(), ImmutableList.of()));
         ContextInputFingerprint complete = ContextInputFingerprint.create("project", ImmutableMap.of("git:README.md", BASE), ImmutableList.of());
         when(inputs.capture(WORKSPACE, Optional.of(BASE), notebook, ImmutableList.of(ContextScope.project()))).thenReturn(ImmutableList.of(complete));
         captureWrites();
@@ -415,9 +308,9 @@ class TestReviewContextService
         ReviewRun original = run();
         when(notebooks.getNotebook("workspace")).thenReturn(notebook);
         RepositoryContextMatcher.ScopeMatch missing = new RepositoryContextMatcher.ScopeMatch(project, ImmutableList.of("Repository-wide scope"),
-                RepositoryContextMatcher.Rank.REPOSITORY, true);
+                true);
         when(reader.select(REVIEW, original, WORKSPACE, Optional.empty(), notebook)).thenReturn(new RepositoryContextReader.Selection(Optional.of(BASE),
-                new RepositoryContextMatcher.Selection(ImmutableList.of(), ImmutableList.of(missing)), ImmutableList.of(), ImmutableList.of()));
+                new RepositoryContextMatcher.Selection(ImmutableList.of(missing)), ImmutableList.of(), ImmutableList.of()));
         when(inputs.capture(WORKSPACE, Optional.of(BASE), notebook, ImmutableList.of(project))).thenReturn(ImmutableList.of(input));
         captureWrites();
 
@@ -462,42 +355,6 @@ class TestReviewContextService
         assertThat(context.bootstrap().orElseThrow().utf8Bytes()).isLessThanOrEqualTo(ContextPacket.MAXIMUM_BYTES);
     }
 
-    @Test
-    void freezesReviewedSourceIdentityWithoutPromotingClaimsOrReplacingCaptureLabels()
-    {
-        ContextSourceEvidence source = new ContextSourceEvidence("file", new ContextReference.RepositoryFile(42, WORKSPACE.monitoredRepository(), "README.md", BASE),
-                "Observed source", "Conditional source text", ContextSourceEvidence.Capture.BYTEQUAY_READ,
-                Optional.of(NOW), Optional.of(BASE), Optional.empty(), false);
-        ContextEntry entry = new ContextEntry("knowledge:project", KNOWLEDGE, "project", "Project", "Summary", "Conditional body", ImmutableList.of(),
-                ImmutableList.of(source.id()), GENERATED, true, 1);
-        RepositoryNotebook notebook = notebook(true, ImmutableList.of(entry), ImmutableList.of(source));
-        ReviewRun original = run();
-        select(notebook, original, ImmutableList.of());
-        when(inputs.captureReviewed(WORKSPACE, HEAD, notebook, ImmutableList.of(ContextScope.project()), ImmutableList.of(entry)))
-                .thenReturn(ImmutableList.of(ContextInputFingerprint.create("project", ImmutableMap.of("git:README.md", "100644 blob " + BASE), ImmutableList.of())));
-        captureWrites();
-
-        ReviewRun captured = service.prepareRun(REVIEW, original, WORKSPACE, Optional.empty());
-        ContextSelectedEntry selected = captured.context().orElseThrow().selectedEntries().getFirst();
-
-        assertThat(selected.applicability()).isEqualTo(ContextSelectedEntry.Applicability.MATCHED);
-        assertThat(selected.matchReasons()).contains("Repository-wide scope").anyMatch(reason -> reason.contains("Source identity MATCHED"));
-        assertThat(selected.text().orElseThrow()).contains("Applicability: MATCHED", "source/input identity only", "remain UNVERIFIED");
-        assertThat(captured.context().orElseThrow().bootstrap().orElseThrow().text()).contains("Notebook claims are UNVERIFIED", "reviewed head: " + HEAD);
-        String ref = selected.sourceEvidenceRefs().get(source.id());
-        assertThat(captured.evidence().get(ref).provenance()).contains("capture=BYTEQUAY_READ");
-        ContextSourceEvidence reported = new ContextSourceEvidence("reported", SOURCE.reference(), "Provider native web result", SOURCE.excerpt(),
-                ContextSourceEvidence.Capture.AGENT_REPORTED, SOURCE.retrievedAt(), SOURCE.contentHash(), SOURCE.version(), false);
-        ReviewEvidence reportedEvidence = ReviewContextService.capture(reported, "reported-reference");
-        assertThat(reportedEvidence.provenance()).contains("capture=AGENT_REPORTED");
-        assertThat(reportedEvidence.excerpt()).isEqualTo(reported.excerpt());
-        assertThat(reportedEvidence.explanation()).contains("not independently captured");
-
-        clearInvocations(notebooks, reader, inputs, reviews);
-        assertThat(service.prepareRun(REVIEW, captured, WORKSPACE, Optional.empty())).isSameAs(captured);
-        verifyNoInteractions(notebooks, reader, inputs, reviews);
-    }
-
     private void captureWrites()
     {
         when(reviews.updateRun(any())).thenAnswer(invocation -> {
@@ -514,13 +371,10 @@ class TestReviewContextService
     private void select(RepositoryNotebook notebook, ReviewRun run, List<RepositoryContextReader.Related> related, List<String> gaps)
     {
         when(notebooks.getNotebook("workspace")).thenReturn(notebook);
-        List<RepositoryContextMatcher.Match> entries = notebook.entries().stream()
-                .map(entry -> new RepositoryContextMatcher.Match(entry, ImmutableList.of("Repository-wide scope"), RepositoryContextMatcher.Rank.REPOSITORY))
-                .collect(toImmutableList());
         RepositoryContextReader.Selection selection = new RepositoryContextReader.Selection(Optional.of(BASE),
-                new RepositoryContextMatcher.Selection(entries, notebook.scopes().stream()
-                        .filter(scope -> entries.stream().anyMatch(entry -> entry.entry().scopeId().equals(scope.id())))
-                        .map(scope -> new RepositoryContextMatcher.ScopeMatch(scope, ImmutableList.of("Fixture scope"), RepositoryContextMatcher.Rank.REPOSITORY, false))
+                new RepositoryContextMatcher.Selection(notebook.scopes().stream()
+                        .filter(scope -> notebook.entries().stream().anyMatch(entry -> entry.scopeId().equals(scope.id())))
+                        .map(scope -> new RepositoryContextMatcher.ScopeMatch(scope, ImmutableList.of("Fixture scope"), false))
                         .collect(toImmutableList())), related, gaps);
         when(reader.select(REVIEW, run, WORKSPACE, Optional.empty(), notebook)).thenReturn(selection);
     }

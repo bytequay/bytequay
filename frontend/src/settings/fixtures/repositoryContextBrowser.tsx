@@ -52,7 +52,7 @@ function notebook(second = false): RepositoryNotebookDto {
         claims: [{ text: 'The lesson applies to nested field lookup.', basis: 'USER_LESSON', sourceIds: ['source-review'] }],
         sourceIds: ['source-review'], origin: 'USER', enabled: true, version: 3 },
     ],
-    suppressedKnowledgeIds: [],
+    pendingDrafts: [], suppressedKnowledgeIds: [],
     sourceEvidence: [
       { id: 'source-doc', reference: { kind: 'DOCUMENT', sourceId: 'docs-trino', url: 'https://trino.io/docs/current/overview/concepts.html' },
         provenance: 'Selected Trino documentation page', excerpt: 'Coordinators and workers participate in query execution.',
@@ -233,6 +233,21 @@ function backend() {
         origin: 'USER', enabled: previous?.enabled ?? true, version: current.revision + 1 };
       return { ...current, entries: previous === undefined ? [...current.entries, entry] : current.entries.map(value => value.id === entry.id ? entry : value) };
     }),
+    editRepositoryContextDraft: (workspaceId, request) => mutate('draft-edit', workspaceId, request, current => ({
+      ...current, pendingDrafts: current.pendingDrafts.map(draft => draft.id === request.draftId ? { ...draft,
+        entry: { ...draft.entry, title: request.title, summary: request.summary, body: request.body, claims: request.claims, origin: 'USER' } } : draft),
+    })),
+    approveRepositoryContextDraft: (workspaceId, request) => mutate('draft-approve', workspaceId, request, current => {
+      const draft = current.pendingDrafts.find(value => value.id === request.draftId);
+      assert(draft !== undefined, 'Draft exists');
+      const previous = current.entries.find(entry => entry.id === draft.entry.id);
+      assert((previous?.version ?? null) === draft.replacesVersion, 'Approval must keep the existing note version');
+      return { ...current, entries: previous === undefined ? [...current.entries, draft.entry] : current.entries.map(entry => entry.id === draft.entry.id ? draft.entry : entry),
+        pendingDrafts: current.pendingDrafts.filter(value => value.id !== request.draftId) };
+    }),
+    dismissRepositoryContextDraft: (workspaceId, request) => mutate('draft-dismiss', workspaceId, request, current => ({
+      ...current, pendingDrafts: current.pendingDrafts.filter(draft => draft.id !== request.draftId),
+    })),
     setRepositoryContextEntryEnabled: (workspaceId, request) => mutate('enabled', workspaceId, request, current => ({
       ...current, entries: current.entries.map(entry => entry.id === request.entryId ? { ...entry, enabled: request.enabled } : entry),
     })),
@@ -242,11 +257,13 @@ function backend() {
         ? [...current.suppressedKnowledgeIds, request.entryId] : current.suppressedKnowledgeIds,
     })),
     resetRepositoryContext: (workspaceId, request) => mutate('reset', workspaceId, request, current => ({
-      ...current, suppressedKnowledgeIds: current.suppressedKnowledgeIds.filter(id => !request.scopeIds.some(scope => id === 'knowledge:' + scope)),
+      ...current, suppressedKnowledgeIds: current.suppressedKnowledgeIds.filter(id => !request.scopeIds.some(scope =>
+        id === 'knowledge:' + scope || id.startsWith('knowledge:' + scope + ':'))),
     })),
   } satisfies Pick<Bridge, 'getAppVersion' | 'getAppPreferences' | 'getWorkspaceSettings' | 'getRepositoryContext' | 'getRepositoryContextUsage'
     | 'getRepositoryContextEntryUsage' | 'configureRepositoryContext'
-    | 'editRepositoryContextEntry' | 'setRepositoryContextEntryEnabled' | 'removeRepositoryContextEntry' | 'resetRepositoryContext' | 'getModelSettings'
+    | 'editRepositoryContextEntry' | 'editRepositoryContextDraft' | 'approveRepositoryContextDraft' | 'dismissRepositoryContextDraft'
+    | 'setRepositoryContextEntryEnabled' | 'removeRepositoryContextEntry' | 'resetRepositoryContext' | 'getModelSettings'
     | 'getRepositoryContextBuild' | 'startRepositoryContextBuild' | 'stopRepositoryContextBuild' | 'getRepositoryContextBuildStopImpact'
     | 'stopRepositoryContextBuildRuntime' | 'readAgentHistory' | 'readAgentPendingApprovals' | 'getAgentTurn' | 'resolveAgentApproval'
     | 'discoverRepositoryContext' | 'applyRepositoryContextDiscovery'>;
@@ -306,6 +323,13 @@ function fixture(state: ReturnType<typeof backend>) {
       const found = [...host.querySelectorAll('.setw-row')].find(item => item.querySelector('.setw-row-title')?.textContent?.startsWith(title));
       assert(found !== undefined, `Missing row: ${title}`); return found;
     },
+    async advanced() {
+      const details = host.querySelector<HTMLDetailsElement>('.rc-advanced');
+      assert(details !== null, 'Advanced configuration must be available');
+      if (!details.open) { details.querySelector('summary')?.click(); await settle(); }
+      assert(details.open, 'Advanced configuration must open');
+      return details;
+    },
     async click(label: string, scope: Element = host) {
       const control = button(scope, label); assert(!control.disabled, `Button ${label} must be enabled`); control.click(); await settle();
     },
@@ -337,10 +361,8 @@ export async function run(): Promise<Array<{ name: string; error?: string }>> {
     assert(view.state.usageReads.length === 0, 'Usage details load on demand');
     assert(button(view.host, 'Use repository context in reviews').getAttribute('aria-checked') === 'true', 'Initial preference must be on');
     assert(button(view.host, 'Use repository context in development').getAttribute('aria-checked') === 'true', 'Development preference must be on');
-    assert(view.text().includes('Reviews can prepare reusable knowledge for configured scopes.'), 'Help must describe the implemented review workflow');
-    assert(view.text().includes('Learn / Refresh starts an explicit learning task.'), 'Standalone preparation is an explicit action');
+    assert(view.host.querySelector<HTMLDetailsElement>('.rc-advanced')?.open === false, 'Advanced configuration starts collapsed');
     assert(view.state.starts.length === 0, 'Opening settings must not start learning');
-    assert(!view.row('Project overview').textContent?.includes('No saved knowledge note'), 'A scope with a retained note must not claim that knowledge is absent');
     await view.click('Use repository context in reviews');
     assert(view.state.writes.length === 1 && view.state.writes[0].request.expectedRevision === 7, 'Toggle must use displayed revision');
     assert(!view.state.saved.get('ws-1')?.useInReviews && view.state.saved.get('ws-1')?.entries.length === 2, 'Off retains both saved notes');
@@ -377,9 +399,8 @@ export async function run(): Promise<Array<{ name: string; error?: string }>> {
 
   await check('An empty Project overview scope is not presented as generated knowledge', async view => {
     assert(view.text().includes('No saved knowledge notes.'), 'Knowledge remains explicitly empty');
-    assert(view.row('Project overview').textContent?.includes('No saved knowledge note for this scope.'), 'Project scope must disclose its missing note');
+    await view.advanced();
     assert(view.row('Project overview').textContent?.includes('No completed preparation recorded.'), 'Missing note and missing preparation remain separate facts');
-    assert(view.text().includes('Project overview is a scope; its saved note appears under Knowledge.'), 'The scope label must not imply a saved overview');
     assert(view.state.writes.length === 0, 'Explaining an empty scope must not start preparation');
   }, state => {
     const current = state.saved.get('ws-1');
@@ -532,12 +553,15 @@ export async function run(): Promise<Array<{ name: string; error?: string }>> {
     assert(!button(view.host, 'Learn / Refresh').disabled && view.state.starts.length === 1, 'Discard unlocks a new deliberate request without sending it');
   }, state => { state.loseStartBefore = true; });
 
-  await check('Removed and user-managed notes cannot be overwritten by learning', async view => {
+  await check('Protected notes remain intact while their scope can learn another topic', async view => {
     await view.click('Learn / Refresh');
     const choices = [...view.dialog().querySelectorAll<HTMLInputElement>('fieldset input[type=checkbox]')];
-    assert(choices.every(choice => choice.disabled && !choice.checked), 'Protected scopes are unavailable');
-    assert(view.dialog().textContent?.includes('User-managed note is preserved') === true && button(view.dialog(), 'Start learning').disabled, 'Protected scope reason is explicit');
-    assert(view.state.starts.length === 0, 'Protected notes never trigger an agent');
+    assert(choices.length === 2 && choices.every(choice => !choice.disabled), 'A protected note does not block its whole scope');
+    await view.click('Start learning', view.dialog());
+    assert(view.state.starts.length === 1 && view.state.starts[0].request.scopeIds.join() === 'project', 'Learning may add another topic in a selected scope');
+    const current = view.state.saved.get('ws-1');
+    assert(current?.entries.find(entry => entry.id === 'knowledge:project')?.origin === 'USER'
+      && current.suppressedKnowledgeIds.includes('knowledge:path:plugin/trino-iceberg/'), 'Existing protected note identities remain unchanged');
   }, state => {
     const current = state.saved.get('ws-1'); assert(current !== undefined, 'Notebook exists');
     state.saved.set('ws-1', { ...current, entries: current.entries.map(entry => entry.kind === 'KNOWLEDGE' ? { ...entry, origin: 'USER' } : entry),
@@ -592,6 +616,7 @@ export async function run(): Promise<Array<{ name: string; error?: string }>> {
     task: null, activeTurn: null, pendingApprovals: 0, results: [], gaps: ['Task provisioning failed.'] } }));
 
   await check('Source edits keep source identity and revision', async view => {
+    await view.advanced();
     await view.click('Edit', view.row('Documentation website'));
     await fill(view.dialog(), 'HTTPS address', 'https://trino.io/docs/current/connector/');
     await view.click('Save source', view.dialog());
@@ -601,6 +626,7 @@ export async function run(): Promise<Array<{ name: string; error?: string }>> {
   });
 
   await check('Scope conflict reload preserves the draft and a concurrent disable', async view => {
+    await view.advanced();
     await view.click('Edit', view.row('Iceberg connector'));
     await fill(view.dialog(), 'Name', 'Iceberg table contracts');
     const current = view.state.saved.get('ws-1');
@@ -617,13 +643,59 @@ export async function run(): Promise<Array<{ name: string; error?: string }>> {
     assert(view.state.writes[1].request.expectedRevision === 8, 'Retry uses newly displayed revision');
   });
 
-  await check('Adding a note sends one explicit save with its matching scope', async view => {
+  await check('Adding another note in an existing scope sends one explicit save', async view => {
     await view.click('Add note');
     const dialog = await draft(view, 'Iceberg metadata rules');
     const save = button(dialog, 'Save'); save.click(); save.click(); await settle();
     assert(view.state.writes.length === 1 && view.state.writes[0].request.expectedRevision === 7, 'Double click must make one save');
     const added = view.state.saved.get('ws-1')?.entries.find(entry => entry.title === 'Iceberg metadata rules');
-    assert(added?.id === 'knowledge:path:plugin/trino-iceberg/' && added.origin === 'USER', 'New note must use chosen canonical scope and user ownership');
+    assert(added?.id.startsWith('knowledge:project:') && added.origin === 'USER' && added.scopeId === 'project',
+      'New note must have its own ID in the chosen scope while preserving the overview');
+  });
+
+  await check('Editing a proposed revision keeps the active note until explicit approval', async view => {
+    const proposed = view.note('Proposed project revision');
+    assert(view.note('Project architecture').textContent?.includes('A short overview'), 'Old note stays active while draft is pending');
+    assert(proposed.textContent?.includes('Awaiting approval'), 'Draft has visible pending status');
+    proposed.querySelector('details')?.setAttribute('open', '');
+    assert(proposed.textContent?.includes('Selected Trino documentation page'), 'Draft shows retained source provenance');
+    await view.click('Edit draft', proposed);
+    await fill(view.dialog(), 'Summary', 'Revised conditional summary.');
+    await view.click('Save draft', view.dialog());
+    assert(view.state.writes.map(write => write.action).join() === 'draft-edit', 'Saving edits cannot activate draft');
+    assert(view.state.saved.get('ws-1')?.pendingDrafts[0].entry.origin === 'USER', 'Editing marks proposed prose as user-managed');
+    assert(view.note('Project architecture').textContent?.includes('A short overview'), 'Active entry remains unchanged after draft edit');
+    await view.click('Approve and use', view.note('Proposed project revision'));
+    const saved = view.state.saved.get('ws-1');
+    assert(saved?.pendingDrafts.length === 0 && saved.entries.find(entry => entry.id === 'knowledge:project')?.summary === 'Revised conditional summary.',
+      'Approval activates exactly the reviewed draft');
+    assert(view.state.writes.map(write => write.action).join() === 'draft-edit,draft-approve', 'Activation needs a separate user action');
+  }, state => {
+    const current = state.saved.get('ws-1'); assert(current !== undefined, 'Notebook exists');
+    state.saved.set('ws-1', { ...current, pendingDrafts: [{ id: 'draft-project', entry: { ...current.entries[0], title: 'Proposed project revision',
+      summary: 'Proposed project summary.', version: 8 }, replacesVersion: 2, baselineSha: 'a'.repeat(40), explanation: 'Compared source files.' }] });
+  });
+
+  await check('Dismissing a draft leaves the active note untouched', async view => {
+    await view.click('Dismiss draft', view.note('Proposed project revision'));
+    const saved = view.state.saved.get('ws-1');
+    assert(saved?.pendingDrafts.length === 0 && saved.entries[0].title === 'Project architecture', 'Dismiss changes only pending draft');
+    assert(view.state.writes.map(write => write.action).join() === 'draft-dismiss', 'Dismiss is one explicit action');
+  }, state => {
+    const current = state.saved.get('ws-1'); assert(current !== undefined, 'Notebook exists');
+    state.saved.set('ws-1', { ...current, pendingDrafts: [{ id: 'draft-project', entry: { ...current.entries[0], title: 'Proposed project revision', version: 8 },
+      replacesVersion: 2, baselineSha: 'a'.repeat(40), explanation: 'Compared source files.' }] });
+  });
+
+  await check('An outdated proposed revision cannot replace a newer active note', async view => {
+    const proposed = view.note('Outdated project revision');
+    assert(proposed.textContent?.includes('active note changed'), 'Stale draft explains the conflict');
+    assert(button(proposed, 'Approve and use').disabled, 'Stale draft cannot be approved');
+    assert(view.state.writes.length === 0, 'Inspecting the stale draft does not mutate knowledge');
+  }, state => {
+    const current = state.saved.get('ws-1'); assert(current !== undefined, 'Notebook exists');
+    state.saved.set('ws-1', { ...current, pendingDrafts: [{ id: 'draft-stale', entry: { ...current.entries[0], title: 'Outdated project revision', version: 8 },
+      replacesVersion: 1, baselineSha: 'a'.repeat(40), explanation: 'Compared older source files.' }] });
   });
 
   await check('A failed note save keeps the draft across reload and uses the new revision only on explicit retry', async view => {
@@ -649,7 +721,8 @@ export async function run(): Promise<Array<{ name: string; error?: string }>> {
     await view.click('Remove', view.note('Project architecture'));
     await view.click('Remove note', view.dialog());
     assert(view.state.saved.get('ws-1')?.suppressedKnowledgeIds.includes('knowledge:project'), 'Removal retains suppression');
-    await view.click('Reset removal');
+    await view.advanced();
+    await view.click('Reset scope removals');
     const saved = view.state.saved.get('ws-1');
     assert(saved?.suppressedKnowledgeIds.length === 0 && !saved.entries.some(entry => entry.id === 'knowledge:project'), 'Reset does not recreate deleted content');
     assert(view.state.writes.map(write => write.action).join(',') === 'remove,reset', 'Only explicit mutations occur');
@@ -673,6 +746,7 @@ export async function run(): Promise<Array<{ name: string; error?: string }>> {
   }, state => { state.holdWorkspace = 'ws-1'; });
 
   await check('Preparation results remain distinct from missing notes and task execution status', async view => {
+    await view.advanced();
     assert(view.text().includes('Last preparation: No useful note found'), 'An empty checked result must be visible');
     assert(view.text().includes('Last preparation: Failed'), 'A failed attempt must remain distinct from empty');
     assert(view.text().includes('Shared preparation is claimed for Project overview'), 'Current ownership must be shown without claiming runtime progress');
@@ -710,9 +784,15 @@ export async function run(): Promise<Array<{ name: string; error?: string }>> {
 
 let displayed: View | null = null;
 /** A persistent offline fixture for wide, narrow and native-editor visual checks. */
-export async function show(mode: 'page' | 'editor' | 'learn' | 'learning' | 'completed' = 'page'): Promise<void> {
+export async function show(mode: 'page' | 'advanced' | 'editor' | 'draft' | 'learn' | 'learning' | 'completed' = 'page'): Promise<void> {
   displayed?.dispose();
   const state = backend();
+  if (mode === 'draft') {
+    const current = state.saved.get('ws-1'); assert(current !== undefined, 'Notebook exists');
+    state.saved.set('ws-1', { ...current, pendingDrafts: [{ id: 'draft-project', entry: { ...current.entries[0], title: 'Updated project architecture',
+      summary: 'Check connector boundaries against the current implementation.', version: 8 }, replacesVersion: 2,
+      baselineSha: 'a'.repeat(40), explanation: 'Proposed from inspected source files.' }] });
+  }
   state.events = [
     { schemaVersion: 2, eventId: 'request', sequence: 1, taskId: 'build-task', turnId: 'build-turn', source: eventSource,
       occurredAt: '2026-09-01T00:00:00Z', type: 'user_message', payload: { deliveryKind: 'TURN', attachments: [], text: 'Learn the project architecture from repository files and selected documentation.' } },
@@ -721,6 +801,7 @@ export async function show(mode: 'page' | 'editor' | 'learn' | 'learning' | 'com
   ];
   displayed = fixture(state);
   await settle(); await settle();
+  if (mode === 'advanced') { (await displayed.advanced()).scrollIntoView(); await settle(); }
   if (mode === 'editor') {
     await displayed.click('Edit', displayed.note('Project architecture'));
     await draft(displayed, 'Project architecture');

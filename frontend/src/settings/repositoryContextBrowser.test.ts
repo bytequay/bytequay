@@ -53,7 +53,7 @@ it('edits repository context explicitly and preserves drafts across stale revisi
           const screenshots = process.env.BYTEQUAY_CONTEXT_SCREENSHOTS;
           if (screenshots) {
             await mkdir(screenshots, { recursive: true });
-            for (const [name, width, mode] of [['wide', 1280, 'page'], ['narrow', 640, 'page'], ['editor', 1280, 'editor']]) {
+            for (const [name, width, mode] of [['wide', 1280, 'page'], ['narrow', 640, 'page'], ['editor', 1280, 'editor'], ['draft', 1280, 'draft'], ['advanced', 1280, 'advanced']]) {
               window.setContentSize(width, 900);
               await window.webContents.executeJavaScript('RepositoryContextSettingsTests.show(' + JSON.stringify(mode) + ')');
               await writeFile(join(screenshots, name + '.png'), (await window.webContents.capturePage()).toPNG());
@@ -71,7 +71,7 @@ it('edits repository context explicitly and preserves drafts across stale revisi
     const command = process.platform === 'linux' && !process.env.DISPLAY ? 'xvfb-run' : executable;
     const result = await promisify(execFile)(command, command === executable ? args : ['-a', executable, ...args], { env: environment, timeout: 40_000 });
     const results = JSON.parse(result.stdout.trim()) as { name: string; error?: string }[];
-    expect(results).toHaveLength(28);
+    expect(results).toHaveLength(31);
     expect(results.filter(result => result.error !== undefined)).toEqual([]);
   }
   finally { await rm(directory, { recursive: true, force: true }); }

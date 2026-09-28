@@ -26,6 +26,9 @@ export type ContextEntryDto = {
   id: string; kind: 'KNOWLEDGE' | 'MEMORY'; scopeId: string; title: string; summary: string; body: string;
   claims: ContextClaimDto[]; sourceIds: string[]; origin: ContextOrigin; enabled: boolean; version: number;
 };
+export type ContextKnowledgeDraftDto = {
+  id: string; entry: ContextEntryDto; replacesVersion: number | null; baselineSha: string; explanation: string;
+};
 type RepositoryIdentity = { owner: string; repo: string };
 export type ContextReferenceDto =
   | { kind: 'REPOSITORY_FILE'; repositoryId: number; repository: RepositoryIdentity; path: string; commit: string }
@@ -39,7 +42,7 @@ export type ContextSourceEvidenceDto = {
 };
 export type RepositoryNotebookDto = {
   schemaVersion: number; revision: number; useInReviews: boolean; useInDevelopment: boolean; sources: ContextSourceDto[]; scopes: ContextScopeDto[];
-  entries: ContextEntryDto[]; suppressedKnowledgeIds: string[]; sourceEvidence: ContextSourceEvidenceDto[];
+  entries: ContextEntryDto[]; pendingDrafts: ContextKnowledgeDraftDto[]; suppressedKnowledgeIds: string[]; sourceEvidence: ContextSourceEvidenceDto[];
   activePreparation: ActiveContextPreparationDto | null;
 };
 export type ContextSelectedEntryDto = {
@@ -138,6 +141,8 @@ export type ConfigureRepositoryContextRequest = {
 export type EditRepositoryContextEntryRequest = {
   expectedRevision: number; id: string; scopeId: string; title: string; summary: string; body: string; claims: ContextClaimDto[]; sourceIds: string[];
 };
+export type ContextDraftActionRequest = { expectedRevision: number; draftId: string };
+export type EditContextDraftRequest = ContextDraftActionRequest & { title: string; summary: string; body: string; claims: ContextClaimDto[] };
 export type SetRepositoryContextEntryEnabledRequest = { expectedRevision: number; entryId: string; enabled: boolean };
 export type RemoveRepositoryContextEntryRequest = { expectedRevision: number; entryId: string };
 export type ResetRepositoryContextRequest = { expectedRevision: number; scopeIds: string[] };
@@ -215,6 +220,13 @@ function entry(value: unknown): ContextEntryDto {
     body: text(item.body, 'entry body'), claims: array(item.claims, 'entry claims', claim), sourceIds: strings(item.sourceIds, 'entry sources'),
     origin: oneOf(item.origin, ['USER', 'GENERATED'], 'entry origin'), enabled: flag(item.enabled, 'entry enabled'), version: count(item.version, 'entry version', 1) };
 }
+function knowledgeDraft(value: unknown): ContextKnowledgeDraftDto {
+  const item = object(value, 'knowledge draft');
+  const proposed = entry(item.entry);
+  if (proposed.kind !== 'KNOWLEDGE') malformed('knowledge draft entry');
+  return { id: text(item.id, 'draft id'), entry: proposed, replacesVersion: item.replacesVersion === null ? null : count(item.replacesVersion, 'replaced version', 1),
+    baselineSha: text(item.baselineSha, 'draft baseline'), explanation: text(item.explanation, 'draft explanation') };
+}
 function reference(value: unknown): ContextReferenceDto {
   const item = object(value, 'source reference');
   const kind = oneOf(item.kind, ['REPOSITORY_FILE', 'PR', 'ISSUE', 'TASK', 'REVIEW', 'DOCUMENT'], 'source reference kind');
@@ -245,6 +257,7 @@ export function parseRepositoryNotebook(value: unknown): RepositoryNotebookDto {
   return { schemaVersion: 1, revision: count(item.revision, 'notebook revision'), useInReviews: flag(item.useInReviews, 'review preference'),
     useInDevelopment: flag(item.useInDevelopment, 'development preference'),
     sources: array(item.sources, 'sources', source), scopes: array(item.scopes, 'scopes', scope), entries: array(item.entries, 'entries', entry),
+    pendingDrafts: array(item.pendingDrafts, 'pending drafts', knowledgeDraft),
     suppressedKnowledgeIds: strings(item.suppressedKnowledgeIds, 'suppression'), sourceEvidence: array(item.sourceEvidence, 'source evidence', evidence),
     activePreparation: item.activePreparation == null ? null : activePreparation(item.activePreparation) };
 }
@@ -514,6 +527,16 @@ export function parseEditRepositoryContextEntryRequest(value: unknown): EditRepo
   return { expectedRevision: count(item.expectedRevision, 'expected revision'), id: text(item.id, 'entry id'), scopeId: text(item.scopeId, 'entry scope'),
     title: text(item.title, 'entry title'), summary: text(item.summary, 'entry summary'), body: text(item.body, 'entry body'),
     claims: array(item.claims, 'claims', claim), sourceIds: strings(item.sourceIds, 'entry sources') };
+}
+export function parseContextDraftActionRequest(value: unknown): ContextDraftActionRequest {
+  const item = request(value, ['expectedRevision', 'draftId']);
+  return { expectedRevision: count(item.expectedRevision, 'expected revision'), draftId: text(item.draftId, 'draft id') };
+}
+export function parseEditContextDraftRequest(value: unknown): EditContextDraftRequest {
+  const item = request(value, ['expectedRevision', 'draftId', 'title', 'summary', 'body', 'claims']);
+  return { expectedRevision: count(item.expectedRevision, 'expected revision'), draftId: text(item.draftId, 'draft id'),
+    title: text(item.title, 'draft title'), summary: text(item.summary, 'draft summary'), body: text(item.body, 'draft body'),
+    claims: array(item.claims, 'draft claims', claim) };
 }
 export function parseSetRepositoryContextEntryEnabledRequest(value: unknown): SetRepositoryContextEntryEnabledRequest {
   const item = request(value, ['expectedRevision', 'entryId', 'enabled']);

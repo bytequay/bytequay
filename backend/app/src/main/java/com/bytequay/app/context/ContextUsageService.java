@@ -357,12 +357,13 @@ public class ContextUsageService
             Optional<ContextScope> current = notebook.scopes().stream().filter(scope -> scope.id().equals(scopeId)).findFirst();
             ContextUsageEvent.Preparation preparation = current.map(ContextUsageEvent.Scope::from)
                     .map(ContextUsageEvent.Scope::preparation).orElse(ContextUsageEvent.Preparation.NOT_PREPARED);
-            Optional<ContextEntry> knowledge = notebook.entries().stream().filter(entry -> entry.id().equals(ContextEntry.knowledgeId(scopeId))).findFirst();
+            List<ContextEntry> knowledge = notebook.entries().stream()
+                    .filter(entry -> entry.kind() == ContextEntryKind.KNOWLEDGE && entry.scopeId().equals(scopeId)).toList();
             Knowledge presence;
             if (knowledge.isEmpty()) {
                 presence = Knowledge.MISSING;
             }
-            else if (current.filter(ContextScope::enabled).isEmpty() || knowledge.filter(ContextEntry::enabled).isEmpty()) {
+            else if (current.filter(ContextScope::enabled).isEmpty() || knowledge.stream().noneMatch(ContextEntry::enabled)) {
                 presence = Knowledge.DISABLED;
             }
             else {

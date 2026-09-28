@@ -36,13 +36,13 @@ public record ContextPreparationResult(
         requireNonNull(outcome, "outcome is null");
         noteIds = ImmutableList.copyOf(noteIds);
         checkedReads = ImmutableList.copyOf(checkedReads);
-        ContextLimits.unique(noteIds, "preparation note ids", 1);
+        ContextLimits.unique(noteIds, "preparation note ids", ContextLimits.MAX_ENTRIES);
         ContextLimits.unique(checkedReads.stream().map(ContextSourceRead::id).toList(), "checked source reads", ContextLimits.MAX_SOURCE_READS);
         ContextLimits.text(explanation, "preparation explanation", 2000);
         checkArgument(outcome == Outcome.FAILED || inputFingerprint.digest().isPresent(), "Successful preparation needs complete input identities");
         checkArgument(outcome == Outcome.READY
-                ? noteIds.equals(ImmutableList.of(ContextEntry.knowledgeId(inputFingerprint.scopeId())))
-                : noteIds.isEmpty(), "Only ready preparation names its canonical knowledge note");
+                ? !noteIds.isEmpty() && noteIds.stream().allMatch(id -> ContextEntry.belongsToKnowledgeScope(id, inputFingerprint.scopeId()))
+                : noteIds.isEmpty(), "Only ready preparation names knowledge notes in its scope");
         checkArgument(outcome == Outcome.FAILED || !checkedReads.isEmpty(), "Successful preparation needs checked source reads");
         checkArgument(outcome != Outcome.READY || checkedReads.stream().anyMatch(read -> read.evidenceRef().isPresent()), "Ready preparation needs retained source text");
         if (outcome == Outcome.EMPTY) {

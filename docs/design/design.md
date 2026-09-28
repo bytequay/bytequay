@@ -75,6 +75,11 @@ historical checkpoint evidence and explicitly deferred future work.
   the per-task Auto review summary option has the agent summarize each new
   review comment. It never replies on GitHub or edits code, and a drafted reply
   is posted only by the user.
+- [Repository context: discover, learn, and use](repository-context-refactor.md)
+  is the approved refactor: explicit agent discovery, bounded incremental learning,
+  user-approved context notes, and agent-owned literal lookup. The existing
+  [checklist](repository-context-impl-tmp.md#refactor-development-checkpoints)
+  tracks delivery separately from the earlier implementation.
 - [Repository Context](repository-context.md) defines shared workspace knowledge,
   user-saved lessons, and source-linked input for the existing review flow.
   Start with its overall flow; its [temporary checklist](repository-context-impl-tmp.md)

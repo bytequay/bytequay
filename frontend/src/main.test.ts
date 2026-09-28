@@ -191,7 +191,7 @@ it('routes Code & Tests reads and writes to the review or the development task t
 
 const emptyNotebook: RepositoryNotebookDto = { schemaVersion: 1, revision: 7, useInReviews: true, useInDevelopment: true, sources: [], activePreparation: null,
   scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, preparation: null, discoveryEvidenceRef: null }],
-  entries: [], suppressedKnowledgeIds: [], sourceEvidence: [] };
+  entries: [], pendingDrafts: [], suppressedKnowledgeIds: [], sourceEvidence: [] };
 
 it('reads bounded usage and a selected note’s activities through authenticated workspace endpoints', async () => {
   await import('./main');

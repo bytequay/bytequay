@@ -16,7 +16,6 @@ package com.bytequay.app.context;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.context.ContextDocumentRead;
-import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextEntryKind;
 import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextInputFingerprint;
@@ -89,31 +88,6 @@ public class ContextInputReader
     public List<ContextInputFingerprint> capture(
             WorkspaceRepositoryContext workspace, Optional<String> baselineSha, RepositoryNotebook notebook, List<ContextScope> scopes)
     {
-        return capture(workspace, baselineSha, notebook, scopes, ImmutableList.of());
-    }
-
-    /**
-     * Captures the same bounded object inventory at the frozen reviewed head, including selected lesson sources.
-     *
-     * @param workspace trusted monitored repository routing
-     * @param headSha immutable reviewed head; no moving ref or worktree content is inspected
-     * @param notebook captured notebook whose source identities are being compared
-     * @param scopes scopes of the selected notes
-     * @param entries selected notes, including MEMORY references excluded from shared preparation reuse
-     * @return bounded inventories with explicit gaps for unavailable or omitted paths
-     *
-     * This performs no dependency resolution, source refresh or notebook mutation. Lesson sources
-     * participate only in this comparison; saving a lesson still cannot invalidate shared knowledge.
-     */
-    public List<ContextInputFingerprint> captureReviewed(
-            WorkspaceRepositoryContext workspace, String headSha, RepositoryNotebook notebook, List<ContextScope> scopes, List<ContextEntry> entries)
-    {
-        return capture(workspace, Optional.of(headSha), notebook, scopes, ImmutableList.copyOf(entries));
-    }
-
-    private List<ContextInputFingerprint> capture(
-            WorkspaceRepositoryContext workspace, Optional<String> baselineSha, RepositoryNotebook notebook, List<ContextScope> scopes, List<ContextEntry> entries)
-    {
         requireNonNull(workspace, "workspace is null");
         requireNonNull(baselineSha, "baselineSha is null");
         requireNonNull(notebook, "notebook is null");
@@ -126,7 +100,7 @@ public class ContextInputReader
                 .map(sha -> read(workspace, sha, ImmutableList.of(), deadline))
                 .orElseGet(() -> new Read(ImmutableMap.of(), Optional.of("The captured immutable monitored baseline is unavailable.")));
         String catalog = catalogHash(notebook.sources());
-        List<Plan> plans = scopes.stream().map(scope -> plan(workspace, notebook, scope, root, catalog, entries)).collect(toImmutableList());
+        List<Plan> plans = scopes.stream().map(scope -> plan(workspace, notebook, scope, root, catalog)).collect(toImmutableList());
         List<String> requested = TOTAL_PATHS.select(plans.stream().flatMap(plan -> Stream.concat(plan.paths().stream(),
                         plan.manifestDirectories().stream().flatMap(ContextInputReader::manifestPaths)))
                 .filter(path -> path.contains("/")).distinct().sorted()).collect(toImmutableList());
@@ -149,7 +123,7 @@ public class ContextInputReader
         return plans.stream().map(plan -> fingerprint(plan, root, objects, failures)).collect(toImmutableList());
     }
 
-    private static Plan plan(WorkspaceRepositoryContext workspace, RepositoryNotebook notebook, ContextScope scope, Read root, String catalog, List<ContextEntry> entries)
+    private static Plan plan(WorkspaceRepositoryContext workspace, RepositoryNotebook notebook, ContextScope scope, Read root, String catalog)
     {
         Map<String, String> inputs = new LinkedHashMap<>();
         inputs.put("scope-configuration", scopeHash(scope));
@@ -168,7 +142,6 @@ public class ContextInputReader
         Set<String> sourceIds = new LinkedHashSet<>();
         notebook.entries().stream().filter(entry -> entry.enabled() && entry.kind() == ContextEntryKind.KNOWLEDGE && entry.scopeId().equals(scope.id()))
                 .forEach(entry -> sourceIds.addAll(entry.sourceIds()));
-        entries.stream().filter(entry -> entry.scopeId().equals(scope.id())).forEach(entry -> sourceIds.addAll(entry.sourceIds()));
         scope.preparation().stream().flatMap(result -> result.checkedReads().stream()).flatMap(read -> read.evidenceRef().stream()).forEach(sourceIds::add);
         List<ContextSourceEvidence> sources = notebook.sourceEvidence().stream().filter(source -> sourceIds.contains(source.id()))
                 .sorted(Comparator.comparing(ContextSourceEvidence::id)).collect(toImmutableList());

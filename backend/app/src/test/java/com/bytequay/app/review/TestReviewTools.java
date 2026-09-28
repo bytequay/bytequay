@@ -380,7 +380,7 @@ class TestReviewTools
         assertThat(admitted.path("elapsedMillis").asLong()).isNotNegative();
         assertThat(admitted.path("receiptRef").asText()).isEqualTo("review-step:" + RUN_ID + ":1:repository_context_prepare:BEGIN:begin");
         assertThat(admitted.at("/attempt/scopes/0/scopeId").asText()).isEqualTo("project");
-        assertThat(admitted.at("/attempt/scopes/0/expectedNoteId").asText()).isEqualTo("knowledge:project");
+        assertThat(admitted.at("/attempt/scopes/0/suggestedOverviewId").asText()).isEqualTo("knowledge:project");
         assertThat(admitted.at("/attempt/scopes/0/digest").asText()).isEqualTo(active.inputs().getFirst().digest().orElseThrow());
         assertThat(admitted.at("/attempt/baseContentRevision").asLong()).isEqualTo(7);
         assertThat(admitted.path("attempt").has("inputs")).isFalse();
@@ -554,13 +554,13 @@ class TestReviewTools
     }
 
     @Test
-    void preparationExplainsCanonicalNoteIdsAndAllowsRepairBeforeSaving()
+    void preparationExplainsTopicNoteIdsAndAllowsRepairBeforeSaving()
     {
         preparationContext();
         JsonNode schema = objectMapper.valueToTree(bridge.tool("repository_context_prepare").orElseThrow().inputSchema());
         JsonNode entry = schema.at("/properties/report/properties/entries/items/properties");
         JsonNode scope = schema.at("/properties/report/properties/scopeResults/items/properties");
-        assertThat(entry.at("/id/description").asText()).contains("knowledge:project", "expectedNoteId");
+        assertThat(entry.at("/id/description").asText()).contains("knowledge:<scopeId>", "stable-topic");
         assertThat(scope.at("/noteIds/description").asText()).contains("READY", "EMPTY/FAILED");
         assertThat(scope.at("/checkedSourceIds/maxItems").asInt()).isEqualTo(ContextLimits.MAX_SOURCE_READS);
         assertThat(entry.at("/sourceIds/maxItems").asInt()).isEqualTo(ContextLimits.MAX_SOURCES);
@@ -568,7 +568,7 @@ class TestReviewTools
 
         JsonNode invalid = call("repository_context_prepare", generatedPreparation("project-build-overview"));
         assertThat(invalid.at("/error/field").asText()).isEqualTo("report");
-        assertThat(invalid.at("/error/message").asText()).contains("Knowledge id must be knowledge:project");
+        assertThat(invalid.at("/error/message").asText()).contains("Knowledge id must belong to scope project");
         assertThat(store.findRun(RUN_ID).orElseThrow().operations()).isEmpty();
         verifyNoInteractions(preparation);
 
@@ -672,27 +672,16 @@ class TestReviewTools
     }
 
     @Test
-    void coldInvestigationRequiresSavedPreparationBeforeSealing()
+    void missingKnowledgeDoesNotRequirePreparationBeforeSealing()
     {
         coldPreparationContext();
         call("review_save_summary", summary("summary", "Input change"));
         readSource();
-        assertThat(call("review_get_context", ImmutableMap.of("kind", "assignment")).at("/repositoryContext/requiredPreparationScopeIds"))
-                .extracting(JsonNode::asText).containsExactly("project");
         Map<String, Object> report = investigation("initial", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of());
-        Map<String, Object> unprepared = contextInvestigation(report, "Source checked", ImmutableList.of(), ImmutableList.of());
 
-        assertThat(call("review_save_investigation", unprepared).at("/error/field").asText()).isEqualTo("contextPreparationRefs");
-        assertThat(store.findRun(RUN_ID).orElseThrow().currentStep().orElseThrow().sealed()).isFalse();
-
-        recordPreparation("BEGIN:begin", ImmutableMap.of("status", "OWNED", "requestedScopes", ImmutableList.of("project"),
-                "attempt", ImmutableMap.of("attemptId", "attempt-1", "scopes", ImmutableList.of(ImmutableMap.of("scopeId", "project")))));
-        assertThat(call("review_save_investigation", unprepared).at("/error/field").asText()).isEqualTo("contextPreparationRefs");
-
-        String receipt = recordPreparation("SUBMIT:submit", ImmutableMap.of("status", "APPLIED", "attemptId", "attempt-1",
-                "scopeResults", ImmutableList.of(ImmutableMap.of("scopeId", "project", "outcome", "EMPTY"))));
-        assertThat(call("review_save_investigation", contextInvestigation(report, "Checked inputs established no reusable note",
-                ImmutableList.of(receipt), ImmutableList.of())).path("status").asText()).isEqualTo("accepted");
+        assertThat(call("review_save_investigation", contextInvestigation(report, "Current source checked; no saved note was useful",
+                ImmutableList.of(), ImmutableList.of())).path("status").asText()).isEqualTo("accepted");
+        verifyNoInteractions(preparation);
     }
 
     @ParameterizedTest
@@ -714,8 +703,6 @@ class TestReviewTools
         call("review_save_summary", summary("summary", "Input change"));
         readSource();
         Map<String, Object> report = investigation("initial", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of());
-        assertThat(call("review_save_investigation", contextInvestigation(report, "Source checked", ImmutableList.of(), ImmutableList.of()))
-                .at("/error/field").asText()).isEqualTo("contextPreparationRefs");
         assertThat(call("review_save_investigation", contextInvestigation(report, "Source checked", ImmutableList.of(),
                 ImmutableList.of("The shared project preparation was " + status))).path("status").asText()).isEqualTo("accepted");
     }
@@ -737,8 +724,6 @@ class TestReviewTools
         call("review_save_summary", summary("summary", "Input change"));
         readSource();
         Map<String, Object> report = investigation("initial", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of());
-        assertThat(call("review_save_investigation", contextInvestigation(report, "Source checked", ImmutableList.of(),
-                ImmutableList.of("Another scope was deferred"))).at("/error/field").asText()).isEqualTo("contextPreparationRefs");
 
         assertThat(call("review_save_investigation", contextInvestigation(report, "Source checked", ImmutableList.of(receipt),
                 ImmutableList.of("Another scope was deferred"))).path("status").asText()).isEqualTo("accepted");
@@ -756,8 +741,6 @@ class TestReviewTools
                 "scopeResults", ImmutableList.of(ImmutableMap.of("scopeId", "project", "outcome", "FAILED"))));
         Map<String, Object> report = investigation("initial", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of());
 
-        assertThat(call("review_save_investigation", contextInvestigation(report, "Source checked", ImmutableList.of(receipt), ImmutableList.of()))
-                .at("/error/field").asText()).isEqualTo("contextPreparationRefs");
         assertThat(call("review_save_investigation", contextInvestigation(report, "Source checked", ImmutableList.of(receipt),
                 ImmutableList.of("The required source was unavailable"))).path("status").asText()).isEqualTo("accepted");
     }
@@ -773,8 +756,6 @@ class TestReviewTools
         readSource();
         Map<String, Object> report = investigation("initial", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of());
 
-        assertThat(call("review_save_investigation", contextInvestigation(report, "Source checked", ImmutableList.of(), ImmutableList.of()))
-                .at("/error/field").asText()).isEqualTo("contextPreparationRefs");
         assertThat(call("review_save_investigation", contextInvestigation(report, "Source checked", ImmutableList.of(),
                 ImmutableList.of("Project scope was disabled after this review captured its notebook"))).path("status").asText()).isEqualTo("accepted");
     }
@@ -945,6 +926,23 @@ class TestReviewTools
     }
 
     @Test
+    void agentCanListAndReadAnExactActiveNoteWithoutASearchBinding()
+    {
+        noteContext(ImmutableList.of(), ImmutableMap.of());
+        when(notebooks.getNotebook(WORKSPACE_ID)).thenReturn(noteNotebook(8, "Later knowledge"));
+
+        JsonNode listed = call("review_get_context", ImmutableMap.of("kind", "note_list", "operationKey", "catalog"));
+        assertThat(listed.at("/hits/0/entryId").asText()).isEqualTo("knowledge:project");
+        JsonNode opened = call("review_get_context", noteRequest(8));
+        assertThat(opened.path("status").asText()).isEqualTo("AVAILABLE");
+        assertThat(opened.path("text").asText()).contains("Later knowledge");
+        when(notebooks.getNotebook(WORKSPACE_ID)).thenReturn(RepositoryNotebook.empty());
+        clearInvocations(notebooks);
+        assertThat(call("review_get_context", noteRequest(8))).isEqualTo(opened);
+        verifyNoInteractions(notebooks);
+    }
+
+    @Test
     void acceptedFindingCitesOnlyAnExactRetainedFrozenNoteReference()
     {
         noteContext(ImmutableList.of(selectedNote("knowledge:project", 7, Optional.empty())), ImmutableMap.of());
@@ -1051,11 +1049,13 @@ class TestReviewTools
     }
 
     @Test
-    void noteReadRejectsUnselectedVersionsForeignSelectorsAndDisabledCapturedContext()
+    void noteReadRejectsMissingVersionsForeignSelectorsAndDisabledCapturedContext()
     {
         assertThat(call("review_get_context", noteRequest(7)).at("/error/field").asText()).isEqualTo("note");
         noteContext(ImmutableList.of(selectedNote("knowledge:project", 7, Optional.empty())), ImmutableMap.of());
-        assertThat(call("review_get_context", noteRequest(8)).at("/error/field").asText()).isEqualTo("entryVersion");
+        when(notebooks.getNotebook(WORKSPACE_ID)).thenReturn(RepositoryNotebook.empty());
+        assertThat(call("review_get_context", noteRequest(8)).path("status").asText()).isEqualTo("VERSION_UNAVAILABLE");
+        clearInvocations(notebooks);
         assertThat(call("review_get_context", ImmutableMap.of("kind", "note", "entryId", "knowledge:project")).at("/error/field").asText()).isEqualTo("entryVersion");
         assertThat(call("review_get_context", ImmutableMap.of("kind", "note", "entryVersion", 7)).at("/error/field").asText()).isEqualTo("entryId");
         assertThat(call("review_get_context", ImmutableMap.of("kind", "note", "number", 17)).at("/error/field").asText()).isEqualTo("number");

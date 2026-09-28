@@ -161,7 +161,7 @@ public class RepositoryContextReader
             gaps.add("Text matching is bounded to the PR description preview and the first " + CURRENT_COMMIT_TEXT.limit() + " commit messages.");
         }
         String taskText = matchingText(text.toString(), "Current PR text", gaps);
-        RepositoryContextMatcher.Selection notes = matcher.select(notebook, paths, taskText, ImmutableList.of());
+        RepositoryContextMatcher.Selection notes = matcher.select(notebook, paths, taskText);
         List<String> terms = SCOPE_TERMS.select(notes.scopes().stream().map(scope -> scope.scope().match())
                 .filter(ContextMatch.Selected.class::isInstance).map(ContextMatch.Selected.class::cast)
                 .flatMap(match -> match.terms().stream()).distinct()).collect(toImmutableList());

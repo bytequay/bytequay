@@ -23,6 +23,7 @@ import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.context.ContextClaim;
 import com.bytequay.core.context.ContextDocumentRead;
+import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextInputFingerprint;
@@ -128,7 +129,8 @@ class TestRepositoryContextPreparation
         preparation.complete(owner, preparation.prepareCompletion(owner, admitted.attempt().orElseThrow().attemptId(), readyReport(READ_ID)));
         RepositoryNotebook saved = notebooks.getNotebook("workspace");
         assertThat(saved.useInReviews()).isFalse();
-        assertThat(saved.entries()).singleElement().satisfies(entry -> assertThat(entry.body()).isEqualTo("Useful generated body"));
+        assertThat(saved.entries()).isEmpty();
+        assertThat(saved.pendingDrafts()).singleElement().satisfies(draft -> assertThat(draft.entry().body()).isEqualTo("Useful generated body"));
         assertThat(saved.activePreparation()).isEmpty();
     }
 
@@ -151,7 +153,7 @@ class TestRepositoryContextPreparation
         assertThat(saved.scopes()).contains(component);
         assertThat(saved.sources()).containsExactly(source);
         assertThat(saved.sourceEvidence()).contains(proof);
-        assertThat(saved.entries()).singleElement().satisfies(entry -> assertThat(entry.scopeId()).isEqualTo("project"));
+        assertThat(saved.pendingDrafts()).singleElement().satisfies(draft -> assertThat(draft.entry().scopeId()).isEqualTo("project"));
     }
 
     @Test
@@ -162,6 +164,8 @@ class TestRepositoryContextPreparation
         Execution owner = documentExecution("original", "a".repeat(64));
         var admitted = begin(owner);
         preparation.complete(owner, preparation.prepareCompletion(owner, admitted.attempt().orElseThrow().attemptId(), readyReport("context-read:original")));
+        RepositoryNotebook proposed = notebooks.getNotebook("workspace");
+        notebooks.approveDraft("workspace", proposed.revision(), proposed.pendingDrafts().getFirst().id());
         Execution same = documentExecution("same-content", "a".repeat(64));
         assertThat(begin(same).status()).isEqualTo(REUSED);
         Execution changed = documentExecution("changed", "b".repeat(64));
@@ -213,10 +217,39 @@ class TestRepositoryContextPreparation
         });
         assertThat(receipt.packet().text()).contains("Useful generated body");
         Execution other = execution("other-turn", false, SHA);
-        var reused = preparation.begin(other, "reuse", DIGEST, 1, preparation.plan(other, ImmutableList.of("project")));
+        RepositoryNotebook approved = notebooks.approveDraft("workspace", saved.revision(), saved.pendingDrafts().getFirst().id());
+        var reused = preparation.begin(other, "reuse", DIGEST, approved.revision(), preparation.plan(other, ImmutableList.of("project")));
         assertThat(reused.status()).isEqualTo(REUSED);
         assertThat(reused.packet().text()).contains("Useful generated body", READ_ID);
-        assertThat(notebooks.getNotebook("workspace")).isEqualTo(saved);
+        assertThat(notebooks.getNotebook("workspace")).isEqualTo(approved);
+    }
+
+    @Test
+    void anotherLearningBatchCanProposeTwoNewTopicsWhileOverviewIsPending()
+    {
+        Execution owner = execution("turn", false, SHA);
+        var first = begin(owner);
+        preparation.complete(owner, preparation.prepareCompletion(owner, first.attempt().orElseThrow().attemptId(), readyReport(READ_ID)));
+        RepositoryNotebook overviewPending = notebooks.getNotebook("workspace");
+        assertThat(overviewPending.entries()).isEmpty();
+
+        var next = begin(owner);
+        assertThat(next.status()).isEqualTo(OWNED);
+        List<String> topics = ImmutableList.of("knowledge:project:runtime", "knowledge:project:configuration");
+        var report = new GeneratedReport(ImmutableList.of(new ScopeReport("project", READY, topics, ImmutableList.of(READ_ID),
+                "Two focused concepts in the checked source")), topics.stream().map(id -> new GeneratedEntry(id, "project", id,
+                "Sourced topic", "Topic body", ImmutableList.of(new ContextClaim("Topic claim", ContextClaim.Basis.DOCUMENTED,
+                ImmutableList.of(READ_ID))), ImmutableList.of(READ_ID))).collect(ImmutableList.toImmutableList()));
+        preparation.complete(owner, preparation.prepareCompletion(owner, next.attempt().orElseThrow().attemptId(), report));
+
+        RepositoryNotebook proposed = notebooks.getNotebook("workspace");
+        assertThat(proposed.entries()).isEmpty();
+        assertThat(proposed.pendingDrafts()).hasSize(3);
+        for (String draftId : proposed.pendingDrafts().stream().map(draft -> draft.id()).toList()) {
+            proposed = notebooks.approveDraft("workspace", proposed.revision(), draftId);
+        }
+        assertThat(proposed.pendingDrafts()).isEmpty();
+        assertThat(proposed.entries()).extracting(ContextEntry::id).containsExactlyInAnyOrder("knowledge:project", topics.get(0), topics.get(1));
     }
 
     @Test
@@ -231,8 +264,10 @@ class TestRepositoryContextPreparation
         var receipt = preparation.complete(owner, preparation.prepareCompletion(owner, admitted.attempt().orElseThrow().attemptId(), report));
         assertThat(receipt.packet().utf8Bytes()).isLessThanOrEqualTo(ContextPacket.MAXIMUM_BYTES);
         assertThat(receipt.packet().text()).contains("Omitted 1 complete scope sections", "project");
-        assertThat(notebooks.getNotebook("workspace").entries().getFirst().body()).isEqualTo(entry.body());
-        var reused = preparation.begin(owner, "reuse", DIGEST, 1, preparation.plan(owner, ImmutableList.of("project")));
+        RepositoryNotebook pending = notebooks.getNotebook("workspace");
+        assertThat(pending.pendingDrafts().getFirst().entry().body()).isEqualTo(entry.body());
+        RepositoryNotebook approved = notebooks.approveDraft("workspace", pending.revision(), pending.pendingDrafts().getFirst().id());
+        var reused = preparation.begin(owner, "reuse", DIGEST, approved.revision(), preparation.plan(owner, ImmutableList.of("project")));
         assertThat(reused.status()).isEqualTo(REUSED);
         assertThat(reused.packet().text()).contains("Omitted 1 complete scope sections");
     }
@@ -290,12 +325,13 @@ class TestRepositoryContextPreparation
         RepositoryNotebook saved = notebooks.getNotebook("workspace");
         assertThat(saved.sourceEvidence()).hasSize(13);
         assertThat(saved.scopes().getFirst().preparation().orElseThrow().checkedReads()).containsExactlyElementsOf(owner.sourceReads());
-        assertThat(saved.entries()).singleElement().satisfies(entry -> {
+        assertThat(saved.pendingDrafts()).singleElement().satisfies(draft -> {
+            var entry = draft.entry();
             assertThat(entry.id()).isEqualTo("knowledge:project");
             assertThat(entry.sourceIds()).containsExactly(checked.getFirst());
             assertThat(entry.claims()).singleElement().satisfies(claim -> assertThat(claim.sourceIds()).containsExactly(checked.getFirst()));
         });
-        assertThat(begin(owner).status()).isEqualTo(REUSED);
+        assertThat(begin(owner).status()).isEqualTo(OWNED);
     }
 
     @Test
@@ -326,7 +362,7 @@ class TestRepositoryContextPreparation
         assertThat(settled.entries()).isEqualTo(user.entries());
         assertThat(settled.activePreparation()).isEmpty();
         assertThat(settled.scopes().getFirst().preparation().orElseThrow().outcome()).isEqualTo(FAILED);
-        assertThat(preparation.begin(owner, "retry", DIGEST, 1, preparation.plan(owner, ImmutableList.of("project"))).status()).isEqualTo(DEFERRED);
+        assertThat(preparation.begin(owner, "retry", DIGEST, 1, preparation.plan(owner, ImmutableList.of("project"))).status()).isEqualTo(OWNED);
     }
 
     @Test
@@ -375,27 +411,30 @@ class TestRepositoryContextPreparation
         RepositoryNotebook saved = notebooks.getNotebook("workspace");
         assertThat(saved.sourceEvidence()).hasSize(2);
         assertThat(saved.scopes().getFirst().preparation().orElseThrow().checkedReads()).filteredOn(ContextHistoryRead.class::isInstance).hasSize(1);
-        assertThat(saved.entries()).singleElement().satisfies(entry -> assertThat(entry.sourceIds()).contains("context-read:history-1"));
+        assertThat(saved.pendingDrafts()).singleElement().satisfies(draft -> assertThat(draft.entry().sourceIds()).contains("context-read:history-1"));
+        saved = notebooks.approveDraft("workspace", saved.revision(), saved.pendingDrafts().getFirst().id());
 
         Execution other = withHistory(execution("other-turn", false, SHA), "history-2", "Merged decision", 2);
         var equal = historyPreparation.plan(other, ImmutableList.of("project"), ImmutableList.of("context-read:history-2"));
-        assertThat(historyPreparation.begin(other, "reuse", DIGEST, 1, equal).status()).isEqualTo(REUSED);
+        assertThat(historyPreparation.begin(other, "reuse", DIGEST, saved.revision(), equal).status()).isEqualTo(REUSED);
         var unchanged = historyPreparation.plan(other, ImmutableList.of("project"));
-        assertThat(historyPreparation.begin(other, "reuse-retained", DIGEST, 1, unchanged).status()).isEqualTo(REUSED);
+        assertThat(historyPreparation.begin(other, "reuse-retained", DIGEST, saved.revision(), unchanged).status()).isEqualTo(REUSED);
 
         Execution changed = withHistory(execution("changed-turn", false, SHA), "history-3", "Updated merged decision", 2);
         var different = historyPreparation.plan(changed, ImmutableList.of("project"), ImmutableList.of("context-read:history-3"));
-        var refresh = historyPreparation.begin(changed, "changed", DIGEST, 1, different);
+        var refresh = historyPreparation.begin(changed, "changed", DIGEST, saved.revision(), different);
         assertThat(refresh.status()).isEqualTo(OWNED);
         var failed = new GeneratedReport(ImmutableList.of(new ScopeReport("project", FAILED, ImmutableList.of(),
                 ImmutableList.of("context-read:history-3"), "Interpretation incomplete")), ImmutableList.of());
         historyPreparation.complete(changed, historyPreparation.prepareCompletion(changed, refresh.attempt().orElseThrow().attemptId(), failed));
         assertThat(notebooks.getNotebook("workspace").entries()).isEqualTo(saved.entries());
         var retry = historyPreparation.plan(changed, ImmutableList.of("project"), ImmutableList.of("context-read:history-3"));
-        var retried = historyPreparation.begin(changed, "retry", DIGEST, 1, retry);
+        var retried = historyPreparation.begin(changed, "retry", DIGEST, saved.revision(), retry);
         assertThat(retried.status()).isEqualTo(OWNED);
         historyPreparation.complete(changed, historyPreparation.prepareCompletion(changed, retried.attempt().orElseThrow().attemptId(),
                 historyReport("context-read:history-3", true)));
+        RepositoryNotebook newer = notebooks.getNotebook("workspace");
+        notebooks.approveDraft("workspace", newer.revision(), newer.pendingDrafts().getFirst().id());
         assertThat(notebooks.getNotebook("workspace").sourceEvidence()).extracting(source -> source.id()).doesNotContain("context-read:history-1");
     }
 

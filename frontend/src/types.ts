@@ -22,12 +22,14 @@ import type {
   ApplyContextDiscoveryRequest,
   ConfigureRepositoryContextRequest,
   ContextBuildViewDto,
+  ContextDraftActionRequest,
   ContextUsageActivitiesDto,
   ContextUsageOverviewDto,
   ContextUsageWindow,
   ContextDiscoveryDto,
   DiscoverRepositoryContextRequest,
   EditRepositoryContextEntryRequest,
+  EditContextDraftRequest,
   RemoveRepositoryContextEntryRequest,
   RepositoryNotebookDto,
   ResetRepositoryContextRequest,
@@ -1622,6 +1624,9 @@ export type Bridge = JiraBridge & {
   cleanupRepositoryContextBuild: (workspaceId: string, taskId: string) => Promise<ContextBuildViewDto>;
   configureRepositoryContext: (workspaceId: string, request: ConfigureRepositoryContextRequest) => Promise<RepositoryNotebookDto>;
   editRepositoryContextEntry: (workspaceId: string, request: EditRepositoryContextEntryRequest) => Promise<RepositoryNotebookDto>;
+  editRepositoryContextDraft: (workspaceId: string, request: EditContextDraftRequest) => Promise<RepositoryNotebookDto>;
+  approveRepositoryContextDraft: (workspaceId: string, request: ContextDraftActionRequest) => Promise<RepositoryNotebookDto>;
+  dismissRepositoryContextDraft: (workspaceId: string, request: ContextDraftActionRequest) => Promise<RepositoryNotebookDto>;
   setRepositoryContextEntryEnabled: (workspaceId: string, request: SetRepositoryContextEntryEnabledRequest) => Promise<RepositoryNotebookDto>;
   removeRepositoryContextEntry: (workspaceId: string, request: RemoveRepositoryContextEntryRequest) => Promise<RepositoryNotebookDto>;
   resetRepositoryContext: (workspaceId: string, request: ResetRepositoryContextRequest) => Promise<RepositoryNotebookDto>;

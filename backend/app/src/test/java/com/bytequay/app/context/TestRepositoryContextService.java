@@ -18,6 +18,7 @@ import com.bytequay.core.context.ActiveContextPreparation;
 import com.bytequay.core.context.ContextClaim;
 import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextInputFingerprint;
+import com.bytequay.core.context.ContextKnowledgeDraft;
 import com.bytequay.core.context.ContextMatch;
 import com.bytequay.core.context.ContextPreparationResult;
 import com.bytequay.core.context.ContextReference;
@@ -346,6 +347,88 @@ class TestRepositoryContextService
     }
 
     @Test
+    void draftEditRemainsPendingAndApprovalReplacesOnlyItsExactActiveVersion()
+            throws Exception
+    {
+        seedGenerated();
+        RepositoryNotebook initial = service.getNotebook(WORKSPACE);
+        ContextKnowledgeDraft draft = replacementDraft(initial, "draft:replacement");
+        RepositoryNotebook pending = service.savePreparation(WORKSPACE, initial, new RepositoryNotebook(1, 2, true, true,
+                initial.sources(), initial.scopes(), initial.entries(), ImmutableList.of(draft), initial.suppressedKnowledgeIds(),
+                initial.sourceEvidence(), Optional.empty()));
+        assertThat(pending.entries()).isEqualTo(initial.entries());
+        assertThat(pending.pendingDrafts()).singleElement().satisfies(value -> assertThat(value.entry().origin()).isEqualTo(GENERATED));
+
+        RepositoryNotebook edited = service.editDraft(WORKSPACE, pending.revision(), draft.id(), "Edited title", "Edited summary", "Edited body",
+                draft.entry().claims());
+        assertThat(edited.entries()).isEqualTo(initial.entries());
+        assertThat(edited.pendingDrafts()).singleElement().satisfies(value -> {
+            assertThat(value.entry().body()).isEqualTo("Edited body");
+            assertThat(value.entry().origin()).isEqualTo(USER);
+            assertThat(value.entry().sourceIds()).isEqualTo(draft.entry().sourceIds());
+        });
+        RepositoryNotebook approved = service.approveDraft(WORKSPACE, edited.revision(), draft.id());
+        assertThat(approved.pendingDrafts()).isEmpty();
+        assertThat(approved.entries()).singleElement().satisfies(entry -> {
+            assertThat(entry.body()).isEqualTo("Edited body");
+            assertThat(entry.origin()).isEqualTo(USER);
+            assertThat(entry.version()).isEqualTo(approved.revision());
+        });
+    }
+
+    @Test
+    void disabledOrRemovedActiveNoteCannotBeReplacedByItsPendingDraft()
+            throws Exception
+    {
+        seedGenerated();
+        RepositoryNotebook initial = service.getNotebook(WORKSPACE);
+        ContextKnowledgeDraft draft = replacementDraft(initial, "draft:replacement");
+        service.savePreparation(WORKSPACE, initial, new RepositoryNotebook(1, 2, true, true, initial.sources(), initial.scopes(),
+                initial.entries(), ImmutableList.of(draft), initial.suppressedKnowledgeIds(), initial.sourceEvidence(), Optional.empty()));
+        RepositoryNotebook disabled = service.setEntryEnabled(WORKSPACE, 2, "knowledge:project", false);
+        assertThatThrownBy(() -> service.approveDraft(WORKSPACE, disabled.revision(), draft.id()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("changed since this proposal");
+        RepositoryNotebook removed = service.removeEntry(WORKSPACE, disabled.revision(), "knowledge:project");
+        assertThat(removed.pendingDrafts()).isEmpty();
+        assertThat(removed.suppressedKnowledgeIds()).containsExactly("knowledge:project");
+    }
+
+    @Test
+    void dismissingAnUnapprovedNewTopicPrunesItsOtherwiseUnusedEvidence()
+    {
+        ContextSourceEvidence source = new ContextSourceEvidence("draft-source", new ContextReference.Document("docs", "https://example.com/docs/page"),
+                "Captured documentation", "Topic evidence", ContextSourceEvidence.Capture.BYTEQUAY_READ,
+                Optional.of(Instant.EPOCH), Optional.empty(), Optional.empty(), false);
+        ContextEntry entry = new ContextEntry("knowledge:project:new-topic", KNOWLEDGE, "project", "New topic", "Summary", "Body",
+                ImmutableList.of(), ImmutableList.of(source.id()), GENERATED, true, 1);
+        ContextKnowledgeDraft draft = new ContextKnowledgeDraft("draft:new-topic", entry, Optional.empty(), HEAD, "Proposed from documentation");
+        RepositoryNotebook empty = service.getNotebook(WORKSPACE);
+        RepositoryNotebook pending = service.savePreparation(WORKSPACE, empty, new RepositoryNotebook(1, 1, true, true,
+                empty.sources(), empty.scopes(), empty.entries(), ImmutableList.of(draft), empty.suppressedKnowledgeIds(),
+                ImmutableList.of(source), Optional.empty()));
+        assertThat(pending.sourceEvidence()).containsExactly(source);
+        RepositoryNotebook dismissed = service.dismissDraft(WORKSPACE, pending.revision(), draft.id());
+        assertThat(dismissed.pendingDrafts()).isEmpty();
+        assertThat(dismissed.entries()).isEmpty();
+        assertThat(dismissed.sourceEvidence()).isEmpty();
+    }
+
+    @Test
+    void focusedNoteSuppressionDoesNotBlockAnotherTopicAndResetClearsAllTopicMarkers()
+    {
+        RepositoryNotebook first = service.editEntry(WORKSPACE, 0, new EditContextEntry("knowledge:project:iceberg", "project", "Iceberg", "Summary",
+                "Body", ImmutableList.of(), ImmutableList.of()));
+        RepositoryNotebook second = service.editEntry(WORKSPACE, first.revision(), new EditContextEntry("knowledge:project:delta", "project", "Delta", "Summary",
+                "Body", ImmutableList.of(), ImmutableList.of()));
+        RepositoryNotebook removed = service.removeEntry(WORKSPACE, second.revision(), "knowledge:project:iceberg");
+        assertThat(removed.entries()).extracting(ContextEntry::id).containsExactly("knowledge:project:delta");
+        assertThat(removed.suppressedKnowledgeIds()).containsExactly("knowledge:project:iceberg");
+        RepositoryNotebook reset = service.resetSuppression(WORKSPACE, removed.revision(), ImmutableList.of("project"));
+        assertThat(reset.suppressedKnowledgeIds()).isEmpty();
+        assertThat(reset.entries()).extracting(ContextEntry::id).containsExactly("knowledge:project:delta");
+    }
+
+    @Test
     void missingSourcesAndMultibyteOverflowLeaveSavedContentIntact()
     {
         RepositoryNotebook current = service.editEntry(WORKSPACE, 0, edit("Valid"));
@@ -440,6 +523,14 @@ class TestRepositoryContextService
                 ImmutableList.of(new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://example.com/docs/", USER, Optional.empty())),
                 ImmutableList.of(ContextScope.project()), ImmutableList.of(generated), ImmutableList.of(), ImmutableList.of(source), Optional.empty());
         settings.put(KEY, mapper.writeValueAsString(notebook));
+    }
+
+    private static ContextKnowledgeDraft replacementDraft(RepositoryNotebook initial, String draftId)
+    {
+        ContextEntry prior = initial.entries().getFirst();
+        ContextEntry proposed = new ContextEntry(prior.id(), KNOWLEDGE, prior.scopeId(), "New title", "New summary", "New generated body",
+                prior.claims(), prior.sourceIds(), GENERATED, true, 2);
+        return new ContextKnowledgeDraft(draftId, proposed, Optional.of(prior.version()), HEAD, "Refreshed from the retained source");
     }
 
     private RepositoryNotebook seedPreparation(ContextPreparationResult.Outcome outcome)

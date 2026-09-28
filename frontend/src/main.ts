@@ -61,6 +61,8 @@ import {
   parseContextUsageWindow,
   parseDiscoverRepositoryContextRequest,
   parseEditRepositoryContextEntryRequest,
+  parseEditContextDraftRequest,
+  parseContextDraftActionRequest,
   parseRemoveRepositoryContextEntryRequest,
   parseRepositoryNotebook,
   parseResetRepositoryContextRequest,
@@ -1376,6 +1378,13 @@ function registerIpc(): void {
   ipcMain.handle('repository-context:edit', (_event, workspaceId: string, request: unknown) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/entries`,
       jsonInit('PUT', parseEditRepositoryContextEntryRequest(request), agentHeaders())).then(parseRepositoryNotebook));
+  const contextDraftUrl = (workspaceId: string) => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/drafts`;
+  ipcMain.handle('repository-context:draft:edit', (_event, workspaceId: string, request: unknown) =>
+    backendJson(contextDraftUrl(workspaceId), jsonInit('PUT', parseEditContextDraftRequest(request), agentHeaders())).then(parseRepositoryNotebook));
+  ipcMain.handle('repository-context:draft:approve', (_event, workspaceId: string, request: unknown) =>
+    backendJson(contextDraftUrl(workspaceId) + '/approve', jsonInit('POST', parseContextDraftActionRequest(request), agentHeaders())).then(parseRepositoryNotebook));
+  ipcMain.handle('repository-context:draft:dismiss', (_event, workspaceId: string, request: unknown) =>
+    backendJson(contextDraftUrl(workspaceId), jsonInit('DELETE', parseContextDraftActionRequest(request), agentHeaders())).then(parseRepositoryNotebook));
   ipcMain.handle('repository-context:enabled', (_event, workspaceId: string, request: unknown) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/entries/enabled`,
       jsonInit('PUT', parseSetRepositoryContextEntryEnabledRequest(request), agentHeaders())).then(parseRepositoryNotebook));

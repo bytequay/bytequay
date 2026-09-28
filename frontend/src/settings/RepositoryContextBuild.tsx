@@ -143,13 +143,7 @@ export default function RepositoryContextBuild({ workspaceId, notebook, onNotebo
     await apply(value);
     if (mounted.current) { setForm(false); setActivity(true); }
   };
-  const scopeReason = (id: string): string | null => {
-    if (!notebook.scopes.find(scope => scope.id === id)?.enabled) return 'Scope is disabled';
-    if (notebook.suppressedKnowledgeIds.includes('knowledge:' + id)) return 'Note was removed; reset removal first';
-    const entry = notebook.entries.find(entry => entry.kind === 'KNOWLEDGE' && entry.scopeId === id);
-    if (entry?.origin === 'USER') return 'User-managed note is preserved';
-    return entry?.enabled === false ? 'Note is disabled' : null;
-  };
+  const scopeEnabled = (id: string) => notebook.scopes.some(scope => scope.id === id && scope.enabled);
   const reviewModel = models?.agents.find(agent => agent.type === 'REVIEW');
   const provider = models?.providers.find(item => item.id === reviewModel?.configId);
   const modelReady = provider !== undefined && providerAvailable(provider.readiness) && provider.models.some(model => model.id === reviewModel?.model);
@@ -160,12 +154,12 @@ export default function RepositoryContextBuild({ workspaceId, notebook, onNotebo
   let historyError: string | null = null;
   try { history = historyInputs(prs, issues); }
   catch (failure) { historyError = failureText(failure); }
-  const selectionValid = selected.length > 0 && selected.every(id => scopeReason(id) === null);
+  const selectionValid = selected.length > 0 && selected.every(scopeEnabled);
   const newDisabled = disabled || busy || view === null || !view.canStart || pending !== null;
 
   return <section className="rc-build" aria-label="Learn repository context">
     <div className="rc-actions"><button type="button" className="rc-button is-primary" disabled={newDisabled}
-      onClick={() => { setError(null); setSelected(scopeReason('project') === null ? ['project'] : []); setForm(true); void checkModel(); }}>Learn / Refresh</button>
+      onClick={() => { setError(null); setSelected(scopeEnabled('project') ? ['project'] : []); setForm(true); void checkModel(); }}>Learn / Refresh</button>
       <button type="button" className="rc-button" disabled={busy} onClick={() => void perform(inspect)}>Inspect latest task</button></div>
     <p className="rc-muted">Learn from repository files, directory structure, repository documentation and registered documentation. You can also select merged PRs and closed issues.</p>
     {error !== null && !form && <div className="rc-error" role="alert">{error}</div>}
@@ -185,8 +179,8 @@ export default function RepositoryContextBuild({ workspaceId, notebook, onNotebo
         && <p className="rc-muted">Clean up the retained worktree before starting another learning task.</p>}
       {build.results.map(result => <details key={result.attemptId + ':' + result.inputFingerprint.scopeId}>
         <summary>{notebook.scopes.find(scope => scope.id === result.inputFingerprint.scopeId)?.title ?? result.inputFingerprint.scopeId}
-          {' · '}{({ READY: 'Note saved', EMPTY: 'No useful note found', FAILED: 'Failed' })[result.outcome]}</summary>
-        <p>{result.explanation}</p><p>{result.checkedReads.length} captured sources. Saved notes and their sources appear below.</p>
+          {' · '}{({ READY: 'Draft prepared', EMPTY: 'No useful note found', FAILED: 'Failed' })[result.outcome]}</summary>
+        <p>{result.explanation}</p><p>{result.checkedReads.length} captured sources. Review pending drafts and their sources below.</p>
       </details>)}
       {build.gaps.length > 0 && <details><summary>Limitations · {build.gaps.length}</summary><ul>{build.gaps.map(gap => <li key={gap}>{gap}</li>)}</ul></details>}
       <div className="rc-actions">
@@ -222,9 +216,9 @@ export default function RepositoryContextBuild({ workspaceId, notebook, onNotebo
               setIssues(mergedHistory.filter(item => item.kind === 'ISSUE').map(item => item.number).join(', '));
             }} />
           <fieldset disabled={busy || discovering || pending !== null}><legend>Knowledge scopes</legend>{notebook.scopes.map(scope => <label key={scope.id}>
-            <input type="checkbox" checked={selected.includes(scope.id)} disabled={scopeReason(scope.id) !== null}
+            <input type="checkbox" checked={selected.includes(scope.id)} disabled={!scope.enabled}
               onChange={event => setSelected(event.target.checked ? [...selected, scope.id] : selected.filter(id => id !== scope.id))} />
-            {scope.title}{scopeReason(scope.id) !== null && <span className="rc-muted"> · {scopeReason(scope.id)}</span>}</label>)}</fieldset>
+            {scope.title}{!scope.enabled && <span className="rc-muted"> · Scope is disabled</span>}</label>)}</fieldset>
           <label>Merged PR numbers (optional)<input value={prs} disabled={busy || discovering || pending !== null} placeholder="123, 456" onChange={event => setPrs(event.target.value)} /></label>
           <label>Closed issue numbers (optional)<input value={issues} disabled={busy || discovering || pending !== null} placeholder="789" onChange={event => setIssues(event.target.value)} /></label>
           <p className="rc-muted">Up to 10 from this repository. Merge or closure alone does not prove a fix. No history or website crawl is started.</p>

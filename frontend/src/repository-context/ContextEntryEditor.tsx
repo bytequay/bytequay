@@ -42,10 +42,10 @@ export function ContextDialog({ title, busy, onCancel, children }: {
 }
 
 export default function ContextEntryEditor({ initialValue, scopes, scopeLocked = false, submitDisabled = false, optionalTitle = false, busy, error, onSave, onCancel,
-  title = 'Edit note', confirmLabel = 'Save', busyLabel = 'Saving…', beforeFields, children, onChange }: {
+  title = 'Edit note', confirmLabel = 'Save', busyLabel = 'Saving…', helperText, beforeFields, children, onChange }: {
   initialValue: ContextEntryDraft; scopes: ContextScopeDto[]; scopeLocked?: boolean; submitDisabled?: boolean; optionalTitle?: boolean; busy: boolean; error: string | null;
   onSave: (value: ContextEntryDraft) => void; onCancel: () => void; title?: string; confirmLabel?: string; busyLabel?: string;
-  beforeFields?: ReactNode; children?: ReactNode;
+  helperText?: string; beforeFields?: ReactNode; children?: ReactNode;
   onChange?: (value: ContextEntryDraft) => void;
 }) {
   const [draft, setDraft] = useState(initialValue);
@@ -57,9 +57,9 @@ export default function ContextEntryEditor({ initialValue, scopes, scopeLocked =
   return <ContextDialog title={title} busy={busy} onCancel={onCancel}>
     <form onSubmit={event => { event.preventDefault(); if (!invalid && !busy && !submitDisabled) onSave(savedDraft); }}>
       <div className="rc-dialog-body">
-        <p className="rc-muted">{optionalTitle
-          ? 'Choose where this lesson applies, then summarize when it matters and what to check. The scope decides when it can match; words in the title and summary help rank it for future reviews.'
-          : 'Keep this note specific to the conditions where it applies. Saved notes guide future reviews; they are not verified facts.'}</p>
+        <p className="rc-muted">{helperText ?? (optionalTitle
+          ? 'Choose where this lesson applies, then summarize when it matters and what to check. The scope guides matching; the title and summary can be found by literal search. The agent checks applicability.'
+          : 'Keep this note specific to the conditions where it applies. Saved notes guide future reviews; they are not verified facts.')}</p>
         {error !== null && <div className="rc-error" role="alert">{error}</div>}
         {beforeFields}
         <label>Applies to<select value={draft.scopeId} disabled={busy || scopeLocked} required onChange={event => change({ ...draft, scopeId: event.target.value })}>

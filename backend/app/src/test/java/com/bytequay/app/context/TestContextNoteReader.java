@@ -17,6 +17,7 @@ import com.bytequay.core.context.ContextClaim;
 import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextEntryKind;
 import com.bytequay.core.context.ContextEntryOrigin;
+import com.bytequay.core.context.ContextKnowledgeDraft;
 import com.bytequay.core.context.ContextReference;
 import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.ContextSelectedEntry;
@@ -78,6 +79,27 @@ class TestContextNoteReader
         assertThat(read.sourceEvidenceRefs()).containsExactlyEntriesOf(selected.sourceEvidenceRefs());
         assertThat(read.evidence()).isEmpty();
         verifyNoInteractions(notebooks);
+    }
+
+    @Test
+    void pendingKnowledgeNeverReplacesOrAddsAnAgentReadableVersion()
+    {
+        ContextSourceEvidence evidence = source("observed", ContextSourceEvidence.Capture.BYTEQUAY_READ);
+        ContextEntry active = new ContextEntry("knowledge:project", ContextEntryKind.KNOWLEDGE, "project", "Active overview", "Approved summary", "Approved contract",
+                ImmutableList.of(), ImmutableList.of(evidence.id()), ContextEntryOrigin.GENERATED, true, 7);
+        ContextEntry replacement = new ContextEntry(active.id(), active.kind(), active.scopeId(), "Pending overview", "Unapproved summary", "Unapproved replacement",
+                ImmutableList.of(), active.sourceIds(), ContextEntryOrigin.GENERATED, true, 8);
+        ContextEntry additional = new ContextEntry("knowledge:project:checkpoint", active.kind(), active.scopeId(), "Pending checkpoint", "Unapproved summary", "Unapproved topic",
+                ImmutableList.of(), active.sourceIds(), ContextEntryOrigin.GENERATED, true, 1);
+        RepositoryNotebook notebook = new RepositoryNotebook(1, 9, true, true, ImmutableList.of(), ImmutableList.of(ContextScope.project()), ImmutableList.of(active),
+                ImmutableList.of(new ContextKnowledgeDraft("update", replacement, Optional.of(7L), "a".repeat(40), "Proposed update"),
+                        new ContextKnowledgeDraft("new", additional, Optional.empty(), "a".repeat(40), "Proposed topic")),
+                ImmutableList.of(), ImmutableList.of(evidence), Optional.empty());
+        when(notebooks.getNotebook("workspace")).thenReturn(notebook);
+
+        assertThat(reader.readEnabled("workspace", active.id(), 7).orElseThrow().read().text()).contains("Approved contract").doesNotContain("Unapproved");
+        assertThat(reader.readEnabled("workspace", replacement.id(), 8)).isEmpty();
+        assertThat(reader.readEnabled("workspace", additional.id(), 1)).isEmpty();
     }
 
     private static ContextSourceEvidence source(String id, ContextSourceEvidence.Capture capture)

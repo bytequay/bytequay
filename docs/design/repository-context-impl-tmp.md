@@ -1,5 +1,79 @@
 # Repository Context implementation checklist
 
+## Refactor development checkpoints
+
+The approved [discover, learn, and use contract](repository-context-refactor.md)
+defines this refactor. Older evidence below describes the previous implementation,
+not completion of these checkpoints. Update this section after each implementation
+and verification step. No provider runs or GitHub writes are part of verification
+without separate authorization.
+
+| Checkpoint | Work and acceptance | Progress |
+| --- | --- | --- |
+| R1 — Notes and approval | Generated drafts separate from active entries; old version survives until approval; revision/version conflicts; edit/dismiss UI; several knowledge notes per scope; sources | Complete |
+| R2 — Agent-owned lookup | Paginated list and literal path/text search; exact-version get; no relevance rank or automatic note-body injection; retained development/review receipts and Off behavior | Complete |
+| R3 — Agent discovery | Explicit Start discovery; no manual scopes required; frozen revision, repository-wide filename/text search, deep/non-Maven layouts; evidenced outline/topic/source suggestions; no page-open model run | Pending |
+| R4 — Incremental learning | Accepted topics/sources/limits; bounded links/inventories; saved drafts/evidence/questions; explicit continuation across tasks/restarts without restarting discovery; partial-result UI | Pending |
+| R5 — Learn from work | Task-local investigation and supported drafts; Explore & prepare context; confirmed merged-PR bundles queued without model calls; agent judges duplication | Pending |
+| R6 — Integration and acceptance | Remove superseded surfaces/contracts; cold start, continuation, conflicts, Off, usage, no hidden spending; backend/frontend/package gates; record live-provider limitations | Pending |
+
+### Working rules
+
+- Finish usable checkpoints; shared infrastructure alone does not complete later stages.
+- Reuse notebook settings, task/worktree lifecycle, provider tools, source readers,
+  exact-version receipts, and editor components.
+- Active entries contain approved notes only. Pending updates must not hide the
+  previous active note from development or review.
+- Do not expose discovery/resume UI as working before its backend exists.
+- Remove obsolete UI, ranking, guards, and helpers as replacements land. Keep
+  required manual source/scope controls folded under Advanced configuration
+  until agent discovery replaces their setup role; do not preserve dead code
+  merely to keep superseded tests passing.
+- Record exact checks and limitations below; preserve historical evidence.
+
+### Refactor verification log
+
+- Baseline: clean checkout at `dacb0a78b`; repository instructions and relevant
+  context/task contracts inspected. No live app database changed.
+- R1: generated knowledge is saved as pending drafts. Edit, approve, and dismiss
+  are explicit revision-checked actions; pending updates leave active notes in
+  place. Several focused knowledge notes can share a scope. Evidence remains
+  retained while an active note or draft needs it. SQLite round-trip verified.
+- R2: development and review receive lookup instructions, not automatically
+  selected note bodies. List/search return stable, byte-bounded pages with an
+  exact notebook revision; search is case-insensitive literal matching across
+  title, summary, body and source labels, with explicit scope-path filtering.
+  Exact-version reads retain evidence and usage receipts. Historical receipts
+  still replay. No model runs are introduced by these lookups.
+- Removed note ranking/topic scoring, the five-hit cutoff, eager note injection,
+  eager applicability comparison, and the mandatory cold-review preparation
+  guard. Missing knowledge no longer forces learning before review can finish.
+  Existing manual source/scope/removal controls are folded under Advanced
+  configuration. Draft controls remain visible with the resulting note.
+- Focused backend reactor: 277 tests passed, including draft lifecycle,
+  multiple topics, byte-bounded pagination without skipped notes, exact reads,
+  development/review integration, and source retention. Checkstyle passed.
+- Frontend: lint, TypeScript, 127 test files / 1,349 tests, and desktop packaging
+  passed. The initial full test run had one unrelated Commits CI fixture failure;
+  isolated retry and the final full suite passed. Final settings Chromium
+  fixture covers 31 scenarios; draft and Advanced configuration screens checked.
+- Full JVM 25 `mvn verify` passed across all seven modules; the app module ran
+  2,418 tests with no failures or skips. Two HTTP transcript tests were updated:
+  the fixed lifecycle baseline uses context Off, and the context-On provider
+  test checks lookup guidance while preserving the original user message.
+  Sandbox process tests required execution outside the sandbox because process
+  inspection uses blocked sysctl calls. Packaging required network access for
+  Electron's build dependency download. Final `git diff --check` passed.
+- R3–R6 remain pending. Opening the workspace still does not run a model. This
+  checkpoint does not ship agent discovery, bounded documentation inventories,
+  resumable learning, Explore draft preparation, or merged-work candidates.
+- Remaining freshness work: drafts record the inspected baseline, but approval
+  currently checks notebook/target versions, not a fresh Git baseline comparison.
+  Source and scope changes must be surfaced/revalidated with R3/R4. No live
+  provider quality or token-cost acceptance run was performed.
+
+---
+
 Approved behavior is defined in [Repository Context](repository-context.md). Start the
 design review with its [Overall flow](repository-context.md#2-overall-flow).
 This temporary file tracks delivery; it does not define a second architecture.

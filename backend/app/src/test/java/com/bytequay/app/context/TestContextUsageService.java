@@ -41,7 +41,7 @@ import static org.mockito.Mockito.when;
 class TestContextUsageService
 {
     private static final Instant NOW = Instant.parse("2026-09-24T00:00:00Z");
-    private static final String ENTRY = "knowledge:iceberg";
+    private static final String ENTRY = "knowledge:iceberg:commits";
     private static final String SCOPE = "iceberg";
 
     @Test
@@ -51,8 +51,10 @@ class TestContextUsageService
                 true, Optional.empty(), Optional.empty());
         ContextEntry current = new ContextEntry(ENTRY, ContextEntryKind.KNOWLEDGE, SCOPE, "Iceberg", "Summary", "Body", ImmutableList.of(),
                 ImmutableList.of(), ContextEntryOrigin.USER, true, 2);
+        ContextEntry disabled = new ContextEntry(ContextEntry.knowledgeId(SCOPE), ContextEntryKind.KNOWLEDGE, SCOPE, "Overview", "Summary", "Body",
+                ImmutableList.of(), ImmutableList.of(), ContextEntryOrigin.USER, false, 1);
         RepositoryNotebook notebook = new RepositoryNotebook(1, 2, true, true, ImmutableList.of(),
-                ImmutableList.of(ContextScope.project(), component), ImmutableList.of(current), ImmutableList.of(), ImmutableList.of(), Optional.empty());
+                ImmutableList.of(ContextScope.project(), component), ImmutableList.of(disabled, current), ImmutableList.of(), ImmutableList.of(), Optional.empty());
         RepositoryContextService notebooks = mock(RepositoryContextService.class);
         ContextUsageStore store = mock(ContextUsageStore.class);
         when(notebooks.getNotebook("workspace")).thenReturn(notebook);

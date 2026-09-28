@@ -37,20 +37,18 @@ import com.bytequay.app.context.ContextNotebookLookup.SearchResult;
 import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextEntryKind;
 import com.bytequay.core.context.ContextEntryOrigin;
-import com.bytequay.core.context.ContextLimits;
-import com.bytequay.core.context.ContextMatch;
-import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.DevelopmentContextReceipt;
 import com.bytequay.core.context.DevelopmentContextReceiptStore;
-import com.bytequay.core.context.RepositoryNotebook;
 import com.bytequay.core.review.AgentReviewStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -67,6 +65,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestDevelopmentContextTools
@@ -79,8 +78,6 @@ class TestDevelopmentContextTools
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);
     private final AgentTurnStore turns = mock(AgentTurnStore.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
-    private final RepositoryContextService notebooks = mock(RepositoryContextService.class);
-    private final RepositoryContextMatcher matcher = mock(RepositoryContextMatcher.class);
     private final ContextNotebookLookup lookup = mock(ContextNotebookLookup.class);
     private final ContextUsageRecorder usage = mock(ContextUsageRecorder.class);
     private final DevelopmentContextUsageObserver observer = mock(DevelopmentContextUsageObserver.class);
@@ -94,7 +91,7 @@ class TestDevelopmentContextTools
     };
     private final MemoryReceipts receipts = new MemoryReceipts();
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module());
-    private final DevelopmentContextTools service = new DevelopmentContextTools(tasks, turns, reviews, notebooks, matcher, lookup,
+    private final DevelopmentContextTools service = new DevelopmentContextTools(tasks, turns, reviews, lookup,
             receipts, usage, observer, unitOfWork, mapper, Clock.systemUTC());
 
     @BeforeEach
@@ -112,82 +109,40 @@ class TestDevelopmentContextTools
     }
 
     @Test
-    void offerReplaysExactVersionAndOnlyConfirmsAfterProviderAcknowledgment()
+    void enabledTurnGetsLookupInstructionsWithoutOfferingNotes()
     {
-        ContextEntry note = entry();
-        when(notebooks.getNotebook(WORKSPACE)).thenReturn(new RepositoryNotebook(1, 7, true, true, ImmutableList.of(),
-                ImmutableList.of(ContextScope.project()), ImmutableList.of(note), ImmutableList.of(), ImmutableList.of(), Optional.empty()));
-        when(matcher.select(any(), eq(ImmutableList.of()), eq("Review snapshot isolation"), eq(ImmutableList.of())))
-                .thenReturn(new RepositoryContextMatcher.Selection(
-                        ImmutableList.of(new RepositoryContextMatcher.Match(note, ImmutableList.of("Project scope"), RepositoryContextMatcher.Rank.REPOSITORY)),
-                        ImmutableList.of(new RepositoryContextMatcher.ScopeMatch(ContextScope.project(), ImmutableList.of("Project scope"),
-                                RepositoryContextMatcher.Rank.REPOSITORY, false))));
-
         String first = service.prepare(task, turn, "Review snapshot isolation");
-        assertThat(first).contains("knowledge:project v3").contains("Avoid stale snapshots")
-                .contains("Offer reference: context-offer:" + turnId);
+        assertThat(first).contains("Review snapshot isolation", "LIST", "SEARCH", "READ")
+                .doesNotContain("knowledge:project", "Snapshot isolation");
         assertThat(service.prepare(task, turn, "Review snapshot isolation")).isEqualTo(first);
-        assertThat(receipts.listTurn(taskId.toString(), turnId.toString())).hasSize(1);
-        assertThatThrownBy(() -> service.prepare(task, turn, "Changed request")).hasMessageContaining("changed");
+        assertThat(receipts.listTurn(taskId.toString(), turnId.toString())).isEmpty();
+        verifyNoInteractions(lookup);
 
         turn = turn.markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("provider-turn"), Optional.empty());
         service.delivered(task, turn);
-        org.mockito.Mockito.verify(usage).confirm(WORKSPACE, "context-offer:" + turnId,
-                com.bytequay.core.context.ContextUsageEvent.Stage.PROVIDED);
+        org.mockito.Mockito.verify(usage, org.mockito.Mockito.never()).confirm(eq(WORKSPACE), any(), any());
     }
 
     @Test
-    void oversizedNoteIsOfferedAsAnExactReadPointerWithinTheByteBudget()
+    void oldPreparedOfferReplaysExactlyAndConfirmsWhenDelivered()
     {
-        ContextEntry note = new ContextEntry("knowledge:project", ContextEntryKind.KNOWLEDGE, "project", "Project", "Snapshot isolation",
-                "x".repeat(ContextLimits.MAX_BODY_BYTES), ImmutableList.of(), ImmutableList.of(), ContextEntryOrigin.USER, true, 3);
-        when(notebooks.getNotebook(WORKSPACE)).thenReturn(new RepositoryNotebook(1, 7, true, true, ImmutableList.of(),
-                ImmutableList.of(ContextScope.project()), ImmutableList.of(note), ImmutableList.of(), ImmutableList.of(), Optional.empty()));
-        when(matcher.select(any(), eq(ImmutableList.of()), eq("Work on snapshots"), eq(ImmutableList.of())))
-                .thenReturn(new RepositoryContextMatcher.Selection(
-                        ImmutableList.of(new RepositoryContextMatcher.Match(note, ImmutableList.of("Project scope"), RepositoryContextMatcher.Rank.REPOSITORY)),
-                        ImmutableList.of()));
+        String message = "Review snapshot isolation";
+        String ref = "context-offer:" + turnId;
+        String payload = """
+                {"offerRef":"%s","notebookRevision":7,"packet":"Legacy exact offer", \
+                "entries":[{"entryId":"knowledge:project","entryVersion":3,"kind":"KNOWLEDGE", \
+                "scopeId":"project","title":"Project","included":true,"matchReasons":[]}], \
+                "scopeStates":[],"omittedCount":0,"omittedScopes":0}
+                """.formatted(ref);
+        receipts.insert(new DevelopmentContextReceipt(taskId.toString(), turnId.toString(), "offer", ref,
+                DevelopmentContextReceipt.Kind.OFFER, Hashing.sha256().hashString(message, StandardCharsets.UTF_8).toString(),
+                payload, Hashing.sha256().hashString(payload, StandardCharsets.UTF_8).toString(), Instant.EPOCH));
 
-        String offered = service.prepare(task, turn, "Work on snapshots");
-
-        assertThat(offered).contains("knowledge:project v3").contains("READ with offer reference for complete text");
-        assertThat(offered).doesNotContain("x".repeat(100));
-        assertThat(ContextLimits.bytes(offered.substring(offered.indexOf("----- BEGIN SAVED REPOSITORY CONTEXT -----"))))
-                .isLessThan(8 * 1024 + 200);
-    }
-
-    @Test
-    void unmatchedComponentNotesOfferAPathSearchReminder()
-    {
-        ContextScope scope = new ContextScope("path:sensors/", "Sensors",
-                new ContextMatch.Selected(ImmutableList.of("sensors/"), ImmutableList.of("window")), true, Optional.empty(), Optional.empty());
-        ContextEntry note = new ContextEntry("knowledge:path:sensors/", ContextEntryKind.KNOWLEDGE, scope.id(), "Window decision",
-                "Shared endpoint", "The decision belongs to the sensors component.", ImmutableList.of(), ImmutableList.of(), ContextEntryOrigin.USER, true, 1);
-        when(notebooks.getNotebook(WORKSPACE)).thenReturn(new RepositoryNotebook(1, 7, true, true, ImmutableList.of(),
-                ImmutableList.of(ContextScope.project(), scope), ImmutableList.of(note), ImmutableList.of(), ImmutableList.of(), Optional.empty()));
-        when(matcher.select(any(), eq(ImmutableList.of()), eq("Investigate customer report"), eq(ImmutableList.of())))
-                .thenReturn(new RepositoryContextMatcher.Selection(ImmutableList.of(), ImmutableList.of()));
-
-        String offered = service.prepare(task, turn, "Investigate customer report");
-
-        assertThat(offered).contains("Investigate customer report").contains("Saved ByteQuay notes exist, but none matched")
-                .contains("repository_context_lookup SEARCH").doesNotContain(note.title());
-        assertThat(service.prepare(task, turn, "Investigate customer report")).isEqualTo(offered);
-    }
-
-    @Test
-    void disabledNotesDoNotTriggerASearchReminder()
-    {
-        ContextScope scope = new ContextScope("path:sensors/", "Sensors",
-                new ContextMatch.Selected(ImmutableList.of("sensors/"), ImmutableList.of("window")), true, Optional.empty(), Optional.empty());
-        ContextEntry disabled = new ContextEntry("knowledge:path:sensors/", ContextEntryKind.KNOWLEDGE, scope.id(), "Window decision",
-                "Shared endpoint", "Do not offer this disabled note.", ImmutableList.of(), ImmutableList.of(), ContextEntryOrigin.USER, false, 1);
-        when(notebooks.getNotebook(WORKSPACE)).thenReturn(new RepositoryNotebook(1, 7, true, true, ImmutableList.of(),
-                ImmutableList.of(ContextScope.project(), scope), ImmutableList.of(disabled), ImmutableList.of(), ImmutableList.of(), Optional.empty()));
-        when(matcher.select(any(), eq(ImmutableList.of()), eq("Investigate customer report"), eq(ImmutableList.of())))
-                .thenReturn(new RepositoryContextMatcher.Selection(ImmutableList.of(), ImmutableList.of()));
-
-        assertThat(service.prepare(task, turn, "Investigate customer report")).isEqualTo("Investigate customer report");
+        assertThat(service.prepare(task, turn, message)).contains("Legacy exact offer");
+        assertThatThrownBy(() -> service.prepare(task, turn, "Changed request")).hasMessageContaining("changed");
+        turn = turn.markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("provider-turn"), Optional.empty());
+        service.delivered(task, turn);
+        verify(usage).confirm(WORKSPACE, ref, com.bytequay.core.context.ContextUsageEvent.Stage.PROVIDED);
     }
 
     @Test
@@ -224,6 +179,47 @@ class TestDevelopmentContextTools
 
         service.call(taskId.toString(), "{\"action\":\"SEARCH\",\"query\":\"\",\"paths\":[\"plugin/trino-iceberg/\"],\"operationKey\":\"path-only\"}");
         verify(lookup).search(WORKSPACE, new SearchQuery("", ImmutableList.of("plugin/trino-iceberg/")));
+    }
+
+    @Test
+    void listPagesUseCurrentNotebookRevisionAndRetainedSearchReceipts()
+            throws Exception
+    {
+        turn = turn.markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("provider-turn"), Optional.empty());
+        SearchResult firstPage = new SearchResult(7, "MATCHES", ImmutableList.of(new Hit("knowledge:project", 3, ContextEntryKind.KNOWLEDGE,
+                "project", "Project", "Snapshot isolation", ImmutableList.of(), "UNVERIFIED")), ImmutableList.of(), 1, 0, 1, 2, 2);
+        SearchResult secondPage = new SearchResult(7, "MATCHES", ImmutableList.of(new Hit("lesson:project", 4, ContextEntryKind.MEMORY,
+                "project", "Lesson", "A retained lesson", ImmutableList.of(), "UNVERIFIED")), ImmutableList.of(), 0, 0, 2, null, 2);
+        when(lookup.list(WORKSPACE, 1, Optional.empty())).thenReturn(firstPage);
+        when(lookup.list(WORKSPACE, 2, Optional.of(7L))).thenReturn(secondPage);
+
+        String first = service.call(taskId.toString(), "{\"action\":\"LIST\",\"operationKey\":\"first\"}");
+        assertThat(mapper.readTree(first).at("/result/nextPage").intValue()).isEqualTo(2);
+        assertThat(service.call(taskId.toString(), "{\"action\":\"LIST\",\"operationKey\":\"first\"}")).isEqualTo(first);
+        assertThatThrownBy(() -> service.call(taskId.toString(), "{\"action\":\"LIST\",\"operationKey\":\"second\",\"page\":2}"))
+                .hasMessageContaining("notebookRevision");
+        String second = service.call(taskId.toString(),
+                "{\"action\":\"LIST\",\"operationKey\":\"second\",\"page\":2,\"notebookRevision\":7}");
+        assertThat(mapper.readTree(second).at("/result/hits/0/entryId").asText()).isEqualTo("lesson:project");
+        assertThat(receipts.listTurn(taskId.toString(), turnId.toString())).hasSize(2);
+        verify(lookup).list(WORKSPACE, 1, Optional.empty());
+        verify(lookup).list(WORKSPACE, 2, Optional.of(7L));
+    }
+
+    @Test
+    void exactReadNeedsNoPriorListOrSearch()
+    {
+        turn = turn.markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("provider-turn"), Optional.empty());
+        when(lookup.readEnabled(WORKSPACE, "knowledge:project", 3)).thenReturn(Optional.of(new Read(7, entry(),
+                new ContextNoteReader.Read("Saved exact note", ImmutableMap.of(), ImmutableMap.of()))));
+        String request = "{\"action\":\"READ\",\"entryId\":\"knowledge:project\",\"entryVersion\":3}";
+        String result = service.call(taskId.toString(), request);
+        assertThat(result).contains("Saved exact note", "AVAILABLE");
+        assertThat(receipts.listTurn(taskId.toString(), turnId.toString())).hasSize(1);
+        when(lookup.readEnabled(WORKSPACE, "knowledge:project", 3)).thenReturn(Optional.empty());
+        assertThat(service.call(taskId.toString(), request)).isEqualTo(result);
+        assertThat(service.call(taskId.toString(), request.replace("\"entryVersion\":3", "\"entryVersion\":4")))
+                .contains("VERSION_UNAVAILABLE");
     }
 
     @Test

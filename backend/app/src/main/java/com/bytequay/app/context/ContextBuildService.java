@@ -315,7 +315,7 @@ public class ContextBuildService
         return "Learn repository " + build.repository().fullName() + " from its frozen monitored baseline " + build.baselineSha()
                 + ". Selected knowledge scopes: " + build.scopeIds() + ". Use repository_context_read SELECTION for the exact source assignment. "
                 + "Inspect directory structure, repository documentation and files, and attempt every registered documentation source before preparation BEGIN. "
-                + "Read only the explicitly selected historical references. Save generated knowledge with repository_context_prepare, then end the turn. "
+                + "Read only the explicitly selected historical references. Submit focused knowledge drafts with repository_context_prepare, then end the turn. "
                 + "Record source failures, incomplete coverage and unsupported claims as limitations. Do not author user lessons, commit, push or publish.";
     }
 

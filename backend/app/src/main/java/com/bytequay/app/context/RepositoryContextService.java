@@ -18,6 +18,7 @@ import com.bytequay.core.context.ContextClaim;
 import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextHistoryRead;
+import com.bytequay.core.context.ContextKnowledgeDraft;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextMatch;
 import com.bytequay.core.context.ContextReference;
@@ -213,7 +214,7 @@ public class RepositoryContextService
     }
 
     /**
-     * Creates canonical user knowledge or edits an existing knowledge/lesson entry.
+     * Creates user knowledge or edits an existing knowledge/lesson entry.
      *
      * @param workspaceId owning retained workspace
      * @param expectedRevision displayed content revision
@@ -227,7 +228,7 @@ public class RepositoryContextService
         requireNonNull(edit, "edit is null");
         return mutate(workspaceId, expectedRevision, current -> {
             Optional<ContextEntry> previous = current.entries().stream().filter(entry -> entry.id().equals(edit.id())).findFirst();
-            checkArgument(!current.suppressedKnowledgeIds().contains(edit.id()), "Reset this knowledge scope before recreating its note");
+            checkArgument(!current.suppressedKnowledgeIds().contains(edit.id()), "Reset this removed knowledge note before recreating it");
             previous.ifPresent(entry -> checkArgument(entry.scopeId().equals(edit.scopeId()), "Entry scope identity cannot change"));
             ContextEntry entry = new ContextEntry(
                     edit.id(), previous.map(ContextEntry::kind).orElse(KNOWLEDGE), edit.scopeId(), edit.title(), edit.summary(), edit.body(),
@@ -271,7 +272,9 @@ public class RepositoryContextService
                     ? ImmutableList.<String>builder().addAll(current.suppressedKnowledgeIds()).add(entry.id()).build()
                     : current.suppressedKnowledgeIds();
             return content(current, current.useInReviews(), current.sources(), current.scopes(),
-                    current.entries().stream().filter(value -> !value.id().equals(entryId)).collect(toImmutableList()), suppression, current.sourceEvidence());
+                    current.entries().stream().filter(value -> !value.id().equals(entryId)).collect(toImmutableList()),
+                    current.pendingDrafts().stream().filter(draft -> !draft.entry().id().equals(entryId)).collect(toImmutableList()),
+                    suppression, current.sourceEvidence());
         });
     }
 
@@ -283,13 +286,61 @@ public class RepositoryContextService
         return mutate(workspaceId, expectedRevision, current -> {
             Set<String> known = current.scopes().stream().map(ContextScope::id).collect(toSet());
             checkArgument(known.containsAll(selected), "Unknown reset scope");
-            Set<String> ids = selected.stream().map(ContextEntry::knowledgeId).collect(toSet());
             List<ContextScope> scopes = current.scopes().stream().map(scope -> selected.contains(scope.id())
-                    && current.entries().stream().noneMatch(entry -> entry.id().equals(ContextEntry.knowledgeId(scope.id())))
+                    && current.entries().stream().noneMatch(entry -> entry.kind() == KNOWLEDGE && entry.scopeId().equals(scope.id()))
                     ? new ContextScope(scope.id(), scope.title(), scope.match(), scope.enabled(), Optional.empty(), scope.discoveryEvidenceRef()) : scope)
                     .collect(toImmutableList());
             return content(current, current.useInReviews(), current.sources(), scopes, current.entries(),
-                    current.suppressedKnowledgeIds().stream().filter(id -> !ids.contains(id)).collect(toImmutableList()), current.sourceEvidence());
+                    current.suppressedKnowledgeIds().stream().filter(id -> selected.stream().noneMatch(scope -> ContextEntry.belongsToKnowledgeScope(id, scope)))
+                            .collect(toImmutableList()), current.sourceEvidence());
+        });
+    }
+
+    /** Saves user edits to a pending proposal without making the note selectable by agents. */
+    public RepositoryNotebook editDraft(String workspaceId, long expectedRevision, String draftId,
+            String title, String summary, String body, List<ContextClaim> claims)
+    {
+        return mutate(workspaceId, expectedRevision, current -> {
+            ContextKnowledgeDraft draft = requireDraft(current, draftId);
+            ContextEntry previous = draft.entry();
+            ContextEntry edited = new ContextEntry(previous.id(), KNOWLEDGE, previous.scopeId(), title, summary, body,
+                    claims, previous.sourceIds(), USER, true, Math.addExact(current.revision(), 1));
+            ContextKnowledgeDraft updated = new ContextKnowledgeDraft(draft.id(), edited, draft.replacesVersion(), draft.baselineSha(), draft.explanation());
+            return content(current, current.useInReviews(), current.sources(), current.scopes(), current.entries(),
+                    current.pendingDrafts().stream().map(value -> value.id().equals(draftId) ? updated : value).collect(toImmutableList()),
+                    current.suppressedKnowledgeIds(), current.sourceEvidence());
+        });
+    }
+
+    /** Activates exactly the displayed draft if its target has not been changed, removed, disabled, or claimed by the user. */
+    public RepositoryNotebook approveDraft(String workspaceId, long expectedRevision, String draftId)
+    {
+        return mutate(workspaceId, expectedRevision, current -> {
+            ContextKnowledgeDraft draft = requireDraft(current, draftId);
+            ContextEntry proposal = draft.entry();
+            checkArgument(current.scopes().stream().anyMatch(scope -> scope.id().equals(proposal.scopeId()) && scope.enabled()),
+                    "Knowledge scope is disabled");
+            checkArgument(!current.suppressedKnowledgeIds().contains(proposal.id()), "Knowledge note was removed");
+            Optional<ContextEntry> active = current.entries().stream().filter(entry -> entry.id().equals(proposal.id())).findFirst();
+            checkArgument(active.map(ContextEntry::version).equals(draft.replacesVersion()), "Active note changed since this proposal was prepared");
+            checkArgument(active.filter(entry -> !entry.scopeId().equals(proposal.scopeId())).isEmpty(), "Active note belongs to another scope");
+            checkArgument(active.filter(entry -> !entry.enabled() || entry.origin() == USER).isEmpty(), "Active note is user-owned or disabled");
+            ContextEntry approved = new ContextEntry(proposal.id(), KNOWLEDGE, proposal.scopeId(), proposal.title(), proposal.summary(), proposal.body(),
+                    proposal.claims(), proposal.sourceIds(), proposal.origin(), true, Math.addExact(current.revision(), 1));
+            return content(current, current.useInReviews(), current.sources(), current.scopes(), replaceEntry(current, approved, active.isPresent()),
+                    current.pendingDrafts().stream().filter(value -> !value.id().equals(draftId)).collect(toImmutableList()),
+                    current.suppressedKnowledgeIds(), current.sourceEvidence());
+        });
+    }
+
+    /** Discards a proposal while retaining the active version of its note. */
+    public RepositoryNotebook dismissDraft(String workspaceId, long expectedRevision, String draftId)
+    {
+        return mutate(workspaceId, expectedRevision, current -> {
+            requireDraft(current, draftId);
+            return content(current, current.useInReviews(), current.sources(), current.scopes(), current.entries(),
+                    current.pendingDrafts().stream().filter(value -> !value.id().equals(draftId)).collect(toImmutableList()),
+                    current.suppressedKnowledgeIds(), current.sourceEvidence());
         });
     }
 
@@ -366,7 +417,7 @@ public class RepositoryContextService
             }
             RepositoryNotebook saved = new RepositoryNotebook(1, Math.addExact(current.revision(), 1),
                     changed.useInReviews(), changed.useInDevelopment(), changed.sources(), changed.scopes(),
-                    changed.entries(), changed.suppressedKnowledgeIds(), changed.sourceEvidence(), changed.activePreparation());
+                    changed.entries(), changed.pendingDrafts(), changed.suppressedKnowledgeIds(), changed.sourceEvidence(), changed.activePreparation());
             String json = encode(saved);
             checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_NOTEBOOK_BYTES, "Serialized notebook exceeds UTF-8 limit");
             settings.put(key(workspaceId), json);
@@ -384,14 +435,29 @@ public class RepositoryContextService
             List<RegisteredContextSource> sources, List<ContextScope> scopes, List<ContextEntry> entries, List<String> suppression,
             List<ContextSourceEvidence> evidence)
     {
-        Set<String> retained = retainedSources(sources, scopes, entries);
-        return new RepositoryNotebook(1, current.revision(), useInReviews, useInDevelopment, sources, scopes, entries, suppression,
+        return content(current, useInReviews, useInDevelopment, sources, scopes, entries, current.pendingDrafts(), suppression, evidence);
+    }
+
+    private static RepositoryNotebook content(RepositoryNotebook current, boolean useInReviews, List<RegisteredContextSource> sources, List<ContextScope> scopes,
+            List<ContextEntry> entries, List<ContextKnowledgeDraft> drafts, List<String> suppression, List<ContextSourceEvidence> evidence)
+    {
+        return content(current, useInReviews, current.useInDevelopment(), sources, scopes, entries, drafts, suppression, evidence);
+    }
+
+    private static RepositoryNotebook content(RepositoryNotebook current, boolean useInReviews, boolean useInDevelopment,
+            List<RegisteredContextSource> sources, List<ContextScope> scopes, List<ContextEntry> entries, List<ContextKnowledgeDraft> drafts,
+            List<String> suppression, List<ContextSourceEvidence> evidence)
+    {
+        Set<String> retained = retainedSources(sources, scopes, entries, drafts);
+        return new RepositoryNotebook(1, current.revision(), useInReviews, useInDevelopment, sources, scopes, entries, drafts, suppression,
                 evidence.stream().filter(source -> retained.contains(source.id())).collect(toImmutableList()), current.activePreparation());
     }
 
-    static Set<String> retainedSources(List<RegisteredContextSource> sources, List<ContextScope> scopes, List<ContextEntry> entries)
+    static Set<String> retainedSources(List<RegisteredContextSource> sources, List<ContextScope> scopes, List<ContextEntry> entries,
+            List<ContextKnowledgeDraft> drafts)
     {
         return Stream.of(entries.stream().flatMap(entry -> entry.sourceIds().stream()),
+                        drafts.stream().flatMap(draft -> draft.entry().sourceIds().stream()),
                         scopes.stream().flatMap(scope -> scope.preparation().stream()).flatMap(result -> result.checkedReads().stream())
                                 .flatMap(read -> read.evidenceRef().stream()),
                         scopes.stream().flatMap(scope -> scope.discoveryEvidenceRef().stream()), sources.stream().flatMap(source -> source.discoveryEvidenceRef().stream()))
@@ -426,6 +492,12 @@ public class RepositoryContextService
         return notebook.entries().stream().filter(entry -> entry.id().equals(id)).findFirst().orElseThrow(() -> new ContextNotFoundException("Notebook entry not found"));
     }
 
+    private static ContextKnowledgeDraft requireDraft(RepositoryNotebook notebook, String id)
+    {
+        return notebook.pendingDrafts().stream().filter(draft -> draft.id().equals(id)).findFirst()
+                .orElseThrow(() -> new ContextNotFoundException("Knowledge draft not found"));
+    }
+
     private Workspace requireWorkspace(String workspaceId)
     {
         checkText(workspaceId, "workspaceId", 200);
@@ -441,6 +513,9 @@ public class RepositoryContextService
             ObjectNode saved = (ObjectNode) parsed;
             if (!saved.has("useInDevelopment")) {
                 saved.put("useInDevelopment", true);
+            }
+            if (!saved.has("pendingDrafts")) {
+                saved.putArray("pendingDrafts");
             }
             return requireNonNull(mapper.treeToValue(saved, RepositoryNotebook.class), "Saved notebook is null");
         }

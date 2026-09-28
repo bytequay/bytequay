@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -169,6 +170,57 @@ class TestAgentReviewProjection
         assertThat(noteSearches(run, ImmutableList.of(usage(searchRef, ContextUsageEvent.Stage.FOUND,
                 ContextUsageEvent.Delivery.CONFIRMED), opened), false).getFirst().delivery())
                 .isEqualTo(AgentReviewProjection.ContextNoteSearch.Delivery.CONFIRMED);
+    }
+
+    @Test
+    void laterListedNoteShowsDirectExactReadWithoutSearchBinding()
+    {
+        String searchRef = "context-search:" + "c".repeat(64);
+        String id = "knowledge:component";
+        String digest = Hashing.sha256().hashString("run\n" + id + "\n2", StandardCharsets.UTF_8).toString();
+        String readRef = "context-note:" + digest;
+        String search = """
+                {"searchRef":"%s","notebookRevision":5,"originalNotebookRevision":3,"newerThanSnapshot":true,
+                 "contextState":"MATCHES","query":"","paths":[],"pathHintCount":0,"frozenPathHints":0,"omittedCount":0,
+                 "hits":[{"entryId":"%s","entryVersion":2,"kind":"KNOWLEDGE","scopeId":"scope:component",
+                          "title":"Component","summary":"Snapshot guidance","matchReasons":[],"applicability":"UNVERIFIED"}]}
+                """.formatted(searchRef, id);
+        String read = """
+                {"status":"AVAILABLE","entryId":"%s","entryVersion":2,"text":"Exact saved note",
+                 "evidenceRef":"%s","sourceEvidenceRefs":{}}
+                """.formatted(id, readRef);
+        ReviewRun run = run(true, ImmutableList.of(), ImmutableMap.of(searchRef, operation(search),
+                readRef, new ReviewOperation(digest, read)), ImmutableMap.of(
+                readRef, new ReviewEvidence(readRef, "Note", "Saved", "Exact saved note", "Unverified")));
+
+        AgentReviewProjection.ContextNoteSearch result = noteSearches(run, ImmutableList.of(
+                usage(readRef, ContextUsageEvent.Stage.OPENED, ContextUsageEvent.Delivery.CONFIRMED)), false).getFirst();
+        assertThat(result.status()).isEqualTo(AgentReviewProjection.ContextNoteSearch.Status.AVAILABLE);
+        assertThat(result.query()).isEmpty();
+        assertThat(result.hits().getFirst().read().orElseThrow().delivery())
+                .isEqualTo(AgentReviewProjection.ContextNoteSearch.Delivery.CONFIRMED);
+        assertThat(result.hits().getFirst().read().orElseThrow().evidenceRef()).contains(readRef);
+    }
+
+    @Test
+    void searchProjectionAcceptsOneBoundedPageOfTenHits()
+    {
+        String ref = "context-search:" + "d".repeat(64);
+        String hit = """
+                {"entryId":"knowledge:project","entryVersion":1,"kind":"KNOWLEDGE","scopeId":"project",
+                 "title":"Project","summary":"Overview","matchReasons":[],"applicability":"UNVERIFIED"}
+                """.strip();
+        String prefix = """
+                {"searchRef":"%s","notebookRevision":3,"originalNotebookRevision":3,"newerThanSnapshot":false,
+                 "contextState":"MATCHES","query":"","pathHintCount":0,"frozenPathHints":0,"omittedCount":0,"hits":[
+                """.formatted(ref);
+        String ten = prefix + String.join(",", Collections.nCopies(10, hit)) + "]}";
+        String eleven = prefix + String.join(",", Collections.nCopies(11, hit)) + "]}";
+
+        assertThat(noteSearches(run(true, ImmutableList.of(), ImmutableMap.of(ref, operation(ten)), ImmutableMap.of()),
+                ImmutableList.of(), false).getFirst().hits()).hasSize(10);
+        assertThat(noteSearches(run(true, ImmutableList.of(), ImmutableMap.of(ref, operation(eleven)), ImmutableMap.of()),
+                ImmutableList.of(), false).getFirst().status()).isEqualTo(AgentReviewProjection.ContextNoteSearch.Status.RECEIPT_UNAVAILABLE);
     }
 
     @Test

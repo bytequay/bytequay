@@ -77,6 +77,16 @@ describe('AttentionList', () => {
     expect(html).not.toContain('All issues');
   });
 
+  it('draws a review comment as the Markdown it was written in, under the name of the file it was left on', () => {
+    const html = list([prItem(30985, 'review', {
+      event: 'review_thread', actor: 'ravi-moreau', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: null,
+      excerpt: '`TransactionLogAccess.java:562` declares the same record.', path: 'plugin/trino-delta-lake/src/main/java/CheckpointWriter.java', line: 101,
+    })]);
+
+    expect(html).toContain('<p><code>TransactionLogAccess.java:562</code> declares the same record.</p>');
+    expect(html).toContain('<div class="atn-detail__file" title="plugin/trino-delta-lake/src/main/java/CheckpointWriter.java:101">on CheckpointWriter.java:101</div>');
+  });
+
   it('draws a ticket\'s status move as the old status struck through, then the new one, then the note', () => {
     const [ticket] = jiraAttentionItems([{ ...jiraIssue, latestActivity: {
       kind: 'STATUS_CHANGED', at: jiraIssue.updatedAt, actor: null, from: { id: '3', name: 'In Progress', category: 'indeterminate' },
@@ -87,7 +97,7 @@ describe('AttentionList', () => {
     expect(html).toContain('class="atn-card is-jira"');
     expect(html).toContain('class="atn-tag is-red">Status changed<');
     expect(html).toMatch(/<span class="atn-status is-blue is-from">In Progress<\/span><svg[^>]*aria-label="to"[^>]*>.*?<\/svg><span class="atn-status is-red">Blocked<\/span>/);
-    expect(html).toContain('class="atn-detail__quote">“Staging is mid-upgrade.”<');
+    expect(html).toContain('<div class="markdown-body"><p>Staging is mid-upgrade.</p></div>');
   });
 
   it('shows at most four cards, counts the rest, and filters by source', () => {

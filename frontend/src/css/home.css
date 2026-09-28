@@ -348,18 +348,58 @@
   color: #57606a;
 }
 
-.atn-detail__quote {
+/* A comment reads as the Markdown it was written in, clamped to three of the detail's lines. Blocks sit
+   flush, headings and strong text read like the rest, and a link reads as text: the card opens it. */
+.atn-detail .markdown-body {
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  text-wrap: pretty;
+  padding: 0;
+  font-size: inherit;
+  line-height: inherit;
 }
 
+.atn-detail .markdown-body :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6, .md-code-block, .md-table-scroll, .md-details, .md-alert) {
+  margin: 0;
+}
+
+.atn-detail .markdown-body :is(h1, h2, h3, h4, h5, h6, strong) {
+  border: 0;
+  padding: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+}
+
+.atn-detail .markdown-body :is(ul, ol) {
+  padding-left: 16px;
+}
+
+.atn-detail .markdown-body li + li {
+  margin-top: 0;
+}
+
+.atn-detail .markdown-body :is(hr, .md-code-block > span) {
+  display: none;
+}
+
+.atn-detail .markdown-body .md-code-block pre {
+  padding: 3px 7px;
+}
+
+.atn-detail .markdown-body a {
+  pointer-events: none;
+}
+
+/* Where an inline comment was left: the file name, with the whole path on hover. */
 .atn-detail__file {
+  overflow: hidden;
   font-family: var(--mono);
   font-size: 11.5px;
   color: #57606a;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .atn-detail__commit {

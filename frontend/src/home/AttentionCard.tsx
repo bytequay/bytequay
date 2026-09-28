@@ -16,6 +16,8 @@ import { ArrowRight, Check, ChevronRight, CircleDot, CircleX, Clock3, GitPullReq
 import Avatar from '../Avatar';
 import { GoalIcon } from '../goals/GoalPanel';
 import JiraIcon from '../jira/JiraIcon';
+import MarkdownBody from '../pulls/MarkdownBody';
+import { previewMarkdown } from '../ReferenceCard';
 import RepoAvatar from '../RepoAvatar';
 import { relativeTime } from '../relativeTime';
 import {
@@ -51,6 +53,14 @@ function Commits({ commits }: { commits: AttentionCommit[] }) {
   ));
 }
 
+/**
+ * Someone's words, drawn as the Markdown they wrote. No repository is passed, so a code permalink stays
+ * a link rather than loading its snippet: a card never fetches.
+ */
+function Comment({ text }: { text: string }) {
+  return <MarkdownBody body={previewMarkdown(text)} />;
+}
+
 function Detail({ detail }: { detail: AttentionDetail }) {
   switch (detail.kind) {
     case 'text':
@@ -58,8 +68,8 @@ function Detail({ detail }: { detail: AttentionDetail }) {
     case 'quote':
       return (
         <div className="atn-detail">
-          <div className="atn-detail__quote">“{detail.text}”</div>
-          {detail.file !== null && <div className="atn-detail__file">on {detail.file}</div>}
+          <Comment text={detail.text} />
+          {detail.file !== null && <div className="atn-detail__file" title={detail.file}>on {detail.file.slice(detail.file.lastIndexOf('/') + 1)}</div>}
         </div>
       );
     case 'commits':
@@ -95,7 +105,7 @@ function Detail({ detail }: { detail: AttentionDetail }) {
             <ArrowRight size={14} strokeWidth={2} aria-label="to" />
             <span className={`atn-status is-${detail.to.tone}`}>{detail.to.name}</span>
           </div>
-          {detail.note !== null && <div className="atn-detail__quote">“{detail.note}”</div>}
+          {detail.note !== null && <Comment text={detail.note} />}
         </div>
       );
     case 'labels':

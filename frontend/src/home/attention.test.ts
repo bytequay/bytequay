@@ -289,12 +289,12 @@ describe('attentionSummary', () => {
   }
 
   it('names the actual actor and action instead of inferring them from the PR author', () => {
-    expect(summary({})).toMatchObject({ tag: { label: 'Commented', tone: 'neutral' }, actor: { name: 'bob' }, verb: 'commented' });
+    expect(summary({})).toMatchObject({ actor: { name: 'bob' }, verb: 'commented' });
     expect(summary({ event: 'review_thread' }).verb).toBe('left a review comment');
-    expect(summary({ event: 'reviewed', state: 'approved' }).tag).toEqual({ label: 'Approved', tone: 'green' });
-    expect(summary({ event: 'reviewed', state: 'CHANGES_REQUESTED' }).tag).toEqual({ label: 'Changes requested', tone: 'red' });
+    expect(summary({ event: 'reviewed', state: 'approved' }).verb).toBe('approved these changes');
+    expect(summary({ event: 'reviewed', state: 'CHANGES_REQUESTED' }).verb).toBe('requested changes');
     expect(summary({ event: 'labeled', label: 'stale-ignore' })).toMatchObject({
-      tag: { label: 'Label added' }, detail: { kind: 'labels', labels: [{ name: 'stale-ignore', color: null }] },
+      verb: 'added a label', detail: { kind: 'labels', labels: [{ name: 'stale-ignore', color: null }] },
     });
     // A review request says whose review it asked for.
     expect(summary({ event: 'review_requested', requestedReviewer: 'jack' }, 'review')).toMatchObject({
@@ -304,9 +304,16 @@ describe('attentionSummary', () => {
     expect(summary({ actor: null }).actor).toMatchObject({ name: 'alice' });
   });
 
-  it('tags pushes and failing CI as Updated, in orange, with what changed', () => {
-    expect(summary({ event: 'committed' }, 'commits').tag).toEqual({ label: 'Updated', tone: 'orange' });
-    expect(summary({ event: 'committed' }, 'ci')).toMatchObject({ tag: { label: 'Updated', tone: 'orange' }, detail: { kind: 'ci' } });
+  it('tags each card with where it stands, whatever event moved it', () => {
+    // The event is the actor line; the tag is the state that keeps the item on the list.
+    expect(summary({}).tag).toEqual({ label: 'Open', tone: 'neutral' });
+    expect(summary({ event: 'reviewed', state: 'APPROVED' }).tag).toEqual({ label: 'Open', tone: 'neutral' });
+    expect(attentionSummary({ ...base, pr: pr({ reviewDecision: 'APPROVED' }) }).tag).toEqual({ label: 'Approved', tone: 'green' });
+    expect(attentionSummary({ ...base, pr: pr({ draft: true }) }).tag.label).toBe('Draft');
+    expect(attentionSummary({ ...base, pr: pr({ state: 'MERGED' }) }).tag.label).toBe('Merged');
+    expect(attentionSummary({ ...base, pr: pr({ state: 'closed' }) }).tag.label).toBe('Closed');
+    expect(summary({ event: 'committed' }, 'commits').tag).toEqual({ label: 'New commits', tone: 'orange' });
+    expect(summary({ event: 'committed' }, 'ci')).toMatchObject({ tag: { label: 'Checks failing', tone: 'red' }, detail: { kind: 'ci' } });
     const pushed = attentionSummary({ ...base, kind: 'commits', pr: pr({
       reviewedAt: '2026-08-20T00:00:00Z', headPushedAt: '2026-08-21T00:00:00Z', latestActivity: null,
     }) });
@@ -337,7 +344,7 @@ describe('attentionSummary', () => {
     expect(attentionSummary({ ...base, kind: 'ci', pr: pr({ commitsSinceReview: commitsSinceReview.slice(0, 1), failingChecks: ['ci / test (plugin/trino-iceberg)'], latestActivity: {
       event: 'committed', actor: 'wren-d', timestamp: base.updatedAt, state: null, label: null, requestedReviewer: null,
     } }) })).toMatchObject({
-      tag: { label: 'Updated', tone: 'orange' }, verb: 'pushed 1 commit, then CI failed',
+      tag: { label: 'Checks failing', tone: 'red' }, verb: 'pushed 1 commit, then CI failed',
       detail: { kind: 'ci', commits: [{ sha: '4f1a2c9' }], checks: ['ci / test (plugin/trino-iceberg)'] },
     });
 
@@ -348,7 +355,7 @@ describe('attentionSummary', () => {
 
   it('uses GitHub updatedAt without inventing an action when no event is known', () => {
     const item = { ...base, pr: pr({ author: 'alice', activityAt: '2026-09-08T01:47:58Z', reviewRequestedAt: '2026-09-08T01:47:58Z', latestActivity: null }) };
-    expect(attentionSummary(item)).toMatchObject({ tag: { label: 'Updated' }, actor: { name: 'alice' }, verb: 'updated this pull request' });
+    expect(attentionSummary(item)).toMatchObject({ tag: { label: 'Open' }, actor: { name: 'alice' }, verb: 'updated this pull request' });
     expect(attentionTime(item)).toBe(base.updatedAt);
     expect(attentionSummary({ ...base, type: 'issue', kind: 'assigned', labels: ['bug'] })).toMatchObject({
       tag: { label: 'Assigned to you', tone: 'green' }, verb: 'opened this issue', detail: { kind: 'labels', labels: [{ name: 'bug' }] },
@@ -360,29 +367,28 @@ describe('Jira ticket events', () => {
   const ticket = (latestActivity: JiraActivity | null) => jiraAttentionItems([{ ...jiraIssue, updatedAt: '2026-09-27T09:00:00Z', latestActivity }])[0];
   const status = (name: string, category: string) => ({ id: name, name, category });
 
-  it('says a ticket moved, where from and to, with a note that came with it, red when it is now blocked', () => {
+  it('says a ticket moved, where from and to, with a note that came with it, while the ticket stays yours', () => {
     const moved = ticket({ kind: 'STATUS_CHANGED', at: '2026-09-27T09:00:00Z', actor: null, from: status('In Progress', 'indeterminate'),
       to: status('Blocked', 'indeterminate'), note: 'Staging is mid-upgrade.', fields: [] });
     expect(attentionSummary(moved)).toEqual({
-      tag: { label: 'Status changed', tone: 'red' },
+      tag: { label: 'Assigned to you', tone: 'green' },
       actor: null,
-      verb: 'moved to Blocked',
+      verb: 'Moved to Blocked',
       detail: { kind: 'status', from: { name: 'In Progress', tone: 'blue' }, to: { name: 'Blocked', tone: 'red' }, note: 'Staging is mid-upgrade.' },
     });
     expect(attentionTime(moved)).toBe('2026-09-27T09:00:00Z');
     const done = ticket({ kind: 'STATUS_CHANGED', at: '2026-09-27T09:00:00Z', actor: null, from: status('To Do', 'new'),
       to: status('Done', 'done'), note: null, fields: [] });
-    expect(attentionSummary(done).tag).toEqual({ label: 'Status changed', tone: 'neutral' });
     expect(attentionSummary(done).detail).toMatchObject({ from: { tone: 'neutral' }, to: { tone: 'green' } });
   });
 
   it('quotes a comment with who wrote it, names changed fields, and otherwise says the ticket is yours', () => {
     const priya: JiraUser = { accountId: 'priya', displayName: 'Priya Raman', avatarUrl: null };
     expect(attentionSummary(ticket({ kind: 'COMMENTED', at: '2026-09-27T09:00:00Z', actor: priya, from: null, to: null, note: 'Can we keep it?', fields: [] })))
-      .toEqual({ tag: { label: 'Commented', tone: 'neutral' }, actor: { name: 'Priya Raman', avatarUrl: null }, verb: 'commented',
+      .toEqual({ tag: { label: 'Assigned to you', tone: 'green' }, actor: { name: 'Priya Raman', avatarUrl: null }, verb: 'commented',
         detail: { kind: 'quote', text: 'Can we keep it?', file: null } });
     expect(attentionSummary(ticket({ kind: 'FIELDS_CHANGED', at: '2026-09-27T09:00:00Z', actor: null, from: null, to: null, note: null,
-      fields: ['priority', 'labels', 'due date'] }))).toMatchObject({ tag: { label: 'Updated', tone: 'orange' }, detail: { kind: 'text', text: 'Changed priority, labels and due date' } });
+      fields: ['priority', 'labels', 'due date'] }))).toMatchObject({ verb: 'Updated in Jira', detail: { kind: 'text', text: 'Changed priority, labels and due date' } });
     expect(attentionSummary(ticket(null)).tag).toEqual({ label: 'Assigned to you', tone: 'green' });
   });
 });

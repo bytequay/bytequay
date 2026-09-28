@@ -71,7 +71,9 @@ The first release includes:
   nothing ByteQuay saves changed, it reads that ticket's newest comment once.
   Jira's changelog is never read, so a status or field change names no actor,
   and the description is not compared because board and ticket reads format it
-  differently. A card with no recorded change says the ticket is assigned to you.
+  differently. The card's strip says the ticket is assigned to you; the change
+  is its folded actor line, and a card with no recorded change names the
+  ticket's status and sprint there instead.
 
 Automatic Done, outbound agent comments, webhook delivery, parent progress
 statistics, Goal pinning, comprehensive custom-field editing, and inferred

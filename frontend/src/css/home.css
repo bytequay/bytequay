@@ -306,12 +306,12 @@
 :is(.atn-tag, .atn-link__status, .atn-status).is-orange { color: #bc4c00; background: #fff1e5; }
 :is(.atn-tag, .atn-link__status, .atn-status).is-purple { color: #8250df; background: #fbefff; }
 
-/* A pull request's reason sits in its strip as a golden outline, whatever its reason's tone. */
+/* Where the item stands sits in its strip as plain text in a golden outline, whatever its tone. */
 .atn-card__head .atn-tag {
   padding: 0 7px;
   border: 1px solid #d4a72c;
   background: transparent;
-  color: #9a6700;
+  color: var(--text-1);
 }
 
 /* A ticket's status move: where it was, struck through, then where it is. */
@@ -467,7 +467,7 @@
   border-top: 1px solid #eceff2;
 }
 
-/* A folded row, the linked items' or a pull request's actor line, unfolds in place when clicked. */
+/* A folded row, the linked items' or a card's actor line, unfolds in place when clicked. */
 .atn-fold,
 .atn-link {
   display: flex;

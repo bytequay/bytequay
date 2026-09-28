@@ -142,9 +142,9 @@ type Props = {
 };
 
 /**
- * One item that needs you: a strip tinted by the source that produced it, then what happened. The
- * age in the strip gives way to the card's actions while the pointer or focus is inside it. A pull
- * request's reason sits in its strip, and its actor line folds what happened until it is clicked.
+ * One item that needs you: a strip tinted by the source that produced it and naming where the item
+ * stands, then who moved it, folded over what happened until the line is clicked. The age in the
+ * strip gives way to the card's actions while the pointer or focus is inside it.
  */
 export default function AttentionCard({ item, viewerLogin, showRepo, onOpen, onAcknowledge, onSnooze, onStart, inGoal = false, onToggleGoal }: Props) {
   const source = attentionSource(item);
@@ -153,8 +153,6 @@ export default function AttentionCard({ item, viewerLogin, showRepo, onOpen, onA
   const time = attentionTime(item);
   const [owner, repo = ''] = item.repo.split('/');
   const act = (action: () => void) => (event: MouseEvent) => { event.stopPropagation(); action(); };
-  const pull = source === 'pr';
-  const tag = <span className={`atn-tag is-${summary.tag.tone}`}>{summary.tag.label}</span>;
   const said = <>
     {summary.actor !== null && (
       <Avatar login={summary.actor.name} avatarUrl={summary.actor.avatarUrl} size={18} allowGitHubFallback={source === 'pr' || source === 'issue'} />
@@ -182,7 +180,7 @@ export default function AttentionCard({ item, viewerLogin, showRepo, onOpen, onA
           // An issue names the workspace it would start in, so a repository watched twice is never ambiguous.
           <span className="atn-card__repo"><RepoAvatar owner={owner} repo={repo} size={12} radius={3} />{item.workspaceName || item.repo}</span>
         )}
-        {pull && tag}
+        <span className={`atn-tag is-${summary.tag.tone}`}>{summary.tag.label}</span>
         {inGoal && <span className="atn-goal" title="In goal"><GoalIcon size={11} />Goal</span>}
         <span className="atn-spacer" />
         <span className="atn-card__actions" role="group" aria-label={`Actions for ${reference}`}>
@@ -214,10 +212,7 @@ export default function AttentionCard({ item, viewerLogin, showRepo, onOpen, onA
       </div>
       <div className="atn-card__body">
         <div className="atn-card__title">{item.title}</div>
-        {pull ? <Event detail={summary.detail}>{said}</Event> : <>
-          <div className="atn-card__why">{tag}{said}</div>
-          {summary.detail !== null && <Detail detail={summary.detail} />}
-        </>}
+        <Event detail={summary.detail}>{said}</Event>
         <Links item={item} />
       </div>
     </div>

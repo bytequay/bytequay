@@ -215,6 +215,7 @@ export function statusPill(status: { name: string; category: string }): Attentio
 }
 
 export type AttentionSummary = {
+  /** Where the item stands, for the card's strip; what moved it is the actor line. */
   tag: { label: string; tone: AttentionTone };
   /** Who did it; null when the source does not say. */
   actor: { name: string; avatarUrl: string | null } | null;
@@ -229,11 +230,11 @@ const KIND_TAGS: Record<AttentionKind, AttentionSummary['tag']> = {
   changes: { label: 'Changes requested', tone: 'red' },
   failed: { label: 'Turn failed', tone: 'red' },
   blocked: { label: 'Merge blocked', tone: 'amber' },
-  ci: { label: 'Updated', tone: 'orange' },
-  commits: { label: 'Updated', tone: 'orange' },
+  ci: { label: 'Checks failing', tone: 'red' },
+  commits: { label: 'New commits', tone: 'orange' },
   merge: { label: 'Ready to merge', tone: 'green' },
   finished: { label: 'Turn finished', tone: 'green' },
-  updated: { label: 'Updated', tone: 'orange' },
+  updated: { label: 'Open', tone: 'neutral' },
 };
 
 function commitLines(pr: PullRequestDto): AttentionCommit[] {
@@ -255,32 +256,18 @@ const EVENT_VERBS: Record<string, string> = {
   added_to_merge_queue: 'queued this for merge', removed_from_merge_queue: 'removed this from the merge queue',
 };
 
-/** A plain "updated" item reads as what actually happened on it. */
-function updatedTag(activity: NonNullable<PullRequestDto['latestActivity']>): AttentionSummary['tag'] {
-  const state = activity.state?.toUpperCase();
-  switch (activity.event) {
-    case 'commented':
-    case 'review_thread':
-      return { label: 'Commented', tone: 'neutral' };
-    case 'reviewed':
-      return state === 'APPROVED' ? { label: 'Approved', tone: 'green' }
-        : state === 'CHANGES_REQUESTED' ? { label: 'Changes requested', tone: 'red' } : { label: 'Reviewed', tone: 'neutral' };
-    case 'labeled':
-      return { label: 'Label added', tone: 'neutral' };
-    case 'unlabeled':
-      return { label: 'Label removed', tone: 'neutral' };
-    case 'merged':
-      return { label: 'Merged', tone: 'neutral' };
-    case 'closed':
-      return { label: 'Closed', tone: 'neutral' };
-    default:
-      return KIND_TAGS.updated;
-  }
+/** Where a pull request that only moved stands: merged, closed, a draft, approved, or just open. */
+function pullRequestState(pr: PullRequestDto): AttentionSummary['tag'] {
+  const state = pr.state?.toLowerCase();
+  if (state === 'merged') return { label: 'Merged', tone: 'purple' };
+  if (state === 'closed') return { label: 'Closed', tone: 'neutral' };
+  if (pr.draft) return { label: 'Draft', tone: 'neutral' };
+  return pr.reviewDecision === 'APPROVED' ? { label: 'Approved', tone: 'green' } : KIND_TAGS.updated;
 }
 
 function pullRequestSummary(item: AttentionItem, pr: PullRequestDto, viewerLogin: string | null): AttentionSummary {
   const activity = pr.latestActivity ?? null;
-  const tag = item.kind === 'updated' && activity !== null ? updatedTag(activity) : KIND_TAGS[item.kind];
+  const tag = item.kind === 'updated' ? pullRequestState(pr) : KIND_TAGS[item.kind];
   const name = activity?.actor ?? pr.author;
   const actor = name === null ? null : { name, avatarUrl: name === pr.author ? pr.authorAvatarUrl ?? null : null };
   const requested = activity?.requestedReviewer ?? null;
@@ -363,30 +350,30 @@ function words(names: string[]): string {
   return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
-/** A ticket's card says what last changed on it, or else that it is assigned to you. */
+/** A ticket stays assigned to you; its actor line says what last changed on it, or else where it stands. */
 function jiraSummary(item: AttentionItem, jira: NonNullable<AttentionItem['jira']>, labels: AttentionDetail | null): AttentionSummary {
+  const tag = KIND_TAGS.assigned;
   const activity = jira.latestActivity ?? null;
   if (activity?.kind === 'STATUS_CHANGED' && activity.from !== null && activity.to !== null) {
-    const to = statusPill(activity.to);
     return {
-      tag: { label: 'Status changed', tone: to.tone === 'red' ? 'red' : 'neutral' },
+      tag,
       actor: null,
-      verb: `moved to ${activity.to.name}`,
-      detail: { kind: 'status', from: statusPill(activity.from), to, note: activity.note },
+      verb: `Moved to ${activity.to.name}`,
+      detail: { kind: 'status', from: statusPill(activity.from), to: statusPill(activity.to), note: activity.note },
     };
   }
   if (activity?.kind === 'COMMENTED') {
     return {
-      tag: { label: 'Commented', tone: 'neutral' },
+      tag,
       actor: activity.actor === null ? null : { name: activity.actor.displayName, avatarUrl: activity.actor.avatarUrl },
       verb: 'commented',
       detail: activity.note === null ? null : { kind: 'quote', text: activity.note, file: null },
     };
   }
   if (activity?.kind === 'FIELDS_CHANGED' && activity.fields.length > 0) {
-    return { tag: KIND_TAGS.updated, actor: null, verb: 'was updated in Jira', detail: { kind: 'text', text: `Changed ${words(activity.fields)}` } };
+    return { tag, actor: null, verb: 'Updated in Jira', detail: { kind: 'text', text: `Changed ${words(activity.fields)}` } };
   }
-  return { tag: KIND_TAGS.assigned, actor: null, verb: `${jira.status.name} · ${item.workspaceName ?? 'current sprint'}`, detail: labels };
+  return { tag, actor: null, verb: `${jira.status.name} · ${item.workspaceName ?? 'current sprint'}`, detail: labels };
 }
 
 /** The card's reason tag, who did what, and what the detail block shows. */

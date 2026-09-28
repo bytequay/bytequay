@@ -115,7 +115,8 @@ describe('AttentionList', () => {
     const html = list([ticket]);
 
     expect(html).toContain('class="atn-card is-jira"');
-    expect(html).toContain('class="atn-tag is-red">Status changed<');
+    expect(html).toMatch(/class="atn-card__head">.*class="atn-tag is-green">Assigned to you<.*class="atn-card__body"/);
+    expect(html).toContain('<button class="atn-fold" type="button" aria-expanded="false" title="Show details">');
     expect(html).toMatch(/<span class="atn-status is-blue is-from">In Progress<\/span><svg[^>]*aria-label="to"[^>]*>.*?<\/svg><span class="atn-status is-red">Blocked<\/span>/);
     expect(html).toContain('<div class="markdown-body"><p>Staging is mid-upgrade.</p></div>');
   });

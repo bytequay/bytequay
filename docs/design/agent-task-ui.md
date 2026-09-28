@@ -979,22 +979,24 @@ Tasks**, each with its count) narrow the cards to one source; the cap applies
 after filtering. There are no **All issues** or **All pull requests** links. A
 card is a strip tinted by the source that produced the event (pull request
 green, issue blue, Jira ticket purple, agent task teal) showing its source's
-icon and key but no type name, the repository on the application Home only, a
-pull request's reason tag, a **Goal** badge when the item is in its
-workspace's pinned goal, and age; while the pointer or focus is inside the
-card the age gives way to ◎ (add to or remove from that goal), Start
-development (issues and tickets that can start), Acknowledge and Snooze, beside
-the chevron. The body is the
-title clamped to two lines, the actor's avatar and what they did (after the
-reason tag on every card but a pull request's), and a detail block about that
-same event: a comment or review renders its opening Markdown, a label change
-names the label, and an event with nothing to show falls back to what the item
-waits on, such as the commits since your last review or the failing check. A
-pull request's detail starts folded under its actor line, which unfolds it in
-place the way the linked items unfold. Tags are toned by reason: Review
-requested blue, Approval amber, a status moved to Blocked red, Assigned green,
-Commented neutral, and Updated orange for pushes and failing checks; a pull
-request's tag in its strip is a golden outline whatever the reason. Linked
+icon and key but no type name (a task on a DeepSeek key goes by the key's
+name alone), the repository on the application Home only, where the item
+stands, a **Goal** badge when the item is in its workspace's pinned goal, and
+age; while the pointer or focus is inside the card the age gives way to ◎ (add
+to or remove from that goal), Start development (issues and tickets that can
+start), Acknowledge and Snooze, beside the chevron. Where the item stands is a
+golden outline around plain text: Review requested, Changes requested, Checks
+failing, Merge blocked, New commits or Ready to merge for a pull request, or
+Merged, Closed, Draft, Approved or Open for one that only moved; Approval
+needed, Question for you, Turn finished, Turn failed or Recovery required for
+a task; Assigned to you for an issue or Jira ticket. The body is the title
+clamped to two lines, then the event that put the card here: the actor's
+avatar and what they did (commented, pushed commits, requested your review,
+finished a turn, moved the ticket), folded over a detail block about that same
+event until the line is clicked, the way the linked items unfold. A comment or
+review renders its opening Markdown, a label change names the label, and an
+event with nothing to show falls back to what the item waits on, such as the
+commits since your last review or the failing check. Linked
 items start folded to one row of icons and keys and unfold to a row per item
 with its title and status. Ack and snooze keep the shared store, undo toast
 and session **Bring back**. Cards never fetch per card: every detail comes

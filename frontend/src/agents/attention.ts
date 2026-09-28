@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { QUESTION_TOOL, type AttentionItem, type AttentionKind, type AttentionLink, type AttentionTone } from '../home/attention';
-import { displayModelName, laneLabel } from '../settings/model';
+import { displayModelName, isDeepSeekKeyLane, laneLabel } from '../settings/model';
 import type { AgentTaskActivityDto, AgentTaskDto, AgentTaskPullRequestDto, Bridge } from '../types';
 import { taskArchived, taskStatePill } from './AgentTasksView';
 
@@ -119,8 +119,11 @@ export function taskAttentionItems(
     const facts = activity[task.id] ?? null;
     const kind = taskAttentionKind(task, facts);
     if (kind === null) return [];
-    const lane = modelNames.get(task.laneId) ?? laneLabel(task.laneId);
-    const model = displayModelName(modelNames.get(`${task.laneId}:${task.defaults.model ?? ''}`) ?? '');
+    const provider = modelNames.get(task.laneId) ?? laneLabel(task.laneId);
+    // A DeepSeek key lane goes by the key's own name: "DeepSeek · ds-001" reads "ds-001", without its model.
+    const keyName = isDeepSeekKeyLane(task.laneId) && provider.includes(' · ') ? provider.slice(provider.indexOf(' · ') + 3) : null;
+    const lane = keyName ?? provider;
+    const model = keyName !== null ? '' : displayModelName(modelNames.get(`${task.laneId}:${task.defaults.model ?? ''}`) ?? '');
     return [{
       key: `task:${task.id}`,
       type: 'task',

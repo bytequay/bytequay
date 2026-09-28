@@ -195,7 +195,7 @@ export default function AttentionCard({ item, viewerLogin, showRepo, onOpen, onA
           {summary.actor !== null && (
             <Avatar login={summary.actor.name} avatarUrl={summary.actor.avatarUrl} size={18} allowGitHubFallback={source === 'pr' || source === 'issue'} />
           )}
-          <span className="atn-card__verb">{summary.actor !== null && <b>{summary.actor.name}</b>} {summary.verb}</span>
+          <span className="atn-card__verb">{summary.actor !== null && <span className="atn-card__actor">{summary.actor.name}</span>} {summary.verb}</span>
         </div>
         {summary.detail !== null && <Detail detail={summary.detail} />}
         <Links item={item} />

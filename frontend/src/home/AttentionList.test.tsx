@@ -69,7 +69,7 @@ describe('AttentionList', () => {
     expect(html).toContain('dateTime="2026-08-28T00:00:00Z"');
     expect(html).toContain('>2d</time>');
     expect(html).toContain('class="atn-tag is-blue">Review requested<');
-    expect(html).toContain('<b>bob</b> requested your review');
+    expect(html).toContain('<span class="atn-card__actor">bob</span> requested your review');
     expect(html).toContain('aria-label="Acknowledge #30920"');
     expect(html).toContain('aria-label="Snooze #30920"');
     // The "All issues" and "All pull requests" links are gone.
@@ -125,7 +125,7 @@ describe('AttentionList', () => {
     const html = list([issueItem(7)]);
     expect(html).toContain('class="atn-card is-issue"');
     expect(html).toContain('class="atn-tag is-green">Assigned to you<');
-    expect(html).toContain('<b>finn-ep</b> opened this issue');
+    expect(html).toContain('<span class="atn-card__actor">finn-ep</span> opened this issue');
     expect(html).toContain('aria-label="Start development for #7"');
     expect(html).toContain('>bug</span>');
     expect(html).toContain('>iceberg</span>');

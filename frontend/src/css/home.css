@@ -173,6 +173,7 @@
 :is(.atn-card, .atn-link-key, .atn-link).is-jira { --src-fg: #8250df; --src-bg: #fbefff; }
 :is(.atn-card, .atn-link-key, .atn-link).is-task { --src-fg: #0e7c86; --src-bg: #d8f3f5; }
 
+/* Nothing in a card is bold, as on the Tasks page: the strip's colour and the tag carry the emphasis. */
 .atn-card {
   display: flex;
   flex-direction: column;
@@ -207,7 +208,6 @@
 
 .atn-card__type {
   font-size: 12px;
-  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -267,8 +267,7 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  font-size: 13.5px;
-  font-weight: 600;
+  font-size: 14px;
   line-height: 19px;
   color: var(--text-1);
 }
@@ -289,8 +288,7 @@
   text-overflow: ellipsis;
 }
 
-.atn-card__verb b {
-  font-weight: 600;
+.atn-card__actor {
   color: var(--text-1);
 }
 
@@ -298,7 +296,6 @@
 .atn-link__status {
   flex: none;
   border-radius: 10px;
-  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -327,7 +324,6 @@
   padding: 1px 7px;
   border-radius: 4px;
   font-size: 11.5px;
-  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -405,7 +401,6 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-weight: 600;
   color: #cf222e;
 }
 
@@ -419,7 +414,6 @@
   padding: 1px 8px;
   border-radius: 10px;
   font-size: 11.5px;
-  font-weight: 600;
 }
 
 /* Linked items: one folded row of icons and keys that unfolds to a row per item. */
@@ -545,7 +539,6 @@
   background: rgba(255, 255, 255, 0.7);
   color: #57606a;
   font-size: 11px;
-  font-weight: 600;
   white-space: nowrap;
 }
 

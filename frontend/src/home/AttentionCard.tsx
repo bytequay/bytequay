@@ -44,13 +44,18 @@ function labelStyle(label: AttentionLabel) {
   return { background: `${hex}33`, color: '#1f2328' };
 }
 
+/** The newest commits: all of four, or three and how many more, since "and 1 more" takes the line the fourth would. */
 function Commits({ commits }: { commits: AttentionCommit[] }) {
-  return commits.map(commit => (
-    <div className="atn-detail__commit" key={commit.sha}>
-      <span className="atn-detail__sha">{commit.sha}</span>
-      <span className="atn-detail__message">{commit.message}</span>
-    </div>
-  ));
+  const shown = commits.length > 4 ? commits.slice(0, 3) : commits;
+  return <>
+    {shown.map(commit => (
+      <div className="atn-detail__commit" key={commit.sha}>
+        <span className="atn-detail__sha">{commit.sha}</span>
+        <span className="atn-detail__message">{commit.message}</span>
+      </div>
+    ))}
+    {shown.length < commits.length && <div className="atn-detail__lead">and {commits.length - shown.length} more</div>}
+  </>;
 }
 
 /**

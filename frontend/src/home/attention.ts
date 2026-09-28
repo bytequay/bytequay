@@ -236,9 +236,6 @@ const KIND_TAGS: Record<AttentionKind, AttentionSummary['tag']> = {
   updated: { label: 'Updated', tone: 'orange' },
 };
 
-/** A card names at most this many commits; the lead counts the rest. */
-const SHOWN_COMMITS = 3;
-
 function commitLines(pr: PullRequestDto): AttentionCommit[] {
   return (pr.commitsSinceReview ?? []).map(commit => ({ sha: commit.sha.slice(0, 7), message: commit.message }));
 }
@@ -307,7 +304,7 @@ function pullRequestSummary(item: AttentionItem, pr: PullRequestDto, viewerLogin
       ? { kind: 'labels', lead: null, labels: [{ name: label, color: pr.labelColors?.[label] ?? null }] }
       : item.kind === 'ci' ? { kind: 'ci', commits: commits.slice(0, 1), checks: pr.failingChecks ?? [] }
         : (item.kind === 'review' || item.kind === 'commits') && commits.length > 0
-          ? { kind: 'commits', lead: `${plural(commits.length, 'commit')} since your last review`, commits: commits.slice(0, SHOWN_COMMITS) }
+          ? { kind: 'commits', lead: `${plural(commits.length, 'commit')} since your last review`, commits }
           : since !== null && pr.headPushedAt !== null && Date.parse(pr.headPushedAt) > Date.parse(since)
             ? { kind: 'text', text: 'New commits since your last review' }
             : null;

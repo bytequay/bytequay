@@ -77,6 +77,22 @@ describe('AttentionList', () => {
     expect(html).not.toContain('All issues');
   });
 
+  it('lists four new commits, or three and how many more', () => {
+    const commits = (count: number) => Array.from({ length: count }, (_, index) => ({
+      sha: `${index}aaaaaaaaa`, message: `Commit ${index}`, actor: 'bob', committedAt: '2026-08-28T00:00:00Z',
+    }));
+    const card = (count: number) => list([{ ...prItem(30920), pr: { ...pullRequest(30920), commitsSinceReview: commits(count) } }]);
+
+    const four = card(4);
+    expect(four).toContain('4 commits since your last review');
+    expect(four.match(/class="atn-detail__commit"/g)).toHaveLength(4);
+    expect(four).not.toContain('more</div>');
+    const six = card(6);
+    expect(six).toContain('6 commits since your last review');
+    expect(six.match(/class="atn-detail__commit"/g)).toHaveLength(3);
+    expect(six).toContain('<div class="atn-detail__lead">and 3 more</div>');
+  });
+
   it('draws a review comment as the Markdown it was written in, under the name of the file it was left on', () => {
     const html = list([prItem(30985, 'review', {
       event: 'review_thread', actor: 'ravi-moreau', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: null,

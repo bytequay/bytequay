@@ -45,9 +45,9 @@ function issueItem(number: number): AttentionItem {
   };
 }
 
-function list(candidates: AttentionItem[], handled: Handled = {}, variant: 'home' | 'workspace' = 'home'): string {
+function list(candidates: AttentionItem[], handled: Handled = {}, variant: 'home' | 'workspace' = 'home', jiraConnected = true): string {
   return renderToStaticMarkup(
-    <AttentionList variant={variant} candidates={candidates} handled={handled} viewerLogin="viewer"
+    <AttentionList variant={variant} candidates={candidates} handled={handled} viewerLogin="viewer" jiraConnected={jiraConnected}
       onHandledChange={() => {}} onOpen={() => {}} onStartIssue={() => {}} />);
 }
 
@@ -130,6 +130,8 @@ describe('AttentionList', () => {
     expect(html).toMatch(/>PRs <span class="atn-filter__count">5</);
     expect(html).toMatch(/>Issues <span class="atn-filter__count">1</);
     expect(html).toMatch(/>Jira <span class="atn-filter__count">0</);
+    // Without Jira connected there is no Jira tab.
+    expect(list(items, {}, 'workspace', false)).not.toContain('>Jira <');
     // A workspace's own cards do not repeat its repository.
     expect(html).not.toContain('trinodb/trino</span>');
 

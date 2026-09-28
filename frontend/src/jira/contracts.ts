@@ -109,6 +109,11 @@ export function jiraIssueLocation(issue: JiraIssue): JiraLocation {
 export const JIRA_CHANGED = 'bytequay:jira-changed';
 export function notifyJiraChanged(): void { window.dispatchEvent(new Event(JIRA_CHANGED)); }
 
+/** Whether any Jira account is connected with a site to read, which is when Jira shows up at all. */
+export function anyJiraConnected(connections: JiraConnection[]): boolean {
+  return connections.some(connection => connection.state === 'connected' && connection.sites.length > 0);
+}
+
 export function jiraSiteDomain(site: JiraSite): string {
   try { return new URL(site.url).hostname; } catch { return site.name; }
 }

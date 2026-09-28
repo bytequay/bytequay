@@ -153,6 +153,7 @@ export default function AgentHome({
       attention={attention.candidates}
       handled={attention.handled}
       viewerLogin={attention.login}
+      jiraConnected={attention.jiraConnected}
       goal={goal}
       inGoal={inGoal}
       onHandledChange={attention.applyHandled}
@@ -173,7 +174,7 @@ export function AgentHomeView({
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onShowAll,
   activity = {}, changes = {}, hiddenTasks, onHideTask, onRenameTask, now = Date.now(),
   attention = [], handled = {}, viewerLogin = null, onHandledChange = () => {}, onOpenAttention = () => {},
-  onStartIssue, attentionError, goal, inGoal,
+  onStartIssue, attentionError, goal, inGoal, jiraConnected = false,
   images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, error = null, automation,
 }: {
   repository: string;
@@ -201,6 +202,8 @@ export function AgentHomeView({
   attentionError?: string | null;
   goal?: (item: AttentionItem) => GoalToggle | null;
   inGoal?: (task: AgentTaskDto) => boolean;
+  /** Whether Jira is connected, so Needs attention offers a Jira tab. */
+  jiraConnected?: boolean;
   models: ModelOptionDto[];
   selection: TaskModelSelection | null;
   draft: string;
@@ -241,6 +244,7 @@ export function AgentHomeView({
           candidates={attention}
           handled={handled}
           viewerLogin={viewerLogin}
+          jiraConnected={jiraConnected}
           onHandledChange={onHandledChange}
           onOpen={onOpenAttention}
           onStartIssue={onStartIssue}

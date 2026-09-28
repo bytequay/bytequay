@@ -346,6 +346,7 @@ function HomePage({
         goal={goalToggle}
         handled={handled}
         viewerLogin={login ?? null}
+        jiraConnected={jira.connected}
         onHandledChange={applyHandled}
         onOpen={item => {
           if (item.task) { window.location.hash = workspaceAgentTaskRoute(item.task.dto.workspaceId, item.task.dto.id); return; }

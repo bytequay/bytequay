@@ -19,6 +19,7 @@ import AttentionCard from './AttentionCard';
 import {
   ATTENTION_SOURCES,
   attentionCards,
+  attentionSource,
   handledEntry,
   handledSummary,
   SNOOZE_OPTIONS,
@@ -49,6 +50,8 @@ type Props = {
   variant?: 'home' | 'workspace';
   /** The pinned goal each card can join or leave; absent where no goal can hold the card. */
   goal?: (item: AttentionItem) => GoalToggle | null;
+  /** Whether Jira is connected; without it there is no Jira tab unless a Jira card is listed anyway. */
+  jiraConnected?: boolean;
 };
 
 /** A card's place in a pinned goal, and the change that flips it. */
@@ -58,7 +61,7 @@ type Anchored = { item: AttentionItem; anchor: DOMRect };
 type ToastState = { id: number; text: string; key: string };
 
 export default function AttentionList({
-  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home', goal,
+  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home', goal, jiraConnected = false,
 }: Props) {
   const [filter, setFilter] = useState<AttentionFilter>('all');
   const [snooze, setSnooze] = useState<Anchored | null>(null);
@@ -68,7 +71,8 @@ export default function AttentionList({
 
   // Handled items drop out before the cap, so the next eligible item takes a handled card's place.
   const live = visibleAttention(candidates, handled, Date.now());
-  const { cards, counts } = attentionCards(live, filter);
+  const filters = FILTERS.filter(id => id !== 'jira' || jiraConnected || live.some(item => attentionSource(item) === 'jira'));
+  const { cards, counts } = attentionCards(live, filters.includes(filter) ? filter : 'all');
   const sessionEntries = session
     .map(key => handled[key])
     .filter((entry): entry is HandledEntry => entry !== undefined);
@@ -116,7 +120,7 @@ export default function AttentionList({
         <span className="atn-head__label">Needs attention</span>
         <span className="atn-count">{count}</span>
         <div className="atn-filters" role="tablist" aria-label="Filter what needs attention">
-          {FILTERS.map(id => (
+          {filters.map(id => (
             <button key={id} type="button" role="tab" aria-selected={filter === id}
               className={`atn-filter${filter === id ? ' is-active' : ''}`} onClick={() => setFilter(id)}>
               {id === 'all' ? 'All' : ATTENTION_SOURCES[id].filter} <span className="atn-filter__count">{counts[id]}</span>

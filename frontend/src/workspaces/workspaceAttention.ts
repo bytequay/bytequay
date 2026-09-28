@@ -34,6 +34,8 @@ export type WorkspaceAttention = {
   applyHandled: (handled: Handled) => void;
   error: string | null;
   login: string | null;
+  /** Whether Jira is connected, so a Home without it offers no Jira tab. */
+  jiraConnected: boolean;
 };
 
 /**
@@ -115,5 +117,5 @@ export function useWorkspaceAttention(workspaceId: string, repository: string, t
     setHandled(next);
     saveHandled(next);
   }, []);
-  return { candidates, handled, applyHandled, error, login };
+  return { candidates, handled, applyHandled, error, login, jiraConnected: jira.connected };
 }

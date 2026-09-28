@@ -16,7 +16,7 @@ import AppSidebar, { type AppPage } from './AppSidebar';
 import BrowserRail from './BrowserRail';
 import FindBar from './FindBar';
 import JiraScreen, { JiraTicketLayer } from './jira/JiraScreen';
-import { JIRA_CHANGED } from './jira/contracts';
+import { JIRA_CHANGED, anyJiraConnected } from './jira/contracts';
 import HomePage from './home/HomePage';
 import { loadHandled } from './home/attention';
 import { pullRequestFromRoute, pullRequestRoute, zoomReference, ZOOM_REFERENCE, type ZoomedReference } from './githubReference';
@@ -191,7 +191,7 @@ export default function App() {
     const reload = () => {
       const current = ++request;
       void window.bridge.listJiraConnections().then(connections => {
-        if (current === request) setJiraConnected(connections.some(connection => connection.state === 'connected' && connection.sites.length > 0));
+        if (current === request) setJiraConnected(anyJiraConnected(connections));
       }).catch(() => {});
     };
     reload();

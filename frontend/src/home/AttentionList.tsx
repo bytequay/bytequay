@@ -18,6 +18,8 @@ import { anchorPanel } from '../ReferenceCard';
 import AttentionCard from './AttentionCard';
 import { usePinnedItems } from './pinned';
 import { useSnoozedAttention } from './useSnoozedAttention';
+import { useTeams } from '../teams/useTeams';
+import { teamAttentionMatch } from '../teams/priority';
 import {
   ATTENTION_SOURCES,
   attentionCards,
@@ -55,6 +57,10 @@ type Props = {
   goal?: (item: AttentionItem) => GoalToggle | null;
   /** Whether Jira is connected; without it there is no Jira tab unless a Jira card is listed anyway. */
   jiraConnected?: boolean;
+  /** Teams opens this same list scoped to its private circle or person. */
+  teamScope?: { circleId?: string; memberId?: number };
+  /** The Teams backlog can show all cards; both Homes retain the default four. */
+  cardLimit?: number;
 };
 
 /** A card's place in a pinned goal, and the change that flips it. */
@@ -64,9 +70,14 @@ type Anchored = { item: AttentionItem; anchor: DOMRect };
 type ToastState = { id: number; text: string; key: string };
 
 export default function AttentionList({
-  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home', scope, goal, jiraConnected = false,
+  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home', scope, goal, jiraConnected = false, teamScope, cardLimit,
 }: Props) {
   const [filter, setFilter] = useState<AttentionFilter>('all');
+  const [onlyTeam, setOnlyTeam] = useState(false);
+  const teams = useTeams(viewerLogin);
+  const circles = (teams.directory?.circles ?? []).filter(circle => teamScope?.circleId === undefined || circle.id === teamScope.circleId)
+    .map(circle => teamScope?.memberId === undefined ? circle : { ...circle, members: circle.members.filter(member => member.githubId === teamScope.memberId) });
+  const teamOnly = teamScope !== undefined || onlyTeam;
   const [snooze, setSnooze] = useState<Anchored | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [session, setSession] = useState<string[]>([]);
@@ -86,7 +97,10 @@ export default function AttentionList({
   const live = visibleAttention(reminders, handled, Math.max(now, Date.now()))
     .filter(item => !pinned.some(pin => pin.key === item.key));
   const filters = FILTERS.filter(id => id !== 'jira' || jiraConnected || live.some(item => attentionSource(item) === 'jira'));
-  const { cards, counts } = attentionCards(live, filters.includes(filter) ? filter : 'all');
+  const protectedKeys = new Set(Object.entries(handled).filter(([, entry]) => entry.kind === 'snooze' && entry.until !== null && entry.until <= Math.max(now, Date.now()))
+    .map(([key]) => key));
+  const { cards, counts } = attentionCards(live, filters.includes(filter) ? filter : 'all', cardLimit,
+    { circles, viewerLogin, onlyTeam: teamOnly, protectedKeys });
   const sessionEntries = session
     .map(key => handled[key])
     .filter((entry): entry is HandledEntry => entry !== undefined);
@@ -125,7 +139,7 @@ export default function AttentionList({
     setToast(null);
   }
 
-  const count = cards.length < live.length ? `${cards.length} of ${live.length}` : `${live.length}`;
+  const count = cards.length < counts.all ? `${cards.length} of ${counts.all}` : `${counts.all}`;
   const startable = (item: AttentionItem) => item.type === 'issue' && onStartIssue !== undefined && item.issueState !== 'closed'
     && (item.jira === undefined || item.jira.status.category !== 'done' && item.jira.task === null);
 
@@ -134,6 +148,9 @@ export default function AttentionList({
       <div className="atn-head">
         <span className="atn-head__label">Needs attention</span>
         <span className="atn-count">{count}</span>
+        {teamScope === undefined && (circles.length > 0 || onlyTeam) && (
+          <button type="button" className={`atn-filter${onlyTeam ? ' is-active' : ''}`} aria-pressed={onlyTeam} onClick={() => setOnlyTeam(value => !value)}>Team only</button>
+        )}
         <div className="atn-filters" role="tablist" aria-label="Filter what needs attention">
           {filters.map(id => (
             <button key={id} type="button" role="tab" aria-selected={filter === id}
@@ -152,6 +169,7 @@ export default function AttentionList({
               <AttentionCard
                 key={item.key}
                 item={item}
+                teamMatch={teamAttentionMatch(item, circles, viewerLogin)}
                 viewerLogin={viewerLogin}
                 showRepo={variant === 'home'}
                 onOpen={() => onOpen(item)}
@@ -170,7 +188,7 @@ export default function AttentionList({
           })}
         </div>
       ) : (
-        <div className="atn-clear">Nothing needs you right now.</div>
+        <div className="atn-clear">{teamOnly ? 'No team items need you right now.' : 'Nothing needs you right now.'}</div>
       )}
 
       {summary !== '' && (

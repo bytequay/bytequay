@@ -18,6 +18,7 @@ import FindBar from './FindBar';
 import JiraScreen, { JiraTicketLayer } from './jira/JiraScreen';
 import { JIRA_CHANGED, anyJiraConnected } from './jira/contracts';
 import HomePage from './home/HomePage';
+import TeamsPage from './teams/TeamsPage';
 import { loadHandled } from './home/attention';
 import { loadPinned } from './home/pinned';
 import { pullRequestFromRoute, pullRequestRoute, zoomReference, ZOOM_REFERENCE, type ZoomedReference } from './githubReference';
@@ -74,7 +75,7 @@ function layerKey(layer: ZoomedReference): string {
 function pageFromRoute(hash: string): AppPage {
   if (hash === '#/jira' || hash.startsWith('#/jira?')) return 'jira';
   if (settingsLocationFromRoute(hash) !== null) return 'settings';
-  const match = /^#\/(home|recent|pulls|workspaces)$/.exec(hash);
+  const match = /^#\/(home|recent|pulls|workspaces|teams)$/.exec(hash);
   return match ? match[1] as AppPage : 'home';
 }
 
@@ -501,6 +502,7 @@ export default function App() {
           )}
           <RecentPage active={page === 'recent'} onOpenRow={openRecentRow} />
           {page === 'jira' && <JiraScreen />}
+          {page === 'teams' && <TeamsPage />}
           {page === 'pulls' && (
             <PullsScreen
               initialPr={initialPr}

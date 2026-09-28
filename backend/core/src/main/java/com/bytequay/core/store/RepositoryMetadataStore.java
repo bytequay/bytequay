@@ -28,6 +28,9 @@ public interface RepositoryMetadataStore
 {
     Optional<RepositoryMetadataSnapshot> find(long repositoryId);
 
+    /** Cached contributors across repositories, deduplicated by GitHub identity and sorted by login. */
+    List<RepositoryContributor> findAllContributors();
+
     void upsertOverview(
             long repositoryId,
             RepoRef repository,

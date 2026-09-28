@@ -1,0 +1,237 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.team;
+
+import com.bytequay.app.repository.github.GitHubTeamActivityClient;
+import com.bytequay.app.repository.github.GitHubTeamActivityClient.Observation;
+import com.bytequay.app.scheduler.TeamActivitySyncJob;
+import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.service.settings.AppSettingsService;
+import com.bytequay.core.domain.TeamActivityEvent;
+import com.bytequay.core.domain.UserProfile;
+import com.bytequay.core.store.AppSettingsStore;
+import com.bytequay.core.store.PrDetailStore;
+import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.TeamActivityStore;
+import com.bytequay.core.store.WorkspaceStore;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class TestTeamActivityService
+{
+    private static final TeamMember ALICE = new TeamMember(2, "alice", "Alice", "");
+    private static final TeamMember BOB = new TeamMember(3, "bob", "Bob", "");
+
+    @Test
+    void statisticsSeparateAuthorshipMergingReviewsAndDirectVersusSharedWork()
+    {
+        List<TeamActivityEvent> events = ImmutableList.of(
+                event("opened", "PR_OPENED", 2, 2, 7, "owner/repo", ImmutableList.of()),
+                event("merged", "PR_MERGED", 3, 2, 7, "owner/repo", ImmutableList.of()),
+                event("review1", "PR_REVIEWED", 2, 1, 8, "owner/repo", ImmutableList.of(2L)),
+                event("review2", "PR_REVIEWED", 2, 1, 8, "owner/repo", ImmutableList.of(2L)),
+                event("comment", "PR_COMMENT", 1, 2, 7, "owner/repo", ImmutableList.of()));
+        List<TeamActivitySnapshot.PersonStatistics> statistics = TeamActivityService.statistics(ImmutableList.of(ALICE, BOB), events, 1);
+        assertThat(statistics.getFirst()).satisfies(person -> {
+            assertThat(person.prsOpened()).isEqualTo(1);
+            assertThat(person.authoredPrsMerged()).isEqualTo(1);
+            assertThat(person.mergesPerformed()).isZero();
+            assertThat(person.prsReviewed()).isEqualTo(1);
+            assertThat(person.directInteractions()).isEqualTo(2);
+            assertThat(person.sharedPullRequests()).isEqualTo(2);
+        });
+        assertThat(statistics.get(1).mergesPerformed()).isEqualTo(1);
+        assertThat(statistics.get(1).authoredPrsMerged()).isZero();
+    }
+
+    @Test
+    void computesStatisticsBeforeDisplayLimitAndKeepsMemberRepositoryScopesIndependent()
+    {
+        Fixture fixture = fixture();
+        when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(
+                new TeamCircle("alice", "Alice scope", "", ImmutableList.of("owner/repo"), ImmutableList.of(ALICE)),
+                new TeamCircle("bob", "Bob everywhere", "", ImmutableList.of(), ImmutableList.of(BOB)))));
+        when(fixture.store().findSince(anyLong(), any())).thenReturn(ImmutableList.of(
+                event("one", "PR_OPENED", 2, 2, 7, "owner/repo", ImmutableList.of()),
+                event("two", "PR_OPENED", 2, 2, 8, "owner/repo", ImmutableList.of()),
+                event("wrong-scope", "PR_OPENED", 2, 2, 9, "other/repo", ImmutableList.of()),
+                event("other-circle-merger", "PR_MERGED", 3, 2, 9, "other/repo", ImmutableList.of())));
+        TeamActivitySnapshot snapshot = fixture.service().snapshot(Optional.empty(), Optional.empty(), 7, 1, "all");
+        assertThat(snapshot.events()).hasSize(1);
+        assertThat(snapshot.people().getFirst().prsOpened()).isEqualTo(2);
+        assertThat(snapshot.coverage().hasMoreEvents()).isTrue();
+        assertThat(snapshot.coverage().partial()).isTrue();
+        verify(fixture.store()).findSince(eq(1L), any());
+        assertThat(fixture.service().snapshot(Optional.empty(), Optional.empty(), 7, 100, "authored-merges").events()).isEmpty();
+        assertThatThrownBy(() -> fixture.service().snapshot(Optional.empty(), Optional.empty(), 91, 100, "all")).isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test
+    void savedCursorContinuesRoundRobinAfterAServiceRestart()
+    {
+        Fixture fixture = fixture();
+        List<TeamMember> members = ImmutableList.of(ALICE, BOB, new TeamMember(4, "carol", "", ""), new TeamMember(5, "dan", "", ""),
+                new TeamMember(6, "eve", "", ""), new TeamMember(7, "frank", "", ""));
+        when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(new TeamCircle("all", "All", "", ImmutableList.of(), members))));
+        when(fixture.github().publicEvents(anyString(), anyString(), any())).thenReturn(new Observation(ImmutableList.of(), ImmutableList.of(), false));
+        fixture.service().collect();
+        TeamActivityService restarted = new TeamActivityService(fixture.teams(), fixture.credentials(), fixture.workspaces(), fixture.github(), fixture.store(),
+                fixture.settings(), mapper(), mock(PullRequestStore.class), mock(PrDetailStore.class));
+        restarted.collect();
+        ArgumentCaptor<String> logins = ArgumentCaptor.forClass(String.class);
+        verify(fixture.github(), times(8)).publicEvents(anyString(), logins.capture(), any());
+        assertThat(logins.getAllValues()).containsExactly("alice", "bob", "carol", "dan", "eve", "frank", "alice", "bob");
+    }
+
+    @Test
+    void metricFiltersSelectMatchingFactsBeforeLimitWithoutChangingStatistics()
+    {
+        Fixture fixture = fixture();
+        when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(
+                new TeamCircle("all", "All", "", ImmutableList.of(), ImmutableList.of(ALICE, BOB)))));
+        TeamActivityEvent authoredMerge = new TeamActivityEvent("authored", "PR_MERGED", 3, "bob", "owner/repo", 7, "Title",
+                "https://github.com/owner/repo/pull/7", Instant.now().minusSeconds(3600), Optional.of(2L), Optional.of("alice"), "REPOSITORY", ImmutableList.of());
+        when(fixture.store().findSince(anyLong(), any())).thenReturn(ImmutableList.of(
+                authoredMerge,
+                event("performed-merge", "PR_MERGED", 2, 3, 8, "owner/repo", ImmutableList.of()),
+                event("performed-review", "PR_REVIEWED", 2, 1, 9, "owner/repo", ImmutableList.of()),
+                event("received-review", "PR_REVIEWED", 3, 2, 7, "owner/repo", ImmutableList.of()),
+                event("opened-issue", "ISSUE_OPENED", 2, 2, 10, "owner/repo", ImmutableList.of()),
+                event("closed-issue", "ISSUE_CLOSED", 2, 2, 11, "owner/repo", ImmutableList.of()),
+                event("other-interaction", "PR_COMMENT", 1, 2, 7, "owner/repo", ImmutableList.of(3L)),
+                event("direct-interaction", "PR_COMMENT", 1, 3, 8, "owner/repo", ImmutableList.of(2L))));
+
+        TeamActivitySnapshot all = fixture.service().snapshot(Optional.empty(), Optional.of(2L), 7, 1, "all");
+        assertThat(all.events()).doesNotContain(authoredMerge);
+        assertThat(all.coverage().hasMoreEvents()).isTrue();
+        Map<String, String> metricFacts = ImmutableMap.of("authored-merges", "authored", "reviews-performed", "performed-review",
+                "issues-opened", "opened-issue", "interactions", "direct-interaction");
+        metricFacts.forEach((filter, id) -> {
+            TeamActivitySnapshot filtered = fixture.service().snapshot(Optional.empty(), Optional.of(2L), 7, 1, filter);
+            assertThat(filtered.events()).extracting(TeamActivityEvent::id).containsExactly(id);
+            assertThat(filtered.coverage().hasMoreEvents()).isFalse();
+            assertThat(filtered.people()).isEqualTo(all.people());
+        });
+        assertThat(all.people().getFirst()).satisfies(person -> {
+            assertThat(person.authoredPrsMerged()).isEqualTo(1);
+            assertThat(person.mergesPerformed()).isEqualTo(1);
+            assertThat(person.prsReviewed()).isEqualTo(1);
+            assertThat(person.issuesOpened()).isEqualTo(1);
+            assertThat(person.issuesClosed()).isEqualTo(1);
+            assertThat(person.directInteractions()).isEqualTo(1);
+        });
+        ImmutableMap.of("merged", 2, "reviews", 2, "issues", 2).forEach((filter, count) ->
+                assertThat(fixture.service().snapshot(Optional.empty(), Optional.of(2L), 7, 100, filter).events()).hasSize(count));
+    }
+
+    @Test
+    void invalidActivityFilterIsRejectedBeforeCollection()
+    {
+        Fixture fixture = fixture();
+        assertThatThrownBy(() -> fixture.service().refresh(Optional.empty(), Optional.empty(), 7, 100, "unknown"))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST));
+        verify(fixture.credentials(), never()).resolveGitHubCredential();
+        verify(fixture.github(), never()).publicEvents(anyString(), anyString(), any());
+    }
+
+    @Test
+    void accountSwitchDuringCollectionRefusesObservationAndCoverageWrites()
+    {
+        Fixture fixture = fixture();
+        when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(new TeamCircle("all", "All", "", ImmutableList.of(), ImmutableList.of(ALICE)))));
+        when(fixture.github().publicEvents(anyString(), anyString(), any())).thenAnswer(invocation -> {
+            when(fixture.credentials().resolveGitHubCredential()).thenReturn(new GitHubCredential("other", new UserProfile("other", "", "", "", 0, 0, 0, "", "", "", "")));
+            return new Observation(ImmutableList.of(event("one", "PR_OPENED", 2, 2, 7, "owner/repo", ImmutableList.of())), ImmutableList.of(), false);
+        });
+        assertThatThrownBy(() -> fixture.service().collect()).isInstanceOf(ResponseStatusException.class).hasMessageContaining("account changed");
+        verify(fixture.store(), never()).save(anyLong(), any());
+        verify(fixture.settings(), never()).put(anyString(), anyString());
+    }
+
+    @Test
+    void automaticCollectionRespectsSharedQuietHours()
+    {
+        TeamActivityService activity = mock(TeamActivityService.class);
+        CredentialService credentials = mock(CredentialService.class);
+        AppSettingsService settings = mock(AppSettingsService.class);
+        when(credentials.isGitHubAccountConfigured()).thenReturn(true);
+        when(settings.inQuietHours()).thenReturn(true);
+        new TeamActivitySyncJob(activity, credentials, settings).tick();
+        verify(activity, never()).collect();
+    }
+
+    private static ObjectMapper mapper()
+    {
+        return new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new JavaTimeModule());
+    }
+
+    private static Fixture fixture()
+    {
+        TeamService teams = mock(TeamService.class);
+        CredentialService credentials = mock(CredentialService.class);
+        TeamActivityStore store = mock(TeamActivityStore.class);
+        WorkspaceStore workspaces = mock(WorkspaceStore.class);
+        AppSettingsStore settings = mock(AppSettingsStore.class);
+        Map<String, String> saved = new LinkedHashMap<>();
+        when(settings.get(any())).thenAnswer(invocation -> Optional.ofNullable(saved.get(invocation.getArgument(0))));
+        doAnswer(invocation -> {
+            saved.put(invocation.getArgument(0), invocation.getArgument(1));
+            return null;
+        }).when(settings).put(anyString(), anyString());
+        when(workspaces.findAll()).thenReturn(ImmutableList.of());
+        when(teams.accountId()).thenReturn(1L);
+        GitHubCredential credential = new GitHubCredential("token", new UserProfile("viewer", "", "", "", 0, 0, 0, "", "", "", ""));
+        when(credentials.resolveGitHubCredential()).thenReturn(credential);
+        GitHubTeamActivityClient github = mock(GitHubTeamActivityClient.class);
+        TeamActivityService service = new TeamActivityService(teams, credentials, workspaces, github, store, settings,
+                mapper(), mock(PullRequestStore.class), mock(PrDetailStore.class));
+        return new Fixture(teams, store, service, credentials, github, settings, workspaces);
+    }
+
+    private static TeamActivityEvent event(String id, String kind, long actor, long author, int number, String repository, List<Long> direct)
+    {
+        return new TeamActivityEvent(id, kind, actor, "actor", repository, number, "Title", "https://github.com/" + repository + "/pull/" + number,
+                Instant.now(), Optional.of(author), Optional.of("author"), "REPOSITORY", direct);
+    }
+
+    private record Fixture(TeamService teams, TeamActivityStore store, TeamActivityService service, CredentialService credentials,
+            GitHubTeamActivityClient github, AppSettingsStore settings, WorkspaceStore workspaces) {}
+}

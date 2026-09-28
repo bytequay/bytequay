@@ -508,7 +508,7 @@ export function MetadataPicker({
       <div className="pr-people-picker__list" role="listbox" aria-label={ariaLabel}>
         {displayedOptions.map(option => (
           <button className={`pr-people-picker__row${option.color ? ' is-label' : ''}`} type="button"
-            disabled={updating || option.disabled} aria-selected={option.selected} role="option" key={option.key}
+            disabled={updating || option.disabled} aria-label={option.label} aria-selected={option.selected} role="option" key={option.key}
             title={option.disabledReason} onClick={() => onToggle(option)}>
             <span className="pr-people-picker__check">{option.selected && <CheckIcon size={16} />}</span>
             {option.login

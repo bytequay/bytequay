@@ -1,0 +1,84 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import { describe, expect, it } from 'vitest';
+import { attentionCards, handledEntry, pullRequestItem, visibleAttention, type AttentionItem } from '../home/attention';
+import { pr } from '../pulls/fixtures/pullRequest';
+import { teamAttentionMatch } from './priority';
+import type { TeamCircle } from './types';
+import { taskAttentionItem } from '../agents/attention';
+import { previewTask } from '../agents/fixtures/previewBridge';
+import type { PullRequestDto } from '../types';
+
+const circles: TeamCircle[] = [{ id: 'one', name: 'Maintainers', description: '', repositories: ['BYTEQUAY/APP'], members: [{ githubId: 1, login: 'Alice', name: 'Alice', avatarUrl: '' }] }];
+const preference = { circles, viewerLogin: 'jack' };
+const item = (number: number, author = 'alice', updatedAt = '2026-09-28T12:00:00Z') => {
+  const pull = pr({ id: number, number, author, origin: 'REVIEW_REQUESTED', requestedReviewers: ['jack'], updatedAt });
+  return { ...pullRequestItem(pull, 'review'), pr: pull };
+};
+
+describe('private team priority', () => {
+  it('matches authors and direct request actors within repository scope, never arbitrary commenters', () => {
+    expect(teamAttentionMatch(item(1), circles, 'jack')).toEqual({ circle: circles[0], member: circles[0].members[0], reason: 'author' });
+    expect(teamAttentionMatch({ ...item(1), repo: 'other/app' }, circles, 'jack')).toBeNull();
+    const direct = item(2, 'bob');
+    const activity: NonNullable<PullRequestDto['latestActivity']> = {
+      event: 'review_requested', actor: 'ALICE', requestedReviewer: 'JACK', timestamp: direct.updatedAt, label: null, state: null,
+    };
+    direct.pr = { ...direct.pr, latestActivity: activity };
+    expect(teamAttentionMatch(direct, circles, 'jack')).toEqual({ circle: circles[0], member: circles[0].members[0], reason: 'review-requester' });
+    expect(teamAttentionMatch(direct, circles, 'another-viewer')).toBeNull();
+    expect(teamAttentionMatch({ ...direct, pr: { ...direct.pr, latestActivity: { ...activity, event: 'commented' } } }, circles, 'jack')).toBeNull();
+    expect(teamAttentionMatch({ ...item(1), repo: 'other/app' }, [{ ...circles[0], repositories: [] }], 'jack')?.circle.id).toBe('one');
+    expect(teamAttentionMatch(item(1), [{ ...circles[0], members: [] }], 'jack')).toBeNull();
+  });
+
+  it('promotes candidates beyond the old cap and reserves the oldest other request before filling unused slots', () => {
+    const others = [1, 2, 3, 4].map(number => item(number, 'bob'));
+    others[2].pr = { ...others[2].pr, reviewRequestedAt: '2026-09-01T00:00:00Z' };
+    const trusted = [5, 6, 7, 8].map(number => item(number, 'alice', '2026-09-27T00:00:00Z'));
+    const live = [...others, ...trusted];
+    expect(attentionCards(live, 'all', 4, preference).cards.map(row => row.number)).toEqual([5, 6, 7, 3]);
+    expect(attentionCards([...others, trusted[0]], 'all', 4, preference).cards.map(row => row.number)).toEqual([5, 3, 1, 2]);
+    expect(attentionCards(trusted, 'all', 4, preference).cards.map(row => row.number)).toEqual([5, 6, 7, 8]);
+    expect(live[0]).toBe(others[0]);
+    expect(trusted[0].updatedAt).toBe('2026-09-27T00:00:00Z');
+  });
+
+  it('does not multiply a boost for overlapping circles and preserves source and Team-only filters', () => {
+    const issue: AttentionItem = { ...item(7), type: 'issue', kind: 'assigned', pr: null };
+    const live = [item(1, 'bob'), item(2), item(3), item(4), issue];
+    const overlapping = { ...preference, circles: [...circles, { ...circles[0], id: 'two' }] };
+    expect(attentionCards(live, 'all', 4, overlapping).cards).toEqual(attentionCards(live, 'all', 4, preference).cards);
+    const selected = attentionCards(live, 'issue', 4, { ...overlapping, onlyTeam: true });
+    expect(selected.cards).toEqual([issue]);
+    expect(selected.counts).toEqual({ all: 4, pr: 3, issue: 1, jira: 0, task: 0 });
+  });
+
+  it('preserves protected agent needs and due reminders ahead of preference', () => {
+    const agent = { ...taskAttentionItem(previewTask('workspace', '1'), null, { id: 'workspace', name: '', repository: 'bytequay/app' }),
+      kind: 'approval' as const, updatedAt: '2026-09-01T00:00:00Z' };
+    const reminder = item(21, 'bob', '2026-09-02T00:00:00Z');
+    const live = [...[1, 2, 3, 4].map(number => item(number)), reminder, agent];
+    expect(attentionCards(live, 'all', 4, { ...preference, protectedKeys: new Set([reminder.key]) }).cards.map(row => row.key))
+      .toEqual([reminder.key, agent.key, live[0].key, live[1].key]);
+  });
+
+  it('applies preference only to live rows and never wakes acknowledged or timed-snoozed members', () => {
+    const now = Date.parse('2026-09-28T13:00:00Z');
+    const live = [item(1), item(2), item(3), item(4, 'bob')];
+    const handled = { [live[0].key]: handledEntry(live[0], 'ack', null, 'Viewed'), [live[1].key]: handledEntry(live[1], 'snooze', now + 1, 'soon') };
+    expect(attentionCards(visibleAttention(live, handled, now), 'all', 4, preference).cards.map(row => row.number)).toEqual([3, 4]);
+    expect(attentionCards(visibleAttention(live, handled, now + 1), 'all', 4, preference).cards.map(row => row.number)).toEqual([2, 3, 4]);
+  });
+});

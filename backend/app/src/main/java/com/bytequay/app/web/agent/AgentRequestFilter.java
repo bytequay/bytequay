@@ -55,6 +55,7 @@ public final class AgentRequestFilter
         return !path.startsWith("/agent")
                 && !path.startsWith("/api/agent-review")
                 && !(path.equals("/api/jira") || path.startsWith("/api/jira/"))
+                && !(path.equals("/api/teams") || path.startsWith("/api/teams/"))
                 && !path.startsWith("/api/ci-autofix")
                 && !path.startsWith("/api/cherry-pick-ranges")
                 && !(path.startsWith("/api/workspaces/")

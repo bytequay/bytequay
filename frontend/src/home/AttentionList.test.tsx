@@ -20,6 +20,7 @@ import { jiraAttentionItems } from '../jira/attention';
 import { jiraIssue } from '../jira/fixtures/jira';
 import { attentionCards, handledEntry, visibleAttention, type AttentionItem, type Handled } from './attention';
 import type { PullRequestDto } from '../types';
+import * as teamHooks from '../teams/useTeams';
 
 function pullRequest(number: number, latestActivity: PullRequestDto['latestActivity'] = null): PullRequestDto {
   return {
@@ -54,7 +55,73 @@ function list(candidates: AttentionItem[], handled: Handled = {}, variant: 'home
 }
 
 describe('AttentionList', () => {
-  afterEach(() => { vi.restoreAllMocks(); });
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+  it('shows a private-team reason and keeps Team-only independent from the source tabs', () => {
+    vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{
+      id: 'trusted', name: 'Maintainers', description: '', repositories: ['trinodb/trino'], members: [{ githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }],
+    }] }, loading: false, error: null });
+    const items = [issueItem(7), prItem(1)];
+    const html = list(items);
+    expect(html).toContain('aria-pressed="false">Team only</button>');
+    expect(html).toContain('title="Your private circle: Maintainers">Maintainers</span>');
+    expect(html).toContain('>PRs <');
+    expect(html).toContain('>Issues <');
+    const scoped = renderToStaticMarkup(<AttentionList candidates={items} handled={{}} viewerLogin="viewer" teamScope={{ circleId: 'trusted', memberId: 1 }}
+      onHandledChange={() => {}} onOpen={() => {}} />);
+    expect(scoped).toContain('Change 1');
+    expect(scoped).not.toContain('Issue 7');
+    expect(scoped).not.toContain('Team only</button>');
+    expect(scoped).toContain('>Issues <span class="atn-filter__count">0</');
+  });
+
+  it('never brings pinned or snoozed team items back through preference', () => {
+    vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{
+      id: 'trusted', name: 'Maintainers', description: '', repositories: [], members: [{ githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }],
+    }] }, loading: false, error: null });
+    vi.stubGlobal('window', { localStorage: { getItem: () => JSON.stringify([{ key: 'trinodb/trino#1', title: 'Pinned', target: { kind: 'pull', repo: 'trinodb/trino', number: 1 } }]) } });
+    const items = [1, 2, 3].map(number => prItem(number));
+    const html = list(items, { [items[1].key]: handledEntry(items[1], 'snooze', Date.now() + 3_600_000, 'soon') });
+    expect([...html.matchAll(/class="atn-card__key">#(\d+)</g)].map(match => Number(match[1]))).toEqual([3]);
+  });
+
+  it('names the actual member author without labeling the latest commenter as a teammate', () => {
+    vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{
+      id: 'trusted', name: 'Maintainers', description: '', repositories: [], members: [{ githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }],
+    }] }, loading: false, error: null });
+    const html = list([prItem(1, 'review', {
+      event: 'commented', actor: 'bob', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: null,
+    })]);
+    expect(html).toContain('PR author: <strong>@alice</strong>');
+    expect(html).toContain('title="Your private circle: Maintainers">Maintainers</span>');
+    expect(html).toContain('class="atn-card__actor">bob</span> commented');
+    expect(html).not.toContain('Your team');
+
+    const unrelated = { ...prItem(2), author: 'outsider', pr: { ...pullRequest(2), author: 'outsider' } };
+    expect(list([unrelated])).not.toContain('atn-card__team');
+  });
+
+  it('explains a member review request independently of the PR author', () => {
+    vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{
+      id: 'trusted', name: 'Maintainers', description: '', repositories: [], members: [{ githubId: 2, login: 'bob', name: 'Bob', avatarUrl: '' }],
+    }] }, loading: false, error: null });
+    const html = list([prItem(1, 'review', {
+      event: 'review_requested', actor: 'bob', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: 'viewer',
+    })]);
+    expect(html).toContain('Review requested by <strong>@bob</strong>');
+    expect(html).not.toContain('PR author: <strong>@bob');
+  });
+
+  it('lets the Teams page show the complete matching backlog while Home stays capped', () => {
+    vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{
+      id: 'trusted', name: 'Maintainers', description: '', repositories: [], members: [{ githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }],
+    }] }, loading: false, error: null });
+    const items = [1, 2, 3, 4, 5, 6].map(number => prItem(number));
+    const html = renderToStaticMarkup(<AttentionList candidates={items} handled={{}} viewerLogin="viewer" teamScope={{}}
+      cardLimit={Number.POSITIVE_INFINITY} onHandledChange={() => {}} onOpen={() => {}} />);
+    expect(html.match(/class="card atn-card /g)).toHaveLength(6);
+    expect(list(items).match(/class="card atn-card /g)).toHaveLength(4);
+  });
 
   it('keeps resolved reminders readable without offering to start development again', () => {
     const closed = { ...issueItem(99), issueState: 'closed' };

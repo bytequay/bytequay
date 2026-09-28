@@ -15,7 +15,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Bot, ChevronDown, ChevronLeft, ChevronRight, CircleDot, CircleUser, GitBranch, GitPullRequest, Globe, History, House, KeyRound,
   LayoutDashboard, LayoutGrid, ListChecks, Network, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
-  Pin, Sparkles, Sun, Tags, TriangleAlert,
+  Pin, Sparkles, Sun, Tags, TriangleAlert, Users,
 } from 'lucide-react';
 import Avatar from './Avatar';
 import JiraIcon from './jira/JiraIcon';
@@ -70,13 +70,14 @@ export function WindowControls() {
   );
 }
 
-export type AppPage = 'home' | 'recent' | 'pulls' | 'workspaces' | 'jira' | 'settings';
+export type AppPage = 'home' | 'recent' | 'pulls' | 'workspaces' | 'teams' | 'jira' | 'settings';
 
 type NavItem = { page: AppPage; label: string; icon: ReactNode };
 
 const GLOBAL_NAV_ITEMS: NavItem[] = [
   { page: 'home', label: 'Home', icon: <HomeIcon /> },
   { page: 'workspaces', label: 'Workspaces', icon: <LayoutGrid size={16} strokeWidth={1.7} aria-hidden="true" /> },
+  { page: 'teams', label: 'Teams', icon: <Users size={16} strokeWidth={1.7} aria-hidden="true" /> },
   { page: 'recent', label: 'Recent', icon: <History size={16} strokeWidth={1.7} aria-hidden="true" /> },
 ];
 

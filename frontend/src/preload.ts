@@ -15,6 +15,8 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { createAgentStreamReceiver } from './agents/sse';
 import type { AgentStreamMessage, Bridge, FindResult, InAppBrowserState, PullRequestDto } from './types';
 
+ipcRenderer.on('github:account-changed', () => window.dispatchEvent(new Event('bytequay:github-account-changed')));
+
 /**
  * One stream subscription over a channel family.
  *
@@ -193,6 +195,15 @@ const bridge: Bridge = {
   fetchGitHubCodeSnippet: request => ipcRenderer.invoke('repos:code-snippet', request),
   getRecentActivity: login => ipcRenderer.invoke('repos:activity', login),
   getFollowingActivity: login => ipcRenderer.invoke('repos:following', login),
+  getTeams: () => ipcRenderer.invoke('teams:list'),
+  fetchTeamContributors: () => ipcRenderer.invoke('teams:contributors'),
+  createTeam: input => ipcRenderer.invoke('teams:create', input),
+  updateTeam: (id, input) => ipcRenderer.invoke('teams:update', id, input),
+  removeTeam: id => ipcRenderer.invoke('teams:remove', id),
+  addTeamMember: (id, member) => ipcRenderer.invoke('teams:members:add', id, member),
+  removeTeamMember: (id, githubId) => ipcRenderer.invoke('teams:members:remove', id, githubId),
+  getTeamActivity: query => ipcRenderer.invoke('teams:activity', query),
+  refreshTeamActivity: query => ipcRenderer.invoke('teams:refresh', query),
 
   getGitHubCliAvailable: () => ipcRenderer.invoke('github:cli-available'),
   importGitHubCliToken: () => ipcRenderer.invoke('github:cli-import'),

@@ -13,6 +13,7 @@
  */
 
 import type { JiraBridge, JiraSourceRequest, JiraTaskSource } from './jira/contracts';
+import type { TeamActivityQuery, TeamActivitySnapshot, TeamCircleInput, TeamCreateInput, TeamDirectory, TeamMemberInput } from './teams/types';
 import type { GoalDto, GoalItemDto, GoalItemKind, GoalPatch } from './goals/contracts';
 import { AgentEventEnvelope } from './agents/events';
 import type { AskCommentDiscussionRequest, AskDiscussionRequest, DiscussionQuery, DraftDiscussionReplyRequest, OpenDiscussionRequest, ResolveDiscussionRequest, RetryDiscussionRequest, TaskDiscussionDto } from './agents/discussions/contracts';
@@ -1496,6 +1497,15 @@ export type Bridge = JiraBridge & {
   fetchGitHubCodeSnippet: (request: GitHubCodeSnippetRequest) => Promise<GitHubCodeSnippetDto>;
   getRecentActivity: (login: string) => Promise<RecentEventDto[]>;
   getFollowingActivity: (login: string) => Promise<RecentEventDto[]>;
+  getTeams: () => Promise<TeamDirectory>;
+  fetchTeamContributors: () => Promise<RepositoryMetadataDto['contributors']>;
+  createTeam: (input: TeamCreateInput) => Promise<TeamDirectory>;
+  updateTeam: (id: string, input: TeamCircleInput) => Promise<TeamDirectory>;
+  removeTeam: (id: string) => Promise<TeamDirectory>;
+  addTeamMember: (id: string, member: TeamMemberInput) => Promise<TeamDirectory>;
+  removeTeamMember: (id: string, githubId: number) => Promise<TeamDirectory>;
+  getTeamActivity: (query?: TeamActivityQuery) => Promise<TeamActivitySnapshot>;
+  refreshTeamActivity: (query?: TeamActivityQuery) => Promise<TeamActivitySnapshot>;
 
   getGitHubCliAvailable: () => Promise<{ available: boolean }>;
   importGitHubCliToken: () => Promise<{ login: string }>;

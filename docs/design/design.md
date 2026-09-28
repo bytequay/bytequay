@@ -10,6 +10,10 @@ historical checkpoint evidence and explicitly deferred future work.
 
 ## Design documents
 
+- [Private teams](teams.md) defines account-local trusted circles, shared Home
+  attention preference, bounded member activity, and observed collaboration
+  statistics. Its [temporary checklist](team-impl-tmp.md) tracks implementation.
+
 - [WorkBench](workbench.md) defines the shared PR/WorkBench navigation, task-bound
   working-copy inspection, local commit history, and explicit development review
   using the existing isolated reviewer.

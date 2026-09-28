@@ -502,8 +502,10 @@ Attention rows display the latest known GitHub action, its actor, and its own ev
 The local timeline supplies this summary in one batch read; display never fetches GitHub or loads
 full PR details per row. Local workflow events and subscription bookkeeping are excluded. When
 GitHub's PR update timestamp is newer than the known timeline action, the row says `Updated`
-without attributing it to a person. All cards sort by their newest source update or event timestamp
-before filtering and the four-card limit; attention reason only breaks equal-time ties. The row's
+without attributing it to a person. Cards initially sort by their newest source update or event timestamp;
+attention reason only breaks equal-time ties. After handling and source filtering, private
+[teams](teams.md) prefer up to three trusted-person items and preserve one other pending request
+before the four-card limit. Urgent task actions and due reminders remain protected. The row's
 age uses this same source timestamp. Local activity
 timestamps continue to drive monitoring and acknowledgment, independently of the displayed age.
 

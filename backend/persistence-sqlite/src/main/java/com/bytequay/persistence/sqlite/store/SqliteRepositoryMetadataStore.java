@@ -32,6 +32,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Comparator.comparing;
+import static java.util.Comparator.naturalOrder;
+import static java.util.Comparator.nullsFirst;
 import static java.util.Objects.requireNonNull;
 
 @Repository
@@ -49,6 +53,19 @@ public class SqliteRepositoryMetadataStore
     public Optional<RepositoryMetadataSnapshot> find(long repositoryId)
     {
         return repository.findById(repositoryId).map(RepositoryMetadataEntity::toDomain);
+    }
+
+    @Override
+    public List<RepositoryContributor> findAllContributors()
+    {
+        Map<Long, RepositoryContributor> byId = new LinkedHashMap<>();
+        repository.findAll().stream()
+                .sorted(comparing(RepositoryMetadataEntity::getContributorsSyncedAt, nullsFirst(naturalOrder()))
+                        .thenComparing(RepositoryMetadataEntity::getRepositoryId))
+                .forEach(value -> value.getContributors().forEach(contributor -> byId.put(contributor.id(), contributor)));
+        return byId.values().stream()
+                .sorted(comparing(RepositoryContributor::login, String.CASE_INSENSITIVE_ORDER).thenComparingLong(RepositoryContributor::id))
+                .collect(toImmutableList());
     }
 
     @Override

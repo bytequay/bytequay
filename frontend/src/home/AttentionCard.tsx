@@ -22,6 +22,7 @@ import PinButton from './PinButton';
 import type { PinnedItem } from './pinned';
 import { useAttentionStatus } from './useAttentionVisit';
 import { jiraIssueLocation } from '../jira/contracts';
+import type { TeamAttentionMatch } from '../teams/priority';
 import {
   ATTENTION_SOURCES,
   attentionSource,
@@ -137,6 +138,8 @@ type Props = {
   inGoal?: boolean;
   /** Adds the item to the pinned goal, or takes it out; absent where no goal can hold it. */
   onToggleGoal?: () => void;
+  /** Name the member behind the match separately from the latest activity actor. */
+  teamMatch?: TeamAttentionMatch | null;
 };
 
 /**
@@ -144,7 +147,7 @@ type Props = {
  * stands, then who moved it, folded over what happened until the line is clicked. The age in the
  * strip gives way to the card's actions while the pointer or focus is inside it.
  */
-export default function AttentionCard({ item, viewerLogin, showRepo, onOpen, onAcknowledge, onSnooze, onStart, inGoal = false, onToggleGoal }: Props) {
+export default function AttentionCard({ item, viewerLogin, showRepo, onOpen, onAcknowledge, onSnooze, onStart, inGoal = false, onToggleGoal, teamMatch }: Props) {
   const source = attentionSource(item);
   const summary = attentionSummary(item, viewerLogin);
   const status = useAttentionStatus(item.key);
@@ -198,6 +201,10 @@ export default function AttentionCard({ item, viewerLogin, showRepo, onOpen, onA
       </div>
       <div className="atn-card__body">
         <div className="atn-card__title">{item.title}</div>
+        {teamMatch && <div className="atn-card__team">
+          <span>{teamMatch.reason === 'review-requester' ? 'Review requested by' : item.type === 'issue' ? 'Issue author:' : 'PR author:'} <strong>@{teamMatch.member.login}</strong></span>
+          <Pill tone="blue" title={`Your private circle: ${teamMatch.circle.name}`}>{teamMatch.circle.name}</Pill>
+        </div>}
         {summary.detail === null
           ? <div className="atn-card__why">{said}</div>
           : <Fold summary={said} showTitle="Show details" hideTitle="Hide details"><Detail detail={summary.detail} /></Fold>}

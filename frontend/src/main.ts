@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import type { JiraLocation, JiraQuery, JiraTokenRequest } from './jira/contracts';
+import { parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamId, teamMemberId } from './teams/contracts';
 import { parseGoal, parseGoalItem, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, screen, shell } from 'electron';
 import fs from 'node:fs';
@@ -514,6 +515,12 @@ function refreshDashboardInBackground(): void {
       mainWindow.webContents.send('pull-requests:synced');
     }
   }).catch(() => {});
+}
+
+function githubAccountChanged(): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('github:account-changed');
+  }
 }
 
 function prUrl(pathname: string, repo: string, number: number): URL {
@@ -1248,6 +1255,7 @@ function registerIpc(): void {
   ipcMain.handle('pat:save', async (_event, pat: string) => {
     if (!pat?.trim()) throw new Error('PAT must not be empty');
     await backendJson(`${backendBase()}/api/auth/github/token`, jsonInit('POST', { value: pat.trim() }));
+    githubAccountChanged();
     refreshDashboardInBackground();
     return true;
   });
@@ -1281,8 +1289,10 @@ function registerIpc(): void {
     clipboard.writeText(result.value);
     return true;
   });
-  ipcMain.handle('pat:delete', () =>
-    backendVoid(`${backendBase()}/api/auth/github/token`, { method: 'DELETE' }));
+  ipcMain.handle('pat:delete', async () => {
+    await backendVoid(`${backendBase()}/api/auth/github/token`, { method: 'DELETE' });
+    githubAccountChanged();
+  });
 
   ipcMain.handle('settings:models', (_event, workspaceId?: string) =>
     backendJson(`${backendBase()}/api/settings/models${workspaceId === undefined ? '' : `?workspaceId=${encodeURIComponent(workspaceId)}`}`)
@@ -1879,6 +1889,29 @@ function registerIpc(): void {
       `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/data`,
       jsonInit('DELETE', { confirmed, repositoryName }),
     ));
+  const teamUrl = (id: unknown) => `${backendBase()}/api/teams/${encodeURIComponent(teamId(id))}`;
+  ipcMain.handle('teams:list', () => backendJson(`${backendBase()}/api/teams`, { headers: agentHeaders() }).then(parseTeams));
+  ipcMain.handle('teams:contributors', () => backendJson(`${backendBase()}/api/teams/contributors`, { headers: agentHeaders() }).then(parseTeamContributors));
+  ipcMain.handle('teams:create', (_event, input: unknown) =>
+    backendJson(`${backendBase()}/api/teams`, jsonInit('POST', parseTeamCreateInput(input), agentHeaders())).then(parseTeams));
+  ipcMain.handle('teams:update', (_event, id: unknown, input: unknown) =>
+    backendJson(teamUrl(id), jsonInit('PUT', parseTeamInput(input), agentHeaders())).then(parseTeams));
+  ipcMain.handle('teams:remove', (_event, id: unknown) =>
+    backendJson(teamUrl(id), { method: 'DELETE', headers: agentHeaders() }).then(parseTeams));
+  ipcMain.handle('teams:members:add', (_event, id: unknown, member: unknown) =>
+    backendJson(`${teamUrl(id)}/members`, jsonInit('POST', parseTeamMemberInput(member), agentHeaders())).then(parseTeams));
+  ipcMain.handle('teams:members:remove', (_event, id: unknown, memberId: unknown) =>
+    backendJson(`${teamUrl(id)}/members/${teamMemberId(memberId)}`, { method: 'DELETE', headers: agentHeaders() }).then(parseTeams));
+  for (const action of ['activity', 'refresh'] as const) {
+    ipcMain.handle(`teams:${action}`, (_event, input: unknown) => {
+      const url = new URL(`${backendBase()}/api/teams/${action}`);
+      for (const [key, value] of Object.entries(parseTeamQuery(input))) url.searchParams.set(key, String(value));
+      return backendJson(url, {
+        method: action === 'refresh' ? 'POST' : 'GET', headers: agentHeaders(),
+        ...(action === 'refresh' ? { signal: AbortSignal.timeout(15 * 60_000) } : {}),
+      }).then(parseTeamActivity);
+    });
+  }
   ipcMain.handle('repos:profile', () => backendJson(`${backendBase()}/api/profile`));
   ipcMain.handle('repos:user-profile', (_event, login: string) =>
     backendJson(`${backendBase()}/api/profile/${encodeURIComponent(login)}`));
@@ -1924,8 +1957,11 @@ function registerIpc(): void {
 
   ipcMain.handle('github:cli-available', () =>
     backendJson(`${backendBase()}/api/auth/github/cli`));
-  ipcMain.handle('github:cli-import', () =>
-    backendJson(`${backendBase()}/api/auth/github/cli/import`, { method: 'POST' }));
+  ipcMain.handle('github:cli-import', async () => {
+    const result = await backendJson(`${backendBase()}/api/auth/github/cli/import`, { method: 'POST' });
+    githubAccountChanged();
+    return result;
+  });
 
   ipcMain.handle('external:open', async (_event, url: string) => {
     if (/^https?:/i.test(url)) await shell.openExternal(url);

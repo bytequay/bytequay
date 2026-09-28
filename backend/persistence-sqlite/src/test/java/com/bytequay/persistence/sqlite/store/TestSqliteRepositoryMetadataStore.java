@@ -115,6 +115,23 @@ class TestSqliteRepositoryMetadataStore
     }
 
     @Test
+    void listsContributorsAcrossRepositoriesWithLatestIdentityAndStableOrder()
+    {
+        store.upsertContributors(100, REPOSITORY, ImmutableList.of(
+                new RepositoryContributor(1, "old-alice", "old-avatar", false),
+                new RepositoryContributor(2, "bob", "bob-avatar", false)), NOW.minusSeconds(60));
+        store.upsertContributors(200, RepoRef.of("other", "project"), ImmutableList.of(
+                new RepositoryContributor(3, "Bot", "bot-avatar", true),
+                new RepositoryContributor(1, "Alice", "new-avatar", false)), NOW);
+        store.upsertOverview(300, RepoRef.of("empty", "project"), "", 0, ImmutableList.of(), ImmutableMap.of(), NOW);
+
+        assertThat(store.findAllContributors()).containsExactly(
+                new RepositoryContributor(1, "Alice", "new-avatar", false),
+                new RepositoryContributor(2, "bob", "bob-avatar", false),
+                new RepositoryContributor(3, "Bot", "bot-avatar", true));
+    }
+
+    @Test
     void replacesIssueProjectionWithoutDuplicatingStableIssueIds()
     {
         RepositoryIssue issue = new RepositoryIssue(

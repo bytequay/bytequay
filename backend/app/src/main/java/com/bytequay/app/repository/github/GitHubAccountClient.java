@@ -88,6 +88,34 @@ public class GitHubAccountClient
                 });
     }
 
+    /** Stable identity for private local circles; absence selects the authenticated account. */
+    public UserIdentity fetchUserIdentity(String pat, Optional<String> login)
+    {
+        requireNonNull(login, "login is null");
+        UserIdentityResponse response = translating(() -> requireBody(
+                (login.isPresent() ? get(gitHubRestClient, pat, "/users/{login}", login.orElseThrow()) : get(gitHubRestClient, pat, "/user"))
+                        .retrieve().body(UserIdentityResponse.class), "GitHub returned no user identity"));
+        checkState(response.id() > 0 && response.login() != null && !response.login().isBlank(), "GitHub returned an invalid user identity");
+        if (!"User".equals(response.type()) && !"Bot".equals(response.type())) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "Choose a GitHub person, not an organization");
+        }
+        return new UserIdentity(response.id(), response.login(), Optional.ofNullable(response.name()), Optional.ofNullable(response.avatarUrl()));
+    }
+
+    public record UserIdentity(long id, String login, Optional<String> name, Optional<String> avatarUrl)
+    {
+        public UserIdentity
+        {
+            checkState(id > 0, "GitHub user ID must be positive");
+            requireNonNull(login, "login is null");
+            requireNonNull(name, "name is null");
+            requireNonNull(avatarUrl, "avatarUrl is null");
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record UserIdentityResponse(long id, String login, String name, @JsonProperty("avatar_url") String avatarUrl, String type) {}
+
     private static UserProfile toUserProfile(GitHubUserProfileResponse response) {
         return new UserProfile(
                 response.login(),

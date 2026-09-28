@@ -76,11 +76,12 @@ describe('app sidebar', () => {
   const workspace = render('workspaces', WORKSPACE);
   const settings = render('settings', null, { settings: true });
 
-  it('keeps Home, Workspaces and Recent in the global navigation in that order', () => {
+  it('keeps Home, Workspaces, Teams and Recent in the global navigation in that order', () => {
     for (const markup of [app, workspace, render('jira', null, { jiraConnected: true })]) {
-      expect(navLabels(markup, 'Global navigation')).toEqual(['Home', 'Workspaces', 'Recent']);
+      expect(navLabels(markup, 'Global navigation')).toEqual(['Home', 'Workspaces', 'Teams', 'Recent']);
     }
     expect(render('workspaces', null)).toContain('aria-label="Workspaces" aria-current="page"');
+    expect(render('teams', null)).toContain('aria-label="Teams" aria-current="page"');
     expect(workspace).not.toContain('aria-label="Workspaces" aria-current="page"');
     expect(workspace).toContain('aria-label="Workspace home" aria-current="page"');
     expect(workspace).not.toContain('aria-label="App home"');

@@ -226,6 +226,18 @@
   color: var(--text-1);
 }
 
+.atn-card__team {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--text-3);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.atn-card__team .pill { max-width: 100%; white-space: normal; }
+
 .atn-card__why {
   display: flex;
   align-items: center;

@@ -37,6 +37,8 @@ class TestAgentRequestFilter
     @ValueSource(strings = {
             "/agent/tasks",
             "/api/jira/connections",
+            "/api/teams",
+            "/api/teams/circle/members/123",
             "/api/jira/connections/connection/sites/cloud/issues/1001/comments",
             "/api/ci-autofix/runs",
             "/api/cherry-pick-ranges/previews",

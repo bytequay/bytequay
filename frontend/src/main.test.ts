@@ -19,13 +19,16 @@ import { runningReviewFixture } from './pulls/agent-review/fixtures/review';
 import type { ReviewCodeFileDto } from './pulls/code-tests/contracts';
 import type { ContextBuildViewDto, ContextMergedCandidateDto, ContextUsageActivitiesDto, ContextUsageOverviewDto, RepositoryNotebookDto } from './repository-context/contracts';
 import type { AgentRuntimeStopImpactDto } from './types';
+import type { TeamActivitySnapshot, TeamDirectory } from './teams/types';
 
 const desktop = vi.hoisted(() => ({
   listeners: new Map<string, () => Promise<void>>(),
   handlers: new Map<string, (...args: unknown[]) => Promise<unknown>>(),
+  accountNotifications: [vi.fn(), vi.fn()],
 }));
 
 vi.mock('electron', () => ({
+  BrowserWindow: { getAllWindows: () => desktop.accountNotifications.map(send => ({ isDestroyed: () => false, webContents: { isDestroyed: () => false, send } })) },
   app: {
     setName: vi.fn(), commandLine: { appendSwitch: vi.fn() }, requestSingleInstanceLock: () => true,
     on: (event: string, listener: () => Promise<void>) => desktop.listeners.set(event, listener),
@@ -42,10 +45,68 @@ vi.mock('./backendProcess', () => ({
 }));
 
 afterEach(() => {
+  desktop.accountNotifications.forEach(send => send.mockClear());
   vi.clearAllTimers();
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+it.each(['pat:save', 'pat:delete', 'github:cli-import'])('invalidates every window after successful %s, preserving caches after failure', async channel => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const fetch = vi.fn(async () => new Response('{}', { headers: { 'Content-Type': 'application/json' } }));
+  vi.stubGlobal('fetch', fetch);
+  await desktop.handlers.get(channel)?.({}, 'test-token');
+  desktop.accountNotifications.forEach(send => {
+    expect(send).toHaveBeenCalledWith('github:account-changed');
+    send.mockClear();
+  });
+  fetch.mockImplementation(async () => new Response('Invalid credential', { status: 401 }));
+  await expect(desktop.handlers.get(channel)?.({}, 'test-token')).rejects.toThrow();
+  desktop.accountNotifications.forEach(send => expect(send).not.toHaveBeenCalled());
+});
+
+it('authenticates and validates Team IPC, with time for a bounded collection pass', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const directory: TeamDirectory = { accountLogin: 'viewer', circles: [] };
+  const activity: TeamActivitySnapshot = {
+    accountLogin: 'viewer', events: [], people: [], coverage: { partial: true, description: 'Observed only', observedSince: null,
+      lastRefreshedAt: null, errors: [], memberCount: 0, membersScanned: 0, repositoryCount: 0, repositoriesScanned: 0, hasMoreEvents: false },
+  };
+  const contributors = [{ id: 42, login: 'alice', avatarUrl: '', bot: false }];
+  const fetch = vi.fn(async (url: string | URL) => new Response(JSON.stringify(String(url).includes('/refresh?') ? activity
+    : String(url).endsWith('/contributors') ? contributors : directory)));
+  vi.stubGlobal('fetch', fetch);
+  const member = { githubId: 42, login: 'alice' };
+  await expect(desktop.handlers.get('teams:create')?.({}, { name: ' Internal ', description: ' Our reviewers ', repositories: ['Owner/Repo'], members: [member] })).resolves.toEqual(directory);
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/teams', expect.objectContaining({ method: 'POST',
+    body: JSON.stringify({ name: 'Internal', description: 'Our reviewers', repositories: ['owner/repo'], members: [member] }),
+    headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' },
+  }));
+  await expect(desktop.handlers.get('teams:contributors')?.({})).resolves.toEqual(contributors);
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/teams/contributors', expect.objectContaining({
+    headers: { 'X-ByteQuay-Session': 'test-session' },
+  }));
+  await desktop.handlers.get('teams:members:add')?.({}, 'circle-1', member);
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/teams/circle-1/members', expect.objectContaining({ method: 'POST',
+    body: JSON.stringify(member), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' },
+  }));
+  await desktop.handlers.get('teams:members:remove')?.({}, 'circle-1', 42);
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/teams/circle-1/members/42', expect.objectContaining({
+    method: 'DELETE', headers: { 'X-ByteQuay-Session': 'test-session' },
+  }));
+  const timeout = vi.spyOn(AbortSignal, 'timeout');
+  await expect(desktop.handlers.get('teams:refresh')?.({}, { circleId: 'circle-1', memberId: 42, days: 30 })).resolves.toEqual(activity);
+  expect(fetch).toHaveBeenLastCalledWith(new URL('http://127.0.0.1:9527/api/teams/refresh?circleId=circle-1&memberId=42&days=30&limit=100'),
+    expect.objectContaining({ method: 'POST', headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  expect(timeout).toHaveBeenCalledWith(15 * 60_000);
+  const calls = fetch.mock.calls.length;
+  expect(() => desktop.handlers.get('teams:members:remove')?.({}, '../activity', 42)).toThrow('Invalid circle ID');
+  expect(() => desktop.handlers.get('teams:members:add')?.({}, 'circle-1', { ...member, githubId: 0 })).toThrow('Invalid GitHub user ID');
+  expect(() => desktop.handlers.get('teams:refresh')?.({}, { days: 91 })).toThrow('Invalid period');
+  expect(fetch).toHaveBeenCalledTimes(calls);
 });
 
 it('routes an inline check log read by PR and job ID', async () => {

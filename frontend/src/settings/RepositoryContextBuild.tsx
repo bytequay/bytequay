@@ -15,35 +15,45 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AgentConversation, useConversationHistory } from '../agents/AgentConversation';
 import { projectTranscript, withApprovalAuthority } from '../agents/transcript';
 import { ContextDialog } from '../repository-context/ContextEntryEditor';
-import { parseStartContextBuildRequest, type ContextBuildHistoryDto, type ContextBuildViewDto, type RepositoryNotebookDto,
-  type StartContextBuildRequest } from '../repository-context/contracts';
+import { parseStartContextDiscoveryRequest, type ContextBuildViewDto,
+  parseStartContextLearningRequest, parseContinueContextLearningRequest, parseLearnContextMergedCandidateRequest,
+  type ContextDiscoveryReportDto, type ContextLearningPlanDto, type ContextMergedCandidatesDto, type LearnContextMergedCandidateRequest,
+  type ContinueContextLearningRequest, type RepositoryNotebookDto, type StartContextDiscoveryRequest,
+  type StartContextLearningRequest } from '../repository-context/contracts';
 import type { AgentApprovalDecision, AgentHistoryPageDto, AgentPendingApprovalDto, AgentRuntimeStopImpactDto, AgentTurnDto, ModelSettingsDto } from '../types';
 import { providerAvailable, providerRemedy } from './model';
 import { settingsRoute } from './routes';
-import RepositoryContextDiscovery from './RepositoryContextDiscovery';
 
 type Build = NonNullable<ContextBuildViewDto['build']>;
 const failureText = (failure: unknown) => failure instanceof Error ? failure.message : String(failure);
-const pendingKey = (workspaceId: string) => `repository-context-build:${workspaceId}`;
+const discoveryPendingKey = (workspaceId: string) => `repository-context-discover:${workspaceId}`;
+const learningPendingKey = (workspaceId: string) => `repository-context-learn:${workspaceId}`;
+const continuationPendingKey = (workspaceId: string) => `repository-context-continue:${workspaceId}`;
+const candidatePendingKey = (workspaceId: string) => `repository-context-candidate:${workspaceId}`;
 
-function retainedRequest(workspaceId: string): StartContextBuildRequest | null {
-  const saved = sessionStorage.getItem(pendingKey(workspaceId));
+function retainedDiscoveryRequest(workspaceId: string): StartContextDiscoveryRequest | null {
+  const saved = sessionStorage.getItem(discoveryPendingKey(workspaceId));
   if (saved === null) return null;
-  try { return parseStartContextBuildRequest(JSON.parse(saved)); }
+  try { return parseStartContextDiscoveryRequest(JSON.parse(saved)); }
   catch { return null; }
 }
-
-function historyInputs(prs: string, issues: string): ContextBuildHistoryDto[] {
-  const parse = (value: string, kind: ContextBuildHistoryDto['kind']) => value.trim() === '' ? [] : value.trim().split(/[\s,]+/).map(part => {
-    if (!/^#?[1-9][0-9]*$/.test(part)) throw new Error('Use positive PR or issue numbers separated by commas or spaces.');
-    const number = Number(part.replace('#', ''));
-    if (!Number.isSafeInteger(number) || number > 2147483647) throw new Error('A PR or issue number is too large.');
-    return { kind, number };
-  });
-  const result = [...parse(prs, 'PR'), ...parse(issues, 'ISSUE')];
-  if (result.length > 10) throw new Error('Choose at most 10 PRs and issues in total.');
-  if (new Set(result.map(item => `${item.kind}:${item.number}`)).size !== result.length) throw new Error('Each PR or issue can be selected only once.');
-  return result;
+function retainedLearningRequest(workspaceId: string): StartContextLearningRequest | null {
+  const saved = sessionStorage.getItem(learningPendingKey(workspaceId));
+  if (saved === null) return null;
+  try { return parseStartContextLearningRequest(JSON.parse(saved)); }
+  catch { return null; }
+}
+function retainedContinuationRequest(workspaceId: string): ContinueContextLearningRequest | null {
+  const saved = sessionStorage.getItem(continuationPendingKey(workspaceId));
+  if (saved === null) return null;
+  try { return parseContinueContextLearningRequest(JSON.parse(saved)); }
+  catch { return null; }
+}
+function retainedCandidateRequest(workspaceId: string): LearnContextMergedCandidateRequest | null {
+  const saved = sessionStorage.getItem(candidatePendingKey(workspaceId));
+  if (saved === null) return null;
+  try { return parseLearnContextMergedCandidateRequest(JSON.parse(saved)); }
+  catch { return null; }
 }
 
 function buildLabel(build: Build, canStart: boolean): string {
@@ -53,26 +63,28 @@ function buildLabel(build: Build, canStart: boolean): string {
   if (build.task.state === 'FAILED') return 'Failed';
   if (build.pendingApprovals > 0) return 'Approval needed';
   if (build.activeTurn?.cancellationRequestedAt != null) return 'Stopping';
-  return build.activeTurn === null ? 'Preparing or finishing' : 'Learning';
+  return build.activeTurn === null ? 'Preparing or finishing' : build.mode === 'DISCOVER' ? 'Discovering' : 'Learning';
 }
 
 export default function RepositoryContextBuild({ workspaceId, notebook, onNotebookChange, disabled }: {
   workspaceId: string; notebook: RepositoryNotebookDto; onNotebookChange: (value: RepositoryNotebookDto) => void; disabled: boolean;
 }) {
   const [view, setView] = useState<ContextBuildViewDto | null>(null);
+  const [report, setReport] = useState<ContextDiscoveryReportDto | null | undefined>(undefined);
+  const [plan, setPlan] = useState<ContextLearningPlanDto | null | undefined>(undefined);
+  const [candidates, setCandidates] = useState<ContextMergedCandidatesDto | null>(null);
+  const [candidateError, setCandidateError] = useState<string | null>(null);
+  const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
+  const [sourceToAllow, setSourceToAllow] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [pending, setPending] = useState(() => retainedRequest(workspaceId));
+  const [discoveryPending, setDiscoveryPending] = useState(() => retainedDiscoveryRequest(workspaceId));
+  const [learningPending, setLearningPending] = useState(() => retainedLearningRequest(workspaceId));
+  const [continuationPending, setContinuationPending] = useState(() => retainedContinuationRequest(workspaceId));
+  const [candidatePending, setCandidatePending] = useState(() => retainedCandidateRequest(workspaceId));
   const [inspectedPending, setInspectedPending] = useState(false);
-  const [form, setForm] = useState(false);
-  const [selected, setSelected] = useState<string[]>(['project']);
-  const [prs, setPrs] = useState('');
-  const [issues, setIssues] = useState('');
   const [models, setModels] = useState<ModelSettingsDto | null>(null);
   const [checking, setChecking] = useState(false);
-  const [discovering, setDiscovering] = useState(false);
-  const [discoveryReload, setDiscoveryReload] = useState(false);
-  const [unappliedSuggestions, setUnappliedSuggestions] = useState(false);
   const [activity, setActivity] = useState(false);
   const [impact, setImpact] = useState<AgentRuntimeStopImpactDto | null>(null);
   const mounted = useRef(true);
@@ -86,10 +98,25 @@ export default function RepositoryContextBuild({ workspaceId, notebook, onNotebo
   const apply = useCallback(async (value: ContextBuildViewDto) => {
     if (!mounted.current) return;
     setView(value);
-    const request = retainedRequest(workspaceId);
-    if (request !== null && value.build?.requestKey === request.requestKey) {
-      sessionStorage.removeItem(pendingKey(workspaceId));
-      setPending(null);
+    const discoveryRequest = retainedDiscoveryRequest(workspaceId);
+    if (discoveryRequest !== null && value.build?.requestKey === discoveryRequest.requestKey) {
+      sessionStorage.removeItem(discoveryPendingKey(workspaceId));
+      setDiscoveryPending(null);
+    }
+    const learningRequest = retainedLearningRequest(workspaceId);
+    if (learningRequest !== null && value.build?.requestKey === learningRequest.requestKey) {
+      sessionStorage.removeItem(learningPendingKey(workspaceId));
+      setLearningPending(null);
+    }
+    const continuationRequest = retainedContinuationRequest(workspaceId);
+    if (continuationRequest !== null && value.build?.requestKey === continuationRequest.requestKey) {
+      sessionStorage.removeItem(continuationPendingKey(workspaceId));
+      setContinuationPending(null);
+    }
+    const candidateRequest = retainedCandidateRequest(workspaceId);
+    if (candidateRequest !== null && value.build?.requestKey === candidateRequest.requestKey) {
+      sessionStorage.removeItem(candidatePendingKey(workspaceId));
+      setCandidatePending(null);
     }
     const resultIdentity = JSON.stringify([value.buildRequestSequence, value.build?.task?.state, value.build?.results]);
     if (value.notebookRevision !== notebookRef.current.revision || (value.build?.results.length && observedResult.current !== resultIdentity)) {
@@ -98,15 +125,23 @@ export default function RepositoryContextBuild({ workspaceId, notebook, onNotebo
     }
   }, [workspaceId]);
   const inspect = useCallback(async () => {
-    const value = await window.bridge.getRepositoryContextBuild(workspaceId);
+    const [value, savedReport, savedPlan] = await Promise.all([window.bridge.getRepositoryContextBuild(workspaceId),
+      window.bridge.getRepositoryContextDiscoveryReport(workspaceId), window.bridge.getRepositoryContextLearningPlan(workspaceId)]);
+    if (mounted.current) { setReport(savedReport); setPlan(savedPlan); }
     await apply(value);
     if (mounted.current) setInspectedPending(true);
   }, [apply, workspaceId]);
   useEffect(() => {
     mounted.current = true;
     void inspect().catch(failure => { if (mounted.current) setError(failureText(failure)); });
+    void window.bridge.getModelSettings(workspaceId).then(found => { if (mounted.current) setModels(found); })
+      .catch(failure => { if (mounted.current) setError(failureText(failure)); });
+    void window.bridge.getRepositoryContextMergedCandidates(workspaceId).then(found => { if (mounted.current) setCandidates(found); })
+      .catch(failure => { if (mounted.current) setCandidateError(failureText(failure)); });
     return () => { mounted.current = false; };
-  }, [inspect]);
+  }, [inspect, workspaceId]);
+  useEffect(() => setSelectedTopics([]), [report?.id]);
+  useEffect(() => setSourceToAllow(''), [plan?.id]);
   const build = view?.build ?? null;
   const running = build !== null && (build.task === null ? view?.canStart === false : build.task.state === 'OPEN');
   useEffect(() => {
@@ -135,45 +170,103 @@ export default function RepositoryContextBuild({ workspaceId, notebook, onNotebo
     catch (failure) { if (mounted.current) setError(failureText(failure)); }
     finally { if (mounted.current) setChecking(false); }
   };
-  const start = async (request: StartContextBuildRequest) => {
-    sessionStorage.setItem(pendingKey(workspaceId), JSON.stringify(request));
-    setPending(request);
+  const startDiscovery = async (request: StartContextDiscoveryRequest) => {
+    sessionStorage.setItem(discoveryPendingKey(workspaceId), JSON.stringify(request));
+    setDiscoveryPending(request);
     setInspectedPending(false);
-    const value = await window.bridge.startRepositoryContextBuild(workspaceId, request);
+    const value = await window.bridge.startRepositoryContextDiscovery(workspaceId, request);
     await apply(value);
-    if (mounted.current) { setForm(false); setActivity(true); }
+    if (mounted.current) setActivity(true);
   };
-  const scopeEnabled = (id: string) => notebook.scopes.some(scope => scope.id === id && scope.enabled);
+  const startLearning = async (request: StartContextLearningRequest) => {
+    sessionStorage.setItem(learningPendingKey(workspaceId), JSON.stringify(request));
+    setLearningPending(request);
+    setInspectedPending(false);
+    await apply(await window.bridge.startRepositoryContextLearning(workspaceId, request));
+    await inspect();
+    if (mounted.current) setActivity(true);
+  };
+  const continueLearning = async (request: ContinueContextLearningRequest) => {
+    sessionStorage.setItem(continuationPendingKey(workspaceId), JSON.stringify(request));
+    setContinuationPending(request);
+    setInspectedPending(false);
+    await apply(await window.bridge.continueRepositoryContextLearning(workspaceId, request));
+    await inspect();
+    if (mounted.current) setActivity(true);
+  };
+  const learnCandidate = async (request: LearnContextMergedCandidateRequest) => {
+    sessionStorage.setItem(candidatePendingKey(workspaceId), JSON.stringify(request));
+    setCandidatePending(request);
+    setInspectedPending(false);
+    await apply(await window.bridge.learnRepositoryContextMergedCandidate(workspaceId, request));
+    await inspect();
+    if (mounted.current) setActivity(true);
+  };
   const reviewModel = models?.agents.find(agent => agent.type === 'REVIEW');
   const provider = models?.providers.find(item => item.id === reviewModel?.configId);
   const modelReady = provider !== undefined && providerAvailable(provider.readiness) && provider.models.some(model => model.id === reviewModel?.model);
   const blocker = models === null ? 'Checking the workspace Review model…' : provider === undefined ? 'The workspace Review provider is unavailable.'
     : !providerAvailable(provider.readiness) ? providerRemedy(provider.readiness, provider.id).title
       : !modelReady ? 'The configured Review model is unavailable.' : null;
-  let history: ContextBuildHistoryDto[] = [];
-  let historyError: string | null = null;
-  try { history = historyInputs(prs, issues); }
-  catch (failure) { historyError = failureText(failure); }
-  const selectionValid = selected.length > 0 && selected.every(scopeEnabled);
-  const newDisabled = disabled || busy || view === null || !view.canStart || pending !== null;
+  const newDisabled = disabled || busy || view === null || !view.canStart || discoveryPending !== null
+    || learningPending !== null || continuationPending !== null || candidatePending !== null;
+  const unfinishedPlan = plan?.topics.some(topic => topic.status === 'PENDING') ?? false;
+  const currentTopic = plan?.topics.find(topic => topic.status === 'PENDING');
+  const additionalSources = currentTopic === undefined ? [] : notebook.sources.filter(source => !currentTopic.sourceIds.includes(source.id));
+  const selectedAdditionalSource = additionalSources.find(source => source.id === sourceToAllow);
+  const selectedSources = report?.sources.filter(source => report.topics.some(topic => selectedTopics.includes(topic.id)
+    && topic.sourceIds.includes(source.id))) ?? [];
+  const fence = () => {
+    if (view === null) throw new Error('Task status is unavailable. Inspect the latest task before starting.');
+    return { expectedRevision: notebook.revision, expectedBuildSequence: view.buildRequestSequence };
+  };
 
   return <section className="rc-build" aria-label="Learn repository context">
-    <div className="rc-actions"><button type="button" className="rc-button is-primary" disabled={newDisabled}
-      onClick={() => { setError(null); setSelected(scopeEnabled('project') ? ['project'] : []); setForm(true); void checkModel(); }}>Learn / Refresh</button>
+    <div className="rc-actions"><button type="button" className="rc-button is-primary" disabled={newDisabled || !modelReady || report === undefined || unfinishedPlan}
+      onClick={() => void perform(() => startDiscovery({ requestKey: crypto.randomUUID(), ...fence() }))}>
+      {report === null ? 'Start discovery' : 'Refresh discovery'}</button>
+      {notebook.pendingDrafts.length > 0 && <button type="button" className="rc-button"
+        onClick={() => document.getElementById('repository-context-drafts')?.scrollIntoView({ behavior: 'smooth' })}>Review drafts</button>}
       <button type="button" className="rc-button" disabled={busy} onClick={() => void perform(inspect)}>Inspect latest task</button></div>
-    <p className="rc-muted">Learn from repository files, directory structure, repository documentation and registered documentation. You can also select merged PRs and closed issues.</p>
-    {error !== null && !form && <div className="rc-error" role="alert">{error}</div>}
-    {pending !== null && !busy && <div className="rc-error" role="alert">
-      The start response is unconfirmed. Inspect the latest task or retry this same request; no new request will be created.
-      <div className="rc-actions"><button type="button" className="rc-button" onClick={() => void perform(() => start(pending))}>Retry same request</button>
-        {inspectedPending && view !== null && view.canStart && view.buildRequestSequence >= pending.expectedBuildSequence && view.build?.requestKey !== pending.requestKey
-          && <button type="button" className="rc-button" onClick={() => { sessionStorage.removeItem(pendingKey(workspaceId)); setPending(null); }}>Discard unconfirmed request</button>}</div>
+    <p className="rc-muted">Discovery surveys repository structure and selected files in a bounded task. Opening this page does not start an agent.</p>
+    <p className="rc-muted">Review model: {reviewModel === undefined ? 'Checking…' : `${reviewModel.label} · ${reviewModel.modelLabel}`}
+      {blocker !== null && <> · {blocker} <a href={settingsRoute('ws-agents', workspaceId)}>Workspace agent settings</a></>}</p>
+    <button type="button" className="rc-button" disabled={checking || busy} onClick={() => void checkModel()}>
+      {checking ? 'Checking model…' : 'Check model'}</button>
+    {error !== null && <div className="rc-error" role="alert">{error}</div>}
+    {discoveryPending !== null && !busy && <div className="rc-error" role="alert">
+      The discovery start response is unconfirmed. Inspect the latest task or retry this same request; no new request will be created.
+      <div className="rc-actions"><button type="button" className="rc-button" onClick={() => void perform(() => startDiscovery(discoveryPending))}>Retry same request</button>
+        {inspectedPending && view !== null && view.canStart && view.buildRequestSequence >= discoveryPending.expectedBuildSequence
+          && view.build?.requestKey !== discoveryPending.requestKey
+          && <button type="button" className="rc-button" onClick={() => { sessionStorage.removeItem(discoveryPendingKey(workspaceId)); setDiscoveryPending(null); }}>Discard unconfirmed request</button>}</div>
       {inspectedPending && <p>Discarding an unconfirmed request does not cancel an accepted running task.</p>}
+    </div>}
+    {learningPending !== null && !busy && <div className="rc-error" role="alert">
+      The learning start response is unconfirmed. Inspect the latest task or retry this same request.
+      <div className="rc-actions"><button type="button" className="rc-button" onClick={() => void perform(() => startLearning(learningPending))}>Retry same request</button>
+        {inspectedPending && view !== null && view.canStart && view.buildRequestSequence >= learningPending.expectedBuildSequence
+          && view.build?.requestKey !== learningPending.requestKey
+          && <button type="button" className="rc-button" onClick={() => { sessionStorage.removeItem(learningPendingKey(workspaceId)); setLearningPending(null); }}>Discard unconfirmed request</button>}</div>
+    </div>}
+    {continuationPending !== null && !busy && <div className="rc-error" role="alert">
+      The continuation response is unconfirmed. Inspect the latest task or retry this same request.
+      <div className="rc-actions"><button type="button" className="rc-button" onClick={() => void perform(() => continueLearning(continuationPending))}>Retry same request</button>
+        {inspectedPending && view !== null && view.canStart && view.buildRequestSequence >= continuationPending.expectedBuildSequence
+          && view.build?.requestKey !== continuationPending.requestKey
+          && <button type="button" className="rc-button" onClick={() => { sessionStorage.removeItem(continuationPendingKey(workspaceId)); setContinuationPending(null); }}>Discard unconfirmed request</button>}</div>
+    </div>}
+    {candidatePending !== null && !busy && <div className="rc-error" role="alert">
+      The merged-work learning response is unconfirmed. Inspect the latest task or retry this same request.
+      <div className="rc-actions"><button type="button" className="rc-button" onClick={() => void perform(() => learnCandidate(candidatePending))}>Retry same request</button>
+        {inspectedPending && view !== null && view.canStart && view.buildRequestSequence >= candidatePending.expectedBuildSequence
+          && view.build?.requestKey !== candidatePending.requestKey
+          && <button type="button" className="rc-button" onClick={() => { sessionStorage.removeItem(candidatePendingKey(workspaceId)); setCandidatePending(null); }}>Discard unconfirmed request</button>}</div>
     </div>}
     {view === null && <p className="rc-muted">Loading learning status…</p>}
     {build !== null && <article className="rc-note rc-build-result">
-      <div className="rc-note-head"><strong>Repository learning · {buildLabel(build, view?.canStart ?? false)}</strong><small>{build.task?.model ?? 'Configured Review model'}</small></div>
-      <p>{build.scopeIds.map(id => notebook.scopes.find(scope => scope.id === id)?.title ?? id).join(', ')}</p>
+      <div className="rc-note-head"><strong>Repository {build.mode === 'DISCOVER' ? 'discovery' : 'learning'} · {buildLabel(build, view?.canStart ?? false)}</strong><small>{build.task?.model ?? 'Configured Review model'}</small></div>
+      {build.scopeIds.length > 0 && <p>{build.scopeIds.map(id => notebook.scopes.find(scope => scope.id === id)?.title ?? id).join(', ')}</p>}
       {build.task?.terminalReason && <p>{build.task.terminalReason}</p>}
       {build.task !== null && build.task.state !== 'OPEN' && build.task.worktreeRemovedAt === null
         && <p className="rc-muted">Clean up the retained worktree before starting another learning task.</p>}
@@ -185,7 +278,8 @@ export default function RepositoryContextBuild({ workspaceId, notebook, onNotebo
       {build.gaps.length > 0 && <details><summary>Limitations · {build.gaps.length}</summary><ul>{build.gaps.map(gap => <li key={gap}>{gap}</li>)}</ul></details>}
       <div className="rc-actions">
         {running && build.task !== null && <button type="button" className="rc-button" disabled={busy || build.activeTurn?.cancellationRequestedAt != null}
-          onClick={() => void perform(async () => apply(await window.bridge.stopRepositoryContextBuild(workspaceId, build.taskId)))}>Stop learning</button>}
+          onClick={() => void perform(async () => apply(await window.bridge.stopRepositoryContextBuild(workspaceId, build.taskId)))}>
+          Stop {build.mode === 'DISCOVER' ? 'discovery' : 'learning'}</button>}
         {build.task?.mutationClaim === 'RECOVERY' && <button type="button" className="rc-button" disabled={busy}
           onClick={() => void perform(async () => { const value = await window.bridge.getRepositoryContextBuildStopImpact(workspaceId, build.taskId);
             if (value.taskId !== build.taskId) throw new Error('The runtime belongs to another task.'); setImpact(value); })}>Stop remaining processes</button>}
@@ -202,37 +296,131 @@ export default function RepositoryContextBuild({ workspaceId, notebook, onNotebo
         <p>{build.task?.worktreeRemovedAt === null ? 'Worktree is retained.' : build.task?.worktreeRemovedAt
           ? 'Worktree cleaned up; its generated branch is retained.' : 'Task worktree has not been reported.'}</p></details>
     </article>}
-    {form && <ContextDialog title="Learn / Refresh repository context" busy={busy || discovering} onCancel={() => setForm(false)}>
-      <form onSubmit={event => { event.preventDefault(); if (!selectionValid || historyError !== null || !modelReady || view === null || pending !== null || discovering || discoveryReload || unappliedSuggestions) return;
-        void perform(() => start({ requestKey: crypto.randomUUID(), expectedRevision: notebook.revision,
-          expectedBuildSequence: view.buildRequestSequence, scopeIds: selected, history })); }}>
-        <div className="rc-dialog-body"><p className="rc-muted">Repository files, directory structure, repository documentation and registered documentation are always included. Learning starts only when you click Start learning.</p>
-          {error !== null && <div className="rc-error" role="alert">{error}</div>}
-          <RepositoryContextDiscovery workspaceId={workspaceId} notebook={notebook} scopeIds={selected} history={historyError === null ? history : null}
-            disabled={busy || pending !== null} requiresReload={discoveryReload} onBusy={setDiscovering} onSelectionChange={setUnappliedSuggestions} onRequiresReload={setDiscoveryReload}
-            onNotebookChange={onNotebookChange} onUse={(scopes, mergedHistory) => {
-              setSelected(value => [...new Set([...value, ...scopes])]);
-              setPrs(mergedHistory.filter(item => item.kind === 'PR').map(item => item.number).join(', '));
-              setIssues(mergedHistory.filter(item => item.kind === 'ISSUE').map(item => item.number).join(', '));
-            }} />
-          <fieldset disabled={busy || discovering || pending !== null}><legend>Knowledge scopes</legend>{notebook.scopes.map(scope => <label key={scope.id}>
-            <input type="checkbox" checked={selected.includes(scope.id)} disabled={!scope.enabled}
-              onChange={event => setSelected(event.target.checked ? [...selected, scope.id] : selected.filter(id => id !== scope.id))} />
-            {scope.title}{!scope.enabled && <span className="rc-muted"> · Scope is disabled</span>}</label>)}</fieldset>
-          <label>Merged PR numbers (optional)<input value={prs} disabled={busy || discovering || pending !== null} placeholder="123, 456" onChange={event => setPrs(event.target.value)} /></label>
-          <label>Closed issue numbers (optional)<input value={issues} disabled={busy || discovering || pending !== null} placeholder="789" onChange={event => setIssues(event.target.value)} /></label>
-          <p className="rc-muted">Up to 10 from this repository. Merge or closure alone does not prove a fix. No history or website crawl is started.</p>
-          {historyError !== null && <p className="rc-error" role="alert">{historyError}</p>}
-          <p>Review model: {reviewModel === undefined ? 'Loading…' : `${reviewModel.label} · ${reviewModel.modelLabel}${reviewModel.effort ? ' · ' + reviewModel.effort : ''}`}</p>
-          {blocker !== null && <p className="rc-muted">{blocker}</p>}
-          <div className="rc-actions"><button type="button" className="rc-button" disabled={checking || busy} onClick={() => void checkModel()}>Check provider</button>
-            <a href={settingsRoute('ws-agents', workspaceId)}>Workspace agent settings</a></div>
-          <p className="rc-muted">Runs as a visible task you can stop. User-managed notes and removed or disabled knowledge are preserved. Review use can remain off.</p>
-        </div><footer><button type="button" className="rc-button" disabled={busy || discovering} onClick={() => setForm(false)}>Cancel</button>
-          <button type="submit" className="rc-button is-primary" disabled={busy || discovering || discoveryReload || unappliedSuggestions || checking || !selectionValid || historyError !== null || !modelReady || pending !== null}>
-            {busy ? 'Starting…' : 'Start learning'}</button></footer>
-      </form>
-    </ContextDialog>}
+    {report !== undefined && (report === null ? <p className="rc-muted">No saved discovery report yet. Start discovery to get proposed areas and sources.</p>
+      : <article className="rc-note rc-build-result" aria-label="Saved discovery report">
+        <div className="rc-note-head"><strong>Suggested areas · {report.partial ? 'Partial survey' : 'Saved survey'}</strong>
+          <small>{report.repository.owner}/{report.repository.repo}</small></div>
+        <p>{report.outline}</p>
+        <p className="rc-muted">Area suggestions cite repository reads. Source paths and URLs are agent suggestions; inspect them before approval. No knowledge note is active yet.</p>
+        {report.topics.length === 0 && <p>No supported topics were proposed yet.</p>}
+        {report.topics.map(topic => <div key={topic.id} className="rc-discovery-topic">
+          <label><input type="checkbox" checked={selectedTopics.includes(topic.id)} disabled={unfinishedPlan || newDisabled}
+            onChange={event => setSelectedTopics(current => event.target.checked ? [...current, topic.id] : current.filter(id => id !== topic.id))} />
+            {topic.title}</label>
+          <p>{topic.question}</p>
+          <details><summary>Why this area was suggested</summary><p>{topic.why}</p>
+            {topic.paths.length > 0 && <p>Repository areas: {topic.paths.join(', ')}</p>}
+            {topic.sourceIds.length > 0 && <ul>{topic.sourceIds.map(id => { const source = report.sources.find(value => value.id === id);
+              return <li key={id}>{source?.title ?? id}: {source?.location ?? 'Source unavailable'}</li>; })}</ul>}
+            {topic.evidenceReadIds.map(id => { const evidence = report.evidence.find(value => value.readId === id);
+              return evidence === undefined ? null : <details key={id}><summary>{evidence.path}:{evidence.startLine}–{evidence.endLine}</summary>
+                <pre className="rc-saved-version">{evidence.excerpt}</pre>{evidence.truncated && <p>Excerpt is incomplete.</p>}</details>; })}
+          </details>
+        </div>)}
+        {selectedTopics.length > 0 && !unfinishedPlan && <div className="rc-discovery-selection">
+          <strong>Suggested sources to approve</strong>
+          <p>Repository areas: {[...new Set(report.topics.filter(topic => selectedTopics.includes(topic.id)).flatMap(topic => topic.paths))].join(', ') || 'Project files cited by the selected topics'}</p>
+          {selectedSources.length === 0 ? <p>No documentation site was proposed for these topics.</p>
+            : <ul>{selectedSources.map(source => <li key={source.id}>Suggested {source.kind === 'DOCUMENTATION_ROOT' ? 'documentation website' :
+              source.kind === 'DOCUMENTATION_PAGE' ? 'documentation page' : 'repository file'}: {source.location}
+              <details><summary>Why this source was suggested</summary><p>{source.why}</p>
+                {source.evidenceReadIds.map(id => { const evidence = report.evidence.find(value => value.readId === id);
+                  return evidence === undefined ? null : <details key={id}><summary>Cited read: {evidence.path}:{evidence.startLine}–{evidence.endLine}</summary>
+                    <pre className="rc-saved-version">{evidence.excerpt}</pre></details>; })}</details></li>)}</ul>}
+          {selectedSources.length > 0 && <p className="rc-muted">The cited reads support the suggestion but do not verify that the exact path or URL appears in an excerpt. Learn selected approves these displayed destinations.</p>}
+          <p className="rc-muted">One topic runs at a time. Each run allows up to 40 source operations and 10 documentation opens; approved links can reach two hops.</p>
+          <button type="button" className="rc-button is-primary" disabled={newDisabled || !modelReady || selectedTopics.length === 0}
+            onClick={() => void perform(() => startLearning({ requestKey: crypto.randomUUID(), ...fence(),
+              reportId: report.id, topicIds: selectedTopics }))}>Learn selected</button>
+        </div>}
+        {unfinishedPlan && <p className="rc-muted">Finish or continue the current learning plan before starting another selection.</p>}
+        {(report.gaps.length > 0 || report.remaining.length > 0) && <details><summary>Limits and remaining work</summary>
+          {report.gaps.length > 0 && <ul>{report.gaps.map((gap, index) => <li key={index}>{gap}</li>)}</ul>}
+          {report.remaining.length > 0 && <><p>Not yet surveyed:</p><ul>{report.remaining.map((item, index) => <li key={index}>{item}</li>)}</ul></>}</details>}
+        <details><summary>Report source version</summary><p>Baseline: <code>{report.baselineSha}</code></p><p>Saved: {report.createdAt}</p></details>
+      </article>)}
+    {plan !== undefined && plan !== null && <article className="rc-note rc-build-result" aria-label="Learning progress">
+      <div className="rc-note-head"><strong>Learning progress</strong><small>{plan.topics.filter(topic => topic.status === 'COMPLETED').length} of {plan.topics.length} topics completed</small></div>
+      <p className="rc-muted">Accepted sources stay tied to {plan.repository.owner}/{plan.repository.repo} at <code>{plan.baselineSha}</code>.</p>
+      {plan.topics.map(topic => <details key={topic.id}><summary>{topic.title} · {topic.status === 'COMPLETED' ? 'Completed' : 'Pending'}</summary>
+        <p>{topic.remainingQuestion || topic.question}</p><p>Repository areas: {topic.paths.join(', ') || 'Project overview'}</p></details>)}
+      {plan.documentInventory.sources.length > 0 && <details><summary>Documentation inventory · {plan.documentInventory.items.filter(item => item.status === 'READ').length} opened</summary>
+        <p className="rc-muted">Opened means a bounded page excerpt was read. It does not mean the whole page was understood.</p>
+        <ul>{plan.documentInventory.items.map(item => <li key={item.sourceId + ':' + item.resolvedUrl}>
+          {item.status === 'READ' ? 'Opened' : item.status === 'PENDING' ? 'Pending' : item.status === 'FAILED' ? 'Failed' : 'Excluded'}:
+          {' '}{item.resolvedUrl}{item.detail && ` · ${item.detail}`}</li>)}</ul>
+        {plan.documentInventory.truncated && <p>More links were found than this bounded inventory could retain.</p>}
+      </details>}
+      {unfinishedPlan && plan.documentInventory.suggestedExpansionUrls.length > 0 && <div className="rc-discovery-selection">
+        <strong>Suggested external sources</strong>
+        <p className="rc-muted">These links were found on an opened page but are outside the approved source. A URL ending in / becomes a website root with links up to two hops; any other URL stays a single page. Approval adds the displayed URL to the current question without starting a task.</p>
+        <ul>{plan.documentInventory.suggestedExpansionUrls.map(url => <li key={url}>
+          {url.endsWith('/') ? 'Suggested website root' : 'Suggested single page'}: {url}{' '}
+          <button type="button" className="rc-button" disabled={newDisabled} onClick={() => void perform(async () => {
+            setPlan(await window.bridge.allowRepositoryContextLearningSource(workspaceId, { planId: plan.id, suggestedUrl: url, ...fence() }));
+            await inspect();
+          })}>Allow this source</button></li>)}</ul>
+      </div>}
+      {plan.gaps.length > 0 && <details><summary>Learning limitations</summary><ul>{plan.gaps.map((gap, index) => <li key={index}>{gap}</li>)}</ul></details>}
+      {unfinishedPlan && <div className="rc-actions"><button type="button" className="rc-button is-primary" disabled={newDisabled || !modelReady}
+        onClick={() => void perform(() => continueLearning({ requestKey: crypto.randomUUID(), ...fence(), planId: plan.id }))}>Continue learning</button>
+        <span className="rc-muted">Review drafts below before approving them. Approval does not start another run.</span></div>}
+      {unfinishedPlan && <details><summary>Allow another documentation source</summary>
+        {additionalSources.length === 0 ? <p>Add a documentation page or website under Advanced configuration to expand this question.</p>
+          : <><label>Registered source<select value={sourceToAllow} onChange={event => setSourceToAllow(event.target.value)}>
+            <option value="">Choose a source</option>{additionalSources.map(source => <option key={source.id} value={source.id}>{source.url}</option>)}
+          </select></label>
+            {selectedAdditionalSource !== undefined && <p>{selectedAdditionalSource.kind === 'DOCUMENTATION_ROOT' ? 'Documentation website' : 'Single page'}:
+              {' '}{selectedAdditionalSource.url}</p>}
+            <p className="rc-muted">This adds only the selected registered source to the current question. New links under a website can reach two hops. Approval does not start a task.</p>
+            <button type="button" className="rc-button" disabled={newDisabled || selectedAdditionalSource === undefined}
+              onClick={() => void perform(async () => {
+                setPlan(await window.bridge.allowRepositoryContextLearningSource(workspaceId, { planId: plan.id, sourceId: sourceToAllow,
+                  ...fence() }));
+                setSourceToAllow(''); await inspect();
+              })}>Allow source for current question</button></>}
+      </details>}
+      {unfinishedPlan && <details><summary>Plan options</summary><p>Discard the remaining questions and source inventory. Saved notes and drafts remain.</p>
+        <button type="button" className="rc-button" disabled={newDisabled} onClick={() => void perform(async () => {
+          setPlan(await window.bridge.discardRepositoryContextLearningPlan(workspaceId, { planId: plan.id, ...fence() }));
+          await inspect();
+        })}>Discard remaining plan</button></details>}
+    </article>}
+    <details className="rc-advanced"><summary>Merged work candidates{candidates !== null ? ` · ${candidates.candidates.length}` : ''}</summary>
+      <p className="rc-muted">A confirmed merge can suggest a learning question. Select a PR to start one bounded task; its merge and checks do not prove every claim.</p>
+      <button type="button" className="rc-button" disabled={busy} onClick={() => void perform(async () => {
+        setCandidates(await window.bridge.getRepositoryContextMergedCandidates(workspaceId)); setCandidateError(null);
+      })}>Refresh candidates</button>
+      {candidateError !== null && <p className="rc-error" role="alert">Candidates could not be loaded. {candidateError}</p>}
+      {candidates === null && candidateError === null && <p className="rc-muted">Loading retained merged work…</p>}
+      {candidates !== null && candidates.candidates.length === 0 && <p className="rc-muted">No confirmed merged development work is available here yet.</p>}
+      {candidates?.candidates.map(candidate => <article key={candidate.id} className="rc-note rc-build-result">
+        <div className="rc-note-head"><strong>PR #{candidate.number} · {candidate.title}</strong><small>{candidate.repo} · merged {candidate.mergedAt}</small></div>
+        <p><a href={candidate.url}>{candidate.url}</a></p>
+        {candidate.taskTitle !== null && <p>Development task: {candidate.taskTitle}</p>}
+        <details><summary>Retained bundle and limitations</summary>
+          {candidate.taskResult !== null && <p>Task result: {candidate.taskResult}</p>}
+          {candidate.learningSummary !== null && <><p>Change intention: {candidate.learningSummary.purpose}</p>
+            {candidate.learningSummary.combinedResult !== null && <p>Development summary: {candidate.learningSummary.combinedResult}</p>}
+            {candidate.learningSummary.evidence && <p>Retained evidence: {candidate.learningSummary.evidence}</p>}
+            {candidate.learningSummary.commits.length > 0 && <ul>{candidate.learningSummary.commits.map(commit =>
+              <li key={commit.sha}>{commit.sha.slice(0, 7)} · {commit.title}: {commit.summary}</li>)}</ul>}
+            {candidate.learningSummary.limitations.length > 0 && <ul>{candidate.learningSummary.limitations.map((gap, index) => <li key={index}>{gap}</li>)}</ul>}</>}
+          {candidate.issue !== null && <p>Linked {candidate.issue.kind}: {candidate.issue.key} · {candidate.issue.title} · {candidate.issue.context}</p>}
+          {candidate.review !== null && <><p>Review: {candidate.review.combinedResult}</p>
+            {!candidate.review.coverageComplete && <p>Review coverage was incomplete.</p>}
+            {[...candidate.review.omissions, ...candidate.review.warnings].map((gap, index) => <p key={index}>{gap}</p>)}</>}
+          {candidate.checks.length > 0 && <ul>{candidate.checks.map((check, index) =>
+            <li key={index}>{check.name}: {check.status}{check.conclusion && ` · ${check.conclusion}`}</li>)}</ul>}
+          {candidate.gaps.map((gap, index) => <p key={index}>{gap}</p>)}
+        </details>
+        <button type="button" className="rc-button" disabled={newDisabled || !modelReady || unfinishedPlan}
+          onClick={() => void perform(() => learnCandidate({ candidateId: candidate.id, requestKey: crypto.randomUUID(), ...fence() }))}>
+          Learn from this PR</button>
+      </article>)}
+      {candidates !== null && candidates.gaps.length > 0 && <details><summary>Candidate coverage limits</summary>
+        <ul>{candidates.gaps.map((gap, index) => <li key={index}>{gap}</li>)}</ul></details>}
+    </details>
     {impact !== null && <ContextDialog title="Stop learning processes" busy={busy} onCancel={() => setImpact(null)}>
       <div className="rc-dialog-body"><p>Stop the remaining provider runtime for this learning task. Its saved notes and worktree are retained.</p>
         <p>{impact.liveProcess ? 'A provider process is still running.' : 'No live provider process was reported.'}</p></div>

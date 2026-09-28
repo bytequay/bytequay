@@ -50,16 +50,15 @@ import { parseLocalReviewThread, parseLocalReviewThreads, type CreateDevelopment
 import { parseDevelopmentContextActivity } from './agents/contextActivity';
 import { parseAgentHistoryPage, parseAgentPendingApprovals } from './agents/events';
 import {
-  parseApplyContextDiscoveryRequest,
   parseConfigureRepositoryContextRequest,
   parseContextBuildView,
-  parseContextDiscovery,
+  parseContextDiscoveryReport,
+  parseContextLearningPlan,
   parseContextUsageActivities,
   parseContextUsageEntryId,
   parseContextUsageOverview,
   parseContextUsagePage,
   parseContextUsageWindow,
-  parseDiscoverRepositoryContextRequest,
   parseEditRepositoryContextEntryRequest,
   parseEditContextDraftRequest,
   parseContextDraftActionRequest,
@@ -68,7 +67,13 @@ import {
   parseResetRepositoryContextRequest,
   parseSaveRepositoryContextLessonRequest,
   parseSetRepositoryContextEntryEnabledRequest,
-  parseStartContextBuildRequest,
+  parseStartContextDiscoveryRequest,
+  parseStartContextLearningRequest,
+  parseContinueContextLearningRequest,
+  parseDiscardContextLearningPlanRequest,
+  parseAllowContextLearningSourceRequest,
+  parseContextMergedCandidates,
+  parseLearnContextMergedCandidateRequest,
 } from './repository-context/contracts';
 import {
   parseAgentReview,
@@ -1351,17 +1356,35 @@ function registerIpc(): void {
     return backendJson(`${contextUsageUrl(workspaceId)}/activities?entryId=${encodeURIComponent(entryId)}&window=${window}&page=${page}`,
       { headers: agentHeaders() }).then(value => parseContextUsageActivities(value, entryId));
   });
-  ipcMain.handle('repository-context:discover', (_event, workspaceId: string, request: unknown) =>
-    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/discovery`,
-      jsonInit('POST', parseDiscoverRepositoryContextRequest(request), agentHeaders())).then(value => parseContextDiscovery(value, workspaceId)));
-  ipcMain.handle('repository-context:discovery:apply', (_event, workspaceId: string, request: unknown) =>
-    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/discovery/apply`,
-      jsonInit('POST', parseApplyContextDiscoveryRequest(request), agentHeaders())).then(parseRepositoryNotebook));
+  ipcMain.handle('repository-context:discovery:report', (_event, workspaceId: string) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/discovery/report`,
+      { headers: agentHeaders() }).then(value => parseContextDiscoveryReport(value, workspaceId)));
   const contextBuildUrl = (workspaceId: string) => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/build`;
   ipcMain.handle('repository-context:build:get', (_event, workspaceId: string) =>
     backendJson(contextBuildUrl(workspaceId), { headers: agentHeaders() }).then(value => parseContextBuildView(value, workspaceId)));
-  ipcMain.handle('repository-context:build:start', (_event, workspaceId: string, request: unknown) =>
-    backendJson(contextBuildUrl(workspaceId), jsonInit('POST', parseStartContextBuildRequest(request), agentHeaders())).then(value => parseContextBuildView(value, workspaceId)));
+  ipcMain.handle('repository-context:build:plan', (_event, workspaceId: string) =>
+    backendJson(contextBuildUrl(workspaceId) + '/plan', { headers: agentHeaders() }).then(value => parseContextLearningPlan(value, workspaceId)));
+  ipcMain.handle('repository-context:build:discover', (_event, workspaceId: string, request: unknown) =>
+    backendJson(contextBuildUrl(workspaceId) + '/discover', jsonInit('POST', parseStartContextDiscoveryRequest(request), agentHeaders()))
+      .then(value => parseContextBuildView(value, workspaceId)));
+  ipcMain.handle('repository-context:build:learn', (_event, workspaceId: string, request: unknown) =>
+    backendJson(contextBuildUrl(workspaceId) + '/learn', jsonInit('POST', parseStartContextLearningRequest(request), agentHeaders()))
+      .then(value => parseContextBuildView(value, workspaceId)));
+  ipcMain.handle('repository-context:build:continue', (_event, workspaceId: string, request: unknown) =>
+    backendJson(contextBuildUrl(workspaceId) + '/continue', jsonInit('POST', parseContinueContextLearningRequest(request), agentHeaders()))
+      .then(value => parseContextBuildView(value, workspaceId)));
+  ipcMain.handle('repository-context:build:plan:discard', (_event, workspaceId: string, request: unknown) =>
+    backendJson(contextBuildUrl(workspaceId) + '/plan', jsonInit('DELETE', parseDiscardContextLearningPlanRequest(request), agentHeaders()))
+      .then(value => parseContextLearningPlan(value, workspaceId)));
+  ipcMain.handle('repository-context:build:plan:source', (_event, workspaceId: string, request: unknown) =>
+    backendJson(contextBuildUrl(workspaceId) + '/plan/sources', jsonInit('POST', parseAllowContextLearningSourceRequest(request), agentHeaders()))
+      .then(value => parseContextLearningPlan(value, workspaceId)));
+  const contextCandidatesUrl = (workspaceId: string) => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/candidates`;
+  ipcMain.handle('repository-context:candidates', (_event, workspaceId: string) =>
+    backendJson(contextCandidatesUrl(workspaceId), { headers: agentHeaders() }).then(parseContextMergedCandidates));
+  ipcMain.handle('repository-context:candidates:learn', (_event, workspaceId: string, request: unknown) =>
+    backendJson(contextCandidatesUrl(workspaceId) + '/learn', jsonInit('POST', parseLearnContextMergedCandidateRequest(request), agentHeaders()))
+      .then(value => parseContextBuildView(value, workspaceId)));
   ipcMain.handle('repository-context:build:stop', (_event, workspaceId: string, taskId: string) =>
     backendJson(contextBuildUrl(workspaceId) + '/stop', jsonInit('POST', { taskId }, agentHeaders())).then(value => parseContextBuildView(value, workspaceId)));
   ipcMain.handle('repository-context:build:stop-impact', (_event, workspaceId: string, taskId: string) =>

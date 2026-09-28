@@ -74,6 +74,7 @@ import com.bytequay.app.ci.CiMemoryService;
 import com.bytequay.app.ci.DevelopmentCiOwnership;
 import com.bytequay.app.ci.GitHubActionsClient;
 import com.bytequay.app.ci.ReadCiMemoryCommand;
+import com.bytequay.app.context.ContextMergedCandidateService;
 import com.bytequay.app.context.DevelopmentContextTools;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
@@ -421,7 +422,7 @@ public class AgentConfiguration
     @Bean
     public DevelopmentFollowupCoordinator developmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git,
             CiAutofixService ci, GitHubActionsClient actions, CredentialService credentials, GitHubPullRequestReadClient pullRequests,
-            GitHubPullRequestWriteClient writes, Clock agentClock)
+            GitHubPullRequestWriteClient writes, Clock agentClock, ObjectProvider<ContextMergedCandidateService> candidates)
     {
         return new DevelopmentFollowupCoordinator(turns, turnStore, git,
                 command -> Thread.ofVirtual().name("bytequay-development-followup").start(command), ci, actions, credentials, pullRequests, writes, agentClock, () -> {
@@ -432,7 +433,7 @@ public class AgentConfiguration
                         Thread.currentThread().interrupt();
                         throw new IllegalStateException("Development CI monitoring was stopped", interrupted);
                     }
-                });
+                }, (task, pr) -> candidates.getObject().recordPublished(task, pr));
     }
 
     @Bean

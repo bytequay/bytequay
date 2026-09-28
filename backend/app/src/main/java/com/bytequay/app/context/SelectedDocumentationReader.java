@@ -143,7 +143,8 @@ public class SelectedDocumentationReader
             gaps.add("The requested refresh failed; this is the original cached observation, not a newly retrieved document.");
         }
         return new Page(source, notebook.revision(), read.resolvedUrl(), captured.id(), read.contentHash(), read.readAt(), page, pages.size(),
-                pages.get(page - 1), read.truncated(), cacheHit, refreshFailed, gaps.build());
+                pages.get(page - 1), read.truncated(), cacheHit, refreshFailed, gaps.build(), read.links(), read.suggestedExpansionUrls(),
+                read.linksTruncated());
     }
 
     private Captured capture(Key key, Optional<String> relativePage)
@@ -187,11 +188,21 @@ public class SelectedDocumentationReader
 
     public record Page(
             RegisteredContextSource source, long notebookRevision, String resolvedUrl, String captureId, String contentHash, Instant readAt,
-            int page, int totalPages, String excerpt, boolean truncated, boolean cacheHit, boolean refreshFailed, List<String> gaps)
+            int page, int totalPages, String excerpt, boolean truncated, boolean cacheHit, boolean refreshFailed, List<String> gaps,
+            List<DocumentationHttpReader.Link> links, List<String> suggestedExpansionUrls, boolean linksTruncated)
     {
+        public Page(RegisteredContextSource source, long notebookRevision, String resolvedUrl, String captureId, String contentHash, Instant readAt,
+                int page, int totalPages, String excerpt, boolean truncated, boolean cacheHit, boolean refreshFailed, List<String> gaps)
+        {
+            this(source, notebookRevision, resolvedUrl, captureId, contentHash, readAt, page, totalPages, excerpt, truncated, cacheHit,
+                    refreshFailed, gaps, ImmutableList.of(), ImmutableList.of(), false);
+        }
+
         public Page
         {
             gaps = ImmutableList.copyOf(gaps);
+            links = ImmutableList.copyOf(links);
+            suggestedExpansionUrls = ImmutableList.copyOf(suggestedExpansionUrls);
         }
     }
 

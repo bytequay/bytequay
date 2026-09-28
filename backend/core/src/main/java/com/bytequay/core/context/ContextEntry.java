@@ -54,9 +54,8 @@ public record ContextEntry(
         checkArgument(version > 0, "Entry version must be positive");
         checkArgument(kind != ContextEntryKind.KNOWLEDGE || belongsToKnowledgeScope(id, scopeId),
                 "Knowledge id must belong to scope %s", scopeId);
-        checkArgument(kind != ContextEntryKind.MEMORY || origin == ContextEntryOrigin.USER, "Memory must be user-owned");
         checkArgument(kind != ContextEntryKind.MEMORY || !sourceIds.isEmpty(), "Memory needs retained evidence");
-        checkArgument(origin != ContextEntryOrigin.GENERATED || !sourceIds.isEmpty(), "Generated knowledge needs retained evidence");
+        checkArgument(origin != ContextEntryOrigin.GENERATED || !sourceIds.isEmpty(), "Generated notes need retained evidence");
     }
 
     public static String knowledgeId(String scopeId)

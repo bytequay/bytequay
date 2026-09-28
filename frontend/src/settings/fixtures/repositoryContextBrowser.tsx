@@ -17,7 +17,10 @@ import AppSidebar from '../../AppSidebar';
 import type { AgentPendingApprovalDto, Bridge, WorkspaceDto } from '../../types';
 import type { AgentEventEnvelope } from '../../agents/events';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
-import type { ApplyContextDiscoveryRequest, ContextBuildViewDto, ContextDiscoveryDto, ContextEntryDto, ContextScopeDto, ContextSourceDto, ContextUsageOverviewDto, DiscoverRepositoryContextRequest, RepositoryNotebookDto, StartContextBuildRequest } from '../../repository-context/contracts';
+import type { ContextBuildViewDto, ContextDiscoveryReportDto, ContextEntryDto,
+  ContextLearningPlanDto, ContextMergedCandidatesDto, LearnContextMergedCandidateRequest, ContextScopeDto, ContextSourceDto, ContextUsageOverviewDto,
+  RepositoryNotebookDto, StartContextDiscoveryRequest, StartContextLearningRequest,
+  ContinueContextLearningRequest } from '../../repository-context/contracts';
 import SettingsWindow from '../SettingsWindow';
 import '../../css/base.css';
 import '../../css/settings-window.css';
@@ -79,40 +82,69 @@ function usage(window: ContextUsageOverviewDto['window']): ContextUsageOverviewD
 }
 
 type Mutation = { action: string; workspaceId: string; request: { expectedRevision: number } };
-function discovery(workspaceId: string, revision: number): ContextDiscoveryDto {
-  const evidence: ContextDiscoveryDto['scopes'][number]['evidence'] = { id: 'discovered-readme', reference: { kind: 'REPOSITORY_FILE', repositoryId: 42,
-    repository: { owner: 'trinodb', repo: 'trino' }, path: 'plugin/trino-hive/README.md', commit: 'a'.repeat(40) }, capture: 'BYTEQUAY_READ',
-    excerpt: 'Hive connector. Documentation: https://hive.apache.org/docs/', provenance: 'Repository README at the frozen baseline',
-    retrievedAt: '2026-09-01T00:00:00Z', contentHash: 'b'.repeat(64), version: 'a'.repeat(40), truncated: false };
-  return { workspaceId, notebookRevision: revision, baselineSha: 'a'.repeat(40), repositoryFingerprint: 'c'.repeat(64), query: 'Hive',
-    scopes: [{ scope: { id: 'path:plugin/trino-hive/', title: 'Hive connector', match: { kind: 'SELECTED', pathPrefixes: ['plugin/trino-hive/'], terms: ['Hive'] },
-      enabled: true, preparation: null, discoveryEvidenceRef: evidence.id }, evidence, reasons: ['Module directory with a README'] }],
-    sources: [{ source: { id: 'docs-hive', kind: 'DOCUMENTATION_ROOT', url: 'https://hive.apache.org/docs/', origin: 'GENERATED', discoveryEvidenceRef: evidence.id },
-      evidence, reasons: ['Explicit HTTPS documentation link in the README'] }],
-    history: [{ kind: 'PR', number: 88, title: 'Fix Hive partition lookup', url: 'https://github.com/trinodb/trino/pull/88', state: 'MERGED', outcome: 'merged',
-      updatedAt: '2026-09-01T00:00:00Z', reasons: ['Hive title matches selected focus'], provenance: 'Saved PR data; detail has not been refreshed' },
-    { kind: 'ISSUE', number: 89, title: 'Hive partition edge case', url: 'https://github.com/trinodb/trino/issues/89', state: 'CLOSED', outcome: 'not_planned',
-      updatedAt: '2026-09-01T00:00:00Z', reasons: ['Hive title matches selected focus'], provenance: 'Bounded GitHub issue search result' }],
-    inspected: { directories: 12, files: 4, pullRequests: 20, issues: 5 }, gaps: ['Only a bounded selection was checked; older history may be absent.'] };
+function savedReport(workspaceId: string): ContextDiscoveryReportDto {
+  return { id: 'discover-task', workspaceId, repositoryId: 42, repository: { owner: 'trinodb', repo: 'trino' },
+    baselineSha: 'a'.repeat(40), outline: 'Trino is a distributed SQL engine with connector modules.',
+    topics: [{ id: 'topic:1', title: 'Iceberg connector', question: 'How does Trino read Iceberg tables?', paths: ['plugin/trino-iceberg/'],
+      sourceIds: ['source:1'], evidenceReadIds: ['read:1'], why: 'The connector README links code and documentation.' },
+    { id: 'topic:2', title: 'Delta Lake connector', question: 'How does Trino read Delta Lake tables?', paths: ['plugin/trino-delta-lake/'],
+      sourceIds: ['source:2'], evidenceReadIds: ['read:2'], why: 'The Delta Lake module names its connector.' }],
+    sources: [{ id: 'source:1', kind: 'DOCUMENTATION_PAGE', location: 'https://trino.io/docs/current/connector/iceberg.html',
+      title: 'Iceberg documentation', evidenceReadIds: ['read:1'], why: 'Linked from the connector README.' },
+    { id: 'source:2', kind: 'DOCUMENTATION_PAGE', location: 'https://trino.io/docs/current/connector/delta-lake.html',
+      title: 'Delta Lake documentation', evidenceReadIds: ['read:2'], why: 'Linked from the connector module.' }],
+    evidence: [{ readId: 'read:1', path: 'plugin/trino-iceberg/README.md', blobId: 'b'.repeat(40), startLine: 1, endLine: 3,
+      excerpt: 'Iceberg connector documentation', truncated: false },
+    { readId: 'read:2', path: 'plugin/trino-delta-lake/README.md', blobId: 'c'.repeat(40), startLine: 1, endLine: 3,
+      excerpt: 'Delta Lake connector documentation', truncated: false }], gaps: ['Other modules were not inspected.'],
+    remaining: ['Survey remaining connectors'], partial: true, createdAt: '2026-09-01T00:00:20Z' };
+}
+function savedPlan(workspaceId: string, report: ContextDiscoveryReportDto, selected: string[]): ContextLearningPlanDto {
+  const sources: ContextSourceDto[] = report.sources.filter(source => report.topics.some(topic => selected.includes(topic.id)
+    && topic.sourceIds.includes(source.id))).map(source => ({ id: source.id, kind: 'DOCUMENTATION_PAGE', url: source.location,
+    origin: 'GENERATED', discoveryEvidenceRef: 'read:1' }));
+  return { id: 'plan-1', workspaceId, reportId: report.id, acceptedRequestKey: 'learn-key', acceptedRequestDigest: 'sha256:' + 'd'.repeat(64),
+    acceptedNotebookRevision: 7, initialBuildSequence: 1, acceptedTopicIds: selected, repositoryId: 42, repository: report.repository,
+    baselineSha: report.baselineSha, topics: report.topics.filter(topic => selected.includes(topic.id)).map((topic): ContextLearningPlanDto['topics'][number] => ({
+      id: topic.id, title: topic.title, question: topic.question, scopeId: 'path:' + topic.paths[0], paths: topic.paths,
+      repositoryFiles: [], sourceIds: topic.sourceIds, status: 'PENDING', remainingQuestion: topic.question })),
+    documentationSources: sources, documentInventory: { sources, items: sources.map((source): ContextLearningPlanDto['documentInventory']['items'][number] => ({ sourceId: source.id, resolvedUrl: source.url,
+      relativePage: null, parentUrl: null, depth: 0, status: 'PENDING', readId: null, contentHash: null, detail: '' })),
+      suggestedExpansionUrls: [], truncated: false },
+    gaps: [], acceptedAt: '2026-09-01T00:00:30Z' };
+}
+function mergedCandidates(): ContextMergedCandidatesDto {
+  return { candidates: [{ id: 'pr:trinodb/trino#123', repo: 'trinodb/trino', number: 123, title: 'Fix Iceberg metadata refresh',
+    url: 'https://github.com/trinodb/trino/pull/123', mergedAt: '2026-09-01T00:00:00Z', taskId: 'task-123', taskTitle: 'Fix metadata refresh',
+    taskResult: 'Added a regression test.', learningSummary: { purpose: 'Keep metadata fresh after commits.', commits: [],
+      combinedResult: 'Refreshes metadata on commit.', evidence: 'Tests passed at the task head.', limitations: ['Verify against later releases.'] },
+    issue: { kind: 'GITHUB', key: '#100', url: 'https://github.com/trinodb/trino/issues/100', title: 'Stale metadata', context: 'Reads lag commits.' },
+    review: { reviewId: 'review-123', runId: 'run-123', purpose: 'Check the change', combinedResult: 'No blocking finding.',
+      coverageComplete: false, omissions: ['Some paths were not reviewed.'], warnings: [] },
+    checks: [{ name: 'Unit tests', status: 'COMPLETED', conclusion: 'SUCCESS', url: 'https://github.com/trinodb/trino/actions/runs/123' }],
+    gaps: ['Merge is not proof of current correctness.'] }], gaps: ['Only retained merged work is shown.'] };
 }
 function backend() {
   sessionStorage.clear();
   const saved = new Map(workspaces.map(workspace => [workspace.id, notebook(workspace.id === 'ws-2')]));
   const builds = new Map<string, ContextBuildViewDto>(workspaces.map((workspace): [string, ContextBuildViewDto] => [workspace.id,
     { buildRequestSequence: 0, notebookRevision: 7, canStart: true, build: null }]));
-  const starts: Array<{ workspaceId: string; request: StartContextBuildRequest }> = [];
+  const discoveryStarts: Array<{ workspaceId: string; request: StartContextDiscoveryRequest }> = [];
+  const learningStarts: Array<{ workspaceId: string; request: StartContextLearningRequest }> = [];
+  const continuations: Array<{ workspaceId: string; request: ContinueContextLearningRequest }> = [];
+  const candidateStarts: Array<{ workspaceId: string; request: LearnContextMergedCandidateRequest }> = [];
+  const candidateReads: string[] = [];
+  const reports = new Map<string, ContextDiscoveryReportDto>();
+  const plans = new Map<string, ContextLearningPlanDto>();
   const controls: Array<{ action: string; taskId: string; generation?: string }> = [];
   const reads: string[] = [];
   const writes: Mutation[] = [];
-  const discoveries: DiscoverRepositoryContextRequest[] = [];
-  const applications: ApplyContextDiscoveryRequest[] = [];
   const usageReads: Array<{ workspaceId: string; window: '30d' | 'all'; page: number }> = [];
   const activityReads: Array<{ workspaceId: string; entryId: string; window: '30d' | 'all'; page: number }> = [];
   const delayed = new Map<string, (notebook: RepositoryNotebookDto) => void>();
-  const state = { saved, reads, writes, delayed, builds, starts, controls, discoveries, applications, usageReads, activityReads,
-    discoveryFailure: false, emptyDiscovery: false,
-    loseApply: false, readFailure: false, holdWorkspace: '', unavailable: false,
-    loseStartBefore: false, loseStartAfter: false, approvals: [] as AgentPendingApprovalDto[], events: [] as AgentEventEnvelope[] };
+  const state = { saved, reads, writes, delayed, builds, discoveryStarts, learningStarts, continuations, candidateStarts, candidateReads, reports, plans,
+    controls, usageReads, activityReads, readFailure: false, holdWorkspace: '', unavailable: false,
+    approvals: [] as AgentPendingApprovalDto[], events: [] as AgentEventEnvelope[] };
   const mutate = <T extends { expectedRevision: number }>(action: string, workspaceId: string, request: T,
     change: (current: RepositoryNotebookDto) => RepositoryNotebookDto): Promise<RepositoryNotebookDto> => {
     writes.push({ action, workspaceId, request: structuredClone(request) });
@@ -122,6 +154,21 @@ function backend() {
     const changed = { ...change(current), revision: current.revision + 1 };
     saved.set(workspaceId, changed);
     return Promise.resolve(structuredClone(changed));
+  };
+  const startGuided = (workspaceId: string, request: StartContextDiscoveryRequest, mode: 'DISCOVER' | 'LEARN'): ContextBuildViewDto => {
+    const current = builds.get(workspaceId); assert(current !== undefined, 'Builder workspace exists');
+    if (current.build?.requestKey === request.requestKey) return structuredClone(current);
+    assert(current.canStart && request.expectedBuildSequence === current.buildRequestSequence, 'Start uses displayed build sequence');
+    assert(request.expectedRevision === saved.get(workspaceId)?.revision, 'Start uses displayed notebook revision');
+    const taskId = mode === 'DISCOVER' ? 'discover-task' : 'learn-task-' + (current.buildRequestSequence + 1);
+    const value: ContextBuildViewDto = { buildRequestSequence: current.buildRequestSequence + 1, notebookRevision: request.expectedRevision, canStart: false,
+      build: { mode, requestKey: request.requestKey, taskId, baselineSha: 'a'.repeat(40), scopeIds: [], history: [], requestedAt: '2026-09-01T00:00:00Z',
+        task: { id: taskId, workspaceId, state: 'OPEN', version: 1, laneId: 'codex', model: 'gpt-5.6-codex', mutationClaim: 'TURN',
+          terminalReason: null, worktreePath: '/tmp/bytequay-fixture/' + taskId, worktreeRemovedAt: null },
+        activeTurn: { id: taskId + '-turn', state: 'RUNNING', startedAt: '2026-09-01T00:00:01Z', cancellationRequestedAt: null },
+        pendingApprovals: 0, results: [], gaps: [] } };
+    builds.set(workspaceId, value);
+    return structuredClone(value);
   };
   const bridge = {
     getAppVersion: async () => ({ version: '0.4.0' }),
@@ -152,47 +199,70 @@ function backend() {
       return { ...catalog, providers: catalog.providers.map(provider => ({ ...provider,
         readiness: state.unavailable ? 'AUTHENTICATION_REQUIRED' as const : provider.readiness })) };
     },
-    discoverRepositoryContext: async (workspaceId, request) => {
-      discoveries.push(structuredClone(request));
-      if (state.discoveryFailure) throw new Error('Sync this workspace before finding suggestions.');
-      const current = saved.get(workspaceId); assert(current !== undefined, 'Notebook exists');
-      const preview = discovery(workspaceId, current.revision);
-      return { ...preview, query: request.query, ...(state.emptyDiscovery ? { scopes: [], sources: [], history: [] } : {}) };
-    },
-    applyRepositoryContextDiscovery: async (workspaceId, request) => {
-      applications.push(structuredClone(request));
-      const current = saved.get(workspaceId); assert(current !== undefined, 'Notebook exists');
-      if (request.expectedRevision !== current.revision) throw new Error('Notebook changed; reload before applying.');
-      const preview = discovery(workspaceId, current.revision);
-      const chosenScopes = preview.scopes.filter(item => request.scopeIds.includes(item.scope.id));
-      const chosenSources = preview.sources.filter(item => request.sourceIds.includes(item.source.id));
-      const updated: RepositoryNotebookDto = { ...current, revision: current.revision + 1, scopes: [...current.scopes, ...chosenScopes.map(item => item.scope)],
-        sources: [...current.sources, ...chosenSources.map(item => item.source)], sourceEvidence: [...current.sourceEvidence,
-          ...new Map([...chosenScopes, ...chosenSources].map(item => [item.evidence.id, item.evidence])).values()] };
-      saved.set(workspaceId, updated);
-      const build = builds.get(workspaceId); assert(build !== undefined, 'Builder exists'); builds.set(workspaceId, { ...build, notebookRevision: updated.revision });
-      if (state.loseApply) { state.loseApply = false; throw new Error('Apply response was lost'); }
-      return structuredClone(updated);
+    getRepositoryContextDiscoveryReport: async (workspaceId: string) => structuredClone(reports.get(workspaceId) ?? null),
+    getRepositoryContextLearningPlan: async (workspaceId: string) => structuredClone(plans.get(workspaceId) ?? null),
+    getRepositoryContextMergedCandidates: async (workspaceId: string) => {
+      candidateReads.push(workspaceId);
+      return structuredClone(mergedCandidates());
     },
     getRepositoryContextBuild: async (workspaceId: string) => {
       const value = builds.get(workspaceId); assert(value !== undefined, 'Builder belongs to workspace'); return structuredClone(value);
     },
-    startRepositoryContextBuild: async (workspaceId, request) => {
-      starts.push({ workspaceId, request: structuredClone(request) });
-      if (state.loseStartBefore) { state.loseStartBefore = false; throw new Error('Start response was lost'); }
-      const current = builds.get(workspaceId); assert(current !== undefined, 'Builder workspace exists');
-      if (current.build?.requestKey === request.requestKey) return structuredClone(current);
-      assert(current.canStart && request.expectedBuildSequence === current.buildRequestSequence, 'Start must use displayed build sequence');
-      assert(request.expectedRevision === saved.get(workspaceId)?.revision, 'Start must use displayed notebook revision');
-      const value: ContextBuildViewDto = { buildRequestSequence: current.buildRequestSequence + 1, notebookRevision: request.expectedRevision, canStart: false,
-        build: { requestKey: request.requestKey, taskId: 'build-task', baselineSha: 'a'.repeat(40), scopeIds: request.scopeIds, history: request.history,
-          requestedAt: '2026-09-01T00:00:00Z', task: { id: 'build-task', workspaceId, state: 'OPEN', version: 1, laneId: 'codex', model: 'gpt-5.6-codex',
-            mutationClaim: 'TURN', terminalReason: null, worktreePath: '/tmp/bytequay-fixture/learning-worktree', worktreeRemovedAt: null },
-          activeTurn: { id: 'build-turn', state: 'RUNNING', startedAt: '2026-09-01T00:00:01Z', cancellationRequestedAt: null },
-          pendingApprovals: state.approvals.length, results: [], gaps: [] } };
-      builds.set(workspaceId, value);
-      if (state.loseStartAfter) { state.loseStartAfter = false; throw new Error('Start response was lost'); }
-      return structuredClone(value);
+    startRepositoryContextDiscovery: async (workspaceId, request) => {
+      discoveryStarts.push({ workspaceId, request: structuredClone(request) });
+      return startGuided(workspaceId, request, 'DISCOVER');
+    },
+    startRepositoryContextLearning: async (workspaceId, request) => {
+      learningStarts.push({ workspaceId, request: structuredClone(request) });
+      const report = reports.get(workspaceId); assert(report?.id === request.reportId, 'Learning requires the saved report');
+      if (!plans.has(workspaceId)) plans.set(workspaceId, { ...savedPlan(workspaceId, report, request.topicIds),
+        acceptedRequestKey: request.requestKey, initialBuildSequence: request.expectedBuildSequence });
+      return startGuided(workspaceId, request, 'LEARN');
+    },
+    continueRepositoryContextLearning: async (workspaceId, request) => {
+      continuations.push({ workspaceId, request: structuredClone(request) });
+      assert(plans.get(workspaceId)?.id === request.planId, 'Continuation requires the accepted plan');
+      return startGuided(workspaceId, request, 'LEARN');
+    },
+    learnRepositoryContextMergedCandidate: async (workspaceId, request) => {
+      candidateStarts.push({ workspaceId, request: structuredClone(request) });
+      assert(mergedCandidates().candidates.some(candidate => candidate.id === request.candidateId), 'Learning requires a retained merge');
+      return startGuided(workspaceId, request, 'LEARN');
+    },
+    discardRepositoryContextLearningPlan: async (workspaceId, request) => {
+      const current = builds.get(workspaceId);
+      assert(current?.canStart && current.buildRequestSequence === request.expectedBuildSequence, 'Discard requires idle current builder');
+      assert(saved.get(workspaceId)?.revision === request.expectedRevision && plans.get(workspaceId)?.id === request.planId,
+        'Discard requires the current notebook and plan');
+      plans.delete(workspaceId);
+      return null;
+    },
+    allowRepositoryContextLearningSource: async (workspaceId, request) => {
+      const current = builds.get(workspaceId);
+      const plan = plans.get(workspaceId);
+      const notebook = saved.get(workspaceId);
+      const suggestedUrl = request.suggestedUrl;
+      const source: ContextSourceDto | undefined = suggestedUrl === undefined
+        ? notebook?.sources.find(value => value.id === request.sourceId)
+        : { id: 'approved-suggestion', kind: suggestedUrl.endsWith('/') ? 'DOCUMENTATION_ROOT' : 'DOCUMENTATION_PAGE',
+          url: suggestedUrl, origin: 'USER', discoveryEvidenceRef: null };
+      assert(current?.canStart && current.buildRequestSequence === request.expectedBuildSequence && plan?.id === request.planId
+        && notebook?.revision === request.expectedRevision && source !== undefined, 'Source expansion requires the current idle plan');
+      assert(suggestedUrl === undefined || plan.documentInventory.suggestedExpansionUrls.includes(suggestedUrl),
+        'Suggested source must be persisted in the plan');
+      const topic = plan.topics.find(value => value.status === 'PENDING'); assert(topic !== undefined, 'A pending question exists');
+      const updated: ContextLearningPlanDto = { ...plan, documentationSources: [...plan.documentationSources, source],
+        topics: plan.topics.map(value => value.id === topic.id ? { ...value, sourceIds: [...value.sourceIds, source.id] } : value),
+        documentInventory: { ...plan.documentInventory, sources: [...plan.documentInventory.sources, source],
+          suggestedExpansionUrls: plan.documentInventory.suggestedExpansionUrls.filter(url => url !== suggestedUrl),
+          items: [...plan.documentInventory.items, { sourceId: source.id, resolvedUrl: source.url, relativePage: null, parentUrl: null,
+            depth: 0, status: 'PENDING', readId: null, contentHash: null, detail: '' }] } };
+      plans.set(workspaceId, updated);
+      if (suggestedUrl !== undefined) {
+        saved.set(workspaceId, { ...notebook, revision: notebook.revision + 1, sources: [...notebook.sources, source] });
+        builds.set(workspaceId, { ...current, notebookRevision: notebook.revision + 1 });
+      }
+      return structuredClone(updated);
     },
     stopRepositoryContextBuild: async (workspaceId, taskId) => {
       controls.push({ action: 'stop', taskId });
@@ -264,9 +334,13 @@ function backend() {
     | 'getRepositoryContextEntryUsage' | 'configureRepositoryContext'
     | 'editRepositoryContextEntry' | 'editRepositoryContextDraft' | 'approveRepositoryContextDraft' | 'dismissRepositoryContextDraft'
     | 'setRepositoryContextEntryEnabled' | 'removeRepositoryContextEntry' | 'resetRepositoryContext' | 'getModelSettings'
-    | 'getRepositoryContextBuild' | 'startRepositoryContextBuild' | 'stopRepositoryContextBuild' | 'getRepositoryContextBuildStopImpact'
-    | 'stopRepositoryContextBuildRuntime' | 'readAgentHistory' | 'readAgentPendingApprovals' | 'getAgentTurn' | 'resolveAgentApproval'
-    | 'discoverRepositoryContext' | 'applyRepositoryContextDiscovery'>;
+    | 'getRepositoryContextBuild' | 'getRepositoryContextDiscoveryReport' | 'getRepositoryContextLearningPlan'
+    | 'getRepositoryContextMergedCandidates' | 'learnRepositoryContextMergedCandidate'
+    | 'startRepositoryContextDiscovery' | 'startRepositoryContextLearning' | 'continueRepositoryContextLearning'
+    | 'discardRepositoryContextLearningPlan'
+    | 'allowRepositoryContextLearningSource'
+    | 'stopRepositoryContextBuild' | 'getRepositoryContextBuildStopImpact'
+    | 'stopRepositoryContextBuildRuntime' | 'readAgentHistory' | 'readAgentPendingApprovals' | 'getAgentTurn' | 'resolveAgentApproval'>;
   Object.defineProperty(window, 'bridge', { configurable: true, value: bridge });
   return state;
 }
@@ -324,7 +398,7 @@ function fixture(state: ReturnType<typeof backend>) {
       assert(found !== undefined, `Missing row: ${title}`); return found;
     },
     async advanced() {
-      const details = host.querySelector<HTMLDetailsElement>('.rc-advanced');
+      const details = [...host.querySelectorAll<HTMLDetailsElement>('.rc-advanced')].find(item => item.querySelector('summary')?.textContent === 'Advanced configuration');
       assert(details !== null, 'Advanced configuration must be available');
       if (!details.open) { details.querySelector('summary')?.click(); await settle(); }
       assert(details.open, 'Advanced configuration must open');
@@ -362,7 +436,7 @@ export async function run(): Promise<Array<{ name: string; error?: string }>> {
     assert(button(view.host, 'Use repository context in reviews').getAttribute('aria-checked') === 'true', 'Initial preference must be on');
     assert(button(view.host, 'Use repository context in development').getAttribute('aria-checked') === 'true', 'Development preference must be on');
     assert(view.host.querySelector<HTMLDetailsElement>('.rc-advanced')?.open === false, 'Advanced configuration starts collapsed');
-    assert(view.state.starts.length === 0, 'Opening settings must not start learning');
+    assert(view.state.discoveryStarts.length === 0 && view.state.learningStarts.length === 0, 'Opening settings must not start learning');
     await view.click('Use repository context in reviews');
     assert(view.state.writes.length === 1 && view.state.writes[0].request.expectedRevision === 7, 'Toggle must use displayed revision');
     assert(!view.state.saved.get('ws-1')?.useInReviews && view.state.saved.get('ws-1')?.entries.length === 2, 'Off retains both saved notes');
@@ -373,6 +447,105 @@ export async function run(): Promise<Array<{ name: string; error?: string }>> {
     assert(Number(view.state.writes.length) === 2 && view.state.writes[1].request.expectedRevision === 8, 'Development toggle must use the updated revision');
     assert(view.state.saved.get('ws-1')?.useInDevelopment === false && view.state.saved.get('ws-1')?.useInReviews === false,
       'Development setting must change independently and retain notes');
+  });
+
+  await check('Merged work stays read-only until one retained PR is explicitly selected for learning', async view => {
+    assert(view.state.candidateReads.length === 1 && view.state.candidateStarts.length === 0, 'Opening reads candidates without starting a model task');
+    const merged = [...view.host.querySelectorAll<HTMLDetailsElement>('.rc-advanced')]
+      .find(item => item.querySelector('summary')?.textContent?.startsWith('Merged work candidates'));
+    assert(merged !== undefined, 'Retained merged work is available');
+    merged.querySelector('summary')?.click(); await settle();
+    assert(merged.textContent?.includes('PR #123 · Fix Iceberg metadata refresh')
+      && merged.textContent.includes('Some paths were not reviewed.')
+      && merged.textContent.includes('Merge is not proof of current correctness.'), 'The PR bundle and limits are reviewable');
+    await view.click('Learn from this PR', merged);
+    assert(Number(view.state.candidateStarts.length) === 1 && view.state.candidateStarts[0].request.candidateId === 'pr:trinodb/trino#123'
+      && view.state.candidateStarts[0].request.expectedRevision === 7 && view.state.discoveryStarts.length === 0,
+    'Only the selected retained PR starts learning, fenced to the displayed notebook');
+    assert(view.text().includes('Repository learning · Learning'), 'The selected PR starts a visible learning task');
+  });
+
+  await check('Discovery saves evidenced suggestions, then selected topics start bounded learning and continue', async view => {
+    assert(view.state.discoveryStarts.length === 0 && view.state.learningStarts.length === 0, 'Opening never starts a model task');
+    await view.click('Start discovery');
+    assert(Number(view.state.discoveryStarts.length) === 1 && view.state.discoveryStarts[0].request.expectedRevision === 7,
+      'Discovery starts once at the displayed notebook revision');
+    assert(view.text().includes('Repository discovery · Discovering'), 'Discovery has visible task status');
+    const discovered = view.state.builds.get('ws-1'); assert(discovered?.build?.task !== null && discovered?.build !== null, 'Discovery task exists');
+    view.state.builds.set('ws-1', { ...discovered, canStart: true, build: { ...discovered.build,
+      activeTurn: null, task: { ...discovered.build.task, state: 'COMPLETED', worktreeRemovedAt: '2026-09-01T00:00:19Z' } } });
+    view.state.reports.set('ws-1', savedReport('ws-1'));
+    await view.click('Inspect latest task');
+    assert(view.text().includes('Partial survey') && view.text().includes('Survey remaining connectors'), 'Partial discovery is disclosed');
+    await choose(view.host, 'Iceberg connector');
+    await choose(view.host, 'Delta Lake connector');
+    assert(view.text().includes('Suggested sources to approve') && view.text().includes('https://trino.io/docs/current/connector/iceberg.html')
+      && view.text().includes('do not verify that the exact path or URL appears in an excerpt')
+      && view.text().includes('10 documentation opens'), 'Accepted external source boundaries and limits are visible before learning');
+    await view.click('Learn selected');
+    assert(Number(view.state.learningStarts.length) === 1 && view.state.learningStarts[0].request.reportId === 'discover-task'
+      && view.state.learningStarts[0].request.topicIds.join() === 'topic:1,topic:2', 'Learning receives only chosen report topic IDs');
+    assert(view.text().includes('Learning progress'), 'The accepted plan is visible');
+    const learning = view.state.builds.get('ws-1'); assert(learning?.build?.task !== null && learning?.build !== null, 'Learning task exists');
+    view.state.builds.set('ws-1', { ...learning, canStart: true, build: { ...learning.build, activeTurn: null,
+      task: { ...learning.build.task, state: 'COMPLETED', worktreeRemovedAt: '2026-09-01T00:00:40Z' } } });
+    const plan = view.state.plans.get('ws-1'); assert(plan !== undefined, 'Accepted plan was saved');
+    view.state.plans.set('ws-1', { ...plan, topics: plan.topics.map((topic, index) => index === 0 ? { ...topic, status: 'COMPLETED' } : topic) });
+    await view.click('Inspect latest task');
+    await view.click('Continue learning');
+    assert(view.state.continuations.length === 1 && view.state.continuations[0].request.planId === plan.id,
+      'Continuation names the accepted plan and uses a new explicit request');
+  });
+
+  await check('Source expansion and plan discard keep saved notes without starting a model task', async view => {
+    const options = [...view.host.querySelectorAll<HTMLDetailsElement>('details')];
+    const expansion = options.find(item => item.querySelector('summary')?.textContent === 'Allow another documentation source');
+    assert(expansion !== undefined, 'Source expansion is available for a pending plan');
+    expansion.querySelector('summary')?.click(); await settle();
+    const select = expansion.querySelector('select'); assert(select instanceof HTMLSelectElement, 'Registered sources are selectable');
+    select.value = 'docs-trino'; select.dispatchEvent(new Event('change', { bubbles: true })); await settle();
+    assert(expansion.textContent?.includes('https://trino.io/docs/current/') && expansion.textContent?.includes('two hops'),
+      'The exact website and link depth are shown before acceptance');
+    await view.click('Allow source for current question');
+    assert(view.state.plans.get('ws-1')?.topics[0].sourceIds.includes('docs-trino') && view.state.discoveryStarts.length === 0
+      && view.state.learningStarts.length === 0, 'Allowing a registered source only changes the plan');
+    const planOptions = [...view.host.querySelectorAll<HTMLDetailsElement>('details')].find(item => item.querySelector('summary')?.textContent === 'Plan options');
+    assert(planOptions !== undefined, 'Plan options are available');
+    planOptions.querySelector('summary')?.click(); await settle();
+    await view.click('Discard remaining plan');
+    assert(view.state.plans.get('ws-1') === undefined && view.state.saved.get('ws-1')?.entries.length === 2,
+      'Discarding unfinished questions preserves notes');
+  }, state => {
+    const report = savedReport('ws-1');
+    state.reports.set('ws-1', report);
+    state.plans.set('ws-1', savedPlan('ws-1', report, ['topic:1']));
+  });
+
+  await check('A linked external URL stays a visible proposal until its exact page is allowed', async view => {
+    const suggestions = [...view.host.querySelectorAll('.rc-discovery-selection')]
+      .find(item => item.querySelector('strong')?.textContent === 'Suggested external sources');
+    assert(suggestions !== undefined, 'Saved external source suggestions are visible beside learning progress');
+    assert(suggestions.textContent?.includes('Suggested single page: https://example.org/iceberg/reference.html')
+      && suggestions.textContent.includes('Suggested website root: https://example.org/delta/')
+      && suggestions.textContent.includes('links up to two hops'), 'Exact page and website boundaries are shown before approval');
+    assert(view.state.saved.get('ws-1')?.sources.length === 1 && view.state.learningStarts.length === 0,
+      'A suggestion alone neither registers a source nor starts another model task');
+    const page = [...suggestions.querySelectorAll('li')]
+      .find(item => item.textContent?.includes('https://example.org/iceberg/reference.html'));
+    assert(page !== undefined, 'The suggested page can be selected');
+    await view.click('Allow this source', page);
+    const source = view.state.saved.get('ws-1')?.sources.find(item => item.url === 'https://example.org/iceberg/reference.html');
+    assert(source?.kind === 'DOCUMENTATION_PAGE' && view.state.saved.get('ws-1')?.revision === 8,
+      'Approval registers only the exact page and advances the notebook revision');
+    assert(view.state.plans.get('ws-1')?.documentInventory.items.some(item => item.sourceId === source.id && item.depth === 0)
+      && view.state.plans.get('ws-1')?.documentInventory.suggestedExpansionUrls.includes('https://example.org/delta/')
+      && view.state.learningStarts.length === 0, 'Approval adds a depth-zero plan source and leaves the other proposal and model untouched');
+  }, state => {
+    const report = savedReport('ws-1');
+    state.reports.set('ws-1', report);
+    const plan = savedPlan('ws-1', report, ['topic:1']);
+    state.plans.set('ws-1', { ...plan, documentInventory: { ...plan.documentInventory,
+      suggestedExpansionUrls: ['https://example.org/iceberg/reference.html', 'https://example.org/delta/'] } });
   });
 
   await check('Usage shows recorded stages, missing requests and note activity without a quality claim', async view => {
@@ -408,211 +581,35 @@ export async function run(): Promise<Array<{ name: string; error?: string }>> {
     state.saved.set('ws-1', { ...current, entries: [] });
   });
 
-  await check('Learning includes essential sources, starts once with explicit history, and can be stopped', async view => {
+  await check('Discovery starts once and can be stopped without turning review context on', async view => {
     await view.click('Use repository context in reviews');
-    await view.click('Learn / Refresh');
-    const dialog = view.dialog();
-    assert(dialog.textContent?.includes('Repository files, directory structure, repository documentation and registered documentation are always included.') === true,
-      'Essential inputs must be visible and always included');
-    const choices = [...dialog.querySelectorAll<HTMLInputElement>('fieldset input[type=checkbox]')];
-    assert(choices.length === 2 && choices[0].checked && !choices[1].checked, 'Only scope choices exist, with Project overview selected');
-    assert(view.state.starts.length === 0, 'Opening the dialog does not launch an agent');
-    await fill(dialog, 'Merged PR numbers (optional)', '#123, 456');
-    await fill(dialog, 'Closed issue numbers (optional)', '789');
-    const start = button(dialog, 'Start learning'); start.click(); start.click(); await settle(); await settle();
-    assert(Number(view.state.starts.length) === 1, 'Repeated click starts only one request');
-    const request = view.state.starts[0].request;
-    assert(request.expectedRevision === 8 && request.expectedBuildSequence === 0 && request.scopeIds.join() === 'project', 'Start uses displayed scope and revision');
-    assert(JSON.stringify(request.history) === JSON.stringify([{ kind: 'PR', number: 123 }, { kind: 'PR', number: 456 }, { kind: 'ISSUE', number: 789 }]), 'Explicit history is typed and bounded');
-    assert(!('sourceKinds' in request) && !('provider' in request) && !('prompt' in request), 'Essential inputs and Review profile cannot be replaced by the renderer');
-    assert(view.text().includes('Repository learning · Learning'), 'Running learning is visible even when review context is off');
-    await view.click('Stop learning');
-    assert(view.state.controls[0].action === 'stop' && view.state.controls[0].taskId === 'build-task', 'Stop targets the current builder');
-    assert(view.text().includes('Repository learning · Stopping') && button(view.host, 'Stop learning').disabled, 'Cancellation is distinct from completion');
+    const start = button(view.host, 'Start discovery'); start.click(); start.click(); await settle(); await settle();
+    assert(Number(view.state.discoveryStarts.length) === 1, 'Repeated click starts only one discovery request');
+    const request = view.state.discoveryStarts[0].request;
+    assert(request.expectedRevision === 8 && request.expectedBuildSequence === 0 && !('prompt' in request), 'Start uses displayed revision without a renderer prompt');
+    assert(view.text().includes('Repository discovery · Discovering'), 'Running discovery is visible even when review context is off');
+    await view.click('Stop discovery');
+    assert(view.state.controls[0].action === 'stop' && view.state.controls[0].taskId === 'discover-task', 'Stop targets the current builder');
+    assert(view.text().includes('Repository discovery · Stopping') && button(view.host, 'Stop discovery').disabled, 'Cancellation is distinct from completion');
     const value = view.state.builds.get('ws-1'); assert(value?.build?.task !== null && value?.build !== null && value !== undefined, 'Builder exists');
     view.state.builds.set('ws-1', { ...value, canStart: false, build: { ...value.build, activeTurn: null,
       task: { ...value.build.task, state: 'COMPLETED', mutationClaim: null } } });
     await view.click('Inspect latest task');
-    assert(button(view.host, 'Learn / Refresh').disabled && !button(view.host, 'Clean up worktree').disabled
+    assert(button(view.host, 'Start discovery').disabled && !button(view.host, 'Clean up worktree').disabled
       && view.text().includes('Clean up the retained worktree before starting another learning task.'), 'Retained worktree blocks a new task with a visible remedy');
     view.state.builds.set('ws-1', { ...value, canStart: true, build: { ...value.build, activeTurn: null,
       task: { ...value.build.task, state: 'COMPLETED', mutationClaim: null, worktreeRemovedAt: '2026-09-01T00:00:20Z' } } });
     await view.click('Inspect latest task');
-    assert(view.text().includes('Repository learning · Completed') && view.text().includes('Worktree cleaned up'), 'Completed task and cleanup facts remain visible');
-    assert(Number(view.state.starts.length) === 1, 'Inspecting terminal state never starts another task');
-  });
-
-  await check('Suggestion discovery and use are explicit and preserve manual learning inputs', async view => {
-    await view.click('Learn / Refresh');
-    assert(view.state.discoveries.length === 0 && view.state.applications.length === 0 && view.state.starts.length === 0, 'Opening cannot discover, apply or learn');
-    const dialog = view.dialog();
-    await fill(dialog, 'Merged PR numbers (optional)', '17, 88');
-    await fill(dialog, 'Suggestion focus (optional)', 'Hive');
-    await view.click('Find suggestions', dialog);
-    assert(view.state.discoveries[0].includeRemote === false && view.state.discoveries[0].scopeIds.join() === 'project', 'Default discovery is local with current configured scope');
-    const preview = dialog.querySelector('.rc-discovery-preview'); assert(preview !== null, 'Preview is visible');
-    assert([...preview.querySelectorAll<HTMLInputElement>('input')].every(input => !input.checked), 'Suggestions must begin unselected');
-    assert(preview.textContent?.includes('12 directories, 4 files, 20 PRs and 5 issues') && preview.textContent?.includes('Only a bounded selection'), 'Counts and gaps stay visible');
-    await choose(preview, 'Hive connector'); await choose(preview, 'https://hive.apache.org/docs/'); await choose(preview, 'PR #88: Fix Hive partition lookup');
-    assert(button(dialog, 'Start learning').disabled, 'Unapplied suggestion choices cannot silently be omitted by Start');
-    await view.click('Use selected suggestions', dialog);
-    assert(Number(view.state.applications.length) === 1 && view.state.applications[0].sourceIds.join() === 'docs-hive', 'Only chosen configuration is sent for server validation');
-    assert(view.state.applications[0].repositoryFingerprint === 'c'.repeat(64), 'Apply echoes the exact server-observed repository fingerprint');
-    assert(field(dialog, 'Merged PR numbers (optional)').value === '17, 88', 'Manual history is preserved and suggested history deduplicated');
-    assert(view.state.starts.length === 0 && view.text().includes('Why this was suggested'), 'Applying saves provenance but never starts learning');
-    const choices = [...dialog.querySelectorAll('fieldset label')];
-    assert(choices.some(label => label.textContent?.includes('Hive connector') && label.querySelector<HTMLInputElement>('input')?.checked), 'Applied scope joins existing selected scope');
-    await view.click('Start learning', dialog);
-    assert(view.state.starts[0].request.expectedRevision === 8 && view.state.starts[0].request.scopeIds.join() === 'project,path:plugin/trino-hive/', 'Learning uses saved revision and selected scopes');
-  });
-
-  await check('History-only suggestions require no notebook write and GitHub search is explicit', async view => {
-    await view.click('Learn / Refresh'); const dialog = view.dialog();
-    await choose(dialog, 'Include GitHub search'); await view.click('Find suggestions', dialog);
-    assert(view.state.discoveries[0].includeRemote, 'GitHub search is explicit');
-    assert(dialog.textContent?.includes('Not planned') && dialog.textContent?.includes('does not prove'), 'Closed issue outcome remains qualified');
-    await choose(dialog, 'ISSUE #89: Hive partition edge case'); await view.click('Use selected suggestions', dialog);
-    assert(view.state.applications.length === 0 && view.state.writes.length === 0 && view.state.starts.length === 0, 'History selection does not configure or start');
-    assert(field(dialog, 'Closed issue numbers (optional)').value === '89', 'Chosen history enters the existing input');
-  });
-
-  await check('Suggestions enforce the combined history bound and show empty coverage honestly', async view => {
-    await view.click('Learn / Refresh'); const dialog = view.dialog();
-    await fill(dialog, 'Merged PR numbers (optional)', '1 2 3 4 5 6 7 8 9 10'); await view.click('Find suggestions', dialog);
-    await choose(dialog, 'PR #88: Fix Hive partition lookup');
-    assert(button(dialog, 'Use selected suggestions').disabled && dialog.textContent?.includes('including manual numbers'), 'Manual and suggested references share the limit');
-    view.state.emptyDiscovery = true; await view.click('Find suggestions', dialog);
-    assert(dialog.textContent?.includes('No suggestions found in the checked sources.') && dialog.textContent?.includes('Only a bounded selection'), 'Empty search is qualified by coverage');
-    assert(view.state.starts.length === 0, 'Finding suggestions never starts learning');
-  });
-
-  await check('Lost apply responses require an explicit reload instead of retrying the mutation', async view => {
-    await view.click('Learn / Refresh'); const dialog = view.dialog(); await view.click('Find suggestions', dialog);
-    await choose(dialog, 'Hive connector'); view.state.loseApply = true; await view.click('Use selected suggestions', dialog);
-    assert(button(dialog, 'Start learning').disabled && button(dialog, 'Use selected suggestions').disabled, 'Unconfirmed apply blocks a blind retry and learning');
-    await view.click('Reload saved notebook', dialog);
-    assert(view.state.applications.length === 1 && view.state.starts.length === 0, 'Reload inspects only');
-    assert(dialog.textContent?.includes('Hive connector') && dialog.querySelector('.rc-discovery-preview') === null, 'Saved configuration is available and stale suggestions are discarded');
-  });
-
-  await check('A stale suggestion apply preserves the notebook and requires a fresh preview', async view => {
-    await view.click('Learn / Refresh'); const dialog = view.dialog(); await view.click('Find suggestions', dialog); await choose(dialog, 'Hive connector');
-    const saved = view.state.saved.get('ws-1'); assert(saved !== undefined, 'Notebook exists'); view.state.saved.set('ws-1', { ...saved, revision: 8 });
-    await view.click('Use selected suggestions', dialog);
-    assert(dialog.textContent?.includes('Notebook changed') && view.state.saved.get('ws-1')?.scopes.length === 2, 'Stale apply cannot overwrite existing config');
-    await view.click('Reload saved notebook', dialog);
-    assert(view.state.applications.length === 1 && view.state.starts.length === 0, 'Conflict does not automatically retry or start');
-  });
-
-  await check('Discovery failures do not fabricate results or launch learning', async view => {
-    await view.click('Learn / Refresh'); await fill(view.dialog(), 'Suggestion focus (optional)', 'repo:unrelated');
-    assert(button(view.dialog(), 'Find suggestions').disabled && view.state.discoveries.length === 0, 'Query cannot inject GitHub search operators');
-    await fill(view.dialog(), 'Suggestion focus (optional)', 'Hive'); await view.click('Find suggestions', view.dialog());
-    assert(view.dialog().textContent?.includes('Sync this workspace') && view.dialog().querySelector('.rc-discovery-preview') === null, 'Provisioning errors remain explicit');
-    assert(view.state.applications.length === 0 && view.state.starts.length === 0, 'Failure has no implicit apply or start');
-  }, state => { state.discoveryFailure = true; });
-
-  await check('Readiness and history limits block submission without starting a task', async view => {
-    await view.click('Learn / Refresh');
-    assert(button(view.dialog(), 'Start learning').disabled && view.dialog().textContent?.includes('Sign in'), 'Unavailable Review provider blocks learning');
-    view.state.unavailable = false;
-    await view.click('Check provider', view.dialog());
-    await fill(view.dialog(), 'Merged PR numbers (optional)', '1 2 3 4 5 6 7 8 9 10 11');
-    assert(button(view.dialog(), 'Start learning').disabled, 'Too much history blocks submission');
-    await fill(view.dialog(), 'Merged PR numbers (optional)', '1 1');
-    assert(button(view.dialog(), 'Start learning').disabled, 'Duplicate history blocks submission');
-    await fill(view.dialog(), 'Merged PR numbers (optional)', '1');
-    assert(!button(view.dialog(), 'Start learning').disabled && view.state.starts.length === 0, 'Rechecking readiness does not start learning');
-  }, state => { state.unavailable = true; });
-
-  await check('Unconfirmed starts retain the same request after closing and reopening settings', async view => {
-    await view.click('Learn / Refresh');
-    await view.click('Start learning', view.dialog());
-    await view.click('Cancel', view.dialog());
-    assert(view.text().includes('start response is unconfirmed'), 'Lost response is not success or empty context');
-    await view.workspace('ws-2'); await view.workspace('ws-1');
-    assert(view.text().includes('Retry same request'), 'Pending request survives settings remount');
-    await view.click('Inspect latest task');
-    assert(view.state.starts.length === 1, 'Inspection never resends');
-    await view.click('Retry same request');
-    assert(Number(view.state.starts.length) === 2 && JSON.stringify(view.state.starts[0]) === JSON.stringify(view.state.starts[1]), 'Explicit retry preserves the exact body and key');
-    assert(view.text().includes('Repository learning · Learning'), 'Confirmed retry exposes the existing task');
-  }, state => { state.loseStartBefore = true; });
-
-  await check('A lost accepted response is reconciled without another start', async view => {
-    await view.click('Learn / Refresh'); await view.click('Start learning', view.dialog()); await view.click('Cancel', view.dialog());
-    await view.click('Inspect latest task');
-    assert(view.state.starts.length === 1 && view.text().includes('Repository learning · Learning'), 'Existing accepted task is discovered');
-    assert(!view.text().includes('Retry same request'), 'Matching receipt clears uncertainty');
-  }, state => { state.loseStartAfter = true; });
-
-  await check('A rejected request can be discarded only after inspecting current state', async view => {
-    await view.click('Learn / Refresh'); await view.click('Start learning', view.dialog()); await view.click('Cancel', view.dialog());
-    assert(!view.text().includes('Discard unconfirmed request'), 'No discard without inspection after the failure');
-    await view.click('Inspect latest task'); await view.click('Discard unconfirmed request');
-    assert(!button(view.host, 'Learn / Refresh').disabled && view.state.starts.length === 1, 'Discard unlocks a new deliberate request without sending it');
-  }, state => { state.loseStartBefore = true; });
-
-  await check('Protected notes remain intact while their scope can learn another topic', async view => {
-    await view.click('Learn / Refresh');
-    const choices = [...view.dialog().querySelectorAll<HTMLInputElement>('fieldset input[type=checkbox]')];
-    assert(choices.length === 2 && choices.every(choice => !choice.disabled), 'A protected note does not block its whole scope');
-    await view.click('Start learning', view.dialog());
-    assert(view.state.starts.length === 1 && view.state.starts[0].request.scopeIds.join() === 'project', 'Learning may add another topic in a selected scope');
-    const current = view.state.saved.get('ws-1');
-    assert(current?.entries.find(entry => entry.id === 'knowledge:project')?.origin === 'USER'
-      && current.suppressedKnowledgeIds.includes('knowledge:path:plugin/trino-iceberg/'), 'Existing protected note identities remain unchanged');
-  }, state => {
-    const current = state.saved.get('ws-1'); assert(current !== undefined, 'Notebook exists');
-    state.saved.set('ws-1', { ...current, entries: current.entries.map(entry => entry.kind === 'KNOWLEDGE' ? { ...entry, origin: 'USER' } : entry),
-      suppressedKnowledgeIds: ['knowledge:path:plugin/trino-iceberg/'] });
-  });
-
-  await check('Learning messages and current approvals use the existing task transcript', async view => {
-    await view.click('Learn / Refresh'); await view.click('Start learning', view.dialog()); await settle();
-    assert(view.text().includes('Approval needed') && view.text().includes('Checking connector contracts.'), 'Task messages and pending approval are visible');
-    await view.click('Allow once: Read selected file');
-    assert(view.state.approvals.length === 0 && view.state.starts.length === 1, 'Approval resolves on the existing task without resending learning');
-  }, state => {
-    state.events = [{ schemaVersion: 2, eventId: 'commentary', sequence: 1, taskId: 'build-task', turnId: 'build-turn', source: eventSource,
-      occurredAt: '2026-09-01T00:00:02Z', type: 'assistant_message', payload: { messageKind: 'COMMENTARY', phase: 'FINAL', text: 'Checking connector contracts.' } }];
-    state.approvals = [{ approvalId: 'read-file', taskId: 'build-task', turnId: 'build-turn', source: eventSource,
-      occurredAt: '2026-09-01T00:00:03Z', title: 'Read selected file', detail: 'Inspect README.md', approvalKind: 'COMMAND',
-      scope: ['README.md'], availableDecisions: ['ALLOW_ONCE', 'DENY'], actionable: true }];
-  });
-
-  await check('Process recovery requires the inspected generation before stopping the runtime', async view => {
-    await view.click('Learn / Refresh'); await view.click('Start learning', view.dialog());
-    const current = view.state.builds.get('ws-1'); assert(current?.build?.task !== null && current?.build !== null && current !== undefined, 'Builder exists');
-    view.state.builds.set('ws-1', { ...current, build: { ...current.build, activeTurn: null, task: { ...current.build.task, mutationClaim: 'RECOVERY' } } });
-    await view.click('Inspect latest task'); await view.click('Stop remaining processes');
-    assert([...view.host.querySelectorAll('.rc-build-result details:last-child code')].some(element => element.textContent === '/tmp/bytequay-fixture/learning-worktree'),
-      'Task details expose the worktree path as read-only text for recovery');
-    assert(view.state.controls.length === 1 && view.state.controls[0].action === 'impact', 'Inspection alone must not stop a runtime');
-    await view.click('Stop processes', view.dialog());
-    assert(view.state.controls[1].action === 'stop-runtime' && view.state.controls[1].generation === 'generation-1', 'Confirmed stop sends the inspected generation');
-  });
-
-  await check('Empty preparation results refresh the notebook even without a content revision change', async view => {
-    await view.click('Learn / Refresh'); await view.click('Start learning', view.dialog());
-    const current = view.state.builds.get('ws-1'); const saved = view.state.saved.get('ws-1');
-    assert(current?.build?.task !== null && current?.build !== null && current !== undefined && saved !== undefined, 'Builder and notebook exist');
-    const result: NonNullable<ContextScopeDto['preparation']> = { attemptId: 'learning-empty', inputFingerprint: { scopeId: 'project', inputs: {}, digest: 'sha256:empty', gaps: [] },
-      outcome: 'EMPTY', noteIds: [], checkedReads: [], explanation: 'The inspected source yielded no useful note.' };
-    view.state.saved.set('ws-1', { ...saved, scopes: saved.scopes.map(scope => scope.id === 'project' ? { ...scope, preparation: result } : scope) });
-    view.state.builds.set('ws-1', { ...current, canStart: true, build: { ...current.build, activeTurn: null, results: [result],
-      task: { ...current.build.task, state: 'COMPLETED', mutationClaim: null, worktreeRemovedAt: '2026-09-01T00:00:20Z' } } });
-    await view.click('Inspect latest task');
-    assert(view.text().includes('Last preparation: No useful note found'), 'Preparation metadata is refreshed even at unchanged content revision');
-    assert(view.text().includes('Project architecture'), 'An empty result does not replace existing knowledge');
+    assert(view.text().includes('Repository discovery · Completed') && view.text().includes('Worktree cleaned up'), 'Completed task and cleanup facts remain visible');
+    assert(Number(view.state.discoveryStarts.length) === 1, 'Inspecting terminal state never starts another task');
   });
 
   await check('Failed provisioning shows a failed start without a phantom running task', async view => {
     assert(view.text().includes('Repository learning · Could not start'), 'Missing task with canStart is a failed provision');
     assert(![...view.host.querySelectorAll('button')].some(control => control.textContent === 'Stop learning'), 'An absent task has no Stop action');
-    assert(!button(view.host, 'Learn / Refresh').disabled && view.state.starts.length === 0, 'A new explicit start remains available');
+    assert(!button(view.host, 'Start discovery').disabled && view.state.discoveryStarts.length === 0, 'A new explicit start remains available');
   }, state => state.builds.set('ws-1', { buildRequestSequence: 1, notebookRevision: 7, canStart: true, build: {
-    requestKey: 'failed-request', taskId: 'missing-task', baselineSha: 'a'.repeat(40), scopeIds: ['project'], history: [], requestedAt: '2026-09-01T00:00:00Z',
+    mode: 'LEARN', requestKey: 'failed-request', taskId: 'missing-task', baselineSha: 'a'.repeat(40), scopeIds: ['project'], history: [], requestedAt: '2026-09-01T00:00:00Z',
     task: null, activeTurn: null, pendingApprovals: 0, results: [], gaps: ['Task provisioning failed.'] } }));
 
   await check('Source edits keep source identity and revision', async view => {
@@ -784,7 +781,7 @@ export async function run(): Promise<Array<{ name: string; error?: string }>> {
 
 let displayed: View | null = null;
 /** A persistent offline fixture for wide, narrow and native-editor visual checks. */
-export async function show(mode: 'page' | 'advanced' | 'editor' | 'draft' | 'learn' | 'learning' | 'completed' = 'page'): Promise<void> {
+export async function show(mode: 'page' | 'advanced' | 'editor' | 'draft' | 'report' | 'learning' | 'completed' = 'page'): Promise<void> {
   displayed?.dispose();
   const state = backend();
   if (mode === 'draft') {
@@ -793,6 +790,7 @@ export async function show(mode: 'page' | 'advanced' | 'editor' | 'draft' | 'lea
       summary: 'Check connector boundaries against the current implementation.', version: 8 }, replacesVersion: 2,
       baselineSha: 'a'.repeat(40), explanation: 'Proposed from inspected source files.' }] });
   }
+  if (mode === 'report' || mode === 'learning' || mode === 'completed') state.reports.set('ws-1', savedReport('ws-1'));
   state.events = [
     { schemaVersion: 2, eventId: 'request', sequence: 1, taskId: 'build-task', turnId: 'build-turn', source: eventSource,
       occurredAt: '2026-09-01T00:00:00Z', type: 'user_message', payload: { deliveryKind: 'TURN', attachments: [], text: 'Learn the project architecture from repository files and selected documentation.' } },
@@ -806,23 +804,15 @@ export async function show(mode: 'page' | 'advanced' | 'editor' | 'draft' | 'lea
     await displayed.click('Edit', displayed.note('Project architecture'));
     await draft(displayed, 'Project architecture');
   }
-  if (mode === 'learn' || mode === 'learning' || mode === 'completed') {
-    await displayed.click('Learn / Refresh');
-    if (mode === 'learn') await fill(displayed.dialog(), 'Merged PR numbers (optional)', '30280');
-    else {
-      await displayed.click('Start learning', displayed.dialog());
-      if (mode === 'completed') {
-        const current = state.builds.get('ws-1'); assert(current?.build?.task !== null && current?.build !== null && current !== undefined, 'Builder exists');
-        state.events.push({ schemaVersion: 2, eventId: 'answer', sequence: 3, taskId: 'build-task', turnId: 'build-turn', source: eventSource,
-          occurredAt: '2026-09-01T00:00:20Z', type: 'assistant_message', payload: { messageKind: 'ANSWER', phase: 'FINAL',
-            text: 'Saved a project overview with the inspected source references. Connector-specific behavior still needs verification for each review.' } });
-        state.builds.set('ws-1', { ...current, canStart: true, build: { ...current.build, activeTurn: null, task: { ...current.build.task,
-          state: 'COMPLETED', mutationClaim: null, terminalReason: 'Selected knowledge preparation completed.', worktreeRemovedAt: '2026-09-01T00:00:21Z' },
-          results: [{ attemptId: 'prepared', outcome: 'READY', inputFingerprint: { scopeId: 'project', inputs: {}, digest: 'sha256:captured', gaps: [] },
-            noteIds: ['knowledge:project'], checkedReads: [], explanation: 'Saved the overview with source references; applicability remains unverified.' }],
-          gaps: ['Some documentation describes a later release. Check the dependency version before applying its guidance.'] } });
-        await displayed.click('Inspect latest task'); await settle();
-      }
+  if (mode === 'learning' || mode === 'completed') {
+    await choose(displayed.host, 'Iceberg connector');
+    await displayed.click('Learn selected');
+    if (mode === 'completed') {
+      const current = state.builds.get('ws-1'); assert(current?.build?.task !== null && current?.build !== null && current !== undefined, 'Builder exists');
+      state.builds.set('ws-1', { ...current, canStart: true, build: { ...current.build, activeTurn: null,
+        task: { ...current.build.task, state: 'COMPLETED', mutationClaim: null, terminalReason: 'A bounded learning run completed.',
+          worktreeRemovedAt: '2026-09-01T00:00:21Z' } } });
+      await displayed.click('Inspect latest task');
     }
   }
 }

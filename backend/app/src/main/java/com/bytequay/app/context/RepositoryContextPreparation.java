@@ -20,6 +20,7 @@ import com.bytequay.core.context.ActiveContextPreparation;
 import com.bytequay.core.context.ContextClaim;
 import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntry;
+import com.bytequay.core.context.ContextEntryKind;
 import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextInputFingerprint;
 import com.bytequay.core.context.ContextKnowledgeDraft;
@@ -135,6 +136,12 @@ public class RepositoryContextPreparation
      */
     public Admission begin(Execution execution, String requestKey, String requestDigest, long expectedRevision, Plan plan)
     {
+        return begin(execution, requestKey, requestDigest, expectedRevision, plan, true);
+    }
+
+    /** An explicitly approved new learning question must not reuse a different question's scope result. */
+    public Admission begin(Execution execution, String requestKey, String requestDigest, long expectedRevision, Plan plan, boolean reuseCompleted)
+    {
         return WorkspaceOperationLocks.withLock(execution.workspaceId(), () -> {
             RepositoryNotebook current = notebooks.getNotebook(execution.workspaceId());
             Optional<ActiveContextPreparation> active = current.activePreparation();
@@ -159,7 +166,7 @@ public class RepositoryContextPreparation
                 else if (input.digest().isEmpty()) {
                     gaps.add(scope.id() + ": input observation is incomplete; no generation owner was admitted.");
                 }
-                else if (reusable(current, scope, input, execution)) {
+                else if (reuseCompleted && reusable(current, scope, input, execution)) {
                     reused.add(scope.preparation().orElseThrow());
                 }
                 else {
@@ -238,13 +245,13 @@ public class RepositoryContextPreparation
                     checkArgument(current.pendingDrafts().stream().noneMatch(draft -> draft.entry().id().equals(id)),
                             "Knowledge note already has a pending proposal");
                     Optional<ContextEntry> prior = current.entries().stream().filter(note -> note.id().equals(id)).findFirst();
-                    checkArgument(prior.filter(note -> !note.scopeId().equals(scope.id())).isEmpty(),
+                    checkArgument(prior.filter(note -> !note.scopeId().equals(scope.id()) || note.kind() != entry.kind()).isEmpty(),
                             "Generated note cannot change an existing note's scope");
                     checkArgument(prior.filter(note -> !note.enabled() || note.origin() == USER).isEmpty(),
                             "Generated note cannot replace user-owned or disabled content");
                     checkArgument(captured.containsAll(entry.sourceIds()), "Generated note sources must be checked nonblank reads for its scope");
                     checkArgument(entry.claims().stream().noneMatch(claim -> claim.basis() == ContextClaim.Basis.USER_LESSON), "Generation cannot author a user lesson");
-                    ContextEntry proposed = new ContextEntry(entry.id(), KNOWLEDGE, entry.scopeId(), entry.title(), entry.summary(), entry.body(),
+                    ContextEntry proposed = new ContextEntry(entry.id(), entry.kind(), entry.scopeId(), entry.title(), entry.summary(), entry.body(),
                             entry.claims(), entry.sourceIds(), GENERATED, true, revision);
                     drafts.add(new ContextKnowledgeDraft("draft:" + UUID.randomUUID(), proposed, prior.map(ContextEntry::version),
                             execution.baselineSha(), result.explanation()));
@@ -556,14 +563,23 @@ public class RepositoryContextPreparation
         }
     }
 
-    public record GeneratedEntry(String id, String scopeId, String title, String summary, String body, List<ContextClaim> claims, List<String> sourceIds)
+    public record GeneratedEntry(String id, String scopeId, String title, String summary, String body, List<ContextClaim> claims,
+            List<String> sourceIds, ContextEntryKind kind)
     {
+        public GeneratedEntry(String id, String scopeId, String title, String summary, String body, List<ContextClaim> claims, List<String> sourceIds)
+        {
+            this(id, scopeId, title, summary, body, claims, sourceIds, KNOWLEDGE);
+        }
+
         public GeneratedEntry
         {
+            kind = kind == null ? KNOWLEDGE : kind;
+            checkArgument(kind != ContextEntryKind.MEMORY || (id.startsWith("lesson:" + scopeId + ":") && id.length() > scopeId.length() + 8),
+                    "Generated lesson ID must belong to its scope");
             claims = ImmutableList.copyOf(claims);
             sourceIds = ImmutableList.copyOf(sourceIds);
             // Reuse the actual saved-entry constraints before any Git work or notebook mutation.
-            new ContextEntry(id, KNOWLEDGE, scopeId, title, summary, body, claims, sourceIds, GENERATED, true, 1);
+            new ContextEntry(id, kind, scopeId, title, summary, body, claims, sourceIds, GENERATED, true, 1);
         }
     }
 }

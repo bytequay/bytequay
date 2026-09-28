@@ -118,7 +118,7 @@ class TestDevelopmentFollowupCoordinator
     private final ArrayDeque<Runnable> pending = new ArrayDeque<>();
     private final List<AgentTurn> history = new ArrayList<>();
     private final DevelopmentFollowupCoordinator coordinator = new DevelopmentFollowupCoordinator(
-            turns, turnStore, git, pending::add, ci, actions, credentials, pullRequests, writes, clock, waitForCi);
+            turns, turnStore, git, pending::add, ci, actions, credentials, pullRequests, writes, clock, waitForCi, (task, pr) -> {});
     private final TaskId taskId = TaskId.random();
     private final TaskWorktree worktree = new TaskWorktree(taskId, "workspace", new RepositoryIdentity("owner", "repo"),
             Path.of("/tmp", taskId.toString()), "bytequay/task/" + taskId, BASE);
@@ -865,8 +865,10 @@ class TestDevelopmentFollowupCoordinator
     void rejectedExecutorFailsTheContinuation()
     {
         prepare(local(BASE, false), local(HEAD, false), FULL, true);
-        var rejected = new DevelopmentFollowupCoordinator(turns, turnStore, git, ignored -> { throw new RejectedExecutionException("stopped"); },
-                ci, actions, credentials, pullRequests, writes, clock, waitForCi);
+        var rejected = new DevelopmentFollowupCoordinator(turns, turnStore, git, ignored -> {
+            throw new RejectedExecutionException("stopped");
+        },
+                ci, actions, credentials, pullRequests, writes, clock, waitForCi, (task, pr) -> {});
         rejected.completed(outcome);
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Could not start"));
     }

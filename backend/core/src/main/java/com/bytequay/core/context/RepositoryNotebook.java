@@ -83,7 +83,7 @@ public record RepositoryNotebook(
         checkArgument(entries.stream().allMatch(entry -> evidenceIds.containsAll(entry.sourceIds())), "Entry evidence is missing");
         checkArgument(pendingDrafts.stream().allMatch(draft -> scopeIds.contains(draft.entry().scopeId())), "Draft scope is missing");
         checkArgument(pendingDrafts.stream().allMatch(draft -> evidenceIds.containsAll(draft.entry().sourceIds())), "Draft evidence is missing");
-        checkArgument(suppressedKnowledgeIds.stream().allMatch(id -> scopeIds.stream().anyMatch(scope -> ContextEntry.belongsToKnowledgeScope(id, scope))),
+        checkArgument(suppressedKnowledgeIds.stream().allMatch(id -> scopeIds.stream().anyMatch(scope -> ContextPreparationResult.belongsToScope(id, scope))),
                 "Invalid knowledge suppression");
         Set<String> suppressed = ImmutableSet.copyOf(suppressedKnowledgeIds);
         checkArgument(entries.stream().noneMatch(entry -> suppressed.contains(entry.id())), "Suppressed entry still exists");

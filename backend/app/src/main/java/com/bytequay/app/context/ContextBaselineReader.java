@@ -27,6 +27,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -38,12 +39,14 @@ public class ContextBaselineReader
 {
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(2);
     private static final int INVENTORY_BYTES = 8 * 1024;
-    private static final int BLOB_BYTES = 128 * 1024;
+    private static final int BLOB_BYTES = 2 * 1024 * 1024;
     private static final int EXCERPT_BYTES = 16 * 1024;
     private static final int SOURCE_LINES = 200;
     private static final int DIRECTORY_BYTES = 128 * 1024;
     private static final int DIRECTORY_PAGE_SIZE = 100;
     private static final int DIRECTORY_PAGES = 10;
+    private static final int SEARCH_BYTES = 5 * 1024 * 1024;
+    private static final int SEARCH_PAGE_SIZE = 50;
 
     private final GitCommandRunner git;
     private final Clock clock;
@@ -67,7 +70,7 @@ public class ContextBaselineReader
      *         non-regular files, incomplete Git output or unsupported binary/non-UTF-8 content
      *
      * No worktree/index content, replacement object, lazy fetch or model-provided revision participates.
-     * A complete blob must fit within 128 KiB before line counts or excerpts are reported.
+     * A complete blob must fit within 2 MiB before line counts or excerpts are reported.
      */
     public Read read(WorkspaceRepositoryContext workspace, ReviewRun run, String path, int startLine, Optional<Integer> endLine)
     {
@@ -95,7 +98,7 @@ public class ContextBaselineReader
         String blob = regularBlob(inventory.output(), path);
         GitCommandRunner.Result content = git.runLocalBounded(workspace.repository(), COMMAND_TIMEOUT, BLOB_BYTES, ImmutableList.of("cat-file", "blob", blob));
         checkArgument(content.successful() && !content.truncated() && ContextLimits.bytes(content.output()) <= BLOB_BYTES,
-                "The baseline file could not be read completely within the 128 KiB limit");
+                "The baseline file could not be read completely within the 2 MiB limit");
         checkArgument(content.output().indexOf('\0') < 0 && content.output().indexOf('\uFFFD') < 0, "The baseline file is not supported UTF-8 text");
         List<String> lines = content.output().lines().collect(ImmutableList.toImmutableList());
         checkArgument(startLine <= lines.size() || (lines.isEmpty() && startLine == 1), "The starting line is outside the baseline file");
@@ -145,6 +148,93 @@ public class ContextBaselineReader
         List<TreeEntry> selected = new TopKSelector(DIRECTORY_PAGE_SIZE).select(entries.stream().skip(start)).collect(ImmutableList.toImmutableList());
         return new Directory(path, baseline, selected, page, start + selected.size() < entries.size());
     }
+
+    /** Finds filenames anywhere in the frozen tree, including directories never visited with {@link #directory}. */
+    public PathSearch searchPaths(WorkspaceRepositoryContext workspace, long repositoryId, String baseline, String query, int page)
+    {
+        checkBaseline(workspace, repositoryId, baseline);
+        checkSearch(query, page);
+        GitCommandRunner.Result listing = git.runLocalBoundedStdout(workspace.repository(), COMMAND_TIMEOUT, SEARCH_BYTES,
+                ImmutableList.of("ls-tree", "-r", "-z", "--name-only", baseline));
+        checkArgument(listing.successful() && !listing.truncated() && (listing.output().isEmpty() || listing.output().endsWith("\0")),
+                "Frozen filename inventory exceeds the complete 5 MiB read budget or is unavailable; narrow by directory");
+        String needle = query.toLowerCase(Locale.ROOT);
+        List<String> names = Arrays.stream(listing.output().split("\0", -1))
+                .filter(name -> !name.isEmpty() && name.toLowerCase(Locale.ROOT).contains(needle))
+                .collect(ImmutableList.toImmutableList());
+        int start = page * SEARCH_PAGE_SIZE;
+        checkArgument(start < names.size() || (page == 0 && names.isEmpty()), "Filename search page is outside the matches");
+        List<String> matches = names.stream().skip(start).limit(SEARCH_PAGE_SIZE).collect(ImmutableList.toImmutableList());
+        return new PathSearch(query, matches, page, start + matches.size() < names.size());
+    }
+
+    /** Literal case-insensitive text search at the frozen revision; broad queries must be narrowed when output exceeds the bound. */
+    public TextSearch searchText(WorkspaceRepositoryContext workspace, long repositoryId, String baseline, String query, int page)
+    {
+        return searchText(workspace, repositoryId, baseline, query, page, ImmutableList.of());
+    }
+
+    public TextSearch searchText(WorkspaceRepositoryContext workspace, long repositoryId, String baseline, String query, int page, List<String> paths)
+    {
+        paths.forEach(path -> ContextLimits.pathPrefix(path.endsWith("/") ? path : path + "/"));
+        checkBaseline(workspace, repositoryId, baseline);
+        checkSearch(query, page);
+        GitCommandRunner.Result output = git.runLocalBoundedStdout(workspace.repository(), COMMAND_TIMEOUT, SEARCH_BYTES,
+                ImmutableList.<String>builder().add("grep", "--no-color", "-I", "-n", "-z", "-F", "-i", "-m", "2", "-e", query, baseline, "--")
+                        .addAll(paths.stream().map(path -> ":(literal)" + path).toList()).build());
+        checkArgument((output.successful() || output.exitCode() == 1) && !output.truncated(),
+                "Frozen text search exceeded the complete 5 MiB read budget or is unavailable; use a narrower term");
+        List<TextMatch> found = parseTextMatches(output.output(), baseline);
+        int start = page * SEARCH_PAGE_SIZE;
+        checkArgument(start < found.size() || (page == 0 && found.isEmpty()), "Text search page is outside the matches");
+        List<TextMatch> matches = found.stream().skip(start).limit(SEARCH_PAGE_SIZE).collect(ImmutableList.toImmutableList());
+        return new TextSearch(query, matches, page, start + matches.size() < found.size(), 2);
+    }
+
+    private static void checkSearch(String query, int page)
+    {
+        ContextLimits.text(query, "search query", 100);
+        checkArgument(query.chars().noneMatch(Character::isISOControl), "Search query has a control character");
+        checkArgument(page >= 0 && page <= Integer.MAX_VALUE / SEARCH_PAGE_SIZE, "Search page is invalid");
+    }
+
+    private static List<TextMatch> parseTextMatches(String output, String baseline)
+    {
+        ImmutableList.Builder<TextMatch> matches = ImmutableList.builder();
+        int index = 0;
+        while (index < output.length()) {
+            int pathEnd = output.indexOf('\0', index);
+            int lineEnd = pathEnd < 0 ? -1 : output.indexOf('\0', pathEnd + 1);
+            int textEnd = lineEnd < 0 ? -1 : output.indexOf('\n', lineEnd + 1);
+            checkArgument(pathEnd > index && lineEnd > pathEnd && textEnd > lineEnd, "Incomplete frozen text search result");
+            String identity = output.substring(index, pathEnd);
+            checkArgument(identity.startsWith(baseline + ":"), "Text search result differs from the frozen revision");
+            String path = identity.substring(baseline.length() + 1);
+            ContextLimits.pathPrefix(path + "/");
+            int line = Integer.parseInt(output.substring(pathEnd + 1, lineEnd));
+            matches.add(new TextMatch(path, line, ContextText.prefix(output.substring(lineEnd + 1, textEnd), 300)));
+            index = textEnd + 1;
+        }
+        return matches.build();
+    }
+
+    public record PathSearch(String query, List<String> matches, int page, boolean hasMore)
+    {
+        public PathSearch
+        {
+            matches = ImmutableList.copyOf(matches);
+        }
+    }
+
+    public record TextSearch(String query, List<TextMatch> matches, int page, boolean hasMore, int maxMatchesPerFile)
+    {
+        public TextSearch
+        {
+            matches = ImmutableList.copyOf(matches);
+        }
+    }
+
+    public record TextMatch(String path, int line, String excerpt) {}
 
     private static void checkBaseline(WorkspaceRepositoryContext workspace, long repositoryId, String baseline)
     {

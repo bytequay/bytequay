@@ -87,6 +87,8 @@ class TestContextBuildTools
     private static final RepoRef REPO = RepoRef.of("owner", "repository");
     private static final RegisteredContextSource DOC = new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_PAGE,
             "https://example.com/guide", ContextEntryOrigin.USER, Optional.empty());
+    private static final RegisteredContextSource DOC_ROOT = new RegisteredContextSource("docs-root", RegisteredContextSource.Kind.DOCUMENTATION_ROOT,
+            "https://example.com/guide/", ContextEntryOrigin.USER, Optional.empty());
     private static final String BEGIN = "{\"operation\":\"BEGIN\",\"requestKey\":\"plan\",\"expectedRevision\":0,\"scopeIds\":[\"project\"]}";
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new JavaTimeModule());
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);
@@ -99,6 +101,9 @@ class TestContextBuildTools
     private final SelectedDocumentationReader documents = mock(SelectedDocumentationReader.class);
     private final ContextHistoryReader history = mock(ContextHistoryReader.class);
     private final RepositoryContextPreparation preparation = mock(RepositoryContextPreparation.class);
+    private final ContextLearningService learning = mock(ContextLearningService.class);
+    private final ContextNotebookLookup lookup = mock(ContextNotebookLookup.class);
+    private final ContextMergedCandidateService candidates = mock(ContextMergedCandidateService.class);
     private final AgentUnitOfWork unitOfWork = mock(AgentUnitOfWork.class);
     private final AtomicBoolean stopped = new AtomicBoolean();
     private ReviewBridge bridge;
@@ -121,7 +126,8 @@ class TestContextBuildTools
         when(notebooks.getNotebook(WORKSPACE)).thenReturn(RepositoryNotebook.empty());
         when(unitOfWork.execute(any())).thenAnswer(call -> ((AgentUnitOfWork.Work<?>) call.getArgument(0)).run());
         store.save(Optional.empty(), build(ImmutableList.of()));
-        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, history, preparation, unitOfWork, mapper)
+        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, history, preparation,
+                unitOfWork, mapper, learning, lookup, candidates)
                 .bridge(TASK.toString()).orElseThrow();
         when(baseline.directory(any(), eq(1L), eq(SHA), eq(""), eq(0))).thenReturn(new ContextBaselineReader.Directory("", SHA,
                 ImmutableList.of(new ContextBaselineReader.TreeEntry("README.md", "FILE", SHA)), 0, false));
@@ -178,6 +184,34 @@ class TestContextBuildTools
     }
 
     @Test
+    void selectedMergedWorkRetainsLocalBundleWithHistoryEvidence()
+            throws Exception
+    {
+        ContextBuild base = current();
+        ContextBuild bound = new ContextBuild(base.sequence(), base.requestKey(), base.requestDigest(), base.workspaceId(), base.taskId(), base.physicalRepository(),
+                base.repositoryId(), base.repository(), base.baselineSha(), base.branch(), base.laneId(), base.defaults(), base.scopeIds(),
+                ImmutableList.of(new ContextBuild.History(ContextHistoryReader.SourceKind.PR, 7)), base.documentationSources(), base.notebookRevision(),
+                base.requestedAt(), base.capture(), base.mode(), base.assignment());
+        store.save(Optional.of(base), bound);
+        ContextMergedCandidate selected = new ContextMergedCandidate("pr:owner/repository#7", REPO.fullName(), 7, "Fix checkpoint identity",
+                "https://github.com/owner/repository/pull/7", Instant.EPOCH, Optional.of(TASK.toString()), Optional.of("Investigate logical file identity"),
+                Optional.of("Task finding needs validation"), Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of());
+        when(candidates.selected(any())).thenReturn(Optional.of(selected));
+        when(history.read(any(), eq(1L), eq(ContextHistoryReader.SourceKind.PR), eq(7))).thenReturn(new ContextHistoryReader.Read(
+                new ContextReference.PullRequest(1, REPO, 7, Optional.empty()), com.bytequay.core.context.ContextHistoryRead.State.MERGED,
+                Optional.of(Instant.EPOCH), Optional.of(SHA), "a".repeat(64), Instant.EPOCH, "Merged PR discussion", false, false, ImmutableList.of(), "PR source"));
+
+        JsonNode result = read("{\"kind\":\"HISTORY\",\"sourceKind\":\"PR\",\"number\":7}");
+
+        assertThat(result.has("error")).isFalse();
+        assertThat(current().capture().sourceReads()).hasSize(1);
+        assertThat(current().capture().evidence().values()).singleElement().satisfies(source -> {
+            assertThat(source.excerpt()).contains("Merged PR discussion", "FROZEN LOCAL BYTEQUAY ASSOCIATIONS", "Task finding needs validation");
+            assertThat(source.provenance()).contains("retained local task");
+        });
+    }
+
+    @Test
     void cancellationDuringSourceReadDiscardsTheNewReceipt()
             throws Exception
     {
@@ -187,7 +221,7 @@ class TestContextBuildTools
         });
         assertThat(read("{\"kind\":\"FILE\",\"path\":\"README.md\"}").path("error").path("message").textValue()).contains("stopped");
         assertThat(current().capture().sourceReads()).isEmpty();
-        assertThat(current().capture().attempts()).isEmpty();
+        assertThat(current().capture().attempts()).containsKey("read-operation:0");
     }
 
     @Test
@@ -254,6 +288,99 @@ class TestContextBuildTools
     }
 
     @Test
+    void sourceOperationBudgetSurvivesARecreatedToolBridgeAndStore()
+            throws Exception
+    {
+        for (int index = 0; index < 40; index++) {
+            assertThat(read("{\"kind\":\"TREE\"}").has("error")).isFalse();
+        }
+        ContextBuildStore reopened = new ContextBuildStore(settings, tasks, mapper);
+        bridge = new ContextBuildTools(reopened, service, tasks, workspaces, notebooks, baseline, documents, history, preparation,
+                unitOfWork, mapper, learning, lookup, candidates).bridge(TASK.toString()).orElseThrow();
+
+        assertThat(read("{\"kind\":\"TREE\"}").path("error").path("message").textValue()).contains("Source operation limit reached");
+        assertThat(current().capture().attempts().keySet().stream().filter(key -> key.startsWith("read-operation:"))).hasSize(40);
+        verify(baseline, times(40)).directory(any(), eq(1L), eq(SHA), eq(""), eq(0));
+    }
+
+    @Test
+    void tenFailedDocumentOpensExhaustTheRunButCapturedTextPagesRemainReadable()
+            throws Exception
+    {
+        store.save(Optional.of(current()), build(ImmutableList.of(DOC)));
+        when(documents.read(WORKSPACE, DOC.id(), Optional.empty(), Optional.empty(), 1, true))
+                .thenThrow(new IllegalArgumentException("Documentation unavailable"));
+        for (int index = 0; index < 10; index++) {
+            assertThat(read("{\"kind\":\"DOCUMENT\",\"sourceId\":\"docs\"}").has("error")).isTrue();
+        }
+        assertThat(current().capture().attempts().keySet().stream().filter(key -> key.startsWith("document-open:"))).hasSize(10);
+        assertThat(read("{\"kind\":\"DOCUMENT\",\"sourceId\":\"docs\"}").path("error").path("message").textValue())
+                .contains("Documentation open limit reached");
+        verify(documents, times(10)).read(WORKSPACE, DOC.id(), Optional.empty(), Optional.empty(), 1, true);
+
+        String captureId = UUID.randomUUID().toString();
+        when(documents.read(WORKSPACE, DOC.id(), Optional.empty(), Optional.of(captureId), 2, false))
+                .thenReturn(new SelectedDocumentationReader.Page(DOC, 0, DOC.url(), captureId, "b".repeat(64), Instant.EPOCH,
+                        2, 2, "remaining text", false, true, false, ImmutableList.of()));
+        JsonNode continuation = read("{\"kind\":\"DOCUMENT\",\"sourceId\":\"docs\",\"captureId\":\"" + captureId + "\",\"page\":2}");
+        assertThat(continuation.has("error")).isFalse();
+        assertThat(continuation.path("page").asInt()).isEqualTo(2);
+        verify(documents).read(WORKSPACE, DOC.id(), Optional.empty(), Optional.of(captureId), 2, false);
+    }
+
+    @Test
+    void approvedQuestionRejectsUnrelatedFileBeforeSourceAccess()
+            throws Exception
+    {
+        store.save(Optional.of(current()), assigned(ImmutableList.of()));
+        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, history, preparation,
+                unitOfWork, mapper, learning, lookup, candidates).bridge(TASK.toString()).orElseThrow();
+
+        assertThat(read("{\"kind\":\"FILE\",\"path\":\"plugin/trino-delta-lake/src/Connector.java\"}")
+                .path("error").path("message").textValue()).contains("outside the approved topic sources");
+        verifyNoInteractions(baseline, documents);
+        assertThat(current().capture().sourceReads()).isEmpty();
+    }
+
+    @Test
+    void approvedQuestionRejectsUnobservedDocumentLinkBeforeReaderAccess()
+            throws Exception
+    {
+        store.save(Optional.of(current()), assigned(ImmutableList.of(DOC_ROOT)));
+        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, history, preparation,
+                unitOfWork, mapper, learning, lookup, candidates).bridge(TASK.toString()).orElseThrow();
+        ContextLearningPlan plan = new ContextLearningPlan("plan-1", WORKSPACE, "report-1", "request", "sha256:" + "b".repeat(64),
+                0, 1, ImmutableList.of("topic:1"), 1, REPO, SHA,
+                ImmutableList.of(new ContextLearningPlan.Topic("topic:1", "Iceberg metadata", "How does Iceberg read metadata?", "project",
+                        "sha256:" + "c".repeat(64), ImmutableList.of("plugin/trino-iceberg/"), ImmutableList.of("pom.xml"), ImmutableList.of(DOC_ROOT.id()),
+                        ContextLearningPlan.Status.PENDING, "How does Iceberg read metadata?")), ImmutableList.of(DOC_ROOT),
+                ContextDocumentInventory.initial(ImmutableList.of(DOC_ROOT)), ImmutableList.of(), Instant.EPOCH);
+        when(learning.require(any())).thenReturn(plan);
+
+        assertThat(read("{\"kind\":\"DOCUMENT\",\"sourceId\":\"docs-root\",\"relativePage\":\"unobserved.html\"}")
+                .path("error").path("message").textValue()).contains("not in the approved inventory");
+        verifyNoInteractions(documents);
+    }
+
+    @Test
+    void approvedQuestionCanStartFreshPreparationWithoutBroadDefaultReads()
+            throws Exception
+    {
+        store.save(Optional.of(current()), assigned(ImmutableList.of()));
+        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, history, preparation,
+                unitOfWork, mapper, learning, lookup, candidates).bridge(TASK.toString()).orElseThrow();
+        Plan plan = new Plan(RepositoryNotebook.empty(), ImmutableList.of());
+        when(preparation.plan(any(), anyList(), anyList())).thenReturn(plan);
+        when(preparation.begin(any(), anyString(), anyString(), anyLong(), eq(plan), eq(false)))
+                .thenReturn(new Admission(Status.DEFERRED, 0, Optional.empty(), ImmutableList.of(), ImmutableList.of("Need focused sources"),
+                        ContextPacket.create("No draft yet")));
+
+        assertThat(prepare(BEGIN).path("status").textValue()).isEqualTo("DEFERRED");
+        verify(preparation).begin(any(), anyString(), anyString(), anyLong(), eq(plan), eq(false));
+        verifyNoInteractions(baseline, documents);
+    }
+
+    @Test
     void submissionReplaysExactReceiptAndRejectsDifferentContentForTheKey()
             throws Exception
     {
@@ -317,7 +444,8 @@ class TestContextBuildTools
                     .collect(ImmutableList.toImmutableList());
         });
         RepositoryContextPreparation actualPreparation = new RepositoryContextPreparation(actualNotebooks, inputs, workspaces);
-        bridge = new ContextBuildTools(store, service, tasks, workspaces, actualNotebooks, baseline, documents, history, actualPreparation, unitOfWork, mapper)
+        bridge = new ContextBuildTools(store, service, tasks, workspaces, actualNotebooks, baseline, documents, history, actualPreparation,
+                unitOfWork, mapper, learning, lookup, candidates)
                 .bridge(TASK.toString()).orElseThrow();
         read("{\"kind\":\"TREE\"}");
         String readId = read("{\"kind\":\"FILE\",\"path\":\"README.md\"}").path("readId").textValue();
@@ -378,7 +506,7 @@ class TestContextBuildTools
                         "{\"status\":\"OWNED\",\"reused\":[{\"scopeId\":\"component\"}]}")), Optional.empty(), ImmutableList.of());
         ContextBuild selected = new ContextBuild(before.sequence(), before.requestKey(), before.requestDigest(), before.workspaceId(), before.taskId(),
                 before.physicalRepository(), before.repositoryId(), before.repository(), before.baselineSha(), before.branch(), before.laneId(), before.defaults(),
-                ImmutableList.of("component", "project"), before.history(), before.documentationSources(), before.notebookRevision(), before.requestedAt(), capture);
+                ImmutableList.of("component", "project"), before.history(), before.documentationSources(), before.notebookRevision(), before.requestedAt(), capture, before.mode(), before.assignment());
         store.save(Optional.of(before), selected);
         ContextPreparationResult generated = new ContextPreparationResult("attempt", ContextInputFingerprint.create("project", ImmutableMap.of("README.md", SHA),
                 ImmutableList.of()), ContextPreparationResult.Outcome.FAILED, ImmutableList.of(), ImmutableList.of(), "Insufficient source coverage");
@@ -421,6 +549,16 @@ class TestContextBuildTools
     {
         return new ContextBuild(1, "request", "sha256:" + "b".repeat(64), WORKSPACE, TASK.toString(), new RepositoryIdentity("owner", "repository"), 1, REPO, SHA,
                 "bytequay/learning", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), ImmutableList.of("project"), ImmutableList.of(), documents,
-                0, Instant.EPOCH, ContextBuild.Capture.empty());
+                0, Instant.EPOCH, ContextBuild.Capture.empty(), ContextBuild.Mode.LEARN, Optional.empty());
+    }
+
+    private static ContextBuild assigned(List<RegisteredContextSource> documents)
+    {
+        ContextBuild base = build(documents);
+        return new ContextBuild(base.sequence(), base.requestKey(), base.requestDigest(), base.workspaceId(), base.taskId(), base.physicalRepository(),
+                base.repositoryId(), base.repository(), base.baselineSha(), base.branch(), base.laneId(), base.defaults(), base.scopeIds(), base.history(),
+                base.documentationSources(), base.notebookRevision(), base.requestedAt(), base.capture(), base.mode(),
+                Optional.of(new ContextBuild.Assignment("plan-1", "topic:1", "How does Iceberg read metadata?",
+                        ImmutableList.of("plugin/trino-iceberg/"), ImmutableList.of("pom.xml"))));
     }
 }

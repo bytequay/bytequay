@@ -36,5 +36,5 @@ public record DevelopmentContextReceipt(String taskId, String turnId, String ope
         checkArgument(ContextLimits.bytes(payloadJson) <= 64 * 1024, "Context receipt payload exceeds 64 KiB");
     }
 
-    public enum Kind { OFFER, SEARCH, READ }
+    public enum Kind { OFFER, SEARCH, READ, PROPOSE }
 }

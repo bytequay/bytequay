@@ -158,6 +158,51 @@ class TestContextBaselineReader
     }
 
     @Test
+    void searchesDeepFrozenPathsAndTextWithoutReadingCurrentHead()
+            throws IOException
+    {
+        initialize();
+        Files.createDirectories(repository.resolve("unusual/nested/connectors"));
+        for (int index = 0; index < 53; index++) {
+            Files.writeString(repository.resolve("unusual/nested/connectors/iceberg-%02d.txt".formatted(index)),
+                    index == 52 ? "snapshot metadata\ncommit contract\n" : "connector fixture\n");
+        }
+        String baseline = commit();
+        Files.delete(repository.resolve("unusual/nested/connectors/iceberg-52.txt"));
+        Files.writeString(repository.resolve("unusual/nested/connectors/delta-new.txt"), "snapshot metadata\n");
+        commit();
+        ContextBaselineReader reader = new ContextBaselineReader(git, CLOCK);
+
+        ContextBaselineReader.PathSearch first = reader.searchPaths(workspace(), 7, baseline, "iceberg", 0);
+        ContextBaselineReader.PathSearch second = reader.searchPaths(workspace(), 7, baseline, "iceberg", 1);
+        assertThat(first.matches()).hasSize(50);
+        assertThat(first.hasMore()).isTrue();
+        assertThat(second.matches()).hasSize(3).allMatch(path -> path.startsWith("unusual/nested/connectors/"));
+        assertThat(second.hasMore()).isFalse();
+        assertThat(reader.searchPaths(workspace(), 7, baseline, "delta-new", 0).matches()).isEmpty();
+        assertThat(reader.searchText(workspace(), 7, baseline, "snapshot metadata", 0).matches())
+                .containsExactly(new ContextBaselineReader.TextMatch("unusual/nested/connectors/iceberg-52.txt", 1, "snapshot metadata"));
+        assertThat(reader.searchText(workspace(), 7, baseline, "absent", 0).matches()).isEmpty();
+        assertThatIllegalArgumentException().isThrownBy(() -> reader.searchPaths(workspace(), 7, baseline, "iceberg", 2))
+                .withMessageContaining("outside");
+    }
+
+    @Test
+    void rejectsIncompleteSearchResultsInsteadOfClaimingRepositoryCoverage()
+    {
+        GitCommandRunner local = mock(GitCommandRunner.class);
+        when(local.runLocalBoundedStdout(eq(repository), eq(TIMEOUT), eq(5 * 1024 * 1024), anyList()))
+                .thenReturn(new GitCommandRunner.Result(0, "deep/file.txt\0", true));
+        ContextBaselineReader reader = new ContextBaselineReader(local, CLOCK);
+
+        assertThatIllegalArgumentException().isThrownBy(() -> reader.searchPaths(workspace(), 7, SHA, "file", 0))
+                .withMessageContaining("5 MiB");
+        assertThatIllegalArgumentException().isThrownBy(() -> reader.searchText(workspace(), 7, SHA, "term", 0))
+                .withMessageContaining("5 MiB");
+        assertThatIllegalArgumentException().isThrownBy(() -> reader.searchPaths(workspace(), 7, SHA, "\n", 0));
+    }
+
+    @Test
     void readsExecutableFilesWithLiteralUnicodeAndPathspecCharacters()
             throws IOException
     {
@@ -238,11 +283,29 @@ class TestContextBaselineReader
     }
 
     @Test
+    void readsSmallWindowsInsideLargeSourceFiles()
+            throws IOException
+    {
+        initialize();
+        Files.writeString(repository.resolve("LargeMetadata.java"), "// module source implementation details\n".repeat(10_000));
+        String baseline = commit();
+
+        ContextBaselineReader.Read read = new ContextBaselineReader(git, CLOCK)
+                .read(workspace(), 7, baseline, "LargeMetadata.java", 5000, Optional.of(5004));
+
+        assertThat(read.totalLines()).isEqualTo(10_000);
+        assertThat(read.startLine()).isEqualTo(5000);
+        assertThat(read.endLine()).isEqualTo(5004);
+        assertThat(read.excerpt().lines()).hasSize(5);
+        assertThat(ContextLimits.bytes(read.excerpt())).isLessThan(16 * 1024);
+    }
+
+    @Test
     void rejectsOversizedBinaryAndInvalidUtf8Blobs()
             throws IOException
     {
         initialize();
-        Files.writeString(repository.resolve("large.md"), "x".repeat(128 * 1024 + 1));
+        Files.writeString(repository.resolve("large.md"), "x".repeat(2 * 1024 * 1024 + 1));
         Files.write(repository.resolve("binary"), new byte[] {1, 0, 2});
         Files.write(repository.resolve("invalid"), new byte[] {(byte) 0xC3});
         ReviewRun run = run(Optional.of(commit()));
@@ -275,8 +338,8 @@ class TestContextBaselineReader
             when(local.runLocalBounded(eq(repository), eq(TIMEOUT), eq(8 * 1024), anyList()))
                     .thenReturn(new GitCommandRunner.Result(0, "100644 blob " + BLOB + "\t" + PATH + "\0", false));
             assertThatIllegalArgumentException().isThrownBy(() -> read(local, run(Optional.of(SHA)), PATH, 1, Optional.empty()))
-                    .withMessageContaining("128 KiB");
-            verify(local).runLocalBounded(repository, TIMEOUT, 128 * 1024, ImmutableList.of("cat-file", "blob", BLOB));
+                    .withMessageContaining("2 MiB");
+            verify(local).runLocalBounded(repository, TIMEOUT, 2 * 1024 * 1024, ImmutableList.of("cat-file", "blob", BLOB));
         }
     }
 

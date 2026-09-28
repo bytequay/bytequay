@@ -73,22 +73,49 @@ export type ActiveContextPreparationDto = {
   reviewId: string | null; runId: string | null; baseContentRevision: number; inputs: ContextInputFingerprintDto[];
 };
 export type ContextBuildHistoryDto = { kind: 'PR' | 'ISSUE'; number: number };
-export type DiscoverRepositoryContextRequest = { expectedRevision: number; scopeIds: string[]; query: string; includeRemote: boolean };
-export type ApplyContextDiscoveryRequest = { expectedRevision: number; baselineSha: string; repositoryFingerprint: string; query: string; scopeIds: string[]; sourceIds: string[] };
-export type ContextDiscoveryDto = {
-  workspaceId: string; notebookRevision: number; baselineSha: string; repositoryFingerprint: string; query: string;
-  scopes: Array<{ scope: ContextScopeDto; evidence: ContextSourceEvidenceDto; reasons: string[] }>;
-  sources: Array<{ source: ContextSourceDto; evidence: ContextSourceEvidenceDto; reasons: string[] }>;
-  history: Array<ContextBuildHistoryDto & { title: string; url: string; state: string; outcome: string; updatedAt: string; reasons: string[]; provenance: string }>;
-  gaps: string[]; inspected: { directories: number; files: number; pullRequests: number; issues: number };
+export type StartContextDiscoveryRequest = { requestKey: string; expectedRevision: number; expectedBuildSequence: number };
+export type ContextDiscoveryReportDto = {
+  id: string; workspaceId: string; repositoryId: number; repository: { owner: string; repo: string }; baselineSha: string; outline: string;
+  topics: Array<{ id: string; title: string; question: string; paths: string[]; sourceIds: string[]; evidenceReadIds: string[]; why: string }>;
+  sources: Array<{ id: string; kind: 'REPOSITORY_FILE' | 'DOCUMENTATION_ROOT' | 'DOCUMENTATION_PAGE'; location: string;
+    title: string; evidenceReadIds: string[]; why: string }>;
+  evidence: Array<{ readId: string; path: string; blobId: string; startLine: number; endLine: number; excerpt: string; truncated: boolean }>;
+  gaps: string[]; remaining: string[]; partial: boolean; createdAt: string;
 };
-export type StartContextBuildRequest = {
-  requestKey: string; expectedRevision: number; expectedBuildSequence: number; scopeIds: string[]; history: ContextBuildHistoryDto[];
+export type StartContextLearningRequest = StartContextDiscoveryRequest & { reportId: string; topicIds: string[] };
+export type ContinueContextLearningRequest = StartContextDiscoveryRequest & { planId: string };
+export type DiscardContextLearningPlanRequest = { planId: string; expectedRevision: number; expectedBuildSequence: number };
+export type AllowContextLearningSourceRequest = DiscardContextLearningPlanRequest &
+  ({ sourceId: string; suggestedUrl?: never } | { sourceId?: never; suggestedUrl: string });
+export type LearnContextMergedCandidateRequest = StartContextDiscoveryRequest & { candidateId: string };
+export type ContextMergedCandidateDto = {
+  id: string; repo: string; number: number; title: string; url: string; mergedAt: string;
+  taskId: string | null; taskTitle: string | null; taskResult: string | null;
+  learningSummary: null | { purpose: string; commits: Array<{ sha: string; title: string; summary: string }>;
+    combinedResult: string | null; evidence: string; limitations: string[] };
+  issue: null | { kind: string; key: string; url: string; title: string; context: string };
+  review: null | { reviewId: string; runId: string; purpose: string; combinedResult: string; coverageComplete: boolean;
+    omissions: string[]; warnings: string[] };
+  checks: Array<{ name: string; status: string; conclusion: string; url: string }>;
+  gaps: string[];
+};
+export type ContextMergedCandidatesDto = { candidates: ContextMergedCandidateDto[]; gaps: string[] };
+export type ContextLearningPlanDto = {
+  id: string; workspaceId: string; reportId: string; acceptedRequestKey: string; acceptedRequestDigest: string;
+  acceptedNotebookRevision: number; initialBuildSequence: number; acceptedTopicIds: string[];
+  repositoryId: number; repository: { owner: string; repo: string }; baselineSha: string;
+  topics: Array<{ id: string; title: string; question: string; scopeId: string; paths: string[]; repositoryFiles: string[];
+    sourceIds: string[]; status: 'PENDING' | 'COMPLETED'; remainingQuestion: string }>;
+  documentationSources: ContextSourceDto[];
+  documentInventory: { sources: ContextSourceDto[]; items: Array<{ sourceId: string; resolvedUrl: string; relativePage: string | null;
+    parentUrl: string | null; depth: number; status: 'PENDING' | 'READ' | 'FAILED' | 'EXCLUDED'; readId: string | null;
+    contentHash: string | null; detail: string }>; suggestedExpansionUrls: string[]; truncated: boolean };
+  gaps: string[]; acceptedAt: string;
 };
 export type ContextBuildViewDto = {
   buildRequestSequence: number; notebookRevision: number; canStart: boolean;
   build: null | {
-    requestKey: string; taskId: string; baselineSha: string; scopeIds: string[]; history: ContextBuildHistoryDto[]; requestedAt: string;
+    mode: 'DISCOVER' | 'LEARN'; requestKey: string; taskId: string; baselineSha: string; scopeIds: string[]; history: ContextBuildHistoryDto[]; requestedAt: string;
     task: null | { id: string; workspaceId: string; state: 'OPEN' | 'COMPLETED' | 'FAILED'; version: number; laneId: string; model: string | null;
       mutationClaim: string | null; terminalReason: string | null; worktreePath: string; worktreeRemovedAt: string | null };
     activeTurn: null | { id: string; state: string; startedAt: string | null; cancellationRequestedAt: string | null };
@@ -223,7 +250,6 @@ function entry(value: unknown): ContextEntryDto {
 function knowledgeDraft(value: unknown): ContextKnowledgeDraftDto {
   const item = object(value, 'knowledge draft');
   const proposed = entry(item.entry);
-  if (proposed.kind !== 'KNOWLEDGE') malformed('knowledge draft entry');
   return { id: text(item.id, 'draft id'), entry: proposed, replacesVersion: item.replacesVersion === null ? null : count(item.replacesVersion, 'replaced version', 1),
     baselineSha: text(item.baselineSha, 'draft baseline'), explanation: text(item.explanation, 'draft explanation') };
 }
@@ -387,15 +413,162 @@ function buildHistory(value: unknown): ContextBuildHistoryDto {
   const item = request(value, ['kind', 'number']);
   return { kind: oneOf(item.kind, ['PR', 'ISSUE'], 'history kind'), number: count(item.number, 'history number', 1) };
 }
-export function parseStartContextBuildRequest(value: unknown): StartContextBuildRequest {
-  const item = request(value, ['requestKey', 'expectedRevision', 'expectedBuildSequence', 'scopeIds', 'history']);
-  const result = { requestKey: text(item.requestKey, 'build request key'), expectedRevision: count(item.expectedRevision, 'expected revision'),
-    expectedBuildSequence: count(item.expectedBuildSequence, 'expected build sequence'), scopeIds: strings(item.scopeIds, 'build scopes'),
-    history: array(item.history, 'selected history', buildHistory) };
-  if (result.requestKey.trim() === '' || result.scopeIds.length === 0 || result.scopeIds.length > 100
-    || result.scopeIds.some(id => id.trim() === '') || new Set(result.scopeIds).size !== result.scopeIds.length) malformed('build request identity or scopes');
-  if (result.history.length > 10 || new Set(result.history.map(item => `${item.kind}:${item.number}`)).size !== result.history.length
-    || result.history.some(item => item.number > 2147483647)) malformed('selected history limit or identity');
+export function parseStartContextDiscoveryRequest(value: unknown): StartContextDiscoveryRequest {
+  const item = request(value, ['requestKey', 'expectedRevision', 'expectedBuildSequence']);
+  const result = { requestKey: text(item.requestKey, 'discovery request key'), expectedRevision: count(item.expectedRevision, 'expected revision'),
+    expectedBuildSequence: count(item.expectedBuildSequence, 'expected build sequence') };
+  if (result.requestKey.trim() === '') malformed('discovery request key');
+  return result;
+}
+export function parseStartContextLearningRequest(value: unknown): StartContextLearningRequest {
+  const item = request(value, ['requestKey', 'expectedRevision', 'expectedBuildSequence', 'reportId', 'topicIds']);
+  const base = parseStartContextDiscoveryRequest({ requestKey: item.requestKey, expectedRevision: item.expectedRevision,
+    expectedBuildSequence: item.expectedBuildSequence });
+  const result = { ...base, reportId: text(item.reportId, 'learning report id'), topicIds: strings(item.topicIds, 'learning topic IDs') };
+  if (result.reportId.trim() === '' || result.topicIds.length === 0 || result.topicIds.length > 20
+    || result.topicIds.some(id => id.trim() === '') || new Set(result.topicIds).size !== result.topicIds.length) malformed('learning selection');
+  return result;
+}
+export function parseContinueContextLearningRequest(value: unknown): ContinueContextLearningRequest {
+  const item = request(value, ['requestKey', 'expectedRevision', 'expectedBuildSequence', 'planId']);
+  const base = parseStartContextDiscoveryRequest({ requestKey: item.requestKey, expectedRevision: item.expectedRevision,
+    expectedBuildSequence: item.expectedBuildSequence });
+  const planId = text(item.planId, 'learning plan id');
+  if (planId.trim() === '') malformed('learning plan id');
+  return { ...base, planId };
+}
+export function parseDiscardContextLearningPlanRequest(value: unknown): DiscardContextLearningPlanRequest {
+  const item = request(value, ['planId', 'expectedRevision', 'expectedBuildSequence']);
+  const planId = text(item.planId, 'discarded plan id');
+  if (planId.trim() === '') malformed('discarded plan id');
+  return { planId, expectedRevision: count(item.expectedRevision, 'expected revision'),
+    expectedBuildSequence: count(item.expectedBuildSequence, 'expected build sequence') };
+}
+export function parseAllowContextLearningSourceRequest(value: unknown): AllowContextLearningSourceRequest {
+  const item = request(value, ['planId', 'sourceId', 'suggestedUrl', 'expectedRevision', 'expectedBuildSequence']);
+  const base = parseDiscardContextLearningPlanRequest({ planId: item.planId, expectedRevision: item.expectedRevision,
+    expectedBuildSequence: item.expectedBuildSequence });
+  if ((item.sourceId === undefined) === (item.suggestedUrl === undefined)) malformed('source selection');
+  if (item.sourceId !== undefined) {
+    const sourceId = text(item.sourceId, 'allowed source id');
+    if (sourceId.trim() === '') malformed('allowed source id');
+    return { ...base, sourceId };
+  }
+  const suggestedUrl = text(item.suggestedUrl, 'suggested source URL');
+  if (!suggestedUrl.startsWith('https://')) malformed('suggested source URL');
+  return { ...base, suggestedUrl };
+}
+export function parseLearnContextMergedCandidateRequest(value: unknown): LearnContextMergedCandidateRequest {
+  const item = request(value, ['candidateId', 'requestKey', 'expectedRevision', 'expectedBuildSequence']);
+  const base = parseStartContextDiscoveryRequest({ requestKey: item.requestKey, expectedRevision: item.expectedRevision,
+    expectedBuildSequence: item.expectedBuildSequence });
+  const candidateId = text(item.candidateId, 'candidate ID');
+  if (candidateId.trim() === '') malformed('candidate ID');
+  return { ...base, candidateId };
+}
+export function parseContextMergedCandidates(value: unknown): ContextMergedCandidatesDto {
+  const response = object(value, 'merged candidates');
+  const candidates = array(response.candidates, 'merged candidates', value => {
+    const candidate = object(value, 'merged candidate');
+    const summary = candidate.learningSummary === null ? null : object(candidate.learningSummary, 'candidate learning summary');
+    const issue = candidate.issue === null ? null : object(candidate.issue, 'candidate issue');
+    const review = candidate.review === null ? null : object(candidate.review, 'candidate review');
+    return { id: text(candidate.id, 'candidate ID'), repo: text(candidate.repo, 'candidate repository'),
+      number: count(candidate.number, 'candidate PR number', 1), title: text(candidate.title, 'candidate title'),
+      url: text(candidate.url, 'candidate URL'), mergedAt: text(candidate.mergedAt, 'candidate merge time'),
+      taskId: nullableText(candidate.taskId, 'candidate task ID'), taskTitle: nullableText(candidate.taskTitle, 'candidate task title'),
+      taskResult: nullableText(candidate.taskResult, 'candidate task result'),
+      learningSummary: summary === null ? null : { purpose: text(summary.purpose, 'learning purpose'),
+        commits: array(summary.commits, 'learning commits', value => { const commit = object(value, 'learning commit');
+          return { sha: text(commit.sha, 'commit SHA'), title: text(commit.title, 'commit title'), summary: text(commit.summary, 'commit summary') }; }),
+        combinedResult: nullableText(summary.combinedResult, 'learning result'), evidence: text(summary.evidence, 'learning evidence'),
+        limitations: strings(summary.limitations, 'learning limitations') },
+      issue: issue === null ? null : { kind: text(issue.kind, 'issue kind'), key: text(issue.key, 'issue key'),
+        url: text(issue.url, 'issue URL'), title: text(issue.title, 'issue title'), context: text(issue.context, 'issue context') },
+      review: review === null ? null : { reviewId: text(review.reviewId, 'candidate review ID'), runId: text(review.runId, 'candidate run ID'),
+        purpose: text(review.purpose, 'review purpose'), combinedResult: text(review.combinedResult, 'review result'),
+        coverageComplete: flag(review.coverageComplete, 'review coverage'), omissions: strings(review.omissions, 'review omissions'),
+        warnings: strings(review.warnings, 'review warnings') },
+      checks: array(candidate.checks, 'candidate checks', value => { const check = object(value, 'candidate check');
+        return { name: text(check.name, 'check name'), status: text(check.status, 'check status'),
+          conclusion: text(check.conclusion, 'check conclusion'), url: text(check.url, 'check URL') }; }),
+      gaps: strings(candidate.gaps, 'candidate gaps') };
+  });
+  if (new Set(candidates.map(item => item.id)).size !== candidates.length
+    || candidates.some(item => item.id !== `pr:${item.repo.toLowerCase()}#${item.number}`)) malformed('candidate identity');
+  return { candidates, gaps: strings(response.gaps, 'candidate list limitations') };
+}
+export function parseContextDiscoveryReport(value: unknown, workspaceId: string): ContextDiscoveryReportDto | null {
+  const response = object(value, 'discovery report response');
+  if (response.report === null) return null;
+  const report = object(response.report, 'discovery report');
+  const repository = object(report.repository, 'discovery repository');
+  const result: ContextDiscoveryReportDto = {
+    id: text(report.id, 'discovery report id'), workspaceId: text(report.workspaceId, 'discovery workspace'),
+    repositoryId: count(report.repositoryId, 'discovery repository id', 1),
+    repository: { owner: text(repository.owner, 'repository owner'), repo: text(repository.repo, 'repository name') },
+    baselineSha: text(report.baselineSha, 'discovery baseline'), outline: text(report.outline, 'discovery outline'),
+    topics: array(report.topics, 'discovery topics', value => { const topic = object(value, 'discovery topic');
+      return { id: text(topic.id, 'topic id'), title: text(topic.title, 'topic title'), question: text(topic.question, 'topic question'),
+        paths: strings(topic.paths, 'topic paths'), sourceIds: strings(topic.sourceIds, 'topic source IDs'),
+        evidenceReadIds: strings(topic.evidenceReadIds, 'topic evidence IDs'), why: text(topic.why, 'topic rationale') }; }),
+    sources: array(report.sources, 'discovery sources', value => { const source = object(value, 'discovery source');
+      return { id: text(source.id, 'discovery source id'), kind: oneOf(source.kind,
+        ['REPOSITORY_FILE', 'DOCUMENTATION_ROOT', 'DOCUMENTATION_PAGE'], 'discovery source kind'),
+      location: text(source.location, 'discovery source location'), title: text(source.title, 'discovery source title'),
+      evidenceReadIds: strings(source.evidenceReadIds, 'source evidence IDs'), why: text(source.why, 'source rationale') }; }),
+    evidence: array(report.evidence, 'discovery evidence', value => { const evidence = object(value, 'discovery evidence');
+      return { readId: text(evidence.readId, 'discovery read ID'), path: text(evidence.path, 'discovery read path'),
+        blobId: text(evidence.blobId, 'discovery blob ID'), startLine: count(evidence.startLine, 'discovery start line', 1),
+        endLine: count(evidence.endLine, 'discovery end line', 1), excerpt: text(evidence.excerpt, 'discovery excerpt'),
+        truncated: flag(evidence.truncated, 'discovery excerpt truncation') }; }),
+    gaps: strings(report.gaps, 'discovery gaps'), remaining: strings(report.remaining, 'remaining discovery'),
+    partial: flag(report.partial, 'partial discovery'), createdAt: text(report.createdAt, 'discovery report time'),
+  };
+  if (result.workspaceId !== workspaceId || result.evidence.some(item => item.endLine < item.startLine)) malformed('discovery report ownership or evidence');
+  const readIds = new Set(result.evidence.map(item => item.readId));
+  const sourceIds = new Set(result.sources.map(item => item.id));
+  if (sourceIds.size !== result.sources.length || readIds.size !== result.evidence.length
+    || new Set(result.topics.map(item => item.id)).size !== result.topics.length
+    || result.topics.some(topic => topic.sourceIds.some(id => !sourceIds.has(id)) || topic.evidenceReadIds.some(id => !readIds.has(id)))
+    || result.sources.some(source => source.evidenceReadIds.some(id => !readIds.has(id)))) malformed('discovery report references');
+  return result;
+}
+export function parseContextLearningPlan(value: unknown, workspaceId: string): ContextLearningPlanDto | null {
+  const response = object(value, 'learning plan response');
+  if (response.plan === null) return null;
+  const plan = object(response.plan, 'learning plan');
+  const repository = object(plan.repository, 'learning repository');
+  const inventory = object(plan.documentInventory, 'document inventory');
+  const result: ContextLearningPlanDto = {
+    id: text(plan.id, 'plan id'), workspaceId: text(plan.workspaceId, 'plan workspace'), reportId: text(plan.reportId, 'plan report'),
+    acceptedRequestKey: text(plan.acceptedRequestKey, 'plan request key'), acceptedRequestDigest: text(plan.acceptedRequestDigest, 'plan request digest'),
+    acceptedNotebookRevision: count(plan.acceptedNotebookRevision, 'plan notebook revision'),
+    initialBuildSequence: count(plan.initialBuildSequence, 'plan initial sequence'), acceptedTopicIds: strings(plan.acceptedTopicIds, 'accepted topics'),
+    repositoryId: count(plan.repositoryId, 'plan repository id', 1),
+    repository: { owner: text(repository.owner, 'plan repository owner'), repo: text(repository.repo, 'plan repository name') },
+    baselineSha: text(plan.baselineSha, 'plan baseline'),
+    topics: array(plan.topics, 'plan topics', value => { const topic = object(value, 'plan topic');
+      return { id: text(topic.id, 'plan topic id'), title: text(topic.title, 'plan topic title'), question: text(topic.question, 'plan topic question'),
+        scopeId: text(topic.scopeId, 'plan scope id'), paths: strings(topic.paths, 'plan paths'),
+        repositoryFiles: strings(topic.repositoryFiles, 'plan repository files'), sourceIds: strings(topic.sourceIds, 'plan source IDs'),
+        status: oneOf(topic.status, ['PENDING', 'COMPLETED'], 'plan topic status'),
+        remainingQuestion: text(topic.remainingQuestion, 'remaining question') }; }),
+    documentationSources: array(plan.documentationSources, 'plan documentation sources', source),
+    documentInventory: { sources: array(inventory.sources, 'inventory sources', source),
+      items: array(inventory.items, 'inventory items', value => { const item = object(value, 'inventory item');
+        return { sourceId: text(item.sourceId, 'inventory source'), resolvedUrl: text(item.resolvedUrl, 'inventory URL'),
+          relativePage: nullableText(item.relativePage, 'inventory relative page'), parentUrl: nullableText(item.parentUrl, 'inventory parent'),
+          depth: count(item.depth, 'inventory depth'), status: oneOf(item.status, ['PENDING', 'READ', 'FAILED', 'EXCLUDED'], 'inventory status'),
+          readId: nullableText(item.readId, 'inventory read'), contentHash: nullableText(item.contentHash, 'inventory content hash'),
+          detail: text(item.detail, 'inventory detail') }; }),
+      suggestedExpansionUrls: strings(inventory.suggestedExpansionUrls, 'suggested expansion URLs'),
+      truncated: flag(inventory.truncated, 'inventory truncation') },
+    gaps: strings(plan.gaps, 'plan gaps'), acceptedAt: text(plan.acceptedAt, 'plan acceptance time'),
+  };
+  if (result.workspaceId !== workspaceId || new Set(result.acceptedTopicIds).size !== result.acceptedTopicIds.length
+    || new Set(result.topics.map(item => item.id)).size !== result.topics.length
+    || result.topics.some(item => !result.acceptedTopicIds.includes(item.id))) malformed('learning plan identity');
   return result;
 }
 export function parseContextBuildView(value: unknown, workspaceId: string): ContextBuildViewDto {
@@ -406,7 +579,8 @@ export function parseContextBuildView(value: unknown, workspaceId: string): Cont
   const build = object(item.build, 'build');
   const task = build.task === null ? null : object(build.task, 'build task');
   const turn = build.activeTurn === null ? null : object(build.activeTurn, 'build turn');
-  result.build = { requestKey: text(build.requestKey, 'build request key'), taskId: text(build.taskId, 'build task id'),
+  result.build = { mode: oneOf(build.mode, ['DISCOVER', 'LEARN'], 'build mode'),
+    requestKey: text(build.requestKey, 'build request key'), taskId: text(build.taskId, 'build task id'),
     baselineSha: text(build.baselineSha, 'build baseline'), scopeIds: strings(build.scopeIds, 'build scopes'),
     history: array(build.history, 'build history', buildHistory), requestedAt: text(build.requestedAt, 'build request time'),
     task: task === null ? null : { id: text(task.id, 'task id'), workspaceId: text(task.workspaceId, 'task workspace'),
@@ -477,38 +651,6 @@ export function parseContextUsageActivities(value: unknown, entryId: string): Co
       delivery: oneOf(activity.delivery, ['PREPARED', 'CONFIRMED', 'UNCERTAIN'], 'activity delivery'),
       occurredAt: text(activity.occurredAt, 'activity time'), receiptRef: text(activity.receiptRef, 'activity receipt') };
   }), hasMore: flag(item.hasMore, 'more activities') };
-}
-export function parseDiscoverRepositoryContextRequest(value: unknown): DiscoverRepositoryContextRequest {
-  const item = request(value, ['expectedRevision', 'scopeIds', 'query', 'includeRemote']);
-  return { expectedRevision: count(item.expectedRevision, 'expected revision'), scopeIds: strings(item.scopeIds, 'discovery scopes'),
-    query: text(item.query, 'discovery query'), includeRemote: flag(item.includeRemote, 'remote discovery') };
-}
-export function parseApplyContextDiscoveryRequest(value: unknown): ApplyContextDiscoveryRequest {
-  const item = request(value, ['expectedRevision', 'baselineSha', 'repositoryFingerprint', 'query', 'scopeIds', 'sourceIds']);
-  if (typeof item.repositoryFingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(item.repositoryFingerprint)) malformed('repository fingerprint');
-  return { expectedRevision: count(item.expectedRevision, 'expected revision'), baselineSha: text(item.baselineSha, 'discovery baseline'),
-    repositoryFingerprint: item.repositoryFingerprint, query: text(item.query, 'discovery query'),
-    scopeIds: strings(item.scopeIds, 'selected scope suggestions'), sourceIds: strings(item.sourceIds, 'selected source suggestions') };
-}
-export function parseContextDiscovery(value: unknown, workspaceId: string): ContextDiscoveryDto {
-  const item = object(value, 'discovery');
-  if (item.workspaceId !== workspaceId) malformed('discovery workspace');
-  if (typeof item.repositoryFingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(item.repositoryFingerprint)) malformed('repository fingerprint');
-  const inspected = object(item.inspected, 'inspected sources');
-  return { workspaceId, notebookRevision: count(item.notebookRevision, 'discovery revision'), baselineSha: text(item.baselineSha, 'discovery baseline'),
-    repositoryFingerprint: item.repositoryFingerprint, query: text(item.query, 'discovery query'), scopes: array(item.scopes, 'scope suggestions', value => {
-      const suggestion = object(value, 'scope suggestion');
-      return { scope: scope(suggestion.scope), evidence: evidence(suggestion.evidence), reasons: strings(suggestion.reasons, 'scope reasons') };
-    }), sources: array(item.sources, 'source suggestions', value => {
-      const suggestion = object(value, 'source suggestion');
-      return { source: source(suggestion.source), evidence: evidence(suggestion.evidence), reasons: strings(suggestion.reasons, 'source reasons') };
-    }), history: array(item.history, 'history suggestions', value => {
-      const suggestion = object(value, 'history suggestion');
-      return { ...buildHistory({ kind: suggestion.kind, number: suggestion.number }), title: text(suggestion.title, 'history title'), url: text(suggestion.url, 'history URL'),
-        state: text(suggestion.state, 'history state'), outcome: text(suggestion.outcome, 'history outcome'), updatedAt: text(suggestion.updatedAt, 'history update'),
-        reasons: strings(suggestion.reasons, 'history reasons'), provenance: text(suggestion.provenance, 'history provenance') };
-    }), gaps: strings(item.gaps, 'discovery gaps'), inspected: { directories: count(inspected.directories, 'inspected directories'), files: count(inspected.files, 'inspected files'),
-      pullRequests: count(inspected.pullRequests, 'inspected PRs'), issues: count(inspected.issues, 'inspected issues') } };
 }
 export function parseConfigureRepositoryContextRequest(value: unknown): ConfigureRepositoryContextRequest {
   const item = request(value, ['expectedRevision', 'useInReviews', 'useInDevelopment', 'sources', 'scopes']);

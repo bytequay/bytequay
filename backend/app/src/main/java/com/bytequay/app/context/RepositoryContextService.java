@@ -17,10 +17,12 @@ import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.core.context.ContextClaim;
 import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntry;
+import com.bytequay.core.context.ContextEntryKind;
 import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextKnowledgeDraft;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextMatch;
+import com.bytequay.core.context.ContextPreparationResult;
 import com.bytequay.core.context.ContextReference;
 import com.bytequay.core.context.ContextRepositoryRead;
 import com.bytequay.core.context.ContextScope;
@@ -238,6 +240,92 @@ public class RepositoryContextService
         });
     }
 
+    /** Queues one task-sourced note for user review; only server-captured committed files may supply its evidence. */
+    public RepositoryNotebook proposeTaskDraft(String workspaceId, long expectedRevision, TaskDraftProposal proposal)
+    {
+        requireNonNull(proposal, "proposal is null");
+        return mutate(workspaceId, expectedRevision, current -> {
+            Workspace workspace = requireWorkspace(workspaceId);
+            checkArgument(current.activePreparation().isEmpty(), "Finish the active preparation before proposing a task note");
+            checkArgument(current.scopes().stream().anyMatch(scope -> scope.id().equals(proposal.scopeId()) && scope.enabled()),
+                    "Note scope is not enabled");
+            checkArgument(proposal.evidence().size() >= 1 && proposal.evidence().size() <= 3, "Propose one to three captured repository sources");
+            int capturedBytes = proposal.evidence().stream().mapToInt(source -> ContextLimits.bytes(source.excerpt())).sum();
+            checkArgument(capturedBytes <= 24 * 1024, "Task note captures exceed 24 KiB");
+            proposal.evidence().forEach(source -> {
+                checkArgument(source.capture() == ContextSourceEvidence.Capture.BYTEQUAY_READ
+                        && source.reference() instanceof ContextReference.RepositoryFile,
+                        "Task note sources must be application-captured committed files");
+                ContextReference.RepositoryFile file = (ContextReference.RepositoryFile) source.reference();
+                checkArgument(file.repositoryId() == workspace.selectedRepositoryId()
+                        && file.repository().equals(workspace.selectedRepository()) && file.commit().equals(proposal.baselineSha()),
+                        "Task note source is outside its committed repository HEAD");
+                checkArgument(source.retrievedAt().isPresent() && source.contentHash().isPresent() && !source.excerpt().isBlank(),
+                        "Task note source needs a nonblank captured excerpt and content identity");
+            });
+            String operationPrefix = proposal.draftId().substring(0, proposal.draftId().lastIndexOf(':') + 1);
+            checkArgument(current.pendingDrafts().stream().noneMatch(draft -> draft.id().startsWith(operationPrefix)
+                    && !draft.id().equals(proposal.draftId())), "Task proposal key was reused with different content");
+            Optional<ContextKnowledgeDraft> replay = current.pendingDrafts().stream().filter(draft -> draft.id().equals(proposal.draftId())).findFirst();
+            if (replay.isPresent()) {
+                checkArgument(replay.orElseThrow().baselineSha().equals(proposal.baselineSha()), "Task HEAD changed since the saved proposal");
+                return current;
+            }
+            Optional<ContextEntry> active = proposal.entryId().flatMap(id -> current.entries().stream().filter(entry -> entry.id().equals(id)).findFirst());
+            checkArgument(proposal.entryId().isPresent() == proposal.replacesVersion().isPresent(),
+                    "Updating a note requires its exact entry ID and version");
+            if (proposal.entryId().isPresent()) {
+                checkArgument(active.isPresent(), "Proposed update target is unavailable");
+                ContextEntry previous = active.orElseThrow();
+                checkArgument(previous.version() == proposal.replacesVersion().orElseThrow(), "Proposed update target changed");
+                checkArgument(previous.kind() == proposal.kind() && previous.scopeId().equals(proposal.scopeId())
+                        && previous.enabled() && previous.origin() == GENERATED,
+                        "Proposed update cannot change kind or scope or replace user-owned content");
+            }
+            String suffix = proposal.draftId().substring(proposal.draftId().lastIndexOf(':') + 1);
+            String id = proposal.entryId().orElseGet(() -> (proposal.kind() == KNOWLEDGE ? "knowledge:" : "lesson:")
+                    + proposal.scopeId() + ":task-" + suffix);
+            checkArgument(!current.suppressedKnowledgeIds().contains(id), "This knowledge note was removed by the user");
+            checkArgument(current.pendingDrafts().stream().noneMatch(draft -> draft.entry().id().equals(id)),
+                    "A proposal for this note already awaits review");
+            checkArgument(active.isPresent() || current.entries().stream().noneMatch(entry -> entry.id().equals(id)),
+                    "Note identity already exists");
+            List<String> sourceIds = proposal.evidence().stream().map(ContextSourceEvidence::id).toList();
+            ContextEntry entry = new ContextEntry(id, proposal.kind(), proposal.scopeId(), proposal.title(), proposal.summary(), proposal.body(),
+                    ImmutableList.of(), sourceIds, GENERATED, true, Math.addExact(current.revision(), 1));
+            ContextKnowledgeDraft draft = new ContextKnowledgeDraft(proposal.draftId(), entry, proposal.replacesVersion(), proposal.baselineSha(),
+                    "Proposed from committed task HEAD; review the captured sources before approval.");
+            Map<String, ContextSourceEvidence> retained = new LinkedHashMap<>();
+            current.sourceEvidence().forEach(source -> retained.put(source.id(), source));
+            proposal.evidence().forEach(source -> {
+                ContextSourceEvidence previous = retained.putIfAbsent(source.id(), source);
+                checkArgument(previous == null || previous.equals(source), "Task evidence identity was reused with different content");
+            });
+            return content(current, current.useInReviews(), current.sources(), current.scopes(), current.entries(),
+                    ImmutableList.<ContextKnowledgeDraft>builder().addAll(current.pendingDrafts()).add(draft).build(),
+                    current.suppressedKnowledgeIds(), ImmutableList.copyOf(retained.values()));
+        });
+    }
+
+    public record TaskDraftProposal(String draftId, ContextEntryKind kind, String scopeId, Optional<String> entryId,
+            Optional<Long> replacesVersion, String title, String summary, String body, String baselineSha, List<ContextSourceEvidence> evidence)
+    {
+        public TaskDraftProposal
+        {
+            ContextLimits.text(draftId, "draft ID", 200);
+            checkArgument(draftId.matches("draft:task:[0-9a-f]{32}:[0-9a-f]{32}"), "Invalid task draft ID");
+            requireNonNull(kind, "kind is null");
+            ContextLimits.text(scopeId, "scope ID", 1100);
+            requireNonNull(entryId, "entryId is null");
+            requireNonNull(replacesVersion, "replacesVersion is null");
+            ContextLimits.text(title, "title", 200);
+            ContextLimits.text(summary, "summary", 1000);
+            ContextLimits.text(body, "body", ContextLimits.MAX_BODY_BYTES);
+            checkArgument(baselineSha.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Invalid task HEAD");
+            evidence = ImmutableList.copyOf(evidence);
+        }
+    }
+
     /**
      * Toggles selection without changing provenance or reviving removed content.
      *
@@ -263,12 +351,12 @@ public class RepositoryContextService
         });
     }
 
-    /** Removes a note; every removed knowledge ID stays suppressed, even after the user edited its origin. */
+    /** Removes a note; generated note IDs stay suppressed, even after the user edited their content. */
     public RepositoryNotebook removeEntry(String workspaceId, long expectedRevision, String entryId)
     {
         return mutate(workspaceId, expectedRevision, current -> {
             ContextEntry entry = requireEntry(current, entryId);
-            List<String> suppression = entry.kind() == KNOWLEDGE
+            List<String> suppression = entry.kind() == KNOWLEDGE || entry.id().startsWith("lesson:" + entry.scopeId() + ":")
                     ? ImmutableList.<String>builder().addAll(current.suppressedKnowledgeIds()).add(entry.id()).build()
                     : current.suppressedKnowledgeIds();
             return content(current, current.useInReviews(), current.sources(), current.scopes(),
@@ -291,7 +379,7 @@ public class RepositoryContextService
                     ? new ContextScope(scope.id(), scope.title(), scope.match(), scope.enabled(), Optional.empty(), scope.discoveryEvidenceRef()) : scope)
                     .collect(toImmutableList());
             return content(current, current.useInReviews(), current.sources(), scopes, current.entries(),
-                    current.suppressedKnowledgeIds().stream().filter(id -> selected.stream().noneMatch(scope -> ContextEntry.belongsToKnowledgeScope(id, scope)))
+                    current.suppressedKnowledgeIds().stream().filter(id -> selected.stream().noneMatch(scope -> ContextPreparationResult.belongsToScope(id, scope)))
                             .collect(toImmutableList()), current.sourceEvidence());
         });
     }
@@ -303,7 +391,7 @@ public class RepositoryContextService
         return mutate(workspaceId, expectedRevision, current -> {
             ContextKnowledgeDraft draft = requireDraft(current, draftId);
             ContextEntry previous = draft.entry();
-            ContextEntry edited = new ContextEntry(previous.id(), KNOWLEDGE, previous.scopeId(), title, summary, body,
+            ContextEntry edited = new ContextEntry(previous.id(), previous.kind(), previous.scopeId(), title, summary, body,
                     claims, previous.sourceIds(), USER, true, Math.addExact(current.revision(), 1));
             ContextKnowledgeDraft updated = new ContextKnowledgeDraft(draft.id(), edited, draft.replacesVersion(), draft.baselineSha(), draft.explanation());
             return content(current, current.useInReviews(), current.sources(), current.scopes(), current.entries(),
@@ -324,8 +412,9 @@ public class RepositoryContextService
             Optional<ContextEntry> active = current.entries().stream().filter(entry -> entry.id().equals(proposal.id())).findFirst();
             checkArgument(active.map(ContextEntry::version).equals(draft.replacesVersion()), "Active note changed since this proposal was prepared");
             checkArgument(active.filter(entry -> !entry.scopeId().equals(proposal.scopeId())).isEmpty(), "Active note belongs to another scope");
+            checkArgument(active.filter(entry -> entry.kind() != proposal.kind()).isEmpty(), "Active note has a different kind");
             checkArgument(active.filter(entry -> !entry.enabled() || entry.origin() == USER).isEmpty(), "Active note is user-owned or disabled");
-            ContextEntry approved = new ContextEntry(proposal.id(), KNOWLEDGE, proposal.scopeId(), proposal.title(), proposal.summary(), proposal.body(),
+            ContextEntry approved = new ContextEntry(proposal.id(), proposal.kind(), proposal.scopeId(), proposal.title(), proposal.summary(), proposal.body(),
                     proposal.claims(), proposal.sourceIds(), proposal.origin(), true, Math.addExact(current.revision(), 1));
             return content(current, current.useInReviews(), current.sources(), current.scopes(), replaceEntry(current, approved, active.isPresent()),
                     current.pendingDrafts().stream().filter(value -> !value.id().equals(draftId)).collect(toImmutableList()),
@@ -400,6 +489,9 @@ public class RepositoryContextService
         WorkspaceOperationLocks.withLock(workspaceId, () -> {
             settings.delete(key(workspaceId));
             settings.delete(ContextBuildStore.PREFIX + workspaceId);
+            settings.delete(ContextDiscoveryReportStore.PREFIX + workspaceId);
+            settings.delete(ContextLearningPlanStore.PREFIX + workspaceId);
+            settings.delete(ContextMergedCandidateStore.PREFIX + workspaceId);
         });
     }
 

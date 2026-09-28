@@ -28,6 +28,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -84,6 +85,25 @@ class TestSelectedDocumentationReader
         assertThat(reused.readAt()).isEqualTo(READ_AT);
         assertThat(reused.contentHash()).isEqualTo(first.contentHash());
         assertThat(reused.gaps()).anyMatch(gap -> gap.contains("unverified"));
+        verify(http).read(SOURCE, RELATIVE_PAGE);
+    }
+
+    @Test
+    void linksRemainAttachedToTheSameCaptureAcrossTextPages()
+    {
+        String text = "a".repeat(SelectedDocumentationReader.PAGE_BYTES + 1);
+        DocumentationHttpReader.Link link = new DocumentationHttpReader.Link(SOURCE.url() + "next.html", Optional.of("next.html"));
+        when(http.read(SOURCE, RELATIVE_PAGE)).thenReturn(new DocumentationHttpReader.Read(
+                SOURCE.url() + RELATIVE_PAGE.orElseThrow(), text, Hashing.sha256().hashString(text, UTF_8).toString(), READ_AT, false,
+                List.of(), List.of(link), List.of("https://other.example.com/"), true));
+
+        SelectedDocumentationReader.Page first = first(false);
+        SelectedDocumentationReader.Page second = read(first.captureId(), 2);
+
+        assertThat(first.links()).containsExactly(link);
+        assertThat(second.links()).containsExactly(link);
+        assertThat(second.suggestedExpansionUrls()).containsExactly("https://other.example.com/");
+        assertThat(second.linksTruncated()).isTrue();
         verify(http).read(SOURCE, RELATIVE_PAGE);
     }
 

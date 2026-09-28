@@ -99,9 +99,11 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.core.context.ContextPreparationResult.Outcome.EMPTY;
 import static com.bytequay.core.context.ContextPreparationResult.Outcome.FAILED;
@@ -150,6 +152,7 @@ class TestContextBuildService
     private final ContextBuildCoordinator coordinator = mock(ContextBuildCoordinator.class);
     private final GitCommandRunner git = mock(GitCommandRunner.class);
     private final RepositoryContextService notebooks = new RepositoryContextService(settings, mapper, workspaceStore, reviews);
+    private final ContextLearningPlanStore plans = mock(ContextLearningPlanStore.class);
     private final ContextBuildStore builds = new ContextBuildStore(settings, taskStore, mapper);
     private final RepositoryContextPreparation preparation = new RepositoryContextPreparation(notebooks, mock(ContextInputReader.class), workspaces);
     private final Map<TaskId, AgentTask> savedTasks = new LinkedHashMap<>();
@@ -225,10 +228,17 @@ class TestContextBuildService
                 "docs", RegisteredContextSource.Kind.DOCUMENTATION_PAGE, "https://example.com/docs"))), Optional.empty()));
         assertThat(service.get(WORKSPACE).build()).isEmpty();
         verifyNoInteractions(tasks, turns, drivers, git, reviews, coordinator);
-        ContextBuildService.Request request = new ContextBuildService.Request("learn", 2, 0, ImmutableList.of("project"),
-                ImmutableList.of(new ContextBuild.History(ContextHistoryReader.SourceKind.PR, 12)));
+        ContextBuildService.Request request = new ContextBuildService.Request("learn", 2, 0, ImmutableList.of("project"), ImmutableList.of());
+        RegisteredContextSource selectedDoc = new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_PAGE,
+                "https://example.com/docs", ContextEntryOrigin.USER, Optional.empty());
+        ContextBuild.Assignment assignment = new ContextBuild.Assignment("plan", "topic:1", "Project overview",
+                ImmutableList.of(), ImmutableList.of("README.md"));
+        ContextLearningPlan accepted = acceptedPlan(ImmutableList.of(selectedDoc), ImmutableList.of("docs"), assignment);
+        when(plans.find(WORKSPACE)).thenReturn(Optional.of(accepted));
+        when(git.run(REPOSITORY_PATH, "rev-parse", "--verify", SHA + "^{commit}"))
+                .thenReturn(new GitCommandRunner.Result(0, SHA + "\n", false));
 
-        ContextBuildService.View view = service.start(WORKSPACE, request);
+        ContextBuildService.View view = service.learn(WORKSPACE, request, SHA, ImmutableList.of(selectedDoc), assignment);
 
         ContextBuild bound = builds.find(WORKSPACE).orElseThrow();
         assertThat(view.buildRequestSequence()).isEqualTo(1);
@@ -237,7 +247,7 @@ class TestContextBuildService
         assertThat(bound.physicalRepository().owner()).isEqualTo(FORK.owner());
         assertThat(bound.repositoryId()).isEqualTo(7);
         assertThat(bound.baselineSha()).isEqualTo(SHA);
-        assertThat(bound.history()).isEqualTo(request.history());
+        assertThat(bound.assignment()).contains(assignment);
         assertThat(bound.documentationSources()).containsExactly(new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_PAGE,
                 "https://example.com/docs", ContextEntryOrigin.USER, Optional.empty()));
         AgentTask task = savedTasks.get(TaskId.valueOf(bound.taskId()));
@@ -249,8 +259,62 @@ class TestContextBuildService
         order.verify(tasks).create(any(CreateAgentTaskCommand.class));
         order.verify(coordinator).watch(bound);
         order.verify(turns).start(start.capture());
-        assertThat(start.getValue().message()).contains("directory structure", "repository documentation and files", "every registered documentation source");
+        assertThat(start.getValue().message()).contains("Project overview", "approved paths and documentation inventory");
         verifyNoInteractions(reviews);
+    }
+
+    @Test
+    void rejectsSourceExpansionThatWinsBeforeTaskAdmission()
+    {
+        notebooks.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.empty(), Optional.of(ImmutableList.of(
+                new EditContextConfiguration.Source("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://example.com/docs/"),
+                new EditContextConfiguration.Source("extra", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://other.example.org/spec/"))), Optional.empty()));
+        List<RegisteredContextSource> sources = notebooks.getNotebook(WORKSPACE).sources();
+        ContextBuild.Assignment assignment = new ContextBuild.Assignment("plan", "topic:1", "Project overview",
+                ImmutableList.of(), ImmutableList.of("README.md"));
+        ContextLearningPlan original = acceptedPlan(ImmutableList.of(sources.getFirst()), ImmutableList.of("docs"), assignment);
+        ContextLearningPlan.Topic changed = new ContextLearningPlan.Topic("topic:1", "Project overview", assignment.question(),
+                "project", "sha256:" + "a".repeat(64), assignment.paths(), assignment.repositoryFiles(), ImmutableList.of("docs", "extra"),
+                ContextLearningPlan.Status.PENDING, assignment.question());
+        ContextLearningPlan expanded = new ContextLearningPlan(original.id(), original.workspaceId(), original.reportId(),
+                original.acceptedRequestKey(), original.acceptedRequestDigest(), original.acceptedNotebookRevision(),
+                original.initialBuildSequence(), original.acceptedTopicIds(), original.repositoryId(), original.repository(), original.baselineSha(),
+                ImmutableList.of(changed), sources, ContextDocumentInventory.initial(sources), original.gaps(), original.acceptedAt());
+        AtomicReference<ContextLearningPlan> plan = new AtomicReference<>(original);
+        when(plans.find(WORKSPACE)).thenAnswer(ignored -> Optional.of(plan.get()));
+        when(git.run(REPOSITORY_PATH, "rev-parse", "--verify", SHA + "^{commit}"))
+                .thenAnswer(ignored -> {
+                    plan.set(expanded);
+                    return new GitCommandRunner.Result(0, SHA + "\n", false);
+                });
+        ContextBuildService.Request request = new ContextBuildService.Request("learn", 1, 0, ImmutableList.of("project"), ImmutableList.of());
+
+        assertThatThrownBy(() -> service.learn(WORKSPACE, request, SHA, ImmutableList.of(sources.getFirst()), assignment))
+                .hasMessageContaining("topic or sources changed");
+        assertThat(builds.find(WORKSPACE)).isEmpty();
+        verify(tasks, never()).create(any());
+        verify(turns, never()).start(any());
+    }
+
+    @Test
+    void discoveryNeedsNoScopesAndReadOnlyStatusNeverLaunchesIt()
+    {
+        assertThat(service.get(WORKSPACE).build()).isEmpty();
+        verifyNoInteractions(tasks, turns, drivers, git);
+        ContextBuildService.Request request = new ContextBuildService.Request("discover", 0, 0, ImmutableList.of(), ImmutableList.of());
+
+        ContextBuildService.View first = service.discover(WORKSPACE, request);
+        assertThat(first.build().orElseThrow().mode()).isEqualTo(ContextBuild.Mode.DISCOVER);
+        ContextBuild accepted = builds.find(WORKSPACE).orElseThrow();
+        assertThat(accepted.scopeIds()).isEmpty();
+        assertThat(accepted.documentationSources()).isEmpty();
+        assertThat(service.discover(WORKSPACE, request)).isEqualTo(first);
+        assertThat(service.get(WORKSPACE)).isEqualTo(first);
+        assertThatThrownBy(() -> service.learnHistory(WORKSPACE, request)).hasMessageContaining("Select scopes");
+        verify(tasks).create(any(CreateAgentTaskCommand.class));
+        ArgumentCaptor<StartAgentTurnCommand> started = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
+        verify(turns).start(started.capture());
+        assertThat(started.getValue().message()).contains("deeply nested", "40 source operations", "partial report", "later user approval");
     }
 
     @Test
@@ -259,7 +323,7 @@ class TestContextBuildService
         when(driver.probe()).thenReturn(new AgentProviderStatus(LANE, AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED,
                 Optional.empty(), "Sign in", AgentCapabilities.none()));
 
-        assertThatThrownBy(() -> service.start(WORKSPACE, request("learn", 0))).isInstanceOf(AgentProviderUnavailableException.class);
+        assertThatThrownBy(() -> service.learnHistory(WORKSPACE, request("learn", 0))).isInstanceOf(AgentProviderUnavailableException.class);
 
         assertThat(builds.find(WORKSPACE)).isEmpty();
         verifyNoInteractions(tasks, turns, git, credentials, coordinator);
@@ -269,30 +333,30 @@ class TestContextBuildService
     void duplicateRequestsReplayAndStaleOrChangedRequestsCannotReplaceAnOpenTask()
     {
         ContextBuildService.Request request = request("first", 0);
-        ContextBuildService.View first = service.start(WORKSPACE, request);
-        assertThat(service.start(WORKSPACE, request)).isEqualTo(first);
-        assertThatThrownBy(() -> service.start(WORKSPACE, new ContextBuildService.Request("first", 0, 0, ImmutableList.of("project"),
+        ContextBuildService.View first = service.learnHistory(WORKSPACE, request);
+        assertThat(service.learnHistory(WORKSPACE, request)).isEqualTo(first);
+        assertThatThrownBy(() -> service.learnHistory(WORKSPACE, new ContextBuildService.Request("first", 0, 0, ImmutableList.of("project"),
                 ImmutableList.of(new ContextBuild.History(ContextHistoryReader.SourceKind.ISSUE, 3)))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("different learning inputs");
-        assertThatThrownBy(() -> service.start(WORKSPACE, request("second", 0))).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("sequence");
-        assertThatThrownBy(() -> service.start(WORKSPACE, request("second", 1))).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("previous learning task");
+        assertThatThrownBy(() -> service.learnHistory(WORKSPACE, request("second", 0))).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("sequence");
+        assertThatThrownBy(() -> service.learnHistory(WORKSPACE, request("second", 1))).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("previous learning task");
         verify(tasks).create(any(CreateAgentTaskCommand.class));
         verify(turns).start(any(StartAgentTurnCommand.class));
 
         finishTurn(TurnState.FAILED, true);
         TaskId firstTask = TaskId.valueOf(first.build().orElseThrow().taskId());
         savedTasks.compute(firstTask, (id, task) -> task.fail("Stopped", NOW, DELETE_AFTER));
-        assertThatThrownBy(() -> service.start(WORKSPACE, request("second", 1))).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("cleaned up");
+        assertThatThrownBy(() -> service.learnHistory(WORKSPACE, request("second", 1))).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("cleaned up");
         ContextBuildService.View retained = service.get(WORKSPACE);
         assertThat(retained.canStart()).isFalse();
         assertThat(retained.build().orElseThrow().task().orElseThrow().worktreePath()).isEqualTo(savedTasks.get(firstTask).worktree().toString());
         verify(completions, never()).cleanupWorktree(any());
         assertThat(savedTasks.get(firstTask).worktreeRemovedAt()).isEmpty();
         completions.cleanupWorktree(firstTask);
-        ContextBuildService.View second = service.start(WORKSPACE, request("second", 1));
+        ContextBuildService.View second = service.learnHistory(WORKSPACE, request("second", 1));
         assertThat(second.buildRequestSequence()).isEqualTo(2);
         assertThat(second.build().orElseThrow().taskId()).isNotEqualTo(first.build().orElseThrow().taskId());
-        assertThatThrownBy(() -> service.start(WORKSPACE, request)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("sequence");
+        assertThatThrownBy(() -> service.learnHistory(WORKSPACE, request)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("sequence");
         verify(tasks, times(2)).create(any(CreateAgentTaskCommand.class));
         verify(turns, times(2)).start(any(StartAgentTurnCommand.class));
     }
@@ -450,11 +514,22 @@ class TestContextBuildService
         verify(turns).start(any(StartAgentTurnCommand.class));
     }
 
+    private ContextLearningPlan acceptedPlan(List<RegisteredContextSource> selected, List<String> sourceIds,
+            ContextBuild.Assignment assignment)
+    {
+        ContextLearningPlan.Topic topic = new ContextLearningPlan.Topic(assignment.topicId(), "Project overview", assignment.question(),
+                "project", "sha256:" + "a".repeat(64), assignment.paths(), assignment.repositoryFiles(), sourceIds,
+                ContextLearningPlan.Status.PENDING, assignment.question());
+        return new ContextLearningPlan(assignment.planId(), WORKSPACE, "report", "accept", "sha256:" + "b".repeat(64),
+                notebooks.getNotebook(WORKSPACE).revision(), 0, ImmutableList.of(topic.id()), 7, REPOSITORY, SHA,
+                ImmutableList.of(topic), selected, ContextDocumentInventory.initial(selected), ImmutableList.of(), NOW);
+    }
+
     private ContextBuildService createService(AgentCompletionService completion)
     {
         DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
         beans.registerSingleton("contextBuildCoordinator", coordinator);
-        return new ContextBuildService(builds, notebooks, preparation, workspaces, models, credentials, drivers, tasks, taskStore, turns, turnStore,
+        return new ContextBuildService(builds, notebooks, plans, preparation, workspaces, models, credentials, drivers, tasks, taskStore, turns, turnStore,
                 completion, approvals, beans.getBeanProvider(ContextBuildCoordinator.class), git, mapper, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -467,13 +542,14 @@ class TestContextBuildService
 
     private ContextBuild start()
     {
-        service.start(WORKSPACE, request("learn", 0));
+        service.learnHistory(WORKSPACE, request("learn", 0));
         return builds.find(WORKSPACE).orElseThrow();
     }
 
     private ContextBuildService.Request request(String key, long sequence)
     {
-        return new ContextBuildService.Request(key, notebooks.getNotebook(WORKSPACE).revision(), sequence, ImmutableList.of("project"), ImmutableList.of());
+        return new ContextBuildService.Request(key, notebooks.getNotebook(WORKSPACE).revision(), sequence, ImmutableList.of("project"),
+                ImmutableList.of(new ContextBuild.History(ContextHistoryReader.SourceKind.PR, 7)));
     }
 
     private void finishTurn(TurnState state, boolean release)

@@ -19,15 +19,14 @@ import type { AskCommentDiscussionRequest, AskDiscussionRequest, DiscussionQuery
 import type { CreateDevelopmentLearningCommentRequest, CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';
 import type { LocalReviewThreadDto } from './pulls/local-review/types';
 import type {
-  ApplyContextDiscoveryRequest,
   ConfigureRepositoryContextRequest,
   ContextBuildViewDto,
   ContextDraftActionRequest,
   ContextUsageActivitiesDto,
   ContextUsageOverviewDto,
   ContextUsageWindow,
-  ContextDiscoveryDto,
-  DiscoverRepositoryContextRequest,
+  ContextDiscoveryReportDto,
+  ContextLearningPlanDto,
   EditRepositoryContextEntryRequest,
   EditContextDraftRequest,
   RemoveRepositoryContextEntryRequest,
@@ -35,7 +34,13 @@ import type {
   ResetRepositoryContextRequest,
   SaveRepositoryContextLessonRequest,
   SetRepositoryContextEntryEnabledRequest,
-  StartContextBuildRequest,
+  StartContextDiscoveryRequest,
+  StartContextLearningRequest,
+  ContinueContextLearningRequest,
+  DiscardContextLearningPlanRequest,
+  AllowContextLearningSourceRequest,
+  ContextMergedCandidatesDto,
+  LearnContextMergedCandidateRequest,
 } from './repository-context/contracts';
 import type {
   AgentReviewDto,
@@ -1613,10 +1618,16 @@ export type Bridge = JiraBridge & {
   getRepositoryContext: (workspaceId: string) => Promise<RepositoryNotebookDto>;
   getRepositoryContextUsage: (workspaceId: string, window: ContextUsageWindow, page: number) => Promise<ContextUsageOverviewDto>;
   getRepositoryContextEntryUsage: (workspaceId: string, entryId: string, window: ContextUsageWindow, page: number) => Promise<ContextUsageActivitiesDto>;
-  discoverRepositoryContext: (workspaceId: string, request: DiscoverRepositoryContextRequest) => Promise<ContextDiscoveryDto>;
-  applyRepositoryContextDiscovery: (workspaceId: string, request: ApplyContextDiscoveryRequest) => Promise<RepositoryNotebookDto>;
+  getRepositoryContextDiscoveryReport: (workspaceId: string) => Promise<ContextDiscoveryReportDto | null>;
+  getRepositoryContextLearningPlan: (workspaceId: string) => Promise<ContextLearningPlanDto | null>;
   getRepositoryContextBuild: (workspaceId: string) => Promise<ContextBuildViewDto>;
-  startRepositoryContextBuild: (workspaceId: string, request: StartContextBuildRequest) => Promise<ContextBuildViewDto>;
+  startRepositoryContextDiscovery: (workspaceId: string, request: StartContextDiscoveryRequest) => Promise<ContextBuildViewDto>;
+  startRepositoryContextLearning: (workspaceId: string, request: StartContextLearningRequest) => Promise<ContextBuildViewDto>;
+  continueRepositoryContextLearning: (workspaceId: string, request: ContinueContextLearningRequest) => Promise<ContextBuildViewDto>;
+  discardRepositoryContextLearningPlan: (workspaceId: string, request: DiscardContextLearningPlanRequest) => Promise<ContextLearningPlanDto | null>;
+  allowRepositoryContextLearningSource: (workspaceId: string, request: AllowContextLearningSourceRequest) => Promise<ContextLearningPlanDto | null>;
+  getRepositoryContextMergedCandidates: (workspaceId: string) => Promise<ContextMergedCandidatesDto>;
+  learnRepositoryContextMergedCandidate: (workspaceId: string, request: LearnContextMergedCandidateRequest) => Promise<ContextBuildViewDto>;
   stopRepositoryContextBuild: (workspaceId: string, taskId: string) => Promise<ContextBuildViewDto>;
   getRepositoryContextBuildStopImpact: (workspaceId: string, taskId: string) => Promise<AgentRuntimeStopImpactDto>;
   stopRepositoryContextBuildRuntime: (workspaceId: string, taskId: string, generation: string) => Promise<ContextBuildViewDto>;

@@ -17,7 +17,7 @@ import java.util.function.Function;
 
 import static java.util.Objects.requireNonNull;
 
-/** One read-only, task-scoped notebook capability for ordinary development. */
+/** One task-scoped notebook capability for ordinary development and user-reviewed note proposals. */
 public record RepositoryContextBridge(Function<String, String> lookup, String instruction)
 {
     public static final String TOOL_NAME = "repository_context_lookup";

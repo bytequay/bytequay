@@ -1,7 +1,7 @@
 # Repository context: discover, learn, and use
 
-Status: approved refactor. This is the final product contract, not a claim that
-every part has shipped. Delivery and verification belong in
+Status: implemented and verified by automated tests. Live-provider quality and
+cost acceptance remain separate. Delivery and verification belong in
 [the temporary development checkpoints](repository-context-impl-tmp.md#refactor-development-checkpoints).
 This contract supersedes earlier automatic note selection, direct generated-note
 activation, one-note-per-scope, and manual-first discovery flows in

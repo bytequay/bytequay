@@ -56,6 +56,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 
 import static com.bytequay.core.context.ContextEntryKind.KNOWLEDGE;
+import static com.bytequay.core.context.ContextEntryKind.MEMORY;
 import static com.bytequay.core.context.ContextEntryOrigin.GENERATED;
 import static com.bytequay.core.context.ContextEntryOrigin.USER;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -344,6 +345,59 @@ class TestRepositoryContextService
         RepositoryNotebook recreated = service.editEntry(WORKSPACE, 5, edit("Explicitly recreated"));
         assertThat(recreated.entries().getFirst().version()).isGreaterThan(edited.entries().getFirst().version());
         assertThat(recreated.sourceEvidence()).isEmpty();
+    }
+
+    @Test
+    void taskMemoryProposalStaysPendingUntilApprovalAndRetainsKindAfterEditing()
+    {
+        String id = "draft:task:" + "a".repeat(32) + ":" + "b".repeat(32);
+        ContextSourceEvidence source = discoveryEvidence("task-read:1", "README.md", "1  Evidence");
+        RepositoryContextService.TaskDraftProposal proposal = new RepositoryContextService.TaskDraftProposal(id, MEMORY,
+                "project", Optional.empty(), Optional.empty(), "Finding", "Checkpoint invariant", "Keep the older layout",
+                HEAD, ImmutableList.of(source));
+        RepositoryNotebook pending = service.proposeTaskDraft(WORKSPACE, 0, proposal);
+        assertThat(pending.entries()).isEmpty();
+        assertThat(pending.pendingDrafts()).singleElement().satisfies(draft -> {
+            assertThat(draft.entry().kind()).isEqualTo(MEMORY);
+            assertThat(draft.entry().id()).startsWith("lesson:project:task-");
+            assertThat(draft.entry().origin()).isEqualTo(GENERATED);
+        });
+        assertThat(service.proposeTaskDraft(WORKSPACE, pending.revision(), proposal)).isEqualTo(pending);
+        RepositoryNotebook edited = service.editDraft(WORKSPACE, pending.revision(), id, "Edited", "Edited summary", "Edited body",
+                ImmutableList.of());
+        assertThat(edited.pendingDrafts().getFirst().entry().kind()).isEqualTo(MEMORY);
+        RepositoryNotebook approved = service.approveDraft(WORKSPACE, edited.revision(), id);
+        assertThat(approved.entries()).singleElement().satisfies(entry -> {
+            assertThat(entry.kind()).isEqualTo(MEMORY);
+            assertThat(entry.origin()).isEqualTo(USER);
+        });
+        String entryId = approved.entries().getFirst().id();
+        RepositoryNotebook removed = service.removeEntry(WORKSPACE, approved.revision(), entryId);
+        assertThat(removed.suppressedKnowledgeIds()).contains(entryId);
+        assertThatThrownBy(() -> service.proposeTaskDraft(WORKSPACE, removed.revision(),
+                new RepositoryContextService.TaskDraftProposal("draft:task:" + "c".repeat(32) + ":" + "b".repeat(32), MEMORY,
+                        "project", Optional.of(entryId), Optional.of(approved.entries().getFirst().version()),
+                        "Finding", "Summary", "Body", HEAD, ImmutableList.of(source))))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void taskProposalRejectsUncapturedOrForeignRepositoryEvidence()
+    {
+        String id = "draft:task:" + "a".repeat(32) + ":" + "b".repeat(32);
+        ContextSourceEvidence source = discoveryEvidence("task-read:1", "README.md", "1  Evidence");
+        ContextSourceEvidence reported = new ContextSourceEvidence(source.id(), source.reference(), source.provenance(),
+                source.excerpt(), ContextSourceEvidence.Capture.AGENT_REPORTED, source.retrievedAt(), source.contentHash(), source.version(), false);
+        assertThatThrownBy(() -> service.proposeTaskDraft(WORKSPACE, 0, new RepositoryContextService.TaskDraftProposal(id, MEMORY,
+                "project", Optional.empty(), Optional.empty(), "Finding", "Summary", "Body", HEAD, ImmutableList.of(reported))))
+                .hasMessageContaining("application-captured");
+        ContextSourceEvidence foreign = new ContextSourceEvidence(source.id(),
+                new ContextReference.RepositoryFile(2, RepoRef.of("example", "other"), "README.md", HEAD), source.provenance(),
+                source.excerpt(), source.capture(), source.retrievedAt(), source.contentHash(), source.version(), false);
+        assertThatThrownBy(() -> service.proposeTaskDraft(WORKSPACE, 0, new RepositoryContextService.TaskDraftProposal(id, MEMORY,
+                "project", Optional.empty(), Optional.empty(), "Finding", "Summary", "Body", HEAD, ImmutableList.of(foreign))))
+                .hasMessageContaining("outside its committed repository HEAD");
+        assertThat(service.getNotebook(WORKSPACE).pendingDrafts()).isEmpty();
     }
 
     @Test

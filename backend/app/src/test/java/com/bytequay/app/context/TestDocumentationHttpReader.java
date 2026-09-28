@@ -95,6 +95,9 @@ class TestDocumentationHttpReader
         assertThat(result.contentHash()).isEqualTo(Hashing.sha256().hashString(result.text(), UTF_8).toString());
         assertThat(result.readAt()).isEqualTo(CLOCK.instant());
         assertThat(result.truncated()).isFalse();
+        assertThat(result.links()).containsExactly(new DocumentationHttpReader.Link("https://docs.example.com/manual/other.html", Optional.of("other.html")));
+        assertThat(result.suggestedExpansionUrls()).isEmpty();
+        assertThat(result.linksTruncated()).isFalse();
         assertThat(result.gaps()).anyMatch(gap -> gap.contains("untrusted") && gap.contains("unverified"));
         ArgumentCaptor<ClassicHttpRequest> request = ArgumentCaptor.forClass(ClassicHttpRequest.class);
         verify(client).executeOpen(isNull(), request.capture(), isNull());
@@ -102,6 +105,61 @@ class TestDocumentationHttpReader
         assertThat(request.getValue().getFirstHeader("Authorization")).isNull();
         assertThat(request.getValue().getFirstHeader("Cookie")).isNull();
         verify(client).close(CloseMode.IMMEDIATE);
+    }
+
+    @Test
+    void capturesOnlyFetchableLinksUnderTheSelectedRoot()
+            throws Exception
+    {
+        when(client.executeOpen(isNull(), any(), isNull())).thenReturn(response("text/html", """
+                <a href="other.html#section">Other</a>
+                <a href="https://docs.example.com/manual/other.html">Duplicate</a>
+                <a href="/manual/deep/page.html">Deep</a>
+                <a href="../outside.html">Outside root</a>
+                <a href="https://other.example.com/guide.html">Other site</a>
+                <a href="javascript:alert(1)">Script</a>
+                <a href="page.html?token=secret">Query</a>
+                <a href="%2e%2e/private.html">Encoded</a>
+                <a href="#local">Fragment only</a>
+                """));
+
+        DocumentationHttpReader.Read result = reader.read(ROOT, Optional.of("concepts.html"));
+
+        assertThat(result.links()).containsExactly(
+                new DocumentationHttpReader.Link("https://docs.example.com/manual/other.html", Optional.of("other.html")),
+                new DocumentationHttpReader.Link("https://docs.example.com/manual/deep/page.html", Optional.of("deep/page.html")));
+        assertThat(result.suggestedExpansionUrls()).containsExactly(
+                "https://docs.example.com/outside.html", "https://other.example.com/guide.html");
+        assertThat(result.linksTruncated()).isFalse();
+    }
+
+    @Test
+    void exactPageLinksCannotAuthorizeSiblingReads()
+            throws Exception
+    {
+        when(client.executeOpen(isNull(), any(), isNull())).thenReturn(response("text/html", "<a href='sibling.html'>Sibling</a>"));
+
+        DocumentationHttpReader.Read result = reader.read(PAGE, Optional.empty());
+
+        assertThat(result.links()).isEmpty();
+        assertThat(result.suggestedExpansionUrls()).containsExactly("https://docs.example.com/manual/sibling.html");
+    }
+
+    @Test
+    void boundsLinksAndReportsIncompleteInventory()
+            throws Exception
+    {
+        StringBuilder html = new StringBuilder();
+        for (int index = 0; index < 80; index++) {
+            html.append("<a href='page-").append(index).append(".html'>Page</a>");
+        }
+        when(client.executeOpen(isNull(), any(), isNull())).thenReturn(response("text/html", html.toString()));
+
+        DocumentationHttpReader.Read result = reader.read(ROOT, Optional.empty());
+
+        assertThat(result.links()).hasSize(64);
+        assertThat(result.linksTruncated()).isTrue();
+        assertThat(result.gaps()).anyMatch(gap -> gap.contains("link list is not a complete"));
     }
 
     @ParameterizedTest

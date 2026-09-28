@@ -41,8 +41,8 @@ public record ContextPreparationResult(
         ContextLimits.text(explanation, "preparation explanation", 2000);
         checkArgument(outcome == Outcome.FAILED || inputFingerprint.digest().isPresent(), "Successful preparation needs complete input identities");
         checkArgument(outcome == Outcome.READY
-                ? !noteIds.isEmpty() && noteIds.stream().allMatch(id -> ContextEntry.belongsToKnowledgeScope(id, inputFingerprint.scopeId()))
-                : noteIds.isEmpty(), "Only ready preparation names knowledge notes in its scope");
+                ? !noteIds.isEmpty() && noteIds.stream().allMatch(id -> belongsToScope(id, inputFingerprint.scopeId()))
+                : noteIds.isEmpty(), "Only ready preparation names context notes in its scope");
         checkArgument(outcome == Outcome.FAILED || !checkedReads.isEmpty(), "Successful preparation needs checked source reads");
         checkArgument(outcome != Outcome.READY || checkedReads.stream().anyMatch(read -> read.evidenceRef().isPresent()), "Ready preparation needs retained source text");
         if (outcome == Outcome.EMPTY) {
@@ -52,6 +52,12 @@ public record ContextPreparationResult(
                 case ContextHistoryRead ignored -> false;
             }), "Empty preparation cannot use incomplete or failed source reads");
         }
+    }
+
+    public static boolean belongsToScope(String id, String scopeId)
+    {
+        String lessonPrefix = "lesson:" + scopeId + ":";
+        return ContextEntry.belongsToKnowledgeScope(id, scopeId) || (id.startsWith(lessonPrefix) && id.length() > lessonPrefix.length());
     }
 
     public enum Outcome

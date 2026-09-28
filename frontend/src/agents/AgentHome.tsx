@@ -35,7 +35,8 @@ import type {
 
 /** Starting points that fill the composer; the user edits or sends them as they are. */
 const SUGGESTIONS: { icon: LucideIcon; title: string; prompt: string }[] = [
-  { icon: Search, title: 'Explore and understand code', prompt: 'Explore the code and explain how a feature is implemented.' },
+  { icon: Search, title: 'Explore & prepare context',
+    prompt: 'Explore this code question: [describe your question]. Answer from the code, then propose a reusable context draft if committed source lines support it. I will review the draft before it becomes shared knowledge.' },
   { icon: CircleDot, title: 'Fix issues and failures', prompt: 'Investigate a failing test and fix the root cause.' },
   { icon: ListChecks, title: 'Review code and suggest changes', prompt: 'Review recent changes and suggest safe improvements.' },
 ];

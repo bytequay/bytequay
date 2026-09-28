@@ -135,6 +135,32 @@ class TestRepositoryContextPreparation
     }
 
     @Test
+    void generatedLessonRemainsPendingUntilApproved()
+    {
+        Execution owner = execution("lesson-turn", false, SHA);
+        var admitted = begin(owner);
+        String id = "lesson:project:commit-contract";
+        GeneratedReport report = new GeneratedReport(ImmutableList.of(new ScopeReport("project", READY, ImmutableList.of(id),
+                ImmutableList.of(READ_ID), "Verified a reusable contract")), ImmutableList.of(new GeneratedEntry(id, "project", "Commit contract",
+                "Validate the contract before a write", "A supported lesson from the retained source",
+                ImmutableList.of(new ContextClaim("Write contract", ContextClaim.Basis.DOCUMENTED, ImmutableList.of(READ_ID))),
+                ImmutableList.of(READ_ID), com.bytequay.core.context.ContextEntryKind.MEMORY)));
+
+        preparation.complete(owner, preparation.prepareCompletion(owner, admitted.attempt().orElseThrow().attemptId(), report));
+
+        RepositoryNotebook pending = notebooks.getNotebook("workspace");
+        assertThat(pending.entries()).isEmpty();
+        assertThat(pending.pendingDrafts()).singleElement().satisfies(draft ->
+                assertThat(draft.entry().kind()).isEqualTo(com.bytequay.core.context.ContextEntryKind.MEMORY));
+        RepositoryNotebook approved = notebooks.approveDraft("workspace", pending.revision(), pending.pendingDrafts().getFirst().id());
+        assertThat(approved.entries()).singleElement().satisfies(entry -> {
+            assertThat(entry.id()).isEqualTo(id);
+            assertThat(entry.kind()).isEqualTo(com.bytequay.core.context.ContextEntryKind.MEMORY);
+            assertThat(entry.sourceIds()).containsExactly(READ_ID);
+        });
+    }
+
+    @Test
     void preparationRetainsDiscoveryEvidenceForUnbuiltScopesAndSources()
     {
         ContextSourceEvidence proof = new ContextSourceEvidence("discovery:module", new ContextReference.RepositoryFile(1, REPOSITORY, "component/pom.xml", SHA),

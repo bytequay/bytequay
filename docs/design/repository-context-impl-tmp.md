@@ -12,10 +12,10 @@ without separate authorization.
 | --- | --- | --- |
 | R1 — Notes and approval | Generated drafts separate from active entries; old version survives until approval; revision/version conflicts; edit/dismiss UI; several knowledge notes per scope; sources | Complete |
 | R2 — Agent-owned lookup | Paginated list and literal path/text search; exact-version get; no relevance rank or automatic note-body injection; retained development/review receipts and Off behavior | Complete |
-| R3 — Agent discovery | Explicit Start discovery; no manual scopes required; frozen revision, repository-wide filename/text search, deep/non-Maven layouts; evidenced outline/topic/source suggestions; no page-open model run | Pending |
-| R4 — Incremental learning | Accepted topics/sources/limits; bounded links/inventories; saved drafts/evidence/questions; explicit continuation across tasks/restarts without restarting discovery; partial-result UI | Pending |
-| R5 — Learn from work | Task-local investigation and supported drafts; Explore & prepare context; confirmed merged-PR bundles queued without model calls; agent judges duplication | Pending |
-| R6 — Integration and acceptance | Remove superseded surfaces/contracts; cold start, continuation, conflicts, Off, usage, no hidden spending; backend/frontend/package gates; record live-provider limitations | Pending |
+| R3 — Agent discovery | Explicit Start discovery; no manual scopes required; frozen revision, repository-wide filename/text search, deep/non-Maven layouts; evidenced outline/topic/source suggestions; no page-open model run | Complete |
+| R4 — Incremental learning | Accepted topics/sources/limits; bounded links/inventories; saved drafts/evidence/questions; explicit continuation across tasks/restarts without restarting discovery; partial-result UI | Complete |
+| R5 — Learn from work | Task-local investigation and supported drafts; Explore & prepare context; confirmed merged-PR bundles queued without model calls; agent judges duplication | Complete |
+| R6 — Integration and acceptance | Remove superseded surfaces/contracts; cold start, continuation, conflicts, Off, usage, no hidden spending; backend/frontend/package gates; record live-provider limitations | Complete |
 
 ### Working rules
 
@@ -32,6 +32,45 @@ without separate authorization.
 - Record exact checks and limitations below; preserve historical evidence.
 
 ### Refactor verification log
+
+- R1–R2 committed as `9b53a3534` (`Approve context drafts and let agents pick notes`).
+- R3–R6 implementation and automated acceptance are complete. Final verification
+  used a context-only snapshot over `9b53a3534`, excluding concurrent Teams work.
+  The staged source/test files were compared byte-for-byte with that snapshot.
+- Final JVM 25 `mvn verify` passed all seven reactor modules: 3,464 tests,
+  including 2,435 app tests, with zero failures, errors or skips. CodeGraph tests
+  used the existing pinned desktop bundle. No live provider was called.
+- Final frontend lint, TypeScript, 127 files / 1,348 tests, and macOS desktop
+  packaging passed. The settings Chromium fixture covers 21 scenarios, including
+  exact suggested-source approval. An unrelated CI approval browser fixture
+  failed under shared-suite concurrency; isolated retry and the final serial
+  context-only full suite passed without CI changes.
+- R3 now uses explicit agent discovery with recursive filename/literal text search,
+  frozen repository receipts, evidenced suggestions and partial-survey gaps.
+  Complete discovery may honestly return no suggested topics.
+- R4 accepts one saved plan and answers one question per explicit run. It retains
+  approved sources, link parents/depths, opened/pending/failed inventory and saved
+  questions. Limits are 40 source operations, 10 initial documentation opens and
+  two link hops. Source expansion and draft approval never start a model.
+- R5 supports optional task/Explore proposals from committed task HEAD evidence,
+  generated review lessons, and local merged-work candidates from verified task
+  links. Candidate selection freezes task/issue/review/check context; learning
+  still needs baseline evidence and note approval.
+- Removed the old discovery modal, deterministic discovery/history scanner,
+  legacy IPC/routes, generic build-start endpoint and obsolete timeout setting.
+  Kept explicit cleanup, Off switches, usage and advanced manual editing.
+- Saved external documentation suggestions can be approved directly from the
+  learning progress view. Only the exact recorded URL is accepted: a trailing
+  slash grants that documentation root with two link hops; otherwise it grants
+  one page. Approval preserves existing progress and starts no model. Changed
+  accepted sources are rejected before new registrations are saved.
+- Final checks also cover build-sequence admission, source/plan conflicts,
+  bounded inventory continuation, optional task/review lesson drafts and merged
+  candidate provenance. Removed nested build reconciliation from workspace
+  locks to preserve the existing lock order. `git diff --check` passed.
+- Real-provider Trino/Iceberg learning quality, review quality and measured token
+  cost remain explicit follow-up acceptance; completion here refers to the
+  implemented flow and automated gates, not proven expertise or dollar limits.
 
 - Baseline: clean checkout at `dacb0a78b`; repository instructions and relevant
   context/task contracts inspected. No live app database changed.
@@ -64,13 +103,13 @@ without separate authorization.
   Sandbox process tests required execution outside the sandbox because process
   inspection uses blocked sysctl calls. Packaging required network access for
   Electron's build dependency download. Final `git diff --check` passed.
-- R3–R6 remain pending. Opening the workspace still does not run a model. This
-  checkpoint does not ship agent discovery, bounded documentation inventories,
-  resumable learning, Explore draft preparation, or merged-work candidates.
-- Remaining freshness work: drafts record the inspected baseline, but approval
-  currently checks notebook/target versions, not a fresh Git baseline comparison.
-  Source and scope changes must be surfaced/revalidated with R3/R4. No live
-  provider quality or token-cost acceptance run was performed.
+- Earlier R1–R2 verification did not cover discovery or learning; the later R3–R6
+  entries above track those additions. Opening the workspace does not run a model.
+- Freshness boundary: learning revalidates saved source snapshots and scope rules;
+  draft approval checks notebook/target versions and retained ownership. It does
+  not certify current source applicability or perform a fresh Git comparison.
+  Source identities remain inspectable. No live-provider quality or token-cost
+  acceptance run was performed, and source-operation limits are not dollar caps.
 
 ---
 

@@ -38,7 +38,7 @@ public record ContextBuild(
         long sequence, String requestKey, String requestDigest, String workspaceId, String taskId,
         RepositoryIdentity physicalRepository, long repositoryId, RepoRef repository, String baselineSha, String branch,
         String laneId, AgentTaskDefaults defaults, List<String> scopeIds, List<History> history,
-        List<RegisteredContextSource> documentationSources, long notebookRevision, Instant requestedAt, Capture capture)
+        List<RegisteredContextSource> documentationSources, long notebookRevision, Instant requestedAt, Capture capture, Mode mode, Optional<Assignment> assignment)
 {
     public ContextBuild
     {
@@ -57,7 +57,11 @@ public record ContextBuild(
         history = ImmutableList.copyOf(history);
         documentationSources = ImmutableList.copyOf(documentationSources);
         ContextLimits.unique(scopeIds, "scopeIds", 100);
-        checkArgument(!scopeIds.isEmpty(), "Select at least one scope");
+        requireNonNull(mode, "mode is null");
+        requireNonNull(assignment, "assignment is null");
+        checkArgument(mode == Mode.LEARN || assignment.isEmpty(), "Only learning has a topic assignment");
+        checkArgument(mode == Mode.DISCOVER ? scopeIds.isEmpty() && history.isEmpty() && documentationSources.isEmpty() : !scopeIds.isEmpty(),
+                "Discovery has no configured sources; learning requires selected scopes");
         ContextLimits.unique(history, "history", 10);
         requireNonNull(requestedAt, "requestedAt is null");
         requireNonNull(capture, "capture is null");
@@ -71,7 +75,28 @@ public record ContextBuild(
     public ContextBuild withCapture(Capture replacement)
     {
         return new ContextBuild(sequence, requestKey, requestDigest, workspaceId, taskId, physicalRepository, repositoryId, repository, baselineSha, branch,
-                laneId, defaults, scopeIds, history, documentationSources, notebookRevision, requestedAt, replacement);
+                laneId, defaults, scopeIds, history, documentationSources, notebookRevision, requestedAt, replacement, mode, assignment);
+    }
+
+    public record Assignment(String planId, String topicId, String question, List<String> paths, List<String> repositoryFiles)
+    {
+        public Assignment
+        {
+            ContextLimits.text(planId, "planId", 200);
+            ContextLimits.text(topicId, "topicId", 200);
+            ContextLimits.text(question, "learning question", 2000);
+            paths = ImmutableList.copyOf(paths);
+            repositoryFiles = ImmutableList.copyOf(repositoryFiles);
+            ContextLimits.unique(paths, "learning paths", 20);
+            paths.forEach(ContextLimits::pathPrefix);
+            ContextLimits.unique(repositoryFiles, "learning source files", 40);
+            repositoryFiles.forEach(path -> ContextLimits.pathPrefix(path + "/"));
+        }
+    }
+
+    public enum Mode
+    {
+        LEARN, DISCOVER
     }
 
     public record History(ContextHistoryReader.SourceKind kind, int number)

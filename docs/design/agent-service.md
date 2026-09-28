@@ -216,79 +216,48 @@ See [development delivery](development-delivery.md#2-settings-and-scope).
 
 ## Explicit repository learning
 
-[Repository Context](repository-context.md#23-explicit-learnrefresh-without-a-review)
-adds an explicit Learn/Refresh action through the current task service. The first
-run includes repository files, directory structure, repository documentation and
-registered docs by default. Users choose scopes and may add selected merged PRs
-or closed issues. The result is shared Knowledge; user-owned memory still requires
-Save lesson. The task is visible with its transcript, Stop and existing recovery.
-Task details use the required TaskView.worktreePath string to display its actual
-managed worktree, including a retained tree that still needs explicit cleanup.
+[Repository context](repository-context-refactor.md) uses existing noninteractive
+research tasks for explicit discovery and learning. Start discovery inspects a
+frozen local revision through language-neutral filename/text search and selective
+file reads. It saves an outline and evidenced topic/source suggestions. Learn
+selected accepts a bounded plan and starts one question; Continue starts another
+run from saved progress. No page load, synchronization or startup starts a model.
 
-The implemented Find suggestions / Use selected suggestions flow precedes Learn
-and has no task lifecycle. The implementation checklist records completed gates
-and current refinements; live provider, performance and review-quality acceptance
-remain separate.
-It previews bounded scopes and literal documentation links from one frozen local
-repository baseline, with optional bounded history search. It never provisions a
-repository, clones, Git-fetches or starts/resumes an agent. Acceptance rederives
-selected IDs outside mutation locks, then appends configuration and captured
-provenance under the notebook revision guard; active preparation blocks it.
-Discovery evidence stays in notebook sourceEvidence through server-owned scope
-and source discoveryEvidenceRef fields. BEGIN remains
-limited to the accepted task's already configured scope/document assignment.
-Local discovery uses bounded breadth-first traversal at any depth and below
-manifest directories. Queries prioritize child traversal and filter scope
-proposals without dropping nonmatching ancestors. The same eight manifest names,
-24-directory/24-file caps, first 100 entries per directory and hidden/generated/
-vendor exclusions apply; symlinks and submodules are not followed. No build tool
-or workspace parser runs, and no additional dependency or task authority is added.
-Preview and Apply require repositoryFingerprint, derived from routing and the
-recorded lastCodeSyncAt. The service rechecks that metadata under the workspace
-lock before saving, with one final two-second/no-lazy-fetch rev-parse to catch a
-failed sync that moved the ref without updating its timestamp. This narrow guard
-precedes notebook registration and holds no notebook transaction or task monitor.
-Other Git inspection and all file/network/model work remain outside that lock.
-Repository source reads use Guava SimpleTimeLimiter on the existing ioExecutor
-with one Stopwatch and the configurable
-`bytequay.repository-context.discovery-timeout=30s` shared budget. This adds no
-scheduler or durable job. Only the request mutates its scan; timed-out late results
-are discarded, while completed suggestions retain an explicit coverage gap.
-Interruption restores the request's flag and aborts before history or configuration
-saving. Per-command Git and history limits are separate; the setting is not a
-thirty-second end-to-end HTTP performance guarantee.
+ContextBuildService validates the configured Review model, notebook revision,
+source selection and prior task cleanup before allocation. Its saved binding fixes
+task identity, repository routing, baseline and purpose. The resolver chooses the
+restricted research profile from that binding, never from prompt text. Discovery
+gets the fixed discovery read/submit tools; learning gets read/prepare/progress.
+Neither profile can publish, edit code or start children. Existing model preflight,
+Stop, runtime recovery and verified worktree cleanup controls apply.
 
-ContextBuildService checks the configured Review provider/model before allocation,
-freezes the local monitored baseline, and stores a reserved task ID plus accepted
-source selection in ContextBuild before creating a noninteractive AUTO task and
-starting its root turn. ContextBuildStore uses the existing AppSettingsStore key
-`workspace.repositoryContextBuild.<workspaceId>` for the latest binding, captured
-sources and exact operation receipts. Task/turn records remain the lifecycle
-authority. No PR, review run or parallel build-job state is manufactured.
+A run reserves at most 40 source operations and 10 initial document opens before
+access; failures and retries count. Document links stay inside approved roots and
+two link hops, with parent/depth persisted across Continue. Other URLs are proposals
+for explicit source expansion. Source inventory tracks opened, pending, failed and
+excluded pages without claiming that opening a page means complete understanding.
+These are source-operation limits, not provider token/cost guarantees.
 
-Purpose is resolved from the current saved task binding, never from the task's
-title, user message or model-authored field. ReviewBridgeResolverImpl gives that root
-the existing restricted/no-child profile with only repository_context_read and
-repository_context_prepare. Global user skills apply; AUTO does not grant
-development delivery, PR-reporting or publication authority. Source bodies remain
-untrusted tool results, separate from the trusted policy. Shared preparation uses
-mandatory task/turn ownership and paired optional review/run IDs; standalone
-learning has neither review nor run ID.
+Generated knowledge and lessons are pending drafts. Approval activates them after
+revision/version checks; old active versions remain available while updates wait.
+Agent note lookup lists bounded summaries and exact-version bodies only on demand.
+The agent decides relevance; ByteQuay has no semantic ranking. Development/Explore
+can propose a few supported drafts using server-captured committed task HEAD files,
+and review investigation/validation can use shared preparation. No useful draft is
+required to finish a task. Off and ownership checks remain enforced at tool access.
 
-ContextBuildCoordinator observes existing task events. Startup restores that
-observation and settles existing work only; opening a surface, synchronization
-and startup never start or resume learning. There is no learning scheduler.
-An accepted structured result still waits for a terminal, quiescent turn before
-the application explicitly completes the task and invokes verified clean-worktree
-cleanup. Stop/failure preserves prior notes. The latest binding remains until
-the task is terminal and worktree removal is recorded, so cleanup controls and
-purpose fencing remain reachable. Missing-task provisioning failures remain
-attached to their request; uncertain accepted input is never resent automatically.
-A task already FAILED when reconciliation begins keeps its worktree until the
-user invokes purpose-scoped cleanup. Mark failed can discard an unverified
-recovery claim, so GET and startup do not automatically remove that worktree.
-A claim-free OPEN task whose turn just cancelled or failed may be abandoned and
-checked for safe cleanup in the same reconciliation pass.
+Merged-work candidates come from cached merge facts and verified publication or
+explicit imported-task links. Listing is local and does not launch learning.
+An explicit selection freezes its bounded task/issue/review/check context. A selected
+PR history receipt can retain that clearly labeled local bundle, while draft claims
+still need captured baseline evidence. Merge and acceptance are historical facts,
+not proof that a lesson applies today.
+
+ContextBuildCoordinator observes existing lifecycle events. It settles only a
+terminal quiescent turn, preserves drafts and partial progress after interruption,
+and does not restart work. A failed task retains explicit cleanup; uncertain input
+is never automatically resent. Missing-task allocation failure remains visible and
+permits an explicit new request. There is no new job engine or learning scheduler.
 
 ## Review reference input
 

@@ -20,6 +20,7 @@ import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.web.agent.AgentHttpModels;
 import com.bytequay.core.context.ContextLimits;
+import com.google.common.collect.ImmutableList;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -27,8 +28,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.List;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -57,11 +56,11 @@ public class ContextBuildController
         return builds.get(workspaceId);
     }
 
-    @PostMapping
-    public ContextBuildService.View start(@PathVariable String workspaceId, @RequestBody StartRequest request)
+    @PostMapping("/discover")
+    public ContextBuildService.View discover(@PathVariable String workspaceId, @RequestBody DiscoveryRequest request)
     {
-        return builds.start(workspaceId, new ContextBuildService.Request(request.requestKey(), request.expectedRevision(), request.expectedBuildSequence(),
-                request.scopeIds(), request.history()));
+        return builds.discover(workspaceId, new ContextBuildService.Request(request.requestKey(), request.expectedRevision(), request.expectedBuildSequence(),
+                ImmutableList.of(), ImmutableList.of()));
     }
 
     @PostMapping("/stop")
@@ -106,15 +105,13 @@ public class ContextBuildController
         return builds.get(workspaceId);
     }
 
-    public record StartRequest(String requestKey, Long expectedRevision, Long expectedBuildSequence, List<String> scopeIds, List<ContextBuild.History> history)
+    public record DiscoveryRequest(String requestKey, Long expectedRevision, Long expectedBuildSequence)
     {
-        public StartRequest
+        public DiscoveryRequest
         {
+            ContextLimits.text(requestKey, "requestKey", 100);
             checkArgument(expectedRevision != null && expectedRevision >= 0 && expectedBuildSequence != null && expectedBuildSequence >= 0,
                     "Both expectedRevision and expectedBuildSequence are required nonnegative integers");
-            ContextBuildService.Request checked = new ContextBuildService.Request(requestKey, expectedRevision, expectedBuildSequence, scopeIds, history);
-            scopeIds = checked.scopeIds();
-            history = checked.history();
         }
     }
 

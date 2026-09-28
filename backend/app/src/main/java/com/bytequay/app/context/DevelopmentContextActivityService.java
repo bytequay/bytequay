@@ -56,14 +56,15 @@ public class DevelopmentContextActivityService
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
-    /** Returns the latest 100 persisted offer/search/read cards and exact delivery states for the owning task. */
+    /** Returns the latest persisted lookup cards; pending-note proposals are shown in the notebook draft queue. */
     public Activity activity(String workspaceId, String taskId)
     {
         List<DevelopmentContextReceipt> saved = receipts.listTask(taskId, CARD_LIMIT + 1);
         List<ContextUsageEvent> facts = usage.listTask(workspaceId, taskId, FACT_LIMIT + 1);
         Map<String, List<ContextUsageEvent>> byRef = facts.stream().limit(FACT_LIMIT).collect(groupingBy(ContextUsageEvent::receiptRef));
         boolean usageTruncated = facts.size() > FACT_LIMIT;
-        List<Card> cards = saved.stream().limit(CARD_LIMIT).map(receipt -> card(receipt,
+        List<Card> cards = saved.stream().filter(receipt -> receipt.kind() != DevelopmentContextReceipt.Kind.PROPOSE)
+                .limit(CARD_LIMIT).map(receipt -> card(receipt,
                         byRef.getOrDefault(receipt.reference(), ImmutableList.of()), usageTruncated))
                 .collect(toImmutableList());
         return new Activity(cards, saved.size() > CARD_LIMIT, usageTruncated);
@@ -84,6 +85,7 @@ public class DevelopmentContextActivityService
             case OFFER -> entries(payload.path("entries"), true);
             case SEARCH -> entries(data.path("hits"), false);
             case READ -> payload.path("note").isObject() ? ImmutableList.of(entry(payload.path("note"), true)) : ImmutableList.of();
+            case PROPOSE -> ImmutableList.of();
         };
         List<ScopeState> scopes = scopes(data.path("scopeStates"));
         String delivery = switch (receipt.kind()) {
@@ -91,6 +93,7 @@ public class DevelopmentContextActivityService
                     .map(ignored -> "CONFIRMED").orElse("PREPARED");
             case SEARCH -> delivery(facts, SEARCH_STAGES, usageTruncated);
             case READ -> delivery(facts, Set.of(ContextUsageEvent.Stage.OPENED), usageTruncated);
+            case PROPOSE -> "PREPARED";
         };
         List<String> warnings = receipt.kind() == DevelopmentContextReceipt.Kind.READ
                 ? strings(payload.path("limitations")) : ImmutableList.of();

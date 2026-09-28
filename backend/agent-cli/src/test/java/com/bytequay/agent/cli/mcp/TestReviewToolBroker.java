@@ -71,6 +71,43 @@ class TestReviewToolBroker
     }
 
     @Test
+    void discoveryToolsAreListedAndDispatchedByBothProviderRegistrations()
+            throws Exception
+    {
+        ImmutableList<String> names = ImmutableList.of("repository_context_discovery_read", "repository_context_discovery_submit");
+        AtomicReference<String> called = new AtomicReference<>();
+        ReviewBridge discovery = new ReviewBridge(names.stream()
+                .map(name -> new ReviewTool(name, "Discover", ImmutableMap.of("type", "object"), arguments -> {
+                    called.set(name + ":" + arguments);
+                    return "{\"accepted\":true}";
+                })).toList(), "Discover selected repository sources");
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
+                (taskId, query) -> "memory", taskId -> Optional.of(discovery));
+        SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of());
+        try (McpRegistration codex = broker.registerTools("discovery-task", temporaryDirectory, AgentPermissionPolicy.AUTO,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
+                McpRegistration claude = broker.register("discovery-task", temporaryDirectory, temporaryDirectory, temporaryDirectory,
+                        AgentPermissionPolicy.AUTO, SessionAccess.FULL,
+                        (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
+            for (McpRegistration registration : ImmutableList.of(codex, claude)) {
+                assertThat(registration.toolNames()).containsAll(names);
+                JsonNode listed = broker.handle(registration.token(), objectMapper.readTree("""
+                        {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                        """)).body().orElseThrow();
+                assertThat(listed.at("/result/tools").findValuesAsText("name")).containsAll(names);
+                JsonNode submitted = broker.handle(registration.token(), objectMapper.readTree("""
+                        {"jsonrpc":"2.0","id":2,"method":"tools/call","params":
+                        {"name":"repository_context_discovery_submit","arguments":{"report":"evidenced"}}}
+                        """)).body().orElseThrow();
+                assertThat(submitted.at("/result/isError").asBoolean()).isFalse();
+                assertThat(submitted.at("/result/content/0/text").asText()).isEqualTo("{\"accepted\":true}");
+                assertThat(called).hasValue("repository_context_discovery_submit:{\"report\":\"evidenced\"}");
+            }
+        }
+    }
+
+    @Test
     void privateReviewPolicyRetainsDiscussionsAndExcludesDeliveryToolsForBothProviders()
             throws Exception
     {

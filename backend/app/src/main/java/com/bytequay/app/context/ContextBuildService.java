@@ -45,6 +45,7 @@ import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextPreparationResult;
+import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -58,7 +59,9 @@ import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 
@@ -73,6 +76,7 @@ public class ContextBuildService
     private static final Logger log = LoggerFactory.getLogger(ContextBuildService.class);
     private final ContextBuildStore builds;
     private final RepositoryContextService notebooks;
+    private final ContextLearningPlanStore plans;
     private final RepositoryContextPreparation preparation;
     private final WorkspaceRepositoryService workspaces;
     private final ModelSettingsService models;
@@ -91,13 +95,15 @@ public class ContextBuildService
     private final Striped<Lock> locks = Striped.lock(64);
 
     public ContextBuildService(
-            ContextBuildStore builds, RepositoryContextService notebooks, RepositoryContextPreparation preparation, WorkspaceRepositoryService workspaces,
+            ContextBuildStore builds, RepositoryContextService notebooks, ContextLearningPlanStore plans,
+            RepositoryContextPreparation preparation, WorkspaceRepositoryService workspaces,
             ModelSettingsService models, CredentialService credentials, AgentDriverRegistry drivers, AgentTaskService tasks, AgentTaskStore taskStore,
             AgentTurnService turns, AgentTurnStore turnStore, AgentCompletionService completions, AgentApprovalService approvals,
             ObjectProvider<ContextBuildCoordinator> coordinator, GitCommandRunner git, ObjectMapper mapper, Clock clock)
     {
         this.builds = requireNonNull(builds, "builds is null");
         this.notebooks = requireNonNull(notebooks, "notebooks is null");
+        this.plans = requireNonNull(plans, "plans is null");
         this.preparation = requireNonNull(preparation, "preparation is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.models = requireNonNull(models, "models is null");
@@ -121,43 +127,66 @@ public class ContextBuildService
         return view(workspaceId);
     }
 
-    public View start(String workspaceId, Request request)
+    public View discover(String workspaceId, Request request)
+    {
+        checkArgument(request.scopeIds().isEmpty() && request.history().isEmpty(), "Discovery does not take configured scopes or history");
+        return start(workspaceId, request, ContextBuild.Mode.DISCOVER, Optional.empty(), Optional.empty(), Optional.empty());
+    }
+
+    public View learnHistory(String workspaceId, Request request)
+    {
+        checkArgument(!request.scopeIds().isEmpty() && !request.history().isEmpty(), "Select scopes and observed merged work");
+        return start(workspaceId, request, ContextBuild.Mode.LEARN, Optional.empty(), Optional.of(ImmutableList.of()), Optional.empty());
+    }
+
+    public View learn(String workspaceId, Request request, String baselineSha, List<RegisteredContextSource> sources, ContextBuild.Assignment assignment)
+    {
+        checkArgument(request.scopeIds().size() == 1, "A learning run answers one topic");
+        checkArgument(baselineSha.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Invalid learning baseline");
+        return start(workspaceId, request, ContextBuild.Mode.LEARN, Optional.of(baselineSha), Optional.of(sources), Optional.of(assignment));
+    }
+
+    private View start(String workspaceId, Request request, ContextBuild.Mode mode, Optional<String> baselineSha,
+            Optional<List<RegisteredContextSource>> selectedSources, Optional<ContextBuild.Assignment> assignment)
     {
         Lock lock = locks.get(workspaceId);
         lock.lock();
         try {
-            String digest = digest(request);
+            String digest = digest(ImmutableList.of(mode, request, baselineSha, selectedSources, assignment));
             Optional<ContextBuild> previous = builds.find(workspaceId);
             if (previous.filter(build -> build.requestKey().equals(request.requestKey())).isPresent()) {
                 checkArgument(previous.orElseThrow().requestDigest().equals(digest), "Request key was reused with different learning inputs");
                 return view(workspaceId);
             }
             checkArgument(previous.map(ContextBuild::sequence).orElse(0L) == request.expectedBuildSequence(), "Build request sequence changed; inspect the latest build");
-            checkArgument(previous.flatMap(build -> taskStore.find(TaskId.valueOf(build.taskId())))
-                            .map(task -> task.state().terminal() && task.worktreeRemovedAt().isPresent()).orElse(true),
+            checkArgument(previous.map(this::canStartAfter).orElse(true),
                     "The previous learning task must finish and its worktree must be cleaned up before another request");
             RepositoryNotebook notebook = notebooks.getNotebook(workspaceId);
             checkArgument(notebook.revision() == request.expectedRevision(), "Notebook revision changed; inspect the latest configuration");
             request.scopeIds().forEach(id -> checkArgument(notebook.scopes().stream().anyMatch(scope -> scope.id().equals(id) && scope.enabled()),
                     "Unknown or disabled learning scope: %s", id));
+            List<RegisteredContextSource> documentation = mode == ContextBuild.Mode.DISCOVER ? ImmutableList.of() : selectedSources.orElse(notebook.sources());
+            checkArgument(notebook.sources().containsAll(documentation), "Approved documentation sources changed; review the learning plan");
             AgentModelSetting model = models.agentModel(AgentModelType.REVIEW, Optional.of(workspaceId));
             AgentLaneId lane = new AgentLaneId(model.configId());
             WorkflowAgentTasks.requireReady(drivers, lane, AgentPermissionPolicy.AUTO);
             models.validateSelection(lane.value(), model.model(), model.effort(), Optional.empty());
             WorkspaceRepositoryContext workspace = workspaces.requireReadableRepository(workspaceId);
             GitCommandRunner.Result resolved = git.run(workspace.repository(), "rev-parse", "--verify",
-                    "refs/remotes/" + workspace.sourceRemote() + "/" + workspace.defaultBranch() + "^{commit}");
+                    baselineSha.orElse("refs/remotes/" + workspace.sourceRemote() + "/" + workspace.defaultBranch()) + "^{commit}");
             checkArgument(resolved.successful() && !resolved.truncated() && resolved.output().strip().matches("[0-9a-f]{40}|[0-9a-f]{64}"),
                     "The current monitored baseline is unavailable");
             TaskId id = TaskId.random();
-            String title = "Learn " + workspace.monitoredRepository().fullName();
+            String title = (mode == ContextBuild.Mode.DISCOVER ? "Discover " : "Learn ") + workspace.monitoredRepository().fullName();
             String branch = TaskBranches.generate(id, credentials.resolveGitHubCredential().profile().login(), title);
             ContextBuild build = new ContextBuild(Math.addExact(request.expectedBuildSequence(), 1), request.requestKey(), digest, workspaceId, id.toString(),
                     WorkflowAgentTasks.repositoryIdentity(workspace.selectedRepository()), RepositoryContextReader.repositoryId(workspace), workspace.monitoredRepository(),
                     resolved.output().strip(), branch, lane.value(), new AgentTaskDefaults(Optional.of(model.model()), model.effort(), AgentPermissionPolicy.AUTO),
-                    request.scopeIds(), request.history(), notebook.sources(), notebook.revision(), Instant.now(clock), ContextBuild.Capture.empty());
+                    request.scopeIds(), request.history(), documentation,
+                    notebook.revision(), Instant.now(clock), ContextBuild.Capture.empty(), mode, assignment);
             WorkspaceOperationLocks.withLock(workspaceId, () -> {
                 checkArgument(notebooks.getNotebook(workspaceId).equals(notebook), "Notebook changed while preparing learning");
+                assignment.ifPresent(accepted -> checkAcceptedPlan(workspaceId, build, accepted));
                 return builds.save(previous, build);
             });
             try {
@@ -174,6 +203,24 @@ public class ContextBuildService
         finally {
             lock.unlock();
         }
+    }
+
+    /** The saved topic/source selection must still match at the build admission boundary. */
+    private void checkAcceptedPlan(String workspaceId, ContextBuild build, ContextBuild.Assignment assignment)
+    {
+        ContextLearningPlan plan = plans.find(workspaceId).filter(value -> value.id().equals(assignment.planId()))
+                .orElseThrow(() -> new IllegalArgumentException("Learning plan changed before the task was started"));
+        ContextLearningPlan.Topic next = plan.topics().stream()
+                .filter(topic -> topic.status() == ContextLearningPlan.Status.PENDING).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Learning plan has no pending topic"));
+        List<RegisteredContextSource> selected = plan.documentationSources().stream()
+                .filter(source -> next.sourceIds().contains(source.id())).toList();
+        checkArgument(next.id().equals(assignment.topicId()) && next.scopeId().equals(build.scopeIds().getFirst())
+                        && next.remainingQuestion().equals(assignment.question()) && next.paths().equals(assignment.paths())
+                        && next.repositoryFiles().equals(assignment.repositoryFiles()) && selected.equals(build.documentationSources())
+                        && plan.baselineSha().equals(build.baselineSha()) && plan.repositoryId() == build.repositoryId()
+                        && plan.repository().equals(build.repository()),
+                "Accepted learning topic or sources changed before the task was started");
     }
 
     public AgentTask task(String workspaceId, String taskId)
@@ -218,7 +265,22 @@ public class ContextBuildService
         try {
             Optional<ContextBuild> found = builds.find(workspaceId).filter(build -> build.taskId().equals(taskId));
             Optional<AgentTask> task = taskStore.find(TaskId.valueOf(taskId));
-            if (found.isEmpty() || task.isEmpty() || task.orElseThrow().worktreeMutationClaim().isPresent()) {
+            if (found.isEmpty()) {
+                return;
+            }
+            if (task.isEmpty()) {
+                WorkspaceOperationLocks.withLock(workspaceId, () -> {
+                    ContextBuild build = builds.find(workspaceId).filter(value -> value.taskId().equals(taskId)).orElseThrow();
+                    ContextBuild.Capture capture = build.capture();
+                    Map<String, String> attempts = new LinkedHashMap<>(capture.attempts());
+                    attempts.put("allocation-failed", "No agent task was retained; retry requires an explicit new request");
+                    builds.save(Optional.of(build), build.withCapture(new ContextBuild.Capture(capture.sourceReads(), capture.evidence(), attempts,
+                            capture.operations(), capture.result(), gaps(capture.gaps(), "The task allocation did not finish. No model run was retained."))));
+                    return null;
+                });
+                return;
+            }
+            if (task.orElseThrow().worktreeMutationClaim().isPresent()) {
                 return;
             }
             ContextBuild build = found.orElseThrow();
@@ -287,11 +349,17 @@ public class ContextBuildService
             Optional<AgentTurn> active = task.flatMap(this::activeTurn);
             return new BuildView(value.requestKey(), value.taskId(), value.baselineSha(), value.scopeIds(), value.history(), value.requestedAt(),
                     task.map(TaskView::of), active.map(TurnView::of), active.map(turn -> approvals.listPending(turn.id()).size()).orElse(0),
-                    value.capture().result().map(ContextBuild.Result::scopeResults).orElse(ImmutableList.of()), value.capture().gaps());
+                    value.capture().result().map(ContextBuild.Result::scopeResults).orElse(ImmutableList.of()), value.capture().gaps(), value.mode());
         });
-        boolean canStart = found.flatMap(value -> taskStore.find(TaskId.valueOf(value.taskId())))
-                .map(task -> task.state().terminal() && task.worktreeRemovedAt().isPresent()).orElse(true);
+        boolean canStart = found.map(this::canStartAfter).orElse(true);
         return new View(found.map(ContextBuild::sequence).orElse(0L), notebook.revision(), canStart, build);
+    }
+
+    private boolean canStartAfter(ContextBuild build)
+    {
+        return taskStore.find(TaskId.valueOf(build.taskId()))
+                .map(task -> task.state().terminal() && task.worktreeRemovedAt().isPresent())
+                .orElseGet(() -> build.capture().attempts().containsKey("allocation-failed"));
     }
 
     private Optional<AgentTurn> activeTurn(AgentTask task)
@@ -300,7 +368,7 @@ public class ContextBuildService
                 .flatMap(claim -> turnStore.find(TurnId.valueOf(claim.ownerId()))).filter(turn -> !turn.state().terminal());
     }
 
-    private String digest(Request request)
+    private String digest(Object request)
     {
         try {
             return "sha256:" + Hashing.sha256().hashString(mapper.writeValueAsString(request), UTF_8);
@@ -312,11 +380,30 @@ public class ContextBuildService
 
     private static String prompt(ContextBuild build)
     {
+        if (build.mode() == ContextBuild.Mode.DISCOVER) {
+            return "Discover repository " + build.repository().fullName() + " at frozen baseline " + build.baselineSha()
+                    + ". Use the repository discovery tools to inspect project structure, build files, README and selected documentation. "
+                    + "Search across the repository; modules can be deeply nested and need not follow a standard layout. "
+                    + "Propose focused learning questions, their relevant code paths, and source documents supported by read evidence. "
+                    + "Do not read all code or follow external websites. External documentation links are suggestions for later user approval. "
+                    + "You have at most 40 source operations in this one turn. Save a partial report with remaining questions before reaching the limit. "
+                    + "Submit the discovery report, then end; do not create notes, commit, push or publish.";
+        }
+        if (build.assignment().isPresent()) {
+            return "Learn one approved question for " + build.repository().fullName() + " at " + build.baselineSha() + ": "
+                    + build.assignment().orElseThrow().question() + ". Use repository_context_read SELECTION for saved progress and exact source boundaries. "
+                    + "Inspect existing notes before drafting duplicates. Read only what answers this question, within the approved paths and documentation inventory. "
+                    + "At most 40 source operations and 10 documentation opens are allowed this turn, with two link hops from each approved root. "
+                    + "Save useful supported drafts with repository_context_prepare; record completed or remaining work with repository_context_progress. "
+                    + "A partial answer is allowed. Preserve uncertainty and source gaps. Do not claim a whole module or website was learned. "
+                    + "Stop after this unit. The user approves further runs and note activation separately.";
+        }
         return "Learn repository " + build.repository().fullName() + " from its frozen monitored baseline " + build.baselineSha()
                 + ". Selected knowledge scopes: " + build.scopeIds() + ". Use repository_context_read SELECTION for the exact source assignment. "
                 + "Inspect directory structure, repository documentation and files, and attempt every registered documentation source before preparation BEGIN. "
                 + "Read only the explicitly selected historical references. Submit focused knowledge drafts with repository_context_prepare, then end the turn. "
-                + "Record source failures, incomplete coverage and unsupported claims as limitations. Do not author user lessons, commit, push or publish.";
+                + "Record source failures, incomplete coverage and unsupported claims as limitations. "
+                + "Propose a lesson only for supported reusable conclusions. Do not commit, push or publish.";
     }
 
     public record Request(String requestKey, long expectedRevision, long expectedBuildSequence, List<String> scopeIds, List<ContextBuild.History> history)
@@ -328,7 +415,6 @@ public class ContextBuildService
             scopeIds = ImmutableList.copyOf(scopeIds);
             history = ImmutableList.copyOf(history);
             ContextLimits.unique(scopeIds, "scopeIds", 100);
-            checkArgument(!scopeIds.isEmpty(), "Select at least one knowledge scope");
             scopeIds.forEach(id -> ContextLimits.text(id, "scopeId", 1100));
             ContextLimits.unique(history, "history", 10);
         }
@@ -337,7 +423,7 @@ public class ContextBuildService
     public record View(long buildRequestSequence, long notebookRevision, boolean canStart, Optional<BuildView> build) {}
 
     public record BuildView(String requestKey, String taskId, String baselineSha, List<String> scopeIds, List<ContextBuild.History> history, Instant requestedAt,
-            Optional<TaskView> task, Optional<TurnView> activeTurn, int pendingApprovals, List<ContextPreparationResult> results, List<String> gaps) {}
+            Optional<TaskView> task, Optional<TurnView> activeTurn, int pendingApprovals, List<ContextPreparationResult> results, List<String> gaps, ContextBuild.Mode mode) {}
 
     public record TaskView(String id, String workspaceId, String state, long version, String laneId, Optional<String> model,
             Optional<String> mutationClaim, Optional<String> terminalReason, Optional<Instant> worktreeRemovedAt, String worktreePath)

@@ -1050,17 +1050,31 @@ public final class PermissionBroker
                 ImmutableMap.of("type", "object", "properties", ImmutableMap.of(), "additionalProperties", false))));
         context.notebook().ifPresent(ignored -> tools.add(new ToolDefinition(
                 RepositoryContextBridge.TOOL_NAME,
-                "Search saved workspace knowledge and lessons, then read an exact returned version. Read-only; verify sources against current code.",
+                "List or search saved notes, read an exact version, or propose a note from committed task file ranges for user approval.",
                 ImmutableMap.of(
                         "type", "object",
-                        "properties", ImmutableMap.of(
-                                "action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("SEARCH", "READ")),
-                                "query", ImmutableMap.of("type", "string", "maxLength", 200),
-                                "paths", ImmutableMap.of("type", "array", "items", ImmutableMap.of("type", "string"), "maxItems", 20),
-                                "operationKey", ImmutableMap.of("type", "string", "maxLength", 100),
-                                "searchRef", ImmutableMap.of("type", "string"),
-                                "entryId", ImmutableMap.of("type", "string"),
-                                "entryVersion", ImmutableMap.of("type", "integer", "minimum", 1)),
+                        "properties", ImmutableMap.<String, Object>builder()
+                                .put("action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("LIST", "SEARCH", "READ", "PROPOSE")))
+                                .put("query", ImmutableMap.of("type", "string", "maxLength", 200))
+                                .put("paths", ImmutableMap.of("type", "array", "items", ImmutableMap.of("type", "string"), "maxItems", 20))
+                                .put("page", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", 100))
+                                .put("notebookRevision", ImmutableMap.of("type", "integer", "minimum", 0))
+                                .put("operationKey", ImmutableMap.of("type", "string", "maxLength", 100))
+                                .put("searchRef", ImmutableMap.of("type", "string"))
+                                .put("entryId", ImmutableMap.of("type", "string"))
+                                .put("entryVersion", ImmutableMap.of("type", "integer", "minimum", 1))
+                                .put("kind", ImmutableMap.of("type", "string", "enum", ImmutableList.of("KNOWLEDGE", "MEMORY")))
+                                .put("scopeId", ImmutableMap.of("type", "string"))
+                                .put("title", ImmutableMap.of("type", "string", "maxLength", 200))
+                                .put("summary", ImmutableMap.of("type", "string", "maxLength", 1000))
+                                .put("body", ImmutableMap.of("type", "string"))
+                                .put("sources", ImmutableMap.of("type", "array", "minItems", 1, "maxItems", 3,
+                                        "items", ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                                                "path", ImmutableMap.of("type", "string"),
+                                                "startLine", ImmutableMap.of("type", "integer", "minimum", 1),
+                                                "endLine", ImmutableMap.of("type", "integer", "minimum", 1)),
+                                                "required", ImmutableList.of("path", "startLine"), "additionalProperties", false)))
+                                .buildOrThrow(),
                         "required", ImmutableList.of("action"),
                         "additionalProperties", false))));
         context.pullRequestCi().ifPresent(ignored -> {

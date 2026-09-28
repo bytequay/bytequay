@@ -157,6 +157,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -329,6 +330,19 @@ class TestReviewTools
     }
 
     @Test
+    void validationCanProposeSupportedDraftsWithoutRestartingInvestigation()
+    {
+        preparationContext();
+        advance(VALIDATE);
+        when(preparation.plan(any(), any(), any())).thenReturn(new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs()));
+        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any(), eq(false))).thenReturn(new Admission(Status.DEFERRED, 7,
+                Optional.empty(), ImmutableList.of(), ImmutableList.of("Source evidence still incomplete"), ContextPacket.create("Deferred draft")));
+
+        assertThat(call("repository_context_prepare", beginPreparation()).path("status").asText()).isEqualTo("DEFERRED");
+        verify(preparation).begin(any(), anyString(), anyString(), anyLong(), any(), eq(false));
+    }
+
+    @Test
     void investigationExposesPagedPreparationSelectorsWithoutFetchingSources()
     {
         preparationContext();
@@ -364,7 +378,7 @@ class TestReviewTools
             assertPreparationReadsOutsideLocks();
             return new Plan(RepositoryNotebook.empty(), active.inputs());
         });
-        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any())).thenAnswer(invocation -> {
+        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any(), eq(false))).thenAnswer(invocation -> {
             assertThat(inTransaction).isTrue();
             Execution execution = invocation.getArgument(0);
             assertThat(execution.turnId()).isEqualTo(capturedTurn.toString());
@@ -395,7 +409,7 @@ class TestReviewTools
         Map<String, Object> changed = ImmutableMap.<String, Object>builder().putAll(beginPreparation()).put("expectedRevision", 8L).buildKeepingLast();
         assertThat(call("repository_context_prepare", changed).at("/error/field").asText()).isEqualTo("requestKey");
         verify(preparation).plan(any(), any(), any());
-        verify(preparation).begin(any(), anyString(), anyString(), anyLong(), any());
+        verify(preparation).begin(any(), anyString(), anyString(), anyLong(), any(), eq(false));
     }
 
     @Test
@@ -403,7 +417,7 @@ class TestReviewTools
     {
         preparationContext();
         when(preparation.plan(any(), any(), any())).thenReturn(new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs()));
-        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any())).thenReturn(
+        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any(), eq(false))).thenReturn(
                 new Admission(Status.JOINED, 7, Optional.of(preparationAttempt()), ImmutableList.of(), ImmutableList.of("Still preparing in another review"),
                         ContextPacket.create("Waiting for shared knowledge")),
                 new Admission(Status.REUSED, 8, Optional.empty(), ImmutableList.of(preparationOutcome()), ImmutableList.of(),
@@ -425,7 +439,7 @@ class TestReviewTools
         assertThat(reused.at("/reused/0").has("checkedReads")).isFalse();
         assertThat(reused.at("/reused/0").has("inputFingerprint")).isFalse();
         assertThat(store.findRun(RUN_ID).orElseThrow().operations()).hasSize(2);
-        verify(preparation, times(2)).begin(any(), anyString(), anyString(), anyLong(), any());
+        verify(preparation, times(2)).begin(any(), anyString(), anyString(), anyLong(), any(), eq(false));
     }
 
     @Test
@@ -433,7 +447,7 @@ class TestReviewTools
     {
         preparationContext();
         when(preparation.plan(any(), any(), any())).thenReturn(new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs()));
-        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any())).thenReturn(new Admission(Status.DEFERRED, 7, Optional.empty(),
+        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any(), eq(false))).thenReturn(new Admission(Status.DEFERRED, 7, Optional.empty(),
                 ImmutableList.of(), ImmutableList.of("Another scope is being prepared"), ContextPacket.create("Wait for the active owner")));
         for (int index = 0; index < 100; index++) {
             JsonNode observed = call("repository_context_prepare", beginPreparation());
@@ -445,7 +459,7 @@ class TestReviewTools
         assertThat(call("repository_context_prepare", beginPreparation()).path("activityLimitReached").asBoolean()).isTrue();
         assertThat(store.findRun(RUN_ID).orElseThrow().operations()).hasSize(100);
         assertThat(call("review_get_context", ImmutableMap.of("kind", "assignment")).at("/repositoryContext/preparationReceiptRefs")).isEmpty();
-        verify(preparation, times(101)).begin(any(), anyString(), anyString(), anyLong(), any());
+        verify(preparation, times(101)).begin(any(), anyString(), anyString(), anyLong(), any(), eq(false));
     }
 
     @Test
@@ -453,7 +467,7 @@ class TestReviewTools
     {
         coldPreparationContext();
         when(preparation.plan(any(), any(), any())).thenReturn(new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs()));
-        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any())).thenReturn(new Admission(Status.DEFERRED, 0,
+        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any(), eq(false))).thenReturn(new Admission(Status.DEFERRED, 0,
                 Optional.empty(), ImmutableList.of(), ImmutableList.of("Another scope is being prepared"), ContextPacket.create("Continue with a gap")));
         for (int index = 0; index < 100; index++) {
             call("repository_context_prepare", ImmutableMap.of("operation", "BEGIN", "requestKey", "other", "expectedRevision", 0,
@@ -486,7 +500,7 @@ class TestReviewTools
 
         assertThat(call("repository_context_prepare", beginPreparation()).at("/error/field").asText()).isEqualTo("turn");
         assertThat(store.findRun(RUN_ID).orElseThrow().operations()).isEmpty();
-        verify(preparation, never()).begin(any(), anyString(), anyString(), anyLong(), any());
+        verify(preparation, never()).begin(any(), anyString(), anyString(), anyLong(), any(), eq(false));
     }
 
     @Test
@@ -531,7 +545,7 @@ class TestReviewTools
     {
         preparationContext();
         when(preparation.plan(any(), any(), any())).thenReturn(new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs()));
-        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any())).thenReturn(new Admission(Status.OWNED, 7,
+        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any(), eq(false))).thenReturn(new Admission(Status.OWNED, 7,
                 Optional.of(preparationAttempt()), ImmutableList.of(), ImmutableList.of(), ContextPacket.create("x" + "\u0001".repeat(16 * 1024))));
 
         JsonNode result = call("repository_context_prepare", beginPreparation());
@@ -600,7 +614,7 @@ class TestReviewTools
         call("review_save_summary", summary("summary", "Input change"));
         readSource();
         when(preparation.plan(any(), any(), any())).thenReturn(new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs()));
-        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any())).thenReturn(new Admission(Status.REUSED, 8, Optional.empty(),
+        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any(), eq(false))).thenReturn(new Admission(Status.REUSED, 8, Optional.empty(),
                 ImmutableList.of(preparationOutcome()), ImmutableList.of(), ContextPacket.create("Exact saved note available for reuse")));
         String receipt = call("repository_context_prepare", beginPreparation()).path("receiptRef").asText();
         Map<String, Object> request = contextInvestigation(investigation("initial", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of(CANDIDATE)),
@@ -690,7 +704,7 @@ class TestReviewTools
     {
         coldPreparationContext();
         when(preparation.plan(any(), any(), any())).thenReturn(new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs()));
-        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any())).thenReturn(new Admission(Status.valueOf(status), 0,
+        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any(), eq(false))).thenReturn(new Admission(Status.valueOf(status), 0,
                 status.equals("JOINED") ? Optional.of(preparationAttempt()) : Optional.empty(), ImmutableList.of(),
                 ImmutableList.of("Shared preparation is unavailable"), ContextPacket.create("Continue with a gap")));
 
@@ -712,7 +726,7 @@ class TestReviewTools
     {
         coldPreparationContext();
         when(preparation.plan(any(), any(), any())).thenReturn(new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs()));
-        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any())).thenReturn(new Admission(Status.DEFERRED, 0,
+        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any(), eq(false))).thenReturn(new Admission(Status.DEFERRED, 0,
                 Optional.empty(), ImmutableList.of(preparationOutcome()), ImmutableList.of("Other scope is deferred"),
                 ContextPacket.create("One scope reused; another deferred")));
         JsonNode mixed = call("repository_context_prepare", ImmutableMap.of("operation", "BEGIN", "requestKey", "mixed", "expectedRevision", 0,
@@ -2861,7 +2875,7 @@ class TestReviewTools
             assertThat(invocation.<List<String>>getArgument(2)).containsExactly("context-read:selected-history");
             return new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs());
         });
-        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any())).thenReturn(
+        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any(), eq(false))).thenReturn(
                 new Admission(Status.OWNED, 7, Optional.of(preparationAttempt()), ImmutableList.of(), ImmutableList.of(), ContextPacket.create("Prepared")));
         Map<String, Object> selected = ImmutableMap.<String, Object>builder().putAll(beginPreparation())
                 .put("historyReadIds", ImmutableList.of("context-read:selected-history")).buildOrThrow();
@@ -2889,7 +2903,7 @@ class TestReviewTools
                 .put("historyReadIds", ImmutableList.of("context-read:baseline")).buildOrThrow();
         int writes = store.runUpdates;
         assertThat(call("repository_context_prepare", nonHistory).at("/error/message").asText()).contains("Unknown captured history read");
-        verify(preparation, never()).begin(any(), anyString(), anyString(), anyLong(), any());
+        verify(preparation, never()).begin(any(), anyString(), anyString(), anyLong(), any(), eq(false));
         assertThat(store.runUpdates).isEqualTo(writes);
     }
 

@@ -142,13 +142,13 @@ export default function RepositoryContextPage({ workspace }: { workspace: Worksp
       </SettingsRow></SettingsCard>
       <RepositoryContextBuild workspaceId={workspace.id} notebook={notebook} onNotebookChange={setNotebook} disabled={disabled} />
       <RepositoryContextUsage workspaceId={workspace.id} notebook={notebook} />
-      {notebook.pendingDrafts.length > 0 && <><div className="setw-section"><span className="setw-section-title">Pending knowledge drafts</span></div>
+      {notebook.pendingDrafts.length > 0 && <><div className="setw-section" id="repository-context-drafts"><span className="setw-section-title">Pending drafts</span></div>
         <p className="rc-muted">Drafts are not available to agents until you approve them. Editing keeps a draft pending.</p>
         <SettingsCard>{notebook.pendingDrafts.map(draft => {
           const scope = notebook.scopes.find(item => item.id === draft.entry.scopeId);
           const current = notebook.entries.find(item => item.id === draft.entry.id);
           return <article key={draft.id} className="rc-note">
-            <div className="rc-note-head"><div><strong>{draft.entry.title}</strong><small>{scope?.title ?? draft.entry.scopeId} · Pending draft
+            <div className="rc-note-head"><div><strong>{draft.entry.title}</strong><small>{draft.entry.kind === 'MEMORY' ? 'Lesson' : 'Knowledge'} · {scope?.title ?? draft.entry.scopeId} · Pending draft
               {draft.replacesVersion !== null && ` · Proposed for version ${draft.replacesVersion}`}</small></div><Badge>Awaiting approval</Badge></div>
             <p>{draft.entry.summary}</p><p className="rc-muted">{draft.explanation}</p>
             {current && <p className="rc-muted">The current note remains available until this draft is approved.</p>}
@@ -175,7 +175,7 @@ export default function RepositoryContextPage({ workspace }: { workspace: Worksp
         <details><summary>Preparation owner</summary><p>Task: {notebook.activePreparation.ownerTaskId}</p>
           <p>Task activity determines whether the agent is running, waiting or stopped.</p></details></div>}
       <div className="setw-section"><span className="setw-section-title">Knowledge</span><button className="rc-button" disabled={disabled || availableScopes.length === 0} onClick={() => openNote(null)}>Add note</button></div>
-      <SettingsCard>{notebook.entries.some(entry => entry.kind === 'KNOWLEDGE') ? entryRows('KNOWLEDGE') : <div className="setw-row-empty">No saved knowledge notes. Use Learn / Refresh to prepare a draft, or add a note.</div>}</SettingsCard>
+      <SettingsCard>{notebook.entries.some(entry => entry.kind === 'KNOWLEDGE') ? entryRows('KNOWLEDGE') : <div className="setw-row-empty">No saved knowledge notes. Start discovery to find learning topics, or add a note.</div>}</SettingsCard>
       <div className="setw-section"><span className="setw-section-title">Saved lessons</span></div>
       <SettingsCard>{notebook.entries.some(entry => entry.kind === 'MEMORY') ? entryRows('MEMORY') : <div className="setw-row-empty">Use Save lesson on a private review discussion to keep a useful conclusion and its evidence.</div>}</SettingsCard>
       <details className="rc-advanced"><summary>Advanced configuration</summary>
@@ -226,7 +226,8 @@ export default function RepositoryContextPage({ workspace }: { workspace: Worksp
         })()}</pre></details>}{reloadControl}
       </ContextEntryEditor>}
       {editor?.kind === 'draft' && <ContextEntryEditor initialValue={editor.initial} scopes={notebook.scopes} scopeLocked busy={busy} error={error}
-        title="Edit pending draft" confirmLabel="Save draft" helperText="Save changes to this pending draft. It stays unavailable to agents until you approve it."
+        title={editor.draft.entry.kind === 'MEMORY' ? 'Edit pending lesson' : 'Edit pending knowledge'} confirmLabel="Save draft"
+        helperText="Save changes to this pending draft. It stays unavailable to agents until you approve it."
         submitDisabled={needsReload || !notebook.pendingDrafts.some(draft => draft.id === editor.draft.id)
           || editor.claims.some(claim => claim.text.trim() === '' || new TextEncoder().encode(claim.text).length > 2000)} onCancel={closeEditor}
         onSave={draft => void mutate(revision => window.bridge.editRepositoryContextDraft(workspace.id,

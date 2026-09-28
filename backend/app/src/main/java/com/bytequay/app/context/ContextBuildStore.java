@@ -23,7 +23,9 @@ import com.bytequay.core.context.ContextSourceRead;
 import com.bytequay.core.store.AppSettingsStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Component;
 
 import java.util.Optional;
@@ -58,7 +60,16 @@ public class ContextBuildStore
         return settings.get(PREFIX + workspaceId).map(json -> {
             try {
                 checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_NOTEBOOK_BYTES, "Saved context build exceeds 1 MiB");
-                ContextBuild build = requireNonNull(mapper.readValue(json, ContextBuild.class), "Saved build is null");
+                JsonNode node = mapper.readTree(json);
+                checkArgument(node != null && node.isObject(), "Saved context build must be an object");
+                ObjectNode value = (ObjectNode) node;
+                if (!value.has("mode")) {
+                    value.put("mode", ContextBuild.Mode.LEARN.name());
+                }
+                if (!value.has("assignment")) {
+                    value.putNull("assignment");
+                }
+                ContextBuild build = requireNonNull(mapper.treeToValue(value, ContextBuild.class), "Saved build is null");
                 checkArgument(build.workspaceId().equals(workspaceId), "Saved build belongs to another workspace");
                 return build;
             }

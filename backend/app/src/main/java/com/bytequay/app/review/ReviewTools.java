@@ -457,6 +457,7 @@ public class ReviewTools
                 "id", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1200,
                         "description", "Use knowledge:<scopeId> for an overview or knowledge:<scopeId>:<stable-topic> for a focused note."),
                 "scopeId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1100),
+                "kind", ImmutableMap.of("type", "string", "enum", ImmutableList.of("KNOWLEDGE", "MEMORY")),
                 "title", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 200, "description", "At most 200 UTF-8 bytes."),
                 "summary", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1000, "description", "At most 1000 UTF-8 bytes."),
                 "body", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", ContextLimits.MAX_BODY_BYTES,
@@ -472,13 +473,15 @@ public class ReviewTools
                 "explanation", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000)),
                 ImmutableList.of("scopeId", "outcome", "noteIds", "checkedSourceIds", "explanation"));
         return new ReviewTool("repository_context_prepare",
-                "During the initial investigation, BEGIN shared knowledge preparation for existing configured scopeIds with requestKey and expectedRevision. "
+                "When investigation or validation establishes a reusable conclusion, BEGIN context draft preparation "
+                        + "for existing configured scopeIds with requestKey and expectedRevision. "
                         + "Read review_get_context kind assignment first for repositoryContext notebookRevision and paged scope catalog (page). "
                         + "For history learning, read kind history first and pass up to ten historyReadIds to BEGIN. "
                         + "SUBMIT attemptId, operationKey and report after reading frozen baseline files or registered documents with review_get_context. "
                         + "History-based READY requires nonblank monitored-baseline evidence; historical snapshots cannot establish EMPTY. "
                         + "checkedSourceIds, sourceIds and claim sources must use returned readId values, never raw evidence refs or invented source records. "
-                        + "READY produces focused draft entries under knowledge:<scopeId> or knowledge:<scopeId>:<stable-topic>; noteIds names those entries. "
+                        + "Check saved notes first. READY produces focused drafts: kind KNOWLEDGE uses knowledge:<scopeId>[:topic]; "
+                        + "kind MEMORY records a supported lesson under lesson:<scopeId>:<stable-topic>. noteIds names those entries. "
                         + "Drafts need user approval before other tasks can use them; existing approved versions remain active. "
                         + "EMPTY/FAILED use empty noteIds and no entry. checkedSourceIds allows up to " + ContextLimits.MAX_SOURCE_READS + " readIds; "
                         + "each entry/claim sourceIds allows up to " + ContextLimits.MAX_SOURCES + " readIds. "
@@ -486,8 +489,8 @@ public class ReviewTools
                         + "Prose limits are UTF-8 bytes: title 200, summary 1000, body " + ContextLimits.MAX_BODY_BYTES + ", each claim 2000; at most 12 claims. "
                         + "Report every admitted scope as READY, EMPTY or FAILED. EMPTY means inspected complete inputs yielded no useful note. "
                         + "JOINED/DEFERRED does not grant write ownership: continue the review or retry later; no background wait or new builder starts. "
-                        + "Reuse unchanged saved knowledge; never treat a shared note as verified for this PR. "
-                        + "User lessons and user-owned notes cannot be generated or overwritten.",
+                        + "Do not draft duplicate notes or treat a shared note as verified for this PR. User-owned notes cannot be overwritten. "
+                        + "No review is required to produce a lesson. Unsupported behavior remains a question, not a rule.",
                 schema(ImmutableMap.of(
                         "operation", ImmutableMap.of("type", "string", "enum", ImmutableList.of("BEGIN", "SUBMIT")),
                         "requestKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY),
@@ -596,7 +599,7 @@ public class ReviewTools
             if (replay.result().isPresent()) {
                 return replay.result().orElseThrow();
             }
-            assigned(call, INVESTIGATE);
+            assigned(call, INVESTIGATE, VALIDATE);
             Stopwatch elapsed = Stopwatch.createStarted();
             Function<Call, ObjectNode> mutation;
             if (begin) {
@@ -609,7 +612,7 @@ public class ReviewTools
                 List<String> historyReadIds = call.arguments().has("historyReadIds") ? strings(call.arguments(), "historyReadIds", 10, 100) : ImmutableList.of();
                 Plan plan = outsideReviewLock(call, () -> preparation.plan(preparationExecution(call), scopes, historyReadIds));
                 mutation = current -> preparationAdmission(preparation.begin(preparationExecution(current), requestKey,
-                        "sha256:" + replay.digest(), revision.longValue(), plan));
+                        "sha256:" + replay.digest(), revision.longValue(), plan, false));
             }
             else {
                 String attemptId = text(call.arguments(), "attemptId", 200, true);
@@ -640,7 +643,7 @@ public class ReviewTools
                 if (checked.result().isPresent()) {
                     return checked.result().orElseThrow();
                 }
-                assigned(current, INVESTIGATE);
+                assigned(current, INVESTIGATE, VALIDATE);
                 ObjectNode result = mutation.apply(current);
                 if (begin) {
                     result.set("requestedScopes", objectMapper.valueToTree(strings(call.arguments(), "scopeIds", 100, 1100)));
@@ -736,8 +739,8 @@ public class ReviewTools
 
     private static Execution preparationExecution(Call call)
     {
-        ReviewStep step = call.step().filter(value -> call.run().active() && value.kind() == INVESTIGATE)
-                .orElseThrow(() -> new ReviewInvalidRequestException("preparation: only the assigned initial investigation can prepare shared knowledge"));
+        ReviewStep step = call.step().filter(value -> call.run().active() && (value.kind() == INVESTIGATE || value.kind() == VALIDATE))
+                .orElseThrow(() -> new ReviewInvalidRequestException("preparation: only assigned investigation or validation can prepare context drafts"));
         call.run().context().filter(ReviewContextSnapshot::enabled).flatMap(ReviewContextSnapshot::baselineSha)
                 .orElseThrow(() -> new ReviewInvalidRequestException("preparation: context must be enabled with a captured monitored baseline"));
         return new Execution(call.review(), call.run(), call.turnId().orElseThrow().toString(), step.key(call.run().id()));

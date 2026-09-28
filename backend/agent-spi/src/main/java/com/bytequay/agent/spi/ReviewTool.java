@@ -16,6 +16,7 @@ package com.bytequay.agent.spi;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
@@ -32,6 +33,12 @@ import static java.util.Objects.requireNonNull;
 public record ReviewTool(String name, String description, Map<String, Object> inputSchema, Function<String, String> call, boolean childCallable)
 {
     public static final String NAME_PREFIX = "review_";
+    private static final Set<String> CONTEXT_TOOLS = Set.of(
+            "repository_context_read",
+            "repository_context_prepare",
+            "repository_context_progress",
+            "repository_context_discovery_read",
+            "repository_context_discovery_submit");
 
     /** A tool only the root agent may call, which is every tool that saves or changes review state. */
     public ReviewTool(String name, String description, Map<String, Object> inputSchema, Function<String, String> call)
@@ -49,7 +56,7 @@ public record ReviewTool(String name, String description, Map<String, Object> in
         checkNotBlank(description, "description");
         inputSchema = ImmutableMap.copyOf(inputSchema);
         requireNonNull(call, "call is null");
-        if (!name.startsWith(NAME_PREFIX) && !name.equals("repository_context_prepare") && !name.equals("repository_context_read")) {
+        if (!name.startsWith(NAME_PREFIX) && !CONTEXT_TOOLS.contains(name)) {
             throw new IllegalArgumentException("Unknown review capability tool name: " + name);
         }
     }

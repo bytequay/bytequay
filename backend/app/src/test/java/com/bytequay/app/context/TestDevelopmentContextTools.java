@@ -79,6 +79,7 @@ class TestDevelopmentContextTools
     private final AgentTurnStore turns = mock(AgentTurnStore.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
     private final ContextNotebookLookup lookup = mock(ContextNotebookLookup.class);
+    private final TaskContextDraftService drafts = mock(TaskContextDraftService.class);
     private final ContextUsageRecorder usage = mock(ContextUsageRecorder.class);
     private final DevelopmentContextUsageObserver observer = mock(DevelopmentContextUsageObserver.class);
     private final AgentUnitOfWork unitOfWork = new AgentUnitOfWork()
@@ -91,7 +92,7 @@ class TestDevelopmentContextTools
     };
     private final MemoryReceipts receipts = new MemoryReceipts();
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module());
-    private final DevelopmentContextTools service = new DevelopmentContextTools(tasks, turns, reviews, lookup,
+    private final DevelopmentContextTools service = new DevelopmentContextTools(tasks, turns, reviews, lookup, drafts,
             receipts, usage, observer, unitOfWork, mapper, Clock.systemUTC());
 
     @BeforeEach
@@ -121,6 +122,40 @@ class TestDevelopmentContextTools
         turn = turn.markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("provider-turn"), Optional.empty());
         service.delivered(task, turn);
         org.mockito.Mockito.verify(usage, org.mockito.Mockito.never()).confirm(eq(WORKSPACE), any(), any());
+    }
+
+    @Test
+    void proposalQueuesPendingNoteAndReplaysOnlyTheSameOperation()
+    {
+        turn = turn.markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("provider-turn"), Optional.empty());
+        when(drafts.prepare(eq(task), any(), any())).thenAnswer(call -> {
+            TaskContextDraftService.Proposal proposed = call.getArgument(1);
+            String id = call.getArgument(2);
+            return new TaskContextDraftService.Prepared(WORKSPACE, 0, task.taskWorktree().orElseThrow(),
+                    new RepositoryContextService.TaskDraftProposal(id, proposed.kind(), proposed.scopeId(), proposed.entryId(),
+                            proposed.entryVersion(), proposed.title(), proposed.summary(), proposed.body(), "a".repeat(40), ImmutableList.of()), 42);
+        });
+        when(drafts.commit(any())).thenAnswer(call -> {
+            TaskContextDraftService.Prepared prepared = call.getArgument(0);
+            return new TaskContextDraftService.Result(prepared.proposal().draftId(), "lesson:project:task-123", 1,
+                    "a".repeat(40), ImmutableList.of("task-read:1"), 42, "PENDING_APPROVAL");
+        });
+        String request = """
+                {"action":"PROPOSE","operationKey":"finding-1","kind":"MEMORY","title":"Checkpoint invariant",
+                "summary":"Verify checkpoint compatibility","body":"The reader must preserve the older layout.",
+                "sources":[{"path":"plugin/trino-delta-lake/src/main/java/Checkpoint.java","startLine":12,"endLine":18}]}
+                """;
+        String response = service.call(taskId.toString(), request);
+        assertThat(response).contains("PENDING_APPROVAL", "lesson:project:task-123", "42");
+        assertThat(service.call(taskId.toString(), request)).isEqualTo(response);
+        verify(drafts).prepare(eq(task), any(), any());
+        verify(drafts).commit(any());
+        assertThat(receipts.listTurn(taskId.toString(), turnId.toString())).singleElement()
+                .satisfies(value -> assertThat(value.kind()).isEqualTo(DevelopmentContextReceipt.Kind.PROPOSE));
+        assertThatThrownBy(() -> service.call(taskId.toString(), request.replace("Checkpoint invariant", "Changed")))
+                .hasMessageContaining("different proposal");
+        assertThatThrownBy(() -> service.call(taskId.toString(), request.replace("plugin/trino-delta-lake/", "../")))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

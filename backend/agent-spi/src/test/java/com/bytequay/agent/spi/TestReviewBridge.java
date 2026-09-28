@@ -149,14 +149,17 @@ class TestReviewBridge
     }
 
     @Test
-    void requiresUniqueReviewToolNamesAndOnlyTheFixedPreparationExtension()
+    void requiresUniqueReviewToolNamesAndOnlyFixedRepositoryContextExtensions()
     {
         ReviewTool tool = new ReviewTool("review_finish", "finish", ImmutableMap.of("type", "object"), arguments -> "ok");
         assertThat(new ReviewBridge(ImmutableList.of(tool), "policy").tool("review_finish")).isPresent();
         assertThatThrownBy(() -> new ReviewTool("finish", "finish", ImmutableMap.of(), arguments -> "ok"))
                 .isInstanceOf(IllegalArgumentException.class);
-        ReviewTool preparation = new ReviewTool("repository_context_prepare", "prepare", ImmutableMap.of("type", "object"), arguments -> "ok");
-        assertThat(new ReviewBridge(ImmutableList.of(preparation), "policy").tool("repository_context_prepare")).isPresent();
+        for (String name : ImmutableList.of("repository_context_read", "repository_context_prepare", "repository_context_progress",
+                "repository_context_discovery_read", "repository_context_discovery_submit")) {
+            ReviewTool context = new ReviewTool(name, name, ImmutableMap.of("type", "object"), arguments -> "ok");
+            assertThat(new ReviewBridge(ImmutableList.of(context), "policy").tool(name)).isPresent();
+        }
         assertThatThrownBy(() -> new ReviewTool("repository_context_delete", "delete", ImmutableMap.of(), arguments -> "ok"))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ReviewBridge(ImmutableList.of(tool, tool), "policy"))

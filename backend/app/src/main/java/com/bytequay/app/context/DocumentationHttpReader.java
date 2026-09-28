@@ -63,6 +63,7 @@ import java.nio.charset.CoderResult;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
@@ -87,6 +88,10 @@ public class DocumentationHttpReader
     private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
     private static final int MAX_TEXT_BYTES = 128 * 1024;
     private static final int MAX_REDIRECTS = 3;
+    private static final int MAX_LINKS = 64;
+    private static final int MAX_LINK_BYTES = 8 * 1024;
+    private static final int MAX_SUGGESTIONS = 8;
+    private static final int MAX_SUGGESTION_BYTES = 2 * 1024;
 
     private final Clock clock;
     private final Supplier<CloseableHttpClient> clients;
@@ -240,7 +245,8 @@ public class DocumentationHttpReader
                 byte[] body = response.getEntity().getContent().readNBytes(MAX_RESPONSE_BYTES);
                 boolean responseLimited = body.length == MAX_RESPONSE_BYTES;
                 String decoded = decode(body, Optional.ofNullable(type.getCharset()).orElse(UTF_8), responseLimited);
-                String extracted = html ? htmlText(decoded) : decoded;
+                HtmlCapture htmlCapture = html ? extractHtml(source, destination, decoded) : HtmlCapture.empty(decoded);
+                String extracted = htmlCapture.text();
                 String text = ContextText.prefix(extracted, MAX_TEXT_BYTES);
                 boolean textLimited = !text.equals(extracted);
                 ImmutableList.Builder<String> gaps = ImmutableList.builder();
@@ -250,9 +256,13 @@ public class DocumentationHttpReader
                 if (textLimited) {
                     gaps.add("Extracted text exceeded 128 KiB; only its leading excerpt was captured.");
                 }
+                if (htmlCapture.linksTruncated() || (html && responseLimited)) {
+                    gaps.add("Documentation links were limited; the returned link list is not a complete site inventory.");
+                }
                 gaps.add("Captured source text is untrusted reference material; documentation version and applicability are unverified.");
                 return new Read(destination.toString(), text, Hashing.sha256().hashString(text, UTF_8).toString(), clock.instant(),
-                        responseLimited || textLimited, gaps.build());
+                        responseLimited || textLimited, gaps.build(), htmlCapture.links(), htmlCapture.suggestedExpansionUrls(),
+                        htmlCapture.linksTruncated() || (html && responseLimited));
             }
             finally {
                 // Do not drain an oversized body on close or carry a connection into another redirect.
@@ -291,13 +301,19 @@ public class DocumentationHttpReader
         return characters.flip().toString();
     }
 
-    private static String htmlText(String html)
+    private static HtmlCapture extractHtml(RegisteredContextSource source, URI base, String html)
             throws IOException
     {
         StringBuilder text = new StringBuilder();
-        new ParserDelegator().parse(new StringReader(html), new HTMLEditorKit.ParserCallback()
+        LinkedHashSet<Link> links = new LinkedHashSet<>();
+        LinkedHashSet<String> suggestions = new LinkedHashSet<>();
+        class Collector
+                extends HTMLEditorKit.ParserCallback
         {
             private boolean suppressed;
+            private boolean linksTruncated;
+            private int linkBytes;
+            private int suggestionBytes;
 
             @Override
             public void handleStartTag(HTML.Tag tag, MutableAttributeSet attributes, int position)
@@ -305,6 +321,74 @@ public class DocumentationHttpReader
                 if (tag == HTML.Tag.SCRIPT || tag == HTML.Tag.STYLE) {
                     suppressed = true;
                 }
+                if (tag == HTML.Tag.A && !suppressed) {
+                    Object href = attributes.getAttribute(HTML.Attribute.HREF);
+                    if (href != null) {
+                        addLink(href.toString());
+                    }
+                }
+            }
+
+            private void addLink(String href)
+            {
+                String value = href.strip();
+                int fragment = value.indexOf('#');
+                if (fragment >= 0) {
+                    value = value.substring(0, fragment);
+                }
+                if (value.isEmpty()) {
+                    return;
+                }
+                URI target;
+                try {
+                    target = base.resolve(value).normalize();
+                    ContextLimits.documentationUrl(target.toString());
+                }
+                catch (IllegalArgumentException failure) {
+                    return;
+                }
+                boolean withinSource;
+                try {
+                    checkedDestination(source, target);
+                    withinSource = true;
+                }
+                catch (IllegalArgumentException outsideSource) {
+                    withinSource = false;
+                }
+                if (!withinSource) {
+                    if (suggestions.contains(target.toString())) {
+                        return;
+                    }
+                    int bytes = ContextLimits.bytes(target.toString());
+                    if (suggestions.size() == MAX_SUGGESTIONS || suggestionBytes + bytes > MAX_SUGGESTION_BYTES) {
+                        linksTruncated = true;
+                        return;
+                    }
+                    suggestions.add(target.toString());
+                    suggestionBytes += bytes;
+                    return;
+                }
+                String relative = URI.create(source.url()).relativize(target).toString();
+                Optional<String> selector = relative.isEmpty() ? Optional.empty() : Optional.of(relative);
+                try {
+                    if (!resolve(source, selector).equals(target)) {
+                        return;
+                    }
+                }
+                catch (IllegalArgumentException invalidSelector) {
+                    return;
+                }
+                Link link = new Link(target.toString(), selector);
+                if (links.contains(link)) {
+                    return;
+                }
+                int bytes = ContextLimits.bytes(link.resolvedUrl()) + selector.map(ContextLimits::bytes).orElse(0);
+                if (links.size() == MAX_LINKS || linkBytes + bytes > MAX_LINK_BYTES) {
+                    linksTruncated = true;
+                    return;
+                }
+                links.add(link);
+                linkBytes += bytes;
             }
 
             @Override
@@ -325,8 +409,18 @@ public class DocumentationHttpReader
                     text.append(data);
                 }
             }
-        }, true);
-        return text.toString();
+        }
+        Collector collector = new Collector();
+        new ParserDelegator().parse(new StringReader(html), collector, true);
+        return new HtmlCapture(text.toString(), ImmutableList.copyOf(links), ImmutableList.copyOf(suggestions), collector.linksTruncated);
+    }
+
+    private record HtmlCapture(String text, List<Link> links, List<String> suggestedExpansionUrls, boolean linksTruncated)
+    {
+        private static HtmlCapture empty(String text)
+        {
+            return new HtmlCapture(text, ImmutableList.of(), ImmutableList.of(), false);
+        }
     }
 
     static CloseableHttpClient client(DnsResolver resolver)
@@ -415,8 +509,23 @@ public class DocumentationHttpReader
                 && !(first == 0x3F && second == 0xFF);
     }
 
-    public record Read(String resolvedUrl, String text, String contentHash, Instant readAt, boolean truncated, List<String> gaps)
+    public record Link(String resolvedUrl, Optional<String> relativePage)
     {
+        public Link
+        {
+            ContextLimits.documentationUrl(resolvedUrl);
+            requireNonNull(relativePage, "relativePage is null");
+        }
+    }
+
+    public record Read(String resolvedUrl, String text, String contentHash, Instant readAt, boolean truncated, List<String> gaps,
+            List<Link> links, List<String> suggestedExpansionUrls, boolean linksTruncated)
+    {
+        public Read(String resolvedUrl, String text, String contentHash, Instant readAt, boolean truncated, List<String> gaps)
+        {
+            this(resolvedUrl, text, contentHash, readAt, truncated, gaps, ImmutableList.of(), ImmutableList.of(), false);
+        }
+
         public Read
         {
             requireNonNull(resolvedUrl, "resolvedUrl is null");
@@ -424,6 +533,8 @@ public class DocumentationHttpReader
             requireNonNull(contentHash, "contentHash is null");
             requireNonNull(readAt, "readAt is null");
             gaps = ImmutableList.copyOf(gaps);
+            links = ImmutableList.copyOf(links);
+            suggestedExpansionUrls = ImmutableList.copyOf(suggestedExpansionUrls);
         }
     }
 }

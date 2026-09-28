@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { QUESTION_TOOL, type AttentionItem, type AttentionKind, type AttentionLink, type AttentionTone } from '../home/attention';
-import { displayModelName, isDeepSeekKeyLane, laneLabel } from '../settings/model';
+import { isDeepSeekKeyLane, laneLabel } from '../settings/model';
 import type { AgentTaskActivityDto, AgentTaskDto, AgentTaskPullRequestDto, Bridge } from '../types';
 import { taskArchived, taskStatePill } from './AgentTasksView';
 
@@ -112,24 +112,22 @@ export function taskAttentionItems(
   tasks: AgentTaskDto[],
   activity: Record<string, AgentTaskActivityDto>,
   workspace: TaskAttentionWorkspace,
-  /** Provider labels by lane id and model names by "lane:model", from the model catalog. */
-  modelNames: ReadonlyMap<string, string> = new Map(),
+  /** Provider labels by lane id, from the model catalog. */
+  laneNames: ReadonlyMap<string, string> = new Map(),
 ): AttentionItem[] {
   return tasks.flatMap((task): AttentionItem[] => {
     const facts = activity[task.id] ?? null;
     const kind = taskAttentionKind(task, facts);
     if (kind === null) return [];
-    const provider = modelNames.get(task.laneId) ?? laneLabel(task.laneId);
-    // A DeepSeek key lane goes by the key's own name: "DeepSeek · ds-001" reads "ds-001", without its model.
-    const keyName = isDeepSeekKeyLane(task.laneId) && provider.includes(' · ') ? provider.slice(provider.indexOf(' · ') + 3) : null;
-    const lane = keyName ?? provider;
-    const model = keyName !== null ? '' : displayModelName(modelNames.get(`${task.laneId}:${task.defaults.model ?? ''}`) ?? '');
+    const provider = laneNames.get(task.laneId) ?? laneLabel(task.laneId);
+    // A card names the lane without its model, and a DeepSeek key lane by the key: "DeepSeek · ds-001" reads "ds-001".
+    const lane = isDeepSeekKeyLane(task.laneId) && provider.includes(' · ') ? provider.slice(provider.indexOf(' · ') + 3) : provider;
     return [{
       key: `task:${task.id}`,
       type: 'task',
       kind,
       task: { dto: task, activity: facts },
-      reference: model === '' ? lane : `${lane} · ${model}`,
+      reference: lane,
       repo: workspace.repository,
       number: 0,
       title: task.title,
@@ -184,16 +182,12 @@ export function useTaskAttention(
   const [state, setState] = useState<Omit<TaskAttention, 'refresh'>>({ items: [], tasks: [], activity: {} });
   const [tick, setTick] = useState(0);
   const refresh = useCallback(() => setTick((count) => count + 1), []);
-  const [modelNames, setModelNames] = useState<ReadonlyMap<string, string>>(() => new Map());
+  const [laneNames, setLaneNames] = useState<ReadonlyMap<string, string>>(() => new Map());
   const key = JSON.stringify(workspaces);
   useEffect(() => {
     let active = true;
     void bridge().getModelSettings().then((settings) => {
-      // Provider labels by lane id, and model names by "lane:model".
-      if (active) setModelNames(new Map(settings.providers.flatMap((provider) => [
-        [provider.id, provider.label] as const,
-        ...provider.models.map((model) => [`${provider.id}:${model.id}`, model.name] as const),
-      ])));
+      if (active) setLaneNames(new Map(settings.providers.map((provider) => [provider.id, provider.label] as const)));
     }).catch(() => { /* Cards name the lane alone without the catalog. */ });
     return () => { active = false; };
   }, [bridge]);
@@ -214,7 +208,7 @@ export function useTaskAttention(
         // A workspace that could not be read drops out until the next tick rather than failing the others.
         const loaded = results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
         setState({
-          items: loaded.flatMap(({ workspace, tasks, activity }) => taskAttentionItems(tasks, activity, workspace, modelNames)),
+          items: loaded.flatMap(({ workspace, tasks, activity }) => taskAttentionItems(tasks, activity, workspace, laneNames)),
           tasks: loaded.flatMap(({ workspace, tasks }) => tasks.map((task) => ({ task, workspace }))),
           activity: Object.assign({}, ...loaded.map(({ activity }) => activity)),
         });
@@ -223,6 +217,6 @@ export function useTaskAttention(
     read();
     const timer = window.setInterval(read, TASK_ATTENTION_POLL_MS);
     return () => { active = false; window.clearInterval(timer); };
-  }, [bridge, key, modelNames, tick]);
+  }, [bridge, key, laneNames, tick]);
   return { ...state, refresh };
 }

@@ -971,37 +971,36 @@ opens its task, its ✕ completes an idle task after confirmation, and a dashed
 card starts a new one. Nothing in a window is interactive but the window and
 its close control.
 
-Both Homes draw **Needs attention** as cards in a grid of 360px-minimum
-columns whose cards keep their own height. Each shows at most four cards:
-acknowledging or snoozing one brings in the next eligible item, and the count
-reads `4 of N`. Filter tabs above the grid (**All · PRs · Issues · Jira ·
-Tasks**, each with its count) narrow the cards to one source; the cap applies
-after filtering. There are no **All issues** or **All pull requests** links. A
-card is a strip tinted by the source that produced the event (pull request
-green, issue blue, Jira ticket purple, agent task teal) showing its source's
-icon and key but no type name (a task on a DeepSeek key goes by the key's
-name alone), the repository on the application Home only, where the item
-stands, a **Goal** badge when the item is in its workspace's pinned goal, and
-age; while the pointer or focus is inside the card the age gives way to ◎ (add
-to or remove from that goal), Start development (issues and tickets that can
-start), Acknowledge and Snooze, beside the chevron. Where the item stands is a
-golden outline around plain text: Review requested, Changes requested, Checks
-failing, Merge blocked, New commits or Ready to merge for a pull request, or
-Merged, Closed, Draft, Approved or Open for one that only moved; Approval
-needed, Question for you, Turn finished, Turn failed or Recovery required for
-a task; Assigned to you for an issue or Jira ticket. The body is the title
-clamped to two lines, then the event that put the card here: the actor's
-avatar and what they did (commented, pushed commits, requested your review,
-finished a turn, moved the ticket), folded over a detail block about that same
-event until the line is clicked, the way the linked items unfold. A comment or
-review renders its opening Markdown, a label change names the label, and an
-event with nothing to show falls back to what the item waits on, such as the
-commits since your last review or the failing check. Linked
-items start folded to one row of icons and keys and unfold to a row per item
-with its title and status. Ack and snooze keep the shared store, undo toast
-and session **Bring back**. Cards never fetch per card: every detail comes
-from what ByteQuay already stores, and there is no hover preview. With
-nothing left, the section says **Nothing needs you right now.**
+Both Homes draw **Needs attention** as cards in a grid of 360px-minimum columns
+whose cards keep their own height. Each shows at most four cards: acknowledging
+or snoozing one brings in the next eligible item, and the count reads `4 of N`.
+Filter tabs above the grid (**All · PRs · Issues · Jira · Tasks**, each with its
+count) narrow the cards to one source; the cap applies after filtering. There
+are no **All issues** or **All pull requests** links. A card is a strip tinted
+by the source that produced the event (pull request green, issue blue, Jira
+ticket purple, agent task teal) showing its source's icon and key but no type
+name, the repository on the application Home only, where the item stands, a
+**Goal** badge when the item is in its workspace's pinned goal, and age; while
+the pointer or focus is inside the card the age gives way to ◎ (add to or remove
+from that goal), Start development (issues and tickets that can start),
+Acknowledge and Snooze, beside the chevron. Where the item stands is a golden
+outline around plain text: Review requested, Changes requested, Checks failing,
+Merge blocked, New commits or Ready to merge for a pull request, or Merged,
+Closed, Draft, Approved or Open for one that only moved; Approval needed,
+Question for you, Turn finished, Turn failed or Recovery required for a task;
+Assigned to you for an issue or Jira ticket. The body is the title clamped to
+two lines, then the event that put the card here: the actor's avatar and what
+they did (commented, pushed commits, requested your review, finished a turn,
+moved the ticket), folded over a detail block about that same event until the
+line is clicked, the way the linked items unfold. A comment or review renders
+its opening Markdown, a label change names the label, and an event with nothing
+to show falls back to what the item waits on, such as the commits since your
+last review or the failing check. Linked items start folded to one row of icons
+and keys and unfold to a row per item with its title and status. Ack and snooze
+keep the shared store, undo toast and session **Bring back**. Cards never fetch
+per card: every detail comes from what ByteQuay already stores, and there is no
+hover preview. With nothing left, the section says **Nothing needs you right
+now.**
 
 The sources are pull requests, assigned issues and Jira tickets, and agent
 tasks. `GET /prs/attention` carries each pull request's cached details from its
@@ -1022,7 +1021,8 @@ returning, by task id, the pending approval, the newest turn, and the start of
 the newest root message (a user message, or a final answer or commentary of the
 task's own agent), which a backwards scan of the task's event log finds within
 a bounded number of records. A task whose transcript retention removed quotes
-its kept final answer. A task card's key is its lane and model, and its linked
+its kept final answer. A task card's key is its lane's name without the model
+(Claude Code, Codex, or a DeepSeek key's own name such as ds-001), and its linked
 items are its Jira ticket, pull request and issue; a pull request's card links
 the task whose branch opened it.
 

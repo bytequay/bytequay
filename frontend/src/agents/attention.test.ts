@@ -61,14 +61,15 @@ describe('task attention', () => {
       pullRequest: { number: 31264, title: 'Keep deletion vectors', state: 'open', draft: true },
     });
     const [item] = taskAttentionItems([waiting, task('t-2')], { 't-1': activity({ pendingApproval: COMMAND }) }, WORKSPACE,
-      new Map([['claude', 'Claude Code'], ['claude:claude-opus', 'Opus']]));
+      new Map([['claude', 'Claude Code']]));
 
-    expect(item).toMatchObject({ key: 'task:t-1', type: 'task', kind: 'approval', reference: 'Claude Code · Opus', updatedAt: COMMAND.occurredAt, workspaceName: 'trino' });
+    // A card names the lane without its model.
+    expect(item).toMatchObject({ key: 'task:t-1', type: 'task', kind: 'approval', reference: 'Claude Code', updatedAt: COMMAND.occurredAt, workspaceName: 'trino' });
     // Without the catalog the card still names the lane.
     expect(taskAttentionItems([waiting], { 't-1': activity({ pendingApproval: COMMAND }) }, WORKSPACE)[0].reference).toBe('Claude');
-    // A DeepSeek key lane goes by the key's name alone, without the provider or model.
+    // A DeepSeek key lane goes by the key's name alone.
     const [keyed] = taskAttentionItems([{ ...waiting, laneId: 'deepseek-key-7' }], { 't-1': activity({ pendingApproval: COMMAND }) }, WORKSPACE,
-      new Map([['deepseek-key-7', 'DeepSeek · ds-001'], ['deepseek-key-7:claude-opus', 'DeepSeek Flash']]));
+      new Map([['deepseek-key-7', 'DeepSeek · ds-001']]));
     expect(keyed).toMatchObject({ reference: 'ds-001', author: 'ds-001' });
     expect(item.links).toEqual([
       { source: 'jira', key: 'TRINO-412', title: 'Validate the fix', status: null, tone: 'neutral' },

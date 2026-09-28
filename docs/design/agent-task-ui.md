@@ -993,7 +993,8 @@ waits on, such as the commits since your last review or the failing check. A
 pull request's detail starts folded under its actor line, which unfolds it in
 place the way the linked items unfold. Tags are toned by reason: Review
 requested blue, Approval amber, a status moved to Blocked red, Assigned green,
-Commented neutral, and Updated orange for pushes and failing checks. Linked
+Commented neutral, and Updated orange for pushes and failing checks; a pull
+request's tag in its strip is a golden outline whatever the reason. Linked
 items start folded to one row of icons and keys and unfold to a row per item
 with its title and status. Ack and snooze keep the shared store, undo toast
 and session **Bring back**. Cards never fetch per card: every detail comes

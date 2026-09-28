@@ -306,10 +306,12 @@
 :is(.atn-tag, .atn-link__status, .atn-status).is-orange { color: #bc4c00; background: #fff1e5; }
 :is(.atn-tag, .atn-link__status, .atn-status).is-purple { color: #8250df; background: #fbefff; }
 
-/* A pull request's reason sits in its strip, on white so it reads against the tint. */
+/* A pull request's reason sits in its strip as a golden outline, whatever its reason's tone. */
 .atn-card__head .atn-tag {
-  padding: 1px 8px;
-  background: rgba(255, 255, 255, 0.8);
+  padding: 0 7px;
+  border: 1px solid #d4a72c;
+  background: transparent;
+  color: #9a6700;
 }
 
 /* A ticket's status move: where it was, struck through, then where it is. */

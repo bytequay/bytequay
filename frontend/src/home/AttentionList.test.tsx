@@ -62,13 +62,14 @@ describe('AttentionList', () => {
 
     expect(html).toContain('class="atn-card is-pr"');
     expect(html).toContain('lucide-git-pull-request');
-    expect(html).toContain('>Pull request<');
+    // The strip names no type, and a pull request's reason sits in it.
+    expect(html).not.toContain('>Pull request<');
+    expect(html).toMatch(/class="atn-card__head">.*class="atn-tag is-blue">Review requested<.*class="atn-card__body"/);
     expect(html).toContain('class="atn-card__key">#30920<');
     // Global Home names the repository on each card; the age is the actual event's.
     expect(html).toContain('trinodb/trino</span>');
     expect(html).toContain('dateTime="2026-08-28T00:00:00Z"');
     expect(html).toContain('>2d</time>');
-    expect(html).toContain('class="atn-tag is-blue">Review requested<');
     expect(html).toContain('<span class="atn-card__actor">bob</span> requested your review');
     expect(html).toContain('aria-label="Acknowledge #30920"');
     expect(html).toContain('aria-label="Snooze #30920"');
@@ -99,6 +100,9 @@ describe('AttentionList', () => {
       excerpt: '`TransactionLogAccess.java:562` declares the same record.', path: 'plugin/trino-delta-lake/src/main/java/CheckpointWriter.java', line: 101,
     })]);
 
+    // What happened starts folded under the actor line, which unfolds it.
+    expect(html).toContain('<button class="atn-fold" type="button" aria-expanded="false" title="Show details">');
+    expect(html).toContain('<div hidden=""><div class="atn-detail">');
     expect(html).toContain('<p><code>TransactionLogAccess.java:562</code> declares the same record.</p>');
     expect(html).toContain('<div class="atn-detail__file" title="plugin/trino-delta-lake/src/main/java/CheckpointWriter.java:101">on CheckpointWriter.java:101</div>');
   });

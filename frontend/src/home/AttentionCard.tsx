@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState, type MouseEvent } from 'react';
+import { useState, type MouseEvent, type ReactNode } from 'react';
 import { ArrowRight, Check, ChevronRight, CircleDot, CircleX, Clock3, GitPullRequest, Play, SquareCheck } from 'lucide-react';
 import Avatar from '../Avatar';
 import { GoalIcon } from '../goals/GoalPanel';
@@ -143,7 +143,8 @@ type Props = {
 
 /**
  * One item that needs you: a strip tinted by the source that produced it, then what happened. The
- * age in the strip gives way to the card's actions while the pointer or focus is inside it.
+ * age in the strip gives way to the card's actions while the pointer or focus is inside it. A pull
+ * request's reason sits in its strip, and its actor line folds what happened until it is clicked.
  */
 export default function AttentionCard({ item, viewerLogin, showRepo, onOpen, onAcknowledge, onSnooze, onStart, inGoal = false, onToggleGoal }: Props) {
   const source = attentionSource(item);
@@ -152,6 +153,14 @@ export default function AttentionCard({ item, viewerLogin, showRepo, onOpen, onA
   const time = attentionTime(item);
   const [owner, repo = ''] = item.repo.split('/');
   const act = (action: () => void) => (event: MouseEvent) => { event.stopPropagation(); action(); };
+  const pull = source === 'pr';
+  const tag = <span className={`atn-tag is-${summary.tag.tone}`}>{summary.tag.label}</span>;
+  const said = <>
+    {summary.actor !== null && (
+      <Avatar login={summary.actor.name} avatarUrl={summary.actor.avatarUrl} size={18} allowGitHubFallback={source === 'pr' || source === 'issue'} />
+    )}
+    <span className="atn-card__verb">{summary.actor !== null && <span className="atn-card__actor">{summary.actor.name}</span>} {summary.verb}</span>
+  </>;
   return (
     <div
       className={`atn-card is-${source}`}
@@ -168,12 +177,12 @@ export default function AttentionCard({ item, viewerLogin, showRepo, onOpen, onA
     >
       <div className="atn-card__head">
         <SourceIcon source={source} />
-        <span className="atn-card__type">{ATTENTION_SOURCES[source].label}</span>
         <span className="atn-card__key">{reference}</span>
         {showRepo && item.repo !== '' && (
           // An issue names the workspace it would start in, so a repository watched twice is never ambiguous.
           <span className="atn-card__repo"><RepoAvatar owner={owner} repo={repo} size={12} radius={3} />{item.workspaceName || item.repo}</span>
         )}
+        {pull && tag}
         {inGoal && <span className="atn-goal" title="In goal"><GoalIcon size={11} />Goal</span>}
         <span className="atn-spacer" />
         <span className="atn-card__actions" role="group" aria-label={`Actions for ${reference}`}>
@@ -205,18 +214,28 @@ export default function AttentionCard({ item, viewerLogin, showRepo, onOpen, onA
       </div>
       <div className="atn-card__body">
         <div className="atn-card__title">{item.title}</div>
-        <div className="atn-card__why">
-          <span className={`atn-tag is-${summary.tag.tone}`}>{summary.tag.label}</span>
-          {summary.actor !== null && (
-            <Avatar login={summary.actor.name} avatarUrl={summary.actor.avatarUrl} size={18} allowGitHubFallback={source === 'pr' || source === 'issue'} />
-          )}
-          <span className="atn-card__verb">{summary.actor !== null && <span className="atn-card__actor">{summary.actor.name}</span>} {summary.verb}</span>
-        </div>
-        {summary.detail !== null && <Detail detail={summary.detail} />}
+        {pull ? <Event detail={summary.detail}>{said}</Event> : <>
+          <div className="atn-card__why">{tag}{said}</div>
+          {summary.detail !== null && <Detail detail={summary.detail} />}
+        </>}
         <Links item={item} />
       </div>
     </div>
   );
+}
+
+/** Who did what, folded like the linked items: the line unfolds what happened in place. */
+function Event({ detail, children }: { detail: AttentionDetail | null; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  if (detail === null) return <div className="atn-card__why">{children}</div>;
+  return <>
+    <button className="atn-fold" type="button" aria-expanded={open} title={open ? 'Hide details' : 'Show details'}
+      onClick={event => { event.stopPropagation(); setOpen(value => !value); }}>
+      <ChevronRight className="atn-fold__chev" size={12} strokeWidth={2.4} aria-hidden="true" />
+      {children}
+    </button>
+    <div hidden={!open}><Detail detail={detail} /></div>
+  </>;
 }
 
 /** Linked items start folded to one row of icons and keys; the row unfolds them in place. */
@@ -226,9 +245,9 @@ function Links({ item }: { item: AttentionItem }) {
   if (links.length === 0) return null;
   return (
     <div className="atn-links">
-      <button className="atn-links__fold" type="button" aria-expanded={open} title={open ? 'Hide linked items' : 'Show linked items'}
+      <button className="atn-fold" type="button" aria-expanded={open} title={open ? 'Hide linked items' : 'Show linked items'}
         onClick={event => { event.stopPropagation(); setOpen(value => !value); }}>
-        <ChevronRight className="atn-links__chev" size={12} strokeWidth={2.4} aria-hidden="true" />
+        <ChevronRight className="atn-fold__chev" size={12} strokeWidth={2.4} aria-hidden="true" />
         {links.map(link => (
           <span className={`atn-link-key is-${link.source}`} key={`${link.source}:${link.key}`}>
             <SourceIcon source={link.source} size={14} />

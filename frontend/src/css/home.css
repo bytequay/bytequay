@@ -205,11 +205,6 @@
   flex: none;
 }
 
-.atn-card__type {
-  font-size: 12px;
-  white-space: nowrap;
-}
-
 .atn-card__key {
   font-family: var(--mono);
   font-size: 12px;
@@ -310,6 +305,12 @@
 :is(.atn-tag, .atn-link__status, .atn-status).is-neutral { color: #24292f; background: #eceff2; }
 :is(.atn-tag, .atn-link__status, .atn-status).is-orange { color: #bc4c00; background: #fff1e5; }
 :is(.atn-tag, .atn-link__status, .atn-status).is-purple { color: #8250df; background: #fbefff; }
+
+/* A pull request's reason sits in its strip, on white so it reads against the tint. */
+.atn-card__head .atn-tag {
+  padding: 1px 8px;
+  background: rgba(255, 255, 255, 0.8);
+}
 
 /* A ticket's status move: where it was, struck through, then where it is. */
 .atn-detail__status {
@@ -464,7 +465,8 @@
   border-top: 1px solid #eceff2;
 }
 
-.atn-links__fold,
+/* A folded row, the linked items' or a pull request's actor line, unfolds in place when clicked. */
+.atn-fold,
 .atn-link {
   display: flex;
   align-items: center;
@@ -476,7 +478,7 @@
   border-radius: 6px;
 }
 
-.atn-links__fold {
+.atn-fold {
   border: 0;
   background: transparent;
   font: inherit;
@@ -484,18 +486,18 @@
   cursor: pointer;
 }
 
-.atn-links__fold:hover,
+.atn-fold:hover,
 .atn-link:hover {
   background: rgba(31, 35, 40, 0.05);
 }
 
-.atn-links__chev {
+.atn-fold__chev {
   flex: none;
   color: #57606a;
   transition: transform 0.15s;
 }
 
-.atn-links__fold[aria-expanded="true"] .atn-links__chev {
+.atn-fold[aria-expanded="true"] .atn-fold__chev {
   transform: rotate(90deg);
 }
 

@@ -978,17 +978,20 @@ reads `4 of N`. Filter tabs above the grid (**All · PRs · Issues · Jira ·
 Tasks**, each with its count) narrow the cards to one source; the cap applies
 after filtering. There are no **All issues** or **All pull requests** links. A
 card is a strip tinted by the source that produced the event (pull request
-green, issue blue, Jira ticket purple, agent task teal) naming its type, key,
-repository on the application Home only, a **Goal** badge when the item is in
-its workspace's pinned goal, and age; while the pointer or focus is inside the
+green, issue blue, Jira ticket purple, agent task teal) showing its source's
+icon and key but no type name, the repository on the application Home only, a
+pull request's reason tag, a **Goal** badge when the item is in its
+workspace's pinned goal, and age; while the pointer or focus is inside the
 card the age gives way to ◎ (add to or remove from that goal), Start
 development (issues and tickets that can start), Acknowledge and Snooze, beside
 the chevron. The body is the
-title clamped to two lines, a reason tag with the actor's avatar and what they
-did, and a detail block about that same event: a comment or review quotes its
-text, a label change names the label, and an event with nothing to show falls
-back to what the item waits on, such as the commits since your last review or
-the failing check. Tags are toned by reason: Review
+title clamped to two lines, the actor's avatar and what they did (after the
+reason tag on every card but a pull request's), and a detail block about that
+same event: a comment or review renders its opening Markdown, a label change
+names the label, and an event with nothing to show falls back to what the item
+waits on, such as the commits since your last review or the failing check. A
+pull request's detail starts folded under its actor line, which unfolds it in
+place the way the linked items unfold. Tags are toned by reason: Review
 requested blue, Approval amber, a status moved to Blocked red, Assigned green,
 Commented neutral, and Updated orange for pushes and failing checks. Linked
 items start folded to one row of icons and keys and unfold to a row per item

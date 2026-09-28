@@ -12,53 +12,83 @@
  * limitations under the License.
  */
 
-.agt-section {
-  margin-top: 26px;
-}
-
-.agt-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.agt-head h2 {
-  font-size: 14px;
-  font-weight: 700;
-  margin: 0;
-}
-
-/* A section of the Tasks page, as the design labels it. */
-.agt-section-label {
-  font-size: 12px;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  color: #656d76;
-}
-
 .agt-spacer {
   flex: 1;
 }
 
-/* The Tasks page: one scrolling column of sections with the composer anchored under it. */
+/* Tasks and Workspace Home scroll as one page whose composer docks at its foot. */
 .agt-tasks-page {
+  height: 100%;
+  overflow: auto;
+}
+
+/* At least the scroller's height, so a short page still docks its composer at the bottom. */
+.agt-page {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 24px 32px 0;
 }
 
-.agt-tasks-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 26px 32px 12px;
-}
-
-.agt-tasks-scroll h1 {
+.agt-page h1 {
   margin: 0;
   font-size: 20px;
   font-weight: 600;
+}
+
+/*
+ * The composer over a fade that the page scrolls under. Sticky rather than absolute: the dock stays
+ * in the page's flow, so the scroll height always leaves the last row clear of it.
+ */
+.agt-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin: auto -32px 0;
+  padding: 28px 32px 20px;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0), #ffffff 38%);
+  pointer-events: none;
+}
+
+.agt-dock__inner {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.agt-dock__chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.agt-dock__chips,
+.agt-dock .agt-compose-dock,
+.agt-dock .cmt-error {
+  pointer-events: auto;
+}
+
+.agt-repo-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 34px;
+  height: 32px;
+  border: 1px solid #d0d7de;
+  border-radius: 16px;
+  background: #f6f8fa;
+}
+
+.agt-dock .agt-compose-dock {
+  padding: 0;
+}
+
+.agt-dock .agt-compose {
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(140, 149, 159, 0.18);
 }
 
 .agt-row-meta {
@@ -2786,7 +2816,7 @@
   z-index: 85;
 }
 
-:is(.agt-screen-head, .agt-tasks-head) > .agt-overview-toggle {
+:is(.agt-screen-head, .agt-tasks-head, .agt-page-head) > .agt-overview-toggle {
   position: static;
 }
 
@@ -2889,7 +2919,7 @@
   gap: 6px;
 }
 
-/* ── Tasks page: header tabs, day groups, rows, selection, deletion ── */
+/* ── Tasks page: shelf and type tabs, today's cards, older rows, selection, deletion ── */
 
 .agt-tasks-head {
   display: flex;
@@ -2936,17 +2966,92 @@
   font-weight: 600;
 }
 
-.agt-head {
-  min-height: 30px;
+/* Every task type has its own colour, on its tab, chip and tile alike. */
+:is(.agt-type-tab__icon, .agt-type-chip, .agt-type-tile, .agt-item-card__bar > span).is-all { --type-fg: #57606a; }
+:is(.agt-type-tab__icon, .agt-type-chip, .agt-type-tile, .agt-item-card__bar > span).is-dev { --type-fg: #0e7c86; --type-bg: #d8f3f5; }
+:is(.agt-type-tab__icon, .agt-type-chip, .agt-type-tile, .agt-item-card__bar > span).is-review { --type-fg: #0969da; --type-bg: #ddf4ff; }
+:is(.agt-type-tab__icon, .agt-type-chip, .agt-type-tile, .agt-item-card__bar > span).is-cherry { --type-fg: #9a6700; --type-bg: #fff8c5; }
+:is(.agt-type-tab__icon, .agt-type-chip, .agt-type-tile, .agt-item-card__bar > span).is-ci { --type-fg: #cf222e; --type-bg: #ffebe9; }
+
+.agt-type-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+  border-bottom: 1px solid #e3e3e6;
 }
 
-.agt-section-hint {
+/* In a narrow pane the tabs scroll sideways under the New button rather than pushing it out. */
+.agt-type-tabs__list {
+  display: flex;
+  gap: 2px;
   min-width: 0;
-  font-size: 12px;
-  color: #8c959f;
+  margin-bottom: -1px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.agt-type-tab {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #57606a;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 400;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.agt-type-tab.is-active {
+  border-bottom-color: #fd8c73;
+  color: var(--text-1);
+  font-weight: 500;
+}
+
+.agt-type-tab__icon {
+  display: inline-flex;
+  color: var(--type-fg);
+}
+
+.agt-type-tab__count {
+  padding: 0 7px;
+  border-radius: 10px;
+  background: #eceff2;
+  color: #57606a;
+  font-size: 11.5px;
+}
+
+.agt-type-tab__needs {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #bc4c00;
+}
+
+.agt-type-new {
+  flex: none;
+  margin: 0 0 6px auto;
+  padding: 4px 12px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--text-1);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.agt-type-new:hover {
+  background: #f6f8fa;
 }
 
 @keyframes agt-fade {
@@ -2954,12 +3059,12 @@
   to { opacity: 1; transform: none; }
 }
 
-/* Replaces the section header while anything is selected. */
+/* Appears under the type tabs while anything is selected. */
 .agt-selbar {
-  flex: 1;
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-top: 12px;
   padding: 5px 6px 5px 12px;
   border: 1px solid rgba(9, 105, 218, 0.25);
   border-radius: 8px;
@@ -3013,7 +3118,7 @@
 }
 
 .agt-empty-hero {
-  margin-top: 10px;
+  margin-top: 20px;
   padding: 36px 20px;
   border: 1px dashed #d8dee4;
   border-radius: 10px;
@@ -3028,156 +3133,315 @@
   color: var(--text-1);
 }
 
-/* Commits-style day groups: a bordered card per day with a grey header row. */
-.agt-groups {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  margin-top: 10px;
+.agt-items-empty {
+  margin-top: 20px;
+  padding: 28px;
+  border: 1px dashed #d8dee4;
+  border-radius: 10px;
+  text-align: center;
+  font-size: 13px;
+  color: #57606a;
 }
 
-.agt-group {
+.agt-items {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.agt-items:empty {
+  display: none;
+}
+
+/* Today's cards stand further apart from the older rows than the row groups do from each other. */
+.agt-day.is-today {
+  margin-bottom: 12px;
+}
+
+.agt-day__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.agt-day.is-today .agt-day__head {
+  margin-bottom: 10px;
+}
+
+.agt-day__label {
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #57606a;
+  white-space: nowrap;
+}
+
+.agt-day__date {
+  font-size: 12px;
+  color: #8c959f;
+  white-space: nowrap;
+}
+
+.agt-item-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.agt-item-rows {
   border: 1px solid #e3e3e6;
   border-radius: 10px;
   overflow: hidden;
   background: #ffffff;
 }
 
-.agt-group__head {
-  display: flex;
-  align-items: center;
+/* A task card's layout; the box, selection and focus come from .card. */
+.agt-item-card {
   gap: 8px;
-  padding: 8px 14px;
-  border-bottom: 1px solid #e3e3e6;
-  background: #f7f7f8;
+  padding: 11px 12px;
 }
 
-.agt-group__label {
-  font-size: 12px;
-  font-weight: 700;
-  color: #57606a;
-  white-space: nowrap;
-}
-
-.agt-group__date,
-.agt-group__count {
-  font-size: 11px;
-  color: #8c959f;
-  white-space: nowrap;
-}
-
-.agt-trow {
+.agt-item-card__head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  height: 44px;
-  padding: 0 10px 0 12px;
-  border-top: 1px solid #f0f0f2;
-  background: #ffffff;
-  cursor: pointer;
+  gap: 7px;
+  height: 22px;
+  min-width: 0;
 }
 
-.agt-group__head + .agt-trow {
-  border-top: 0;
-}
-
-.agt-trow:hover {
-  background: #f6f8fa;
-}
-
-.agt-trow.is-selected {
-  background: #ddf4ff;
-}
-
-.agt-trow:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-
-/* The leading slot: a muted check-square at rest, a checkbox on hover and while selecting. */
-.agt-trow__slot {
-  width: 20px;
-  height: 20px;
+.agt-type-chip,
+.agt-type-tile {
   flex: none;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  padding: 0;
   border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: #b6bcc4;
+  background: var(--type-bg);
+  color: var(--type-fg);
+  font: inherit;
+}
+
+.agt-type-chip {
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px 0 6px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.agt-type-tile {
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 6px;
+}
+
+button:is(.agt-type-chip, .agt-type-tile) {
   cursor: pointer;
 }
 
-.agt-trow__check {
-  width: 15px;
-  height: 15px;
+.agt-type-glyph {
+  display: inline-flex;
+}
+
+/* An agent task's type icon turns into its checkbox on hover and while anything is selected. */
+.agt-type-check {
+  width: 13px;
+  height: 13px;
   display: none;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  border: 1.5px solid #8c959f;
+  border: 1.5px solid currentColor;
   border-radius: 4px;
   background: #ffffff;
   color: #ffffff;
 }
 
-.agt-trow__check > svg {
+.agt-type-check > svg {
   display: none;
 }
 
-.agt-trow:hover .agt-trow__check,
-.agt-groups.has-selection .agt-trow__check,
-.agt-trow.is-selected .agt-trow__check {
+:is(.agt-item-row:hover, .agt-type-chip:hover, .agt-items.has-selection, .is-selected) .agt-type-check {
   display: inline-flex;
+  border-color: var(--type-fg);
 }
 
-.agt-trow:hover .agt-trow__glyph,
-.agt-groups.has-selection .agt-trow__glyph,
-.agt-trow.is-selected .agt-trow__glyph {
+:is(.agt-item-row:hover, .agt-type-chip:hover, .agt-items.has-selection, .is-selected) .agt-type-glyph {
   display: none;
 }
 
-.agt-trow.is-selected .agt-trow__check {
+.is-selected .agt-type-check {
   border-color: var(--accent);
   background: var(--accent);
 }
 
-.agt-trow.is-selected .agt-trow__check > svg {
+.is-selected .agt-type-check > svg {
   display: block;
 }
 
-.agt-trow__title {
-  flex: 1;
+.agt-item-card__title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 18px;
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+
+.agt-item-card__needs {
   min-width: 0;
-  font-size: 13.5px;
-  color: var(--text-1);
+  font-size: 12.5px;
+  color: #bc4c00;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.agt-trow__title.is-archived {
+.agt-item-card__needs > span {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: 1px;
+}
+
+.agt-item-card__message {
+  display: flex;
+  gap: 8px;
+}
+
+/* Who said a card's last message, in the colour of that agent. */
+.agt-speaker {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #57606a;
+  color: #ffffff;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.agt-speaker.is-claude { background: #0e7c86; }
+.agt-speaker.is-codex { background: #24292f; }
+.agt-speaker.is-deepseek { background: #4f6bed; }
+.agt-speaker.is-you { background: #8c959f; }
+
+.agt-item-card__said {
+  flex: 1;
+  min-width: 0;
+}
+
+.agt-item-card__who {
+  font-size: 11.5px;
+  color: #8c959f;
+}
+
+.agt-item-card__who > span {
   color: #57606a;
 }
 
-/*
- * The title and its pull request share the row fairly: both grow toward their full width in equal
- * steps, so a short one stays whole and only the longer one is cut.
- */
-.agt-trow__name {
-  flex: 1;
-  min-width: 0;
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, max-content);
-  column-gap: 10px;
-  align-items: center;
+.agt-item-card__text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 1px;
+  font-size: 12.5px;
+  line-height: 17px;
+  overflow-wrap: anywhere;
 }
 
-.agt-trow__pr,
-.agt-trow__changes {
+.agt-item-card__progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: #57606a;
+  white-space: nowrap;
+}
+
+.agt-item-card__bar {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: #eceff2;
+  overflow: hidden;
+}
+
+.agt-item-card__bar > span {
+  display: block;
+  height: 100%;
+  background: var(--type-fg);
+}
+
+.agt-item-card__foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 18px;
+  overflow: hidden;
+}
+
+.agt-item-change {
+  flex: none;
+  font-size: 11.5px;
+  color: #57606a;
+  white-space: nowrap;
+}
+
+.agt-item-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 44px;
+  padding: 0 10px 0 12px;
+  border-top: 1px solid #f0f0f2;
+  background: #ffffff;
+  color: var(--text-1);
+  cursor: pointer;
+}
+
+.agt-item-row:first-child {
+  border-top: 0;
+}
+
+.agt-item-row:hover {
+  background: #f6f8fa;
+}
+
+.agt-item-row.is-selected {
+  background: #ddf4ff;
+}
+
+.agt-item-row__title {
+  flex: none;
+  max-width: 38%;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agt-item-row__said {
+  flex: 1;
+  min-width: 0;
   font-size: 12.5px;
   color: #57606a;
   white-space: nowrap;
@@ -3185,10 +3449,32 @@
   text-overflow: ellipsis;
 }
 
-.agt-trow__pr > svg,
-.agt-trow__changes > svg {
-  margin-right: 4px;
-  vertical-align: -2px;
+.agt-item-row__who {
+  color: #8c959f;
+}
+
+.agt-item-row .agt-item-change {
+  font-size: 12px;
+  color: #8c959f;
+}
+
+.agt-item-row .card-age {
+  width: 28px;
+  text-align: right;
+}
+
+.agt-item-row__end {
+  flex: none;
+  min-width: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.agt-item-row__chev {
+  flex: none;
+  margin-left: 4px;
+  color: #8c959f;
 }
 
 /* A pull request's state in GitHub's colours, wherever a task or a review names one. */
@@ -3208,60 +3494,9 @@
   color: #cf222e;
 }
 
-.agt-trow__meta {
-  flex: none;
-  font-size: 12px;
-  color: #8c959f;
-  white-space: nowrap;
-}
-
-.agt-trow__actions {
-  flex: none;
-  width: 96px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 2px;
-}
-
-.agt-trow__btn {
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #57606a;
-  cursor: pointer;
-}
-
-.agt-trow__btn:hover:not(:disabled) {
-  background: #e4e4e8;
-  color: var(--text-1);
-}
-
-.agt-trow__btn.is-danger:hover:not(:disabled) {
-  background: #ffebe9;
-  color: #cf222e;
-}
-
-.agt-trow__btn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-.agt-trow__chev {
-  flex: none;
-  margin-left: 6px;
-  color: #8c959f;
-}
-
-/* Above the docked composer, where the design floats it. */
+/* Above the docked composer and the chip row over it. */
 .bq-toast.is-raised {
-  bottom: 150px;
+  bottom: 170px;
 }
 
 /* What deletion takes with it, listed inside the confirmation. */
@@ -3302,72 +3537,34 @@
   font-size: 11.5px;
 }
 
-/* ── Workspace Home: avatar, composer, starting points, attention, open tasks ── */
+/* ── Workspace Home: header, attention, open tasks, docked composer with starting points ── */
 
 .agt-home {
   height: 100%;
   overflow: auto;
 }
 
-.agt-home__scroll {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 44px 48px 56px;
-}
-
-.agt-home__avatar {
-  border-radius: 16px;
-  box-shadow: 0 4px 14px rgba(31, 35, 40, 0.18);
-}
-
-.agt-home__repo {
-  margin-top: 12px;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-/* The same composer as the Tasks page, in the flow of the page rather than docked. */
-.agt-home__composer {
-  width: 100%;
-  max-width: 760px;
-  margin-top: 20px;
-}
-
-.agt-home__composer .agt-compose-dock {
-  padding: 0;
-}
-
-.agt-home__composer .agt-compose {
-  border-radius: 14px;
-  box-shadow: 0 8px 24px rgba(140, 149, 159, 0.18);
-}
-
-/* The Home composer sits near the top of its scrollport, where upward overflow is clipped. */
-.agt-home__composer .agt-picker__card {
-  top: calc(100% + 8px);
-  bottom: auto;
-}
-
-.agt-starts {
-  display: flex;
-  gap: 8px;
-  width: 100%;
-  max-width: 760px;
-  margin-top: 12px;
-}
-
-.agt-start {
-  flex: 1;
+.agt-page-head {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 12px;
+  min-height: 32px;
+}
+
+/* Starting points fill the composer; they sit as pills beside the repository chip. */
+.agt-start {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
   border: 1px solid #e3e3e6;
-  border-radius: 10px;
+  border-radius: 13px;
   background: #ffffff;
   font: inherit;
-  text-align: left;
+  font-size: 12.5px;
+  color: var(--text-1);
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -3376,36 +3573,104 @@
   background: #f6f8fa;
 }
 
-.agt-start__icon {
-  width: 26px;
-  height: 26px;
+.agt-start > svg {
   flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 7px;
-  background: #f0f1f3;
   color: #6e6e76;
 }
 
-.agt-start__text {
-  font-size: 12.5px;
-  font-weight: 400;
-  color: var(--text-1);
-}
-
 .agt-open-tasks {
-  width: 100%;
-  max-width: 880px;
-  margin-top: 36px;
+  margin-top: 32px;
   text-align: left;
 }
 
-.agt-windows-grid {
+.agt-open-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
   margin-top: 12px;
+}
+
+/* One open task on Home: name and state, what it last said, and its lane and checkout. The box is a
+   compact .card; the head is as tall as the actions that appear in it, so hovering never shifts it. */
+.agt-open-card {
+  gap: 5px;
+  padding: 10px 12px;
+}
+
+.agt-open-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 24px;
+}
+
+.agt-open-card__icon {
+  flex: none;
+  color: #8c959f;
+}
+
+.agt-open-card__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agt-open-card__rename {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  outline: none;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.15);
+  color: var(--text-1);
+  font: inherit;
+  font-size: 13px;
+}
+
+.agt-open-card__last {
+  min-height: 17px;
+  font-size: 12.5px;
+  color: #57606a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agt-open-card__last.is-needs {
+  color: #bc4c00;
+}
+
+.agt-open-card__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: #8c959f;
+}
+
+.agt-open-card__meta {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, Menlo, 'Roboto Mono', monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agt-open-card__change {
+  flex: none;
+  white-space: nowrap;
+}
+
+.agt-open-card__change.is-pr {
+  color: #8250df;
 }
 
 /* ── Task window card ── */
@@ -3425,10 +3690,6 @@
   color: var(--text-1);
   box-shadow: 0 1px 2px rgba(31, 35, 40, 0.05);
   transition: box-shadow 0.12s, border-color 0.12s;
-}
-
-.agt-windows-grid .agt-card {
-  width: auto;
 }
 
 .agt-card:hover {
@@ -3458,7 +3719,7 @@
   background: #f6f8fa;
 }
 
-/* The overview keeps the screen's own proportions; Home's fixed-height thumbnail is set above. */
+/* The overview keeps the screen's own proportions. */
 .agt-overview__grid .agt-card {
   --thumb-h: calc(var(--card-w) * 0.625px);
 }
@@ -3473,46 +3734,6 @@
   background: #ffffff;
   pointer-events: none;
   overflow: hidden;
-}
-
-/* Rename and hide, floating over the thumbnail while the pointer is on the card. */
-.agt-card__tools {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 2;
-  display: none;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid #e3e3e6;
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 2px 6px rgba(31, 35, 40, 0.1);
-  animation: agt-fade 0.12s ease-out;
-}
-
-.agt-card:hover .agt-card__tools,
-.agt-card:focus-within .agt-card__tools {
-  display: flex;
-}
-
-.agt-card__tool {
-  width: 26px;
-  height: 26px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #57606a;
-  cursor: pointer;
-}
-
-.agt-card__tool:hover {
-  background: #e4e4e8;
-  color: var(--text-1);
 }
 
 .agt-card__foot {
@@ -3534,21 +3755,6 @@
   text-overflow: ellipsis;
 }
 
-.agt-card__rename {
-  flex: 1;
-  min-width: 0;
-  padding: 2px 6px;
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  outline: none;
-  background: #ffffff;
-  box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.15);
-  color: var(--text-1);
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 400;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .agt-live__label.is-active {
     animation: none;
@@ -3564,8 +3770,7 @@
   .agt-cursor,
   .agt-icon.is-outcome > svg,
   .agt-overview,
-  .agt-selbar,
-  .agt-card__tools {
+  .agt-selbar {
     animation: none;
   }
 

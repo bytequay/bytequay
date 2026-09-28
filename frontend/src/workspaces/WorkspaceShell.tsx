@@ -11,16 +11,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import AgentHome from '../agents/AgentHome';
+import { useTaskAttention } from '../agents/attention';
+import type { TaskListItem } from '../agents/taskList';
 import AgentTaskScreen from '../agents/AgentTaskScreen';
 import AgentTasksView, { type TaskLaunch } from '../agents/AgentTasksView';
 import ReviewTaskScreen from '../agents/ReviewTaskScreen';
 import TaskOverview from '../agents/TaskOverview';
 import CommitsTab, { type CommitSourceSelection } from '../commits/CommitsTab';
 import ProgressView from '../commits/ProgressView';
-import TasksView from '../commits/TasksView';
 import { zoomReference } from '../githubReference';
+import { GoalLayer } from '../goals/GoalLayer';
+import { goalHas, goalRef, needsYouKeys, numberedKey } from '../goals/model';
+import { useGoals } from '../goals/useGoals';
+import type { GoalToggle } from '../home/AttentionList';
+import { visibleAttention, type AttentionItem } from '../home/attention';
 import JiraScreen from '../jira/JiraScreen';
 import type { NavigationMode } from '../navigationHistory';
 import PullsScreen from '../pulls/PullsScreen';
@@ -28,7 +34,8 @@ import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import { settingsRoute } from '../settings/routes';
 import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
-import type { CherryPickExecution, WorkspaceDto } from '../types';
+import { useWorkspaceAttention } from './workspaceAttention';
+import type { WorkspaceDto } from '../types';
 import {
   workspaceAgentTaskRoute,
   workspaceIssueTaskRoute,
@@ -69,6 +76,22 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   // A cherry-pick execution zooms over the task list; an agent task owns the page instead.
   const zoomedCherryPick = tab === 'tasks' && openCherryPick !== null;
   const zoom = useZoom(useCallback(() => setOpenCherryPick(null), []), zoomedCherryPick);
+  // Read once for every page of the workspace: Home lists what needs you, and the goal counts it.
+  const taskWorkspaces = useMemo(() => [{ id: workspace.id, name: '', repository: monitoredRepository }], [monitoredRepository, workspace.id]);
+  const taskAttention = useTaskAttention(taskWorkspaces);
+  const attention = useWorkspaceAttention(workspace.id, monitoredRepository, taskAttention);
+  const goals = useGoals(workspace.id);
+  const needsYou = needsYouKeys(visibleAttention(attention.candidates, attention.handled, Date.now()));
+  const goalToggle = useCallback((item: AttentionItem): GoalToggle | null => {
+    const pinned = goals.pinned;
+    const ref = goalRef(item);
+    if (pinned === null || ref === null) return null;
+    const inGoal = goalHas(pinned, ref);
+    return { inGoal, toggle: () => (inGoal ? goals.removeItem(pinned.id, ref.kind, ref.key) : goals.add(pinned.id, ref.kind, ref.key)) };
+  }, [goals]);
+  // A task is in the goal itself, or through the pull request it works on.
+  const itemInGoal = (item: TaskListItem): boolean => (item.task !== null && goalHas(goals.pinned, { kind: 'TASK', key: item.task.id }))
+    || item.links.some((link) => link.source === 'pr' && goalHas(goals.pinned, { kind: 'PULL_REQUEST', key: numberedKey(monitoredRepository, Number(link.key.slice(1))) }));
   const openReviewWorkspace = (review: AgentReviewDto): void => {
     setOpenReview(null);
     window.location.hash = workspaceReviewTaskRoute(review.workspaceId, review.id);
@@ -155,155 +178,155 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   if (tab === 'commits' && !workspaceHasReadableCode(workspace)) {
     return <WorkspaceUnavailable message="Repository code must be ready before this tab can open." />;
   }
-  if (tab === 'commits') {
-    return (
-      <CommitsTab
-        workspace={workspace}
-        initialRepo={initialCommitsRepo ?? undefined}
-        initialSourceSelection={commitSourceSelection}
-        onSourceSelectionChange={setCommitSourceSelection}
-        onOpenPullRequest={zoomPullRequest}
-        onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
-      />
-    );
-  }
-  if (tab === 'prs') {
-    return (
-      <PullsScreen
-        initialPr={initialPullRequestNumber === null
-          ? undefined
-          : { repo: monitoredRepository, number: initialPullRequestNumber }}
-        repositoryScope={{ workspaceId: workspace.id, repository: monitoredRepository }}
-        browserOpen={browserOpen}
-        onSelectPullRequest={selectScopedPullRequest}
-      />
-    );
-  }
-  if (tab === 'issues') {
-    return <WorkspaceIssuesScreen
+  // An open task or review owns the page; every other page carries the pinned goal.
+  if (taskDetail) return renderPage();
+  return (
+    <GoalLayer
+      page={tab}
       workspaceId={workspace.id}
       repository={monitoredRepository}
-      initialIssueNumber={initialIssueNumber}
-      onSelectIssue={onSelectIssue}
-      onStartDevelopment={(number, launch) => { setStartLaunch(launch); window.location.hash = workspaceIssueTaskRoute(workspace.id, number); }}
-      onViewTask={link => { window.location.hash = workspaceAgentTaskRoute(link.workspaceId, link.taskId); }}
-    />;
-  }
-  if (tab === 'jira') {
-    return <JiraScreen workspace={workspace} />;
-  }
-  if (tab === 'tasks') {
-    if (initialAgentReviewId !== null) return stage(<ReviewTaskScreen
-      key={initialAgentReviewId}
-      workspaceId={workspace.id}
-      reviewId={initialAgentReviewId}
-      onBack={() => onSelectAgentTask(null, 'push')}
-      headerAction={overviewOpen ? undefined : overviewToggle}
-      browserOpen={browserOpen}
-    />);
-    if (initialAgentTaskId !== null) {
-      // Not wrapped in ws-tab-page: the screen scrolls its transcript, not the whole page.
-      // Keyed by task: moving between two open tasks must not carry one task's transcript and
-      // sequence cursor into the other, which would drop the second task's early events as
-      // duplicates.
-      return stage(
-        <AgentTaskScreen
-          key={initialAgentTaskId}
-          workspaceId={workspace.id}
-          taskId={initialAgentTaskId}
-          onBack={() => onSelectAgentTask(null, 'push')}
-          headerAction={overviewOpen ? undefined : overviewToggle}
-          onOpenPullRequest={zoomPullRequest}
+      goals={goals}
+      needsYou={needsYou}
+      onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
+    >
+      {renderPage()}
+    </GoalLayer>
+  );
+
+  function renderPage(): React.JSX.Element {
+    if (tab === 'commits') {
+      return (
+        <CommitsTab
           workspace={workspace}
+          initialRepo={initialCommitsRepo ?? undefined}
+          initialSourceSelection={commitSourceSelection}
+          onSourceSelectionChange={setCommitSourceSelection}
+          onOpenPullRequest={zoomPullRequest}
           onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
-        />,
+        />
       );
     }
-    const cherryPicks = (
-      <WorkspaceTasks
-        workspace={workspace}
-        embedded
-        onOpenTask={execution => setOpenCherryPick(execution.executionId)}
-        onNewCherryPick={() => {
-          setInitialCommitsRepo('upstream');
-          onSelectTab('commits');
-        }}
-      />
-    );
-    // The agent view owns the page: its composer stays anchored under both task sections.
-    return stage(
-      <>
-        <AgentTasksView
-          key={sourceIssueNumber ?? 'new-task'}
-          workspaceId={workspace.id}
-          sourceIssueNumber={sourceIssueNumber}
-          launch={sourceIssueNumber === null ? undefined : startLaunch}
-          onOpenCreatedTask={task => { window.location.hash = workspaceAgentTaskRoute(task.workspaceId, task.id); }}
-          headerAction={overviewOpen || zoomedCherryPick ? undefined : overviewToggle}
-          onOpenReview={review => review.number === null ? openReviewWorkspace(review) : setOpenReview({ id: review.id, repo: review.repo, number: review.number })}
-          onOpenReviewWorkspace={openReviewWorkspace}
-          onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
-          onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
-        >
-          {cherryPicks}
-        </AgentTasksView>
-        {zoomedCherryPick && !zoom.full && <ZoomScrim onClose={zoom.close} />}
-        {openCherryPick !== null && (
-          <div className={zoom.cardClass}>
-            <div className="cmt-root">
-              <ProgressView
-                key={openCherryPick}
-                executionId={openCherryPick}
-                workspaceId={workspace.id}
-                upstreamSlug={workspace.upstreamRepositoryId === null ? null : `${workspace.upstreamOwner}/${workspace.upstreamRepo}`}
-                onBackToTasks={zoom.close}
-                headerAction={<ZoomActions {...zoom} label="cherry-pick" className="cmt-btn-plain" />}
-                onStartAnotherRange={() => {
-                  setOpenCherryPick(null);
-                  setInitialCommitsRepo('upstream');
-                  onSelectTab('commits');
-                }}
-              />
+    if (tab === 'prs') {
+      return (
+        <PullsScreen
+          initialPr={initialPullRequestNumber === null
+            ? undefined
+            : { repo: monitoredRepository, number: initialPullRequestNumber }}
+          repositoryScope={{ workspaceId: workspace.id, repository: monitoredRepository }}
+          browserOpen={browserOpen}
+          onSelectPullRequest={selectScopedPullRequest}
+        />
+      );
+    }
+    if (tab === 'issues') {
+      return <WorkspaceIssuesScreen
+        workspaceId={workspace.id}
+        repository={monitoredRepository}
+        initialIssueNumber={initialIssueNumber}
+        onSelectIssue={onSelectIssue}
+        onStartDevelopment={(number, launch) => { setStartLaunch(launch); window.location.hash = workspaceIssueTaskRoute(workspace.id, number); }}
+        onViewTask={link => { window.location.hash = workspaceAgentTaskRoute(link.workspaceId, link.taskId); }}
+      />;
+    }
+    if (tab === 'jira') {
+      return <JiraScreen workspace={workspace} />;
+    }
+    if (tab === 'tasks') {
+      if (initialAgentReviewId !== null) return stage(<ReviewTaskScreen
+        key={initialAgentReviewId}
+        workspaceId={workspace.id}
+        reviewId={initialAgentReviewId}
+        onBack={() => onSelectAgentTask(null, 'push')}
+        headerAction={overviewOpen ? undefined : overviewToggle}
+        browserOpen={browserOpen}
+      />);
+      if (initialAgentTaskId !== null) {
+        // Not wrapped in ws-tab-page: the screen scrolls its transcript, not the whole page.
+        // Keyed by task: moving between two open tasks must not carry one task's transcript and
+        // sequence cursor into the other, which would drop the second task's early events as
+        // duplicates.
+        return stage(
+          <AgentTaskScreen
+            key={initialAgentTaskId}
+            workspaceId={workspace.id}
+            taskId={initialAgentTaskId}
+            onBack={() => onSelectAgentTask(null, 'push')}
+            headerAction={overviewOpen ? undefined : overviewToggle}
+            onOpenPullRequest={zoomPullRequest}
+            workspace={workspace}
+            onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
+          />,
+        );
+      }
+      // The agent view owns the page: every kind of task is listed there, above its composer.
+      return stage(
+        <>
+          <AgentTasksView
+            key={sourceIssueNumber ?? 'new-task'}
+            workspaceId={workspace.id}
+            repository={monitoredRepository}
+            sourceIssueNumber={sourceIssueNumber}
+            launch={sourceIssueNumber === null ? undefined : startLaunch}
+            onOpenCreatedTask={task => { window.location.hash = workspaceAgentTaskRoute(task.workspaceId, task.id); }}
+            headerAction={overviewOpen || zoomedCherryPick ? undefined : overviewToggle}
+            onOpenReview={review => review.number === null ? openReviewWorkspace(review) : setOpenReview({ id: review.id, repo: review.repo, number: review.number })}
+            onOpenReviewWorkspace={openReviewWorkspace}
+            onOpenCherryPick={execution => setOpenCherryPick(execution.executionId)}
+            onOpenPullRequest={zoomPullRequest}
+            onNewItem={type => {
+              // A cherry-pick starts from a range of upstream commits; a review or CI fix from a pull request.
+              if (type === 'cherry') setInitialCommitsRepo('upstream');
+              onSelectTab(type === 'cherry' ? 'commits' : 'prs');
+            }}
+            taskAttention={taskAttention}
+            inGoal={itemInGoal}
+            onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
+            onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
+          />
+          {zoomedCherryPick && !zoom.full && <ZoomScrim onClose={zoom.close} />}
+          {openCherryPick !== null && (
+            <div className={zoom.cardClass}>
+              <div className="cmt-root">
+                <ProgressView
+                  key={openCherryPick}
+                  executionId={openCherryPick}
+                  workspaceId={workspace.id}
+                  upstreamSlug={workspace.upstreamRepositoryId === null ? null : `${workspace.upstreamOwner}/${workspace.upstreamRepo}`}
+                  onBackToTasks={zoom.close}
+                  headerAction={<ZoomActions {...zoom} label="cherry-pick" className="cmt-btn-plain" />}
+                  onStartAnotherRange={() => {
+                    setOpenCherryPick(null);
+                    setInitialCommitsRepo('upstream');
+                    onSelectTab('commits');
+                  }}
+                />
+              </div>
             </div>
-          </div>
-        )}
-      </>,
+          )}
+        </>,
+      );
+    }
+    // The design's Home: the question, three starting points, the open tasks as windows.
+    return stage(
+      <AgentHome
+        workspaceId={workspace.id}
+        headerAction={overviewOpen ? undefined : overviewToggle}
+        repository={monitoredRepository}
+        taskAttention={taskAttention}
+        attention={attention}
+        goal={goalToggle}
+        inGoal={(task) => goalHas(goals.pinned, { kind: 'TASK', key: task.id })}
+        onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
+        onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
+        onShowAll={() => setOverviewOpen(true)}
+        onOpenPullRequest={zoomPullRequest}
+        onOpenIssue={(number) => zoomReference({ kind: 'issue', repo: monitoredRepository, number, workspaceId: workspace.id })}
+        onStartIssue={number => { window.location.hash = workspaceIssueTaskRoute(workspace.id, number); }}
+      />,
     );
   }
-  // The design's Home: the question, three starting points, the open tasks as windows.
-  return stage(
-    <AgentHome
-      workspaceId={workspace.id}
-      headerAction={overviewOpen ? undefined : overviewToggle}
-      repository={monitoredRepository}
-      onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
-      onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
-      onShowAll={() => setOverviewOpen(true)}
-      onOpenPullRequests={() => onSelectTab('prs')}
-      onOpenPullRequest={zoomPullRequest}
-      onOpenIssue={(number) => zoomReference({ kind: 'issue', repo: monitoredRepository, number, workspaceId: workspace.id })}
-      onOpenIssues={() => onSelectTab('issues')}
-      onStartIssue={number => { window.location.hash = workspaceIssueTaskRoute(workspace.id, number); }}
-    />,
-  );
 }
 
 function WorkspaceUnavailable({ message }: { message: string }) {
   return <div className="ws-tab-page"><div className="ws-empty">{message}</div></div>;
-}
-
-function WorkspaceTasks({ workspace, embedded = false, onOpenTask, onNewCherryPick }: {
-  workspace: WorkspaceDto;
-  embedded?: boolean;
-  onOpenTask: (execution: CherryPickExecution) => void;
-  onNewCherryPick: () => void;
-}) {
-  return (
-    <TasksView
-      workspaceId={workspace.id}
-      embedded={embedded}
-      onOpenTask={onOpenTask}
-      onNewCherryPick={onNewCherryPick}
-    />
-  );
 }

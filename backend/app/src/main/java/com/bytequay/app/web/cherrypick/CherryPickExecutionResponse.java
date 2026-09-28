@@ -17,6 +17,7 @@ import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickItem;
 import com.google.common.collect.ImmutableList;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -46,7 +47,10 @@ public record CherryPickExecutionResponse(
         Optional<Integer> currentPosition,
         Optional<PullRequestDraftResponse> pullRequestDraft,
         Optional<DeliveryResponse> delivery,
-        List<ItemResponse> items)
+        List<ItemResponse> items,
+        Instant createdAt,
+        Instant updatedAt,
+        Optional<Instant> terminalAt)
 {
     public CherryPickExecutionResponse
     {
@@ -67,6 +71,9 @@ public record CherryPickExecutionResponse(
         requireNonNull(pullRequestDraft, "pullRequestDraft is null");
         requireNonNull(delivery, "delivery is null");
         items = ImmutableList.copyOf(requireNonNull(items, "items is null"));
+        requireNonNull(createdAt, "createdAt is null");
+        requireNonNull(updatedAt, "updatedAt is null");
+        requireNonNull(terminalAt, "terminalAt is null");
     }
 
     public static CherryPickExecutionResponse of(CherryPickExecution execution)
@@ -88,7 +95,10 @@ public record CherryPickExecutionResponse(
                 execution.cursor().map(CherryPickItem::position),
                 execution.pullRequestDraft().map(PullRequestDraftResponse::of),
                 execution.delivery().map(DeliveryResponse::of),
-                execution.items().stream().map(ItemResponse::of).collect(toImmutableList()));
+                execution.items().stream().map(ItemResponse::of).collect(toImmutableList()),
+                execution.createdAt(),
+                execution.updatedAt(),
+                execution.terminalAt());
     }
 
     /** Remote delivery persisted after the two explicit user actions. */

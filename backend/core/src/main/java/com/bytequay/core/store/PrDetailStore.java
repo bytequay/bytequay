@@ -14,11 +14,14 @@
 package com.bytequay.core.store;
 
 import com.bytequay.core.domain.PrActivitySummary;
+import com.bytequay.core.domain.PrCheckRunState;
+import com.bytequay.core.domain.PrCommitLine;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -34,6 +37,12 @@ public interface PrDetailStore
 
     /** Reads the latest cached GitHub timeline action for each requested PR, including inline replies. */
     Map<Long, PrActivitySummary> findLatestActivities(Set<Long> prIds);
+
+    /** Reads the cached commits each PR received after its instant, newest first; a PR without any has no entry. */
+    Map<Long, List<PrCommitLine>> findCommitsAfter(Map<Long, Instant> since);
+
+    /** Reads the cached check runs of each requested PR in stored order; a PR without any has no entry. */
+    Map<Long, List<PrCheckRunState>> findCheckRuns(Set<Long> prIds);
 
     Optional<String> findEtag(long prId);
 

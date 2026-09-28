@@ -34,6 +34,7 @@ import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergePullRequestCommand;
 import com.bytequay.core.domain.MergeResult;
 import com.bytequay.core.domain.PrActivitySummary;
+import com.bytequay.core.domain.PrCommitLine;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineComment;
@@ -101,6 +102,7 @@ import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.domain.PullRequest.Origin.REVIEW_REQUESTED;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
@@ -208,6 +210,33 @@ public class PullRequestService
                     .ifPresent(activity -> latest.put(pullRequest.id(), activity));
         }
         return latest.buildOrThrow();
+    }
+
+    /**
+     * Reads the cached commits each PR received after the viewer's last review, or after the review
+     * request when there was none, for the PRs whose head moved since; newest first.
+     */
+    public Map<Long, List<PrCommitLine>> findCachedCommitsSinceReview(List<PullRequest> pullRequests)
+    {
+        ImmutableMap.Builder<Long, Instant> since = ImmutableMap.builder();
+        for (PullRequest pullRequest : pullRequests) {
+            Instant anchor = pullRequest.reviewedAt() != null ? pullRequest.reviewedAt() : pullRequest.reviewRequestedAt();
+            if (anchor != null && pullRequest.headPushedAt() != null && pullRequest.headPushedAt().isAfter(anchor)) {
+                since.put(pullRequest.id(), anchor);
+            }
+        }
+        return snapshots.findCommitsAfter(since.buildOrThrow());
+    }
+
+    /** Reads the names of the cached checks failing on each PR whose CI is failing. */
+    public Map<Long, List<String>> findCachedFailingChecks(List<PullRequest> pullRequests)
+    {
+        Set<Long> failing = pullRequests.stream()
+                .filter(pullRequest -> pullRequest.ciStatus() == PullRequestDetail.CiStatus.FAILING)
+                .map(PullRequest::id)
+                .collect(toImmutableSet());
+        return snapshots.findCheckRuns(failing).entrySet().stream()
+                .collect(toImmutableMap(Map.Entry::getKey, entry -> PullRequestDetailMapper.failingCheckNames(entry.getValue())));
     }
 
     public PullRequest setMonitored(long prId, boolean monitored)

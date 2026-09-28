@@ -107,7 +107,7 @@ final class SqliteWorkspacePurge
                     ORDER BY w.watched DESC, w.display_order, w.created_at LIMIT 1
                 ) WHERE workspace_id = :workspaceId
                 """, parameters);
-        for (String table : ImmutableList.of("workspace_remote_sources", "workspace_credentials", "commit_refresh_metadata")) {
+        for (String table : ImmutableList.of("workspace_remote_sources", "workspace_credentials", "commit_refresh_metadata", "workspace_goal")) {
             update("DELETE FROM " + table + " WHERE workspace_id = :workspaceId", parameters);
         }
         // Matched by prefix, not by exact key: these settings are per workspace and now also per

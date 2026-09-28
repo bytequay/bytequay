@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import type { JiraLocation, JiraQuery, JiraTokenRequest } from './jira/contracts';
+import { parseGoal, parseGoalItem, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -35,6 +36,7 @@ import {
   parseAgentSkills,
   parseAgentTask,
   parsePullRequestTaskLink,
+  parseAgentTaskActivity,
   parseAgentTaskChanges,
   parseAgentTaskStartup,
   parseAgentTasks,
@@ -611,10 +613,19 @@ function registerIpc(): void {
   ipcMain.handle('agent:tasks:changes', (_event, workspaceId: string) =>
     backendJson(`${backendBase()}/agent/tasks/changes?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
       .then(parseAgentTaskChanges));
+  ipcMain.handle('agent:tasks:activity', (_event, workspaceId: string) =>
+    backendJson(`${backendBase()}/agent/tasks/activity?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
+      .then(parseAgentTaskActivity));
   ipcMain.handle('agent:task:pull-requests', (_event, taskId: string, workspaceId: string, refresh?: boolean) =>
     backendJson(taskUrl(taskId, '/pull-requests')
       + `${refresh === true ? '/sync' : ''}?${new URLSearchParams({ workspaceId })}`,
     { method: refresh === true ? 'POST' : 'GET', headers: agentHeaders() }));
+  ipcMain.handle('ci-autofix:list', (_event, limit: number) =>
+    backendJson(`${backendBase()}/api/ci-autofix/runs?${new URLSearchParams({ limit: String(limit) })}`, { headers: agentHeaders() })
+      .then((runs: unknown) => {
+        if (!Array.isArray(runs)) throw new Error('ciRuns is not an array');
+        return runs.map(parseCiAutofixRun);
+      }));
   ipcMain.handle('ci-autofix:get', (_event, runId: string) =>
     backendJson(`${backendBase()}/api/ci-autofix/runs/${encodeURIComponent(runId)}`, { headers: agentHeaders() }).then(parseCiAutofixRun));
   ipcMain.handle('ci-autofix:message', (_event, runId: string, message: string, idempotencyKey: string) =>
@@ -1760,6 +1771,21 @@ function registerIpc(): void {
   ipcMain.handle('workspaces:issues:goal', (_event, workspaceId: string, issueNumber: number, isGoal: boolean) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/goal`,
       jsonInit('PATCH', { isGoal })));
+  const goalsUrl = (workspaceId: string, path = '') => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/goals${path}`;
+  ipcMain.handle('goals:list', (_event, workspaceId: string) =>
+    backendJson(goalsUrl(workspaceId)).then(goals => parseList(goals, parseGoal, 'goals')));
+  ipcMain.handle('goals:create', (_event, workspaceId: string, title: string, description: string) =>
+    backendJson(goalsUrl(workspaceId), jsonInit('POST', { title, description })).then(parseGoal));
+  ipcMain.handle('goals:update', (_event, workspaceId: string, goalId: string, patch: GoalPatch) =>
+    backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}`), jsonInit('PATCH', patch)).then(parseGoal));
+  ipcMain.handle('goals:delete', (_event, workspaceId: string, goalId: string) =>
+    backendVoid(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}`), { method: 'DELETE' }));
+  ipcMain.handle('goals:items:add', (_event, workspaceId: string, goalId: string, kind: GoalItemKind, key: string) =>
+    backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/items`), jsonInit('POST', { kind, key })).then(parseGoal));
+  ipcMain.handle('goals:items:remove', (_event, workspaceId: string, goalId: string, kind: GoalItemKind, key: string) =>
+    backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/items?${new URLSearchParams({ kind, key })}`), { method: 'DELETE' }).then(parseGoal));
+  ipcMain.handle('goals:candidates', (_event, workspaceId: string, query: string) =>
+    backendJson(goalsUrl(workspaceId, `/candidates?${new URLSearchParams({ q: query })}`)).then(items => parseList(items, parseGoalItem, 'goal candidates')));
   ipcMain.handle('workspaces:issues:refresh', (_event, workspaceId: string) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/refresh`, {
       method: 'POST',

@@ -50,6 +50,7 @@ import java.util.OptionalLong;
 
 import static com.bytequay.app.agent.AgentServingGates.readyAgentServingGate;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -135,7 +136,11 @@ class TestCherryPickExecutionHttpApi
                 .andExpect(jsonPath("$.items[0].result").value("PENDING"))
                 .andExpect(jsonPath("$.items[1].result").value("USER_SKIPPED"))
                 .andExpect(jsonPath("$.currentPosition").value(1))
-                .andExpect(jsonPath("$.pullRequestDraft.title").value("Upgrade dependencies"));
+                .andExpect(jsonPath("$.pullRequestDraft.title").value("Upgrade dependencies"))
+                // The Tasks page groups executions by when they last moved.
+                .andExpect(jsonPath("$.createdAt").exists())
+                .andExpect(jsonPath("$.updatedAt").exists())
+                .andExpect(jsonPath("$.terminalAt").value(nullValue()));
 
         ArgumentCaptor<StartCherryPickExecutionCommand> command =
                 ArgumentCaptor.forClass(StartCherryPickExecutionCommand.class);

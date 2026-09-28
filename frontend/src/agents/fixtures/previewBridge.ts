@@ -230,6 +230,10 @@ export function createPreviewBridge(
       record('listAgentTaskChanges', id);
       return {};
     },
+    listAgentTaskActivity: async (id) => {
+      record('listAgentTaskActivity', id);
+      return {};
+    },
     listTaskDiscussions: async query => {
       record('listTaskDiscussions', query);
       return [];

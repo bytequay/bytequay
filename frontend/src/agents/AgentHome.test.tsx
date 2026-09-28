@@ -11,27 +11,39 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useMemo } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { setCached } from '../dataCache';
 import { ATTENTION_SEED, type AttentionItem } from '../home/attention';
 import type { PullRequestDto } from '../types';
+import { useWorkspaceAttention } from '../workspaces/workspaceAttention';
 import AgentHome from './AgentHome';
 import AgentTasksView from './AgentTasksView';
+import { useTaskAttention } from './attention';
 import { parseAgentEventSequence } from './events';
 import fixture from './fixtures/agent-events-v2.json';
 import { createPreviewBridge, previewTask } from './fixtures/previewBridge';
 import { initialAgentTaskState } from './model';
 import { TaskWindows } from './TaskCard';
 
+/** Home as its workspace shows it: with the attention the workspace reads once for all its pages. */
+function WorkspaceHome({ workspaceId }: { workspaceId: string }) {
+  const taskAttention = useTaskAttention(useMemo(() => [{ id: workspaceId, name: '', repository: 'octo/app' }], [workspaceId]));
+  const attention = useWorkspaceAttention(workspaceId, 'octo/app', taskAttention);
+  return (
+    <AgentHome workspaceId={workspaceId} repository="octo/app" taskAttention={taskAttention} attention={attention}
+      bridge={createPreviewBridge(workspaceId)} onOpenTask={() => {}} onShowAll={() => {}} onStartIssue={() => {}} />
+  );
+}
+
 function home(workspaceId: string): string {
-  return renderToStaticMarkup(
-    <AgentHome workspaceId={workspaceId} repository="octo/app" bridge={createPreviewBridge(workspaceId)} onOpenTask={() => {}} onShowAll={() => {}} onStartIssue={() => {}} onOpenIssues={() => {}} />);
+  return renderToStaticMarkup(<WorkspaceHome workspaceId={workspaceId} />);
 }
 
 describe('agent home on a return visit', () => {
-  it('paints the attention rows Home last read for this repository, ranked as its own reads will rank them', () => {
-    expect(home('workspace-attention')).not.toContain('Needs attention');
+  it('paints the attention cards Home last read for this repository, ranked as its own reads will rank them', () => {
+    expect(home('workspace-attention')).toContain('Nothing needs you right now.');
 
     setCached(ATTENTION_SEED.prs, [
       pullRequest('octo/app', 7, 'Retry flaky upload'),
@@ -47,8 +59,9 @@ describe('agent home on a return visit', () => {
     expect(seeded).toContain('Reviewer named by login');
     expect(seeded).toContain('Assigned in this workspace');
     expect(seeded).toContain('Start development for #3');
-    expect(seeded).toContain('All issues');
-    expect(seeded).toContain('All pull requests');
+    expect(seeded.match(/class="card atn-card /g)).toHaveLength(3);
+    expect(seeded).not.toContain('All issues');
+    expect(seeded).not.toContain('All pull requests');
     expect(seeded).not.toContain('Elsewhere');
     expect(seeded).not.toContain('Assigned in another workspace');
   });
@@ -75,7 +88,7 @@ describe('agent home on a return visit', () => {
     const markup = renderToStaticMarkup(
       <AgentTasksView workspaceId="workspace-rows" bridge={createPreviewBridge('workspace-rows')} onOpenTask={() => {}} onOpenReview={() => {}} />);
 
-    expect(markup).toContain('#31105 Clean up nits');
+    expect(markup).toMatch(/<span class="card-link" title="Clean up nits"><span class="card-src is-pr"><svg[^>]*>.*?<\/svg><\/span><span class="card-key">#31105<\/span><\/span>/);
     expect(markup).toContain('2 commits');
   });
 

@@ -29,9 +29,9 @@ The first release includes:
   Markdown as the native ticket, layered over the page, issue or pull request it
   came from. An explicit lookup resolves the key once; the ticket is then cached
   and addressed by its issue id. Links to unconnected sites, and tickets the
-  connected account cannot read, stay web pages. Needs attention rows and task
-  source cards open their ticket the same way, and a row's Start development opens
-  the composer over its ticket. A ticket opened this way has no board, so sprint
+  connected account cannot read, stay web pages. Needs attention cards and task
+  source cards open their ticket the same way, and a card's Start development
+  opens the composer over its ticket. A ticket opened this way has no board, so sprint
   moves stay on the Jira page.
 - Use a distinct Jira source icon across navigation, attention and task source
   cards. Ticket cards place the title first, labels/parent below it, and the issue
@@ -57,7 +57,8 @@ The first release includes:
   detail dialog. Later actions reuse it. Development uses the existing
   provider/model/worktree composer; canceling the composer keeps the assignment
   without creating a task. View task opens the resulting task instead of creating
-  another one.
+  another one. Marking a ticket as a Goal also gives its workspace a goal named
+  after it, which unmarking removes.
 - Show a ticket's subtasks (an epic's child work items) and its linked work
   items, grouped by how the ticket reads each link ("blocks", "is blocked by").
   Each row opens that ticket over the current one. Create a child with a summary
@@ -68,8 +69,21 @@ The first release includes:
   links come with the ticket read. A project that requires more fields on create
   is reported as needing Jira.
 - Surface cached, assigned, unfinished leaf tickets from watched active sprints
-  in global Needs attention. Workspace attention requires an explicit mapping;
-  Jira project names are never guessed to be repository/workspace names.
+  in global Needs attention. A workspace's Home lists only the tickets assigned
+  to that workspace; Jira project names are never guessed to be
+  repository/workspace names.
+- Each card says what last changed on its ticket. Every refresh compares the
+  ticket it fetched with the cached one it replaces: a status move is kept with
+  where it came from and went, and any comment that arrived with it; a change to
+  the title, assignee, priority, labels, due date, type or parent names the
+  fields; a detail refresh names a new comment with its author and opening text.
+  When the scheduled refresh finds a ticket in Needs attention updated with
+  nothing ByteQuay saves changed, it reads that ticket's newest comment once.
+  Jira's changelog is never read, so a status or field change names no actor,
+  and the description is not compared because board and ticket reads format it
+  differently. The card's strip says the ticket is assigned to you; the change
+  is its folded actor line, and a card with no recorded change names the
+  ticket's status and sprint there instead.
 
 Automatic Done, outbound agent comments, webhook delivery, parent progress
 statistics, Goal pinning, comprehensive custom-field editing, and inferred

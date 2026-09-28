@@ -218,9 +218,9 @@ Four HTML design files accompany this document as the presentation references
 for reviewing or changing how the implemented screens look and respond:
 
 - [Tasks.dc.html](Tasks.dc.html) is the Tasks tab: Active and Archived tabs,
-  day-grouped rows with archive, restore and delete, multi-select, the undo
-  toast, and the delete confirmation. Open it in a browser beside
-  `support.js`; it is interactive.
+  archive, restore and delete, multi-select, the undo toast, and the delete
+  confirmation. Open it in a browser beside `support.js`; it is interactive.
+  The type tabs, today's cards and the older rows follow the prose below.
 - [Workspace Home.dc.html](Workspace%20Home.dc.html) is the workspace Home:
   repository avatar, composer, starting points, the repository's own Needs
   attention rows, and the open tasks as a grid of windows with rename and hide.
@@ -845,22 +845,55 @@ Server stores a name only after a client sets one, while Claude's one-way
 print stream does not expose its internal session title. ByteQuay therefore
 owns the same fallback-plus-background-generation lifecycle itself.
 
-The Tasks tab is [Tasks.dc.html](Tasks.dc.html). Its heading carries an
-**Active** / **Archived** segmented control with counts. The heading reserves
-space for the pinned overview button and wraps at narrow widths so the controls
-remain separate. Active shows three sections in order: **Cherry-pick executions**,
-**Agent tasks**, and **Review tasks**, with the composer anchored beneath.
-Archived shows only shelved agent tasks and no composer. Review tasks lists
-this workspace's open and ended PR-owned reviews with their derived review
-status. A row names its pull request by number and stored title beside the
-pull request's state icon in GitHub's colours (open, draft, merged, closed); a
-pull request ByteQuay has not stored yet reads as repository and number with a
-grey icon. Reviews are grouped by local calendar start date into **Today**, **Yesterday**,
-**Recent 7 days**, **Recent 30 days**, and **Older**. Groups do not overlap;
-empty groups are hidden, and rows are newest first within each group.
-Selecting a row opens that exact review in the existing PR detail
+The Tasks tab lists every kind of task in the workspace: development tasks, PR
+reviews, cherry-pick executions and CI fixes, all read from local storage and
+re-read every five seconds while the page is visible. Its heading carries an
+**Active** / **Archived** segmented control with counts; Archived's tooltip
+names the rule that completed tasks archive automatically after seven days.
+The heading reserves space for the pinned overview button and wraps at narrow
+widths so the controls remain separate. Below it, the type tabs **All**,
+**Development**, **Review**, **Cherry-pick** and **CI fix** each carry the
+type's icon and colour (teal, blue, amber, red), a count, and an orange dot
+while an item of that type needs the user. The selected tab has the `#fd8c73`
+underline and filters the whole page. In a narrow pane the tabs scroll
+sideways under the button at their right, which follows the tab: **+ New
+task** focuses the composer, **+ Review a pull request** and **+ Fix a failing
+check** open the Pull requests tab, and **+ New cherry-pick** opens upstream
+Commits.
+
+**Today** comes first: the items that moved today as cards in a
+`minmax(270px, 1fr)` grid, ordered **Needs you**, **Running**, **Idle**, then
+finished (**Completed**, **Finished** or **Failed**), newest first within a
+state. A card shows the type chip, state pill and age; the title in 14px
+regular type, clamped to two lines; why it needs the user when it does (an
+approval, a question, a paused run); the conversation's last message with who
+said it and when; and its ticket, pull request and issue keys beside what its
+checkout holds, how far a cherry-pick has come through its commits, or which
+CI attempt is running. Lane and model stay inside the task. **Yesterday**,
+**Earlier this week** (from Monday) and **Older** follow as one-line rows,
+newest first; an item whose time does not read lands in Older rather than
+disappearing. Only development tasks archive, delete and select: hovering a
+card or row shows Archive and Delete, on a card in place of its age, and the
+type icon turns into a checkbox on hover and while anything is selected. The
+selection bar appears under the type tabs. Archived lists only shelved
+development tasks and no composer.
+
+The composer is docked at the bottom of the page: centred at 760px over a white
+fade the list scrolls under, sticky at the foot of the page's scroller so the
+last row always scrolls clear of it. A round chip holding only the repository
+avatar sits 10px above the composer and names the repository new tasks start
+in.
+
+A cherry-pick opens its progress over the list. A CI fix opens the development
+task that started it, else the cherry-pick whose pull request it fixes, else
+that pull request. A review reads as **Running** while its run works, **Needs
+you** while it waits on an approval, **Finished** once it ended or saved its
+result, and **Failed** when it could not finish. It is titled by its pull
+request's number and stored title, or by repository and number before ByteQuay
+has stored the pull request, and it sits in the day of its latest activity.
+Selecting a review opens that exact review in the existing PR detail
 overlay's **Summary** tab; closing the overlay returns to the
-selected list. Each row also has a **View inside workspace** icon. It opens the
+list. A review also has a **View inside workspace** icon. It opens the
 exact review at `tasks/review/{reviewId}`, so reload and back/forward retain
 the selected review. The workspace shows the existing review conversation on
 the left and the same PR page on the right. Both development and review tasks
@@ -911,26 +944,127 @@ Delete disabled when the selection holds a running task) and Escape clears it.
 Archive and restore, single or bulk, show a five-second toast with Undo; delete
 shows the same toast without it.
 
-The workspace Home is [Workspace Home.dc.html](Workspace%20Home.dc.html): the
-repository avatar and name, the same composer in the flow of the page, three
-starting points that fill it, the repository's own **Needs attention** rows
-(at most three, drawn from the same candidates and ack/snooze store as the
-application Home, hidden entirely when nothing needs the user, **See all**
-opening the workspace Pull requests tab), and the open tasks as a responsive
-grid of windows — each a scaled copy of its own screen, anchored to its newest
-work like the screen following its bottom, with finished turns folded. A
-window's footer is its name and state; hovering it shows Rename, which edits
-the name in place through the ordinary rename, and Hide from Home, which keeps
-a renderer-local per-workspace set (`bq.home.hiddenTasks.{workspaceId}`) and
-leaves the task in Tasks and the overview. A hidden window keeps polling and
-comes back on its own when its task needs recovery or an approval. A window
-polls its task and any events it has not shown yet on a shared tick instead of
-streaming, because main keeps one stream per renderer and task and the overview
-draws over a screen that may hold it. A Tab Overview lays every open task out
-as such a window over whichever agent screen is showing; `⇧⌘\` or its pinned
-control opens it, Escape closes it, a window opens its task, its ✕ completes an
-idle task after confirmation, and a dashed card starts a new one. Nothing in a
-window is interactive but the window, its name and its toolbar.
+The workspace Home is [Workspace Home.dc.html](Workspace%20Home.dc.html): a
+header with the 28px repository avatar, the repository name and the overview
+control, the same composer docked at the bottom as on the Tasks page, with the
+repository chip and three starting points that fill it as pills in one row
+above it, the repository's own **Needs attention** cards (drawn from the same
+candidates and ack/snooze store as the application Home, as described below),
+and the open tasks as a responsive
+grid of compact cards. A card names the task and its state (**Needs you**,
+Running, Idle), then why it waits on the user or the start of what it last
+said, then its lane, model and age beside its pull request or what its checkout
+holds. The page reads the task list and `GET /agent/tasks/activity` on one
+short tick rather than each card polling its own task. Hovering a card shows
+Rename, which edits the name in place through the ordinary rename, and Hide
+from Home, which keeps a renderer-local per-workspace set
+(`bq.home.hiddenTasks.{workspaceId}`) and leaves the task in Tasks and the
+overview. A hidden card comes back on its own when its task needs recovery or
+an approval after it was put away. A Tab Overview lays every open task out as a
+window over whichever agent screen is showing: each a scaled copy of its own
+screen, anchored to its newest work like the screen following its bottom, with
+finished turns folded. A window polls its task and any events it has not shown
+yet on a shared tick instead of streaming, because main keeps one stream per
+renderer and task and the overview draws over a screen that may hold it.
+`⇧⌘\` or its pinned control opens the overview, Escape closes it, a window
+opens its task, its ✕ completes an idle task after confirmation, and a dashed
+card starts a new one. Nothing in a window is interactive but the window and
+its close control.
+
+Both Homes draw **Needs attention** as cards in a grid of 360px-minimum columns
+whose cards keep their own height. Each shows at most four cards: acknowledging
+or snoozing one brings in the next eligible item, and the count reads `4 of N`.
+Filter tabs above the grid (**All · PRs · Issues · Jira · Tasks**, each with its
+count) narrow the cards to one source; the cap applies after filtering. There
+are no **All issues** or **All pull requests** links. A card is a strip tinted
+by the source that produced the event (pull request green, issue blue, Jira
+ticket purple, agent task teal) showing its source's icon and key but no type
+name, the repository on the application Home only, where the item stands, a
+**Goal** badge when the item is in its workspace's pinned goal, and age; while
+the pointer or focus is inside the card the age gives way to ◎ (add to or remove
+from that goal), Start development (issues and tickets that can start),
+Acknowledge and Snooze, beside the chevron. Where the item stands is a golden
+outline around plain text: Review requested, Changes requested, Checks failing,
+Merge blocked, New commits or Ready to merge for a pull request, or Merged,
+Closed, Draft, Approved or Open for one that only moved; Approval needed,
+Question for you, Turn finished, Turn failed or Recovery required for a task;
+Assigned to you for an issue or Jira ticket. The body is the title clamped to
+two lines, then the event that put the card here: the actor's avatar and what
+they did (commented, pushed commits, requested your review, finished a turn,
+moved the ticket), folded over a detail block about that same event until the
+line is clicked, the way the linked items unfold. A comment or review renders
+its opening Markdown, a label change names the label, and an event with nothing
+to show falls back to what the item waits on, such as the commits since your
+last review or the failing check. Linked items start folded to one row of icons
+and keys and unfold to a row per item with its title and status. Ack and snooze
+keep the shared store, undo toast and session **Bring back**. Cards never fetch
+per card: every detail comes from what ByteQuay already stores, and there is no
+hover preview. With nothing left, the section says **Nothing needs you right
+now.**
+
+The sources are pull requests, assigned issues and Jira tickets, and agent
+tasks. `GET /prs/attention` carries each pull request's cached details from its
+stored timeline, commits and check runs: the latest comment's opening text and
+the file and line of an inline one, the commits cached after the viewer's last
+review (or the review request when there was none), and the names of the
+latest failing checks. Failing test names are not stored, so a CI detail names
+the check. `GET /api/jira/attention` sends each ticket with the last change
+ByteQuay saw on it: a status move with where it went and any comment with it, a
+comment with its author, or the fields that changed (see
+[jira-integration.md](jira-integration.md)); a workspace's Home lists the
+tickets assigned to that workspace. A task waits on the user when it has a pending approval (the command
+it wants to run, or the questions of an `AskUserQuestion` card), when its latest
+turn completed or failed while the task stays open and idle, or when it needs
+recovery; a running turn says nothing until it stops. Both Homes read
+`GET /agent/tasks/activity?workspaceId=…` on a short tick: one batched local read
+returning, by task id, the pending approval, the newest turn, and the start of
+the newest root message (a user message, or a final answer or commentary of the
+task's own agent), which a backwards scan of the task's event log finds within
+a bounded number of records. A task whose transcript retention removed quotes
+its kept final answer. A task card's key is its lane's name without the model
+(Claude Code, Codex, or a DeepSeek key's own name such as ds-001), and its linked
+items are its Jira ticket, pull request and issue; a pull request's card links
+the task whose branch opened it.
+
+**Goals.** A workspace can hold several goals, each a local list of pull
+requests, issues, Jira tickets and agent tasks toward one outcome. One is
+pinned, and every page of the workspace follows it. Goals live in SQLite behind
+`/api/workspaces/{workspaceId}/goals`; no goal change writes to GitHub or Jira
+or starts work, and removing an item leaves its task and history as they are.
+Adding an item saves its kind, key, label and title as ByteQuay stores them.
+Reading a goal reads each item from the local store for its kind: a merged or
+closed pull request, a closed issue, a done ticket or an ended task is
+**Finished**; an open pull request, an issue with a development task, a ticket
+in progress or a running task is **Working**; anything else is **Idle**. An
+issue gone from the repository's synced open issues reads as closed, and any
+other item no store holds keeps its saved label and title. A ticket in a status
+named Blocked is blocked. An item needs you while it shows in the workspace's
+Needs attention, which the workspace reads once for all of its pages. Marking
+an issue or Jira ticket as a Goal gives its workspace a goal named after it
+that does not list the marked item itself; unmarking removes that goal. A
+workspace's first goal is pinned, choosing another goal in the switcher pins
+that one, and deleting the pinned goal pins the oldest one left.
+
+Every workspace page but an open task or review carries the pinned goal as a
+pill: a progress ring, the goal's name, `finished/total` and how many items
+need you. It starts just above the composer's right edge, or in the page's
+bottom-right corner where there is no composer. It can be dragged anywhere, and
+keeps its spot per page (`bq.goal.pill.{page}`); wherever it would cover the
+composer it is lifted above it. A click that did not drag, or ⌥G, opens the
+goal: docked in a 340px column beside a Home at least 1100px wide, where ×
+collapses it back to the pill (`bq.goal.dockCollapsed`), and otherwise as a
+380px drawer inset 10px, for which the page makes room so the composer
+re-centres. The panel has the goal switcher (**GOAL 1 of 3**, **Pinned**,
+**New goal**, and **Delete this goal** for a goal no marker seeded), the title
+and description, a Finished / Working / Idle bar, tiles for pull requests
+merged and open, what needs you and what is blocked, **All · Needs you ·
+Blocked** tabs, **+ Add** searching the repository's stored pull requests and
+issues, cached Jira tickets and the workspace's tasks, the items grouped
+Working, Idle and Finished (folded) with remove on hover, and recent activity:
+the latest stored change of each item. ⤢ opens a board of Idle, Working and
+Finished columns with the same search and remove. Task cards and rows on the
+Tasks page and open-task cards on Home show ◎ for a task in the pinned goal or
+one working on a pull request in it.
 
 The composer checks the same typed provider readiness returned by Workspace
 Settings before enabling its send control. Authentication-required, missing,

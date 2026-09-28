@@ -21,6 +21,17 @@ export type JiraBoard = { id: number; name: string; type: string };
 export type JiraSprint = { id: number; name: string; state: string; startDate: string | null; endDate: string | null };
 export type JiraUser = { accountId: string; displayName: string; avatarUrl: string | null };
 export type JiraStatus = { id: string; name: string; category: string };
+/** The last change ByteQuay saw on a cached ticket; a status or field change names no actor. */
+export type JiraActivity = {
+  kind: 'STATUS_CHANGED' | 'COMMENTED' | 'FIELDS_CHANGED';
+  at: string;
+  actor: JiraUser | null;
+  from: JiraStatus | null;
+  to: JiraStatus | null;
+  /** A comment's opening text: the comment itself, or one that came with a status change. */
+  note: string | null;
+  fields: string[];
+};
 export type JiraIssue = {
   id: string; key: string; url: string; connectionId: string; cloudId: string; title: string; body: string;
   type: string; status: JiraStatus; assignee: JiraUser | null; labels: string[];
@@ -28,6 +39,8 @@ export type JiraIssue = {
   hasChildren: boolean; isGoal: boolean; updatedAt: string; completedAt: string | null; dueDate: string | null;
   task: { id: string; workspaceId: string } | null;
   workspace: { id: string; name: string } | null;
+  /** Sent with Needs attention tickets only. */
+  latestActivity?: JiraActivity | null;
 };
 export type JiraField = { id: string; name: string; required: boolean; schemaType: string; allowedValues: { id: string; name: string }[] };
 /** `editableText` is set only on your own comments that plain text can rewrite without losing formatting. */
@@ -115,6 +128,11 @@ export function jiraIssueLocation(issue: JiraIssue): JiraLocation {
 }
 export const JIRA_CHANGED = 'bytequay:jira-changed';
 export function notifyJiraChanged(): void { window.dispatchEvent(new Event(JIRA_CHANGED)); }
+
+/** Whether any Jira account is connected with a site to read, which is when Jira shows up at all. */
+export function anyJiraConnected(connections: JiraConnection[]): boolean {
+  return connections.some(connection => connection.state === 'connected' && connection.sites.length > 0);
+}
 
 export function jiraSiteDomain(site: JiraSite): string {
   try { return new URL(site.url).hostname; } catch { return site.name; }

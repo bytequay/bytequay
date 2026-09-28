@@ -92,6 +92,9 @@ function execution(status: string, finishReason?: string): CherryPickExecution {
     initialTargetSha: '41ab9e2aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     currentTargetSha: '41ab9e2aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     items: [],
+    createdAt: '2026-09-01T10:00:00Z',
+    updatedAt: '2026-09-01T10:00:00Z',
+    terminalAt: null,
   };
 }
 

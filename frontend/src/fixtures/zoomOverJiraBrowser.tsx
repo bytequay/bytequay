@@ -182,7 +182,7 @@ async function ticketLinksOverThePage(): Promise<void> {
 
 async function homeRowsOverHome(): Promise<void> {
   await withApp('#/home', async () => {
-    const row = () => [...document.querySelectorAll<HTMLElement>('.atn-row')].find(item => item.textContent?.includes(ticket.title)) ?? null;
+    const row = () => [...document.querySelectorAll<HTMLElement>('.atn-card')].find(item => item.textContent?.includes(ticket.title)) ?? null;
     await until(() => row() !== null, 'Home lists the Jira ticket');
     row()?.click();
     await until(() => ticketLayer()?.matches(':modal') ?? false, 'The Home row opened the ticket');

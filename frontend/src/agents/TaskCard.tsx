@@ -12,13 +12,12 @@
  * limitations under the License.
  */
 
-import React, { useEffect, useReducer, useRef, useState } from 'react';
-import { EyeOff, LoaderCircle, Pencil } from 'lucide-react';
+import React, { useEffect, useReducer, useState } from 'react';
+import { LoaderCircle } from 'lucide-react';
 import { getCached, setCached } from '../dataCache';
 import { relativeTime } from '../relativeTime';
 import { displayModelName, laneLabel } from '../settings/model';
 import { TurnView } from './AgentTaskScreen';
-import { useRenameDraft } from '../renameDraft';
 import { taskStatePill } from './AgentTasksView';
 import type { AgentEventEnvelope } from './events';
 import { agentTaskReducer, initialAgentTaskState, pollAgentTask, type AgentBridgePort, type AgentTaskState } from './model';
@@ -27,23 +26,12 @@ import type { AgentTaskDto, ModelProviderDto } from '../types';
 
 /** How often a window re-reads its task and the events it has not shown yet. */
 const WINDOW_POLL_MS = 2000;
-/** The narrowest Home window; the grid packs as many as fit and stretches them to the row. */
-export const HOME_WINDOW_MIN = 250;
-const HOME_WINDOW_GAP = 16;
-
-/** One column of a `repeat(auto-fill, minmax(min, 1fr))` grid, so a window can scale its screen to it. */
-export function gridColumnWidth(containerWidth: number, min = HOME_WINDOW_MIN, gap = HOME_WINDOW_GAP): number {
-  if (containerWidth <= 0) return min;
-  const columns = Math.max(1, Math.floor((containerWidth + gap) / (min + gap)));
-  return Math.floor((containerWidth - gap * (columns - 1)) / columns);
-}
 
 /**
- * One task as the design's "task window": its own screen, scaled to fit, with a footer that names
- * it. Nothing inside the thumbnail is interactive — the thumbnail opens the task, and the footer
- * name is where a rename happens.
+ * One task as the overview's "task window": its own screen, scaled to fit, with a footer that names
+ * it. Nothing inside the thumbnail is interactive; the thumbnail opens the task.
  */
-export function TaskCard({ task, events, providers, width, active = false, now, onOpen, onClose, onRename, onHide, historyIncomplete = false }: {
+export function TaskCard({ task, events, providers, width, active = false, now, onOpen, onClose, historyIncomplete = false }: {
   task: AgentTaskDto;
   events: AgentEventEnvelope[];
   historyIncomplete?: boolean;
@@ -52,12 +40,8 @@ export function TaskCard({ task, events, providers, width, active = false, now, 
   active?: boolean;
   now: number;
   onOpen: () => void;
-  /** Present only where a card may close its task; the overview offers it, Home does not. */
+  /** Present only where a card may close its task. */
   onClose?: () => void;
-  /** Present where a card may be renamed in place; Home offers it, the overview does not. */
-  onRename?: (title: string) => void;
-  /** Present where a card may be put away from view; Home offers it. */
-  onHide?: () => void;
 }): React.JSX.Element {
   const pill = taskStatePill(task);
   const projectedTurns = projectTranscript(events, null, {}, !historyIncomplete);
@@ -71,7 +55,6 @@ export function TaskCard({ task, events, providers, width, active = false, now, 
   const model = displayModelName(models.find((option) => option.id === task.defaults.model)?.name ?? task.defaults.model ?? '');
   const providerName = provider?.label ?? laneLabel(task.laneId);
   const meta = `${providerName}${model === '' ? '' : ` · ${model}`}`;
-  const rename = useRenameDraft(task.title, onRename);
   const pillNode = (
     <span className={`agt-state ${pill.className}`}>
       {pill.spinning && <LoaderCircle className="agt-spin" aria-hidden="true" />}
@@ -111,28 +94,8 @@ export function TaskCard({ task, events, providers, width, active = false, now, 
           </div>
         </div>
       </button>
-      {(onRename !== undefined || onHide !== undefined) && !rename.editing && (
-        <div className="agt-card__tools">
-          {onRename !== undefined && (
-            <button type="button" className="agt-card__tool" title="Rename" aria-label={`Rename task: ${task.title}`} onClick={rename.start}>
-              <Pencil size={14} aria-hidden="true" />
-            </button>
-          )}
-          {onHide !== undefined && (
-            <button type="button" className="agt-card__tool" title="Hide from Home (task stays in Tasks)" aria-label={`Hide task from Home: ${task.title}`} onClick={onHide}>
-              <EyeOff size={14} aria-hidden="true" />
-            </button>
-          )}
-        </div>
-      )}
       <div className="agt-card__foot">
-        {!rename.editing ? (
-          <span className="agt-card__name" title={onRename === undefined ? undefined : 'Double-click to rename'} onDoubleClick={rename.start}>
-            {task.title}
-          </span>
-        ) : (
-          <input className="agt-card__rename" {...rename.inputProps} />
-        )}
+        <span className="agt-card__name">{task.title}</span>
         {pillNode}
       </div>
       {onClose !== undefined && (
@@ -152,83 +115,35 @@ export function TaskCard({ task, events, providers, width, active = false, now, 
 }
 
 /**
- * Whether a window the user put away asks to come back. Only attention that started after they put
- * it away does, so hiding a task that already wants the user is not undone on the spot.
- */
-export function wantsAttention(hiddenAt: number | null, recoveryAt: number | null, approvalAt: number | null): boolean {
-  return hiddenAt !== null && Math.max(recoveryAt ?? 0, approvalAt ?? 0) > hiddenAt;
-}
-
-/**
  * Each tick replaces the card's single recent history page and reads current task facts.
- * A superseded poll is discarded, so hidden cards never accumulate an unseen transcript.
- *
- * A hidden window keeps polling and draws nothing, so the task can ask to be shown again when
- * attention starts after the user put it away.
+ * A superseded poll is discarded, so a window never accumulates an unseen transcript.
  */
-function TaskWindow({ task: listed, tick, bridge, hiddenAt = null, renamable = false, onAttention, onHide, ...card }: {
+function TaskWindow({ task: listed, tick, bridge, ...card }: {
   task: AgentTaskDto;
   tick: number;
   bridge: () => AgentBridgePort;
-  /** When the user put this window away, or null while it is shown. */
-  hiddenAt?: number | null;
-  renamable?: boolean;
-  onAttention?: () => void;
-  onHide?: () => void;
   providers: ModelProviderDto[];
   width: number;
   active: boolean;
   now: number;
   onOpen: () => void;
   onClose?: () => void;
-}): React.JSX.Element | null {
-  // Home remounts on every tab switch; the window's last state paints the thumbnail until the poll replaces it.
+}): React.JSX.Element {
+  // The overview remounts each time it opens; the window's last state paints the thumbnail until the poll replaces it.
   // ponytail: one retained state per task shown this session; evict closed tasks if renderer memory ever matters.
   const seed = `task-window:${listed.id}`;
   const [state, dispatch] = useReducer(agentTaskReducer, seed, (key) => getCached<AgentTaskState>(key) ?? initialAgentTaskState());
   useEffect(() => { setCached(seed, state); }, [seed, state]);
-  const [approvalAt, setApprovalAt] = useState<number | null>(null);
   useEffect(() => {
     let active = true;
     void pollAgentTask(bridge(), listed.id, listed.workspaceId, dispatch, () => active).catch(() => {});
     return () => { active = false; };
   }, [bridge, listed.id, listed.workspaceId, tick]);
-  const task = state.task ?? listed;
-  const latestTurnId = task.mutationClaim?.kind === 'TURN' ? task.mutationClaim.ownerId : state.latestTurnId;
-  useEffect(() => {
-    let active = true;
-    if (latestTurnId === null || task.state !== 'OPEN') { setApprovalAt(null); return; }
-    void bridge().readAgentPendingApprovals(task.id, latestTurnId).then((pending) => {
-      if (active) setApprovalAt(pending.length === 0 ? null : Math.max(...pending.map((approval) => Date.parse(approval.occurredAt))));
-    }).catch(() => {});
-    return () => { active = false; };
-  }, [bridge, task.id, task.state, latestTurnId, tick]);
-  const claim = task.mutationClaim;
-  const recoveryAt = task.state === 'OPEN' && claim?.kind === 'RECOVERY' ? Date.parse(claim.acquiredAt) : null;
-  const attention = wantsAttention(hiddenAt, recoveryAt, approvalAt);
-  useEffect(() => {
-    if (attention) onAttention?.();
-  }, [attention, onAttention]);
-  if (hiddenAt !== null) return null;
-  const rename = renamable
-    ? (title: string) => {
-      void bridge().renameAgentTask(task.id, task.workspaceId, task.version, title)
-        .then((renamed) => dispatch({ type: 'task/loaded', task: renamed }))
-        .catch(() => {});
-    }
-    : undefined;
-  return <TaskCard task={task} events={state.events} historyIncomplete={(state.historyPages[0]?.beforeCursor ?? null) !== null} onRename={rename} onHide={onHide} {...card} />;
+  return <TaskCard task={state.task ?? listed} events={state.events} historyIncomplete={(state.historyPages[0]?.beforeCursor ?? null) !== null} {...card} />;
 }
 
-/**
- * The windows for a set of tasks, each polling its own task on one shared tick.
- *
- * Fluid windows fill a responsive grid: the grid's column width is measured so each window can
- * scale its screen to exactly the column, and `width` is the narrowest column allowed.
- */
-export function TaskWindows({
-  tasks, providers, width, bridge, activeTaskId = null, onOpen, onClose, fluid = false, renamable = false, hiddenTasks, onHide, onAttention,
-}: {
+/** The windows for a set of tasks, each polling its own task on one shared tick. */
+export function TaskWindows({ tasks, providers, width, bridge, activeTaskId = null, onOpen, onClose }: {
   tasks: AgentTaskDto[];
   providers: ModelProviderDto[];
   width: number;
@@ -236,48 +151,30 @@ export function TaskWindows({
   activeTaskId?: string | null;
   onOpen: (taskId: string) => void;
   onClose?: (task: AgentTaskDto) => void;
-  fluid?: boolean;
-  renamable?: boolean;
-  /** Windows put away by the user, each with when; they keep polling so a task can come back when it needs attention. */
-  hiddenTasks?: ReadonlyMap<string, number>;
-  onHide?: (task: AgentTaskDto) => void;
-  onAttention?: (task: AgentTaskDto) => void;
 }): React.JSX.Element {
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => setTick((count) => count + 1), WINDOW_POLL_MS);
     return () => clearInterval(timer);
   }, []);
-  const gridRef = useRef<HTMLDivElement>(null);
-  const [columnWidth, setColumnWidth] = useState(width);
-  useEffect(() => {
-    const grid = gridRef.current;
-    if (!fluid || grid === null || typeof ResizeObserver === 'undefined') return;
-    const measure = (): void => setColumnWidth(gridColumnWidth(grid.clientWidth, width));
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(grid);
-    return () => observer.disconnect();
-  }, [fluid, width]);
   // One clock reading per tick, shared by every window.
   const now = Date.now();
-  const windows = tasks.map((task) => (
-    <TaskWindow
-      key={task.id}
-      task={task}
-      tick={tick}
-      bridge={bridge}
-      providers={providers}
-      width={fluid ? columnWidth : width}
-      active={task.id === activeTaskId}
-      now={now}
-      hiddenAt={hiddenTasks?.get(task.id) ?? null}
-      renamable={renamable}
-      onOpen={() => onOpen(task.id)}
-      onClose={onClose === undefined ? undefined : () => onClose(task)}
-      onHide={onHide === undefined ? undefined : () => onHide(task)}
-      onAttention={onAttention === undefined ? undefined : () => onAttention(task)}
-    />
-  ));
-  return fluid ? <div className="agt-windows-grid" ref={gridRef}>{windows}</div> : <>{windows}</>;
+  return (
+    <>
+      {tasks.map((task) => (
+        <TaskWindow
+          key={task.id}
+          task={task}
+          tick={tick}
+          bridge={bridge}
+          providers={providers}
+          width={width}
+          active={task.id === activeTaskId}
+          now={now}
+          onOpen={() => onOpen(task.id)}
+          onClose={onClose === undefined ? undefined : () => onClose(task)}
+        />
+      ))}
+    </>
+  );
 }

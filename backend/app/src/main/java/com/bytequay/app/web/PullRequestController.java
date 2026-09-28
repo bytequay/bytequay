@@ -21,6 +21,7 @@ import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergeResult;
 import com.bytequay.core.domain.PrActivitySummary;
+import com.bytequay.core.domain.PrCommitLine;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestDetailRefresh;
@@ -28,6 +29,7 @@ import com.bytequay.core.domain.PullRequestPage;
 import com.bytequay.core.domain.RepoUser;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -76,12 +78,21 @@ public class PullRequestController
         Map<Long, String> avatars = pullRequests.findCachedAuthorAvatarUrls(
                 candidates.stream().map(PullRequest::id).collect(toImmutableSet()));
         Map<Long, PrActivitySummary> activities = pullRequests.findCachedLatestActivities(candidates);
+        Map<Long, List<PrCommitLine>> commits = pullRequests.findCachedCommitsSinceReview(candidates);
+        Map<Long, List<String>> failingChecks = pullRequests.findCachedFailingChecks(candidates);
         return candidates.stream()
-                .map(pullRequest -> new AttentionPullRequest(pullRequest, avatars.get(pullRequest.id()), activities.get(pullRequest.id())))
+                .map(pullRequest -> new AttentionPullRequest(pullRequest, avatars.get(pullRequest.id()), activities.get(pullRequest.id()),
+                        commits.getOrDefault(pullRequest.id(), ImmutableList.of()), failingChecks.getOrDefault(pullRequest.id(), ImmutableList.of())))
                 .collect(toImmutableList());
     }
 
-    public record AttentionPullRequest(@JsonUnwrapped PullRequest pullRequest, String authorAvatarUrl, PrActivitySummary latestActivity) {}
+    /** A pull request as Needs attention draws it, with the cached facts its card details: nothing here reads GitHub. */
+    public record AttentionPullRequest(
+            @JsonUnwrapped PullRequest pullRequest,
+            String authorAvatarUrl,
+            PrActivitySummary latestActivity,
+            List<PrCommitLine> commitsSinceReview,
+            List<String> failingChecks) {}
 
     @GetMapping("/prs/stored")
     public Optional<PullRequest> stored(@RequestParam("repo") String repo, @RequestParam("number") int number)

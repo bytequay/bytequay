@@ -24,7 +24,10 @@ import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.goal.GoalService;
 import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.GoalSource;
 import com.bytequay.core.domain.IssueGoal;
 import com.bytequay.core.domain.IssueTask;
 import com.bytequay.core.domain.RepoRef;
@@ -38,6 +41,7 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -84,8 +88,11 @@ class TestIssueDevelopmentService
     private final AtomicReference<IssueGoal> goal = new AtomicReference<>();
     private final AgentTask task = mock(AgentTask.class, withSettings().mockMaker(MockMakers.INLINE));
     private final TaskId taskId = TaskId.random();
+    private final GoalService goals = mock(GoalService.class);
+    @SuppressWarnings("unchecked")
+    private final ObjectProvider<GoalService> goalsProvider = mock(ObjectProvider.class);
     private final IssueDevelopmentService service = new IssueDevelopmentService(sources, issues, workspaces, tasks, taskStore,
-            unitOfWork, github, credentials, Clock.fixed(NOW, ZoneOffset.UTC), turns);
+            unitOfWork, github, credentials, Clock.fixed(NOW, ZoneOffset.UTC), turns, goalsProvider);
 
     @BeforeEach
     void setUp()
@@ -114,6 +121,18 @@ class TestIssueDevelopmentService
         when(task.id()).thenReturn(taskId);
         when(task.workspaceId()).thenReturn(Optional.of("workspace"));
         when(tasks.getInteractive("workspace", taskId)).thenReturn(task);
+        when(goalsProvider.getObject()).thenReturn(goals);
+    }
+
+    @Test
+    void markingAnIssueSeedsItsWorkspaceGoalAndUnmarkingRemovesIt()
+    {
+        GoalSource source = new GoalSource(GoalItemKind.ISSUE, "upstream/repo#7");
+        assertThat(service.setGoal("workspace", 7, true).isGoal()).isTrue();
+        verify(goals).seed("workspace", source, SOURCE.title());
+        assertThat(service.setGoal("workspace", 7, false).isGoal()).isFalse();
+        verify(goals).unseed(source);
+        verifyNoInteractions(github);
     }
 
     @Test

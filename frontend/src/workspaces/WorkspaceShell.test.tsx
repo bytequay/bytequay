@@ -224,20 +224,29 @@ describe('watched repository workspace UI', () => {
     };
 
     const tasks = renderToStaticMarkup(<WorkspaceShell {...props} />);
-    expect(tasks).toContain('Agent tasks');
+    expect(tasks).toContain('aria-label="Task types"');
     expect(tasks).toContain('Describe a task');
     // Every agent screen carries the overview control.
     expect(tasks).toContain('aria-label="Show all tasks"');
     expect(tasks).toContain('class="agt-headbtn agt-overview-toggle"');
+    expect(tasks).toContain('title="upstream/project · tasks start in this repo"');
     const home = renderToStaticMarkup(<WorkspaceShell {...props} tab="home" />);
-    expect(home).toContain('class="agt-home__repo">upstream/project<');
+    expect(home).toContain('<h1>upstream/project</h1>');
+    expect(home).toContain('title="upstream/project · tasks start in this repo"');
     expect(home).toContain('Open tasks · 0');
     expect(home).toContain('aria-label="Describe a task"');
     expect(home).toContain('class="agt-headbtn agt-overview-toggle"');
 
+    // Every page but an open task carries the workspace's goal as a pill.
+    for (const page of [tasks, home, renderToStaticMarkup(<WorkspaceShell {...props} tab="prs" />)]) {
+      expect(page).toContain('class="goal-layer"');
+      expect(page).toMatch(/<button[^>]*class="goal-pill"[^>]*aria-label="Open goals"/);
+    }
+
     // The route, not component memory, decides which task is open.
     const open = renderToStaticMarkup(
       <WorkspaceShell {...props} initialAgentTaskId="task-1" />);
+    expect(open).not.toContain('goal-pill');
     expect(open).toContain('Message the agent');
     expect(open.match(/aria-label="Show all tasks"/g)).toHaveLength(1);
     expect(open).toMatch(/<div class="agt-screen-head">.*aria-label="Show all tasks".*<\/button><\/div>/);
@@ -276,12 +285,13 @@ describe('watched repository workspace UI', () => {
     const value = workspace('FORK');
     let jira: ReactElement<Parameters<typeof JiraScreen>[0]> | undefined;
     function CaptureJira(): null {
+      // Every workspace page sits inside the goal layer.
       jira = WorkspaceShell({
         workspace: value, tab: 'jira',
         onSelectTab: vi.fn(), onWorkspaceChanged: vi.fn(),
         initialPullRequestNumber: null, initialIssueNumber: null, initialAgentTaskId: null,
         onSelectAgentTask: vi.fn(), onSelectPullRequest: vi.fn(), onSelectIssue: vi.fn(),
-      });
+      }).props.children;
       return null;
     }
     renderToStaticMarkup(<CaptureJira />);
@@ -289,11 +299,11 @@ describe('watched repository workspace UI', () => {
     expect(jira?.props.workspace).toBe(value);
   });
 
-  it('zooms a workspace Home PR while See all still opens its PR tab', () => {
+  it('zooms a workspace Home PR over the page', () => {
     const zoomed = captureZoom();
     const onSelectPullRequest = vi.fn();
     const onSelectTab = vi.fn();
-    let home: ReactElement<{ onOpenPullRequest: (number: number) => void; onOpenPullRequests: () => void }> | undefined;
+    let home: ReactElement<{ onOpenPullRequest: (number: number) => void }> | undefined;
     function CaptureHome() {
       const view = WorkspaceShell({
         workspace: workspace('FORK'),
@@ -307,7 +317,7 @@ describe('watched repository workspace UI', () => {
         onSelectPullRequest,
         onSelectIssue: () => {},
       });
-      home = view.props.children[0];
+      home = view.props.children.props.children[0];
       return view;
     }
     renderToStaticMarkup(<CaptureHome />);
@@ -317,9 +327,6 @@ describe('watched repository workspace UI', () => {
     expect(zoomed()).toEqual([{ kind: 'pull', repo: 'upstream/project', number: 42, workspaceId: 'workspace-id' }]);
     expect(onSelectPullRequest).not.toHaveBeenCalled();
     expect(onSelectTab).not.toHaveBeenCalled();
-
-    home?.props.onOpenPullRequests();
-    expect(onSelectTab).toHaveBeenCalledWith('prs');
   });
 
   /** A screen can ride in a zoom card rather than being the stage's only child. */
@@ -383,17 +390,25 @@ describe('watched repository workspace UI', () => {
 
   it('opens a cherry-pick execution without leaving the Tasks tab', () => {
     const onSelectTab = vi.fn();
-    let cherryPicks: ReactElement<{ onOpenTask: (execution: { executionId: string }) => void }> | undefined;
-    function CaptureCherryPicks() {
+    let tasks: ReactElement<{
+      onOpenCherryPick: (execution: { executionId: string }) => void;
+      onNewItem: (type: 'review' | 'cherry' | 'ci') => void;
+    }> | undefined;
+    function CaptureTasks() {
       const view = tasksTab({ onSelectTab });
-      cherryPicks = find(view, props => props.onNewCherryPick !== undefined);
+      tasks = find(view, props => props.onOpenCherryPick !== undefined);
       return view;
     }
-    renderToStaticMarkup(<CaptureCherryPicks />);
+    renderToStaticMarkup(<CaptureTasks />);
 
-    expect(cherryPicks).toBeDefined();
-    cherryPicks?.props.onOpenTask({ executionId: 'execution-1' });
+    expect(tasks).toBeDefined();
+    tasks?.props.onOpenCherryPick({ executionId: 'execution-1' });
     expect(onSelectTab).not.toHaveBeenCalled();
+    // A new cherry-pick starts from upstream commits; a review or a CI fix from a pull request.
+    tasks?.props.onNewItem('cherry');
+    tasks?.props.onNewItem('review');
+    tasks?.props.onNewItem('ci');
+    expect(onSelectTab.mock.calls).toEqual([['commits'], ['prs'], ['prs']]);
   });
 
   it('loads the saved target before opening fork workspace commits', () => {

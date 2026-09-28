@@ -14,112 +14,173 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import AttentionList from './AttentionList';
-import type { AttentionItem } from './attention';
+import { jiraAttentionItems } from '../jira/attention';
+import { jiraIssue } from '../jira/fixtures/jira';
+import { attentionCards, handledEntry, visibleAttention, type AttentionItem, type Handled } from './attention';
+import type { PullRequestDto } from '../types';
+
+function pullRequest(number: number, latestActivity: PullRequestDto['latestActivity'] = null): PullRequestDto {
+  return {
+    id: number, repo: 'trinodb/trino', number, title: `Change ${number}`, author: 'alice',
+    htmlUrl: `https://github.com/trinodb/trino/pull/${number}`, createdAt: null, updatedAt: '2026-08-28T00:00:00Z',
+    origin: 'REVIEW_REQUESTED', labels: [], labelColors: null, draft: false, viewedAt: null, reviewedAt: null,
+    handledAction: null, requestedReviewers: ['viewer'], ciStatus: null, additions: 0, deletions: 0, commentCount: 1,
+    state: 'open', mergeable: null, mergeableState: null, headPushedAt: null, headRef: 'branch', latestActivity,
+  };
+}
+
+function prItem(number: number, kind: AttentionItem['kind'] = 'review', latestActivity: PullRequestDto['latestActivity'] = null): AttentionItem {
+  const pr = pullRequest(number, latestActivity);
+  return {
+    key: `trinodb/trino#${number}`, type: 'pr', kind, repo: 'trinodb/trino', number, title: pr.title, author: 'alice',
+    authorAvatarUrl: null, createdAt: null, updatedAt: pr.updatedAt, labels: [], pr, body: '', commentCount: 1, workspaceId: null,
+  };
+}
+
+function issueItem(number: number): AttentionItem {
+  return {
+    key: `trinodb/trino#${number}`, type: 'issue', kind: 'assigned', repo: 'trinodb/trino', number, title: `Issue ${number}`,
+    author: 'finn-ep', authorAvatarUrl: null, createdAt: null, updatedAt: '2026-08-28T00:00:00Z', labels: ['bug', 'iceberg'],
+    pr: null, body: '', commentCount: 0, workspaceId: 'workspace-1',
+  };
+}
+
+function list(candidates: AttentionItem[], handled: Handled = {}, variant: 'home' | 'workspace' = 'home', jiraConnected = true): string {
+  return renderToStaticMarkup(
+    <AttentionList variant={variant} candidates={candidates} handled={handled} viewerLogin="viewer" jiraConnected={jiraConnected}
+      onHandledChange={() => {}} onOpen={() => {}} onStartIssue={() => {}} />);
+}
 
 describe('AttentionList', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
-  it('keeps the pull request identity together and renders shared action buttons', () => {
+  it('draws a card tinted by its source, with the reason, the actor and what happened', () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-30T00:00:00Z'));
-    const item: AttentionItem = {
-      key: 'trinodb/trino#30920',
-      type: 'pr',
-      kind: 'review',
-      repo: 'trinodb/trino',
-      number: 30920,
-      title: 'Add retry policy for listing tables in BigQuery',
-      author: 'alice',
-      authorAvatarUrl: null,
-      createdAt: '2026-08-27T00:00:00Z',
-      updatedAt: '2026-08-28T00:00:00Z',
-      labels: [],
-      pr: {
-        id: 1, repo: 'trinodb/trino', number: 30920, title: 'Add retry policy', author: 'alice',
-        htmlUrl: 'https://github.com/trinodb/trino/pull/30920', createdAt: null, updatedAt: '2026-08-28T00:00:00Z',
-        origin: 'REVIEW_REQUESTED', labels: [], labelColors: null, draft: false, viewedAt: null, reviewedAt: null,
-        handledAction: null, requestedReviewers: ['viewer'], ciStatus: null, additions: 0, deletions: 0, commentCount: 1,
-        state: 'open', mergeable: null, mergeableState: null, headPushedAt: null, headRef: 'branch',
-        activityAt: '2026-08-29T23:11:00Z',
-        latestActivity: { event: 'commented', actor: 'bob', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: null },
-      },
-      body: '',
-      commentCount: 0,
-      workspaceId: null,
-    };
-    const html = renderToStaticMarkup(
-      <AttentionList
-        candidates={[item]}
-        handled={{}}
-        onHandledChange={() => {}}
-        onOpen={() => {}}
-        onSeeAll={() => {}}
-      />,
-    );
+    const html = list([prItem(30920, 'review', {
+      event: 'review_requested', actor: 'bob', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: 'viewer',
+    })]);
 
-    const title = html.indexOf(item.title);
-    const number = html.indexOf(`#${item.number}`);
-    const repositoryAvatar = html.indexOf('aria-label="trinodb/trino"');
-    const authorAvatar = html.indexOf('alt="alice"');
-    expect(title).toBeGreaterThan(-1);
-    expect(number).toBeGreaterThan(title);
-    expect(repositoryAvatar).toBeGreaterThan(number);
-    expect(authorAvatar).toBeGreaterThan(repositoryAvatar);
-    // The reason stays on the tile; the second line and age describe the same actual GitHub action.
-    expect(html).toContain('lucide-list-checks');
-    expect(html).toContain('Review requested');
-    expect(html).toContain('>Commented</span>');
-    expect(html).toContain('>bob</span>');
-    expect(html).not.toContain('alice asked for your review');
+    // The box, its keyboard behaviour and its hover actions come from the shared card base.
+    expect(html).toContain('class="card atn-card is-pr" role="button" tabindex="0"');
+    expect(html).toContain('lucide-git-pull-request');
+    // The strip names no type, and a pull request's reason sits in it.
+    expect(html).not.toContain('>Pull request<');
+    expect(html).toMatch(/class="atn-card__head">.*class="pill is-outline">Review requested<.*class="atn-card__body"/);
+    expect(html).toContain('class="atn-card__key">#30920<');
+    // Global Home names the repository on each card; the age is the actual event's.
+    expect(html).toContain('trinodb/trino</span>');
     expect(html).toContain('dateTime="2026-08-28T00:00:00Z"');
     expect(html).toContain('>2d</time>');
-    expect(html).not.toContain('>49m<');
+    expect(html).toContain('<span class="atn-card__actor">bob</span> requested your review');
     expect(html).toContain('aria-label="Acknowledge #30920"');
     expect(html).toContain('aria-label="Snooze #30920"');
-    expect(html).not.toContain('bq-button');
-    expect(html).not.toContain('Open');
-    expect(html).toContain('class="atn-count">1<');
+    // The "All issues" and "All pull requests" links are gone.
+    expect(html).not.toContain('All pull requests');
+    expect(html).not.toContain('All issues');
   });
 
-  it('scopes the workspace variant to a few rows and disappears when nothing needs the user', () => {
-    const items = [30920, 30921, 30922, 30923, 30924].map((number): AttentionItem => ({
-      key: `trinodb/trino#${number}`,
-      type: 'pr',
-      kind: 'ci',
-      repo: 'trinodb/trino',
-      number,
-      title: `Change ${number}`,
-      author: 'alice',
-      authorAvatarUrl: null,
-      createdAt: '2026-08-27T00:00:00Z',
-      updatedAt: '2026-08-28T00:00:00Z',
-      labels: [],
-      pr: null,
-      body: '',
-      commentCount: 0,
-      workspaceId: null,
+  it('lists four new commits, or three and how many more', () => {
+    const commits = (count: number) => Array.from({ length: count }, (_, index) => ({
+      sha: `${index}aaaaaaaaa`, message: `Commit ${index}`, actor: 'bob', committedAt: '2026-08-28T00:00:00Z',
     }));
-    const html = renderToStaticMarkup(
-      <AttentionList
-        variant="workspace"
-        maxRows={3}
-        candidates={items}
-        handled={{}}
-        onHandledChange={() => {}}
-        onOpen={() => {}}
-        onSeeAll={() => {}}
-      />,
-    );
+    const card = (count: number) => list([{ ...prItem(30920), pr: { ...pullRequest(30920), commitsSinceReview: commits(count) } }]);
 
-    expect(html.match(/class="atn-row"/g)).toHaveLength(3);
-    expect(html).toContain('class="atn-count">3 of 5<');
-    expect(html).toContain('class="atn-head__label">Needs attention<');
-    expect(html).toContain('Needs attention: CI failing');
-    expect(html).toContain('pull request updated');
-    // Inside a workspace the repository is a given, so its avatar is not repeated on every row.
-    expect(html).not.toContain('aria-label="trinodb/trino"');
+    const four = card(4);
+    expect(four).toContain('4 commits since your last review');
+    expect(four.match(/class="atn-detail__commit"/g)).toHaveLength(4);
+    expect(four).not.toContain('more</div>');
+    const six = card(6);
+    expect(six).toContain('6 commits since your last review');
+    expect(six.match(/class="atn-detail__commit"/g)).toHaveLength(3);
+    expect(six).toContain('<div class="atn-detail__lead">and 3 more</div>');
+  });
 
-    expect(renderToStaticMarkup(
-      <AttentionList variant="workspace" candidates={[]} handled={{}} onHandledChange={() => {}} onOpen={() => {}} onSeeAll={() => {}} />,
-    )).toBe('');
+  it('draws a review comment as the Markdown it was written in, under the name of the file it was left on', () => {
+    const html = list([prItem(30985, 'review', {
+      event: 'review_thread', actor: 'ravi-moreau', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: null,
+      excerpt: '`TransactionLogAccess.java:562` declares the same record.', path: 'plugin/trino-delta-lake/src/main/java/CheckpointWriter.java', line: 101,
+    })]);
+
+    // What happened starts folded under the actor line, which unfolds it.
+    expect(html).toContain('<button class="card-fold" type="button" aria-expanded="false" title="Show details">');
+    expect(html).toContain('<div hidden=""><div class="card-box atn-detail">');
+    expect(html).toContain('<p><code>TransactionLogAccess.java:562</code> declares the same record.</p>');
+    expect(html).toContain('<div class="atn-detail__file" title="plugin/trino-delta-lake/src/main/java/CheckpointWriter.java:101">on CheckpointWriter.java:101</div>');
+  });
+
+  it('draws a ticket\'s status move as the old status struck through, then the new one, then the note', () => {
+    const [ticket] = jiraAttentionItems([{ ...jiraIssue, latestActivity: {
+      kind: 'STATUS_CHANGED', at: jiraIssue.updatedAt, actor: null, from: { id: '3', name: 'In Progress', category: 'indeterminate' },
+      to: { id: '6', name: 'Blocked', category: 'indeterminate' }, note: 'Staging is mid-upgrade.', fields: [],
+    } }]);
+    const html = list([ticket]);
+
+    expect(html).toContain('class="card atn-card is-jira"');
+    expect(html).toMatch(/class="atn-card__head">.*class="pill is-outline">Assigned to you<.*class="atn-card__body"/);
+    expect(html).toContain('<button class="card-fold" type="button" aria-expanded="false" title="Show details">');
+    expect(html).toMatch(/<span class="pill is-blue is-square is-struck">In Progress<\/span><svg[^>]*aria-label="to"[^>]*>.*?<\/svg><span class="pill is-red is-square">Blocked<\/span>/);
+    expect(html).toContain('<div class="markdown-body"><p>Staging is mid-upgrade.</p></div>');
+  });
+
+  it('shows at most four cards, counts the rest, and filters by source', () => {
+    const items = [30920, 30921, 30922, 30923, 30924].map(number => prItem(number)).concat(issueItem(7));
+    const html = list(items, {}, 'workspace');
+
+    expect(html.match(/class="card atn-card /g)).toHaveLength(4);
+    expect(html).toContain('class="atn-count">4 of 6<');
+    expect(html).toMatch(/>PRs <span class="atn-filter__count">5</);
+    expect(html).toMatch(/>Issues <span class="atn-filter__count">1</);
+    expect(html).toMatch(/>Jira <span class="atn-filter__count">0</);
+    // Without Jira connected there is no Jira tab.
+    expect(list(items, {}, 'workspace', false)).not.toContain('>Jira <');
+    // A workspace's own cards do not repeat its repository.
+    expect(html).not.toContain('trinodb/trino</span>');
+
+    const issues = attentionCards(items, 'issue');
+    expect(issues.cards.map(item => item.number)).toEqual([7]);
+    expect(issues.counts).toEqual({ all: 6, pr: 5, issue: 1, jira: 0, task: 0 });
+  });
+
+  it('brings in the next item when a card is acknowledged or snoozed, still capped at four', () => {
+    const now = Date.parse('2026-08-30T00:00:00Z');
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    const items = [30920, 30921, 30922, 30923, 30924, 30925].map(number => prItem(number));
+    const shown = (handled: Handled) => attentionCards(visibleAttention(items, handled, now), 'all').cards.map(item => item.number);
+    expect(shown({})).toEqual([30920, 30921, 30922, 30923]);
+
+    const acknowledged = { [items[1].key]: handledEntry(items[1], 'ack', null, 'acknowledged') };
+    expect(shown(acknowledged)).toEqual([30920, 30922, 30923, 30924]);
+    const snoozed = { ...acknowledged, [items[0].key]: handledEntry(items[0], 'snooze', now + 3_600_000, '1 hour') };
+    expect(shown(snoozed)).toEqual([30922, 30923, 30924, 30925]);
+    expect(list(items, snoozed)).toContain('class="atn-count">4<');
+  });
+
+  it('offers development for an issue and lists its labels, and says so when nothing needs you', () => {
+    const html = list([issueItem(7)]);
+    expect(html).toContain('class="card atn-card is-issue"');
+    expect(html).toContain('class="pill is-outline">Assigned to you<');
+    expect(html).toContain('<span class="atn-card__actor">finn-ep</span> opened this issue');
+    expect(html).toContain('aria-label="Start development for #7"');
+    expect(html).toContain('>bug</span>');
+    expect(html).toContain('>iceberg</span>');
+
+    expect(list([], {}, 'workspace')).toContain('Nothing needs you right now.');
+  });
+
+  it('starts linked items folded to one row of keys', () => {
+    const item: AttentionItem = {
+      ...prItem(31264),
+      links: [
+        { source: 'jira', key: 'TRINO-412', title: 'Validate the fix', status: 'Blocked', tone: 'red' },
+        { source: 'issue', key: '#31190', title: 'Checkpoint drops deletion vectors', status: 'Open', tone: 'green' },
+      ],
+    };
+    const html = list([item]);
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('>TRINO-412</span>');
+    expect(html).toContain('>#31190</span>');
+    expect(html).not.toContain('LINKED');
+    // Titles and statuses wait, hidden, until the row unfolds.
+    expect(html).toMatch(/<button class="card-fold" type="button" aria-expanded="false" title="Show linked items">.*?<\/button><div hidden="">.*Validate the fix/);
   });
 });

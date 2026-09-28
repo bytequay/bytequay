@@ -258,8 +258,8 @@ enhancement (or is dropped for the minimal implementation).
   under it stay as its background; opening a reference that is already open brings it
   forward. Close, Escape, or the backdrop dismisses only the top layer; navigating closes all.
   A workspace surface keeps its monitored repository and workspace context. Neither list
-  is loaded behind the overlay; **See all** and **Start review** still navigate to the PR
-  list, and the Issues tab still owns the issue list and its route. A Markdown reference
+  is loaded behind the overlay; the Pull requests and Issues tabs still own their lists
+  and routes. A Markdown reference
   to an issue outside every watched repository stays a web page. Nested review/merge
   dialogs consume Escape, and returning from the embedded browser resumes the open details.
 - **Watch modal**: `Esc`/`✕` closes at any step without saving. Selecting a result loads

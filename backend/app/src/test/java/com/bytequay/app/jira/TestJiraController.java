@@ -48,12 +48,31 @@ class TestJiraController
     private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules().disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
     private final JiraService jira = mock(JiraService.class);
     private final JiraConnections connections = mock(JiraConnections.class);
+    private final JiraActivityLog activity = mock(JiraActivityLog.class);
     private MockMvc mvc;
 
     @BeforeEach
     void setUp()
     {
-        mvc = standaloneSetup(new JiraController(connections, jira)).setMessageConverters(new MappingJackson2HttpMessageConverter(mapper)).build();
+        mvc = standaloneSetup(new JiraController(connections, jira, activity)).setMessageConverters(new MappingJackson2HttpMessageConverter(mapper)).build();
+    }
+
+    @Test
+    void attentionNamesTheLastChangeSeenOnEachTicket()
+            throws Exception
+    {
+        JiraIssue issue = detail().issue();
+        when(jira.attention()).thenReturn(ImmutableList.of(issue));
+        when(activity.latest(issue)).thenReturn(Optional.of(new JiraActivity(JiraActivity.Kind.STATUS_CHANGED, UPDATED, Optional.empty(),
+                Optional.of(new JiraDtos.Status("3", "In Progress", "indeterminate")), Optional.of(new JiraDtos.Status("6", "Blocked", "indeterminate")),
+                Optional.empty(), ImmutableList.of())));
+        JsonNode tickets = mapper.readTree(mvc.perform(get("/api/jira/attention")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+        // The ticket stays flat, as every other Jira read sends it, with its last change beside it.
+        assertThat(tickets.at("/0/key").asText()).isEqualTo(issue.key());
+        assertThat(tickets.at("/0/issue").isMissingNode()).isTrue();
+        assertThat(tickets.at("/0/latestActivity/kind").asText()).isEqualTo("STATUS_CHANGED");
+        assertThat(tickets.at("/0/latestActivity/to/name").asText()).isEqualTo("Blocked");
+        assertThat(tickets.at("/0/latestActivity/actor").isNull()).isTrue();
     }
 
     @Test

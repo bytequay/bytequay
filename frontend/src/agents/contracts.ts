@@ -15,6 +15,7 @@
 import type { JiraTaskSource } from '../jira/contracts';
 import type {
   AgentIssueSourceDto,
+  AgentTaskActivityDto,
   DevelopmentAutomationDto,
   DevelopmentResultDto,
   AgentModelSettingDto,
@@ -331,6 +332,38 @@ export function parseAgentTaskChanges(value: unknown): Record<string, AgentTaskC
   }));
 }
 
+export function parseAgentTaskActivity(value: unknown): Record<string, AgentTaskActivityDto> {
+  const source = object(value, 'taskActivity');
+  return Object.fromEntries(Object.entries(source).map(([taskId, entry]) => {
+    const path = `taskActivity.${taskId}`;
+    const activity = object(entry, path);
+    const message = activity.lastMessage === null || activity.lastMessage === undefined ? null : object(activity.lastMessage, `${path}.lastMessage`);
+    const approval = activity.pendingApproval === null || activity.pendingApproval === undefined ? null : object(activity.pendingApproval, `${path}.pendingApproval`);
+    const turn = activity.latestTurn === null || activity.latestTurn === undefined ? null : object(activity.latestTurn, `${path}.latestTurn`);
+    return [taskId, {
+      lastMessage: message === null ? null : {
+        author: enumText(message.author, ['USER', 'AGENT'] as const, `${path}.lastMessage.author`),
+        text: text(message.text, `${path}.lastMessage.text`),
+        at: text(message.at, `${path}.lastMessage.at`),
+        turnId: optionalText(message.turnId, `${path}.lastMessage.turnId`),
+      },
+      pendingApproval: approval === null ? null : {
+        approvalId: text(approval.approvalId, `${path}.pendingApproval.approvalId`),
+        occurredAt: text(approval.occurredAt, `${path}.pendingApproval.occurredAt`),
+        title: text(approval.title, `${path}.pendingApproval.title`),
+        detail: text(approval.detail, `${path}.pendingApproval.detail`),
+        approvalKind: text(approval.approvalKind, `${path}.pendingApproval.approvalKind`),
+        scope: textList(approval.scope, `${path}.pendingApproval.scope`),
+      },
+      latestTurn: turn === null ? null : {
+        id: text(turn.id, `${path}.latestTurn.id`),
+        state: text(turn.state, `${path}.latestTurn.state`),
+        endedAt: optionalText(turn.endedAt, `${path}.latestTurn.endedAt`),
+      },
+    }];
+  }));
+}
+
 export function parseAgentTasks(value: unknown): AgentTaskDto[] {
   if (!Array.isArray(value)) {
     throw new Error('tasks is not an array');
@@ -373,6 +406,7 @@ export function parseCiAutofixRun(value: unknown): CiAutofixRunDto {
     agentTaskId: optionalText(source.agentTaskId, 'ciRun.agentTaskId'), currentTurnId: optionalText(source.currentTurnId, 'ciRun.currentTurnId'),
     parentTaskId: optionalText(source.parentTaskId, 'ciRun.parentTaskId'), canMessage: flag(source.canMessage, 'ciRun.canMessage'),
     summary: optionalText(source.summary, 'ciRun.summary'), pauseReason: optionalText(source.pauseReason, 'ciRun.pauseReason'), finishReason: optionalText(source.finishReason, 'ciRun.finishReason'),
+    createdAt: text(source.createdAt, 'ciRun.createdAt'), updatedAt: text(source.updatedAt, 'ciRun.updatedAt'),
   };
 }
 

@@ -157,6 +157,13 @@ const bridge: Bridge = {
   fetchWorkspaceIssue: (workspaceId, issueNumber) => ipcRenderer.invoke('workspaces:issue', workspaceId, issueNumber),
   fetchWorkspaceIssueAttention: workspaceId => ipcRenderer.invoke('workspaces:issues:attention', workspaceId),
   setWorkspaceIssueGoal: (workspaceId, issueNumber, isGoal) => ipcRenderer.invoke('workspaces:issues:goal', workspaceId, issueNumber, isGoal),
+  listGoals: workspaceId => ipcRenderer.invoke('goals:list', workspaceId),
+  createGoal: (workspaceId, title, description) => ipcRenderer.invoke('goals:create', workspaceId, title, description),
+  updateGoal: (workspaceId, goalId, patch) => ipcRenderer.invoke('goals:update', workspaceId, goalId, patch),
+  deleteGoal: (workspaceId, goalId) => ipcRenderer.invoke('goals:delete', workspaceId, goalId),
+  addGoalItem: (workspaceId, goalId, kind, key) => ipcRenderer.invoke('goals:items:add', workspaceId, goalId, kind, key),
+  removeGoalItem: (workspaceId, goalId, kind, key) => ipcRenderer.invoke('goals:items:remove', workspaceId, goalId, kind, key),
+  searchGoalCandidates: (workspaceId, query) => ipcRenderer.invoke('goals:candidates', workspaceId, query),
   refreshWorkspaceIssues: workspaceId => ipcRenderer.invoke('workspaces:issues:refresh', workspaceId),
   fetchWorkspaceIssueDetail: (workspaceId, issueNumber) =>
     ipcRenderer.invoke('workspaces:issues:detail', workspaceId, issueNumber),
@@ -233,6 +240,7 @@ const bridge: Bridge = {
   startCherryPickExecution: request => ipcRenderer.invoke('cherrypick:execution:start', request),
   getCherryPickExecution: executionId => ipcRenderer.invoke('cherrypick:execution:get', executionId),
   listCherryPickExecutions: limit => ipcRenderer.invoke('cherrypick:execution:list', limit),
+  listCiAutofixRuns: limit => ipcRenderer.invoke('ci-autofix:list', limit),
   sendCherryPickMessage: (executionId, message) =>
     ipcRenderer.invoke('cherrypick:execution:message', executionId, message),
   cancelCherryPickExecution: (workspaceId, executionId) =>
@@ -342,6 +350,7 @@ const bridge: Bridge = {
   listAgentTaskPullRequests: (taskId, workspaceId, refresh) =>
     ipcRenderer.invoke('agent:task:pull-requests', taskId, workspaceId, refresh),
   listAgentTaskChanges: workspaceId => ipcRenderer.invoke('agent:tasks:changes', workspaceId),
+  listAgentTaskActivity: workspaceId => ipcRenderer.invoke('agent:tasks:activity', workspaceId),
   getCiAutofixRun: runId => ipcRenderer.invoke('ci-autofix:get', runId),
   sendCiAutofixMessage: (runId, message, idempotencyKey) => ipcRenderer.invoke('ci-autofix:message', runId, message, idempotencyKey),
   renameAgentTask: (taskId, workspaceId, expectedVersion, title) =>

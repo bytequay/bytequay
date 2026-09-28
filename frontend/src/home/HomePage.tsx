@@ -12,40 +12,35 @@
  * limitations under the License.
  */
 import { useJiraAttention } from '../jira/attention';
+import { linkTasks, useTaskAttention } from '../agents/attention';
 import { jiraIssueLocation } from '../jira/contracts';
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight } from 'lucide-react';
 import type { PullRequestDto, RecentEventDto, UserProfileDto, WorkspaceDto } from '../types';
 import AddRepoModal from '../AddRepoModal';
 import ActivityRow from '../ActivityRow';
 import { groupRecentEvents } from '../activityNarrative';
-import AttentionList from './AttentionList';
+import AttentionList, { type GoalToggle } from './AttentionList';
+import { attentionWorkspace, goalHas, goalRef } from '../goals/model';
+import { toggleGoalItem, usePinnedGoals } from '../goals/useGoals';
 import {
   ATTENTION_SEED,
   assignedIssues,
   attentionCandidates,
   loadHandled,
   saveHandled,
-  stillHandled,
-  visibleAttention,
   type AttentionItem,
   type Handled,
 } from './attention';
 import ContributionCard from './ContributionCard';
 import { getCached, getCachedFresh, setCached } from '../dataCache';
 import WatchedReposGrid from './WatchedReposGrid';
-import { pullRequestIsMine, pullRequestNeedsReview } from '../pulls/model';
 import { relativeTime } from '../relativeTime';
 import { openActivityLink, zoomReference } from '../githubReference';
-import {
-  workspaceIsUpdating,
-  workspaceRoute,
-} from '../workspaces/model';
+import { workspaceAgentTaskRoute, workspaceIsUpdating } from '../workspaces/model';
 import { ISSUE_DEVELOPMENT_CHANGED } from '../workspaces/issueDevelopment';
 
 type Props = {
   onSelectRepo: (owner: string, repo: string, prNumber?: number) => void;
-  onGoToMyPrs: () => void;
   onOpenWorkspace: (workspaceId: string) => void;
   onStartIssue?: (workspaceId: string, issueNumber: number) => void;
 };
@@ -92,7 +87,6 @@ async function enrichActivityPrTitles(events: RecentEventDto[]): Promise<RecentE
 
 function HomePage({
   onSelectRepo,
-  onGoToMyPrs,
   onOpenWorkspace,
   onStartIssue,
 }: Props) {
@@ -263,33 +257,26 @@ function HomePage({
     };
   }, [login, workspaceKey]);
 
+  const taskWorkspaces = useMemo(() => workspaces.map(workspace => ({
+    id: workspace.id, name: workspace.name, repository: `${workspace.monitoredOwner}/${workspace.monitoredRepo}`,
+  })), [workspaces]);
+  const tasks = useTaskAttention(taskWorkspaces);
+  const pinnedGoals = usePinnedGoals(useMemo(() => workspaces.map(workspace => workspace.id), [workspaces]));
+  // Each card joins the pinned goal of the workspace it belongs to.
+  const goalToggle = (item: AttentionItem): GoalToggle | null => {
+    const workspaceId = attentionWorkspace(item, workspaces);
+    const goal = workspaceId === null ? undefined : pinnedGoals.get(workspaceId);
+    const ref = goalRef(item);
+    if (workspaceId === null || goal === undefined || ref === null) return null;
+    const inGoal = goalHas(goal, ref);
+    return { inGoal, toggle: () => toggleGoalItem(workspaceId, goal.id, ref, inGoal) };
+  };
+
   const candidates = useMemo(
-    () => attentionCandidates(attentionPrs ?? [], issueItems.map<AttentionItem>(item => ({
+    () => linkTasks(attentionCandidates(attentionPrs ?? [], issueItems.map<AttentionItem>(item => ({
       ...item, workspaceName: workspaces.find(workspace => workspace.id === item.workspaceId)?.name,
-    })).concat(jira.items), login),
-    [attentionPrs, issueItems, jira.items, login, workspaces]);
-
-  const snoozedCount = useMemo(() => {
-    const now = Date.now();
-    return candidates.filter(item => {
-      const entry = handled[item.key];
-      return entry !== undefined && entry.kind === 'snooze' && stillHandled(entry, item, now);
-    }).length;
-  }, [candidates, handled]);
-
-  const prInboxCounts = useMemo(() => {
-    if (!attentionPrs) return null;
-    let mine = 0;
-    let awaiting = 0;
-    for (const pr of attentionPrs) {
-      if (pr.state !== 'open') continue;
-      if (pullRequestIsMine(pr, login)) mine++;
-      else if (pullRequestNeedsReview(pr)) awaiting++;
-    }
-    const flagged = visibleAttention(candidates, handled, Date.now()).filter(item => item.type === 'pr').length;
-    return { mine, awaiting, flagged };
-  }, [attentionPrs, candidates, handled, login]);
-
+    })).concat(jira.items, tasks.items), login), tasks.tasks),
+    [attentionPrs, issueItems, jira.items, login, tasks.items, tasks.tasks, workspaces]);
 
   function applyHandled(next: Handled) {
     setHandled(next);
@@ -311,31 +298,18 @@ function HomePage({
       {/* ── Contribution card: graph + bio ── */}
       <ContributionCard profile={profile} />
 
-      {/* ── Start review bar ── */}
-      <div className="home-start">
-        <span className="home-start__icon" aria-hidden="true">✦</span>
-        <span className="home-start__title">Start reviewing all my PRs</span>
-        <span className="home-start__divider" aria-hidden="true" />
-        <div className="home-start__counts">
-          <span><b className={prInboxCounts?.awaiting ? '' : 'is-zero'}>{prInboxCounts?.awaiting ?? 0}</b> awaiting me</span>
-          <span><b className={prInboxCounts?.mine ? '' : 'is-zero'}>{prInboxCounts?.mine ?? 0}</b> mine</span>
-          <span><b className={prInboxCounts?.flagged ? '' : 'is-zero'}>{prInboxCounts?.flagged ?? 0}</b> flagged</span>
-        </div>
-        <div className="home-start__spacer" />
-        {snoozedCount > 0 && <span className="home-start__snoozed">{snoozedCount} snoozed</span>}
-        <button className="bq-button bq-button--primary bq-button--large" type="button" onClick={onGoToMyPrs}>
-          Start review <ArrowRight aria-hidden="true" />
-        </button>
-      </div>
-
       {attentionError && <div className="ws-error" role="alert">Unable to load PR attention: {attentionError}</div>}
       {jira.error && <div className="ws-error" role="alert">{jira.error}</div>}
       {issueAttentionError && <div className="ws-error" role="alert">{issueAttentionError}</div>}
       <AttentionList
         candidates={candidates}
+        goal={goalToggle}
         handled={handled}
+        viewerLogin={login ?? null}
+        jiraConnected={jira.connected}
         onHandledChange={applyHandled}
         onOpen={item => {
+          if (item.task) { window.location.hash = workspaceAgentTaskRoute(item.task.dto.workspaceId, item.task.dto.id); return; }
           if (item.jira) { zoomReference({ kind: 'jira', ...jiraIssueLocation(item.jira) }); return; }
           if (item.type === 'issue' && item.workspaceId !== null) {
             zoomReference({ kind: 'issue', repo: item.repo, number: item.number, workspaceId: item.workspaceId });
@@ -348,16 +322,6 @@ function HomePage({
           if (item.jira) { zoomReference({ kind: 'jira', ...jiraIssueLocation(item.jira), start: true }); return; }
           if (item.workspaceId !== null) onStartIssue?.(item.workspaceId, item.number);
         }}
-        issueNavigation={workspaces.length > 0 ? (
-          <select className="atn-head__issues" aria-label="Open workspace issues" value=""
-            onChange={event => { if (event.target.value) window.location.hash = workspaceRoute(event.target.value, 'issues'); }}>
-            <option value="" disabled>All issues…</option>
-            {workspaces.map(workspace => (
-              <option key={workspace.id} value={workspace.id}>{workspace.name || `${workspace.selectedOwner}/${workspace.selectedRepo}`}</option>
-            ))}
-          </select>
-        ) : undefined}
-        onSeeAll={onGoToMyPrs}
       />
 
       {/* ── Repos you watch ── */}

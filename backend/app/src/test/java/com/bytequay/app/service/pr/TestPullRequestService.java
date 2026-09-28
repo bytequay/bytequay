@@ -41,6 +41,7 @@ import com.bytequay.core.domain.MergePullRequestCommand;
 import com.bytequay.core.domain.MergeResult;
 import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrCheckRunState;
+import com.bytequay.core.domain.PrCommitLine;
 import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
@@ -90,6 +91,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -169,7 +171,7 @@ class TestPullRequestService
     void readsCachedActivityWithoutAttributingAnUnexplainedLaterUpdateToItsActor()
     {
         PrActivitySummary activity = new PrActivitySummary("commented", Optional.of("reviewer"), REVIEWED_AT,
-                Optional.empty(), Optional.empty(), Optional.empty());
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), OptionalInt.empty());
         when(detailStore.findLatestActivities(ImmutableSet.of(12L))).thenReturn(ImmutableMap.of(12L, activity));
 
         assertThat(service.findCachedLatestActivities(ImmutableList.of(storedPullRequest("open", REVIEWED_AT, null))))
@@ -179,6 +181,43 @@ class TestPullRequestService
         assertThat(service.findCachedLatestActivities(ImmutableList.of(storedPullRequest("open", REVIEWED_AT.plusSeconds(1), null)))).isEmpty();
 
         verify(detailStore, times(3)).findLatestActivities(ImmutableSet.of(12L));
+        verifyNoMoreInteractions(detailStore);
+        verifyNoInteractions(gitHub, writes, repositories, merges, actions, accounts, diffStore, metadata);
+    }
+
+    @Test
+    void readsCommitsSinceTheLastReviewOnlyForPullRequestsWhoseHeadMovedSince()
+    {
+        Instant requested = REVIEWED_AT.minusSeconds(3600);
+        PullRequest reviewedThenPushed = attentionPullRequest(12, REVIEWED_AT, requested, REVIEWED_AT.plusSeconds(60), null);
+        PullRequest requestedThenPushed = attentionPullRequest(13, null, requested, requested.plusSeconds(60), null);
+        PullRequest untouchedSinceReview = attentionPullRequest(14, REVIEWED_AT, requested, REVIEWED_AT.minusSeconds(60), null);
+        PullRequest neverAsked = attentionPullRequest(15, null, null, REVIEWED_AT, null);
+        List<PrCommitLine> commits = ImmutableList.of(new PrCommitLine("abc", "Fix it", Optional.of("alice"), REVIEWED_AT.plusSeconds(60)));
+        when(detailStore.findCommitsAfter(ImmutableMap.of(12L, REVIEWED_AT, 13L, requested))).thenReturn(ImmutableMap.of(12L, commits));
+
+        assertThat(service.findCachedCommitsSinceReview(ImmutableList.of(reviewedThenPushed, requestedThenPushed, untouchedSinceReview, neverAsked)))
+                .containsExactlyEntriesOf(ImmutableMap.of(12L, commits));
+
+        verify(detailStore).findCommitsAfter(ImmutableMap.of(12L, REVIEWED_AT, 13L, requested));
+        verifyNoMoreInteractions(detailStore);
+        verifyNoInteractions(gitHub, writes, repositories, merges, actions, accounts, diffStore, metadata);
+    }
+
+    @Test
+    void namesTheLatestFailingChecksOfFailingPullRequestsOnly()
+    {
+        PullRequest failing = attentionPullRequest(12, null, null, null, PullRequestDetail.CiStatus.FAILING);
+        PullRequest passing = attentionPullRequest(13, null, null, null, PullRequestDetail.CiStatus.PASSING);
+        when(detailStore.findCheckRuns(ImmutableSet.of(12L))).thenReturn(ImmutableMap.of(12L, ImmutableList.of(
+                new PrCheckRunState(1L, "ci / test", "completed", "failure", null, "check_run", REVIEWED_AT, REVIEWED_AT),
+                new PrCheckRunState(2L, "ci / lint", "completed", "failure", null, "check_run", REVIEWED_AT, REVIEWED_AT),
+                new PrCheckRunState(3L, "ci / lint", "completed", "success", null, "check_run", REVIEWED_AT, REVIEWED_AT))));
+
+        assertThat(service.findCachedFailingChecks(ImmutableList.of(failing, passing)))
+                .containsExactlyEntriesOf(ImmutableMap.of(12L, ImmutableList.of("ci / test")));
+
+        verify(detailStore).findCheckRuns(ImmutableSet.of(12L));
         verifyNoMoreInteractions(detailStore);
         verifyNoInteractions(gitHub, writes, repositories, merges, actions, accounts, diffStore, metadata);
     }
@@ -1544,6 +1583,16 @@ class TestPullRequestService
     private static PullRequest storedPullRequest()
     {
         return storedPullRequest(pullRequest());
+    }
+
+    private static PullRequest attentionPullRequest(long id, Instant reviewedAt, Instant reviewRequestedAt, Instant headPushedAt, PullRequestDetail.CiStatus ciStatus)
+    {
+        return new PullRequest(
+                id, "owner/repo", (int) id, "Title", "alice", "https://github.com/owner/repo/pull/" + id,
+                REVIEWED_AT, REVIEWED_AT, PullRequest.Origin.REVIEW_REQUESTED, ImmutableList.of(),
+                ImmutableMap.of(), false, null, reviewedAt, null, ImmutableList.of(),
+                ciStatus, 0, 0, 0, "open", null, null,
+                null, null, headPushedAt, "feature", null, null, reviewRequestedAt, null);
     }
 
     private static PullRequest storedPullRequest(String state, Instant updatedAt, Instant closedAt)

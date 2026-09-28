@@ -26,6 +26,8 @@ import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.PrActivitySummary;
+import com.bytequay.core.domain.PrCheckRunState;
+import com.bytequay.core.domain.PrCommitLine;
 import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequestDetail;
@@ -90,6 +92,16 @@ public class PullRequestSnapshotService
     Map<Long, PrActivitySummary> findLatestActivities(Set<Long> prIds)
     {
         return details.findLatestActivities(prIds);
+    }
+
+    Map<Long, List<PrCommitLine>> findCommitsAfter(Map<Long, Instant> since)
+    {
+        return details.findCommitsAfter(since);
+    }
+
+    Map<Long, List<PrCheckRunState>> findCheckRuns(Set<Long> prIds)
+    {
+        return details.findCheckRuns(prIds);
     }
 
     String readCheckLog(PullRequestRef pullRequest, long jobId)

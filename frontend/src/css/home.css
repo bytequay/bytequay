@@ -50,11 +50,11 @@
 
 .home-side-section__title {
   padding: 2px 8px 8px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #6e7781;
+  font-size: 12px;
+  font-weight: 700;
+  color: #656d76;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.6px;
   margin: 0;
 }
 
@@ -71,74 +71,6 @@
 .home-card:hover {
   box-shadow: 0 2px 4px rgba(67, 56, 202, 0.06), 0 8px 26px rgba(124, 58, 237, 0.08);
   transform: translateY(-1px);
-}
-
-/* ── Start review bar ────────────────────────────────────────────
-   One row: icon, title, live counts, and the button that opens the
-   review queue. */
-.home-start {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  height: 52px;
-  padding: 0 10px 0 13px;
-  border: 1px solid #d7e6f7;
-  border-radius: 10px;
-  background: #f5faff;
-}
-
-.home-start__icon {
-  width: 26px;
-  height: 26px;
-  flex: none;
-  border-radius: 7px;
-  background: #dcedff;
-  color: var(--accent);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-}
-
-.home-start__title {
-  font-size: 13.5px;
-  font-weight: 400;
-  white-space: nowrap;
-}
-
-.home-start__divider {
-  width: 1px;
-  height: 18px;
-  background: #d7e6f7;
-}
-
-.home-start__counts {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  font-size: 12px;
-  color: #57606a;
-  white-space: nowrap;
-}
-
-.home-start__counts b {
-  font-weight: 600;
-  font-size: 13px;
-  color: var(--text-1);
-}
-
-.home-start__counts b.is-zero {
-  color: #8c959f;
-}
-
-.home-start__spacer {
-  flex: 1;
-}
-
-.home-start__snoozed {
-  font-size: 11.5px;
-  color: #8c959f;
-  white-space: nowrap;
 }
 
 .repo-avatar {
@@ -164,250 +96,313 @@
 }
 
 /* ── Needs attention ─────────────────────────────────────────────
-   One bordered container of single-line rows; the reason chip is a
-   fixed-width column so the list scans vertically. */
+   Cards in a grid, each tinted by the source that produced it; a card keeps its own height. */
+.atn-section.is-workspace {
+  margin-top: 22px;
+}
+
+/* A compact header in regular weight: the label, the count, and the source tabs. */
+.atn-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+}
+
+.atn-head__label {
+  font-size: 11.5px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #656d76;
+  white-space: nowrap;
+}
+
 .atn-count {
-  font-size: 12px;
+  font-size: 11.5px;
   color: #8c959f;
-  margin-left: 8px;
+  white-space: nowrap;
 }
 
 .atn-spacer {
   flex: 1;
 }
 
-.atn-list {
-  border: 1px solid #e8e8ea;
-  border-radius: 10px;
-  overflow: hidden;
-  background: #ffffff;
+.atn-filters {
+  display: inline-flex;
+  margin-left: 4px;
+  padding: 2px;
+  border-radius: 7px;
+  background: #eceff2;
 }
 
-.atn-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  height: 52px;
-  padding: 0 10px 0 14px;
-  border-top: 1px solid #f0f0f2;
+.atn-filter {
+  padding: 1px 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 16px;
+  color: #57606a;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.atn-row:first-child {
-  border-top: none;
+.atn-filter.is-active {
+  background: #ffffff;
+  color: var(--text-1);
+  box-shadow: 0 1px 2px rgba(31, 35, 40, 0.12);
 }
 
-.atn-row:hover {
-  background: #f6f8fa;
+.atn-filter__count {
+  color: #8c959f;
 }
 
-.atn-row:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
+.atn-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 12px;
+  align-items: start;
+  margin-top: 10px;
 }
 
-/* The reason as a coloured tile with the sidebar's line icon, in place of a chip. */
-.atn-row__icon {
-  width: 34px;
-  height: 34px;
+/* An attention card: a strip tinted by its source over the body; the box comes from .card. */
+.atn-card {
+  overflow: hidden;
+}
+
+.atn-card__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 8px 0 10px;
+  background: var(--src-bg);
+  color: var(--src-fg);
+}
+
+.atn-card__head > svg {
   flex: none;
+}
+
+.atn-card__key {
+  font-family: var(--mono);
+  font-size: 12px;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.atn-card__repo {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  border-radius: 9px;
+  gap: 5px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: #57606a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.atn-row__body {
-  flex: 1;
-  min-width: 0;
+.atn-card__chev {
+  flex: none;
+  color: #8c959f;
+}
+
+.atn-card__body {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 7px;
+  padding: 9px 12px 10px;
 }
 
-.atn-row__subject {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.atn-row__title {
-  min-width: 0;
-  font-size: 13.5px;
-  font-weight: 400;
-  color: var(--text-1);
-  white-space: nowrap;
+.atn-card__title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.atn-row__meta {
-  flex: none;
-  font-family: var(--mono);
-  font-size: 11.5px;
-  color: #8c959f;
-  white-space: nowrap;
-}
-
-.atn-row__detail {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  font-size: 12px;
-  color: #57606a;
-}
-
-.atn-row__kind {
-  font-weight: 400;
-  white-space: nowrap;
-}
-
-.atn-row__sep {
-  color: #b6bcc4;
-}
-
-.atn-row__what {
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.atn-row__age {
-  flex: none;
-  width: 28px;
-  text-align: right;
-  font-family: var(--mono);
-  font-size: 12px;
-  color: #8c959f;
-}
-
-.atn-row__actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex: none;
-}
-
-.atn-iconbtn {
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #57606a;
-  cursor: pointer;
-}
-
-.atn-iconbtn:hover {
-  background: #e4e4e8;
+  font-size: 13px;
+  line-height: 18px;
   color: var(--text-1);
 }
 
-.atn-iconbtn.is-ack:hover {
-  background: #dafbe1;
-  color: #1a7f37;
-}
-
-.atn-row__chev {
-  flex: none;
-  margin-left: 4px;
-  color: #8c959f;
-}
-
-/* The workspace's own list: an uppercase label, and no section at all when nothing needs you. */
-.atn-section.is-workspace {
-  width: 100%;
-  max-width: 880px;
-  margin-top: 40px;
-}
-
-.atn-head {
+.atn-card__why {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
-.atn-head__label {
-  font-size: 11.5px;
-  font-weight: 700;
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
-  color: #656d76;
+.atn-card__verb {
+  min-width: 0;
+  font-size: 12px;
+  color: #57606a;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.atn-head__navigation {
+.atn-card__actor {
+  color: var(--text-1);
+}
+
+/* A ticket's status move: where it was, struck through, then where it is. */
+.atn-detail__status {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
+  color: #8c959f;
 }
 
-.atn-start {
-  flex: none;
-  white-space: nowrap;
-}
-
-.atn-head__issues {
-  max-width: 180px;
-  border: 0;
-  background: transparent;
-  color: var(--accent);
-  font: inherit;
+.atn-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
   font-size: 12.5px;
-  cursor: pointer;
+  line-height: 17px;
+  color: var(--text-1);
 }
 
-.atn-head__link {
+.atn-detail__lead {
+  color: #57606a;
+}
+
+/* A comment reads as the Markdown it was written in, clamped to three of the detail's lines. Blocks sit
+   flush, headings and strong text read like the rest, and a link reads as text: the card opens it. */
+.atn-detail .markdown-body {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
   padding: 0;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.atn-detail .markdown-body :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6, .md-code-block, .md-table-scroll, .md-details, .md-alert) {
+  margin: 0;
+}
+
+.atn-detail .markdown-body :is(h1, h2, h3, h4, h5, h6, strong) {
   border: 0;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
+  padding: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
 }
 
-.atn-section.is-workspace .atn-count {
-  margin-left: 0;
+.atn-detail .markdown-body :is(ul, ol) {
+  padding-left: 16px;
+}
+
+.atn-detail .markdown-body li + li {
+  margin-top: 0;
+}
+
+.atn-detail .markdown-body :is(hr, .md-code-block > span) {
+  display: none;
+}
+
+.atn-detail .markdown-body .md-code-block pre {
+  padding: 3px 7px;
+}
+
+.atn-detail .markdown-body a {
+  pointer-events: none;
+}
+
+/* Where an inline comment was left: the file name, with the whole path on hover. */
+.atn-detail__file {
+  overflow: hidden;
+  font-family: var(--mono);
   font-size: 11.5px;
+  color: #57606a;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.atn-section.is-workspace .atn-list {
-  margin-top: 12px;
-  border-color: #e3e3e6;
-  border-radius: 12px;
+.atn-detail__commit {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.atn-detail__sha {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: #0969da;
+}
+
+.atn-detail__message {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The exact command an approval asks for, capped so a long script cannot stretch the card. */
+.atn-detail__command {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  padding: 4px 7px;
+  border: 1px solid #e3e3e6;
+  border-radius: 6px;
+  background: #ffffff;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 16px;
+  word-break: break-all;
+}
+
+.atn-detail__failed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #cf222e;
+}
+
+.atn-detail__labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Linked items: one folded row of icons and keys that unfolds to a row per item. */
+.atn-links {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: -4px;
+  padding-top: 3px;
+  border-top: 1px solid #eceff2;
+}
+
+.atn-link__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .atn-clear {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  height: 76px;
+  margin-top: 12px;
+  padding: 28px;
+  border: 1px dashed #d8dee4;
+  border-radius: 12px;
+  text-align: center;
   font-size: 13px;
-  color: #8c959f;
-}
-
-.atn-clear__mark {
-  color: #1a7f37;
+  color: #57606a;
 }
 
 .atn-handled {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 10px 7px 13px;
-  background: #fbfbfc;
-  border-top: 1px solid #f0f0f2;
+  margin-top: 8px;
   font-size: 11.5px;
   color: #8c959f;
 }
@@ -949,15 +944,18 @@
 }
 
 .home-section__title {
-  font-size: var(--font-size-md);
-  font-weight: 400;
-  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #656d76;
 }
 
 .home-section__action {
   background: none;
   border: none;
-  font-size: var(--ui-font-size);
+  font-size: 13px;
+  font-weight: 600;
   color: var(--accent);
   cursor: pointer;
   padding: 2px 4px;

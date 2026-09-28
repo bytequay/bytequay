@@ -54,6 +54,7 @@ import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.function.Predicate;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -222,6 +223,34 @@ public final class FileTaskLogStore
                         start > 0 ? OptionalLong.of(start) : OptionalLong.empty(),
                         end < completeEnd ? OptionalLong.of(end) : OptionalLong.empty(),
                         latestSequence);
+            }
+            catch (IOException e) {
+                throw new AgentStorageException("Cannot read task history", e);
+            }
+        }
+    }
+
+    @Override
+    public Optional<AgentEventEnvelope> findLatest(TaskId taskId, Predicate<AgentEventEnvelope> matches, int maxRecords)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(matches, "matches is null");
+        checkArgument(maxRecords > 0, "maxRecords is not positive");
+        synchronized (lock(taskId)) {
+            Path eventsFile = resourceService.require(taskId).eventsFile();
+            if (!Files.exists(eventsFile, NOFOLLOW_LINKS)) {
+                return Optional.empty();
+            }
+            try (FileChannel channel = FileChannel.open(eventsFile, StandardOpenOption.READ)) {
+                long end = completeEnd(channel);
+                for (int visited = 0; end > 0 && visited < maxRecords; visited++) {
+                    StoredRecord record = previousRecord(channel, taskId, end);
+                    if (matches.test(record.envelope())) {
+                        return Optional.of(record.envelope());
+                    }
+                    end = record.start();
+                }
+                return Optional.empty();
             }
             catch (IOException e) {
                 throw new AgentStorageException("Cannot read task history", e);

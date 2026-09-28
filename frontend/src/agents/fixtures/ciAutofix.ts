@@ -25,4 +25,5 @@ export const CI_RUN: CiAutofixRunDto = {
   status: 'PAUSED', activity: 'PAUSED', version: 1, authorization: { maxAttempts: 3, expiresAt: '2099-01-01T12:00:00Z' },
   attemptsUsed: 1, rerunsUsed: 0, agentTaskId: 'ci-task', currentTurnId: null, parentTaskId: 'source-task', canMessage: true,
   summary: CI_PROJECTION.summary, pauseReason: 'INVALID_GIT_RESULT', finishReason: null,
+  createdAt: '2026-01-01T12:00:00Z', updatedAt: '2026-01-01T12:05:00Z',
 };

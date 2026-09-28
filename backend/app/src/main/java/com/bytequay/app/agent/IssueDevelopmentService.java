@@ -23,8 +23,12 @@ import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.goal.GoalService;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.GoalItem;
+import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.GoalSource;
 import com.bytequay.core.domain.IssueGoal;
 import com.bytequay.core.domain.IssueTask;
 import com.bytequay.core.domain.RepositoryIssue;
@@ -35,6 +39,7 @@ import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Striped;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -61,11 +66,12 @@ public class IssueDevelopmentService
     private final GitHubRepoClient github;
     private final CredentialService credentials;
     private final Clock clock;
+    private final ObjectProvider<GoalService> goals;
     private final Striped<Lock> sourceLocks = Striped.lock(64);
 
     public IssueDevelopmentService(IssueDevelopmentStore sources, RepositoryIssueStore issues, WorkspaceStore workspaces,
             AgentTaskService tasks, AgentTaskStore taskStore, AgentUnitOfWork unitOfWork, GitHubRepoClient github,
-            CredentialService credentials, Clock clock, AgentTurnStore turns)
+            CredentialService credentials, Clock clock, AgentTurnStore turns, ObjectProvider<GoalService> goals)
     {
         this.sources = requireNonNull(sources, "sources is null");
         this.issues = requireNonNull(issues, "issues is null");
@@ -77,6 +83,8 @@ public class IssueDevelopmentService
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.turns = requireNonNull(turns, "turns is null");
+        // Resolved per marker change: goals read tasks, which reach this service while starting development.
+        this.goals = requireNonNull(goals, "goals is null");
     }
 
     public Metadata metadata(long issueId)
@@ -93,6 +101,14 @@ public class IssueDevelopmentService
         lock.lock();
         try {
             sources.saveGoal(new IssueGoal(HOST, issue.id(), workspace.monitoredRepository().fullName(), number, goal, clock.instant()));
+            // The marked issue gets its own workspace goal, named after it, and loses it when unmarked.
+            GoalSource source = new GoalSource(GoalItemKind.ISSUE, GoalItem.numberedKey(workspace.monitoredRepository().fullName(), number));
+            if (goal) {
+                goals.getObject().seed(workspaceId, source, issue.title());
+            }
+            else {
+                goals.getObject().unseed(source);
+            }
             return metadata(issue.id());
         }
         finally {

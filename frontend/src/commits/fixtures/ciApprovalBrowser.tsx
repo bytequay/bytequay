@@ -24,6 +24,7 @@ const execution: CherryPickExecution = {
   executionId: 'range-1', workspaceId: 'workspace-1', repository: 'acme/demo', workBranch: 'ci-branch',
   localTargetBranch: 'main', targetBranch: 'main', status: 'FINISHED', finishReason: 'COMPLETED',
   initialTargetSha: 'a'.repeat(40), currentTargetSha: 'b'.repeat(40), items: [],
+  createdAt: '2026-01-01T12:00:00Z', updatedAt: '2026-01-01T12:00:00Z', terminalAt: '2026-01-01T12:00:00Z',
 };
 const delivery: WorkspaceDeliveryStatus = {
   pushWritable: false, baseRepository: { owner: 'acme', repo: 'demo' }, baseBranch: 'main', head: 'ci-branch',
@@ -46,7 +47,7 @@ async function scenario(parentTaskId: string | null): Promise<{ name: string; er
     id: 'run-1', workspaceId: 'workspace-1', repository: 'acme/demo', pullRequestNumber: 17, headRef: 'ci-branch',
     status: 'ACTIVE', activity: 'FIXING', version: 1, authorization: { maxAttempts: 3, expiresAt: '2099-01-01T12:00:00Z' },
     attemptsUsed: 1, rerunsUsed: 0, agentTaskId: approval.taskId, currentTurnId: approval.turnId, parentTaskId,
-    canMessage: false, summary: null, pauseReason: null, finishReason: null,
+    canMessage: false, summary: null, pauseReason: null, finishReason: null, createdAt: '2026-01-01T12:00:00Z', updatedAt: '2026-01-01T12:00:00Z',
   };
   Object.defineProperty(window, 'bridge', { configurable: true, value: {
     getUserProfile: async (): Promise<null> => null,

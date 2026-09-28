@@ -13,7 +13,7 @@
  */
 import type { JiraLocation, JiraQuery, JiraTokenRequest } from './jira/contracts';
 import { parseGoal, parseGoalItem, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, screen, shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
 import { spawn as spawnPty } from 'node-pty';
@@ -345,9 +345,10 @@ function ensureWindow(): Promise<void> {
 }
 
 async function createWindow(): Promise<void> {
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: Math.min(1600, width),
+    height: Math.min(1000, height),
     minWidth: 1000,
     minHeight: 620,
     backgroundColor: '#ffffff',

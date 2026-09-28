@@ -13,10 +13,10 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CircleDot, EyeOff, ListChecks, LoaderCircle, Pencil, Search, SquareCheck, type LucideIcon } from 'lucide-react';
+import { CircleDot, EyeOff, ListChecks, Pencil, Search, SquareCheck, type LucideIcon } from 'lucide-react';
 import RepoAvatar from '../RepoAvatar';
 import AttentionList, { type GoalToggle } from '../home/AttentionList';
-import { GoalIcon } from '../goals/GoalPanel';
+import { Card, CardActions, IconButton, InGoalBadge, Pill } from '../cards/Card';
 import type { AttentionItem, Handled } from '../home/attention';
 import type { WorkspaceAttention } from '../workspaces/workspaceAttention';
 import { relativeTime } from '../relativeTime';
@@ -334,19 +334,7 @@ function HomeTaskCard({ task, activity, changes, providers, now, inGoal, onOpen,
   const pullRequest = task.pullRequest ?? null;
   const change = pullRequest !== null ? `#${pullRequest.number} ${pullRequest.draft ? 'draft' : pullRequest.state}` : changes === null ? null : changesLabel(changes);
   return (
-    <div
-      className="agt-open-card"
-      role="button"
-      tabIndex={0}
-      aria-label={`Open task: ${task.title}`}
-      onClick={onOpen}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        event.preventDefault();
-        onOpen();
-      }}
-    >
+    <Card compact className="agt-open-card" label={`Open task: ${task.title}`} onOpen={onOpen}>
       <div className="agt-open-card__head">
         <SquareCheck className="agt-open-card__icon" size={14} strokeWidth={1.8} aria-hidden="true" />
         {rename.editing ? (
@@ -358,32 +346,27 @@ function HomeTaskCard({ task, activity, changes, providers, now, inGoal, onOpen,
           </span>
         )}
         {!rename.editing && (onRename !== undefined || onHide !== undefined) && (
-          <span className="agt-open-card__tools">
+          <CardActions>
             {onRename !== undefined && (
-              <button type="button" className="agt-open-card__tool" title="Rename" aria-label={`Rename task: ${task.title}`}
-                onClick={(event) => { event.stopPropagation(); rename.start(); }}>
+              <IconButton label={`Rename task: ${task.title}`} title="Rename" onClick={() => rename.start()}>
                 <Pencil size={13} aria-hidden="true" />
-              </button>
+              </IconButton>
             )}
             {onHide !== undefined && (
-              <button type="button" className="agt-open-card__tool" title="Hide from Home (task stays in Tasks)" aria-label={`Hide task from Home: ${task.title}`}
-                onClick={(event) => { event.stopPropagation(); onHide(); }}>
+              <IconButton label={`Hide task from Home: ${task.title}`} title="Hide from Home (task stays in Tasks)" onClick={onHide}>
                 <EyeOff size={13} aria-hidden="true" />
-              </button>
+              </IconButton>
             )}
-          </span>
+          </CardActions>
         )}
-        {inGoal && <span className="agt-in-goal" title="In goal"><GoalIcon size={13} /></span>}
-        <span className={`agt-pill is-${state.tone}`}>
-          {state.spinning && <LoaderCircle className="agt-spin" aria-hidden="true" />}
-          {state.label}
-        </span>
+        {inGoal && <InGoalBadge />}
+        <Pill tone={state.tone} spinning={state.spinning}>{state.label}</Pill>
       </div>
       <div className={`agt-open-card__last${state.reason === null ? '' : ' is-needs'}`}>{state.reason ?? taskLastMessage(task, activity)?.text ?? ''}</div>
       <div className="agt-open-card__foot">
         <span className="agt-open-card__meta">{meta}</span>
         {change !== null && <span className={`agt-open-card__change${pullRequest === null ? '' : ' is-pr'}`}>{change}</span>}
       </div>
-    </div>
+    </Card>
   );
 }

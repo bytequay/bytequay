@@ -2013,7 +2013,7 @@ describe('task list tabs, today cards, older rows and row actions', () => {
     expect(markup).toMatch(/role="tab" aria-selected="false" title="Completed tasks archive automatically after 7 days"[^>]*>Archived<span class="agt-tab__count">1</);
     const today = section(markup, 'Today');
     expect(today).toContain('class="agt-day__date">Sun, Sep 6<');
-    expect(today.match(/class="agt-item-card"/g)).toHaveLength(2);
+    expect(today.match(/class="card agt-item-card"/g)).toHaveLength(2);
     expect(today.indexOf('>hello<')).toBeLessThan(today.indexOf('>Ask about the model<'));
     expect(section(markup, 'Yesterday')).toContain('class="agt-day__date">Sat, Sep 5<');
     expect(section(markup, 'Yesterday')).toContain('class="agt-item-row__title">trino issue reading<');
@@ -2030,8 +2030,8 @@ describe('task list tabs, today cards, older rows and row actions', () => {
     // Selection, archive and delete stay on every agent task; a running one cannot be deleted.
     expect(markup).toContain('aria-pressed="false" aria-label="Select hello"');
     expect(markup).toContain('aria-label="Archive task: hello"');
-    expect(markup).toMatch(/<button[^>]*class="agt-item-action is-danger"[^>]*title="Stop the task before deleting"[^>]*aria-label="Delete task: hello"[^>]*disabled/);
-    expect(markup).toMatch(/<button[^>]*class="agt-item-action is-danger"[^>]*title="Delete permanently"[^>]*aria-label="Delete task: trino issue reading"(?![^>]*disabled)/);
+    expect(markup).toMatch(/<button[^>]*class="card-iconbtn is-danger"[^>]*title="Stop the task before deleting"[^>]*aria-label="Delete task: hello"[^>]*disabled/);
+    expect(markup).toMatch(/<button[^>]*class="card-iconbtn is-danger"[^>]*title="Delete permanently"[^>]*aria-label="Delete task: trino issue reading"(?![^>]*disabled)/);
     expect(markup).toContain('lucide-chevron-right');
     // A development task starts in the composer anchored under the list.
     expect(typeTab(markup, 'All')).toEqual({ selected: true, count: 4, needsYou: false });
@@ -2062,8 +2062,8 @@ describe('task list tabs, today cards, older rows and row actions', () => {
     const changes = { 't-yesterday': { uncommitted: true, commits: 2 } };
     const markup = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={tasks} loading={false} error={null} now={noon} changes={changes} />);
 
-    expect(markup).toMatch(/class="agt-item-row__title">trino issue reading<\/span>.*?<span class="atn-link-key is-pr" title="Refactor a minor issue"><svg[^>]*>.*?<\/svg><span>#31101<\/span><\/span>/);
-    expect(markup).toContain('<span class="atn-link-key is-pr" title="Fix preview output limit">');
+    expect(markup).toMatch(/class="agt-item-row__title">trino issue reading<\/span>.*?<span class="card-link" title="Refactor a minor issue"><span class="card-src is-pr"><svg[^>]*>.*?<\/svg><\/span><span class="card-key">#31101<\/span><\/span>/);
+    expect(markup).toContain('<span class="card-link" title="Fix preview output limit"><span class="card-src is-pr">');
     expect(markup).not.toContain('2 commits · uncommitted changes');
   });
 
@@ -2120,7 +2120,7 @@ describe('task list tabs, today cards, older rows and row actions', () => {
 
     const reviews = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={rows} items={items} loading={false} error={null} now={noon}
       initialType="review" onOpenReviewWorkspace={() => {}} />);
-    expect(reviews.match(/class="agt-item-card"/g)).toHaveLength(1);
+    expect(reviews.match(/class="card agt-item-card"/g)).toHaveLength(1);
     expect(reviews).toContain('title="View inside workspace"');
     expect(reviews).not.toContain('>hello<');
     expect(reviews).toContain('>+ Review a pull request</button>');

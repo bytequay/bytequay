@@ -11,15 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState, type MouseEvent, type ReactNode } from 'react';
-import { ArrowRight, Check, ChevronRight, CircleDot, CircleX, Clock3, GitPullRequest, Play, SquareCheck } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { ArrowRight, Check, ChevronRight, CircleX, Clock3, Play } from 'lucide-react';
 import Avatar from '../Avatar';
-import { GoalIcon } from '../goals/GoalPanel';
-import JiraIcon from '../jira/JiraIcon';
+import { Card, CardActions, CardAge, Fold, GoalIcon, IconButton, InGoalBadge, LinkKey, Pill, SourceIcon } from '../cards/Card';
 import MarkdownBody from '../pulls/MarkdownBody';
 import { previewMarkdown } from '../ReferenceCard';
 import RepoAvatar from '../RepoAvatar';
-import { relativeTime } from '../relativeTime';
 import {
   ATTENTION_SOURCES,
   attentionSource,
@@ -29,15 +27,7 @@ import {
   type AttentionDetail,
   type AttentionItem,
   type AttentionLabel,
-  type AttentionSource,
 } from './attention';
-
-/** The icon each source is drawn with, on cards and wherever a card's links list it. */
-export function SourceIcon({ source, size = 14 }: { source: AttentionSource; size?: number }) {
-  if (source === 'jira') return <JiraIcon size={size} />;
-  const Icon = source === 'pr' ? GitPullRequest : source === 'issue' ? CircleDot : SquareCheck;
-  return <Icon size={size} strokeWidth={1.9} aria-hidden="true" />;
-}
 
 function labelStyle(label: AttentionLabel) {
   const hex = label.color !== null && /^[0-9a-f]{6}$/i.test(label.color) ? `#${label.color}` : '#d0d7de';
@@ -66,61 +56,65 @@ function Comment({ text }: { text: string }) {
   return <MarkdownBody body={previewMarkdown(text)} />;
 }
 
+function Box({ children }: { children: ReactNode }) {
+  return <div className="card-box atn-detail">{children}</div>;
+}
+
 function Detail({ detail }: { detail: AttentionDetail }) {
   switch (detail.kind) {
     case 'text':
-      return <div className="atn-detail"><div className="atn-detail__lead">{detail.text}</div></div>;
+      return <Box><div className="atn-detail__lead">{detail.text}</div></Box>;
     case 'quote':
       return (
-        <div className="atn-detail">
+        <Box>
           <Comment text={detail.text} />
           {detail.file !== null && <div className="atn-detail__file" title={detail.file}>on {detail.file.slice(detail.file.lastIndexOf('/') + 1)}</div>}
-        </div>
+        </Box>
       );
     case 'commits':
       return (
-        <div className="atn-detail">
+        <Box>
           {detail.lead !== null && <div className="atn-detail__lead">{detail.lead}</div>}
           <Commits commits={detail.commits} />
-        </div>
+        </Box>
       );
     case 'command':
       return (
-        <div className="atn-detail">
+        <Box>
           {detail.lead !== null && <div className="atn-detail__lead">{detail.lead}</div>}
           <div className="atn-detail__command">$ {detail.command}</div>
-        </div>
+        </Box>
       );
     case 'ci':
       return (
-        <div className="atn-detail">
+        <Box>
           <Commits commits={detail.commits} />
           <div className="atn-detail__failed">
             <CircleX size={14} strokeWidth={2} aria-hidden="true" />
             {detail.checks.length === 0 ? 'Checks failed' : `${detail.checks[0]} failed`}
           </div>
           {detail.checks.length > 1 && <div className="atn-detail__lead">and {detail.checks.length - 1} more</div>}
-        </div>
+        </Box>
       );
     case 'status':
       return (
-        <div className="atn-detail">
+        <Box>
           <div className="atn-detail__status">
-            <span className={`atn-status is-${detail.from.tone} is-from`}>{detail.from.name}</span>
+            <Pill tone={detail.from.tone} className="is-square is-struck">{detail.from.name}</Pill>
             <ArrowRight size={14} strokeWidth={2} aria-label="to" />
-            <span className={`atn-status is-${detail.to.tone}`}>{detail.to.name}</span>
+            <Pill tone={detail.to.tone} className="is-square">{detail.to.name}</Pill>
           </div>
           {detail.note !== null && <Comment text={detail.note} />}
-        </div>
+        </Box>
       );
     case 'labels':
       return (
-        <div className="atn-detail">
+        <Box>
           {detail.lead !== null && <div className="atn-detail__lead">{detail.lead}</div>}
           <div className="atn-detail__labels">
-            {detail.labels.map(label => <span className="atn-label" key={label.name} style={labelStyle(label)}>{label.name}</span>)}
+            {detail.labels.map(label => <Pill key={label.name} style={labelStyle(label)}>{label.name}</Pill>)}
           </div>
-        </div>
+        </Box>
       );
   }
 }
@@ -150,9 +144,7 @@ export default function AttentionCard({ item, viewerLogin, showRepo, onOpen, onA
   const source = attentionSource(item);
   const summary = attentionSummary(item, viewerLogin);
   const reference = item.reference ?? `#${item.number}`;
-  const time = attentionTime(item);
   const [owner, repo = ''] = item.repo.split('/');
-  const act = (action: () => void) => (event: MouseEvent) => { event.stopPropagation(); action(); };
   const said = <>
     {summary.actor !== null && (
       <Avatar login={summary.actor.name} avatarUrl={summary.actor.avatarUrl} size={18} allowGitHubFallback={source === 'pr' || source === 'issue'} />
@@ -160,19 +152,7 @@ export default function AttentionCard({ item, viewerLogin, showRepo, onOpen, onA
     <span className="atn-card__verb">{summary.actor !== null && <span className="atn-card__actor">{summary.actor.name}</span>} {summary.verb}</span>
   </>;
   return (
-    <div
-      className={`atn-card is-${source}`}
-      role="button"
-      tabIndex={0}
-      aria-label={`${ATTENTION_SOURCES[source].label} ${reference}: ${item.title}`}
-      onClick={onOpen}
-      onKeyDown={event => {
-        if (event.target !== event.currentTarget) return;
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        event.preventDefault();
-        onOpen();
-      }}
-    >
+    <Card className={`atn-card is-${source}`} label={`${ATTENTION_SOURCES[source].label} ${reference}: ${item.title}`} onOpen={onOpen}>
       <div className="atn-card__head">
         <SourceIcon source={source} />
         <span className="atn-card__key">{reference}</span>
@@ -180,84 +160,59 @@ export default function AttentionCard({ item, viewerLogin, showRepo, onOpen, onA
           // An issue names the workspace it would start in, so a repository watched twice is never ambiguous.
           <span className="atn-card__repo"><RepoAvatar owner={owner} repo={repo} size={12} radius={3} />{item.workspaceName || item.repo}</span>
         )}
-        <span className={`atn-tag is-${summary.tag.tone}`}>{summary.tag.label}</span>
-        {inGoal && <span className="atn-goal" title="In goal"><GoalIcon size={11} />Goal</span>}
+        <Pill outline>{summary.tag.label}</Pill>
+        {inGoal && <InGoalBadge />}
         <span className="atn-spacer" />
-        <span className="atn-card__actions" role="group" aria-label={`Actions for ${reference}`}>
+        <CardActions label={`Actions for ${reference}`}>
           {onToggleGoal !== undefined && (
-            <button className={`atn-iconbtn is-goal${inGoal ? ' is-active' : ''}`} type="button" title={inGoal ? 'Remove from goal' : 'Add to goal'}
-              aria-label={`${inGoal ? 'Remove' : 'Add'} ${reference} ${inGoal ? 'from' : 'to'} the goal`} aria-pressed={inGoal} onClick={act(onToggleGoal)}>
+            <IconButton label={`${inGoal ? 'Remove' : 'Add'} ${reference} ${inGoal ? 'from' : 'to'} the goal`} title={inGoal ? 'Remove from goal' : 'Add to goal'}
+              tone={inGoal ? 'active' : undefined} pressed={inGoal} onClick={onToggleGoal}>
               <GoalIcon size={15} />
-            </button>
+            </IconButton>
           )}
           {onStart !== undefined && (
-            <button className="atn-iconbtn" type="button" title={`Start development in ${item.workspaceName || item.repo}`}
-              aria-label={`Start development for ${reference}`} onClick={act(onStart)}>
+            <IconButton label={`Start development for ${reference}`} title={`Start development in ${item.workspaceName || item.repo}`} onClick={onStart}>
               <Play size={14} strokeWidth={1.9} aria-hidden="true" />
-            </button>
+            </IconButton>
           )}
-          <button className="atn-iconbtn is-ack" type="button" title="Acknowledge — clears it until something new happens"
-            aria-label={`Acknowledge ${reference}`} onClick={act(onAcknowledge)}>
+          <IconButton label={`Acknowledge ${reference}`} title="Acknowledge — clears it until something new happens" tone="ack" onClick={onAcknowledge}>
             <Check size={15} strokeWidth={2} aria-hidden="true" />
-          </button>
-          <button className="atn-iconbtn" type="button" title="Snooze" aria-label={`Snooze ${reference}`}
-            onClick={event => { event.stopPropagation(); onSnooze(event.currentTarget); }}>
+          </IconButton>
+          <IconButton label={`Snooze ${reference}`} title="Snooze" onClick={event => onSnooze(event.currentTarget)}>
             <Clock3 size={15} strokeWidth={1.8} aria-hidden="true" />
-          </button>
-        </span>
-        <time className="atn-card__age" dateTime={time} title={new Date(time).toLocaleString()}>
-          {relativeTime(time, { suffix: false })}
-        </time>
+          </IconButton>
+        </CardActions>
+        <CardAge at={attentionTime(item)} />
         <ChevronRight className="atn-card__chev" size={13} aria-hidden="true" />
       </div>
       <div className="atn-card__body">
         <div className="atn-card__title">{item.title}</div>
-        <Event detail={summary.detail}>{said}</Event>
+        {summary.detail === null
+          ? <div className="atn-card__why">{said}</div>
+          : <Fold summary={said} showTitle="Show details" hideTitle="Hide details"><Detail detail={summary.detail} /></Fold>}
         <Links item={item} />
       </div>
-    </div>
+    </Card>
   );
-}
-
-/** Who did what, folded like the linked items: the line unfolds what happened in place. */
-function Event({ detail, children }: { detail: AttentionDetail | null; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
-  if (detail === null) return <div className="atn-card__why">{children}</div>;
-  return <>
-    <button className="atn-fold" type="button" aria-expanded={open} title={open ? 'Hide details' : 'Show details'}
-      onClick={event => { event.stopPropagation(); setOpen(value => !value); }}>
-      <ChevronRight className="atn-fold__chev" size={12} strokeWidth={2.4} aria-hidden="true" />
-      {children}
-    </button>
-    <div hidden={!open}><Detail detail={detail} /></div>
-  </>;
 }
 
 /** Linked items start folded to one row of icons and keys; the row unfolds them in place. */
 function Links({ item }: { item: AttentionItem }) {
-  const [open, setOpen] = useState(false);
   const links = item.links ?? [];
   if (links.length === 0) return null;
   return (
     <div className="atn-links">
-      <button className="atn-fold" type="button" aria-expanded={open} title={open ? 'Hide linked items' : 'Show linked items'}
-        onClick={event => { event.stopPropagation(); setOpen(value => !value); }}>
-        <ChevronRight className="atn-fold__chev" size={12} strokeWidth={2.4} aria-hidden="true" />
+      <Fold showTitle="Show linked items" hideTitle="Hide linked items"
+        summary={links.map(link => <LinkKey key={`${link.source}:${link.key}`} source={link.source} name={link.key} />)}>
         {links.map(link => (
-          <span className={`atn-link-key is-${link.source}`} key={`${link.source}:${link.key}`}>
-            <SourceIcon source={link.source} size={14} />
-            <span>{link.key}</span>
-          </span>
+          <div className="card-fold-row" key={`${link.source}:${link.key}`}>
+            <SourceIcon source={link.source} tinted />
+            <span className="card-key">{link.key}</span>
+            <span className="atn-link__title">{link.title}</span>
+            {link.status !== null && <Pill tone={link.tone}>{link.status}</Pill>}
+          </div>
         ))}
-      </button>
-      {open && links.map(link => (
-        <div className={`atn-link is-${link.source}`} key={`${link.source}:${link.key}`}>
-          <SourceIcon source={link.source} size={14} />
-          <span className="atn-link__key">{link.key}</span>
-          <span className="atn-link__title">{link.title}</span>
-          {link.status !== null && <span className={`atn-link__status is-${link.tone}`}>{link.status}</span>}
-        </div>
-      ))}
+      </Fold>
     </div>
   );
 }

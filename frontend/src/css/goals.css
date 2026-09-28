@@ -54,16 +54,6 @@
   white-space: nowrap;
 }
 
-.goal-src {
-  flex: none;
-  display: inline-flex;
-}
-
-.goal-src.is-pr { color: #1a7f37; }
-.goal-src.is-issue { color: #0969da; }
-.goal-src.is-jira { color: #8250df; }
-.goal-src.is-task { color: #0e7c86; }
-
 .goal-icon {
   flex: none;
 }
@@ -695,47 +685,12 @@ button.goal-tile:hover {
   color: #57606a;
 }
 
-.goal-blocked {
-  flex: none;
-  padding: 1px 7px;
-  border-radius: 10px;
-  background: #ffebe9;
-  color: #cf222e;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
 .goal-needs {
   flex: none;
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: #bc4c00;
-}
-
-.goal-remove {
-  flex: none;
-  width: 22px;
-  height: 22px;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: #57606a;
-  cursor: pointer;
-}
-
-:is(.goal-row, .goal-card):is(:hover, :focus-within) .goal-remove {
-  display: inline-flex;
-}
-
-.goal-remove:hover {
-  background: #ffebe9;
-  color: #cf222e;
 }
 
 .goal-activity {
@@ -753,7 +708,7 @@ button.goal-tile:hover {
   line-height: 17px;
 }
 
-.goal-activity__row .goal-src {
+.goal-activity__row .card-src {
   margin-top: 1px;
 }
 
@@ -869,35 +824,17 @@ button.goal-tile:hover {
   height: 8px;
 }
 
+/* A board card's layout; the box is a compact .card, and its head fits the remove button it shows on hover. */
 .goal-card {
-  display: flex;
-  flex-direction: column;
   gap: 4px;
   padding: 8px 10px;
-  border: 1px solid #e3e3e6;
-  border-radius: 8px;
-  background: #ffffff;
-  cursor: pointer;
-}
-
-.goal-card:hover {
-  border-color: #b6bcc4;
 }
 
 .goal-card__head {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 20px;
-}
-
-.goal-card__head .goal-mono {
-  font-size: 11px;
-}
-
-.goal-card__head .goal-remove {
-  width: 20px;
-  height: 20px;
+  height: 24px;
 }
 
 .goal-card__title {

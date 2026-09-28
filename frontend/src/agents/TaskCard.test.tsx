@@ -147,7 +147,7 @@ describe('agent home and overview', () => {
     expect(markup).toContain('⇧⌘\\');
     // Open tasks are compact cards, each renamable and hideable from Home.
     expect(markup).toContain('class="agt-open-grid"');
-    expect(markup.match(/class="agt-open-card"/g)).toHaveLength(2);
+    expect(markup.match(/class="card is-compact agt-open-card"/g)).toHaveLength(2);
     expect(markup.match(/aria-label="Rename task: /g)).toHaveLength(2);
     expect(markup.match(/aria-label="Hide task from Home: /g)).toHaveLength(2);
     expect(markup).not.toContain('agt-card__thumb');
@@ -193,7 +193,7 @@ describe('agent home and overview', () => {
         onShowAll={() => {}}
       />);
 
-    expect(markup).toContain('<span class="agt-pill is-orange">Needs you</span>');
+    expect(markup).toContain('<span class="pill is-orange">Needs you</span>');
     expect(markup).toContain('class="agt-open-card__last is-needs">Approval needed to run a command<');
     expect(markup).toContain('class="agt-open-card__last">All green after 20 reruns.<');
     // The lane, model and age name where the task runs; the pull request outranks the checkout's changes.

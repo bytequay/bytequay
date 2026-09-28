@@ -166,29 +166,9 @@
   margin-top: 10px;
 }
 
-/* Each source's colours, shared by a card's strip and the icons its links row names. */
-:is(.atn-card, .atn-link-key, .atn-link).is-pr { --src-fg: #1a7f37; --src-bg: #dafbe1; }
-:is(.atn-card, .atn-link-key, .atn-link).is-issue { --src-fg: #0969da; --src-bg: #ddf4ff; }
-:is(.atn-card, .atn-link-key, .atn-link).is-jira { --src-fg: #8250df; --src-bg: #fbefff; }
-:is(.atn-card, .atn-link-key, .atn-link).is-task { --src-fg: #0e7c86; --src-bg: #d8f3f5; }
-
-/* Nothing in a card is bold, as on the Tasks page: the strip's colour and the tag carry the emphasis. */
+/* An attention card: a strip tinted by its source over the body; the box comes from .card. */
 .atn-card {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  border: 1px solid #e3e3e6;
-  border-radius: 12px;
-  background: #ffffff;
   overflow: hidden;
-  box-shadow: 0 1px 2px rgba(31, 35, 40, 0.05);
-  cursor: pointer;
-  transition: box-shadow 0.15s, border-color 0.15s;
-}
-
-.atn-card:hover {
-  border-color: #b6bcc4;
-  box-shadow: 0 8px 24px rgba(140, 149, 159, 0.22);
 }
 
 .atn-card__head {
@@ -222,26 +202,6 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* The age gives way to the actions while the pointer or focus is inside the card. */
-.atn-card__actions {
-  display: none;
-  gap: 2px;
-}
-
-.atn-card:is(:hover, :focus-within) .atn-card__actions {
-  display: flex;
-}
-
-.atn-card:is(:hover, :focus-within) .atn-card__age {
-  display: none;
-}
-
-.atn-card__age {
-  font-size: 12.5px;
-  color: #8c959f;
-  white-space: nowrap;
 }
 
 .atn-card__chev {
@@ -286,34 +246,6 @@
   color: var(--text-1);
 }
 
-.atn-tag,
-.atn-link__status {
-  flex: none;
-  border-radius: 10px;
-  white-space: nowrap;
-}
-
-.atn-tag {
-  padding: 2px 8px;
-  font-size: 11.5px;
-}
-
-:is(.atn-tag, .atn-link__status, .atn-status).is-blue { color: #0969da; background: #ddf4ff; }
-:is(.atn-tag, .atn-link__status, .atn-status).is-amber { color: #9a6700; background: #fff8c5; }
-:is(.atn-tag, .atn-link__status, .atn-status).is-red { color: #cf222e; background: #ffebe9; }
-:is(.atn-tag, .atn-link__status, .atn-status).is-green { color: #1a7f37; background: #dafbe1; }
-:is(.atn-tag, .atn-link__status, .atn-status).is-neutral { color: #24292f; background: #eceff2; }
-:is(.atn-tag, .atn-link__status, .atn-status).is-orange { color: #bc4c00; background: #fff1e5; }
-:is(.atn-tag, .atn-link__status, .atn-status).is-purple { color: #8250df; background: #fbefff; }
-
-/* Where the item stands sits in its strip as plain text in a golden outline, whatever its tone. */
-.atn-card__head .atn-tag {
-  padding: 0 7px;
-  border: 1px solid #d4a72c;
-  background: transparent;
-  color: var(--text-1);
-}
-
 /* A ticket's status move: where it was, struck through, then where it is. */
 .atn-detail__status {
   display: flex;
@@ -322,25 +254,10 @@
   color: #8c959f;
 }
 
-.atn-status {
-  padding: 1px 7px;
-  border-radius: 4px;
-  font-size: 11.5px;
-  white-space: nowrap;
-}
-
-.atn-status.is-from {
-  text-decoration: line-through;
-  text-decoration-color: rgba(87, 96, 106, 0.5);
-}
-
 .atn-detail {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  padding: 6px 9px;
-  border-radius: 7px;
-  background: #f6f8fa;
   font-size: 12.5px;
   line-height: 17px;
   color: var(--text-1);
@@ -452,12 +369,6 @@
   gap: 6px;
 }
 
-.atn-label {
-  padding: 1px 8px;
-  border-radius: 10px;
-  font-size: 11.5px;
-}
-
 /* Linked items: one folded row of icons and keys that unfolds to a row per item. */
 .atn-links {
   display: flex;
@@ -465,67 +376,6 @@
   margin-bottom: -4px;
   padding-top: 3px;
   border-top: 1px solid #eceff2;
-}
-
-/* A folded row, the linked items' or a card's actor line, unfolds in place when clicked. */
-.atn-fold,
-.atn-link {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  height: 24px;
-  margin: 0 -6px;
-  padding: 0 6px;
-  border-radius: 6px;
-}
-
-.atn-fold {
-  border: 0;
-  background: transparent;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.atn-fold:hover,
-.atn-link:hover {
-  background: rgba(31, 35, 40, 0.05);
-}
-
-.atn-fold__chev {
-  flex: none;
-  color: #57606a;
-  transition: transform 0.15s;
-}
-
-.atn-fold[aria-expanded="true"] .atn-fold__chev {
-  transform: rotate(90deg);
-}
-
-.atn-link {
-  padding-left: 26px;
-}
-
-.atn-link-key {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 4px;
-}
-
-:is(.atn-link-key, .atn-link) > svg {
-  flex: none;
-  color: var(--src-fg);
-}
-
-.atn-link-key > span,
-.atn-link__key {
-  flex: none;
-  font-family: var(--mono);
-  font-size: 11.5px;
-  color: #57606a;
-  white-space: nowrap;
 }
 
 .atn-link__title {
@@ -536,53 +386,6 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.atn-link__status {
-  padding: 1px 7px;
-  font-size: 11px;
-}
-
-.atn-iconbtn {
-  width: 26px;
-  height: 26px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #57606a;
-  cursor: pointer;
-}
-
-.atn-iconbtn:hover {
-  background: rgba(31, 35, 40, 0.08);
-  color: var(--text-1);
-}
-
-.atn-iconbtn.is-ack:hover {
-  background: #dafbe1;
-  color: #1a7f37;
-}
-
-.atn-iconbtn.is-goal.is-active {
-  color: #0969da;
-}
-
-/* The card's item is in the pinned goal. */
-.atn-goal {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 7px 1px 5px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.7);
-  color: #57606a;
-  font-size: 11px;
-  white-space: nowrap;
 }
 
 .atn-clear {

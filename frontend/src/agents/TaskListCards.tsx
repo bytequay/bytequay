@@ -13,9 +13,8 @@
  */
 
 import React from 'react';
-import { Archive, ArchiveRestore, Check, ChevronRight, Cherry, CodeXml, Eye, LayoutGrid, LoaderCircle, PanelLeft, Trash2, Wrench } from 'lucide-react';
-import { GoalIcon } from '../goals/GoalPanel';
-import { SourceIcon } from '../home/AttentionCard';
+import { Archive, ArchiveRestore, Check, ChevronRight, Cherry, CodeXml, Eye, LayoutGrid, PanelLeft, Trash2, Wrench } from 'lucide-react';
+import { Card, CardActions, CardAge, Clickable, IconButton, InGoalBadge, LinkKey, Pill } from '../cards/Card';
 import { relativeTime } from '../relativeTime';
 import { TASK_TYPES, type TaskListItem, type TaskType } from './taskList';
 
@@ -44,26 +43,11 @@ function speaker(who: string, you: string): { initials: string; tone: string } {
 }
 
 function StatePill({ item }: { item: TaskListItem }): React.JSX.Element {
-  return (
-    <span className={`agt-pill is-${item.state.tone}`}>
-      {item.state.spinning && <LoaderCircle className="agt-spin" aria-hidden="true" />}
-      {item.state.label}
-    </span>
-  );
+  return <Pill tone={item.state.tone} spinning={item.state.spinning}>{item.state.label}</Pill>;
 }
 
-function Links({ item }: { item: TaskListItem }): React.JSX.Element | null {
-  if (item.links.length === 0) return null;
-  return (
-    <>
-      {item.links.map((link) => (
-        <span className={`atn-link-key is-${link.source}`} key={`${link.source}:${link.key}`} title={link.title}>
-          <SourceIcon source={link.source} size={13} />
-          <span>{link.key}</span>
-        </span>
-      ))}
-    </>
-  );
+function Links({ item }: { item: TaskListItem }): React.JSX.Element {
+  return <>{item.links.map((link) => <LinkKey key={`${link.source}:${link.key}`} source={link.source} name={link.key} title={link.title} size={13} />)}</>;
 }
 
 export type TaskItemHandlers = {
@@ -114,34 +98,24 @@ function Actions({ item, onArchive, onDelete, onOpenWorkspace }: Pick<TaskItemHa
   const archived = item.task?.archivedAt != null;
   const busy = item.task?.mutationClaim != null && item.task.mutationClaim.kind !== 'RECOVERY';
   return (
-    <span className="agt-item-actions">
+    <CardActions>
       {onOpenWorkspace !== undefined && (
-        <button type="button" className="agt-item-action" title="View inside workspace" aria-label={`View ${item.title} inside workspace`}
-          onClick={(event) => { event.stopPropagation(); onOpenWorkspace(); }}>
+        <IconButton label={`View ${item.title} inside workspace`} title="View inside workspace" onClick={onOpenWorkspace}>
           <PanelLeft size={14} aria-hidden="true" />
-        </button>
+        </IconButton>
       )}
       {onArchive !== undefined && (
-        <button type="button" className="agt-item-action" title={archived ? 'Restore to Active' : 'Archive'} aria-label={`${archived ? 'Restore' : 'Archive'} task: ${item.title}`}
-          onClick={(event) => { event.stopPropagation(); onArchive(!archived); }}>
+        <IconButton label={`${archived ? 'Restore' : 'Archive'} task: ${item.title}`} title={archived ? 'Restore to Active' : 'Archive'} onClick={() => onArchive(!archived)}>
           {archived ? <ArchiveRestore size={14} aria-hidden="true" /> : <Archive size={14} aria-hidden="true" />}
-        </button>
+        </IconButton>
       )}
       {onDelete !== undefined && (
-        <button type="button" className="agt-item-action is-danger" title={busy ? 'Stop the task before deleting' : 'Delete permanently'} aria-label={`Delete task: ${item.title}`}
-          disabled={busy} onClick={(event) => { event.stopPropagation(); onDelete(); }}>
+        <IconButton label={`Delete task: ${item.title}`} title={busy ? 'Stop the task before deleting' : 'Delete permanently'} tone="danger" disabled={busy} onClick={onDelete}>
           <Trash2 size={14} aria-hidden="true" />
-        </button>
+        </IconButton>
       )}
-    </span>
+    </CardActions>
   );
-}
-
-function activate(event: React.KeyboardEvent, run: () => void): void {
-  if (event.target !== event.currentTarget) return;
-  if (event.key !== 'Enter' && event.key !== ' ') return;
-  event.preventDefault();
-  run();
 }
 
 /**
@@ -152,20 +126,19 @@ export function TaskItemCard({ item, now, you = 'Y', inGoal = false, selecting, 
   const open = selecting && onToggle !== undefined ? onToggle : onOpen;
   const speaking = item.message === null ? null : speaker(item.message.who, you);
   return (
-    <div className={`agt-item-card${checked ? ' is-selected' : ''}`} role="button" tabIndex={0} aria-label={`${TASK_TYPES[item.type].label}: ${item.title}`}
-      onClick={open} onKeyDown={(event) => activate(event, open)}>
+    <Card className="agt-item-card" selected={checked} label={`${TASK_TYPES[item.type].label}: ${item.title}`} onOpen={open}>
       <div className="agt-item-card__head">
         <TypeSlot item={item} checked={checked} onToggle={onToggle} chip />
         <StatePill item={item} />
-        {inGoal && <span className="agt-in-goal" title="In goal"><GoalIcon size={13} /></span>}
+        {inGoal && <InGoalBadge />}
         <span className="agt-spacer" />
         {!selecting && <Actions item={item} onArchive={onArchive} onDelete={onDelete} onOpenWorkspace={onOpenWorkspace} />}
-        <time className="agt-item-age" dateTime={item.at}>{relativeTime(item.at, { suffix: false, now })}</time>
+        <CardAge at={item.at} now={now} />
       </div>
       <div className="agt-item-card__title">{item.title}</div>
       {item.state.reason !== null && <div className="agt-item-card__needs"><span aria-hidden="true" />{item.state.reason}</div>}
       {item.message !== null && speaking !== null && (
-        <div className="agt-item-card__message">
+        <div className="card-box agt-item-card__message">
           <span className={`agt-speaker is-${speaking.tone}`} aria-hidden="true">{speaking.initials}</span>
           <div className="agt-item-card__said">
             <div className="agt-item-card__who"><span>{item.message.who}</span> · {relativeTime(item.message.at, { suffix: false, now })}</div>
@@ -185,7 +158,7 @@ export function TaskItemCard({ item, now, you = 'Y', inGoal = false, selecting, 
           {item.change !== null && <span className="agt-item-change">{item.change}</span>}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -193,22 +166,21 @@ export function TaskItemCard({ item, now, you = 'Y', inGoal = false, selecting, 
 export function TaskItemRow({ item, now, inGoal = false, selecting, checked, onOpen, onToggle, onArchive, onDelete, onOpenWorkspace }: TaskItemHandlers & { item: TaskListItem }): React.JSX.Element {
   const open = selecting && onToggle !== undefined ? onToggle : onOpen;
   return (
-    <div className={`agt-item-row${checked ? ' is-selected' : ''}`} role="button" tabIndex={0} aria-label={`${TASK_TYPES[item.type].label}: ${item.title}`}
-      onClick={open} onKeyDown={(event) => activate(event, open)}>
+    <Clickable className={`agt-item-row card-row${checked ? ' is-selected' : ''}`} label={`${TASK_TYPES[item.type].label}: ${item.title}`} onOpen={open}>
       <TypeSlot item={item} checked={checked} onToggle={onToggle} chip={false} />
       <span className="agt-item-row__title">{item.title}</span>
-      {inGoal && <span className="agt-in-goal" title="In goal"><GoalIcon size={12} /></span>}
+      {inGoal && <InGoalBadge />}
       <span className="agt-item-row__said">
         {item.message !== null && <><span className="agt-item-row__who">{item.message.who}:</span> {item.message.text}</>}
       </span>
       <Links item={item} />
       {item.change !== null && <span className="agt-item-change">{item.change}</span>}
       <StatePill item={item} />
-      <time className="agt-item-age" dateTime={item.at}>{relativeTime(item.at, { suffix: false, now })}</time>
+      <CardAge at={item.at} now={now} />
       <span className="agt-item-row__end">
         {!selecting && <Actions item={item} onArchive={onArchive} onDelete={onDelete} onOpenWorkspace={onOpenWorkspace} />}
         <ChevronRight className="agt-item-row__chev" size={13} aria-hidden="true" />
       </span>
-    </div>
+    </Clickable>
   );
 }

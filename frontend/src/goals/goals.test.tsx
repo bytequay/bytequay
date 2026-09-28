@@ -118,7 +118,7 @@ describe('goal panel', () => {
     // Finished work starts folded.
     expect(markup).toContain('>Show 2</button>');
     expect(markup).not.toContain('#30702 title');
-    expect(markup).toContain('class="goal-blocked">Blocked<');
+    expect(markup).toContain('class="pill is-red">Blocked<');
     expect(markup.match(/class="goal-needs"/g)).toHaveLength(1);
     expect(markup).toContain('aria-label="Remove #30925 from the goal"');
     expect(markup).toContain('>RECENT ACTIVITY<');

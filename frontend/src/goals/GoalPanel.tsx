@@ -15,22 +15,12 @@
 import React, { useEffect, useState } from 'react';
 import { ChevronDown, Maximize2, Plus, Search, Trash2, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
-import { SourceIcon } from '../home/AttentionCard';
+import { Card, CardActions, Clickable, GoalIcon, IconButton, Pill, SourceIcon } from '../cards/Card';
 import { relativeTime } from '../relativeTime';
 import type { GoalDto, GoalItemDto, GoalItemState } from './contracts';
 import {
   GOAL_SOURCES, STATE_GROUPS, addable, itemsIn, progressWidths, recentActivity, refKey, ringDash, summarize, type GoalTab,
 } from './model';
-
-/** The goal target, two rings, wherever a goal is named. */
-export function GoalIcon({ size = 14 }: { size?: number }): React.JSX.Element {
-  return (
-    <svg className="goal-icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" />
-      <circle cx="12" cy="12" r="4.5" />
-    </svg>
-  );
-}
 
 /** How much of a goal is finished, as a ring. */
 export function GoalRing({ goal, size = 20 }: { goal: GoalDto | null; size?: number }): React.JSX.Element {
@@ -207,8 +197,8 @@ function useCandidates(goal: GoalDto, search: GoalPanelProps['search'], open: bo
 function Candidate({ item, onAdd, board }: { item: GoalItemDto; onAdd: (item: GoalItemDto) => Promise<unknown>; board?: boolean }): React.JSX.Element {
   return (
     <div className="goal-result">
-      <span className={`goal-src is-${GOAL_SOURCES[item.kind]}`}><SourceIcon source={GOAL_SOURCES[item.kind]} size={14} /></span>
-      <span className="goal-mono">{item.label}</span>
+      <SourceIcon source={GOAL_SOURCES[item.kind]} tinted />
+      <span className="card-key">{item.label}</span>
       <span className="goal-result__title">{item.title}</span>
       {board && <span className="goal-result__sub">{item.status}</span>}
       <button type="button" className="goal-link" onClick={() => { void onAdd(item).catch(() => {}); }}>Add</button>
@@ -259,18 +249,18 @@ function Stats({ goal, needsYou, onTab }: { goal: GoalDto; needsYou: ReadonlySet
 function ItemRow({ item, needsYou, onOpen, onRemove }: { item: GoalItemDto; needsYou: boolean; onOpen: () => void; onRemove: () => void }): React.JSX.Element {
   const source = GOAL_SOURCES[item.kind];
   return (
-    <div className={`goal-row${item.state === 'FINISHED' ? ' is-finished' : ''}`} role="button" tabIndex={0} title={item.status}
-      onClick={onOpen} onKeyDown={(event) => { if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onOpen(); } }}>
-      <span className={`goal-src is-${source}`}><SourceIcon source={source} size={14} /></span>
-      <span className="goal-mono">{item.label}</span>
+    <Clickable className={`goal-row card-row${item.state === 'FINISHED' ? ' is-finished' : ''}`} title={item.status} onOpen={onOpen}>
+      <SourceIcon source={source} tinted />
+      <span className="card-key">{item.label}</span>
       <span className="goal-row__title">{item.title}</span>
-      {item.blocked && <span className="goal-blocked">Blocked</span>}
+      {item.blocked && <Pill tone="red">Blocked</Pill>}
       {needsYou && <span className="goal-needs" title="Needs you" />}
-      <button type="button" className="goal-remove" title="Remove from goal" aria-label={`Remove ${item.label} from the goal`}
-        onClick={(event) => { event.stopPropagation(); onRemove(); }}>
-        <X size={12} strokeWidth={2.2} aria-hidden="true" />
-      </button>
-    </div>
+      <CardActions>
+        <IconButton label={`Remove ${item.label} from the goal`} title="Remove from goal" tone="danger" onClick={onRemove}>
+          <X size={12} strokeWidth={2.2} aria-hidden="true" />
+        </IconButton>
+      </CardActions>
+    </Clickable>
   );
 }
 
@@ -338,7 +328,7 @@ function GoalList({ goal, needsYou, repository, now = Date.now(), search, onAdd,
           <div className="goal-activity">
             {activity.map(({ item, text, at }) => (
               <div className="goal-activity__row" key={`${refKey(item)} ${at}`}>
-                <span className={`goal-src is-${GOAL_SOURCES[item.kind]}`}><SourceIcon source={GOAL_SOURCES[item.kind]} size={14} /></span>
+                <SourceIcon source={GOAL_SOURCES[item.kind]} tinted />
                 <span className="goal-activity__text">{text}</span>
                 <span className="goal-activity__age">{relativeTime(at, { suffix: false, now })}</span>
               </div>
@@ -396,22 +386,22 @@ function GoalBoard({ goal, needsYou, repository, search, onAdd, onRemove, onOpen
               {rows.map((item) => {
                 const source = GOAL_SOURCES[item.kind];
                 return (
-                  <div className="goal-card" key={refKey(item)} role="button" tabIndex={0} onClick={() => onOpenItem(item)}
-                    onKeyDown={(event) => { if (event.target === event.currentTarget && event.key === 'Enter') onOpenItem(item); }}>
+                  <Card compact className="goal-card" key={refKey(item)} onOpen={() => onOpenItem(item)}>
                     <div className="goal-card__head">
-                      <span className={`goal-src is-${source}`}><SourceIcon source={source} size={14} /></span>
-                      <span className="goal-mono">{item.label}</span>
+                      <SourceIcon source={source} tinted />
+                      <span className="card-key">{item.label}</span>
                       <span className="goal-spacer" />
-                      {item.blocked && <span className="goal-blocked">Blocked</span>}
+                      {item.blocked && <Pill tone="red">Blocked</Pill>}
                       {needsYou.has(refKey(item)) && <span className="goal-needs" title="Needs you" />}
-                      <button type="button" className="goal-remove" title="Remove from goal" aria-label={`Remove ${item.label} from the goal`}
-                        onClick={(event) => { event.stopPropagation(); onRemove(item); }}>
-                        <X size={11} strokeWidth={2.2} aria-hidden="true" />
-                      </button>
+                      <CardActions>
+                        <IconButton label={`Remove ${item.label} from the goal`} title="Remove from goal" tone="danger" onClick={() => onRemove(item)}>
+                          <X size={11} strokeWidth={2.2} aria-hidden="true" />
+                        </IconButton>
+                      </CardActions>
                     </div>
                     <div className="goal-card__title">{item.title}</div>
                     <div className="goal-card__sub">{item.status}</div>
-                  </div>
+                  </Card>
                 );
               })}
             </div>

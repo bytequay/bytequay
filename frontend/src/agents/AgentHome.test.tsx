@@ -59,7 +59,7 @@ describe('agent home on a return visit', () => {
     expect(seeded).toContain('Reviewer named by login');
     expect(seeded).toContain('Assigned in this workspace');
     expect(seeded).toContain('Start development for #3');
-    expect(seeded.match(/class="atn-card /g)).toHaveLength(3);
+    expect(seeded.match(/class="card atn-card /g)).toHaveLength(3);
     expect(seeded).not.toContain('All issues');
     expect(seeded).not.toContain('All pull requests');
     expect(seeded).not.toContain('Elsewhere');
@@ -88,7 +88,7 @@ describe('agent home on a return visit', () => {
     const markup = renderToStaticMarkup(
       <AgentTasksView workspaceId="workspace-rows" bridge={createPreviewBridge('workspace-rows')} onOpenTask={() => {}} onOpenReview={() => {}} />);
 
-    expect(markup).toMatch(/<span class="atn-link-key is-pr" title="Clean up nits"><svg[^>]*>.*?<\/svg><span>#31105<\/span><\/span>/);
+    expect(markup).toMatch(/<span class="card-link" title="Clean up nits"><span class="card-src is-pr"><svg[^>]*>.*?<\/svg><\/span><span class="card-key">#31105<\/span><\/span>/);
     expect(markup).toContain('2 commits');
   });
 

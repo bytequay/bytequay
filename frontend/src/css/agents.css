@@ -3199,35 +3199,10 @@
   background: #ffffff;
 }
 
+/* A task card's layout; the box, selection and focus come from .card. */
 .agt-item-card {
-  box-sizing: border-box;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
   gap: 8px;
   padding: 11px 12px;
-  border: 1px solid #e3e3e6;
-  border-radius: 12px;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(31, 35, 40, 0.05);
-  color: var(--text-1);
-  cursor: pointer;
-  transition: box-shadow 0.15s, border-color 0.15s;
-}
-
-.agt-item-card:hover {
-  border-color: #b6bcc4;
-  box-shadow: 0 8px 24px rgba(140, 149, 159, 0.22);
-}
-
-.agt-item-card.is-selected {
-  border-color: #54aeff;
-  background: #f5faff;
-}
-
-:is(.agt-item-card, .agt-item-row):focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
 }
 
 .agt-item-card__head {
@@ -3255,7 +3230,6 @@
   padding: 0 8px 0 6px;
   border-radius: 6px;
   font-size: 11.5px;
-  font-weight: 500;
   white-space: nowrap;
 }
 
@@ -3311,57 +3285,6 @@ button:is(.agt-type-chip, .agt-type-tile) {
   display: block;
 }
 
-.agt-item-age {
-  flex: none;
-  font-size: 12px;
-  color: #8c959f;
-  white-space: nowrap;
-}
-
-/* Archive and delete replace the age while the pointer or focus is on the card. */
-.agt-item-actions {
-  flex: none;
-  display: none;
-  gap: 2px;
-}
-
-:is(.agt-item-card, .agt-item-row):is(:hover, :focus-within) .agt-item-actions {
-  display: flex;
-}
-
-.agt-item-card:is(:hover, :focus-within) .agt-item-actions + .agt-item-age {
-  display: none;
-}
-
-.agt-item-action {
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: #57606a;
-  cursor: pointer;
-}
-
-.agt-item-action:hover:not(:disabled) {
-  background: #eceff2;
-  color: var(--text-1);
-}
-
-.agt-item-action.is-danger:hover:not(:disabled) {
-  background: #ffebe9;
-  color: #cf222e;
-}
-
-.agt-item-action:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
 .agt-item-card__title {
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -3395,9 +3318,6 @@ button:is(.agt-type-chip, .agt-type-tile) {
 .agt-item-card__message {
   display: flex;
   gap: 8px;
-  padding: 7px 9px;
-  border-radius: 8px;
-  background: #f6f8fa;
 }
 
 /* Who said a card's last message, in the colour of that agent. */
@@ -3538,18 +3458,7 @@ button:is(.agt-type-chip, .agt-type-tile) {
   color: #8c959f;
 }
 
-/* The task, or the pull request it works on, is in the pinned goal. */
-.agt-in-goal {
-  flex: none;
-  display: inline-flex;
-  color: #57606a;
-}
-
-.agt-item-row .agt-pill {
-  flex: none;
-}
-
-.agt-item-row .agt-item-age {
+.agt-item-row .card-age {
   width: 28px;
   text-align: right;
 }
@@ -3681,23 +3590,11 @@ button:is(.agt-type-chip, .agt-type-tile) {
   margin-top: 12px;
 }
 
-/* One open task on Home: name and state, what it last said, and its lane and checkout. */
+/* One open task on Home: name and state, what it last said, and its lane and checkout. The box is a
+   compact .card; the head is as tall as the actions that appear in it, so hovering never shifts it. */
 .agt-open-card {
-  display: flex;
-  flex-direction: column;
   gap: 5px;
-  min-width: 0;
   padding: 10px 12px;
-  border: 1px solid #e3e3e6;
-  border-radius: 10px;
-  background: #ffffff;
-  cursor: pointer;
-  transition: box-shadow 0.12s, border-color 0.12s;
-}
-
-.agt-open-card:hover {
-  border-color: #b6bcc4;
-  box-shadow: 0 4px 14px rgba(140, 149, 159, 0.16);
 }
 
 .agt-open-card__head {
@@ -3705,7 +3602,7 @@ button:is(.agt-type-chip, .agt-type-tile) {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  min-height: 22px;
+  min-height: 24px;
 }
 
 .agt-open-card__icon {
@@ -3734,36 +3631,6 @@ button:is(.agt-type-chip, .agt-type-tile) {
   color: var(--text-1);
   font: inherit;
   font-size: 13px;
-}
-
-/* Rename and hide sit beside the name while the pointer or focus is on the card. */
-.agt-open-card__tools {
-  display: none;
-  flex: none;
-  gap: 2px;
-}
-
-.agt-open-card:is(:hover, :focus-within) .agt-open-card__tools {
-  display: flex;
-}
-
-.agt-open-card__tool {
-  width: 22px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: #57606a;
-  cursor: pointer;
-}
-
-.agt-open-card__tool:hover {
-  background: #eceff2;
-  color: var(--text-1);
 }
 
 .agt-open-card__last {
@@ -3805,30 +3672,6 @@ button:is(.agt-type-chip, .agt-type-tile) {
 .agt-open-card__change.is-pr {
   color: #8250df;
 }
-
-/* A task card's state: waiting on the user, running, idle, finished or failed. */
-.agt-pill {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 8px;
-  border-radius: 10px;
-  font-size: 11.5px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.agt-pill > .agt-spin {
-  width: 11px;
-  height: 11px;
-}
-
-.agt-pill.is-orange { color: #bc4c00; background: #fff1e5; }
-.agt-pill.is-blue { color: #0969da; background: #ddf4ff; }
-.agt-pill.is-green { color: #1a7f37; background: #dafbe1; }
-.agt-pill.is-neutral { color: #57606a; background: #eceff2; }
-.agt-pill.is-red { color: #cf222e; background: #ffebe9; }
 
 /* ── Task window card ── */
 

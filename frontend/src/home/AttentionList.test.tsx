@@ -60,11 +60,12 @@ describe('AttentionList', () => {
       event: 'review_requested', actor: 'bob', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: 'viewer',
     })]);
 
-    expect(html).toContain('class="atn-card is-pr"');
+    // The box, its keyboard behaviour and its hover actions come from the shared card base.
+    expect(html).toContain('class="card atn-card is-pr" role="button" tabindex="0"');
     expect(html).toContain('lucide-git-pull-request');
     // The strip names no type, and a pull request's reason sits in it.
     expect(html).not.toContain('>Pull request<');
-    expect(html).toMatch(/class="atn-card__head">.*class="atn-tag is-blue">Review requested<.*class="atn-card__body"/);
+    expect(html).toMatch(/class="atn-card__head">.*class="pill is-outline">Review requested<.*class="atn-card__body"/);
     expect(html).toContain('class="atn-card__key">#30920<');
     // Global Home names the repository on each card; the age is the actual event's.
     expect(html).toContain('trinodb/trino</span>');
@@ -101,8 +102,8 @@ describe('AttentionList', () => {
     })]);
 
     // What happened starts folded under the actor line, which unfolds it.
-    expect(html).toContain('<button class="atn-fold" type="button" aria-expanded="false" title="Show details">');
-    expect(html).toContain('<div hidden=""><div class="atn-detail">');
+    expect(html).toContain('<button class="card-fold" type="button" aria-expanded="false" title="Show details">');
+    expect(html).toContain('<div hidden=""><div class="card-box atn-detail">');
     expect(html).toContain('<p><code>TransactionLogAccess.java:562</code> declares the same record.</p>');
     expect(html).toContain('<div class="atn-detail__file" title="plugin/trino-delta-lake/src/main/java/CheckpointWriter.java:101">on CheckpointWriter.java:101</div>');
   });
@@ -114,10 +115,10 @@ describe('AttentionList', () => {
     } }]);
     const html = list([ticket]);
 
-    expect(html).toContain('class="atn-card is-jira"');
-    expect(html).toMatch(/class="atn-card__head">.*class="atn-tag is-green">Assigned to you<.*class="atn-card__body"/);
-    expect(html).toContain('<button class="atn-fold" type="button" aria-expanded="false" title="Show details">');
-    expect(html).toMatch(/<span class="atn-status is-blue is-from">In Progress<\/span><svg[^>]*aria-label="to"[^>]*>.*?<\/svg><span class="atn-status is-red">Blocked<\/span>/);
+    expect(html).toContain('class="card atn-card is-jira"');
+    expect(html).toMatch(/class="atn-card__head">.*class="pill is-outline">Assigned to you<.*class="atn-card__body"/);
+    expect(html).toContain('<button class="card-fold" type="button" aria-expanded="false" title="Show details">');
+    expect(html).toMatch(/<span class="pill is-blue is-square is-struck">In Progress<\/span><svg[^>]*aria-label="to"[^>]*>.*?<\/svg><span class="pill is-red is-square">Blocked<\/span>/);
     expect(html).toContain('<div class="markdown-body"><p>Staging is mid-upgrade.</p></div>');
   });
 
@@ -125,7 +126,7 @@ describe('AttentionList', () => {
     const items = [30920, 30921, 30922, 30923, 30924].map(number => prItem(number)).concat(issueItem(7));
     const html = list(items, {}, 'workspace');
 
-    expect(html.match(/class="atn-card /g)).toHaveLength(4);
+    expect(html.match(/class="card atn-card /g)).toHaveLength(4);
     expect(html).toContain('class="atn-count">4 of 6<');
     expect(html).toMatch(/>PRs <span class="atn-filter__count">5</);
     expect(html).toMatch(/>Issues <span class="atn-filter__count">1</);
@@ -156,8 +157,8 @@ describe('AttentionList', () => {
 
   it('offers development for an issue and lists its labels, and says so when nothing needs you', () => {
     const html = list([issueItem(7)]);
-    expect(html).toContain('class="atn-card is-issue"');
-    expect(html).toContain('class="atn-tag is-green">Assigned to you<');
+    expect(html).toContain('class="card atn-card is-issue"');
+    expect(html).toContain('class="pill is-outline">Assigned to you<');
     expect(html).toContain('<span class="atn-card__actor">finn-ep</span> opened this issue');
     expect(html).toContain('aria-label="Start development for #7"');
     expect(html).toContain('>bug</span>');
@@ -179,7 +180,7 @@ describe('AttentionList', () => {
     expect(html).toContain('>TRINO-412</span>');
     expect(html).toContain('>#31190</span>');
     expect(html).not.toContain('LINKED');
-    // Titles and statuses wait until the row unfolds.
-    expect(html).not.toContain('Validate the fix');
+    // Titles and statuses wait, hidden, until the row unfolds.
+    expect(html).toMatch(/<button class="card-fold" type="button" aria-expanded="false" title="Show linked items">.*?<\/button><div hidden="">.*Validate the fix/);
   });
 });

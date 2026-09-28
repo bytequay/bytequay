@@ -100,9 +100,10 @@ export async function runMainScreen(keepMounted = false): Promise<string> {
   };
   try {
     flushSync(() => root.render(<PullsScreen />));
-    for (let attempts = 0; attempts < 45 && host.querySelector('.attention-visit-status')?.textContent !== 'Viewed'; attempts++) await settle();
-    assert(host.querySelector('.attention-visit-status')?.textContent === 'Viewed' && loadHandled()['owner/repo#7'] === undefined,
-      'A loaded PR is Viewed while its attention notification remains visible');
+    for (let attempts = 0; attempts < 45 && !host.textContent?.includes('Original description'); attempts++) await settle();
+    assert(host.textContent?.includes('Original description') === true && host.querySelector('.attention-visit-status') === null
+      && loadHandled()['owner/repo#7'] === undefined,
+    'A loaded PR must omit the visit label while its attention notification remains visible');
     button('WorkBench').click(); await settle();
     button('Changes').click();
     await settle();
@@ -176,6 +177,7 @@ export async function runMainScreen(keepMounted = false): Promise<string> {
     await settle();
     assert(host.querySelector('.pull-detail.zoom-card') !== null && host.querySelector('.pull-detail.is-full') === null
       && host.querySelector('.zoom-scrim') !== null, 'Zoom must open a card over the list, not cover the window');
+    assert(host.querySelector('.pull-detail.zoom-card .attention-visit-status') === null, 'The zoom header must omit the visit label');
     assert(host.querySelector('.pull-file-tree') !== null, 'Zoom must default the changed-file sidebar open');
     // The browser rail is fixed chrome painted above every layer, so a layer that reached under
     // it would be covered by the web page list instead of the page it was opened from.

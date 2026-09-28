@@ -1320,7 +1320,7 @@ export function PullDetailHeader({
   zoom?: ZoomControls;
   onClose?: () => void;
 }) {
-  const visit = useAttentionVisit(pr === null || detail === null ? null : pullRequestItem(pr));
+  useAttentionVisit(pr === null || detail === null ? null : pullRequestItem(pr));
   const [mergeQueue, setMergeQueue] = useState<boolean | null | undefined>(undefined);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -1387,9 +1387,8 @@ export function PullDetailHeader({
           {agentTab}
         </nav>
         <div className="pull-detail__header-actions">
-          {pr !== null && <><span className="attention-visit-status" role="status">{visit.status}</span>
-            <PinButton className="pull-detail__icon-action" item={{ key: `${pr.repo}#${pr.number}`, title: detail?.title ?? pr.title,
-              reference: `${pr.repo} #${pr.number}`, target: { kind: 'pull', repo: pr.repo, number: pr.number } }} /></>}
+          {pr !== null && <PinButton className="pull-detail__icon-action" item={{ key: `${pr.repo}#${pr.number}`, title: detail?.title ?? pr.title,
+            reference: `${pr.repo} #${pr.number}`, target: { kind: 'pull', repo: pr.repo, number: pr.number } }} />}
           {zoom
             ? <ZoomActions {...zoom} label="pull request details" className="pull-detail__icon-action" />
             : onClose ? <button className="pull-detail__icon-action" type="button"

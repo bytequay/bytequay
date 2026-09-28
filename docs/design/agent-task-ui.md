@@ -985,7 +985,10 @@ card the age gives way to ◎ (add to or remove from that goal), Start
 development (issues and tickets that can start), Acknowledge and Snooze, beside
 the chevron. The body is the
 title clamped to two lines, a reason tag with the actor's avatar and what they
-did, and a detail block saying what happened. Tags are toned by reason: Review
+did, and a detail block about that same event: a comment or review quotes its
+text, a label change names the label, and an event with nothing to show falls
+back to what the item waits on, such as the commits since your last review or
+the failing check. Tags are toned by reason: Review
 requested blue, Approval amber, a status moved to Blocked red, Assigned green,
 Commented neutral, and Updated orange for pushes and failing checks. Linked
 items start folded to one row of icons and keys and unfold to a row per item

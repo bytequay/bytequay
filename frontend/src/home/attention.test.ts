@@ -325,6 +325,14 @@ describe('attentionSummary', () => {
       kind: 'commits', lead: '2 commits since your last review', commits: [{ sha: '4f1a2c9', message: 'Map CommitFailedException' }, { sha: 'b73e0d1', message: 'Add a conflict test' }],
     } });
 
+    // A comment left after those commits is what the card names, so the detail quotes it instead.
+    expect(attentionSummary({ ...base, kind: 'review', pr: pr({ commitsSinceReview, latestActivity: {
+      event: 'review_thread', actor: 'ravi-moreau', timestamp: base.updatedAt, state: null, label: null, requestedReviewer: null,
+      excerpt: 'Can we keep the identity check?', path: 'DeltaLakeWriter.java', line: 214,
+    } }) }, 'jack')).toMatchObject({
+      verb: 'left a review comment', detail: { kind: 'quote', text: 'Can we keep the identity check?', file: 'DeltaLakeWriter.java:214' },
+    });
+
     // A pushed commit that failed CI names the push, the commit and the check that failed.
     expect(attentionSummary({ ...base, kind: 'ci', pr: pr({ commitsSinceReview: commitsSinceReview.slice(0, 1), failingChecks: ['ci / test (plugin/trino-iceberg)'], latestActivity: {
       event: 'committed', actor: 'wren-d', timestamp: base.updatedAt, state: null, label: null, requestedReviewer: null,

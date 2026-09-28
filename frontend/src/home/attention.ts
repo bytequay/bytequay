@@ -301,12 +301,13 @@ function pullRequestSummary(item: AttentionItem, pr: PullRequestDto, viewerLogin
   const pushed = commits.length > 0 && activity?.event === 'committed';
   const excerpt = activity?.excerpt ?? null;
   const file = activity?.path == null ? null : activity.line == null ? activity.path : `${activity.path}:${activity.line}`;
-  const detail: AttentionDetail | null = item.kind === 'ci' ? { kind: 'ci', commits: commits.slice(0, 1), checks: pr.failingChecks ?? [] }
-    : (item.kind === 'review' || item.kind === 'commits') && commits.length > 0
-      ? { kind: 'commits', lead: `${plural(commits.length, 'commit')} since your last review`, commits: commits.slice(0, SHOWN_COMMITS) }
-      : excerpt !== null ? { kind: 'quote', text: excerpt, file }
-        : (activity?.event === 'labeled' || activity?.event === 'unlabeled') && label !== null
-          ? { kind: 'labels', lead: null, labels: [{ name: label, color: pr.labelColors?.[label] ?? null }] }
+  // The detail shows the event the actor line names; what the item waits on fills in when that event has nothing to show.
+  const detail: AttentionDetail | null = excerpt !== null ? { kind: 'quote', text: excerpt, file }
+    : (activity?.event === 'labeled' || activity?.event === 'unlabeled') && label !== null
+      ? { kind: 'labels', lead: null, labels: [{ name: label, color: pr.labelColors?.[label] ?? null }] }
+      : item.kind === 'ci' ? { kind: 'ci', commits: commits.slice(0, 1), checks: pr.failingChecks ?? [] }
+        : (item.kind === 'review' || item.kind === 'commits') && commits.length > 0
+          ? { kind: 'commits', lead: `${plural(commits.length, 'commit')} since your last review`, commits: commits.slice(0, SHOWN_COMMITS) }
           : since !== null && pr.headPushedAt !== null && Date.parse(pr.headPushedAt) > Date.parse(since)
             ? { kind: 'text', text: 'New commits since your last review' }
             : null;

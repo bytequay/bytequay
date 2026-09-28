@@ -3290,8 +3290,8 @@ button:is(.agt-type-chip, .agt-type-tile) {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  font-size: 14px;
-  line-height: 19px;
+  font-size: 13px;
+  line-height: 18px;
   text-wrap: pretty;
   overflow-wrap: anywhere;
 }
@@ -3433,7 +3433,7 @@ button:is(.agt-type-chip, .agt-type-tile) {
 .agt-item-row__title {
   flex: none;
   max-width: 38%;
-  font-size: 14px;
+  font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3613,7 +3613,7 @@ button:is(.agt-type-chip, .agt-type-tile) {
 .agt-open-card__title {
   flex: 1;
   min-width: 0;
-  font-size: 13.5px;
+  font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

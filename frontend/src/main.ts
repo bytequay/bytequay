@@ -1516,6 +1516,8 @@ function registerIpc(): void {
   ipcMain.handle('prs:attention', () => backendJson(`${backendBase()}/prs/attention`));
   ipcMain.handle('prs:stored', (_event, repo: string, number: number) =>
     backendJson(prUrl('/prs/stored', repo, number)));
+  ipcMain.handle('prs:stored:description', (_event, repo: string, number: number) =>
+    backendJson(prUrl('/prs/stored/description', repo, number)));
   ipcMain.handle('prs:monitor', async (_event, prId: number, monitored: boolean) => {
     if (!Number.isSafeInteger(prId) || prId <= 0 || typeof monitored !== 'boolean') throw new Error('Invalid PR monitor request');
     prNotificationGeneration++;

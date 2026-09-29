@@ -192,6 +192,25 @@ class TestPullRequestService
     }
 
     @Test
+    void readsTheStoredDescriptionWithoutFetchingOrMarkingThePullRequestViewed()
+    {
+        PrRawDetail undescribed = new PrRawDetail(null, null, null, null, null, null, REVIEWED_AT, null, null, ImmutableList.of(), null, ImmutableList.of(), null, false, true,
+                "clean", 4, 2, 1, 0, ImmutableList.of(), "head", "feature", "main", "base");
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(store.findIdByRepoAndNumber("owner/repo", 8)).thenReturn(Optional.of(13L));
+        when(store.findIdByRepoAndNumber("owner/repo", 9)).thenReturn(Optional.of(14L));
+        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
+        when(detailStore.find(13L)).thenReturn(Optional.of(new StoredPrDetail(undescribed, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of())));
+
+        assertThat(service.findStoredDescription("owner/repo", 7)).contains("body");
+        assertThat(service.findStoredDescription("owner/repo", 8)).contains("");
+        assertThat(service.findStoredDescription("owner/repo", 9)).isEmpty();
+        assertThat(service.findStoredDescription("owner/repo", 10)).isEmpty();
+
+        verifyNoInteractions(gitHub, summaries, writes, actions, accounts, viewStateStore, diffStore);
+    }
+
+    @Test
     void readsCachedActivityWithoutAttributingAnUnexplainedLaterUpdateToItsActor()
     {
         PrActivitySummary activity = new PrActivitySummary("commented", Optional.of("reviewer"), REVIEWED_AT,

@@ -204,6 +204,12 @@ public class PullRequestService
         return store.findIdByRepoAndNumber(repo, number).flatMap(store::findById);
     }
 
+    /** Reads the cached description the same way, so it is empty until a detail read has stored the pull request once. */
+    public Optional<String> findStoredDescription(String repo, int number)
+    {
+        return store.findIdByRepoAndNumber(repo, number).flatMap(snapshots::findStoredDetail).map(detail -> Optional.ofNullable(detail.raw().body()).orElse(""));
+    }
+
     /** Reads cached avatar URLs without loading full details or contacting GitHub. */
     public Map<Long, String> findCachedAuthorAvatarUrls(Set<Long> prIds)
     {

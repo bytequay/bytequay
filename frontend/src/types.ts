@@ -1382,6 +1382,8 @@ export type Bridge = JiraBridge & {
   fetchPrs: (workspaceId: string | undefined, page: number, pageSize: number) => Promise<PullRequestPageDto>;
   fetchAttentionPrs: () => Promise<PullRequestDto[]>;
   findStoredPullRequest: (repo: string, number: number) => Promise<PullRequestDto | null>;
+  /** The description a detail read cached, without reaching GitHub or marking the PR viewed; null until one did. */
+  findStoredPullRequestDescription: (repo: string, number: number) => Promise<{ body: string | null }>;
   setPrMonitored: (prId: number, monitored: boolean) => Promise<PullRequestDto>;
   setPrAttentionHandled: (handled: import('./home/attention').Handled) => Promise<void>;
   setPrAttentionPinned: (keys: string[]) => Promise<void>;

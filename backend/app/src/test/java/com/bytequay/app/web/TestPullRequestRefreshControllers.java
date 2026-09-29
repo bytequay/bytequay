@@ -153,6 +153,29 @@ class TestPullRequestRefreshControllers
     }
 
     @Test
+    void readsStoredDescriptionsWithoutOpeningOrRefreshingThePullRequest()
+            throws Exception
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
+        when(pullRequests.findStoredDescription("trinodb/trino", 12)).thenReturn(Optional.of("Fixes the flaky test"));
+        when(pullRequests.findStoredDescription("trinodb/trino", 13)).thenReturn(Optional.empty());
+        var mvc = standaloneSetup(new PullRequestController(pullRequests, refresh)).build();
+
+        mvc.perform(get("/prs/stored/description").queryParam("repo", "trinodb/trino").queryParam("number", "12"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.body").value("Fixes the flaky test"));
+        mvc.perform(get("/prs/stored/description").queryParam("repo", "trinodb/trino").queryParam("number", "13"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("{\"body\":null}", true));
+
+        verify(pullRequests).findStoredDescription("trinodb/trino", 12);
+        verify(pullRequests).findStoredDescription("trinodb/trino", 13);
+        verifyNoMoreInteractions(pullRequests);
+        verifyNoInteractions(refresh);
+    }
+
+    @Test
     void readsCheckLogWithoutRefreshingOrWritingThePullRequest()
             throws Exception
     {

@@ -101,6 +101,17 @@ public class PullRequestController
         return pullRequests.findStored(repo, number);
     }
 
+    /** For a hover card, which must neither reach GitHub nor mark the pull request viewed the way opening its detail does. */
+    @GetMapping("/prs/stored/description")
+    public StoredDescription storedDescription(@RequestParam("repo") String repo, @RequestParam("number") int number)
+    {
+        parseRef(repo, number);
+        return new StoredDescription(pullRequests.findStoredDescription(repo, number));
+    }
+
+    /** Empty until a detail read has stored the pull request; an empty string is a pull request with no description. */
+    public record StoredDescription(Optional<String> body) {}
+
     @PatchMapping("/prs/{prId}/monitor")
     public PullRequest monitor(@PathVariable long prId, @RequestBody MonitorRequest request)
     {

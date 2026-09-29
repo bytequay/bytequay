@@ -277,6 +277,11 @@ async function hoverCards(): Promise<void> {
   const pull = item(52);
   const task = taskAttentionItem(previewTask('ws-1', 'task-52'), null, { id: 'ws-1', name: 'octo/app', repository: 'octo/app' });
   const f = mount([pull, jiraAttentionItem(jiraIssue), task]);
+  const reads: string[] = [];
+  window.bridge.findStoredPullRequestDescription = async (repo, number) => {
+    reads.push(`${repo}#${number}`);
+    return { body: 'Retries the upload **once** before failing.' };
+  };
   try {
     await settle();
     const rows = [...f.host.querySelectorAll<HTMLElement>('[role="listitem"]')];
@@ -288,11 +293,13 @@ async function hoverCards(): Promise<void> {
     await pause(700); await settle();
     const cards = [...document.querySelectorAll('.ref-card')];
     const card = (label: string) => cards.find(candidate => candidate.getAttribute('aria-label') === label);
-    assert(card('Pull request preview')?.textContent?.includes('REVIEWERS') === true && card('Pull request preview')?.textContent?.includes(pull.title) === true,
-      'Resting on a pull request must show its metadata');
-    assert(card('Jira ticket preview')?.textContent?.includes(jiraIssue.key) === true && card('Jira ticket preview')?.textContent?.includes('PRIORITY') === true,
-      'Resting on a ticket must show its metadata');
-    assert(card('Agent task preview')?.textContent?.includes('BRANCH') === true, 'Resting on a task must show its metadata');
+    assert(card('Pull request preview')?.textContent?.includes(pull.title) === true
+      && card('Pull request preview')?.textContent?.includes('Retries the upload once before failing.') === true && reads.join() === 'octo/app#52',
+    'Resting on a pull request must show the description stored for it, read once and only for it');
+    assert(card('Jira ticket preview')?.textContent?.includes(jiraIssue.key) === true
+      && card('Jira ticket preview')?.textContent?.includes('Keep partition filters in the remote query.') === true,
+    'Resting on a ticket must show its description');
+    assert(card('Agent task preview')?.textContent?.includes('No messages yet.') === true, 'Resting on a task must show its last message');
     rows.forEach(row => row.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })));
     await pause(200); await settle();
     assert(document.querySelector('.ref-card') === null, 'Leaving a row must close its hover card');

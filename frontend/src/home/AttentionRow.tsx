@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { ArrowRight, ArrowUpRight, Check, CircleX, Clock3, MessageSquare, Play } from 'lucide-react';
 import Avatar from '../Avatar';
 import { CardActions, CardAge, GoalIcon, IconButton, InGoalBadge, ItemRow, LinkKey, Pill, SourceIcon } from '../cards/Card';
@@ -19,11 +19,9 @@ import { jiraIssueLocation } from '../jira/contracts';
 import MarkdownBody from '../pulls/MarkdownBody';
 import ReferenceCard, { previewMarkdown, toneChip, useHoverCard, type HoverCard, type ReferenceCardItem } from '../ReferenceCard';
 import { ago, relativeTime } from '../relativeTime';
-import { effortLabel } from '../settings/model';
 import { firstWords } from '../teams/activity';
 import type { TeamAttentionMatch } from '../teams/priority';
 import type { TeamCircle } from '../teams/types';
-import type { PullRequestDto } from '../types';
 import PinButton from './PinButton';
 import type { PinnedItem } from './pinned';
 import { useAttentionStatus } from './useAttentionVisit';
@@ -299,25 +297,13 @@ function Detail({ detail }: { detail: AttentionDetail }) {
   }
 }
 
-function plural(count: number, noun: string): string {
-  return `${count} ${noun}${count === 1 ? '' : 's'}`;
-}
-
-function checks(pr: PullRequestDto): string {
-  if (pr.ciStatus === 'PASSING') return 'Passing';
-  if (pr.ciStatus === 'PENDING') return 'Running';
-  if (pr.ciStatus !== 'FAILING') return 'None';
-  const failing = pr.failingChecks ?? [];
-  return failing.length === 0 ? 'Failing' : `${failing[0]} failed${failing.length > 1 ? ` +${failing.length - 1}` : ''}`;
-}
-
 /** "opened 3d ago", or nothing for a time the source did not give. */
 function when(verb: string, at: string | null): string {
   const elapsed = ago(at);
   return elapsed === '' ? '' : `${verb} ${elapsed}`;
 }
 
-/** The item's metadata for its hover card, from what the list already holds: resting on a row never reads a source. */
+/** The head of the item's hover card, from what the list already holds. */
 function previewItem(item: AttentionItem, summary: AttentionSummary): ReferenceCardItem {
   const updated = when('updated', item.updatedAt);
   const base: ReferenceCardItem = {
@@ -326,16 +312,9 @@ function previewItem(item: AttentionItem, summary: AttentionSummary): ReferenceC
     chip: toneChip(summary.tag.label, summary.tag.tone),
   };
   if (item.task !== undefined) {
-    const { dto } = item.task;
     return {
       ...base, reference: `${item.workspaceName || item.repo} · ${item.reference ?? 'Agent task'}`, url: null,
-      byline: [item.author, when('started', dto.createdAt), updated].filter(Boolean).join(' · '),
-      facts: [
-        { label: 'MODEL', value: dto.defaults.model ?? 'Default' },
-        { label: 'EFFORT', value: dto.defaults.effort === null ? 'Default' : effortLabel(dto.defaults.effort) },
-        { label: 'BRANCH', value: dto.generatedBranch ?? 'Not created yet' },
-        { label: 'PULL REQUEST', value: dto.pullRequest == null ? 'None' : `#${dto.pullRequest.number}` },
-      ],
+      byline: [item.author, when('started', item.task.dto.createdAt), updated].filter(Boolean).join(' · '),
     };
   }
   if (item.jira !== undefined) {
@@ -343,12 +322,6 @@ function previewItem(item: AttentionItem, summary: AttentionSummary): ReferenceC
     return {
       ...base, reference: jira.key, url: jira.url,
       byline: [jira.assignee === null ? 'Unassigned' : `Assigned to ${jira.assignee.displayName}`, updated].filter(Boolean).join(' · '),
-      facts: [
-        { label: 'STATUS', value: jira.status.name },
-        { label: 'PRIORITY', value: jira.priority?.name ?? 'None' },
-        { label: 'TYPE', value: jira.type },
-        { label: 'DUE', value: jira.dueDate === null ? 'None' : new Date(`${jira.dueDate}T00:00:00`).toLocaleDateString() },
-      ],
     };
   }
   const pr = item.pr;
@@ -357,34 +330,38 @@ function previewItem(item: AttentionItem, summary: AttentionSummary): ReferenceC
       ...base,
       byline: [pr.origin === 'AUTHORED' ? 'your PR' : item.author ?? 'unknown', pr.origin === 'AUTHORED' ? '' : when('opened', item.createdAt), updated]
         .filter(Boolean).join(' · '),
-      facts: [
-        { label: 'REVIEW', value: pr.draft ? 'Draft' : pr.reviewDecision === 'APPROVED' ? 'Approved'
-          : pr.reviewDecision === 'CHANGES_REQUESTED' ? 'Changes requested' : 'No decision yet' },
-        { label: 'CHECKS', value: checks(pr) },
-        { label: 'REVIEWERS', value: pr.requestedReviewers.length === 0 ? 'None requested' : pr.requestedReviewers.join(', ') },
-        { label: 'DISCUSSION', value: plural(pr.commentCount, 'comment') },
-      ],
     };
   }
   return {
     ...base,
-    byline: [item.author ?? 'unknown', when('opened', item.createdAt), item.kind === 'assigned' ? 'assigned to you' : ''].filter(Boolean).join(' · '),
-    facts: [
-      { label: 'DISCUSSION', value: plural(item.commentCount, 'comment') },
-      { label: 'ACTIVITY', value: updated },
-    ],
+    byline: [item.author ?? 'unknown', when('opened', item.createdAt), updated, item.kind === 'assigned' ? 'assigned to you' : ''].filter(Boolean).join(' · '),
   };
 }
 
-/** A ticket's or issue's description or a task's last message; a pull request's latest event, since its description is not held locally. */
-function previewBody(item: AttentionItem, summary: AttentionSummary): ReactNode {
-  if (item.pr !== null) {
-    return <>
-      <div className="ref-card__muted">{summary.actor === null ? '' : `${summary.actor.name} `}{summary.verb}</div>
-      {summary.detail !== null && <div className="atn-detail"><Detail detail={summary.detail} /></div>}
-    </>;
-  }
-  const text = item.task !== undefined ? item.task.activity?.lastMessage?.text : item.jira !== undefined ? item.jira.body : item.body;
+/**
+ * A pull request's description as its last detail read stored it; undefined while reading and null when none has. The list
+ * carries no PR bodies, and the detail read itself would reach GitHub on a miss and mark the pull request viewed.
+ */
+function useStoredDescription(item: AttentionItem): string | null | undefined {
+  const [description, setDescription] = useState<string | null>();
+  const pull = item.pr !== null;
+  useEffect(() => {
+    if (!pull) return;
+    let current = true;
+    Promise.resolve().then(() => window.bridge.findStoredPullRequestDescription(item.repo, item.number))
+      .then(stored => { if (current) setDescription(stored?.body ?? null); })
+      .catch(() => { if (current) setDescription(null); });
+    return () => { current = false; };
+    // An update may come with a newly stored description, so an open card reads again.
+  }, [pull, item.repo, item.number, item.updatedAt]);
+  return description;
+}
+
+/** The item's description, or a task's last message. */
+function previewBody(item: AttentionItem, description: string | null | undefined): ReactNode {
+  if (item.pr !== null && description === undefined) return <span className="ref-card__muted">Loading description…</span>;
+  if (item.pr !== null && description === null) return <span className="ref-card__muted">Open the pull request to load its description.</span>;
+  const text = item.task !== undefined ? item.task.activity?.lastMessage?.text : item.jira !== undefined ? item.jira.body : item.pr !== null ? description : item.body;
   const markdown = previewMarkdown(text);
   if (markdown === '') return <span className="ref-card__muted">{item.task === undefined ? 'No description.' : 'No messages yet.'}</span>;
   return <MarkdownBody body={markdown} repository={item.jira === undefined && item.task === undefined ? item.repo : undefined} />;
@@ -399,8 +376,9 @@ function Preview({ item, summary, hover, onOpen, onAcknowledge, onSnooze, onStar
   onSnooze: (button: HTMLElement) => void;
   onStart?: () => void;
 }) {
+  const description = useStoredDescription(item);
   return (
-    <ReferenceCard hover={hover} item={previewItem(item, summary)} body={previewBody(item, summary)} actions={<>
+    <ReferenceCard hover={hover} item={previewItem(item, summary)} body={previewBody(item, description)} actions={<>
       {onStart !== undefined && (
         <button className="bq-button bq-button--primary" type="button" onClick={onStart}><Play aria-hidden="true" /> Start development</button>
       )}

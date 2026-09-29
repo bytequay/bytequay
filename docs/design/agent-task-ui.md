@@ -1012,16 +1012,16 @@ start), Acknowledge, Snooze and Open.
 
 Resting the pointer on a row for two seconds opens the item's hover card, the
 shared reference card: the source's icon, key and where the item stands, the
-title, who it is from and when it was opened and updated, a grid of facts (a
-pull request's review decision, checks, requested reviewers and comments; an
-issue's comments and activity; a ticket's status, priority, type and due date;
-a task's model, effort, branch and pull request), then an issue's or ticket's
-description, a task's last message or a pull request's latest event, its
-labels, and Start development, Ack, Snooze and Open. The card is built only
-from what the list already holds: resting on a row never reads a source or
-marks a pull request viewed, so a pull request's description stays on its
-page. Leaving the row and its card closes it; moving or resizing the card
-keeps it open until Escape or a press outside.
+title, who it is from and when it was opened and updated, then the item's
+description (a task's last message), its labels, and Start development, Ack,
+Snooze and Open. An issue's or ticket's description comes with the list; a
+pull request's is the one its last detail read stored, which
+`GET /prs/stored/description` reads without reaching GitHub or marking the
+pull request viewed; with no stored detail, the card says to open the pull
+request. The card widens with the window from 500 to 720 pixels and opens up
+to 720 pixels tall, never taller than the room above or below its row; a
+longer description scrolls inside it. Leaving the row and its card closes it;
+moving or resizing the card keeps it open until Escape or a press outside.
 
 Ack and snooze keep the shared store, undo toast and session **Bring back**.
 **ACK** records only acknowledgment, never a review, prompt or source mutation.

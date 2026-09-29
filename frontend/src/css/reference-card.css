@@ -10,7 +10,7 @@
   z-index: 1200;
   display: flex;
   flex-direction: column;
-  width: 500px;
+  width: clamp(500px, 40vw, 720px);
   min-width: 280px;
   max-width: calc(100vw - 24px);
   min-height: 120px;
@@ -100,35 +100,6 @@
   font-size: 12px;
 }
 
-.ref-card__grid {
-  display: grid;
-  flex: none;
-  grid-template-columns: 1fr 1fr;
-  gap: 1px;
-  border-top: 1px solid #eceff2;
-  border-bottom: 1px solid #eceff2;
-  background: #eceff2;
-}
-
-.ref-card__cell {
-  min-width: 0;
-  background: #ffffff;
-  padding: 9px 14px;
-}
-
-.ref-card__label {
-  color: #8c959f;
-  font-size: 10px;
-  letter-spacing: 0.4px;
-}
-
-.ref-card__value {
-  margin-top: 2px;
-  color: #57606a;
-  font-size: 12px;
-  font-weight: 600;
-}
-
 /* The description takes whatever height the card has left, so resizing the
    card taller shows more of it rather than more empty space. */
 .ref-card__foot {
@@ -136,17 +107,17 @@
   flex: 1 1 auto;
   flex-direction: column;
   min-height: 0;
+  border-top: 1px solid #eceff2;
   padding: 0 14px 12px;
 }
 
-.ref-card__grid + .ref-card__foot { padding-top: 11px; }
-
+/* The top padding scrolls away with the text, which then runs up to the rule. */
 .ref-card__body {
   flex: 1 1 auto;
-  min-height: 18px;
+  min-height: 29px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-right: 6px;
+  padding: 11px 6px 0 0;
   color: #57606a;
   font-size: 12px;
   line-height: 1.5;

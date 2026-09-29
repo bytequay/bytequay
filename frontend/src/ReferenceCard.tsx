@@ -21,8 +21,8 @@ import JiraIcon from './jira/JiraIcon';
 import RepoAvatar from './RepoAvatar';
 import { ago } from './relativeTime';
 
-const CARD_WIDTH = 500;
-const CARD_HEIGHT: Record<AttentionSource, number> = { pr: 400, issue: 460, jira: 460, task: 400 };
+/** The tallest a card opens; its anchor may leave less room, and then the description scrolls. */
+const CARD_MAX_HEIGHT = 720;
 const KINDS: Record<AttentionSource, string> = { pr: 'Pull request', issue: 'Issue', jira: 'Jira ticket', task: 'Agent task' };
 /** How far from the bottom right corner the browser's own resize grip takes a press. */
 const RESIZE_GRIP = 18;
@@ -48,8 +48,6 @@ export type ReferenceCardItem = {
   chip?: ReferenceCardChip | null;
   /** Replaces the default "author · opened X · updated Y" line. */
   byline?: string;
-  /** Stat cells between the head and the body. */
-  facts?: { label: string; value: string }[];
 };
 
 /** The pill tones of cards.css, for a chip drawn with inline colours; keep the two in step. */
@@ -234,13 +232,18 @@ export default function ReferenceCard({ id, hover, item, body, actions }: {
   const card = useRef<HTMLDivElement>(null);
   const [moved, setMoved] = useState<CSSProperties | null>(null);
   const [sized, setSized] = useState<CSSProperties | null>(null);
-  const [height, setHeight] = useState(CARD_HEIGHT[item.type]);
+  const [width, setWidth] = useState(500);
+  const [height, setHeight] = useState(0);
   const { anchor, pinned, close, hide, hold, pin, restoreFocus } = hover;
 
   useLayoutEffect(() => {
     if (anchor === null || card.current === null) return;
     const element = card.current;
-    const measure = () => setHeight(element.getBoundingClientRect().height);
+    const measure = () => {
+      const rect = element.getBoundingClientRect();
+      setWidth(rect.width);
+      setHeight(rect.height);
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(element);
@@ -319,8 +322,9 @@ export default function ReferenceCard({ id, hover, item, body, actions }: {
   const url = item.url === undefined ? referenceUrl(item) : item.url;
   const byline = item.byline ?? defaultByline(item);
   const style: CSSProperties = {
-    maxHeight: Math.min(CARD_HEIGHT[item.type], window.innerHeight - 20),
-    ...anchorPanel(anchor, CARD_WIDTH, height, anchor.left + 40),
+    // No taller than the roomier side of the anchor past anchorPanel's gap and margin, so the card never covers its row.
+    maxHeight: Math.min(CARD_MAX_HEIGHT, Math.max(window.innerHeight - anchor.bottom, anchor.top) - 16),
+    ...anchorPanel(anchor, width, height, anchor.left + 40),
     ...moved,
     ...sized,
   };
@@ -363,17 +367,6 @@ export default function ReferenceCard({ id, hover, item, body, actions }: {
           </div>
         )}
       </div>
-
-      {item.facts && item.facts.length > 0 && (
-        <div className="ref-card__grid">
-          {item.facts.map(fact => (
-            <div className="ref-card__cell" key={fact.label}>
-              <div className="ref-card__label">{fact.label}</div>
-              <div className="ref-card__value">{fact.value}</div>
-            </div>
-          ))}
-        </div>
-      )}
 
       <div className="ref-card__foot">
         <div className="ref-card__body">{body}</div>

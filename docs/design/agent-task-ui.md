@@ -1007,8 +1007,8 @@ snapshot until the item changes. Snooze is a timed reminder: activity does not
 end it early, and the deadline brings back the latest card even without new
 activity. The menu offers one hour, tomorrow and next Monday.
 
-Opening an item marks its notification **Viewed** while its details remain
-open. Successful actions replace or extend that status with **Reviewed**,
+Opening an item keeps its notification visible while its details remain
+open, without showing a **Viewed** label. Successful actions show **Reviewed**,
 **Prompted**, **Updated state**, or **Posted N comments**. Failed actions and
 drafts do not count. Closing its zoom, leaving its detail page or selecting
 another item clears the last displayed snapshot; a later source update makes

@@ -77,8 +77,8 @@ async function closeKeepsIssue(): Promise<void> {
   try {
     flushSync(() => root.render(<WorkspaceIssuesScreen workspaceId="workspace-1" repository="upstream/app" initialIssueNumber={7} onSelectIssue={() => {}} />));
     await settle();
-    assert(host.querySelector('.attention-visit-status')?.textContent === 'Viewed' && loadHandled()['upstream/app#7'] === undefined,
-      'Viewing an issue retains its notification while its detail stays open');
+    assert(host.querySelector('.attention-visit-status') === null && loadHandled()['upstream/app#7'] === undefined,
+      'Viewing an issue retains its notification without a visit label while its detail stays open');
     type('Fixed in #30786'); await settle();
     const close = host.querySelector<HTMLButtonElement>('.pr-composer__close');
     assert(close?.textContent === 'Close with comment', 'A typed draft turns Close into Close with comment');
@@ -322,8 +322,8 @@ async function closedIssueReminder(): Promise<void> {
       'The preview preserves the latest source state and labels');
     assert(host.querySelector('.pr-composer, [aria-label="Start development"], [aria-label="Mark as Goal"], [aria-label="Issue type"]') === null,
       'The read-only preview offers no source mutations or development');
-    assert(host.querySelector('[aria-label="Pin Closed issue title"]') !== null && host.querySelector('.attention-visit-status')?.textContent === 'Viewed',
-      'Closed issue previews retain pinning and the attention visit');
+    assert(host.querySelector('[aria-label="Pin Closed issue title"]') !== null && host.querySelector('.attention-visit-status') === null,
+      'Closed issue previews retain pinning without a visit label');
     preview = { ...preview, title: 'Updated closed issue', body: 'Description changed after closure', updatedAt: '2026-09-26T10:00:00Z' };
     host.querySelector<HTMLButtonElement>('[aria-label="Refresh"]')?.click(); await settle();
     assert(previewReads === 2 && host.textContent?.includes(preview.body), 'Manual refresh updates the closed issue preview');

@@ -226,9 +226,8 @@ export async function utilityTabs(): Promise<string> {
   try {
     flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={answer.taskId} bridge={bridge} onBack={() => {}} />));
     await footer();
-    for (let frame = 0; frame < 60 && host.querySelector('.attention-visit-status') === null; frame++) await settle();
     const attentionKey = `task:${answer.taskId}`;
-    assert(host.querySelector('.attention-visit-status')?.textContent === 'Viewed', 'A successfully opened task must show Viewed');
+    assert(host.querySelector('.attention-visit-status') === null, 'An opened task must not show a Viewed label');
     assert(loadHandled()[attentionKey] === undefined, 'The task must stay in attention while its detail remains open');
     host.querySelector<HTMLButtonElement>('[aria-label="Show or hide the side panel"]')?.click(); await settle();
     assert(panel() === 'Changes' && !tab(), 'The panel must default to Changes without showing an unopened Discussions tab');

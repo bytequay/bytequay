@@ -120,7 +120,7 @@ async function viewing(): Promise<void> {
   try {
     await settle();
     await f.open();
-    assert(f.cards().length === 1 && f.cards()[0].textContent?.includes('Viewed') === true, 'Viewing must keep the card with Viewed until detail closes');
+    assert(f.cards().length === 1 && !f.cards()[0].textContent?.includes('Viewed'), 'Viewing keeps the card without a Viewed label until detail closes');
     assert(loadHandled()[original.key] === undefined, 'Opening a card must not acknowledge it early');
     await f.readers(2);
     await f.readers(1);
@@ -145,7 +145,7 @@ async function actions(): Promise<void> {
     let finish = noOp;
     f.perform(() => new Promise<void>(resolve => { finish = resolve; }));
     button(f.host, 'review').click(); await settle();
-    assert(f.cards()[0].textContent?.includes('Viewed') === true, 'An unfinished write must keep Viewed');
+    assert(!f.cards()[0].textContent?.includes('Viewed') && !f.cards()[0].textContent?.includes('Reviewed'), 'An unfinished write must not show a visit action');
     finish(); await settle();
     assert(f.cards()[0].textContent?.includes('Reviewed') === true, 'A successful review must update the visible card');
     f.perform(async () => { throw new Error('Rejected'); });

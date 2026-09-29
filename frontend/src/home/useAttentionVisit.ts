@@ -60,7 +60,8 @@ function visitStatus(visit: Visit): string {
 export function useAttentionStatus(key: string): string | null {
   return useSyncExternalStore(subscribe, () => {
     const visit = visits.get(key);
-    return visit === undefined ? null : visitStatus(visit);
+    const status = visit === undefined ? null : visitStatus(visit);
+    return status === 'Viewed' ? null : status;
   }, (): string | null => null);
 }
 
@@ -134,5 +135,5 @@ export function useAttentionVisit(item: AttentionItem | null, active = true): {
   const onAction = useCallback((action: AttentionAction, count = 1, updatedItem?: AttentionItem) => {
     if (key !== null) recordAttentionAction(key, action, count, updatedItem);
   }, [key]);
-  return { status: status ?? (key === null ? '' : 'Viewed'), onAction };
+  return { status: status ?? '', onAction };
 }

@@ -13,9 +13,14 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.core.domain.PrReviewState;
+import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.TeamActivityEvent;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.MissingNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -32,6 +37,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
@@ -43,6 +49,7 @@ import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /** Bounded read-only observations; neither public events nor these repository pages are a complete audit log. */
@@ -80,7 +87,8 @@ public class GitHubTeamActivityClient
         return collector.result();
     }
 
-    public Observation repository(String token, String repository, Identity identity, int offset)
+    public Observation repository(String token, String repository, Identity identity, int offset,
+            BiFunction<Integer, Instant, Optional<StoredPrDetail>> cachedDetails)
     {
         requirePat(token);
         checkArgument(REPOSITORY.matcher(repository).matches() && !repository.endsWith("/.") && !repository.endsWith("/.."), "Invalid GitHub repository");
@@ -109,13 +117,81 @@ public class GitHubTeamActivityClient
         for (int index = 0; index < Math.min(5, pulls.size()) && !collector.rateLimited; index++) {
             JsonNode summary = pulls.get(Math.floorMod(offset + index, pulls.size()));
             int number = summary.path("number").asInt();
-            collector.read(repository + " PR #" + number, () -> object(token, prefix + "/pulls/" + number))
-                    .ifPresent(detail -> collector.accept(() -> collector.pull(repository, detail, "REPOSITORY")));
-            collector.read(repository + " reviews #" + number, () -> array(token, prefix + "/pulls/" + number + "/reviews", 1, ""))
-                    .ifPresent(reviews -> collector.each(reviews, review -> collector.review(repository, number, review, summary, "REPOSITORY")));
-            timeline(token, prefix + "/issues/" + number + "/timeline", repository, number, summary, collector);
+            Optional<StoredPrDetail> cached = summary.path("updated_at").isTextual()
+                    ? collector.read(repository + " cached PR #" + number, () -> Instant.parse(summary.path("updated_at").asText()))
+                            .flatMap(updatedAt -> cachedDetails.apply(number, updatedAt)) : Optional.empty();
+            if (cached.isEmpty() || !cachedPull(collector, repository, summary, cached.orElseThrow(), identity)) {
+                collector.read(repository + " PR #" + number, () -> object(token, prefix + "/pulls/" + number))
+                        .ifPresent(detail -> collector.accept(() -> collector.pull(repository, detail, "REPOSITORY")));
+            }
+            if (cached.isEmpty() || !cachedReviews(collector, repository, number, summary, cached.orElseThrow(), identity)) {
+                collector.read(repository + " reviews #" + number, () -> array(token, prefix + "/pulls/" + number + "/reviews", 1, ""))
+                        .ifPresent(reviews -> collector.each(reviews, review -> collector.review(repository, number, review, summary, "REPOSITORY")));
+            }
+            if (cached.isEmpty() || !cachedTimeline(collector, repository, number, summary, cached.orElseThrow(), identity)) {
+                timeline(token, prefix + "/issues/" + number + "/timeline", repository, number, summary, collector);
+            }
         }
         return collector.result();
+    }
+
+    private static boolean cachedPull(Collector collector, String repository, JsonNode subject, StoredPrDetail cached, Identity identity)
+    {
+        if (cached.raw().mergedAt() == null) {
+            return true; // The repository issue page already supplied the open/closed subject.
+        }
+        Optional<PrTimelineEvent> merged = cached.timeline().stream().filter(event -> event.event().equals("merged") && event.localEventKey().isEmpty()).findFirst();
+        JsonNode actor = merged.map(event -> cachedActor(identity, subject, event.actor())).orElse(MissingNode.getInstance());
+        if (actor.isMissingNode()) {
+            return false;
+        }
+        ObjectNode pull = subject.deepCopy();
+        pull.put("merged_at", cached.raw().mergedAt().toString()).set("merged_by", actor);
+        collector.pull(repository, pull, "CACHED_DETAIL");
+        return true;
+    }
+
+    private static boolean cachedReviews(Collector collector, String repository, int number, JsonNode subject, StoredPrDetail cached, Identity identity)
+    {
+        List<PrReviewState> reviews = cached.reviews().stream().filter(review -> !review.state().equalsIgnoreCase("pending")).collect(toImmutableList());
+        if (reviews.stream().anyMatch(review -> review.githubId() == null || review.submittedAt() == null || cachedActor(identity, subject, review.login()).isMissingNode())) {
+            return false;
+        }
+        for (PrReviewState review : reviews) {
+            ObjectNode value = JsonNodeFactory.instance.objectNode().put("id", review.githubId()).put("state", review.state())
+                    .put("submitted_at", review.submittedAt().toString()).put("body", review.body());
+            value.set("user", cachedActor(identity, subject, review.login()));
+            collector.review(repository, number, value, subject, "CACHED_DETAIL");
+        }
+        return true;
+    }
+
+    private static boolean cachedTimeline(Collector collector, String repository, int number, JsonNode subject, StoredPrDetail cached, Identity identity)
+    {
+        List<PrTimelineEvent> requests = cached.timeline().stream()
+                .filter(event -> event.event().equals("review_requested") && event.localEventKey().isEmpty()).collect(toImmutableList());
+        if (requests.stream().anyMatch(event -> event.timestamp() == null || cachedActor(identity, subject, event.actor()).isMissingNode()
+                || cachedActor(identity, subject, event.payload().requestedReviewer()).isMissingNode())) {
+            return false;
+        }
+        for (PrTimelineEvent event : requests) {
+            collector.reviewRequest(repository, number, cachedActor(identity, subject, event.actor()), subject,
+                    cachedActor(identity, subject, event.payload().requestedReviewer()), JsonNodeFactory.instance.textNode(event.timestamp().toString()), "CACHED_DETAIL");
+        }
+        return true;
+    }
+
+    private static JsonNode cachedActor(Identity identity, JsonNode subject, String login)
+    {
+        if (login == null) {
+            return MissingNode.getInstance();
+        }
+        if (subject.path("user").path("login").asText().equalsIgnoreCase(login) && subject.path("user").path("id").asLong() > 0) {
+            return subject.path("user");
+        }
+        Optional<Long> id = login.equalsIgnoreCase(identity.viewerLogin()) ? Optional.of(identity.viewerId())
+                : identity.members().entrySet().stream().filter(entry -> entry.getValue().equalsIgnoreCase(login)).map(Map.Entry::getKey).findFirst();
+        return id.<JsonNode>map(value -> JsonNodeFactory.instance.objectNode().put("id", value).put("login", login)).orElse(MissingNode.getInstance());
     }
 
     /** Timeline pages are oldest-first; retain the first and last page without walking an unbounded history. */

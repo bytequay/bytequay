@@ -15,6 +15,7 @@ package com.bytequay.app.service.pr;
 
 import com.bytequay.app.service.pr.SelectedPullRequestReader.Read;
 import com.bytequay.app.service.pr.SelectedPullRequestReader.Section;
+import com.bytequay.core.domain.PrDetailFreshness;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
@@ -84,7 +85,6 @@ class TestSelectedPullRequestReader
         assertThat(read.incomplete()).isFalse();
         verifyNoInteractions(refresh);
         verify(pullRequests).findStored(REPO, NUMBER);
-        verifyNoMoreInteractions(pullRequests);
     }
 
     @Test
@@ -94,7 +94,8 @@ class TestSelectedPullRequestReader
         when(pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.of(row(UPDATED, "open", null)), Optional.of(row(NOW, "open", null)));
         when(details.find(ID)).thenReturn(Optional.empty(), Optional.of(hydrated));
         when(details.findSyncedAt(REPO, NUMBER)).thenReturn(Optional.of(NOW));
-        when(refresh.refreshAllDetail(REPO, NUMBER)).thenReturn(project(hydrated));
+        when(details.findFreshness(ID)).thenReturn(freshness(NOW, NOW));
+        when(refresh.refreshDetail(REPO, NUMBER)).thenReturn(PullRequestDetailRefresh.full(project(hydrated)));
 
         Read read = reader.read(REPO, NUMBER, Section.PR);
 
@@ -105,7 +106,7 @@ class TestSelectedPullRequestReader
         assertThat(read.refreshAttempted()).isTrue();
         assertThat(read.refreshFailed()).isFalse();
         assertThat(read.stale()).isFalse();
-        verify(refresh).refreshAllDetail(REPO, NUMBER);
+        verify(refresh).refreshDetail(REPO, NUMBER);
         verifyNoMoreInteractions(refresh);
         verify(pullRequests, never()).getPullRequestDetail(anyString(), anyInt());
     }
@@ -117,28 +118,29 @@ class TestSelectedPullRequestReader
         when(pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.empty(), Optional.of(row(UPDATED, "open", null)));
         when(details.find(ID)).thenReturn(Optional.of(hydrated));
         when(details.findSyncedAt(REPO, NUMBER)).thenReturn(Optional.of(NOW));
-        when(refresh.refreshAllDetail(REPO, NUMBER)).thenReturn(project(hydrated));
+        when(details.findFreshness(ID)).thenReturn(freshness(NOW, NOW));
+        when(refresh.refreshDetail(REPO, NUMBER)).thenReturn(PullRequestDetailRefresh.full(project(hydrated)));
 
         assertThat(reader.read(REPO, NUMBER, Section.PR).observedHeadSha()).contains(HEAD);
-        verify(refresh).refreshAllDetail(REPO, NUMBER);
+        verify(refresh).refreshDetail(REPO, NUMBER);
         verifyNoMoreInteractions(refresh);
     }
 
     @Test
-    void knownLagBypassesConditionalRefreshEvenWithAnEtag()
+    void knownLagRequestsTheSharedGroupRefresh()
     {
         StoredPrDetail old = stored(UPDATED, HEAD, ImmutableList.of());
         StoredPrDetail latest = stored(NOW, NEW_HEAD, ImmutableList.of());
         cached(row(NOW, "open", null), old, Optional.of(NOW));
         when(details.findEtag(ID)).thenReturn(Optional.of("cached-etag"));
         when(details.find(ID)).thenReturn(Optional.of(old), Optional.of(latest));
-        when(refresh.refreshAllDetail(REPO, NUMBER)).thenReturn(project(latest));
+        when(refresh.refreshDetail(REPO, NUMBER)).thenReturn(PullRequestDetailRefresh.full(project(latest)));
 
         Read read = reader.read(REPO, NUMBER, Section.PR);
 
         assertThat(read.stale()).isFalse();
         assertThat(read.observedHeadSha()).contains(NEW_HEAD);
-        verify(refresh).refreshAllDetail(REPO, NUMBER);
+        verify(refresh).refreshDetail(REPO, NUMBER);
         verifyNoMoreInteractions(refresh);
     }
 
@@ -147,7 +149,7 @@ class TestSelectedPullRequestReader
     {
         StoredPrDetail old = stored(UPDATED, HEAD, ImmutableList.of());
         cached(row(NOW, "open", null), old, Optional.of(NOW));
-        when(refresh.refreshAllDetail(REPO, NUMBER)).thenReturn(project(old));
+        when(refresh.refreshDetail(REPO, NUMBER)).thenReturn(PullRequestDetailRefresh.full(project(old)));
 
         Read read = reader.read(REPO, NUMBER, Section.PR);
 
@@ -156,7 +158,7 @@ class TestSelectedPullRequestReader
         assertThat(read.refreshFailed()).isFalse();
         assertThat(read.rowUpdatedAt()).contains(NOW);
         assertThat(read.detail().updatedAt()).isEqualTo(UPDATED);
-        verify(refresh).refreshAllDetail(REPO, NUMBER);
+        verify(refresh).refreshDetail(REPO, NUMBER);
         verifyNoMoreInteractions(refresh);
     }
 
@@ -165,7 +167,7 @@ class TestSelectedPullRequestReader
     {
         StoredPrDetail unknown = stored(null, HEAD, ImmutableList.of());
         cached(row(UPDATED, "open", null), unknown, Optional.of(NOW));
-        when(refresh.refreshAllDetail(REPO, NUMBER)).thenReturn(project(unknown));
+        when(refresh.refreshDetail(REPO, NUMBER)).thenReturn(PullRequestDetailRefresh.full(project(unknown)));
 
         Read read = reader.read(REPO, NUMBER, Section.PR);
 
@@ -173,25 +175,31 @@ class TestSelectedPullRequestReader
         assertThat(read.rowUpdatedAt()).contains(UPDATED);
         assertThat(read.stale()).isTrue();
         assertThat(read.refreshFailed()).isFalse();
-        verify(refresh).refreshAllDetail(REPO, NUMBER);
+        verify(refresh).refreshDetail(REPO, NUMBER);
     }
 
     @ParameterizedTest
     @CsvSource({"TIMELINE,timeline", "TIMELINE,comments", "TIMELINE,commits", "TIMELINE,reviewThreads", "TIMELINE,reactions", "CHECKS,checks"})
-    void requestedMissingSourceForcesFullRefreshDespiteAnEtag(Section section, String missing)
+    void requestedMissingSourceRefreshesItsOwnGroupDespiteAnEtag(Section section, String missing)
     {
         StoredPrDetail partial = stored(UPDATED, HEAD, ImmutableList.of(missing));
         StoredPrDetail complete = stored(UPDATED, HEAD, ImmutableList.of());
         cached(row(UPDATED, "open", null), partial, Optional.of(NOW));
         when(details.findEtag(ID)).thenReturn(Optional.of("cached-etag"));
         when(details.find(ID)).thenReturn(Optional.of(partial), Optional.of(complete));
-        when(refresh.refreshAllDetail(REPO, NUMBER)).thenReturn(project(complete));
+        when(refresh.refreshDetail(REPO, NUMBER)).thenReturn(PullRequestDetailRefresh.full(project(complete)));
+        when(refresh.refreshChecks(REPO, NUMBER)).thenReturn(PullRequestDetailRefresh.status(project(complete)));
 
         Read read = reader.read(REPO, NUMBER, section);
 
         assertThat(read.incomplete()).isFalse();
         assertThat(read.refreshAttempted()).isTrue();
-        verify(refresh).refreshAllDetail(REPO, NUMBER);
+        if (section == Section.CHECKS) {
+            verify(refresh).refreshChecks(REPO, NUMBER);
+        }
+        else {
+            verify(refresh).refreshDetail(REPO, NUMBER);
+        }
         verifyNoMoreInteractions(refresh);
     }
 
@@ -210,7 +218,7 @@ class TestSelectedPullRequestReader
     {
         StoredPrDetail partial = stored(UPDATED, HEAD, ImmutableList.of(StoredPrDetail.COMMENTS));
         cached(row(UPDATED, "open", null), partial, Optional.of(NOW));
-        when(refresh.refreshAllDetail(REPO, NUMBER)).thenReturn(project(partial));
+        when(refresh.refreshDetail(REPO, NUMBER)).thenReturn(PullRequestDetailRefresh.full(project(partial)));
 
         Read read = reader.read(REPO, NUMBER, Section.TIMELINE);
 
@@ -218,7 +226,7 @@ class TestSelectedPullRequestReader
         assertThat(read.refreshAttempted()).isTrue();
         assertThat(read.refreshFailed()).isFalse();
         assertThat(read.detail().unavailableSections()).containsExactly(StoredPrDetail.COMMENTS);
-        verify(refresh).refreshAllDetail(REPO, NUMBER);
+        verify(refresh).refreshDetail(REPO, NUMBER);
         verifyNoMoreInteractions(refresh);
     }
 
@@ -229,13 +237,13 @@ class TestSelectedPullRequestReader
     {
         StoredPrDetail partial = stored(UPDATED, head, ImmutableList.of());
         cached(row(UPDATED, "open", null), partial, Optional.of(NOW));
-        when(refresh.refreshAllDetail(REPO, NUMBER)).thenReturn(project(partial));
+        when(refresh.refreshChecks(REPO, NUMBER)).thenReturn(PullRequestDetailRefresh.full(project(partial)));
 
         Read read = reader.read(REPO, NUMBER, Section.CHECKS);
 
         assertThat(read.observedHeadSha()).isEmpty();
         assertThat(read.incomplete()).isTrue();
-        verify(refresh).refreshAllDetail(REPO, NUMBER);
+        verify(refresh).refreshChecks(REPO, NUMBER);
     }
 
     @Test
@@ -247,7 +255,7 @@ class TestSelectedPullRequestReader
         cached(row(NOW, "open", null), old, Optional.of(originalCacheTime));
         when(details.find(ID)).thenReturn(Optional.of(old), Optional.of(partialWrite));
         when(details.findSyncedAt(REPO, NUMBER)).thenReturn(Optional.of(originalCacheTime), Optional.of(NOW));
-        when(refresh.refreshAllDetail(REPO, NUMBER)).thenThrow(new IllegalStateException("Refresh failed after saving its row"));
+        when(refresh.refreshDetail(REPO, NUMBER)).thenThrow(new IllegalStateException("Refresh failed after saving its row"));
 
         Read read = reader.read(REPO, NUMBER, Section.PR);
 
@@ -259,7 +267,7 @@ class TestSelectedPullRequestReader
         assertThat(read.refreshAttempted()).isTrue();
         assertThat(read.stale()).isTrue();
         verify(details).find(ID);
-        verify(refresh).refreshAllDetail(REPO, NUMBER);
+        verify(refresh).refreshDetail(REPO, NUMBER);
     }
 
     @ParameterizedTest
@@ -268,7 +276,7 @@ class TestSelectedPullRequestReader
     {
         StoredPrDetail old = stored(UPDATED, HEAD, ImmutableList.of());
         cached(row(NOW, "open", null), old, Optional.of(NOW));
-        when(refresh.refreshAllDetail(REPO, NUMBER)).thenReturn(project(old));
+        when(refresh.refreshDetail(REPO, NUMBER)).thenReturn(PullRequestDetailRefresh.full(project(old)));
         switch (outcome) {
             case "missing" -> when(details.find(ID)).thenReturn(Optional.of(old), Optional.empty());
             case "error" -> when(details.find(ID)).thenReturn(Optional.of(old)).thenThrow(new IllegalStateException("Cache reread failed"));
@@ -291,35 +299,36 @@ class TestSelectedPullRequestReader
     {
         ResponseStatusException failure = new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub unavailable");
         when(pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.empty());
-        when(refresh.refreshAllDetail(REPO, NUMBER)).thenThrow(failure);
+        when(refresh.refreshDetail(REPO, NUMBER)).thenThrow(failure);
 
         assertThatThrownBy(() -> reader.read(REPO, NUMBER, Section.PR)).isSameAs(failure);
-        verify(refresh).refreshAllDetail(REPO, NUMBER);
+        verify(refresh).refreshDetail(REPO, NUMBER);
     }
 
     @Test
-    void oldUnmonitoredClosedCacheHasNoInventedDetailTtl()
+    void oldClosedDiscussionIsRevalidatedWhenExplicitlySelected()
     {
         Instant historical = NOW.minusSeconds(90L * 24 * 3600);
         cached(row(historical, "closed", null), stored(historical, HEAD, ImmutableList.of(), "closed"), Optional.of(historical));
 
         Read read = reader.read(REPO, NUMBER, Section.TIMELINE);
 
-        assertThat(read.stale()).isFalse();
-        assertThat(read.refreshAttempted()).isFalse();
+        assertThat(read.stale()).isTrue();
+        assertThat(read.refreshAttempted()).isTrue();
         assertThat(read.cacheUpdatedAt()).contains(historical);
-        verifyNoInteractions(refresh);
+        verify(refresh).refreshDetail(REPO, NUMBER);
     }
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void refreshesOpenOrMonitoredStatusesAtExistingSixMinuteBoundary(boolean monitoredClosed)
+    void refreshesSelectedChecksAtThirtySecondBoundary(boolean monitoredClosed)
     {
         String state = monitoredClosed ? "closed" : "open";
         StoredPrDetail stored = stored(UPDATED, HEAD, ImmutableList.of(), state);
-        cached(row(UPDATED, state, monitoredClosed ? UPDATED : null), stored, Optional.of(NOW.minusSeconds(360)));
-        when(details.findSyncedAt(REPO, NUMBER)).thenReturn(Optional.of(NOW.minusSeconds(360)), Optional.of(NOW));
-        when(refresh.refreshDetail(REPO, NUMBER)).thenReturn(PullRequestDetailRefresh.status(project(stored)));
+        cached(row(UPDATED, state, monitoredClosed ? UPDATED : null), stored, Optional.of(NOW.minusSeconds(30)));
+        when(details.findSyncedAt(REPO, NUMBER)).thenReturn(Optional.of(NOW.minusSeconds(30)), Optional.of(NOW));
+        when(details.findFreshness(ID)).thenReturn(freshness(NOW.minusSeconds(30), UPDATED), freshness(NOW, UPDATED));
+        when(refresh.refreshChecks(REPO, NUMBER)).thenReturn(PullRequestDetailRefresh.status(project(stored)));
 
         Read read = reader.read(REPO, NUMBER, Section.CHECKS);
 
@@ -328,7 +337,7 @@ class TestSelectedPullRequestReader
         assertThat(read.stale()).isFalse();
         assertThat(read.cacheUpdatedAt()).contains(NOW);
         assertThat(read.detail().updatedAt()).isEqualTo(UPDATED);
-        verify(refresh).refreshDetail(REPO, NUMBER);
+        verify(refresh).refreshChecks(REPO, NUMBER);
         verifyNoMoreInteractions(refresh);
     }
 
@@ -347,6 +356,13 @@ class TestSelectedPullRequestReader
         when(pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.of(row));
         when(details.find(ID)).thenReturn(Optional.of(stored));
         when(details.findSyncedAt(REPO, NUMBER)).thenReturn(cacheTime);
+        when(details.findFreshness(ID)).thenReturn(new PrDetailFreshness(cacheTime, cacheTime, cacheTime, Optional.ofNullable(stored.raw().updatedAt())));
+        when(pullRequests.discussionSourceUpdatedAt(row)).thenReturn(row.updatedAt());
+    }
+
+    private static PrDetailFreshness freshness(Instant at, Instant source)
+    {
+        return new PrDetailFreshness(Optional.of(at), Optional.of(at), Optional.of(at), Optional.ofNullable(source));
     }
 
     private static PullRequestDetail project(StoredPrDetail stored)

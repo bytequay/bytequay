@@ -16,6 +16,7 @@ package com.bytequay.persistence.sqlite.store;
 import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrCommitLine;
+import com.bytequay.core.domain.PrDetailFreshness;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
@@ -92,6 +93,15 @@ public class SqlitePrDetailStore
         return pullRequestRepo.findByRepoIgnoreCaseAndNumber(repo, number)
                 .map(PullRequestEntity::getId)
                 .flatMap(detailRepo::findSyncedAtByPrId);
+    }
+
+    @Override
+    public PrDetailFreshness findFreshness(long prId)
+    {
+        return detailRepo.findById(prId)
+                .map(entity -> new PrDetailFreshness(Optional.ofNullable(entity.getMetadataValidatedAt()), Optional.ofNullable(entity.getDiscussionValidatedAt()),
+                        Optional.ofNullable(entity.getChecksValidatedAt()), Optional.ofNullable(entity.getDiscussionSourceUpdatedAt())))
+                .orElseGet(PrDetailFreshness::unknown);
     }
 
     // Four queries across four tables: without a transaction each borrows the single
@@ -217,7 +227,7 @@ public class SqlitePrDetailStore
 
     @Override
     @Transactional
-    public void save(long prId, StoredPrDetail detail)
+    public void saveCached(long prId, StoredPrDetail detail)
     {
         saveHeader(prId, detail);
         saveReviews(prId, detail.reviews(), detail.reviewsComplete());
@@ -227,10 +237,56 @@ public class SqlitePrDetailStore
 
     @Override
     @Transactional
+    public void save(long prId, StoredPrDetail detail)
+    {
+        saveCached(prId, detail);
+        PrDetailEntity entity = detailRepo.findById(prId).orElseThrow();
+        entity.setMetadataValidatedAt(Instant.now());
+        markDiscussionValidated(entity, detail, detail.raw().updatedAt());
+        if (detail.checkRunsComplete()) {
+            entity.setChecksValidatedAt(Instant.now());
+        }
+    }
+
+    @Override
+    @Transactional
+    public void saveMetadata(long prId, StoredPrDetail detail)
+    {
+        boolean headChanged = detailRepo.findById(prId).filter(entity -> !Objects.equals(entity.getHeadSha(), detail.raw().headSha())).isPresent();
+        saveHeader(prId, detail);
+        if (headChanged) {
+            saveCheckRuns(prId, ImmutableList.of(), true);
+        }
+        detailRepo.findById(prId).orElseThrow().setMetadataValidatedAt(Instant.now());
+    }
+
+    @Override
+    @Transactional
+    public void saveDiscussion(long prId, StoredPrDetail detail, Instant sourceUpdatedAt)
+    {
+        saveHeader(prId, detail);
+        saveReviews(prId, detail.reviews(), detail.reviewsComplete());
+        saveTimeline(prId, detail.timeline(), detail.timelineComplete());
+        markDiscussionValidated(detailRepo.findById(prId).orElseThrow(), detail, sourceUpdatedAt);
+    }
+
+    private static void markDiscussionValidated(PrDetailEntity entity, StoredPrDetail detail, Instant sourceUpdatedAt)
+    {
+        if (detail.reviewsComplete() && detail.timelineComplete()) {
+            entity.setDiscussionValidatedAt(Instant.now());
+            entity.setDiscussionSourceUpdatedAt(sourceUpdatedAt);
+        }
+    }
+
+    @Override
+    @Transactional
     public void saveStatus(long prId, StoredPrDetail detail)
     {
         saveHeader(prId, detail);
         saveCheckRuns(prId, detail.checkRuns(), detail.checkRunsComplete());
+        if (detail.checkRunsComplete()) {
+            detailRepo.findById(prId).orElseThrow().setChecksValidatedAt(Instant.now());
+        }
     }
 
     @Override
@@ -261,7 +317,13 @@ public class SqlitePrDetailStore
     public void updateEtag(long prId, Optional<String> etag)
     {
         requireNonNull(etag, "etag is null");
-        detailRepo.findById(prId).ifPresent(detail -> detail.setEtag(etag.orElse(null)));
+        detailRepo.findById(prId).ifPresent(detail -> {
+            detail.setEtag(etag.orElse(null));
+            if (etag.isEmpty()) {
+                detail.setMetadataValidatedAt(null);
+                detail.setDiscussionValidatedAt(null);
+            }
+        });
     }
 
     @Override
@@ -296,6 +358,7 @@ public class SqlitePrDetailStore
         PrRawDetail raw = detail.raw();
         PrDetailEntity entity = detailRepo.findById(prId).orElseGet(PrDetailEntity::new);
         if (!Objects.equals(entity.getHeadSha(), raw.headSha())) {
+            entity.setChecksValidatedAt(null);
             entity.setCheckRunsEtag(null);
             entity.setCommitStatusesEtag(null);
         }
@@ -323,6 +386,7 @@ public class SqlitePrDetailStore
         entity.setChangedFiles(raw.changedFiles());
         entity.setRequestedReviewers(raw.requestedReviewers() != null ? raw.requestedReviewers() : ImmutableList.of());
         entity.setHeadSha(raw.headSha());
+        entity.setBaseSha(raw.baseSha());
         entity.setHeadRef(raw.headRef());
         entity.setBaseRef(raw.baseRef());
         entity.setViewerCanWrite(detail.viewerCanWrite());

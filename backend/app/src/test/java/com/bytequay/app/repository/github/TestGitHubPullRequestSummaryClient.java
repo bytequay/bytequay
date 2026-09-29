@@ -21,7 +21,10 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.mock.http.client.MockClientHttpRequest;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -59,7 +62,8 @@ class TestGitHubPullRequestSummaryClient
                 .andExpect(request -> {
                     var payload = MAPPER.readTree(((MockClientHttpRequest) request).getBodyAsString());
                     assertThat(payload.path("query").asText()).contains("databaseId:fullDatabaseId", "reviews(last:1", "checkRunCountsByState", "reviewRequested:timelineItems(last:20")
-                            .doesNotContain("body", "files(", "reviewThreads(");
+                            .contains("activity:timelineItems(last:1)")
+                            .doesNotContain("files(", "reviewThreads(");
                     assertThat(payload.path("variables").path("login").asText()).isEqualTo("viewer");
                 }).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
 
@@ -84,29 +88,51 @@ class TestGitHubPullRequestSummaryClient
     }
 
     @Test
-    void batchesThirtyDistinctReferencesAndDoesNotFetchEmptySelections()
+    void cardActivityCarriesOneCommentWithoutClaimingCiIsDiscussionActivity()
+            throws Exception
+    {
+        Fixture fixture = fixture();
+        ObjectNode value = row(1);
+        ObjectNode comment = value.withObject("/activity").putArray("nodes").addObject();
+        comment.put("__typename", "IssueComment").put("createdAt", "2026-09-21T11:00:00Z").put("body", "A new reply");
+        comment.putObject("author").put("login", "reviewer");
+        fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(value), MediaType.APPLICATION_JSON));
+        GitHubPullRequestSummary summary = fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
+        assertThat(summary.discussionUpdatedAt()).isEqualTo(Instant.parse("2026-09-21T11:00:00Z"));
+        assertThat(summary.latestActivity()).isPresent();
+        assertThat(summary.latestActivity().orElseThrow().actor()).contains("reviewer");
+        assertThat(summary.latestActivity().orElseThrow().excerpt()).contains("A new reply");
+        fixture.server().verify();
+    }
+
+    @Test
+    void batchesFiveDistinctReferencesAndDoesNotFetchEmptySelections()
             throws Exception
     {
         Fixture fixture = fixture();
         List<PullRequestRef> refs = IntStream.rangeClosed(1, 31).mapToObj(number -> PullRequestRef.of("owner", "repo", number)).toList();
-        ObjectNode first = MAPPER.createObjectNode();
-        ObjectNode data = first.putObject("data");
-        for (int index = 0; index < 30; index++) {
-            data.putObject("r" + index).set("pullRequest", row(index + 1));
+        for (int offset = 0; offset < refs.size(); offset += 5) {
+            int firstNumber = offset + 1;
+            int batchSize = Math.min(5, refs.size() - offset);
+            ObjectNode response = MAPPER.createObjectNode();
+            ObjectNode data = response.putObject("data");
+            for (int index = 0; index < batchSize; index++) {
+                data.putObject("r" + index).set("pullRequest", row(firstNumber + index));
+            }
+            fixture.server().expect(requestTo(ENDPOINT)).andExpect(request -> {
+                var payload = MAPPER.readTree(((MockClientHttpRequest) request).getBodyAsString());
+                var variables = payload.path("variables");
+                assertThat(variables.size()).isEqualTo(1 + batchSize * 3);
+                assertThat(variables.path("number0").intValue()).isEqualTo(firstNumber);
+                assertThat(variables.path("number" + (batchSize - 1)).intValue()).isEqualTo(firstNumber + batchSize - 1);
+                assertThat(variables.has("number" + batchSize)).isFalse();
+                assertThat(payload.path("query").asText()).doesNotContain("$number5");
+            }).andRespond(withSuccess(response.toString(), MediaType.APPLICATION_JSON));
         }
-        fixture.server().expect(requestTo(ENDPOINT)).andExpect(request -> {
-            var variables = MAPPER.readTree(((MockClientHttpRequest) request).getBodyAsString()).path("variables");
-            assertThat(variables.path("number29").intValue()).isEqualTo(30);
-            assertThat(variables.has("number30")).isFalse();
-        }).andRespond(withSuccess(first.toString(), MediaType.APPLICATION_JSON));
-        fixture.server().expect(requestTo(ENDPOINT)).andExpect(request -> {
-            var variables = MAPPER.readTree(((MockClientHttpRequest) request).getBodyAsString()).path("variables");
-            assertThat(variables.path("number0").intValue()).isEqualTo(31);
-            assertThat(variables.has("number1")).isFalse();
-        }).andRespond(withSuccess(response(row(31)), MediaType.APPLICATION_JSON));
 
         assertThat(fixture.client().fetchSummaries("pat", ImmutableList.of(), "viewer")).isEmpty();
-        assertThat(fixture.client().fetchSummaries("pat", ImmutableList.<PullRequestRef>builder().addAll(refs).add(REF).build(), "viewer")).hasSize(31);
+        assertThat(fixture.client().fetchSummaries("pat", ImmutableList.<PullRequestRef>builder().addAll(refs).add(REF).build(), "viewer"))
+                .extracting(summary -> summary.pullRequest().number()).containsExactlyElementsOf(IntStream.rangeClosed(1, 31).boxed().toList());
         fixture.server().verify();
     }
 
@@ -223,6 +249,25 @@ class TestGitHubPullRequestSummaryClient
                 """, MediaType.APPLICATION_JSON));
         assertThatThrownBy(() -> fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer"))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("GraphQL request failed");
+        fixture.server().verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void rateLimitedGraphQlResponsesStopBeforeTheNextBatch(boolean includesData)
+    {
+        Fixture fixture = fixture();
+        ObjectNode response = MAPPER.createObjectNode();
+        if (includesData) {
+            response.putNull("data");
+        }
+        response.putArray("errors").addObject().put("type", "RATE_LIMITED").put("message", "Rate limit exceeded")
+                .putArray("path").add("r0").add("pullRequest");
+        fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess(response.toString(), MediaType.APPLICATION_JSON));
+        List<PullRequestRef> refs = IntStream.rangeClosed(1, 6).mapToObj(number -> PullRequestRef.of("owner", "repo", number)).toList();
+
+        assertThatThrownBy(() -> fixture.client().fetchSummaries("pat", refs, "viewer"))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS));
         fixture.server().verify();
     }
 

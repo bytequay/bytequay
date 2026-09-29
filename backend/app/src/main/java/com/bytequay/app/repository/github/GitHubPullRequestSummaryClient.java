@@ -14,6 +14,7 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.core.domain.FetchedPullRequest;
+import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PullRequestDetail.CiStatus;
 import com.bytequay.core.domain.PullRequestRef;
@@ -42,6 +43,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.graphql;
@@ -53,12 +55,14 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
-/** Batches card facts without downloading PR bodies, patches, comments, or review history. */
+/** Batches card facts and one activity preview without downloading full detail histories. */
 @Component
 public class GitHubPullRequestSummaryClient
 {
+    // Thirty nested summaries approach GitHub's ten-second execution deadline.
+    public static final int BATCH_SIZE = 5;
+
     private static final Logger log = LoggerFactory.getLogger(GitHubPullRequestSummaryClient.class);
-    private static final int BATCH_SIZE = 30;
     private static final String REPLY_FIELDS = """
             nodes { createdAt author { login } replyTo { id } }
             pageInfo { hasPreviousPage startCursor }
@@ -75,7 +79,16 @@ public class GitHubPullRequestSummaryClient
             }
             commits(last:1) { nodes { commit { committedDate } } }
             statusCheckRollup { state contexts(first:1) { checkRunCountsByState { state count } statusContextCountsByState { state count } } }
-            activity:timelineItems(last:1) { updatedAt totalCount }
+            activity:timelineItems(last:1) { updatedAt totalCount nodes {
+              __typename
+              ... on IssueComment { createdAt author { login } body }
+              ... on PullRequestReview { createdAt author { login } body state }
+              ... on ReviewRequestedEvent { createdAt actor { login } requestedReviewer { ... on User { login } } }
+              ... on MergedEvent { createdAt actor { login } }
+              ... on ClosedEvent { createdAt actor { login } }
+              ... on ReopenedEvent { createdAt actor { login } }
+              ... on HeadRefForcePushedEvent { createdAt actor { login } }
+            } }
             reviewRequested:timelineItems(last:20,itemTypes:[REVIEW_REQUESTED_EVENT]) {
               nodes { ... on ReviewRequestedEvent { createdAt requestedReviewer { __typename ... on User { login } } } }
             }
@@ -117,8 +130,8 @@ public class GitHubPullRequestSummaryClient
             query.append("} fragment Summary on PullRequest { ").append(FIELDS).append(" }");
             JsonNode response = requireBody(translating(() -> graphql(graphQlRestClient, pat, query.toString(), variables).body(JsonNode.class)),
                     "GitHub returned no pull request summaries");
-            JsonNode data = required(response, "data");
             Set<String> failed = failedAliases(response);
+            JsonNode data = required(response, "data");
             for (int index = 0; index < batch.size(); index++) {
                 String alias = "r" + index;
                 if (failed.contains(alias) || data.path(alias).isNull()) {
@@ -239,6 +252,9 @@ public class GitHubPullRequestSummaryClient
     {
         Set<String> failed = new HashSet<>();
         for (JsonNode error : response.path("errors")) {
+            if ("RATE_LIMITED".equals(error.path("type").asText())) {
+                throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "GitHub GraphQL rate limit reached");
+            }
             String alias = error.path("path").path(0).textValue();
             if (alias == null) {
                 throw incomplete("GraphQL request failed");
@@ -308,7 +324,39 @@ public class GitHubPullRequestSummaryClient
                         instant(activity, "updatedAt").orElseThrow(() -> incomplete("Missing activity timestamp")), count(activity, "totalCount"), checkVersion(rollup))
                         .toString(), StandardCharsets.UTF_8).toString();
         return new GitHubPullRequestSummary(pullRequest, ciStatus(rollup), count(row, "additions"), count(row, "deletions"),
-                count(required(row, "comments"), "totalCount"), headSha, headCommittedAt, decision, viewerReview, requestedAt, activityVersion);
+                count(required(row, "comments"), "totalCount"), headSha, headCommittedAt, decision, viewerReview, requestedAt, activityVersion,
+                instant(activity, "updatedAt").orElseThrow(), latestActivity(activity));
+    }
+
+    private static Optional<PrActivitySummary> latestActivity(JsonNode connection)
+    {
+        JsonNode nodes = connection.path("nodes");
+        if (!nodes.isArray() || nodes.isEmpty()) {
+            return Optional.empty();
+        }
+        JsonNode node = nodes.get(nodes.size() - 1);
+        String event = switch (node.path("__typename").asText()) {
+            case "IssueComment" -> "commented";
+            case "PullRequestReview" -> "reviewed";
+            case "ReviewRequestedEvent" -> "review_requested";
+            case "MergedEvent" -> "merged";
+            case "ClosedEvent" -> "closed";
+            case "ReopenedEvent" -> "reopened";
+            case "HeadRefForcePushedEvent" -> "head_ref_force_pushed";
+            default -> null;
+        };
+        if (event == null) {
+            return Optional.empty();
+        }
+        return instant(node, "createdAt").map(at -> new PrActivitySummary(event,
+                activityText(node.path("author"), "login").or(() -> activityText(node.path("actor"), "login")), at,
+                activityText(node, "state"), Optional.empty(), activityText(node.path("requestedReviewer"), "login"),
+                PrActivitySummary.excerpt(node.path("body").asText(null)), Optional.empty(), OptionalInt.empty()));
+    }
+
+    private static Optional<String> activityText(JsonNode node, String field)
+    {
+        return Optional.ofNullable(node.path(field).textValue()).filter(value -> !value.isBlank());
     }
 
     private static PrReviewState review(JsonNode review, String login)

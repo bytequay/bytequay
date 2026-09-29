@@ -24,6 +24,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashMap;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -45,7 +46,8 @@ public class SqlitePrDiffStore
     {
         return repository.findById(snapshotId(prId, baseSha, headSha))
                 .map(entity -> new StoredPrDiff(
-                        entity.getFiles(), entity.getCommits(), entity.getFileContents()));
+                        entity.getFiles(), entity.getCommits(), entity.getFileContents(), Optional.ofNullable(entity.getBaseSha()),
+                        Optional.ofNullable(entity.getHeadSha()), Optional.ofNullable(entity.getValidatedAt())));
     }
 
     @Override
@@ -79,6 +81,9 @@ public class SqlitePrDiffStore
         PrDiffEntity entity = new PrDiffEntity();
         entity.setId(snapshotId(prId, baseSha, headSha));
         entity.setPrId(prId);
+        entity.setBaseSha(diff.baseSha().orElse(baseSha));
+        entity.setHeadSha(diff.headSha().orElse(headSha));
+        entity.setValidatedAt(diff.validatedAt().orElse(null));
         entity.setFiles(diff.files());
         entity.setCommits(diff.commits());
         entity.setFileContents(diff.fileContents());
@@ -103,6 +108,19 @@ public class SqlitePrDiffStore
         HashMap<String, DiffFileContent> contents = new HashMap<>(entity.getFileContents());
         contents.put(path, content);
         entity.setFileContents(ImmutableMap.copyOf(contents));
+    }
+
+    @Override
+    @Transactional
+    public boolean saveDefaultFileContent(long prId, String baseSha, String headSha, String path, DiffFileContent content)
+    {
+        Optional<PrDiffEntity> entity = repository.findById(snapshotId(prId, null, null))
+                .filter(diff -> Objects.equals(baseSha, diff.getBaseSha()) && Objects.equals(headSha, diff.getHeadSha()));
+        if (entity.isEmpty()) {
+            return false;
+        }
+        saveFileContent(prId, null, null, path, content);
+        return true;
     }
 
     @Override

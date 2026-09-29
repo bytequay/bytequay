@@ -67,7 +67,7 @@ public class SelectedPullRequestDiffReader
     }
 
     /**
-     * Reuses the stored default diff without an age limit. A missing row hydrates only that PR, then
+     * Reuses the stored default diff when its observed head and base still match. A missing row hydrates only that PR, then
      * rereads its cache before deciding whether a diff refresh is still needed. A missing diff or
      * explicitly forced initial read uses the existing default-diff refresh. On failure its original
      * cached bytes and observed metadata are retained, including when refresh partially saved data.
@@ -108,7 +108,7 @@ public class SelectedPullRequestDiffReader
             row = row(repository, number);
         }
         Optional<Cached> original = row.flatMap(value -> cached(value, true));
-        if (original.isPresent() && !forceRefresh) {
+        if (original.isPresent() && !forceRefresh && coordinatesMatch(original.orElseThrow())) {
             return result(repository, number, original.orElseThrow(), attempted, failed);
         }
         try {
@@ -139,18 +139,27 @@ public class SelectedPullRequestDiffReader
             Set<String> paths = new HashSet<>();
             diff.files().forEach(file -> checkArgument(paths.add(file.filename()), "Selected diff contains duplicate file paths"));
             Optional<PrRawDetail> raw = includeMetadata ? details.find(row.id()).map(StoredPrDetail::raw) : Optional.empty();
-            return new Cached(diff, raw);
+            return new Cached(diff, raw, includeMetadata);
         });
+    }
+
+    private static boolean coordinatesMatch(Cached cached)
+    {
+        return cached.raw().filter(raw -> raw.baseSha() != null && raw.headSha() != null
+                && cached.diff().baseSha().filter(raw.baseSha()::equals).isPresent()
+                && cached.diff().headSha().filter(raw.headSha()::equals).isPresent()).isPresent();
     }
 
     private Read result(String repo, int number, Cached cached, boolean attempted, boolean failed)
     {
         List<DiffFile> files = cached.diff().files();
         Optional<Integer> reported = cached.raw().map(PrRawDetail::changedFiles).filter(value -> value >= 0);
-        Optional<String> head = cached.raw().map(PrRawDetail::headSha).filter(value -> value.matches("(?:[0-9a-f]{40}|[0-9a-f]{64})"));
+        Optional<String> head = cached.includeMetadata() ? cached.diff().headSha().filter(value -> value.matches("(?:[0-9a-f]{40}|[0-9a-f]{64})")) : Optional.empty();
         ImmutableList.Builder<String> gaps = ImmutableList.builder();
-        gaps.add("The content version identifies this cached default-diff artifact; it does not verify freshness, commit linkage or the final merged diff.");
-        gaps.add("The existing diff cache does not record complete upstream coverage or retrieval time; an empty list does not prove no changes.");
+        gaps.add("The content version identifies this cached default-diff artifact; it does not verify complete upstream coverage or the final merged diff.");
+        if (!coordinatesMatch(cached)) {
+            gaps.add("This cached diff is not linked to the currently observed head and base; refresh it before treating it as current.");
+        }
         if (head.isEmpty()) {
             gaps.add("No valid separately observed PR head is available for this read; the diff has no verified commit coordinates.");
         }
@@ -165,7 +174,7 @@ public class SelectedPullRequestDiffReader
             gaps.add("The selected refresh or its persisted reread failed; original cached bytes and metadata were retained.");
         }
         return new Read(files, version(repo, number, files), head,
-                cached.raw().map(PrRawDetail::updatedAt), reported, Instant.now(clock), attempted, failed, gaps.build());
+                coordinatesMatch(cached) ? cached.raw().map(PrRawDetail::updatedAt) : Optional.empty(), reported, Instant.now(clock), attempted, failed, gaps.build());
     }
 
     /** Ordered strings use little-endian 32-bit UTF-16 lengths and exact code units; a presence byte distinguishes null patches. */
@@ -228,5 +237,5 @@ public class SelectedPullRequestDiffReader
         }
     }
 
-    private record Cached(StoredPrDiff diff, Optional<PrRawDetail> raw) {}
+    private record Cached(StoredPrDiff diff, Optional<PrRawDetail> raw, boolean includeMetadata) {}
 }

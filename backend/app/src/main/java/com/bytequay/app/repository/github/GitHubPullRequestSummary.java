@@ -14,6 +14,7 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.core.domain.FetchedPullRequest;
+import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PullRequestDetail.CiStatus;
 
@@ -35,7 +36,9 @@ public record GitHubPullRequestSummary(
         Optional<String> reviewDecision,
         Optional<PrReviewState> viewerReview,
         Optional<Instant> reviewRequestedAt,
-        String activityVersion)
+        String activityVersion,
+        Instant discussionUpdatedAt,
+        Optional<PrActivitySummary> latestActivity)
 {
     public GitHubPullRequestSummary
     {
@@ -48,5 +51,7 @@ public record GitHubPullRequestSummary(
         requireNonNull(viewerReview, "viewerReview is null");
         requireNonNull(reviewRequestedAt, "reviewRequestedAt is null");
         requireNonNull(activityVersion, "activityVersion is null");
+        requireNonNull(discussionUpdatedAt, "discussionUpdatedAt is null");
+        requireNonNull(latestActivity, "latestActivity is null");
     }
 }

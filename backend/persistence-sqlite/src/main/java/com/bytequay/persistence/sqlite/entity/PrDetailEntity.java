@@ -99,6 +99,20 @@ public class PrDetailEntity
 
     private String headSha;
 
+    private String baseSha;
+
+    @Convert(converter = InstantToTextConverter.class)
+    private Instant metadataValidatedAt;
+
+    @Convert(converter = InstantToTextConverter.class)
+    private Instant discussionValidatedAt;
+
+    @Convert(converter = InstantToTextConverter.class)
+    private Instant checksValidatedAt;
+
+    @Convert(converter = InstantToTextConverter.class)
+    private Instant discussionSourceUpdatedAt;
+
     @Column(name = "head_ref")
     private String headRef;
 
@@ -149,6 +163,7 @@ public class PrDetailEntity
                 requestedReviewers,
                 getHeadSha(),
                 getHeadRef(),
-                getBaseRef());
+                getBaseRef(),
+                getBaseSha());
     }
 }

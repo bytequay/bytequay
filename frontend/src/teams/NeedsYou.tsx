@@ -49,10 +49,10 @@ export function useLiveAttention(accountLogin: string | undefined) {
     if (!accountLogin) return undefined;
     let generation = 0;
     let active = true;
-    const reload = async () => {
+    const reload = async (knownPrs?: PullRequestDto[]) => {
       const request = ++generation;
       try {
-        const [prs, workspaces] = await Promise.all([window.bridge.fetchAttentionPrs(), window.bridge.listWorkspaces()]);
+        const [prs, workspaces] = await Promise.all([knownPrs ?? window.bridge.fetchAttentionPrs(), window.bridge.listWorkspaces()]);
         const results = await Promise.allSettled(workspaces.map(async workspace =>
           issueAttentionItems(await window.bridge.fetchWorkspaceIssueAttention(workspace.id), workspace.id, accountLogin)));
         if (!active || request !== generation) return;
@@ -65,6 +65,7 @@ export function useLiveAttention(accountLogin: string | undefined) {
     const syncPrs = (event: Event) => {
       const prs = (event as CustomEvent<PullRequestDto[]>).detail;
       setCandidates(current => attentionCandidates(prs, current.filter(item => item.type === 'issue'), accountLogin));
+      void reload(prs);
     };
     const handling = () => setHandledState(loadHandled());
     changed();

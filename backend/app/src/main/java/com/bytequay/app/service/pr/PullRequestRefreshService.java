@@ -80,6 +80,18 @@ public class PullRequestRefreshService
         return refresh.full() ? PullRequestDetailRefresh.full(refresh.detail()) : PullRequestDetailRefresh.status(refresh.detail());
     }
 
+    public PullRequestDetailRefresh refreshChecks(String repo, int number)
+    {
+        PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestChecksFromGitHub(repo, number);
+        published(repo, number);
+        return refresh.full() ? PullRequestDetailRefresh.full(refresh.detail()) : PullRequestDetailRefresh.status(refresh.detail());
+    }
+
+    public void warmRecentDetails(int limit)
+    {
+        pullRequests.warmRecentDetails(limit);
+    }
+
     /** Bypasses conditional requests and rebuilds the complete local pull-request snapshot. */
     public PullRequestDetail refreshAllDetail(String repo, int number)
     {

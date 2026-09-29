@@ -167,16 +167,15 @@ public class AppSettingsService
         return preferences().recentRetentionDays();
     }
 
-    /** How long background GitHub refresh waits between passes. */
-    public Duration refreshInterval()
-    {
-        return Duration.ofMinutes(preferences().refreshIntervalMinutes());
-    }
-
     private AppPreferences readPreferences(String value)
     {
         try {
-            return mapper.readValue(value, AppPreferences.class);
+            JsonNode saved = mapper.readTree(value);
+            if (saved instanceof ObjectNode object) {
+                object.remove("refreshIntervalMinutes");
+                object.putIfAbsent("prWarmCount", mapper.getNodeFactory().numberNode(30));
+            }
+            return mapper.treeToValue(saved, AppPreferences.class);
         }
         catch (JsonProcessingException | IllegalArgumentException corrupt) {
             return AppPreferences.DEFAULT;

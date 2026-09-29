@@ -13,9 +13,6 @@
  */
 package com.bytequay.app.repository.github;
 
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient.GitHubNotification;
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient.GitHubNotification.NotificationRepo;
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient.GitHubNotification.Subject;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -25,60 +22,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class TestGitHubClientAggregation
 {
-    // ── attentionPrRef: notifications → review/mention PR refs ──────────────────
-
-    private static GitHubNotification notification(String reason, String type, String repo, String url)
-    {
-        return new GitHubNotification(reason, new Subject(url, type), new NotificationRepo(repo), Instant.parse("2026-09-28T00:00:00Z"));
-    }
-
-    @Test
-    void testAttentionPrRefKeepsReviewRequest()
-    {
-        assertThat(GitHubPullRequestReadClient.attentionPrRef(notification(
-                "review_requested", "PullRequest", "acme/widget",
-                "https://api.github.com/repos/acme/widget/pulls/3405")))
-                .hasValueSatisfying(attention -> {
-                    assertThat(attention.ref().repoFullName()).isEqualTo("acme/widget");
-                    assertThat(attention.ref().number()).isEqualTo(3405);
-                    assertThat(attention.reviewRequested()).isTrue();
-                });
-    }
-
-    @Test
-    void testAttentionPrRefKeepsMention()
-    {
-        assertThat(GitHubPullRequestReadClient.attentionPrRef(notification(
-                "mention", "PullRequest", "owner/repo",
-                "https://api.github.com/repos/owner/repo/pulls/7")))
-                .hasValueSatisfying(attention -> {
-                    assertThat(attention.ref().number()).isEqualTo(7);
-                    assertThat(attention.reviewRequested()).isFalse();
-                });
-    }
-
-    @Test
-    void testAttentionPrRefDropsOtherReasons()
-    {
-        // A plain author comment must not re-surface the PR.
-        assertThat(GitHubPullRequestReadClient.attentionPrRef(notification("comment", "PullRequest", "owner/repo", "https://api.github.com/repos/owner/repo/pulls/7"))).isEmpty();
-    }
-
-    @Test
-    void testAttentionPrRefDropsNonPullRequestSubject()
-    {
-        // A mention on an Issue, not a PR — the dashboard lane is PR-only.
-        assertThat(GitHubPullRequestReadClient.attentionPrRef(notification("mention", "Issue", "owner/repo", "https://api.github.com/repos/owner/repo/issues/7"))).isEmpty();
-    }
-
-    @Test
-    void testAttentionPrRefEmptyForMalformedUrl()
-    {
-        assertThat(GitHubPullRequestReadClient.attentionPrRef(notification(
-                "review_requested", "PullRequest", "owner/repo",
-                "https://api.github.com/repos/owner/repo/pulls/"))).isEmpty();
-    }
-
     // ── extractRepo ────────────────────────────────────────────────────────────
 
     @Test

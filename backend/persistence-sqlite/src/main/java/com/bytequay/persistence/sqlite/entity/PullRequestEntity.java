@@ -14,10 +14,12 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.FetchedPullRequest;
+import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
+import com.bytequay.persistence.sqlite.converter.PrActivitySummaryConverter;
 import com.bytequay.persistence.sqlite.converter.StringListConverter;
 import com.bytequay.persistence.sqlite.converter.StringMapConverter;
 import com.google.common.collect.ImmutableList;
@@ -161,6 +163,12 @@ public class PullRequestEntity
     private Instant activityAt;
 
     @Convert(converter = InstantToTextConverter.class)
+    private Instant discussionActivityAt;
+
+    @Convert(converter = PrActivitySummaryConverter.class)
+    private PrActivitySummary cardActivity;
+
+    @Convert(converter = InstantToTextConverter.class)
     private Instant reviewRequestedAt;
 
     private String reviewDecision;
@@ -271,6 +279,8 @@ public class PullRequestEntity
     {
         setMonitoredAt(previous.getMonitoredAt());
         setActivityAt(previous.getActivityAt());
+        setDiscussionActivityAt(previous.getDiscussionActivityAt());
+        setCardActivity(previous.getCardActivity());
         setActivityFingerprints(previous.getActivityFingerprints());
         setReviewDecision(previous.getReviewDecision());
         if (getReviewRequestedAt() == null || PullRequest.Origin.REVIEW_REQUESTED.name().equals(previous.getOrigin())) {

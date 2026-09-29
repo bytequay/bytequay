@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.FetchedPullRequest;
+import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.PullRequest;
@@ -93,6 +94,37 @@ public class SqlitePullRequestStore
         if (monitored != (row.getMonitoredAt() != null)) {
             row.setMonitoredAt(monitored ? Instant.now() : null);
         }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<Long, PrActivitySummary> findActivities(Set<Long> prIds)
+    {
+        return jpaRepository.findAllById(prIds).stream().filter(row -> row.getCardActivity() != null)
+                .collect(toImmutableMap(PullRequestEntity::getId, PullRequestEntity::getCardActivity));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<Instant> findDiscussionActivityAt(long prId)
+    {
+        return jpaRepository.findById(prId).map(PullRequestEntity::getDiscussionActivityAt);
+    }
+
+    @Override
+    @Transactional
+    public void observeActivity(long prId, Optional<PrActivitySummary> activity, Instant discussionActivityAt)
+    {
+        jpaRepository.findById(prId).ifPresent(row -> {
+            if (row.getDiscussionActivityAt() == null || discussionActivityAt.isAfter(row.getDiscussionActivityAt())) {
+                row.setDiscussionActivityAt(discussionActivityAt);
+                if (row.getActivityAt() == null || discussionActivityAt.isAfter(row.getActivityAt())) {
+                    row.setActivityAt(discussionActivityAt);
+                }
+            }
+            activity.filter(value -> row.getCardActivity() == null || !value.timestamp().isBefore(row.getCardActivity().timestamp()))
+                    .ifPresent(row::setCardActivity);
+        });
     }
 
     @Override

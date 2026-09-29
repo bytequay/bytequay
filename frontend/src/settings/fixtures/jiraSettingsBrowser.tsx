@@ -18,7 +18,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import SettingsWindow from '../SettingsWindow';
 import AppSidebar from '../../AppSidebar';
 import { JIRA_CHANGED, type JiraConnection, type JiraTokenRequest } from '../../jira/contracts';
-import type { Bridge, QuietHoursDto } from '../../types';
+import type { AppPreferencesDto, Bridge, QuietHoursDto } from '../../types';
 import { settingsLocationFromRoute, settingsRoute, type SettingsSection } from '../routes';
 import { assert, settle } from '../../fixtures/harness';
 import '../../css/base.css';
@@ -73,9 +73,11 @@ export async function mountPreview(values: JiraConnection[] = [connected, { ...c
   nextRefresh = async value => ({ ...connected, id: value.id });
   nextToken = async (request, id) => ({ ...tokenConnected, id: id ?? tokenConnected.id, tokenEmail: request.email });
   const saveToken = async (request: JiraTokenRequest, id?: string) => { tokenRequests.push({ request, id }); const value = await nextToken(request, id); accounts = [...accounts.filter(account => account.id !== value.id), value]; return value; };
+  let preferences: AppPreferencesDto = { taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30, theme: 'SYSTEM' };
   const fake = {
     getAppVersion: async () => ({ version: '0.4.0' }),
-    getAppPreferences: async () => ({ taskRetentionDays: 7, recentRetentionDays: 14, refreshIntervalMinutes: 6, theme: 'SYSTEM' as const }),
+    getAppPreferences: async () => ({ ...preferences }),
+    saveAppPreferences: async value => { preferences = value; return { ...preferences }; },
     getQuietHours: async () => ({ ...quietHours }),
     saveQuietHours: async (value: QuietHoursDto) => { quietWrites.push(value); quietHours = await nextQuietSave(value); return { ...quietHours }; },
     getGitHubAccount: async () => ({ configured: false, source: 'PERSONAL_ACCESS_TOKEN' as const }),
@@ -215,9 +217,13 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(quietWrites.length === 1 && quietWrites[0].startMinute === 1350 && quietWrites[0].endMinute === 420, 'One shared API updates only the selected boundary');
       finish?.(quietWrites[0]); await settled();
       button('GitHub').click(); await settled();
-      assert(!document.querySelector('[aria-label="Quiet hours start"]') && button('Background refresh interval').textContent?.includes('6 minutes'), 'GitHub keeps its background refresh interval separate from shared quiet hours');
-      assert(document.querySelector('.setw-footnote')?.textContent?.includes('Discovers PR updates across your repositories and keeps full details warm for the latest 30 PRs per repository. Older PRs refresh fully when opened. Personal summaries are checked every 60 seconds.'),
-        'The GitHub page distinguishes card refresh from fast notification summaries');
+      assert(!document.querySelector('[aria-label="Quiet hours start"]') && !document.querySelector('[aria-label="Background refresh interval"]'), 'GitHub uses the shared quiet hours and fixed refresh cadences');
+      const cadence = document.querySelector('.setw-footnote')?.textContent ?? '';
+      assert(cadence.includes('Changed details refresh every 10 minutes') && cadence.includes('Notifications are checked every minute; recent PR and issue updates every 2 minutes'),
+        'The GitHub page distinguishes discovery, notification, and detail refresh cadences');
+      assert(button('PR details kept ready').textContent?.includes('30 PRs'), 'The default keeps thirty recent PRs ready');
+      button('PR details kept ready').click(); await settled(); button('10 PRs').click(); await settled();
+      assert(button('PR details kept ready').textContent?.includes('10 PRs'), 'The lower detail warm count persists through the existing preferences API');
       const fromGithub = document.querySelector<HTMLAnchorElement>(`a[href="${settingsRoute('general')}"]`); assert(fromGithub !== null, 'GitHub links to the same General setting'); fromGithub.click(); await settled();
       assert(button('Quiet hours start').textContent?.includes('10:30 PM'), 'The confirmed setting persists across navigation');
       const pane = document.querySelector('.setw-page'); assert(pane instanceof HTMLElement && pane.scrollWidth <= pane.clientWidth, 'Quiet hours fit a narrow settings pane');

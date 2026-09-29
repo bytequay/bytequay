@@ -16,8 +16,10 @@ package com.bytequay.persistence.sqlite.store;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
+import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.StoredPrDiff;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +28,7 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -44,6 +47,24 @@ class TestSqlitePrDiffStore
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
         registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH, "create-drop");
+    }
+
+    @Test
+    void bindsDefaultFileBodiesToTheirFetchedCommits()
+    {
+        long prId = 88;
+        String base = "a".repeat(40);
+        String head = "b".repeat(40);
+        Instant validated = Instant.parse("2026-09-20T00:00:00Z");
+        StoredPrDiff diff = new StoredPrDiff(ImmutableList.of(), ImmutableList.of(), ImmutableMap.of(), Optional.of(base), Optional.of(head), Optional.of(validated));
+        store.saveDefault(prId, diff, PrDiffEtags.none());
+        DiffFileContent content = new DiffFileContent("before", "after");
+
+        assertThat(store.find(prId, null, null)).contains(diff);
+        assertThat(store.saveDefaultFileContent(prId, base, "c".repeat(40), "file.txt", content)).isFalse();
+        assertThat(store.find(prId, null, null).orElseThrow().fileContents()).isEmpty();
+        assertThat(store.saveDefaultFileContent(prId, base, head, "file.txt", content)).isTrue();
+        assertThat(store.find(prId, null, null).orElseThrow().fileContents()).containsEntry("file.txt", content);
     }
 
     @Test

@@ -101,6 +101,12 @@ public class CredentialService
         return Optional.ofNullable(cachedGitHubCredential).map(credential -> credential.profile().login());
     }
 
+    /** One coherent account snapshot for local diagnostics, without CLI or network work. */
+    public Optional<GitHubCredential> cachedCredential()
+    {
+        return Optional.ofNullable(cachedGitHubCredential);
+    }
+
     public synchronized GitHubCredential resolveGitHubCredential()
     {
         String token = resolveGitHubToken();

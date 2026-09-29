@@ -125,6 +125,7 @@ async function mount(initial = seededDirectory(), { home = false, observations =
   const removed: number[] = [];
   const added: { id: string; githubId: number }[] = [];
   let refreshes = 0;
+  let workspaceReads = 0;
   let failRefresh = false;
   let delayRefresh = false;
   let finishRefresh = noOp;
@@ -200,7 +201,7 @@ async function mount(initial = seededDirectory(), { home = false, observations =
       return result;
     },
     fetchAttentionPrs: async () => prs,
-    listWorkspaces: async () => [],
+    listWorkspaces: async () => { workspaceReads++; return []; },
     onPullRequestsSynced: () => noOp,
     findStoredPullRequest: async () => null,
     openInAppBrowser: async url => { opened.push(url); },
@@ -230,6 +231,7 @@ async function mount(initial = seededDirectory(), { home = false, observations =
   flushSync(() => root?.render(<Surface />));
   await settled();
   return { queries, opened, created, removed, added, get directory() { return directory; }, get refreshes() { return refreshes; },
+    get workspaceReads() { return workspaceReads; },
     failRefresh() { failRefresh = true; }, delayRefresh() { delayRefresh = true; }, finishRefresh() { finishRefresh(); },
     failCreate(message: string | null) { createFailure = message; },
     async switchAccount(next: TeamDirectory) {
@@ -355,7 +357,7 @@ async function personPanel() {
 }
 
 async function needsYou() {
-  await mount(seededDirectory(), { prs: [alicePr(), pr({ id: 9002, repo: 'trinodb/trino', number: 24831, title: 'Someone else’s change', author: 'stranger',
+  const f = await mount(seededDirectory(), { prs: [alicePr(), pr({ id: 9002, repo: 'trinodb/trino', number: 24831, title: 'Someone else’s change', author: 'stranger',
     origin: 'REVIEW_REQUESTED', requestedReviewers: ['viewer'] })] });
   await settled();
   const rows = document.querySelectorAll('.cir-needs .cir-row');
@@ -372,6 +374,12 @@ async function needsYou() {
   assert(Object.keys(JSON.parse(window.localStorage.getItem('bytequay.attention.handled.v1') ?? '{}')).includes('trinodb/trino#24830'), 'Handling must reach Home too');
   await click('Undo');
   assert(document.querySelectorAll('.cir-needs .cir-row').length === 1, 'Undo must bring the row back');
+  const reads = f.workspaceReads;
+  const activityReads = f.queries.length;
+  window.dispatchEvent(new CustomEvent('bytequay:pr-attention-updated', { detail: [alicePr()] }));
+  await settled();
+  assert(f.workspaceReads > reads, 'Attention updates must reread watched issue snapshots as well as PR rows');
+  assert(f.queries.length > activityReads && f.refreshes === 0, 'The automatic attention broadcast must reread cached Circle activity without starting another remote refresh');
 }
 
 async function refreshFailure() {

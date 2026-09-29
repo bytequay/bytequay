@@ -1215,7 +1215,7 @@ export type AppThemeDto = 'SYSTEM' | 'LIGHT' | 'DARK';
 export type AppPreferencesDto = {
   taskRetentionDays: number;
   recentRetentionDays: number;
-  refreshIntervalMinutes: number;
+  prWarmCount: 10 | 30;
   theme: AppThemeDto;
 };
 
@@ -1396,7 +1396,7 @@ export type Bridge = JiraBridge & {
   updatePrMetadata: (repo: string, number: number, assignees: string[], labels: string[]) => Promise<void>;
   updatePrReviewer: (repo: string, number: number, login: string, requested: boolean) => Promise<void>;
   fetchMergeMode: (repo: string, branch: string) => Promise<MergeModeDto>;
-  refreshPullRequestDetailByRef: (repo: string, number: number) => Promise<PullRequestDetailRefreshDto>;
+  refreshPullRequestDetailByRef: (repo: string, number: number, checksOnly?: boolean) => Promise<PullRequestDetailRefreshDto>;
   refreshAllPullRequestDetailByRef: (repo: string, number: number) => Promise<PullRequestDetailDto>;
   fetchPrDiffFiles: (
     repo: string,

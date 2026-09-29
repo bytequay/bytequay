@@ -22,7 +22,9 @@ import com.bytequay.app.team.TeamActivitySnapshot.Coverage;
 import com.bytequay.app.team.TeamActivitySnapshot.Day;
 import com.bytequay.app.team.TeamActivitySnapshot.PersonStatistics;
 import com.bytequay.app.team.TeamActivitySnapshot.Statistics;
+import com.bytequay.core.domain.PrDetailFreshness;
 import com.bytequay.core.domain.PrReviewState;
+import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.TeamActivityEvent;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.PrDetailStore;
@@ -38,6 +40,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -202,7 +205,8 @@ public class TeamActivityService
             }
             for (int index = 0; index < Math.min(2, repositories.size()) && !rateLimited; index++) {
                 String repository = repositories.get(Math.floorMod(repositoryCursor++, repositories.size()));
-                Observation result = github.repository(credential.token(), repository, identity, reviewOffsets.get(repository));
+                Observation result = github.repository(credential.token(), repository, identity, reviewOffsets.get(repository),
+                        (number, updatedAt) -> cachedDetail(repository, number, updatedAt));
                 requireSameAccount(credential);
                 store.save(accountId, result.events());
                 requireSameAccount(credential);
@@ -224,6 +228,19 @@ public class TeamActivityService
         finally {
             refreshLock.unlock();
         }
+    }
+
+    private Optional<StoredPrDetail> cachedDetail(String repository, int number, Instant updatedAt)
+    {
+        return pulls.findIdByRepoAndNumber(repository, number).flatMap(id -> {
+            PrDetailFreshness freshness = details.findFreshness(id);
+            if (freshness.discussionAt().filter(at -> at.isAfter(Instant.now().minus(Duration.ofMinutes(10)))).isEmpty()
+                    || freshness.discussionSourceUpdatedAt().filter(at -> !at.isBefore(updatedAt)).isEmpty()) {
+                return Optional.empty();
+            }
+            return details.find(id).filter(detail -> detail.reviewsComplete() && detail.timelineComplete()
+                    && detail.raw().updatedAt() != null && !detail.raw().updatedAt().isBefore(updatedAt));
+        });
     }
 
     /** Cached reviews have logins but no actor user IDs; only enrich identities confirmed by this GitHub batch. */

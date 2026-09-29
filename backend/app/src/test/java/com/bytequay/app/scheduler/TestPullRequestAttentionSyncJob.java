@@ -13,9 +13,11 @@
  */
 package com.bytequay.app.scheduler;
 
+import com.bytequay.app.repository.github.GitHubRateLimitException;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.AppSettingsService;
+import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import org.junit.jupiter.api.Test;
 
 import static org.mockito.Mockito.doThrow;
@@ -28,10 +30,11 @@ import static org.mockito.Mockito.when;
 
 class TestPullRequestAttentionSyncJob
 {
+    private final WorkspaceIssueRefreshService issues = mock(WorkspaceIssueRefreshService.class);
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final CredentialService credentials = mock(CredentialService.class);
     private final AppSettingsService settings = mock(AppSettingsService.class);
-    private final PullRequestAttentionSyncJob job = new PullRequestAttentionSyncJob(pullRequests, credentials, settings);
+    private final PullRequestAttentionSyncJob job = new PullRequestAttentionSyncJob(pullRequests, credentials, settings, issues);
 
     @Test
     void everyTickReadsOnlySummariesWithoutWaitingForTheDetailInterval()
@@ -43,7 +46,8 @@ class TestPullRequestAttentionSyncJob
 
         verify(pullRequests, times(2)).syncAttentionSummaries();
         verify(settings, times(2)).inQuietHours();
-        verifyNoMoreInteractions(pullRequests, settings);
+        verify(issues, times(2)).refreshRecentIssues();
+        verifyNoMoreInteractions(pullRequests, settings, issues);
     }
 
     @Test
@@ -54,7 +58,7 @@ class TestPullRequestAttentionSyncJob
         when(settings.inQuietHours()).thenReturn(true);
         job.tick();
 
-        verifyNoInteractions(pullRequests);
+        verifyNoInteractions(pullRequests, issues);
     }
 
     @Test
@@ -67,5 +71,17 @@ class TestPullRequestAttentionSyncJob
         job.tick();
 
         verify(pullRequests, times(2)).syncAttentionSummaries();
+        verify(issues, times(2)).refreshRecentIssues();
+    }
+
+    @Test
+    void rateLimitStopsTheTickBeforeIssueRequests()
+    {
+        when(credentials.isGitHubAccountConfigured()).thenReturn(true);
+        doThrow(new GitHubRateLimitException("core", 123L)).when(pullRequests).syncAttentionSummaries();
+
+        job.tick();
+
+        verifyNoInteractions(issues);
     }
 }

@@ -480,13 +480,23 @@ export default function PullsScreen({
   }, [applyPage, singlePullRequest]);
 
   useEffect(() => {
+    let knownIds: Set<number> | null = null;
     const updateAttention = (event: Event) => {
-      const updates = new Map((event as CustomEvent<PullRequestDto[]>).detail.map(pr => [pr.id, pr]));
+      const rows = (event as CustomEvent<PullRequestDto[]>).detail.filter(pr => repositoryScope === undefined
+        || pr.repo.toLowerCase() === repositoryScope.repository.toLowerCase());
+      const updates = new Map(rows.map(pr => [pr.id, pr]));
+      const discovered = knownIds === null || rows.some(pr => !knownIds?.has(pr.id));
+      knownIds = new Set(updates.keys());
       setPrs(current => current.map(pr => updates.get(pr.id) ?? pr));
+      if (singlePullRequest || !discovered) return;
+      const request = ++listRequest.current;
+      void window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE)
+        .then(result => { if (request === listRequest.current) applyPage(result); })
+        .catch(() => {});
     };
     window.addEventListener('bytequay:pr-attention-updated', updateAttention);
     return () => window.removeEventListener('bytequay:pr-attention-updated', updateAttention);
-  }, []);
+  }, [applyPage, repositoryScope, singlePullRequest]);
 
   const refreshList = useCallback(async () => {
     const workspaceId = repositoryScope?.workspaceId;

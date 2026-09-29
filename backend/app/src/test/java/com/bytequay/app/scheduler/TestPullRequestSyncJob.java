@@ -15,6 +15,7 @@ package com.bytequay.app.scheduler;
 
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
+import com.bytequay.app.service.settings.AppPreferences;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.core.domain.RepoRef;
@@ -70,8 +71,8 @@ class TestPullRequestSyncJob
     {
         PullRequestRefreshService refreshService = mock(PullRequestRefreshService.class);
         AppSettingsService appSettings = mock(AppSettingsService.class);
+        when(appSettings.preferences()).thenReturn(AppPreferences.DEFAULT);
         when(appSettings.inQuietHours()).thenReturn(true);
-        when(appSettings.refreshInterval()).thenReturn(Duration.ofMinutes(6));
         PullRequestSyncJob job = new PullRequestSyncJob(
                 refreshService, mock(WorkspaceMetadataService.class),
                 mock(WorkspaceStore.class), configuredCredentials(), appSettings, Clock.systemUTC());
@@ -82,11 +83,11 @@ class TestPullRequestSyncJob
     }
 
     @Test
-    void refreshesOncePerConfiguredIntervalRatherThanOnEveryTick()
+    void warmsEveryTenMinutesAndReconcilesEveryThirtyMinutes()
     {
         PullRequestRefreshService refreshService = mock(PullRequestRefreshService.class);
         AppSettingsService appSettings = mock(AppSettingsService.class);
-        when(appSettings.refreshInterval()).thenReturn(Duration.ofMinutes(30));
+        when(appSettings.preferences()).thenReturn(AppPreferences.DEFAULT);
         MutableClock clock = new MutableClock(Instant.parse("2026-09-10T08:00:00Z"));
         PullRequestSyncJob job = new PullRequestSyncJob(
                 refreshService, mock(WorkspaceMetadataService.class),
@@ -96,10 +97,12 @@ class TestPullRequestSyncJob
         clock.advance(Duration.ofMinutes(10));
         job.tick();
         verify(refreshService).refreshScheduledDashboard();
+        verify(refreshService, org.mockito.Mockito.times(2)).warmRecentDetails(30);
 
         clock.advance(Duration.ofMinutes(21));
         job.tick();
         verify(refreshService, org.mockito.Mockito.times(2)).refreshScheduledDashboard();
+        verify(refreshService, org.mockito.Mockito.times(3)).warmRecentDetails(30);
     }
 
     @Test
@@ -123,7 +126,7 @@ class TestPullRequestSyncJob
     private static AppSettingsService idleSettings()
     {
         AppSettingsService settings = mock(AppSettingsService.class);
-        when(settings.refreshInterval()).thenReturn(Duration.ofMinutes(6));
+        when(settings.preferences()).thenReturn(AppPreferences.DEFAULT);
         return settings;
     }
 

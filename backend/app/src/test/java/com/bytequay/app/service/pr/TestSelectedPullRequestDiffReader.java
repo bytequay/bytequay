@@ -80,7 +80,7 @@ class TestSelectedPullRequestDiffReader
         assertThat(read.readAt()).isEqualTo(NOW);
         assertThat(read.refreshAttempted()).isFalse();
         assertThat(read.refreshFailed()).isFalse();
-        assertThat(read.gaps()).anySatisfy(gap -> assertThat(gap).contains("does not verify freshness"));
+        assertThat(read.gaps()).anySatisfy(gap -> assertThat(gap).contains("does not verify complete upstream coverage"));
         verifyNoInteractions(selected, refresh);
     }
 
@@ -90,6 +90,7 @@ class TestSelectedPullRequestDiffReader
         when(pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.empty(), Optional.of(row(REPO, NUMBER)));
         when(selected.read(REPO, NUMBER, SelectedPullRequestReader.Section.PR)).thenReturn(hydrated());
         when(diffs.find(ID, null, null)).thenReturn(Optional.of(diff(ImmutableList.of(FILE))));
+        when(details.find(ID)).thenReturn(Optional.of(detail(HEAD, 1)));
 
         SelectedPullRequestDiffReader.Read read = reader.read(REPO, NUMBER, Optional.empty(), false);
 
@@ -280,15 +281,15 @@ class TestSelectedPullRequestDiffReader
     @ParameterizedTest
     @NullAndEmptySource
     @ValueSource(strings = {"not-a-sha", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", " "})
-    void invalidObservedHeadStaysUnknownWithAGap(String head)
+    void invalidCurrentHeadDoesNotRelabelTheCachedDiffHead(String head)
     {
         cache(REPO, NUMBER, ImmutableList.of(FILE));
         when(details.find(ID)).thenReturn(Optional.of(detail(head, 1)));
 
         SelectedPullRequestDiffReader.Read read = reader.read(REPO, NUMBER, Optional.empty(), false);
 
-        assertThat(read.observedHeadSha()).isEmpty();
-        assertThat(read.gaps()).anySatisfy(gap -> assertThat(gap).contains("No valid separately observed PR head"));
+        assertThat(read.observedHeadSha()).contains(HEAD);
+        assertThat(read.gaps()).anySatisfy(gap -> assertThat(gap).contains("not linked to the currently observed head"));
     }
 
     @Test
@@ -321,11 +322,12 @@ class TestSelectedPullRequestDiffReader
     {
         when(pullRequests.findStored(repo, number)).thenReturn(Optional.of(row(repo, number)));
         when(diffs.find(ID, null, null)).thenReturn(Optional.of(diff(files)));
+        when(details.find(ID)).thenReturn(Optional.of(detail(HEAD, files.size())));
     }
 
     private static StoredPrDiff diff(List<DiffFile> files)
     {
-        return new StoredPrDiff(files, ImmutableList.of());
+        return new StoredPrDiff(files, ImmutableList.of(), ImmutableMap.of(), Optional.of("c".repeat(40)), Optional.of(HEAD), Optional.of(UPDATED));
     }
 
     private static SelectedPullRequestReader.Read hydrated()
@@ -338,7 +340,8 @@ class TestSelectedPullRequestDiffReader
     private static StoredPrDetail detail(String head, int changedFiles)
     {
         PrRawDetail raw = new PrRawDetail("Description", "https://github.com/owner/repo/pull/7", "closed", "octocat", null, UPDATED, UPDATED, UPDATED,
-                "Body", ImmutableList.of(), ImmutableMap.of(), ImmutableList.of(), null, false, true, "clean", 1, 0, changedFiles, 0, ImmutableList.of(), head, "feature", "main");
+                "Body", ImmutableList.of(), ImmutableMap.of(), ImmutableList.of(), null, false, true, "clean", 1, 0, changedFiles, 0,
+                ImmutableList.of(), head, "feature", "main", "c".repeat(40));
         return new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), true);
     }
 

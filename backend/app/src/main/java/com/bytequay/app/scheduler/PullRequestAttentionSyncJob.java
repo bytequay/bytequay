@@ -16,6 +16,7 @@ package com.bytequay.app.scheduler;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.AppSettingsService;
+import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -33,12 +34,14 @@ public class PullRequestAttentionSyncJob
     private final PullRequestService pullRequests;
     private final CredentialService credentials;
     private final AppSettingsService settings;
+    private final WorkspaceIssueRefreshService issues;
 
-    public PullRequestAttentionSyncJob(PullRequestService pullRequests, CredentialService credentials, AppSettingsService settings)
+    public PullRequestAttentionSyncJob(PullRequestService pullRequests, CredentialService credentials, AppSettingsService settings, WorkspaceIssueRefreshService issues)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.settings = requireNonNull(settings, "settings is null");
+        this.issues = requireNonNull(issues, "issues is null");
     }
 
     @Scheduled(fixedDelay = 60_000, scheduler = "attentionScheduler")
@@ -51,8 +54,17 @@ public class PullRequestAttentionSyncJob
             pullRequests.syncAttentionSummaries();
         }
         catch (RuntimeException failure) {
+            if (isRateLimit(failure)) {
+                return;
+            }
+            log.warn("Pull request summary refresh failed: {}", failure.getMessage());
+        }
+        try {
+            issues.refreshRecentIssues();
+        }
+        catch (RuntimeException failure) {
             if (!isRateLimit(failure)) {
-                log.warn("Pull request summary refresh failed: {}", failure.getMessage());
+                log.warn("Recent issue refresh failed: {}", failure.getMessage());
             }
         }
     }

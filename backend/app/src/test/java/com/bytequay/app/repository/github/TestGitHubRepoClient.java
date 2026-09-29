@@ -151,6 +151,61 @@ class TestGitHubRepoClient
     }
 
     @Test
+    void readsOneNotifiedIssueCardAndRecognizesClosure()
+    {
+        Fixture fixture = fixture();
+        fixture.server().expect(requestTo("https://api.github.test/repos/owner/repo/issues/7"))
+                .andRespond(withSuccess("""
+                        {"id":10,"number":7,"state":"open","title":"Updated issue","body":"Details",
+                         "assignees":[{"login":"alice"}],"comments":3,
+                         "created_at":"2026-08-20T00:00:00Z","updated_at":"2026-08-21T00:00:00Z"}
+                        """, MediaType.APPLICATION_JSON));
+        fixture.server().expect(requestTo("https://api.github.test/repos/owner/repo/issues/7"))
+                .andRespond(withSuccess("{\"number\":7,\"state\":\"closed\"}", MediaType.APPLICATION_JSON));
+
+        assertThat(fixture.client().fetchIssue("pat", REPOSITORY, 7)).get().satisfies(issue -> {
+            assertThat(issue.title()).isEqualTo("Updated issue");
+            assertThat(issue.assignees()).containsExactly("alice");
+            assertThat(issue.commentCount()).isEqualTo(3);
+        });
+        assertThat(fixture.client().fetchIssue("pat", REPOSITORY, 7)).isEmpty();
+        fixture.server().verify();
+    }
+
+    @Test
+    void incrementalIssuesReadAllStatesSinceCheckpointAndExcludePullRequests()
+    {
+        Fixture fixture = fixture();
+        fixture.server().expect(request -> {
+            assertThat(request.getURI().getPath()).isEqualTo("/repos/owner/repo/issues");
+            assertThat(request.getURI().getQuery()).isEqualTo("state=all&sort=updated&direction=asc&since=2026-08-20T00:00:00Z&per_page=100&page=2");
+        }).andRespond(withSuccess("""
+                [{"id":10,"number":7,"state":"open","title":"Updated issue","created_at":"2026-08-20T00:00:00Z","updated_at":"2026-08-21T00:00:00Z"},
+                 {"number":8,"state":"closed"},
+                 {"number":9,"state":"open","pull_request":{}}]
+                """, MediaType.APPLICATION_JSON));
+
+        GitHubRepoClient.ChangedIssuePage result = fixture.client().fetchChangedIssuesPage("pat", REPOSITORY, Instant.parse("2026-08-20T00:00:00Z"), 2);
+
+        assertThat(result.openIssues()).singleElement().satisfies(issue -> assertThat(issue.number()).isEqualTo(7));
+        assertThat(result.closedNumbers()).containsExactly(8);
+        assertThat(result.hasNext()).isFalse();
+        fixture.server().verify();
+    }
+
+    @Test
+    void incompleteIncrementalIssueFailsRatherThanLosingItBehindAnAdvancedCheckpoint()
+    {
+        Fixture fixture = fixture();
+        fixture.server().expect(request -> assertThat(request.getURI().getPath()).isEqualTo("/repos/owner/repo/issues"))
+                .andRespond(withSuccess("[{\"number\":7,\"state\":\"open\"}]", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> fixture.client().fetchChangedIssuesPage("pat", REPOSITORY, Instant.EPOCH, 1))
+                .isInstanceOf(ResponseStatusException.class);
+        fixture.server().verify();
+    }
+
+    @Test
     void previewsAClosedIssueDirectlyByNumber()
     {
         Fixture fixture = fixture();

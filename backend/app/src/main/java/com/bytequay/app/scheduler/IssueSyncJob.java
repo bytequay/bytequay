@@ -54,7 +54,7 @@ public class IssueSyncJob
 
     @Scheduled(
             initialDelayString = "${bytequay.issues.sync-initial-delay:PT1M}",
-            fixedDelayString = "${bytequay.issues.sync-interval:PT15M}")
+            fixedDelayString = "${bytequay.issues.sync-interval:PT30M}")
     public void tick()
     {
         if (!credentials.isGitHubAccountConfigured() || appSettings.inQuietHours()) {

@@ -103,6 +103,35 @@ class TestSqlitePrDetailStore
     }
 
     @Test
+    void recordsSuccessfulGroupValidationsIndependentlyAndDoesNotValidateLocalPatches()
+    {
+        StoredPrDetail original = detail(ImmutableList.of(remote(1, NOW)));
+        store.save(prId, original);
+        var originalTimes = store.findFreshness(prId);
+
+        store.saveStatus(prId, original);
+        var afterChecks = store.findFreshness(prId);
+        assertThat(afterChecks.metadataAt()).isEqualTo(originalTimes.metadataAt());
+        assertThat(afterChecks.discussionAt()).isEqualTo(originalTimes.discussionAt());
+        assertThat(afterChecks.discussionSourceUpdatedAt()).isEqualTo(originalTimes.discussionSourceUpdatedAt());
+        assertThat(afterChecks.checksAt()).hasValueSatisfying(at -> assertThat(at).isAfter(NOW));
+
+        StoredPrDetail partial = new StoredPrDetail(original.raw(), original.reviews(), original.timeline(), original.checkRuns(), ImmutableList.of(StoredPrDetail.COMMENTS));
+        store.saveDiscussion(prId, partial, NOW.plusSeconds(10));
+        assertThat(store.findFreshness(prId)).isEqualTo(afterChecks);
+
+        store.saveDiscussion(prId, original, NOW.plusSeconds(10));
+        var afterDiscussion = store.findFreshness(prId);
+        assertThat(afterDiscussion.metadataAt()).isEqualTo(originalTimes.metadataAt());
+        assertThat(afterDiscussion.checksAt()).isEqualTo(afterChecks.checksAt());
+        assertThat(afterDiscussion.discussionAt()).hasValueSatisfying(at -> assertThat(at).isAfter(NOW));
+        assertThat(afterDiscussion.discussionSourceUpdatedAt()).contains(NOW.plusSeconds(10));
+
+        store.saveCached(prId, original);
+        assertThat(store.findFreshness(prId)).isEqualTo(afterDiscussion);
+    }
+
+    @Test
     void readsOnlyRequestedCachedAuthorAvatars()
     {
         String avatar = "https://avatars.githubusercontent.com/u/123?v=4";

@@ -43,7 +43,7 @@ function stubBridge(reads: string[]) {
   const bridge = {
     getAppVersion: async () => ({ version: '0.4.0' }),
     listWorkspaces: async () => WORKSPACES,
-    getAppPreferences: async () => ({ taskRetentionDays: 7, recentRetentionDays: 14, refreshIntervalMinutes: 6, theme: 'SYSTEM' }),
+    getAppPreferences: async () => ({ taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30 as const, theme: 'SYSTEM' }),
     getWorkspaceSettings: async (id: string): Promise<WorkspaceSettingsDto> => {
       reads.push(id);
       return {

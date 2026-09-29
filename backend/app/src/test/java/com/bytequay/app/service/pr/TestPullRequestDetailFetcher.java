@@ -172,6 +172,22 @@ class TestPullRequestDetailFetcher
         verify(gitHub).fetchPrIssueComments("pat", REF);
     }
 
+    @Test
+    void discussionRefreshReusesMetadataAndChecksWithoutFetchingThemAgain()
+    {
+        PrRawDetail raw = raw("head");
+        StoredPrDetail existing = new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+
+        StoredPrDetail refreshed = PullRequestDetailFetcher.await(fetcher.fetchDiscussion("pat", REF, existing));
+
+        assertThat(refreshed.raw()).isSameAs(raw);
+        verify(gitHub).fetchPrIssueComments("pat", REF);
+        verify(gitHub).fetchPrReviews("pat", REF);
+        verify(gitHub, org.mockito.Mockito.never()).fetchPrDetail("pat", REF);
+        verify(gitHub, org.mockito.Mockito.never()).fetchPrCommits("pat", REF);
+        org.mockito.Mockito.verifyNoInteractions(actions);
+    }
+
     private static PrRawDetail raw(String headSha)
     {
         return new PrRawDetail(

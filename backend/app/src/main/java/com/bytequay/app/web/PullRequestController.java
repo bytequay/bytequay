@@ -153,9 +153,10 @@ public class PullRequestController
     @PostMapping("/prs/detail/refresh")
     public PullRequestDetailRefresh refreshDetail(
             @RequestParam("repo") String repo,
-            @RequestParam("number") int number)
+            @RequestParam("number") int number,
+            @RequestParam(value = "checksOnly", defaultValue = "false") boolean checksOnly)
     {
-        return refreshService.refreshDetail(repo, number);
+        return checksOnly ? refreshService.refreshChecks(repo, number) : refreshService.refreshDetail(repo, number);
     }
 
     @PostMapping("/prs/detail/refresh-all")

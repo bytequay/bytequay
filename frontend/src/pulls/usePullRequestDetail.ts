@@ -20,11 +20,13 @@ import {
 } from './PullOverview';
 import type {
   PullRequestDetailDto,
+  PullRequestDto,
   PullRequestDetailRefreshDto,
   PullRequestStatusRefreshDto,
 } from '../types';
 
-export const DETAIL_REFRESH_INTERVAL = 5_000;
+export const DETAIL_REFRESH_INTERVAL = 60_000;
+export const CHECK_REFRESH_INTERVAL = 30_000;
 
 export function mergePullRequestDetailStatus<T>(
   current: T,
@@ -37,7 +39,7 @@ export function mergePullRequestDetailStatus<T>(
  * How long to wait before the next detail refresh.
  *
  * GitHub answers a spent rate limit with the reset instant, so a refused poll waits for the
- * window to reopen instead of spending the next five seconds asking again.
+ * window to reopen instead of repeating rejected requests.
  */
 export function pullRequestDetailRefreshDelay(failure: unknown, now = Date.now()): number {
   const match = remoteErrorMessage(failure).match(/GitHub \S+ API rate limit reached; retry after (\S+)/);
@@ -77,16 +79,7 @@ interface PullRequestDetailOptions {
   onStatus?: (status: PullRequestStatusRefreshDto) => void;
 }
 
-/**
- * One pull request's detail, read once and then kept current.
- *
- * The stored snapshot behind `GET /prs/detail` has no age: it is whatever the last refresh wrote,
- * which may be hours old. Reading it once therefore freezes the timeline at that moment — a merge
- * queue can accept and evict a pull request several times without a single one of those events
- * appearing. So every surface reads the snapshot for a fast first paint and then polls the
- * conditional refresh, which refetches the whole timeline whenever GitHub reports the pull request
- * changed and costs one 304 when it has not.
- */
+/** Cached-first detail with independent discussion and pending-CI refresh cadences. */
 export function usePullRequestDetail(
   target: PullRequestTarget | null,
   { active = true, onDetail, onStatus }: PullRequestDetailOptions = {},
@@ -142,62 +135,89 @@ export function usePullRequestDetail(
     let cancelled = false;
     let refreshTimer: number | undefined;
     let polling = false;
+    let ready = false;
+    let refreshRequested = true;
+    let lastDetailRefresh = 0;
+    let retryAt = 0;
+    let observedActivity: string | undefined;
     const known = applied.current !== null;
     setLoading(!known);
 
-    // A hidden window spends requests nobody is reading, so the loop stops rather than idling. It
-    // has no pending timer while hidden, which is what lets the visibility listener restart it
-    // without racing one.
+    const clearTimer = () => {
+      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
+      refreshTimer = undefined;
+    };
     const schedule = (delay: number) => {
-      if (cancelled || document.hidden || polling || refreshTimer !== undefined) return;
+      if (cancelled || !ready || document.hidden || polling || refreshTimer !== undefined) return;
       refreshTimer = window.setTimeout((): void => {
         refreshTimer = undefined;
         void poll();
-      }, delay);
+      }, Math.max(delay, retryAt - Date.now()));
     };
 
     const poll = async (): Promise<void> => {
       polling = true;
-      let nextDelay = DETAIL_REFRESH_INTERVAL;
       let request: Promise<PullRequestDetailRefreshDto> | null = null;
       try {
         while (refreshInFlight.current !== null) {
           await refreshInFlight.current.then((): undefined => undefined, (): undefined => undefined);
         }
         if (cancelled || document.hidden) return;
+        const checksOnly = !refreshRequested && Date.now() - lastDetailRefresh < DETAIL_REFRESH_INTERVAL;
+        if (!checksOnly) refreshRequested = false;
         const requestMutationVersion = mutationVersion.current;
-        request = window.bridge.refreshPullRequestDetailByRef(repo, number);
+        request = window.bridge.refreshPullRequestDetailByRef(repo, number, checksOnly);
         refreshInFlight.current = request;
         const value = await request;
         if (cancelled) return;
+        if (!checksOnly) lastDetailRefresh = Date.now();
         if (value.full) {
           apply(value.detail, requestMutationVersion);
         }
-        else if (applied.current !== null) {
+        else if (applied.current !== null && requestMutationVersion === mutationVersion.current) {
           const next = mergePullRequestDetailStatus(applied.current, value.status);
           applied.current = next;
           setDetail(next);
           listeners.current.onStatus?.(value.status);
         }
+        retryAt = 0;
         setError(null);
       }
       catch (failure) {
-        nextDelay = pullRequestDetailRefreshDelay(failure);
+        retryAt = Date.now() + pullRequestDetailRefreshDelay(failure);
         if (!cancelled) setError(remoteErrorMessage(failure));
       }
       finally {
         if (refreshInFlight.current === request) refreshInFlight.current = null;
         polling = false;
-        schedule(nextDelay);
+        schedule(refreshRequested ? 0 : applied.current?.ciStatus === 'PENDING' ? CHECK_REFRESH_INTERVAL : DETAIL_REFRESH_INTERVAL);
       }
     };
 
-    // Coming back deserves current data now, not up to five seconds from now.
-    const resume = () => schedule(0);
+    const resume = () => {
+      clearTimer();
+      if (!document.hidden) {
+        refreshRequested = true;
+        schedule(0);
+      }
+    };
+    const changed = (event: Event) => {
+      const row = (event as CustomEvent<PullRequestDto[]>).detail.find(value => pullRequestKey(value) === key);
+      if (row === undefined) return;
+      const version = JSON.stringify([row.updatedAt, row.activityAt, row.ciStatus, row.headPushedAt, row.reviewDecision, row.commentCount]);
+      const current = applied.current;
+      const newer = observedActivity !== undefined ? observedActivity !== version
+        : current !== null && (Date.parse(row.updatedAt) > Date.parse(current.updatedAt ?? '') || row.ciStatus !== current.ciStatus);
+      observedActivity = version;
+      if (!newer) return;
+      refreshRequested = true;
+      clearTimer();
+      schedule(0);
+    };
     document.addEventListener('visibilitychange', resume);
+    window.addEventListener('bytequay:pr-attention-updated', changed);
 
-    // The stored snapshot is only worth a round trip when there is nothing on screen yet; a surface
-    // being shown again already has one, and goes straight to asking GitHub what changed.
+    // Backend group freshness makes the initial conditional refresh cheap when the cache is current.
     const initialMutationVersion = mutationVersion.current;
     (known
       ? Promise.resolve()
@@ -207,18 +227,24 @@ export function usePullRequestDetail(
       .finally(() => {
         if (cancelled) return;
         setLoading(false);
+        ready = true;
         schedule(0);
       });
 
     return () => {
       cancelled = true;
       document.removeEventListener('visibilitychange', resume);
-      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
+      window.removeEventListener('bytequay:pr-attention-updated', changed);
+      clearTimer();
     };
   }, [active, apply, key, number, repo]);
 
   const refresh = useCallback(async () => {
     if (repo === null || number === null || key !== currentKey.current) return;
+    while (refreshInFlight.current !== null) {
+      await refreshInFlight.current.then((): undefined => undefined, (): undefined => undefined);
+    }
+    if (key !== currentKey.current) return;
     setLoading(true);
     const requestMutationVersion = mutationVersion.current;
     const request = window.bridge.refreshAllPullRequestDetailByRef(repo, number);

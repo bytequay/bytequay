@@ -49,6 +49,7 @@ class TestCredentialServiceCachedLogin
         });
         CredentialService service = new CredentialService(store, mock(WorkspaceCredentialStore.class), mock(GhCliService.class), accounts);
         assertThat(service.cachedLogin()).isEmpty();
+        assertThat(service.cachedCredential()).isEmpty();
         service.resolveGitHubCredential();
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -56,6 +57,9 @@ class TestCredentialServiceCachedLogin
             try {
                 assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
                 assertThat(executor.submit(service::cachedLogin).get(1, TimeUnit.SECONDS)).contains("octocat");
+                CredentialService.GitHubCredential cached = executor.submit(service::cachedCredential).get(1, TimeUnit.SECONDS).orElseThrow();
+                assertThat(cached.token()).isEqualTo("token");
+                assertThat(cached.profile().login()).isEqualTo("octocat");
             }
             finally {
                 release.countDown();
@@ -63,8 +67,10 @@ class TestCredentialServiceCachedLogin
             assertThat(refreshing.get(5, TimeUnit.SECONDS).profile().login()).isEqualTo("hubot");
         }
         assertThat(service.cachedLogin()).contains("hubot");
+        assertThat(service.cachedCredential().orElseThrow().token()).isEqualTo("rotated");
         service.deleteGitHubToken();
         assertThat(service.cachedLogin()).isEmpty();
+        assertThat(service.cachedCredential()).isEmpty();
     }
 
     private static UserProfile profile(String login)

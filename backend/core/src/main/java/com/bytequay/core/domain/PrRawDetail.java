@@ -52,7 +52,8 @@ public record PrRawDetail(
         List<String> requestedReviewers,
         String headSha,
         String headRef,
-        String baseRef)
+        String baseRef,
+        String baseSha)
 {
     public PrRawDetail
     {
@@ -64,12 +65,22 @@ public record PrRawDetail(
         labelColors = labelColors == null ? ImmutableMap.of() : ImmutableMap.copyOf(labelColors);
     }
 
+    public PrRawDetail(
+            String title, String htmlUrl, String state, String author, String authorAvatarUrl, Instant createdAt, Instant updatedAt, Instant mergedAt,
+            String body, List<String> labels, Map<String, String> labelColors, List<String> assignees, String milestone, boolean draft, Boolean mergeable,
+            String mergeableState, int additions, int deletions, int changedFiles, int requestedReviewerCount, List<String> requestedReviewers,
+            String headSha, String headRef, String baseRef)
+    {
+        this(title, htmlUrl, state, author, authorAvatarUrl, createdAt, updatedAt, mergedAt, body, labels, labelColors, assignees, milestone, draft,
+                mergeable, mergeableState, additions, deletions, changedFiles, requestedReviewerCount, requestedReviewers, headSha, headRef, baseRef, null);
+    }
+
     public PrRawDetail withMergeability(Boolean latestMergeable, String latestMergeableState)
     {
         return new PrRawDetail(
                 title, htmlUrl, state, author, authorAvatarUrl, createdAt, updatedAt, mergedAt,
                 body, labels, labelColors, assignees, milestone, draft, latestMergeable,
                 latestMergeableState, additions, deletions, changedFiles, requestedReviewerCount,
-                requestedReviewers, headSha, headRef, baseRef);
+                requestedReviewers, headSha, headRef, baseRef, baseSha);
     }
 }

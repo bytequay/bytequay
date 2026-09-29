@@ -15,6 +15,7 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.HandledAction;
+import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
@@ -32,6 +33,8 @@ import org.springframework.test.context.DynamicPropertySource;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -61,6 +64,23 @@ class TestSqlitePullRequestWorkspaceScope
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
         registerSqliteProperties(registry, "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON", "create-drop");
+    }
+
+    @Test
+    void notificationPreviewAndDiscussionTimestampSurviveOlderDiscovery()
+    {
+        FetchedPullRequest fetched = pullRequest(1, "owner/project", 1);
+        PullRequest row = store.saveObserved(fetched);
+        Instant replyAt = fetched.updatedAt().plusSeconds(60);
+        PrActivitySummary reply = new PrActivitySummary("commented", Optional.of("reviewer"), replyAt,
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.of("New reply"), Optional.empty(), OptionalInt.empty());
+        store.observeActivity(row.id(), Optional.of(reply), replyAt);
+        store.saveObserved(fetched);
+        store.observeActivity(row.id(), Optional.empty(), fetched.updatedAt());
+
+        assertThat(store.findDiscussionActivityAt(row.id())).contains(replyAt);
+        assertThat(store.findActivities(Set.of(row.id()))).containsEntry(row.id(), reply);
+        assertThat(store.findById(row.id()).orElseThrow().activityAt()).isEqualTo(replyAt);
     }
 
     @Test

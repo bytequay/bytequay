@@ -16,8 +16,10 @@ package com.bytequay.core.domain;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -25,13 +27,24 @@ import static java.util.Objects.requireNonNull;
 public record StoredPrDiff(
         List<DiffFile> files,
         List<DiffCommit> commits,
-        Map<String, DiffFileContent> fileContents)
+        Map<String, DiffFileContent> fileContents,
+        Optional<String> baseSha,
+        Optional<String> headSha,
+        Optional<Instant> validatedAt)
 {
     public StoredPrDiff
     {
+        requireNonNull(baseSha, "baseSha is null");
+        requireNonNull(headSha, "headSha is null");
+        requireNonNull(validatedAt, "validatedAt is null");
         files = ImmutableList.copyOf(requireNonNull(files, "files is null"));
         commits = ImmutableList.copyOf(requireNonNull(commits, "commits is null"));
         fileContents = ImmutableMap.copyOf(requireNonNull(fileContents, "fileContents is null"));
+    }
+
+    public StoredPrDiff(List<DiffFile> files, List<DiffCommit> commits, Map<String, DiffFileContent> fileContents)
+    {
+        this(files, commits, fileContents, Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     public StoredPrDiff(List<DiffFile> files, List<DiffCommit> commits)

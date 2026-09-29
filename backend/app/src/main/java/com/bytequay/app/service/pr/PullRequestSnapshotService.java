@@ -28,6 +28,7 @@ import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrCommitLine;
+import com.bytequay.core.domain.PrDetailFreshness;
 import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequestDetail;
@@ -44,8 +45,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.UnaryOperator;
@@ -164,18 +167,50 @@ public class PullRequestSnapshotService
                 .orElseThrow(() -> missing("Pull request file content"));
     }
 
-    /** Stores what a {@link PullRequestDetailFetcher} fetch produced. */
+    Optional<StoredPrDetail> findStoredDetail(long prId)
+    {
+        return details.find(prId);
+    }
+
+    PrDetailFreshness findFreshness(long prId)
+    {
+        return Optional.ofNullable(details.findFreshness(prId)).orElseGet(PrDetailFreshness::unknown);
+    }
+
+    StoredPrDetail saveMetadata(long prId, PrRawDetail raw, boolean viewerCanWrite)
+    {
+        Optional<StoredPrDetail> previous = details.find(prId);
+        StoredPrDetail existing = previous.orElseGet(() -> new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                ImmutableList.of(StoredPrDetail.REVIEWS, StoredPrDetail.TIMELINE, StoredPrDetail.COMMENTS, StoredPrDetail.COMMITS,
+                        StoredPrDetail.REVIEW_THREADS, StoredPrDetail.REACTIONS, StoredPrDetail.CHECKS), viewerCanWrite));
+        boolean headChanged = !Objects.equals(existing.raw().headSha(), raw.headSha());
+        List<String> unavailable = new ArrayList<>(existing.unavailableSections());
+        boolean commitsChanged = headChanged || !Objects.equals(existing.raw().baseSha(), raw.baseSha());
+        if (commitsChanged && !unavailable.contains(StoredPrDetail.COMMITS)) {
+            unavailable.add(StoredPrDetail.COMMITS);
+        }
+        if (headChanged && !unavailable.contains(StoredPrDetail.CHECKS)) {
+            unavailable.add(StoredPrDetail.CHECKS);
+        }
+        StoredPrDetail stored = new StoredPrDetail(raw, existing.reviews(), existing.timeline(), headChanged ? ImmutableList.of() : existing.checkRuns(),
+                unavailable, viewerCanWrite);
+        details.saveMetadata(prId, stored);
+        return stored;
+    }
+
+    StoredPrDetail saveDiscussion(long prId, StoredPrDetail fetched, Instant sourceUpdatedAt)
+    {
+        details.saveDiscussion(prId, fetched, sourceUpdatedAt);
+        // Partial sources are merged by the store; use the retained successful data too.
+        return fetched.reviewsComplete() && fetched.timelineComplete() ? fetched : details.find(prId).orElse(fetched);
+    }
+
+    /** Stores what a full fetch produced. */
     StoredPrDetail saveDetail(long prId, StoredPrDetail fetched, boolean viewerCanWrite)
     {
-        StoredPrDetail stored = new StoredPrDetail(
-                fetched.raw(),
-                fetched.reviews(),
-                fetched.timeline(),
-                fetched.checkRuns(),
-                fetched.unavailableSections(),
-                viewerCanWrite);
+        StoredPrDetail stored = new StoredPrDetail(fetched.raw(), fetched.reviews(), fetched.timeline(), fetched.checkRuns(), fetched.unavailableSections(), viewerCanWrite);
         details.save(prId, stored);
-        return stored;
+        return details.find(prId).orElse(stored);
     }
 
     StoredPrDetail refreshStatus(String pat, PullRequestRef pullRequest, long prId)
@@ -186,14 +221,19 @@ public class PullRequestSnapshotService
 
     StoredPrDetail refreshStatus(String pat, PullRequestRef pullRequest, long prId, PullRequestFetch fetched)
     {
-        StoredPrDetail existing = details.find(prId)
-                .orElseThrow(() -> missing("Pull request detail"));
-        PrRawDetail raw = fetched.pullRequest()
-                .map(summary -> existing.raw().withMergeability(summary.mergeable(), summary.mergeableState()))
-                .orElse(existing.raw());
-        PrCheckRunsFetch checks = raw.headSha() == null
-                ? new PrCheckRunsFetch(ImmutableList.of(), Optional.empty(), Optional.empty())
-                : actions.refreshPrCheckRuns(
+        StoredPrDetail existing = details.find(prId).orElseThrow(() -> missing("Pull request detail"));
+        fetched.pullRequest().ifPresent(summary -> saveMetadata(prId, existing.raw().withMergeability(summary.mergeable(), summary.mergeableState()), existing.viewerCanWrite()));
+        return refreshChecks(pat, pullRequest, prId);
+    }
+
+    StoredPrDetail refreshChecks(String pat, PullRequestRef pullRequest, long prId)
+    {
+        StoredPrDetail existing = details.find(prId).orElseThrow(() -> missing("Pull request detail"));
+        PrRawDetail raw = existing.raw();
+        if (raw.headSha() == null || raw.headSha().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no head commit for checks");
+        }
+        PrCheckRunsFetch checks = actions.refreshPrCheckRuns(
                         pat,
                         pullRequest.owner(),
                         pullRequest.repo(),
@@ -216,23 +256,41 @@ public class PullRequestSnapshotService
         return stored;
     }
 
+    boolean defaultDiffMatches(long prId, PrRawDetail raw)
+    {
+        return raw.baseSha() != null && raw.headSha() != null && diffs.find(prId, null, null)
+                .filter(diff -> diff.validatedAt().isPresent() && diff.baseSha().filter(raw.baseSha()::equals).isPresent()
+                        && diff.headSha().filter(raw.headSha()::equals).isPresent()).isPresent();
+    }
+
     void refreshDefaultDiff(String pat, PullRequestRef pullRequest, long prId)
     {
         StoredPrDiff stored = diffs.find(prId, null, null).orElse(EMPTY_DIFF);
-        PrDiffEtags etags = diffs.findDefaultEtags(prId);
+        Optional<PrRawDetail> raw = details.find(prId).map(StoredPrDetail::raw);
+        if (raw.filter(value -> value.baseSha() != null && value.headSha() != null).isEmpty()) {
+            PrRawDetail fetched = gitHub.fetchPrDetail(pat, pullRequest);
+            if (fetched == null || fetched.baseSha() == null || fetched.headSha() == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no diff commit coordinates");
+            }
+            raw = Optional.of(saveMetadata(prId, fetched, details.find(prId).map(StoredPrDetail::viewerCanWrite).orElse(false)).raw());
+        }
+        Optional<String> baseSha = raw.map(PrRawDetail::baseSha);
+        Optional<String> headSha = raw.map(PrRawDetail::headSha);
+        boolean sameCoordinates = baseSha.isPresent() && headSha.isPresent() && stored.baseSha().equals(baseSha) && stored.headSha().equals(headSha);
+        PrDiffEtags etags = sameCoordinates ? diffs.findDefaultEtags(prId) : PrDiffEtags.none();
         ConditionalList<DiffFile> files = gitHub.fetchPrDiffFiles(pat, pullRequest, stored.files(), etags.files());
         ConditionalList<DiffCommit> commits = gitHub.fetchPrDiffCommits(pat, pullRequest, stored.commits(), etags.commits());
-        if (files.unchanged() && commits.unchanged()) {
-            return;
+        if (baseSha.isPresent() && headSha.isPresent()) {
+            // The default endpoints follow a moving PR. Do not label their bytes with coordinates that moved during retrieval.
+            PullRequestFetch verified = gitHub.getPullRequest(pat, pullRequest, Optional.empty());
+            boolean unchanged = verified.detailResponse().filter(response -> response.base() != null && response.head() != null
+                    && baseSha.orElseThrow().equals(response.base().sha()) && headSha.orElseThrow().equals(response.head().sha())).isPresent();
+            if (!unchanged) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Pull request changed while fetching its diff; refresh again");
+            }
         }
-        diffs.saveDefault(
-                prId,
-                new StoredPrDiff(
-                        files.orElse(stored.files()),
-                        commits.orElse(stored.commits()),
-                        // Expanded file bodies stay valid exactly as long as the file
-                        // list does; a changed list may have moved every patch.
-                        files.unchanged() ? stored.fileContents() : ImmutableMap.of()),
+        diffs.saveDefault(prId, new StoredPrDiff(files.orElse(stored.files()), commits.orElse(stored.commits()),
+                        sameCoordinates && files.unchanged() ? stored.fileContents() : ImmutableMap.of(), baseSha, headSha, Optional.of(Instant.now())),
                 new PrDiffEtags(files.etag(), commits.etag()));
     }
 
@@ -254,7 +312,7 @@ public class PullRequestSnapshotService
                 headSha,
                 new StoredPrDiff(
                         gitHub.fetchPrDiffFiles(pat, pullRequest, baseSha, headSha),
-                        ImmutableList.of()));
+                        ImmutableList.of(), ImmutableMap.of(), Optional.of(baseSha), Optional.of(headSha), Optional.of(Instant.now())));
     }
 
     void refreshFileContent(
@@ -267,11 +325,21 @@ public class PullRequestSnapshotService
     {
         requireNotBlank(path, "path");
         validateRange(baseSha, headSha);
-        DiffFileContent content = baseSha == null
-                ? gitHub.fetchPrDiffFileContent(pat, pullRequest, path)
-                : gitHub.fetchPrDiffFileContent(
-                        pat, pullRequest, path, baseSha, headSha);
-        diffs.saveFileContent(prId, baseSha, headSha, path, content);
+        StoredPrDiff stored = storedDiff(prId, baseSha, headSha);
+        String contentBase = baseSha == null ? stored.baseSha().orElse(null) : baseSha;
+        String contentHead = headSha == null ? stored.headSha().orElse(null) : headSha;
+        if (contentBase == null || contentHead == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Refresh the diff before opening file content");
+        }
+        DiffFileContent content = gitHub.fetchPrDiffFileContent(pat, pullRequest, path, contentBase, contentHead);
+        if (baseSha == null) {
+            if (!diffs.saveDefaultFileContent(prId, contentBase, contentHead, path, content)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Pull request diff changed while fetching file content; refresh again");
+            }
+        }
+        else {
+            diffs.saveFileContent(prId, baseSha, headSha, path, content);
+        }
     }
 
     Optional<Instant> findDetailSyncedAt(String repo, int number)
@@ -312,7 +380,7 @@ public class PullRequestSnapshotService
     {
         requireNonNull(patcher, "patcher is null");
         Optional<StoredPrDetail> patched = details.find(prId).map(patcher);
-        patched.ifPresent(detail -> details.save(prId, detail));
+        patched.ifPresent(detail -> details.saveCached(prId, detail));
         return patched;
     }
 

@@ -14,6 +14,7 @@
 package com.bytequay.core.store;
 
 import com.bytequay.core.domain.FetchedPullRequest;
+import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
@@ -35,6 +36,12 @@ public interface PullRequestStore
     Optional<PullRequest> findById(long prId);
 
     void setMonitored(long prId, boolean monitored);
+
+    Map<Long, PrActivitySummary> findActivities(Set<Long> prIds);
+
+    Optional<Instant> findDiscussionActivityAt(long prId);
+
+    void observeActivity(long prId, Optional<PrActivitySummary> activity, Instant discussionActivityAt);
 
     PullRequestPage findRepositoryPage(String repository, int page, int pageSize);
 

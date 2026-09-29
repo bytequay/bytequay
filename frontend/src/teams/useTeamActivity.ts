@@ -65,10 +65,14 @@ export function useTeamActivity(accountLogin: string | undefined, { circleId, me
     const invalidate = () => { generation.current++; };
     const timer = window.setInterval(reload, 30_000);
     window.addEventListener(TEAMS_CHANGED, reload);
+    window.addEventListener('bytequay:pr-attention-updated', reload);
+    const stopSync = window.bridge.onPullRequestsSynced(reload);
     return () => {
       invalidate();
       window.clearInterval(timer);
       window.removeEventListener(TEAMS_CHANGED, reload);
+      window.removeEventListener('bytequay:pr-attention-updated', reload);
+      stopSync();
     };
   }, [accountLogin, load]);
 

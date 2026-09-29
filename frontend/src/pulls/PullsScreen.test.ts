@@ -238,8 +238,8 @@ describe('mergePullRequestDetailStatus', () => {
     ), now)).toBe(resetAt - now + 1_000);
   });
 
-  it('retries focused pull-request refreshes after five seconds', () => {
-    expect(pullRequestDetailRefreshDelay(new Error('temporary failure'))).toBe(5_000);
+  it('retries focused pull-request refreshes after one minute', () => {
+    expect(pullRequestDetailRefreshDelay(new Error('temporary failure'))).toBe(60_000);
   });
 
   it('forces a full refresh only when returning from the in-app browser', () => {

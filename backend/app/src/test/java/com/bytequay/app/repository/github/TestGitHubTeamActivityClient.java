@@ -15,9 +15,15 @@ package com.bytequay.app.repository.github;
 
 import com.bytequay.app.repository.github.GitHubTeamActivityClient.Collector;
 import com.bytequay.app.repository.github.GitHubTeamActivityClient.Identity;
+import com.bytequay.core.domain.PrRawDetail;
+import com.bytequay.core.domain.PrReviewState;
+import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.PrTimelinePayload;
+import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.TeamActivityEvent;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -139,13 +145,55 @@ class TestGitHubTeamActivityClient
                           "created_at":"%s"}]
                         """.formatted(time), MediaType.APPLICATION_JSON));
 
-        GitHubTeamActivityClient.Observation result = new GitHubTeamActivityClient(builder.build()).repository("pat", "owner/repo", IDENTITY, 0);
+        GitHubTeamActivityClient.Observation result = new GitHubTeamActivityClient(builder.build()).repository("pat", "owner/repo", IDENTITY, 0, (number, updatedAt) -> Optional.empty());
         assertThat(result.events()).filteredOn(event -> event.kind().equals("REVIEW_REQUESTED")).singleElement().satisfies(event -> {
             assertThat(event.source()).isEqualTo("REPOSITORY");
             assertThat(event.actorId()).isEqualTo(1);
             assertThat(event.viewerInteractionMemberIds()).containsExactly(2L);
         });
         assertThat(result.errors()).containsExactly("A malformed GitHub activity record was skipped");
+        server.verify();
+    }
+
+    @Test
+    void reusesCompleteSharedDetailsForReviewsRequestsAndMergeWithoutFetchingThoseGroups()
+    {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        Instant time = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        String summary = """
+                {"number":7,"title":"Internal PR","state":"closed","user":{"id":2,"login":"alice"},
+                 "created_at":"%s","updated_at":"%s","pull_request":{}}
+                """.formatted(time, time);
+        server.expect(request -> assertThat(request.getURI().getPath()).isEqualTo("/repos/owner/repo/issues"))
+                .andRespond(withSuccess("[" + summary + "]", MediaType.APPLICATION_JSON));
+        server.expect(request -> assertThat(request.getURI().getPath()).isEqualTo("/repos/owner/repo/issues/comments"))
+                .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
+        server.expect(request -> assertThat(request.getURI().getPath()).isEqualTo("/repos/owner/repo/pulls/comments"))
+                .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
+        PrRawDetail raw = new PrRawDetail("Internal PR", "https://github.com/owner/repo/pull/7", "closed", "alice", null,
+                time, time, time, "", ImmutableList.of(), ImmutableMap.of(), ImmutableList.of(), null, false, true, "clean",
+                1, 0, 1, 0, ImmutableList.of(), "head", "feature", "main");
+        StoredPrDetail cached = new StoredPrDetail(raw,
+                ImmutableList.of(new PrReviewState(8L, "viewer", null, false, "APPROVED", time, "Looks good", null, null)),
+                ImmutableList.of(
+                        new PrTimelineEvent(9L, "review_requested", "alice", time, null, PrTimelinePayload.builder().requestedReviewer("viewer").build(), Optional.empty()),
+                        new PrTimelineEvent(10L, "merged", "viewer", time, null, PrTimelinePayload.empty(), Optional.empty())),
+                ImmutableList.of(), ImmutableList.of());
+
+        GitHubTeamActivityClient.Observation result = new GitHubTeamActivityClient(builder.build()).repository("pat", "owner/repo", IDENTITY, 0, (number, updatedAt) -> {
+            assertThat(number).isEqualTo(7);
+            assertThat(updatedAt).isEqualTo(time);
+            return Optional.of(cached);
+        });
+
+        assertThat(result.errors()).isEmpty();
+        assertThat(result.events()).filteredOn(event -> event.source().equals("CACHED_DETAIL"))
+                .extracting(TeamActivityEvent::kind).contains("PR_MERGED", "PR_REVIEWED", "REVIEW_REQUESTED");
+        assertThat(result.events()).filteredOn(event -> event.kind().equals("PR_MERGED")).singleElement().satisfies(event -> {
+            assertThat(event.actorId()).isEqualTo(1);
+            assertThat(event.subjectAuthorId()).contains(2L);
+        });
         server.verify();
     }
 
@@ -159,8 +207,8 @@ class TestGitHubTeamActivityClient
         assertThat(new GitHubTeamActivityClient(builder.build()).publicEvents("pat", "alice", IDENTITY).errors()).isEmpty();
         server.verify();
         GitHubTeamActivityClient client = new GitHubTeamActivityClient(builder.build());
-        assertThatThrownBy(() -> client.repository("pat", "owner/..", IDENTITY, 0)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> client.repository("pat", "owner/.", IDENTITY, 0)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> client.repository("pat", "owner/..", IDENTITY, 0, (number, updatedAt) -> Optional.empty())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> client.repository("pat", "owner/.", IDENTITY, 0, (number, updatedAt) -> Optional.empty())).isInstanceOf(IllegalArgumentException.class);
         Collector collector = new Collector(IDENTITY);
         collector.read("one repository", () -> { throw new IllegalStateException("private response body"); });
         assertThat(collector.result().errors()).containsExactly("one repository: unavailable (IllegalStateException)");

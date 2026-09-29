@@ -137,14 +137,30 @@ class TestAppSettingsService
         assertThat(settings.preferences()).isEqualTo(AppPreferences.DEFAULT);
         assertThat(settings.taskRuntimeRetention()).isEqualTo(Duration.ofDays(7));
         assertThat(settings.recentRetentionDays()).isEqualTo(14);
-        assertThat(settings.refreshInterval()).isEqualTo(Duration.ofMinutes(6));
 
-        settings.savePreferences(new AppPreferences(30, 21, 15, AppTheme.LIGHT));
+        settings.savePreferences(new AppPreferences(30, 21, AppTheme.LIGHT, 30));
 
         assertThat(settings.taskRuntimeRetention()).isEqualTo(Duration.ofDays(30));
         assertThat(settings.recentRetentionDays()).isEqualTo(21);
-        assertThat(settings.refreshInterval()).isEqualTo(Duration.ofMinutes(15));
         assertThat(rows).containsKey("app.preferences");
+        assertThat(rows.get("app.preferences")).doesNotContain("refreshIntervalMinutes");
+    }
+
+    @Test
+    void oldPreferencesKeepTheirValuesAndDefaultToThirtyWarmPullRequests()
+    {
+        rows.put("app.preferences", "{\"taskRetentionDays\":30,\"recentRetentionDays\":21,\"refreshIntervalMinutes\":15,\"theme\":\"LIGHT\"}");
+        assertThat(settings.preferences()).isEqualTo(new AppPreferences(30, 21, AppTheme.LIGHT, 30));
+    }
+
+    @Test
+    void smallerWarmCountRoundTripsAndInvalidCountsAreRejected()
+    {
+        AppPreferences fewer = new AppPreferences(7, 14, AppTheme.SYSTEM, 10);
+        settings.savePreferences(fewer);
+        assertThat(settings.preferences()).isEqualTo(fewer);
+        assertThatThrownBy(() -> new AppPreferences(7, 14, AppTheme.SYSTEM, 11))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("prWarmCount");
     }
 
     @Test

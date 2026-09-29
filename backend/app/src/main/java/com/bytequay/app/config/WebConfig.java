@@ -76,7 +76,7 @@ public class WebConfig
     }
 
     @Bean
-    public RestClient gitHubGraphQLRestClient()
+    public RestClient gitHubGraphQLRestClient(GitHubRateLimitInterceptor rateLimit)
     {
         // GitHub's GraphQL endpoint takes a single POST with
         // { query, variables }. We use it for review-thread resolution
@@ -89,6 +89,7 @@ public class WebConfig
                 .defaultHeader("Accept", "application/json")
                 .defaultHeader("Content-Type", "application/json")
                 .defaultHeader("User-Agent", USER_AGENT)
+                .requestInterceptor(rateLimit)
                 .requestFactory(newTimeoutRequestFactory(
                         CONNECT_TIMEOUT,
                         READ_TIMEOUT,

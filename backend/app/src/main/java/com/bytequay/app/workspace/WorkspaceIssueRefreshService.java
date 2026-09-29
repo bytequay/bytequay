@@ -16,22 +16,35 @@ package com.bytequay.app.workspace;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.RepositoryIssueDetailStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Striped;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 
@@ -55,6 +68,7 @@ public class WorkspaceIssueRefreshService
     private final GitHubPullRequestReadClient issueReads;
     private final CredentialService credentials;
     private final Clock clock;
+    private final AppSettingsStore settings;
     private final Striped<Lock> locks = Striped.lock(64);
 
     public WorkspaceIssueRefreshService(
@@ -64,7 +78,8 @@ public class WorkspaceIssueRefreshService
             GitHubRepoClient gitHub,
             GitHubPullRequestReadClient issueReads,
             CredentialService credentials,
-            Clock clock)
+            Clock clock,
+            AppSettingsStore settings)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.issues = requireNonNull(issues, "issues is null");
@@ -73,6 +88,113 @@ public class WorkspaceIssueRefreshService
         this.issueReads = requireNonNull(issueReads, "issueReads is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.clock = requireNonNull(clock, "clock is null");
+        this.settings = requireNonNull(settings, "settings is null");
+    }
+
+    public void refreshNotifiedIssue(RepoRef repository, int issueNumber)
+    {
+        requireNonNull(repository, "repository is null");
+        checkArgument(issueNumber > 0, "issueNumber must be positive");
+        Set<Long> refreshed = new HashSet<>();
+        for (Workspace candidate : workspaces.findAll()) {
+            if (!candidate.monitoredRepository().fullName().equalsIgnoreCase(repository.fullName())
+                    || !refreshed.add(candidate.monitoredRepositoryId())) {
+                continue;
+            }
+            WorkspaceOperationLocks.withLock(candidate.id(), () -> {
+                Workspace workspace = requireWorkspace(workspaces, candidate.id());
+                Lock lock = locks.get(workspace.monitoredRepositoryId());
+                lock.lock();
+                try {
+                    GitHubCredential credential = credentials.resolveGitHubCredential();
+                    Optional<RepositoryIssue> issue = gitHub.fetchIssue(credential.token(), workspace.monitoredRepository(), issueNumber);
+                    requireSameAccount(credential);
+                    if (issue.isPresent()) {
+                        issues.saveSyncPage(workspace.monitoredRepositoryId(), ImmutableList.of(issue.orElseThrow()), UUID.randomUUID().toString());
+                    }
+                    else {
+                        issues.delete(workspace.monitoredRepositoryId(), issueNumber);
+                    }
+                }
+                finally {
+                    lock.unlock();
+                }
+            });
+        }
+    }
+
+    /** Incremental open-card changes and closures; a completed cursor survives sleep and restarts. */
+    public void refreshRecentIssues()
+    {
+        Set<Long> refreshed = new HashSet<>();
+        for (Workspace workspace : workspaces.findAll()) {
+            if (!refreshed.add(workspace.monitoredRepositoryId())) {
+                continue;
+            }
+            try {
+                WorkspaceOperationLocks.withLock(workspace.id(), () -> refreshRecentIssuesLocked(workspace.id()));
+            }
+            catch (RuntimeException failure) {
+                if (isRateLimit(failure) || failure instanceof ResponseStatusException response && response.getStatusCode().value() == 401) {
+                    throw failure;
+                }
+                log.warn("Recent issue refresh failed for {}: {}", workspace.monitoredRepository(), failure.getMessage());
+            }
+        }
+    }
+
+    private void refreshRecentIssuesLocked(String workspaceId)
+    {
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
+        Lock lock = locks.get(workspace.monitoredRepositoryId());
+        lock.lock();
+        try {
+            GitHubCredential credential = credentials.resolveGitHubCredential();
+            String checkpointKey = "github.issues.checkpoint." + credential.profile().login().toLowerCase(Locale.ROOT)
+                    + "." + workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT);
+            Instant startedAt = clock.instant();
+            Optional<Instant> checkpoint = settings.get(checkpointKey).flatMap(WorkspaceIssueRefreshService::parseInstant)
+                    .filter(at -> !at.isAfter(startedAt));
+            if (checkpoint.filter(at -> at.plus(Duration.ofMinutes(2)).isAfter(startedAt)).isPresent()) {
+                return;
+            }
+            Instant since = checkpoint.map(at -> at.minus(Duration.ofMinutes(5))).orElse(startedAt.minus(Duration.ofHours(1)));
+            String marker = UUID.randomUUID().toString();
+            for (int page = 1; ; page++) {
+                GitHubRepoClient.ChangedIssuePage fetched = gitHub.fetchChangedIssuesPage(credential.token(), workspace.monitoredRepository(), since, page);
+                requireSameAccount(credential);
+                issues.saveSyncPage(workspace.monitoredRepositoryId(), fetched.openIssues(), marker);
+                fetched.closedNumbers().forEach(number -> issues.delete(workspace.monitoredRepositoryId(), number));
+                if (!fetched.hasNext()) {
+                    break;
+                }
+                if (page == MAX_SYNC_PAGES) {
+                    throw new IllegalStateException("Recent GitHub issue refresh exceeded 5000 rows");
+                }
+            }
+            requireSameAccount(credential);
+            settings.put(checkpointKey, startedAt.toString());
+        }
+        finally {
+            lock.unlock();
+        }
+    }
+
+    private void requireSameAccount(GitHubCredential credential)
+    {
+        if (credentials.cachedLogin().filter(login -> login.equalsIgnoreCase(credential.profile().login())).isEmpty()) {
+            throw new IllegalStateException("GitHub account changed during issue refresh");
+        }
+    }
+
+    private static Optional<Instant> parseInstant(String value)
+    {
+        try {
+            return Optional.of(Instant.parse(value));
+        }
+        catch (DateTimeParseException ignored) {
+            return Optional.empty();
+        }
     }
 
     public RepositoryIssuePage refreshIssues(String workspaceId)

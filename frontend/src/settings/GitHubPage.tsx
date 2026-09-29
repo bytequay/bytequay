@@ -17,13 +17,6 @@ import UserAvatar from '../UserAvatar';
 import { SelectPill, SettingsCard, SettingsRow, StatusDot } from './primitives';
 import { settingsRoute } from './routes';
 
-const REFRESH_MINUTES = [1, 3, 5, 6, 10, 15, 30, 60];
-
-export function refreshLabel(minutes: number): string {
-  if (minutes === 60) return '1 hour';
-  return minutes === 1 ? '1 minute' : `${minutes} minutes`;
-}
-
 export default function GitHubPage({
   account, login, preferences, copied, error,
   onSaveToken, onDisconnect, onCopy, onPreferences,
@@ -101,18 +94,13 @@ export default function GitHubPage({
 
       <div className="setw-section"><span className="setw-section-title">Refresh</span></div>
       <SettingsCard>
-        <SettingsRow title="Background refresh interval">
-          <SelectPill
-            quiet
-            ariaLabel="Background refresh interval"
-            value={String(preferences.refreshIntervalMinutes)}
-            label={refreshLabel(preferences.refreshIntervalMinutes)}
-            options={REFRESH_MINUTES.map(minutes => ({ value: String(minutes), label: refreshLabel(minutes) }))}
-            onSelect={minutes => onPreferences({ ...preferences, refreshIntervalMinutes: Number(minutes) })}
-          />
+        <SettingsRow title="PR details kept ready" subtitle="Per repository; other PRs load when opened">
+          <SelectPill quiet ariaLabel="PR details kept ready" value={String(preferences.prWarmCount)} label={`${preferences.prWarmCount} PRs`}
+            options={[10, 30].map(count => ({ value: String(count), label: `${count} PRs` }))}
+            onSelect={count => onPreferences({ ...preferences, prWarmCount: count === '10' ? 10 : 30 })} />
         </SettingsRow>
       </SettingsCard>
-      <div className="setw-footnote">Discovers PR updates across your repositories and keeps full details warm for the latest 30 PRs per repository. Older PRs refresh fully when opened. Personal summaries are checked every 60 seconds. <a href={settingsRoute('general')}>Manage quiet hours in General</a>.</div>
+      <div className="setw-footnote">Discovers PR updates across your repositories and keeps details ready for the selected number of recent PRs per repository. Changed details refresh every 10 minutes; other PRs load when opened. Notifications are checked every minute; recent PR and issue updates every 2 minutes. <a href={settingsRoute('general')}>Manage quiet hours in General</a>.</div>
     </div>
   );
 }

@@ -25,6 +25,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
@@ -38,11 +39,7 @@ import static java.util.Objects.requireNonNull;
 public class PullRequestSyncJob
 {
     private static final Logger log = LoggerFactory.getLogger(PullRequestSyncJob.class);
-    /**
-     * How often the job wakes. The user-set refresh interval decides whether a
-     * wake-up actually refreshes, so a longer interval costs nothing and a
-     * shortened one takes effect within a minute instead of after a restart.
-     */
+    /** Fast discovery has its own job; this wake checks only reconciliation and detail warming. */
     private static final long TICK_MILLIS = 60_000L;
 
     private final PullRequestRefreshService refreshService;
@@ -52,6 +49,7 @@ public class PullRequestSyncJob
     private final AppSettingsService appSettings;
     private final Clock clock;
     private volatile Instant lastRefreshedAt = Instant.EPOCH;
+    private volatile Instant lastWarmedAt = Instant.EPOCH;
 
     public PullRequestSyncJob(
             PullRequestRefreshService refreshService,
@@ -81,20 +79,23 @@ public class PullRequestSyncJob
             return;
         }
         Instant now = Instant.now(clock);
-        if (now.isBefore(lastRefreshedAt.plus(appSettings.refreshInterval()))) {
-            return;
+        if (!now.isBefore(lastRefreshedAt.plus(Duration.ofMinutes(30)))) {
+            lastRefreshedAt = now;
+            refresh("global dashboard", refreshService::refreshScheduledDashboard);
+            List<Workspace> configuredWorkspaces = workspaces.findAll();
+            Set<Long> metadataRepositories = new HashSet<>();
+            configuredWorkspaces.stream()
+                    .filter(workspace -> metadataRepositories.add(workspace.monitoredRepositoryId()))
+                    .forEach(workspace -> metadata.synchronize(workspace.id()));
+            Set<Long> pullRequestRepositories = new HashSet<>();
+            configuredWorkspaces.stream()
+                    .filter(workspace -> pullRequestRepositories.add(workspace.monitoredRepositoryId()))
+                    .forEach(workspace -> refresh(workspace.monitoredRepository().fullName(), () -> refreshService.refreshWorkspace(workspace.id())));
         }
-        lastRefreshedAt = now;
-        refresh("global dashboard", refreshService::refreshScheduledDashboard);
-        List<Workspace> configuredWorkspaces = workspaces.findAll();
-        Set<Long> metadataRepositories = new HashSet<>();
-        configuredWorkspaces.stream()
-                .filter(workspace -> metadataRepositories.add(workspace.monitoredRepositoryId()))
-                .forEach(workspace -> metadata.synchronize(workspace.id()));
-        Set<Long> pullRequestRepositories = new HashSet<>();
-        configuredWorkspaces.stream()
-                .filter(workspace -> pullRequestRepositories.add(workspace.monitoredRepositoryId()))
-                .forEach(workspace -> refresh(workspace.monitoredRepository().fullName(), () -> refreshService.refreshWorkspace(workspace.id())));
+        if (!now.isBefore(lastWarmedAt.plus(Duration.ofMinutes(10)))) {
+            lastWarmedAt = now;
+            refresh("warm PR details", () -> refreshService.warmRecentDetails(appSettings.preferences().prWarmCount()));
+        }
     }
 
     private void refresh(String scope, Runnable action)

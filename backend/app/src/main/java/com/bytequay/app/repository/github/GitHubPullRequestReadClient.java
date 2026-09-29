@@ -34,7 +34,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
@@ -51,7 +50,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -87,36 +85,21 @@ public class GitHubPullRequestReadClient
     private final RestClient gitHubRestClient;
     private final RestClient graphQlRestClient;
     private final GitHubPaginator paginator;
-    private final Clock clock;
-    private String notificationCredential;
-    private String notificationLastModified;
-    private Instant notificationPollAt = Instant.MIN;
-    private List<AttentionPrRef> notificationRefs = ImmutableList.of();
 
-    @Autowired
     public GitHubPullRequestReadClient(
             RestClient gitHubRestClient,
             @Qualifier("gitHubGraphQLRestClient") RestClient graphQlRestClient)
     {
-        this(gitHubRestClient, graphQlRestClient, Clock.systemUTC());
-    }
-
-    GitHubPullRequestReadClient(RestClient gitHubRestClient, RestClient graphQlRestClient, Clock clock)
-    {
         this.gitHubRestClient = requireNonNull(gitHubRestClient, "gitHubRestClient is null");
         this.graphQlRestClient = requireNonNull(graphQlRestClient, "graphQlRestClient is null");
         this.paginator = new GitHubPaginator(gitHubRestClient);
-        this.clock = requireNonNull(clock, "clock is null");
     }
 
-    private static final int PER_PAGE = 50;
     private static final String REPOS_SEGMENT = "/repos/";
     private static final Pattern ISSUE_REFERENCE = Pattern.compile(
             "https://github\\.com/[^/\\s]+/[^/\\s]+/(?:issues|pull)/\\d+");
     private static final Pattern SHORT_ISSUE_REFERENCE = Pattern.compile(
             "(?<![\\w/\\[])#(\\d+)\\b(?!\\]\\()");
-    private static final Set<String> ATTENTION_REASONS =
-            ImmutableSet.of("review_requested", "mention");
     private static final Set<String> NON_CI_RULES = ImmutableSet.of(
             "creation", "update", "deletion", "required_linear_history", "merge_queue", "required_deployments", "required_signatures", "pull_request", "non_fast_forward",
             "commit_message_pattern", "commit_author_email_pattern", "committer_email_pattern", "branch_name_pattern", "tag_name_pattern",
@@ -556,9 +539,12 @@ public class GitHubPullRequestReadClient
 
     public PrRawDetail fetchPrDetail(String pat, PullRequestRef pr) {
         GitHubPullRequestDetailResponse r = fetchPullRequestDetailResponse(pat, pr);
-        if (r == null) {
-            return null;
-        }
+        return r == null ? null : toPrRawDetail(pat, pr, r);
+    }
+
+    public PrRawDetail toPrRawDetail(String pat, PullRequestRef pr, GitHubPullRequestDetailResponse r)
+    {
+        requireNonNull(r, "response is null");
         List<String> labels =
                 Optional.ofNullable(r.labels()).orElse(ImmutableList.of()).stream()
                         .map(GitHubPullRequestDetailResponse.Label::name)
@@ -622,7 +608,8 @@ public class GitHubPullRequestReadClient
                 reviewerLogins,
                 headSha,
                 headRef,
-                baseRef);
+                baseRef,
+                Optional.ofNullable(r.base()).map(GitHubPullRequestDetailResponse.Base::sha).orElse(null));
     }
 
     private GitHubPullRequestDetailResponse fetchPullRequestDetailResponse(String pat, PullRequestRef pr)
@@ -1570,130 +1557,40 @@ public class GitHubPullRequestReadClient
         requireNonNull(etag, "etag is null");
         RestClient.RequestHeadersSpec<?> request = get(gitHubRestClient, pat, "/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number());
         etag.ifPresent(value -> request.header(HttpHeaders.IF_NONE_MATCH, value));
-        ResponseEntity<GitHubRepoPullRequestItem> response = translating(() -> request
-                .retrieve()
-                .toEntity(GitHubRepoPullRequestItem.class));
+        ResponseEntity<GitHubPullRequestDetailResponse> response = translating(() -> request.retrieve().toEntity(GitHubPullRequestDetailResponse.class));
         Optional<String> responseEtag = Optional.ofNullable(response.getHeaders().getETag()).or(() -> etag);
         if (response.getStatusCode() == HttpStatus.NOT_MODIFIED) {
             return new PullRequestFetch(Optional.empty(), responseEtag);
         }
-        GitHubRepoPullRequestItem item = response.getBody();
+        GitHubPullRequestDetailResponse item = response.getBody();
         checkState(item != null, "Empty response from GitHub for " + fullName + "#" + pr.number());
-        return new PullRequestFetch(Optional.of(toPullRequest(item, fullName)), responseEtag);
+        List<GitHubPullRequestDetailResponse.Label> labels = Optional.ofNullable(item.labels()).orElse(ImmutableList.of());
+        FetchedPullRequest fetched = new FetchedPullRequest(
+                item.id(), fullName, item.number(), item.title(), Optional.ofNullable(item.user()).map(GitHubPullRequestDetailResponse.User::login).orElse(null),
+                item.htmlUrl(), item.createdAt(), item.updatedAt(), OTHER, labels.stream().map(GitHubPullRequestDetailResponse.Label::name).collect(toImmutableList()),
+                labels.stream().filter(label -> label.name() != null && label.color() != null)
+                        .collect(toImmutableMap(GitHubPullRequestDetailResponse.Label::name, GitHubPullRequestDetailResponse.Label::color, (left, right) -> left)),
+                item.draft(), item.state(), item.closedAt(), item.mergedAt(), Optional.ofNullable(item.requestedReviewers()).orElse(ImmutableList.of()).stream()
+                        .map(GitHubPullRequestDetailResponse.RequestedReviewer::login).filter(Objects::nonNull).collect(toImmutableList()),
+                item.mergeable(), item.mergeableState(), Optional.ofNullable(item.head()).map(GitHubPullRequestDetailResponse.Head::ref).orElse(null));
+        return new PullRequestFetch(Optional.of(fetched), responseEtag, Optional.of(item));
     }
 
-    public record PullRequestFetch(Optional<FetchedPullRequest> pullRequest, Optional<String> etag)
+    public record PullRequestFetch(
+            Optional<FetchedPullRequest> pullRequest,
+            Optional<String> etag,
+            Optional<GitHubPullRequestDetailResponse> detailResponse)
     {
         public PullRequestFetch
         {
             requireNonNull(pullRequest, "pullRequest is null");
             requireNonNull(etag, "etag is null");
+            requireNonNull(detailResponse, "detailResponse is null");
         }
-    }
 
-    /**
-     * Pull requests the notifications feed flags for the user's attention — the same signal that
-     * generates the review-request / mention email. Keeps {@code review_requested} (asked to
-     * review, incl. re-requests) and {@code mention} (directly @-mentioned); drops comments,
-     * pushes, CI, and state changes. GitHub's search index occasionally omits a request (observed:
-     * a team review request on an enterprise repo never appeared in {@code
-     * user-review-requested:@me}), so the dashboard uses this to catch what search drops. {@code
-     * all=true} so an item already read but not yet acted on still comes back.
-     */
-    public List<AttentionPrRef> fetchAttentionPrRefs(String pat)
-    {
-        return fetchPrNotificationRefs(pat).stream().filter(AttentionPrRef::attentionRequested).collect(toImmutableList());
-    }
-
-    public synchronized List<AttentionPrRef> fetchPrNotificationRefs(String pat) {
-        requirePat(pat);
-        if (!pat.equals(notificationCredential)) {
-            notificationCredential = pat;
-            notificationLastModified = null;
-            notificationPollAt = Instant.MIN;
-            notificationRefs = ImmutableList.of();
-        }
-        if (clock.instant().isBefore(notificationPollAt)) {
-            return notificationRefs;
-        }
-        // Full refreshes and fast summary polls share GitHub's per-user polling interval.
-        notificationPollAt = clock.instant().plusSeconds(60);
-        RestClient.RequestHeadersSpec<?> request = get(gitHubRestClient, pat, uri ->
-                                uri.path("/notifications")
-                                        .queryParam("participating", "true")
-                                        .queryParam("all", "true")
-                                        .queryParam("per_page", PER_PAGE)
-                                        .build());
-        if (notificationLastModified != null) {
-            request.header(HttpHeaders.IF_MODIFIED_SINCE, notificationLastModified);
-        }
-        ResponseEntity<List<GitHubNotification>> response = translating(() -> request.retrieve()
-                .toEntity(new ParameterizedTypeReference<>() {}));
-        notificationPollAt = clock.instant().plusSeconds(notificationPollSeconds(response.getHeaders()));
-        if (response.getStatusCode() == HttpStatus.NOT_MODIFIED) {
-            return notificationRefs;
-        }
-        List<GitHubNotification> notifications = requireBody(response.getBody(), "GitHub returned no notifications response");
-        notificationLastModified = response.getHeaders().getFirst(HttpHeaders.LAST_MODIFIED);
-        notificationRefs = notifications.stream()
-                .map(GitHubPullRequestReadClient::notificationPrRef)
-                .flatMap(Optional::stream)
-                .collect(toImmutableList());
-        return notificationRefs;
-    }
-
-    private static long notificationPollSeconds(HttpHeaders headers)
-    {
-        String interval = headers.getFirst("X-Poll-Interval");
-        if (interval != null) {
-            try {
-                return Math.max(1, Long.parseLong(interval));
-            }
-            catch (NumberFormatException ignored) {
-                // GitHub normally sends 60; retain that safe default for malformed responses.
-            }
-        }
-        return 60;
-    }
-
-    /**
-     * Notification → PR ref for the dashboard attention backstop: keeps review requests and
-     * direct @-mentions on pull requests, empty for every other reason or a non-PR subject.
-     * subject.url tail is the PR number and repository.full_name is {@code owner/repo}, so {@link
-     * PullRequestRef#parse} handles the split and validation. Package-private for direct unit test.
-     */
-    static Optional<AttentionPrRef> attentionPrRef(GitHubNotification n) {
-        return notificationPrRef(n).filter(AttentionPrRef::attentionRequested);
-    }
-
-    private static Optional<AttentionPrRef> notificationPrRef(GitHubNotification n) {
-        if (n.subject() == null
-                || !"PullRequest".equals(n.subject().type())
-                || n.reason() == null
-                || n.subject().url() == null
-                || n.repository() == null
-                || n.repository().fullName() == null) {
-            return Optional.empty();
-        }
-        String url = n.subject().url();
-        int slash = url.lastIndexOf('/');
-        if (slash < 0 || slash == url.length() - 1) {
-            return Optional.empty();
-        }
-        return PullRequestRef.parse(n.repository().fullName() + "#" + url.substring(slash + 1))
-                .map(ref -> new AttentionPrRef(ref, n.reason(), n.updatedAt()));
-    }
-
-    public record AttentionPrRef(PullRequestRef ref, String reason, Instant updatedAt)
-    {
-        public boolean reviewRequested()
+        public PullRequestFetch(Optional<FetchedPullRequest> pullRequest, Optional<String> etag)
         {
-            return "review_requested".equals(reason);
-        }
-
-        public boolean attentionRequested()
-        {
-            return ATTENTION_REASONS.contains(reason);
+            this(pullRequest, etag, Optional.empty());
         }
     }
 
@@ -1746,14 +1643,6 @@ public class GitHubPullRequestReadClient
     }
 
     // ── GraphQL: review-thread resolution ────────────────────────────────
-
-    record GitHubNotification(String reason, Subject subject, NotificationRepo repository, @JsonProperty("updated_at") Instant updatedAt) {
-        @JsonIgnoreProperties(ignoreUnknown = true)
-        record Subject(String url, String type) {}
-
-        @JsonIgnoreProperties(ignoreUnknown = true)
-        record NotificationRepo(@JsonProperty("full_name") String fullName) {}
-    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record GitHubAssignableUser(

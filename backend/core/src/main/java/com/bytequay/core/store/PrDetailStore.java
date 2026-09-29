@@ -16,6 +16,7 @@ package com.bytequay.core.store;
 import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrCommitLine;
+import com.bytequay.core.domain.PrDetailFreshness;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
@@ -31,6 +32,14 @@ public interface PrDetailStore
     Optional<Instant> findSyncedAt(String repo, int number);
 
     Optional<StoredPrDetail> find(long prId);
+
+    PrDetailFreshness findFreshness(long prId);
+
+    /** Saves only metadata and its successful validation time. */
+    void saveMetadata(long prId, StoredPrDetail detail);
+
+    /** Reconciles discussion sources without marking cached checks fresh. */
+    void saveDiscussion(long prId, StoredPrDetail detail, Instant sourceUpdatedAt);
 
     /** Reads only cached author avatar URLs; missing details or avatars have no entry. */
     Map<Long, String> findAuthorAvatarUrls(Set<Long> prIds);
@@ -51,6 +60,9 @@ public interface PrDetailStore
     Optional<String> findCommitStatusesEtag(long prId);
 
     void save(long prId, StoredPrDetail detail);
+
+    /** Applies locally known changes without claiming any remote group was validated. */
+    void saveCached(long prId, StoredPrDetail detail);
 
     void saveStatus(long prId, StoredPrDetail detail);
 

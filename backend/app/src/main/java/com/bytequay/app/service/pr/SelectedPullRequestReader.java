@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.pr;
 
+import com.bytequay.core.domain.PrDetailFreshness;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.StoredPrDetail;
@@ -24,12 +25,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Locale;
 import java.util.Optional;
 
-import static com.bytequay.app.service.pr.PullRequestService.RefreshMode.FULL;
-import static com.bytequay.app.service.pr.PullRequestService.RefreshMode.NONE;
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -56,7 +56,7 @@ public class SelectedPullRequestReader
     /**
      * Returns cached data when the requested section is complete and existing freshness rules permit it.
      * Otherwise performs at most one selected refresh, then projects the persisted snapshot. Missing
-     * sections and known row/detail lag bypass the PR ETag so a 304 cannot preserve that missing data.
+     * sections and known source changes refresh their own group even when PR metadata returns a 304.
      *
      * @param repo owner/repository name
      * @param number positive pull-request number
@@ -72,14 +72,12 @@ public class SelectedPullRequestReader
         String repository = parseRef(repo, number).repoFullName().toLowerCase(Locale.ROOT);
         requireNonNull(section, "section is null");
         Optional<Cached> cached = cached(repository, number);
-        if (cached.isPresent() && mode(cached.orElseThrow()) == NONE && !incomplete(cached.orElseThrow().stored(), section)) {
+        if (cached.isPresent() && fresh(cached.orElseThrow(), section) && !incomplete(cached.orElseThrow().stored(), section)) {
             return result(cached.orElseThrow(), section, false, false);
         }
-        boolean all = cached.isEmpty() || incomplete(cached.orElseThrow().stored(), section)
-                || mode(cached.orElseThrow()) == FULL;
         try {
-            if (all) {
-                refresh.refreshAllDetail(repository, number);
+            if (section == Section.CHECKS) {
+                refresh.refreshChecks(repository, number);
             }
             else {
                 refresh.refreshDetail(repository, number);
@@ -102,13 +100,23 @@ public class SelectedPullRequestReader
         Optional<PullRequest> row = pullRequests.findStored(repo, number);
         row.ifPresent(value -> checkArgument(value.repo().equalsIgnoreCase(repo) && value.number() == number, "Stored PR identity does not match selected request"));
         return row.flatMap(value -> details.find(value.id())
-                .map(stored -> new Cached(value, stored, details.findSyncedAt(repo, number))));
+                .map(stored -> new Cached(value, stored, details.findSyncedAt(repo, number),
+                        Optional.ofNullable(details.findFreshness(value.id())).orElseGet(PrDetailFreshness::unknown))));
     }
 
-    private PullRequestService.RefreshMode mode(Cached cached)
+    private boolean fresh(Cached cached, Section section)
     {
-        return PullRequestService.refreshMode(cached.row(), cached.row().updatedAt(), Optional.ofNullable(cached.stored().raw().updatedAt()),
-                cached.cacheUpdatedAt(), Instant.now(clock));
+        PrDetailFreshness freshness = cached.freshness();
+        Optional<Instant> validatedAt = switch (section) {
+            case PR -> freshness.metadataAt();
+            case TIMELINE -> freshness.discussionAt();
+            case CHECKS -> freshness.checksAt();
+        };
+        Duration maxAge = section == Section.CHECKS ? Duration.ofSeconds(30) : Duration.ofSeconds(60);
+        boolean sourceCurrent = section == Section.TIMELINE
+                ? freshness.discussionSourceUpdatedAt().filter(at -> !at.isBefore(pullRequests.discussionSourceUpdatedAt(cached.row()))).isPresent()
+                : cached.stored().raw().updatedAt() != null && !cached.stored().raw().updatedAt().isBefore(cached.row().updatedAt());
+        return sourceCurrent && validatedAt.filter(at -> at.isAfter(Instant.now(clock).minus(maxAge))).isPresent();
     }
 
     private Read result(Cached cached, Section section, boolean attempted, boolean failed)
@@ -117,7 +125,7 @@ public class SelectedPullRequestReader
         StoredPrDetail stored = cached.stored();
         Read read = new Read(PullRequestDetailMapper.toPullRequestDetail(row.id(), row.repo(), row.number(), stored, stored.viewerCanWrite()),
                 Optional.of(row.updatedAt()), cached.cacheUpdatedAt(), Optional.ofNullable(stored.raw().headSha()).filter(head -> !head.isBlank()), attempted, failed,
-                failed || mode(cached) != NONE, incomplete(stored, section));
+                failed || !fresh(cached, section), incomplete(stored, section));
         log.debug("Selected PR {}#{} {}: refreshAttempted={}, refreshFailed={}, stale={}, incomplete={}",
                 row.repo(), row.number(), section, read.refreshAttempted(), read.refreshFailed(), read.stale(), read.incomplete());
         return read;
@@ -170,5 +178,5 @@ public class SelectedPullRequestReader
         }
     }
 
-    private record Cached(PullRequest row, StoredPrDetail stored, Optional<Instant> cacheUpdatedAt) {}
+    private record Cached(PullRequest row, StoredPrDetail stored, Optional<Instant> cacheUpdatedAt, PrDetailFreshness freshness) {}
 }

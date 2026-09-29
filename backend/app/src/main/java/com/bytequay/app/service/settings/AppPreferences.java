@@ -19,8 +19,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * The app-wide preferences the settings window reads and writes as one value:
  * how long finished task runtime and the local Recent record are kept, how
- * often background GitHub refresh runs, and which appearance the window
- * follows.
+ * many recent PR details are warmed, and which appearance the window follows.
  *
  * <p>The bounds are what the pickers offer. They exist so a hand-edited
  * settings row cannot stop the retention jobs or hammer GitHub, not to express
@@ -29,16 +28,16 @@ import static java.util.Objects.requireNonNull;
 public record AppPreferences(
         int taskRetentionDays,
         int recentRetentionDays,
-        int refreshIntervalMinutes,
-        AppTheme theme)
+        AppTheme theme,
+        int prWarmCount)
 {
-    public static final AppPreferences DEFAULT = new AppPreferences(7, 14, 6, AppTheme.SYSTEM);
+    public static final AppPreferences DEFAULT = new AppPreferences(7, 14, AppTheme.SYSTEM, 30);
 
     public AppPreferences
     {
         checkArgument(taskRetentionDays >= 1 && taskRetentionDays <= 90, "taskRetentionDays is out of range");
         checkArgument(recentRetentionDays >= 1 && recentRetentionDays <= 90, "recentRetentionDays is out of range");
-        checkArgument(refreshIntervalMinutes >= 1 && refreshIntervalMinutes <= 240, "refreshIntervalMinutes is out of range");
         requireNonNull(theme, "theme is null");
+        checkArgument(prWarmCount == 10 || prWarmCount == 30, "prWarmCount must be 10 or 30");
     }
 }

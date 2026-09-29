@@ -13,7 +13,10 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.repository.github.GitHubNotificationClient;
+import com.bytequay.app.repository.github.GitHubRateLimitInterceptor;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.credentials.GitHubTokenSource;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatusCode;
@@ -25,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
+import java.util.Optional;
 
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static java.util.Objects.requireNonNull;
@@ -33,10 +37,14 @@ import static java.util.Objects.requireNonNull;
 public class CredentialController
 {
     private final CredentialService credentialService;
+    private final GitHubNotificationClient notifications;
+    private final GitHubRateLimitInterceptor rateLimit;
 
-    public CredentialController(CredentialService credentialService)
+    public CredentialController(CredentialService credentialService, GitHubNotificationClient notifications, GitHubRateLimitInterceptor rateLimit)
     {
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
+        this.notifications = requireNonNull(notifications, "notifications is null");
+        this.rateLimit = requireNonNull(rateLimit, "rateLimit is null");
     }
 
     public record TokenRequest(String value) {}
@@ -62,6 +70,21 @@ public class CredentialController
                 credentialService.maskedGitHubToken().orElse(null),
                 credentialService.gitHubTokenSource());
     }
+
+    @GetMapping("/api/auth/github/sync-status")
+    public SyncStatus syncStatus()
+    {
+        Optional<GitHubCredential> credential = credentialService.cachedCredential();
+        Optional<String> login = credential.map(value -> value.profile().login());
+        return new SyncStatus(credentialService.isGitHubAccountConfigured(), login,
+                login.flatMap(notifications::failure), credential.map(value -> rateLimit.snapshot(value.token())));
+    }
+
+    public record SyncStatus(
+            boolean configured,
+            Optional<String> login,
+            Optional<String> notificationDegradedReason,
+            Optional<GitHubRateLimitInterceptor.Snapshot> usage) {}
 
     /** Full stored token for main-process clipboard copy; the renderer never displays it. */
     @GetMapping("/api/auth/github/token/value")

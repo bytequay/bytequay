@@ -21,8 +21,13 @@ import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.team.TeamActivitySnapshot.Statistics;
 import com.bytequay.app.team.TeamCircle.Avatar;
+import com.bytequay.core.domain.PrDetailFreshness;
+import com.bytequay.core.domain.PrRawDetail;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.TeamActivityEvent;
 import com.bytequay.core.domain.UserProfile;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PullRequestStore;
@@ -34,6 +39,8 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -44,10 +51,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.BiFunction;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -232,6 +241,44 @@ class TestTeamActivityService
         verify(fixture.settings(), never()).put(anyString(), anyString());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"fresh", "expired", "new-source", "incomplete", "stale-metadata"})
+    void sharedDetailReuseRequiresCompleteCurrentDiscussionAndMetadata(String freshness)
+    {
+        Fixture fixture = fixture();
+        when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(
+                new TeamCircle("all", "All", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of(ALICE)))));
+        RepoRef repository = RepoRef.of("owner", "repo");
+        Instant createdAt = Instant.now().minusSeconds(120);
+        Workspace workspace = new Workspace("workspace", "Repository", 1, repository, Optional.empty(), Optional.empty(), 1, repository,
+                Workspace.Topology.DIRECT, "main", "https://github.com/owner/repo.git", Optional.empty(), Optional.empty(), "/tmp/repo",
+                Optional.empty(), Optional.empty(), 0, createdAt, createdAt);
+        when(fixture.workspaces().findAll()).thenReturn(ImmutableList.of(workspace));
+        Observation empty = new Observation(ImmutableList.of(), ImmutableList.of(), false);
+        when(fixture.github().publicEvents(anyString(), anyString(), any())).thenReturn(empty);
+        Instant sourceAt = Instant.now().minusSeconds(60);
+        Instant checkedAt = freshness.equals("expired") ? sourceAt.minusSeconds(600) : Instant.now();
+        Instant coveredAt = freshness.equals("new-source") ? sourceAt.minusSeconds(1) : sourceAt;
+        when(fixture.pulls().findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(7L));
+        when(fixture.details().findFreshness(7L)).thenReturn(new PrDetailFreshness(Optional.of(checkedAt), Optional.of(checkedAt), Optional.empty(), Optional.of(coveredAt)));
+        Instant updatedAt = freshness.equals("stale-metadata") ? sourceAt.minusSeconds(1) : sourceAt;
+        PrRawDetail raw = new PrRawDetail("PR", "https://github.com/owner/repo/pull/7", "open", "alice", null,
+                createdAt, updatedAt, null, "", ImmutableList.of(), ImmutableMap.of(), ImmutableList.of(), null, false, true, "clean",
+                1, 0, 1, 0, ImmutableList.of(), "head", "feature", "main");
+        StoredPrDetail cached = new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                freshness.equals("incomplete") ? ImmutableList.of(StoredPrDetail.REVIEWS) : ImmutableList.of());
+        when(fixture.details().find(7L)).thenReturn(Optional.of(cached));
+        when(fixture.github().repository(eq("token"), eq("owner/repo"), any(), anyInt(), any())).thenAnswer(invocation -> {
+            BiFunction<Integer, Instant, Optional<StoredPrDetail>> lookup = invocation.getArgument(4);
+            assertThat(lookup.apply(7, sourceAt)).isEqualTo(freshness.equals("fresh") ? Optional.of(cached) : Optional.empty());
+            return empty;
+        });
+
+        fixture.service().collect();
+
+        verify(fixture.github()).repository(eq("token"), eq("owner/repo"), any(), anyInt(), any());
+    }
+
     @Test
     void automaticCollectionRespectsSharedQuietHours()
     {
@@ -267,9 +314,11 @@ class TestTeamActivityService
         GitHubCredential credential = new GitHubCredential("token", new UserProfile("viewer", "", "", "", 0, 0, 0, "", "", "", ""));
         when(credentials.resolveGitHubCredential()).thenReturn(credential);
         GitHubTeamActivityClient github = mock(GitHubTeamActivityClient.class);
+        PullRequestStore pulls = mock(PullRequestStore.class);
+        PrDetailStore details = mock(PrDetailStore.class);
         TeamActivityService service = new TeamActivityService(teams, credentials, workspaces, github, store, settings,
-                mapper(), mock(PullRequestStore.class), mock(PrDetailStore.class));
-        return new Fixture(teams, store, service, credentials, github, settings, workspaces);
+                mapper(), pulls, details);
+        return new Fixture(teams, store, service, credentials, github, settings, workspaces, pulls, details);
     }
 
     private static TeamActivityEvent event(String id, String kind, long actor, long author, int number, String repository, List<Long> direct)
@@ -279,5 +328,5 @@ class TestTeamActivityService
     }
 
     private record Fixture(TeamService teams, TeamActivityStore store, TeamActivityService service, CredentialService credentials,
-            GitHubTeamActivityClient github, AppSettingsStore settings, WorkspaceStore workspaces) {}
+            GitHubTeamActivityClient github, AppSettingsStore settings, WorkspaceStore workspaces, PullRequestStore pulls, PrDetailStore details) {}
 }

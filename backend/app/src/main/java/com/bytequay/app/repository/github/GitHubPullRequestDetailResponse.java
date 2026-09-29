@@ -21,6 +21,9 @@ import java.util.List;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record GitHubPullRequestDetailResponse(
+        long id,
+        int number,
+        @JsonProperty("closed_at") Instant closedAt,
         String title,
         @JsonProperty("html_url") String htmlUrl,
         String state,

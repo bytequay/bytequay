@@ -173,24 +173,75 @@ public class GitHubRepoClient
                 .filter(value -> value.id() > 0 && value.number() > 0)
                 .filter(value -> value.title() != null && !value.title().isBlank())
                 .filter(value -> value.createdAt() != null && value.updatedAt() != null)
-                .map(value -> new RepositoryIssue(
-                        value.id(),
-                        value.number(),
-                        value.title(),
-                        Optional.ofNullable(value.body()).orElse(""),
-                        Optional.ofNullable(value.user()).map(IssueUser::login).orElse("unknown"),
-                        Optional.ofNullable(value.user()).map(IssueUser::avatarUrl).orElse(""),
-                        Optional.ofNullable(value.htmlUrl()).orElse(""),
-                        issueLabels(value),
-                        Optional.ofNullable(value.assignees()).orElse(ImmutableList.of()).stream()
-                                .map(IssueUser::login)
-                                .filter(Objects::nonNull)
-                                .collect(toImmutableList()),
-                        Math.max(0, value.comments()),
-                        value.createdAt(),
-                        value.updatedAt()))
+                .map(GitHubRepoClient::issueCard)
                 .collect(toImmutableList());
         return new IssuePage(issues, response.size() == GitHubPaginator.PAGE_SIZE);
+    }
+
+    /** One card read for a notification; closed issues are removed from the open projection. */
+    public Optional<RepositoryIssue> fetchIssue(String pat, RepoRef repo, int issueNumber)
+    {
+        checkArgument(issueNumber > 0, "issueNumber must be positive");
+        return translating(() -> {
+            IssueResponse issue = requireBody(get(gitHubRestClient, pat, "/repos/{owner}/{repo}/issues/{number}", repo.owner(), repo.repo(), issueNumber)
+                    .retrieve().body(IssueResponse.class), "Empty issue response from GitHub");
+            requireIssueState(issue);
+            if (issue.pullRequest() != null || issue.number() != issueNumber) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Unexpected issue response from GitHub");
+            }
+            return "closed".equals(issue.state()) ? Optional.empty() : Optional.of(issueCard(issue));
+        });
+    }
+
+    public ChangedIssuePage fetchChangedIssuesPage(String pat, RepoRef repo, Instant since, int page)
+    {
+        checkArgument(page > 0, "page must be positive");
+        requireNonNull(since, "since is null");
+        return translating(() -> {
+            List<IssueResponse> response = requireBody(get(gitHubRestClient, pat, builder -> builder.path("/repos/{owner}/{repo}/issues")
+                    .queryParam("state", "all").queryParam("sort", "updated").queryParam("direction", "asc")
+                    .queryParam("since", since.toString()).queryParam("per_page", GitHubPaginator.PAGE_SIZE).queryParam("page", page)
+                    .build(repo.owner(), repo.repo())).retrieve().body(new ParameterizedTypeReference<List<IssueResponse>>() {}),
+                    "Empty changed issues response from GitHub");
+            ImmutableList.Builder<RepositoryIssue> open = ImmutableList.builder();
+            ImmutableList.Builder<Integer> closed = ImmutableList.builder();
+            for (IssueResponse issue : response) {
+                if (issue.pullRequest() != null) {
+                    continue;
+                }
+                requireIssueState(issue);
+                if ("closed".equals(issue.state())) {
+                    closed.add(issue.number());
+                }
+                else {
+                    open.add(issueCard(issue));
+                }
+            }
+            return new ChangedIssuePage(open.build(), closed.build(), response.size() == GitHubPaginator.PAGE_SIZE);
+        });
+    }
+
+    private static void requireIssueState(IssueResponse issue)
+    {
+        if (issue.number() <= 0 || !("open".equals(issue.state()) || "closed".equals(issue.state()))) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Incomplete issue response from GitHub");
+        }
+    }
+
+    private static RepositoryIssue issueCard(IssueResponse value)
+    {
+        if (value.id() <= 0 || value.number() <= 0 || value.title() == null || value.title().isBlank()
+                || value.createdAt() == null || value.updatedAt() == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Incomplete issue response from GitHub");
+        }
+        return new RepositoryIssue(
+                value.id(), value.number(), value.title(), Optional.ofNullable(value.body()).orElse(""),
+                Optional.ofNullable(value.user()).map(IssueUser::login).orElse("unknown"),
+                Optional.ofNullable(value.user()).map(IssueUser::avatarUrl).orElse(""),
+                Optional.ofNullable(value.htmlUrl()).orElse(""), issueLabels(value),
+                Optional.ofNullable(value.assignees()).orElse(ImmutableList.of()).stream()
+                        .map(IssueUser::login).filter(Objects::nonNull).collect(toImmutableList()),
+                Math.max(0, value.comments()), value.createdAt(), value.updatedAt());
     }
 
     public GitHubIssueSource fetchOpenIssueSource(String pat, RepoRef repo, int issueNumber)
@@ -325,6 +376,15 @@ public class GitHubRepoClient
         public IssuePage
         {
             issues = ImmutableList.copyOf(requireNonNull(issues, "issues is null"));
+        }
+    }
+
+    public record ChangedIssuePage(List<RepositoryIssue> openIssues, List<Integer> closedNumbers, boolean hasNext)
+    {
+        public ChangedIssuePage
+        {
+            openIssues = ImmutableList.copyOf(requireNonNull(openIssues, "openIssues is null"));
+            closedNumbers = ImmutableList.copyOf(requireNonNull(closedNumbers, "closedNumbers is null"));
         }
     }
 

@@ -1584,8 +1584,9 @@ function registerIpc(): void {
     url.searchParams.set('branch', branch);
     return backendJson(url);
   });
-  ipcMain.handle('prs:detail:refresh:by-ref', (_event, repo: string, number: number) => {
+  ipcMain.handle('prs:detail:refresh:by-ref', (_event, repo: string, number: number, checksOnly?: boolean) => {
     const url = prUrl('/prs/detail/refresh', repo, number);
+    if (checksOnly === true) url.searchParams.set('checksOnly', 'true');
     return backendJson(url, { method: 'POST' });
   });
   ipcMain.handle('prs:detail:refresh-all:by-ref', (_event, repo: string, number: number) => {

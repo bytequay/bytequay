@@ -59,7 +59,7 @@ export async function runMainScreen(keepMounted = false): Promise<string> {
   let poll: (() => void) | null = null;
   const originalTimeout = window.setTimeout;
   window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
-    if (delay === 5_000 && typeof handler === 'function') {
+    if (delay === 60_000 && typeof handler === 'function') {
       poll = () => handler(...args);
       return 1_000_000;
     }
@@ -665,7 +665,17 @@ export async function runListSearch(): Promise<string> {
     await type('');
     await until(() => titles().length === 1);
     assert(titles().join('|') === 'Authored by bob', 'Clearing the search must restore the selected filter');
-    return 'Search filters the open filter\'s loaded rows by number, author, and title without reloading the list';
+    const broadcast = () => window.dispatchEvent(new CustomEvent('bytequay:pr-attention-updated', {
+      detail: page.map(detail => remotePullRequest(detail, 'bob')),
+    }));
+    broadcast(); await settle();
+    page.push(detailFor(32000, 'Newly discovered', 'bob', 'open'));
+    broadcast(); await until(() => titles().includes('Newly discovered'));
+    assert(titles().includes('Newly discovered'), 'A newly discovered PR must enter the current list without reopening it');
+    const afterDiscovery = listReads;
+    broadcast(); await settle();
+    assert(listReads === afterDiscovery, 'Unchanged attention snapshots must not repeatedly reload the list');
+    return 'Search filters loaded rows locally, and newly discovered PRs enter the visible list';
   }
   finally {
     flushSync(() => root.unmount());

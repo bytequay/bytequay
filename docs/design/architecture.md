@@ -434,11 +434,15 @@ Display and refresh are separate paths:
    record. Repeated profile, PR-sync, and CI-autofix reads reuse that record; changing the resolved
    token invalidates it and resolves `/user` once for the new credential.
 4. The PR page and task panel share one detail hook addressed by repository and PR number.
-   Both render persisted detail first, then start a non-overlapping five-second conditional refresh
-   loop while visible. An unchanged PR ETag refreshes only CI and
-   mergeability and returns a status-only response; a changed PR ETag rebuilds and returns the full
-   UI detail snapshot. Check runs and combined commit statuses carry their own stored ETags. An
-   exhausted GitHub rate limit pauses the loop until GitHub's reported reset time.
+   Both render persisted detail first. While visible, pending checks refresh every 30 seconds;
+   metadata and discussion refresh every 60 seconds. A changed local attention snapshot triggers
+   a refresh immediately. Hidden surfaces stop foreground polling. Requests never overlap, and
+   a rate limit pauses polling until the reported retry time. These intervals contact GitHub;
+   Electron's independent five-second attention poll reads local SQLite only.
+   Metadata, discussion/reviews, and checks have separate persisted freshness timestamps. A PR
+   ETag validates only metadata; a new notification or summary timeline timestamp invalidates
+   discussion freshness independently. Check runs and combined commit statuses keep their own
+   ETags. Refreshes for one PR share in-flight work across open views and background warming.
 5. The user-triggered detail refresh bypasses the PR ETag, rebuilds the complete local detail and
    default diff snapshots, and returns the full detail response. Both surfaces share a diff hook
    that reloads cached files and commits after refresh and fetches the exact parent-to-head
@@ -454,44 +458,62 @@ Every discovered list row is persisted before optional enrichment; the detail wa
 limit discovery or Home eligibility. Incomplete searches and GitHub's 1,000-result search ceiling
 surface an error while retaining already saved pages. Missing rows never complete a pruning sweep.
 
-A dedicated summary job checks the newest 100 rows from each of the four personal search queries
-every 60 seconds without fetching histories, checks, or diffs. Its four search requests per tick
-leave room in GitHub's search quota for the fully paginated scheduled discovery. GitHub's notification
-feed supplements search and respects its conditional responses and server-specified polling interval.
-The summary job has its own scheduler.
-Older responses cannot overwrite newer stored summaries.
+A dedicated attention scheduler polls the authenticated notification inbox approximately every
+60 seconds, honoring `X-Poll-Interval` and `Last-Modified`/`If-Modified-Since`. The stable paginated
+query includes read and unread threads and both participating and subscribed activity. Per-account
+checkpoints and thread versions live in existing SQLite settings. A pass advances its checkpoint only
+after ingestion succeeds; failed passes retain the prior checkpoint and validator while persisting
+successful thread versions, so retries skip completed ingestion even after restart. Notifications discover
+PRs directly and update issue cards in watched repositories without fetching full histories.
+A latest-comment URL can supply one bounded card preview. Deleted comments do not discard the card.
 
-The configured background interval, six minutes by default, refreshes compact card facts in
-GraphQL batches of at most 30 PRs: CI rollup, mergeability, review state, latest head and viewer
-review, counts, and activity metadata. These update the existing PR projection and notification
-baseline without creating or marking a full detail snapshot fresh. Monitoring establishes the same
-summary baseline before its timestamp is saved. A handled review with newer activity may additionally
-read author-reply metadata to decide whether it needs review again; successful checks are cached by
-activity version. Failed enrichment batches retain the successfully discovered list rows and other
-successful batches; they do not prevent the warm-detail pass.
+Every two minutes the same scheduler paginates recent authored, review-requested, reviewed, involved,
+and watched-repository PR searches. Each query resumes its own completed checkpoint with a five-minute
+overlap; the first incremental pass covers the preceding hour. The independent thirty-minute broad
+scan reconciles older rows and notification/search gaps. The inbox is not a complete repository event
+stream. Notification permission failure leaves discovery active. Older responses cannot overwrite
+newer stored cards, and the warm limit never limits discovery or Home eligibility.
 
-The newest 30 discovered PRs per repository keep full histories, comments, reactions, checks, and
-default diffs warm. PRs warm sequentially through the existing conditional detail refresh and stored
-ETags, skipping complete, recently synchronized snapshots that match the source update. Partial
-snapshots retry fully, and failed diffs leave the PR ETag empty so a status-only response cannot
-prevent their recovery. Watched repositories
-own their warm allowance so personal discovery does not add another 30. Older monitored and notified
-PRs retain summary coverage; opening any older PR or using it in an active task refreshes its details.
-Issue background refresh already reads list pages only; its complete open-issue projection remains
-unchanged so omitted issues are not falsely treated as closed.
+Changed cards, pending checks, and explicitly monitored PRs receive compact GraphQL enrichment in
+batches of at most five PRs: CI rollup, mergeability, review state, latest head and viewer review,
+counts, timeline timestamp, and one latest activity preview. Settled cards reuse a ten-minute summary
+cache; changed source timestamps bypass it and pending checks are checked at most once a minute.
+These updates never mark full details fresh. Each successful batch is persisted immediately; later
+failures retain earlier results. Failed batches wait for another pass, and authentication, permission,
+or rate-limit rejection stops remaining batches. A handled review may additionally read author-reply
+metadata; the result is cached by activity version.
+
+A separate ten-minute pass keeps full details warm for the newest 30 PRs per repository, configurable
+to 10 in GitHub settings. Canonical repository names share one allowance across personal and workspace
+rows. It refreshes sequentially through the same per-PR path used by an open view, skipping fresh
+resource groups. Older monitored and notified PRs retain card coverage, and opening any older PR
+refreshes its details immediately when stale. Full default diffs are bound to base/head commit SHAs;
+unchanged coordinates reuse cached patches and commits. Missing or failed diffs retry independently
+without invalidating otherwise fresh metadata or discussion.
+
+Watched issue cards also use two-minute incremental, all-state scans with per-account/repository
+checkpoints and overlap. Open issues are saved and closed ones removed from the open projection;
+only the independent thirty-minute complete open scan prunes omissions. No issue timeline is fetched
+for background card discovery.
+
+REST and GraphQL share bounded HTTP concurrency and a secondary-limit cooldown. Primary core,
+search, and GraphQL budgets stay separate. The transport honors `Retry-After` and reset headers and
+recognizes GraphQL errors inside HTTP 200 responses. Endpoint/status request counters, elapsed time,
+and quota headers remain available in the shared interceptor's diagnostic snapshot.
+`GET /api/auth/github/sync-status` exposes this in-memory account snapshot and notification degraded reason without CLI or GitHub requests.
 
 Dashboard refresh requests for the same GitHub credential join an in-flight dashboard refresh and
-reuse a successful dashboard snapshot for six minutes after it completes. Scheduled card refreshes
-already enforce their interval and bypass this cache, avoiding a skipped six-minute cycle. A credential change waits
+reuse a successful dashboard snapshot for six minutes after it completes. Scheduled reconciliation
+already enforces its thirty-minute interval and bypasses this cache. A credential change waits
 for older in-flight work and then starts a new scan. This keeps a manual refresh from queuing behind
 scheduled repository work and then repeating the same GitHub discovery scan. The frontend keeps the
 persisted list visible while a refresh is in progress, reloads the current search when it completes,
 and reports sync failures in the list without replacing cached rows. The pull-request toolbar reuses
 the existing dashboard and repository list scans, running the repository scan once for each currently
-monitored repository. It refreshes discovered rows and their bounded warm-detail set. The global list
+monitored repository. It refreshes discovered rows; full detail warming remains independent. The global list
 combines personalized dashboard rows with current workspace projections.
 
-Default PR diff files and commit metadata refresh with changed PR detail. Commit-range diffs and
+Default PR diff files and commit metadata refresh when their base/head coordinates change or the cache is missing. Commit-range diffs and
 full file bodies refresh only after the user requests that range or expands that file, and are
 persisted before they are displayed.
 
@@ -512,7 +534,7 @@ Subsequent changes enter Needs attention. Stored activity timestamps include
 check changes that do not advance GitHub's PR update timestamp.
 
 Attention rows display the latest known GitHub action, its actor, and its own event timestamp.
-The local timeline supplies this summary in one batch read; display never fetches GitHub or loads
+Stored card previews and local timelines supply this summary in batch reads; display never fetches GitHub or loads
 full PR details per row. Local workflow events and subscription bookkeeping are excluded. When
 GitHub's PR update timestamp is newer than the known timeline action, the row says `Updated`
 without attributing it to a person. Cards initially sort by their newest source update or event timestamp;

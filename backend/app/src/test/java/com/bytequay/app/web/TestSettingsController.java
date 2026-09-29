@@ -101,7 +101,7 @@ class TestSettingsController
             throws Exception
     {
         when(settings.preferences()).thenReturn(AppPreferences.DEFAULT);
-        AppPreferences saved = new AppPreferences(30, 21, 15, AppTheme.LIGHT);
+        AppPreferences saved = new AppPreferences(30, 21, AppTheme.LIGHT, 30);
         when(settings.savePreferences(saved)).thenReturn(saved);
         MockMvc mvc = mvc();
 
@@ -109,10 +109,11 @@ class TestSettingsController
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.taskRetentionDays").value(7))
                 .andExpect(jsonPath("$.recentRetentionDays").value(14))
-                .andExpect(jsonPath("$.refreshIntervalMinutes").value(6))
-                .andExpect(jsonPath("$.theme").value("SYSTEM"));
+                .andExpect(jsonPath("$.refreshIntervalMinutes").doesNotExist())
+                .andExpect(jsonPath("$.theme").value("SYSTEM"))
+                .andExpect(jsonPath("$.prWarmCount").value(30));
         mvc.perform(put("/api/settings/app").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"taskRetentionDays\":30,\"recentRetentionDays\":21,\"refreshIntervalMinutes\":15,\"theme\":\"LIGHT\"}"))
+                        .content("{\"taskRetentionDays\":30,\"recentRetentionDays\":21,\"theme\":\"LIGHT\",\"prWarmCount\":30}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.taskRetentionDays").value(30))
                 .andExpect(jsonPath("$.theme").value("LIGHT"));
@@ -130,7 +131,7 @@ class TestSettingsController
                 .build();
 
         mvc.perform(put("/api/settings/app").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"taskRetentionDays\":0,\"recentRetentionDays\":14,\"refreshIntervalMinutes\":6,\"theme\":\"SYSTEM\"}"))
+                        .content("{\"taskRetentionDays\":0,\"recentRetentionDays\":14,\"theme\":\"SYSTEM\",\"prWarmCount\":30}"))
                 .andExpect(status().isBadRequest());
 
         verify(settings, org.mockito.Mockito.never()).savePreferences(any());

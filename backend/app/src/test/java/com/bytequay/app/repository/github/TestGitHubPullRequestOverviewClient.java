@@ -32,7 +32,6 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -42,8 +41,6 @@ import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist;
@@ -54,61 +51,6 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 class TestGitHubPullRequestOverviewClient
 {
     private static final PullRequestRef PULL_REQUEST = PullRequestRef.of("owner", "repo", 42);
-
-    @Test
-    void notificationPollingSharesCachedRefsAndHonorsConditionalServerIntervals()
-    {
-        Clock clock = mock(Clock.class);
-        Instant start = Instant.parse("2026-09-28T00:00:00Z");
-        when(clock.instant()).thenReturn(start);
-        Fixture fixture = fixture(clock);
-        String url = "https://api.github.test/notifications?participating=true&all=true&per_page=50";
-        String modified = "Mon, 28 Sep 2026 00:00:00 GMT";
-        String body = """
-                [{"reason":"review_requested","updated_at":"2026-09-28T00:00:00Z",
-                  "subject":{"type":"PullRequest","url":"https://api.github.com/repos/owner/repo/pulls/42"},
-                  "repository":{"full_name":"owner/repo"}},
-                 {"reason":"comment","updated_at":"2026-09-28T00:00:00Z",
-                  "subject":{"type":"PullRequest","url":"https://api.github.com/repos/owner/repo/pulls/43"},
-                  "repository":{"full_name":"owner/repo"}}]
-                """;
-        fixture.api().expect(requestTo(url)).andExpect(headerDoesNotExist(HttpHeaders.IF_MODIFIED_SINCE))
-                .andRespond(withSuccess(body, MediaType.APPLICATION_JSON).header(HttpHeaders.LAST_MODIFIED, modified).header("X-Poll-Interval", "90"));
-        fixture.api().expect(requestTo(url)).andExpect(header(HttpHeaders.IF_MODIFIED_SINCE, modified))
-                .andRespond(withStatus(HttpStatus.NOT_MODIFIED).header("X-Poll-Interval", "120"));
-        fixture.api().expect(requestTo(url)).andExpect(header(HttpHeaders.IF_MODIFIED_SINCE, modified))
-                .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
-
-        var first = fixture.client().fetchAttentionPrRefs("pat");
-        assertThat(first).hasSize(1);
-        assertThat(fixture.client().fetchPrNotificationRefs("pat")).hasSize(2);
-        assertThat(first.getFirst().updatedAt()).isEqualTo(start);
-        when(clock.instant()).thenReturn(start.plusSeconds(89));
-        assertThat(fixture.client().fetchAttentionPrRefs("pat")).isEqualTo(first);
-        when(clock.instant()).thenReturn(start.plusSeconds(90));
-        assertThat(fixture.client().fetchAttentionPrRefs("pat")).isEqualTo(first);
-        when(clock.instant()).thenReturn(start.plusSeconds(209));
-        assertThat(fixture.client().fetchAttentionPrRefs("pat")).isEqualTo(first);
-        when(clock.instant()).thenReturn(start.plusSeconds(210));
-        assertThat(fixture.client().fetchAttentionPrRefs("pat")).isEmpty();
-        fixture.verify();
-    }
-
-    @Test
-    void notificationPollingClearsConditionalStateWhenCredentialsChange()
-    {
-        Fixture fixture = fixture();
-        String url = "https://api.github.test/notifications?participating=true&all=true&per_page=50";
-        fixture.api().expect(requestTo(url))
-                .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON).header(HttpHeaders.LAST_MODIFIED, "Mon, 28 Sep 2026 00:00:00 GMT"));
-        fixture.api().expect(requestTo(url)).andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer other-pat"))
-                .andExpect(headerDoesNotExist(HttpHeaders.IF_MODIFIED_SINCE))
-                .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
-
-        fixture.client().fetchAttentionPrRefs("pat");
-        fixture.client().fetchAttentionPrRefs("other-pat");
-        fixture.verify();
-    }
 
     @Test
     void discoversPullRequestsByForkHeadWithBranchRefsAndAllPages()
@@ -743,17 +685,12 @@ class TestGitHubPullRequestOverviewClient
 
     private static Fixture fixture()
     {
-        return fixture(Clock.systemUTC());
-    }
-
-    private static Fixture fixture(Clock clock)
-    {
         RestClient.Builder apiBuilder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer api = MockRestServiceServer.bindTo(apiBuilder).build();
         RestClient.Builder graphQlBuilder = RestClient.builder().baseUrl("https://api.github.test/graphql");
         MockRestServiceServer graphQl = MockRestServiceServer.bindTo(graphQlBuilder).build();
         return new Fixture(
-                new GitHubPullRequestReadClient(apiBuilder.build(), graphQlBuilder.build(), clock),
+                new GitHubPullRequestReadClient(apiBuilder.build(), graphQlBuilder.build()),
                 api,
                 graphQl);
     }

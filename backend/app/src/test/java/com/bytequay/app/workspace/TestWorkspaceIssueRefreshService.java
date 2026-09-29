@@ -17,20 +17,25 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubRateLimitException;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryIssuePage;
+import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.RepositoryIssueDetailStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -44,11 +49,16 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestWorkspaceIssueRefreshService
@@ -58,6 +68,7 @@ class TestWorkspaceIssueRefreshService
     private static final RepoRef UPSTREAM = RepoRef.of("upstream", "project");
 
     private final Map<String, Workspace> workspaces = new HashMap<>();
+    private final AppSettingsStore settings = mock(AppSettingsStore.class);
     private final WorkspaceStore workspaceStore = mock(WorkspaceStore.class);
     private final RepositoryIssueStore issueStore = mock(RepositoryIssueStore.class);
     private final RepositoryIssueDetailStore detailStore = mock(RepositoryIssueDetailStore.class);
@@ -70,6 +81,10 @@ class TestWorkspaceIssueRefreshService
     void setUp()
     {
         when(credentials.resolveGitHubToken()).thenReturn("token");
+        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("token",
+                new UserProfile("alice", null, "", "", 0, 0, 0, null, null, null, null)));
+        when(credentials.cachedLogin()).thenReturn(Optional.of("alice"));
+        when(workspaceStore.findAll()).thenAnswer(invocation -> ImmutableList.copyOf(workspaces.values()));
         when(workspaceStore.findById(org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(invocation -> Optional.ofNullable(workspaces.get(invocation.getArgument(0))));
         service = new WorkspaceIssueRefreshService(
@@ -79,7 +94,8 @@ class TestWorkspaceIssueRefreshService
                 gitHub,
                 issueReads,
                 credentials,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                settings);
     }
 
     @Test
@@ -209,6 +225,152 @@ class TestWorkspaceIssueRefreshService
 
         assertThat(service.refreshDetail("direct", 7)).isSameAs(expected);
         verify(detailStore).save(expected);
+    }
+
+    @Test
+    void notificationUpdatesOnlyTheWatchedRepositoryOnceWithoutReadingFullDetails()
+    {
+        Workspace first = workspace("first", 300, UPSTREAM, Topology.FORK);
+        Workspace second = workspace("second", 300, UPSTREAM, Topology.FORK);
+        workspaces.put(first.id(), first);
+        workspaces.put(second.id(), second);
+        workspaces.put("other", workspace("other", 100, DIRECT, Topology.DIRECT));
+        when(gitHub.fetchIssue("token", UPSTREAM, 7)).thenReturn(Optional.of(issue(7)));
+
+        service.refreshNotifiedIssue(UPSTREAM, 7);
+
+        verify(gitHub, times(1)).fetchIssue("token", UPSTREAM, 7);
+        verify(issueStore).saveSyncPage(eq(300L), eq(ImmutableList.of(issue(7))), anyString());
+        verify(issueStore, never()).saveSyncPage(eq(100L), any(), anyString());
+        verifyNoInteractions(issueReads, detailStore, settings);
+    }
+
+    @Test
+    void notifiedClosureRemovesTheCardAndUnwatchedNotificationsDoNotFetch()
+    {
+        workspaces.put("direct", workspace("direct", 100, DIRECT, Topology.DIRECT));
+        when(gitHub.fetchIssue("token", DIRECT, 7)).thenReturn(Optional.empty());
+
+        service.refreshNotifiedIssue(UPSTREAM, 7);
+        verifyNoInteractions(gitHub);
+        service.refreshNotifiedIssue(DIRECT, 7);
+
+        verify(issueStore).delete(100, 7);
+        verify(issueStore, never()).completeSync(anyLong(), anyString(), any());
+        verifyNoInteractions(issueReads, detailStore);
+    }
+
+    @Test
+    void recentChangesApplyPagesBeforeAdvancingCheckpointWithoutPruningOtherOpenCards()
+    {
+        workspaces.put("direct", workspace("direct", 100, DIRECT, Topology.DIRECT));
+        String key = "github.issues.checkpoint.alice.owner/project";
+        Instant previous = NOW.minusSeconds(600);
+        Instant since = previous.minusSeconds(300);
+        when(settings.get(key)).thenReturn(Optional.of(previous.toString()));
+        when(gitHub.fetchChangedIssuesPage("token", DIRECT, since, 1))
+                .thenReturn(new GitHubRepoClient.ChangedIssuePage(ImmutableList.of(issue(7)), ImmutableList.of(8), true));
+        when(gitHub.fetchChangedIssuesPage("token", DIRECT, since, 2))
+                .thenReturn(new GitHubRepoClient.ChangedIssuePage(ImmutableList.of(issue(9)), ImmutableList.of(), false));
+
+        service.refreshRecentIssues();
+
+        var order = inOrder(gitHub, issueStore, settings);
+        order.verify(settings).get(key);
+        order.verify(gitHub).fetchChangedIssuesPage("token", DIRECT, since, 1);
+        order.verify(issueStore).saveSyncPage(eq(100L), eq(ImmutableList.of(issue(7))), anyString());
+        order.verify(issueStore).delete(100, 8);
+        order.verify(gitHub).fetchChangedIssuesPage("token", DIRECT, since, 2);
+        order.verify(issueStore).saveSyncPage(eq(100L), eq(ImmutableList.of(issue(9))), anyString());
+        order.verify(settings).put(key, NOW.toString());
+        verify(issueStore, never()).completeSync(anyLong(), anyString(), any());
+        verifyNoInteractions(issueReads, detailStore);
+    }
+
+    @Test
+    void firstRecentPassUsesOneHourAndFailedPageKeepsCheckpointWhileOtherRepositoriesContinue()
+    {
+        Workspace direct = workspace("direct", 100, DIRECT, Topology.DIRECT);
+        Workspace upstream = workspace("upstream", 300, UPSTREAM, Topology.FORK);
+        workspaces.put(direct.id(), direct);
+        workspaces.put(upstream.id(), upstream);
+        when(workspaceStore.findAll()).thenReturn(ImmutableList.of(direct, upstream));
+        Instant since = NOW.minusSeconds(3600);
+        when(gitHub.fetchChangedIssuesPage("token", DIRECT, since, 1))
+                .thenReturn(new GitHubRepoClient.ChangedIssuePage(ImmutableList.of(issue(7)), ImmutableList.of(), true));
+        when(gitHub.fetchChangedIssuesPage("token", DIRECT, since, 2)).thenThrow(new IllegalStateException("temporary failure"));
+        when(gitHub.fetchChangedIssuesPage("token", UPSTREAM, since, 1))
+                .thenReturn(new GitHubRepoClient.ChangedIssuePage(ImmutableList.of(issue(9)), ImmutableList.of(), false));
+
+        service.refreshRecentIssues();
+
+        verify(issueStore).saveSyncPage(eq(100L), eq(ImmutableList.of(issue(7))), anyString());
+        verify(settings, never()).put(eq("github.issues.checkpoint.alice.owner/project"), anyString());
+        verify(settings).put("github.issues.checkpoint.alice.upstream/project", NOW.toString());
+    }
+
+    @Test
+    void recentPassSkipsFreshCheckpointsAndSharesOnePassAcrossWatchedWorkspaces()
+    {
+        Workspace first = workspace("first", 100, DIRECT, Topology.DIRECT);
+        Workspace second = workspace("second", 100, DIRECT, Topology.FORK);
+        workspaces.put(first.id(), first);
+        workspaces.put(second.id(), second);
+        when(settings.get("github.issues.checkpoint.alice.owner/project")).thenReturn(Optional.of(NOW.minusSeconds(119).toString()));
+
+        service.refreshRecentIssues();
+
+        verify(settings, times(1)).get("github.issues.checkpoint.alice.owner/project");
+        verifyNoInteractions(gitHub, issueStore);
+    }
+
+    @Test
+    void futureCheckpointFallsBackToTheRecentHourAfterAClockCorrection()
+    {
+        workspaces.put("direct", workspace("direct", 100, DIRECT, Topology.DIRECT));
+        String key = "github.issues.checkpoint.alice.owner/project";
+        when(settings.get(key)).thenReturn(Optional.of(NOW.plusSeconds(86400).toString()));
+        when(gitHub.fetchChangedIssuesPage("token", DIRECT, NOW.minusSeconds(3600), 1))
+                .thenReturn(new GitHubRepoClient.ChangedIssuePage(ImmutableList.of(), ImmutableList.of(), false));
+
+        service.refreshRecentIssues();
+
+        verify(gitHub).fetchChangedIssuesPage("token", DIRECT, NOW.minusSeconds(3600), 1);
+        verify(settings).put(key, NOW.toString());
+    }
+
+    @Test
+    void authenticationFailureStopsTheRepositoryLoop()
+    {
+        Workspace direct = workspace("direct", 100, DIRECT, Topology.DIRECT);
+        Workspace upstream = workspace("upstream", 300, UPSTREAM, Topology.FORK);
+        workspaces.put(direct.id(), direct);
+        workspaces.put(upstream.id(), upstream);
+        when(workspaceStore.findAll()).thenReturn(ImmutableList.of(direct, upstream));
+        ResponseStatusException failure = new ResponseStatusException(HttpStatus.UNAUTHORIZED);
+        when(gitHub.fetchChangedIssuesPage("token", DIRECT, NOW.minusSeconds(3600), 1)).thenThrow(failure);
+
+        assertThatThrownBy(service::refreshRecentIssues).isSameAs(failure);
+
+        verify(gitHub, never()).fetchChangedIssuesPage(eq("token"), eq(UPSTREAM), any(), org.mockito.ArgumentMatchers.anyInt());
+        verify(settings, never()).put(anyString(), anyString());
+    }
+
+    @Test
+    void aRecentRateLimitStopsFollowingRepositoriesWithoutAdvancingCheckpoint()
+    {
+        Workspace direct = workspace("direct", 100, DIRECT, Topology.DIRECT);
+        Workspace upstream = workspace("upstream", 300, UPSTREAM, Topology.FORK);
+        workspaces.put(direct.id(), direct);
+        workspaces.put(upstream.id(), upstream);
+        when(workspaceStore.findAll()).thenReturn(ImmutableList.of(direct, upstream));
+        GitHubRateLimitException failure = new GitHubRateLimitException("core", NOW.plusSeconds(60).getEpochSecond());
+        when(gitHub.fetchChangedIssuesPage("token", DIRECT, NOW.minusSeconds(3600), 1)).thenThrow(failure);
+
+        assertThatThrownBy(service::refreshRecentIssues).isSameAs(failure);
+
+        verify(gitHub, never()).fetchChangedIssuesPage(eq("token"), eq(UPSTREAM), any(), org.mockito.ArgumentMatchers.anyInt());
+        verify(settings, never()).put(anyString(), anyString());
     }
 
     private static PrTimelineEvent event(long id, String type, Instant timestamp)

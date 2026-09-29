@@ -34,5 +34,8 @@ public interface PrDiffStore
 
     void saveFileContent(long prId, String baseSha, String headSha, String path, DiffFileContent content);
 
+    /** Stores a default-diff body only while the artifact still has the coordinates that were fetched. */
+    boolean saveDefaultFileContent(long prId, String baseSha, String headSha, String path, DiffFileContent content);
+
     void deleteByPrIds(Set<Long> prIds);
 }

@@ -86,10 +86,13 @@ public final class JiraDtos
 
     public record LinkType(String id, String name, String inward, String outward) {}
 
+    /** A site-defined multi-line text field, such as "Additional Context", rendered as Markdown. */
+    public record RichTextField(String id, String name, String body) {}
+
     /** {@code hierarchyLevel} is Jira's: subtasks are -1, standard tickets 0 and epics 1. */
     public record Detail(JiraIssue issue, List<Comment> comments, List<Transition> transitions, List<Field> editableFields,
             List<Person> assignees, Optional<Instant> fetchedAt, Optional<String> error, boolean commentsTruncated,
-            int hierarchyLevel, List<RelatedIssue> children, boolean childrenTruncated, List<IssueLink> links)
+            int hierarchyLevel, List<RelatedIssue> children, boolean childrenTruncated, List<IssueLink> links, List<RichTextField> richTextFields)
     {
         public Detail
         {
@@ -100,6 +103,7 @@ public final class JiraDtos
             // A detail cached before children and links were read has neither until its next refresh.
             children = children == null ? ImmutableList.of() : ImmutableList.copyOf(children);
             links = links == null ? ImmutableList.of() : ImmutableList.copyOf(links);
+            richTextFields = richTextFields == null ? ImmutableList.of() : ImmutableList.copyOf(richTextFields);
         }
     }
 

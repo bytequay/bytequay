@@ -132,6 +132,21 @@ final class JiraMapping
         return fields.build();
     }
 
+    /** Custom fields holding a non-empty Jira document, named from an {@code expand=names} read; single-line text is a plain string, not a document. */
+    static List<JiraDtos.RichTextField> richTextFields(String siteUrl, JsonNode issue)
+    {
+        List<JiraDtos.RichTextField> result = new ArrayList<>();
+        issue.path("fields").fields().forEachRemaining(entry -> {
+            if (entry.getKey().startsWith("customfield_") && entry.getValue().path("type").asText().equals("doc")) {
+                String body = markdown(siteUrl, entry.getValue()).strip();
+                if (!body.isEmpty()) {
+                    result.add(new JiraDtos.RichTextField(entry.getKey(), issue.path("names").path(entry.getKey()).asText(entry.getKey()), body));
+                }
+            }
+        });
+        return result.stream().sorted(Comparator.comparing(JiraDtos.RichTextField::name)).collect(toImmutableList());
+    }
+
     static JiraDtos.Comment comment(String siteUrl, Optional<String> accountId, JsonNode value)
     {
         boolean mine = mine(accountId, value);

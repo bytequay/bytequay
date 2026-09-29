@@ -57,6 +57,8 @@ export type JiraIssueDetail = {
   fetchedAt: string | null; error: string | null; commentsTruncated: boolean;
   /** Jira's level: subtasks are -1, standard tickets 0 and epics 1. */
   hierarchyLevel: number; children: JiraRelatedIssue[]; childrenTruncated: boolean; links: JiraIssueLink[];
+  /** Site-defined multi-line text fields with content, such as "Additional Context", as Markdown. */
+  richTextFields: { id: string; name: string; body: string }[];
 };
 export type JiraIssuePage = { issues: JiraIssue[]; fetchedAt: string | null; partial: boolean; error: string | null };
 export type JiraSourceRequest = { connectionId: string; cloudId: string; issueId: string; key: string; title: string; body: string; updatedAt: string };

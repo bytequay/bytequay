@@ -265,6 +265,6 @@ class TestJiraController
                 "Story", new JiraDtos.Status("3", "In progress", "indeterminate"), Optional.empty(), ImmutableList.of(), Optional.empty(), Optional.empty(), false, false,
                 UPDATED, Optional.empty(), Optional.empty(), ImmutableList.of(), false, Optional.empty(), Optional.empty());
         return new JiraDtos.Detail(issue, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.of(UPDATED), Optional.empty(), false,
-                0, ImmutableList.of(), false, ImmutableList.of());
+                0, ImmutableList.of(), false, ImmutableList.of(), ImmutableList.of());
     }
 }

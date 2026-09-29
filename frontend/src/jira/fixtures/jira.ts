@@ -31,5 +31,5 @@ export function jiraDetail(issue: JiraIssue = jiraIssue): JiraIssueDetail {
       { id: 'priority', name: 'Priority', required: false, schemaType: 'priority', allowedValues: [{ id: '2', name: 'High' }, { id: '3', name: 'Medium' }] },
       { id: 'duedate', name: 'Due date', required: false, schemaType: 'date', allowedValues: [] }],
     assignees: [{ accountId: 'me', displayName: 'Alex Chen', avatarUrl: null }], fetchedAt: issue.updatedAt, error: null, commentsTruncated: false,
-    hierarchyLevel: 0, children: [], childrenTruncated: false, links: [] };
+    hierarchyLevel: 0, children: [], childrenTruncated: false, links: [], richTextFields: [] };
 }

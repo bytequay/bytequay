@@ -318,6 +318,28 @@ class TestJiraService
     }
 
     @Test
+    void detailShowsNamedRichTextCustomFields()
+            throws Exception
+    {
+        ObjectNode value = (ObjectNode) ticket();
+        ((ObjectNode) value.path("fields")).setAll((ObjectNode) json("""
+                {"customfield_1":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Tested on 8 workers"}]}]},
+                 "customfield_2":"single line","customfield_3":{"type":"doc","content":[]},"customfield_4":null}
+                """));
+        value.set("names", json("{\"customfield_1\":\"Additional Context\",\"customfield_2\":\"Team note\",\"customfield_3\":\"Feature Description\"}"));
+        List<String> reads = new ArrayList<>();
+        doAnswer(call -> {
+            reads.add(URLDecoder.decode(call.getArgument(2), StandardCharsets.UTF_8));
+            return value;
+        }).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/1001?"), eq("GET"), any());
+
+        List<JiraDtos.RichTextField> expected = ImmutableList.of(new JiraDtos.RichTextField("customfield_1", "Additional Context", "Tested on 8 workers"));
+        assertThat(jira.detail("connection", "cloud", "1001", true).richTextFields()).isEqualTo(expected);
+        assertThat(reads).singleElement().asString().contains("fields=*all,-comment,-worklog", "expand=names");
+        assertThat(jira.detail("connection", "cloud", "1001", false).richTextFields()).isEqualTo(expected);
+    }
+
+    @Test
     void newChildUsesTheParentProjectAndATypeOneLevelBelowIt()
             throws Exception
     {

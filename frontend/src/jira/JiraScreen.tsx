@@ -713,6 +713,7 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
       <div className="jira-detail__main">
         {issue.hasChildren && <p className="jira-notice">This ticket has children. Start development from an individual child ticket.</p>}
         <section className="jira-description" aria-label="Description"><h3>Description</h3><MarkdownBody body={issue.body || 'No description.'} /></section>
+        {detail.richTextFields.map(field => <section className="jira-description" key={field.id} aria-label={field.name}><h3>{field.name}</h3><MarkdownBody body={field.body} /></section>)}
         <JiraWorkItems detail={detail} location={location} busy={busy} mutate={mutate} />
         <section className="jira-comments" aria-label="Comments">
           <h3>Comments<span className="jira-count">{detail.comments.length}</span></h3>

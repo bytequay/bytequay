@@ -481,9 +481,9 @@
 
 .rcp-run { border: 1px solid #e3e3e6; border-radius: 10px; margin-bottom: 10px; overflow: hidden; }
 .rcp-run__head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: 0; background: #f6f8fa; text-align: left; cursor: pointer;
-  color: #1f2328; white-space: normal; }
+  color: #1f2328; }
 .rcp-run__head svg { flex: none; color: #8c959f; }
-.rcp-run__main { flex: 1; min-width: 0; }
+.rcp-run__main { flex: 1; min-width: 0; white-space: normal; }
 .rcp-run__title { display: block; font-size: 13px; font-weight: 600; }
 .rcp-run__meta { display: block; font-size: 12px; color: #57606a; margin-top: 1px; overflow-wrap: anywhere; }
 .rcp-run__body { padding: 8px 12px 10px; }

@@ -114,7 +114,7 @@ public class ContextBaselineReader
 
     /**
      * Lists one directory at the immutable monitored baseline, without reading the worktree, following symlinks, or fetching objects.
-     * Root is the empty path. Pages are zero-based, contain at most 100 entries, and are limited to ten pages per directory.
+     * Directory paths may have one trailing slash; root is the empty path. Pages are zero-based, contain at most 100 entries, and are limited to ten pages per directory.
      * The complete local listing must fit in 128 KiB; incomplete output is rejected rather than presented as complete structure.
      * Returned entries are discovery metadata, not evidence that their file content was read or that no useful knowledge exists.
      */
@@ -124,7 +124,9 @@ public class ContextBaselineReader
         requireNonNull(path, "path is null");
         if (!path.isEmpty()) {
             ContextLimits.text(path, "directory path", 1000);
-            ContextLimits.pathPrefix(path + "/");
+            String prefix = path.endsWith("/") ? path : path + "/";
+            ContextLimits.pathPrefix(prefix);
+            path = prefix.substring(0, prefix.length() - 1);
         }
         checkArgument(page >= 0 && page < DIRECTORY_PAGES, "Directory page must be between zero and nine; narrow the selected directory");
         String tree = baseline;

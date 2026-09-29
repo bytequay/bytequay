@@ -180,6 +180,7 @@ public class ContextAgentDiscoveryTools
         String path = args.has("path") ? string(args.get("path"), "path", 1000, true) : "";
         int page = integer(args, "page", 0);
         ContextBaselineReader.Directory directory = baseline.directory(workspace, build.repositoryId(), build.baselineSha(), path, page);
+        path = directory.path();
         long directories = directory.entries().stream().filter(entry -> entry.kind().equals("DIRECTORY")).count();
         log(build, turn, "Listed " + (path.isEmpty() ? "/" : path + "/") + " · " + directories + (directory.hasMore() ? "+" : "")
                 + (directories == 1 ? " directory" : " directories"), ContextBuild.Activity.Tone.DONE);

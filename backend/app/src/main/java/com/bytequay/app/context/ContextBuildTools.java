@@ -140,7 +140,7 @@ public class ContextBuildTools
                 .map(claim -> TurnId.valueOf(claim.ownerId()));
         return new ReviewBridge(ImmutableList.of(
                 new ReviewTool("repository_context_read", "Read the accepted source selection, frozen directory tree/files, registered documents or selected history. "
-                        + "TREE path is empty for root or a directory path without a trailing slash; page starts at zero. DOCUMENT page starts at one. "
+                        + "TREE path is empty for root or a directory path with an optional trailing slash; page starts at zero. DOCUMENT page starts at one. "
                         + "SEARCH_PATHS finds names anywhere; SEARCH_TEXT finds up to two literal hits per file within approved paths. Search page starts at zero. "
                         + "DOCUMENT defaults to a fresh initial read; continuation uses returned captureId. Failures remain explicit limitations.",
                         readSchema(), arguments -> call(task.id().toString(), turn, arguments, false)),
@@ -370,6 +370,7 @@ public class ContextBuildTools
         String key = "tree:" + path + ":" + page;
         try {
             ContextBaselineReader.Directory read = baseline.directory(workspace(build), build.repositoryId(), build.baselineSha(), path, page);
+            path = read.path();
             Map<String, String> markers = new LinkedHashMap<>();
             read.entries().stream().filter(entry -> documentationPath(entry.path()) || (entry.kind().equals("DIRECTORY") && entry.path().equalsIgnoreCase("docs")))
                     .findFirst().ifPresent(entry -> markers.put("repository-documentation-discovered", entry.path()));

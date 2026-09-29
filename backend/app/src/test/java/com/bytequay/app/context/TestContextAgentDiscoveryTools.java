@@ -36,6 +36,8 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -131,11 +133,14 @@ class TestContextAgentDiscoveryTools
                 .contains("already submitted");
     }
 
-    @Test
-    void countsListedAndReadModuleDirectoriesAsSurveyed()
+    @ParameterizedTest
+    @ValueSource(strings = {"deep/trino-iceberg", "deep/trino-iceberg/"})
+    void countsListedAndReadModuleDirectoriesAsSurveyed(String path)
             throws Exception
     {
-        assertThat(read("{\"kind\":\"LIST\",\"path\":\"deep/trino-iceberg\"}").has("error")).isFalse();
+        when(baseline.directory(any(), eq(1L), eq(SHA), eq(path), eq(0))).thenReturn(new ContextBaselineReader.Directory("deep/trino-iceberg", SHA,
+                ImmutableList.of(new ContextBaselineReader.TreeEntry("deep/trino-iceberg/pom.xml", "FILE", "3".repeat(40))), 0, false));
+        assertThat(read("{\"kind\":\"LIST\",\"path\":\"%s\"}".formatted(path)).has("error")).isFalse();
         String readId = read("{\"kind\":\"READ\",\"path\":\"README.md\"}").path("readId").textValue();
 
         submit(report(readId));

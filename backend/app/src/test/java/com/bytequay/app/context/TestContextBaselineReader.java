@@ -92,8 +92,9 @@ class TestContextBaselineReader
         assertThat(read.truncated()).isFalse();
     }
 
-    @Test
-    void discoversFrozenNestedDirectoriesWithoutFollowingSymlinksOrSubmodules()
+    @ParameterizedTest
+    @ValueSource(strings = {"", "/"})
+    void discoversFrozenNestedDirectoriesWithoutFollowingSymlinksOrSubmodules(String suffix)
             throws IOException
     {
         initialize();
@@ -125,12 +126,16 @@ class TestContextBaselineReader
         assertThat(root.entries()).extracting(ContextBaselineReader.TreeEntry::path).containsExactly(PATH, "docs", "documentation", "vendor");
         assertThat(root.entries()).extracting(ContextBaselineReader.TreeEntry::kind).containsExactly("FILE", "DIRECTORY", "SYMLINK", "SUBMODULE");
         assertThat(root.entries().getLast().objectId()).isEqualTo(submodule);
-        assertThat(reader.directory(workspace(), 7, baseline, "docs", 0).entries())
+        ContextBaselineReader.Directory docs = reader.directory(workspace(), 7, baseline, "docs" + suffix, 0);
+        assertThat(docs.path()).isEqualTo("docs");
+        assertThat(docs.entries())
                 .extracting(ContextBaselineReader.TreeEntry::path).containsExactly("docs/guide.md", "docs/reference");
-        assertThat(reader.directory(workspace(), 7, baseline, "docs/reference", 0).entries())
+        ContextBaselineReader.Directory reference = reader.directory(workspace(), 7, baseline, "docs/reference" + suffix, 0);
+        assertThat(reference.path()).isEqualTo("docs/reference");
+        assertThat(reference.entries())
                 .extracting(ContextBaselineReader.TreeEntry::path).containsExactly("docs/reference/api.md");
         for (String path : ImmutableList.of(PATH, "documentation", "vendor", "missing")) {
-            assertThatIllegalArgumentException().isThrownBy(() -> reader.directory(workspace(), 7, baseline, path, 0)).withMessageContaining("not a directory");
+            assertThatIllegalArgumentException().isThrownBy(() -> reader.directory(workspace(), 7, baseline, path + suffix, 0)).withMessageContaining("not a directory");
         }
     }
 
@@ -153,6 +158,7 @@ class TestContextBaselineReader
             assertThat(directory.entries()).extracting(ContextBaselineReader.TreeEntry::path)
                     .containsExactlyElementsOf(IntStream.range(page * 100, Math.min(205, (page + 1) * 100))
                             .mapToObj(index -> "docs/guide-%03d.md".formatted(index)).toList());
+            assertThat(reader.directory(workspace(), 7, baseline, "docs/", page)).isEqualTo(directory);
         }
         assertThatIllegalArgumentException().isThrownBy(() -> reader.directory(workspace(), 7, baseline, "docs", 3)).withMessageContaining("outside");
     }
@@ -358,7 +364,8 @@ class TestContextBaselineReader
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/absolute", "../parent", "docs/../parent", "-option", "docs//file", "docs\\file", "docs/./file", "docs/line\nfile"})
+    @ValueSource(strings = {"/", "//", "/absolute", "../parent", "docs/../parent", "-option", "docs//file", "docs\\file", "docs/./file", "docs/line\nfile",
+            "docs//", "docs///", "docs//reference/", "docs/../", "docs/./"})
     void rejectsInvalidPathsBeforeGit(String path)
     {
         GitCommandRunner local = mock(GitCommandRunner.class);

@@ -409,16 +409,10 @@ export const ATTENTION_CARD_LIMIT = 4;
 
 export type AttentionFilter = 'all' | AttentionSource;
 
-/** The cards a filter draws, capped, and how many items each filter tab holds. */
-export function attentionCards(live: AttentionItem[], filter: AttentionFilter, limit = ATTENTION_CARD_LIMIT, team?: TeamAttentionPreference): {
-  cards: AttentionItem[];
-  counts: Record<AttentionFilter, number>;
-} {
+/** The cards a filter draws, capped. */
+export function attentionCards(live: AttentionItem[], filter: AttentionFilter, limit = ATTENTION_CARD_LIMIT, team?: TeamAttentionPreference): AttentionItem[] {
   const eligible = team?.onlyTeam ? live.filter(item => teamAttentionMatch(item, team.circles, team.viewerLogin) !== null) : live;
-  const counts: Record<AttentionFilter, number> = { all: eligible.length, pr: 0, issue: 0, jira: 0, task: 0 };
-  for (const item of eligible) counts[attentionSource(item)] += 1;
-  const sorted = eligible.filter(item => filter === 'all' || attentionSource(item) === filter).sort(compareAttention);
-  return { cards: sorted.slice(0, limit), counts };
+  return eligible.filter(item => filter === 'all' || attentionSource(item) === filter).sort(compareAttention).slice(0, limit);
 }
 
 /* ── Acknowledged and snoozed rows ──────────────────────────────── */

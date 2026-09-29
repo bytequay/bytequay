@@ -50,9 +50,9 @@ describe('private team priority', () => {
     others[2].pr = { ...others[2].pr, reviewRequestedAt: '2026-09-01T00:00:00Z' };
     const trusted = [5, 6, 7, 8].map(number => item(number, 'alice', '2026-09-27T00:00:00Z'));
     const live = [...others, ...trusted];
-    expect(attentionCards(live, 'all', 4, preference).cards.map(row => row.number)).toEqual([1, 2, 3, 4]);
-    expect(attentionCards([...others, trusted[0]], 'all', 4, preference).cards.map(row => row.number)).toEqual([1, 2, 3, 4]);
-    expect(attentionCards(trusted, 'all', 4, preference).cards.map(row => row.number)).toEqual([5, 6, 7, 8]);
+    expect(attentionCards(live, 'all', 4, preference).map(row => row.number)).toEqual([1, 2, 3, 4]);
+    expect(attentionCards([...others, trusted[0]], 'all', 4, preference).map(row => row.number)).toEqual([1, 2, 3, 4]);
+    expect(attentionCards(trusted, 'all', 4, preference).map(row => row.number)).toEqual([5, 6, 7, 8]);
     expect(live[0]).toBe(others[0]);
     expect(trusted[0].updatedAt).toBe('2026-09-27T00:00:00Z');
   });
@@ -61,10 +61,10 @@ describe('private team priority', () => {
     const issue: AttentionItem = { ...item(7), type: 'issue', kind: 'assigned', pr: null };
     const live = [item(1, 'bob'), item(2), item(3), item(4), issue];
     const overlapping = { ...preference, circles: [...circles, { ...circles[0], id: 'two' }] };
-    expect(attentionCards(live, 'all', 4, overlapping).cards).toEqual(attentionCards(live, 'all', 4, preference).cards);
+    expect(attentionCards(live, 'all', 4, overlapping)).toEqual(attentionCards(live, 'all', 4, preference));
     const selected = attentionCards(live, 'issue', 4, { ...overlapping, onlyTeam: true });
-    expect(selected.cards).toEqual([issue]);
-    expect(selected.counts).toEqual({ all: 4, pr: 3, issue: 1, jira: 0, task: 0 });
+    expect(selected).toEqual([issue]);
+    expect(attentionCards(live, 'all', 4, { ...overlapping, onlyTeam: true }).map(row => row.number)).toEqual([2, 3, 4, 7]);
   });
 
   it('ranks all four sources by updates even when older team and approval cards exist', () => {
@@ -76,16 +76,15 @@ describe('private team priority', () => {
     const oldApproval = { ...task, key: 'old-task', kind: 'approval' as const, updatedAt: '2026-09-01T00:00:00Z' };
     const oldTeam = item(3, 'alice', '2026-09-01T00:00:00Z');
     const selected = attentionCards([oldTeam, oldApproval, task, ticket, issue, newest], 'all', 4, preference);
-    expect(selected.cards.map(row => row.key)).toEqual([newest.key, issue.key, ticket.key, task.key]);
-    expect(selected.counts).toEqual({ all: 6, pr: 2, issue: 1, jira: 1, task: 2 });
+    expect(selected.map(row => row.key)).toEqual([newest.key, issue.key, ticket.key, task.key]);
   });
 
   it('keeps team filtering limited to live rows and never wakes acknowledged or timed-snoozed members', () => {
     const now = Date.parse('2026-09-28T13:00:00Z');
     const live = [item(1), item(2), item(3), item(4, 'bob')];
     const handled = { [live[0].key]: handledEntry(live[0], 'ack', null, 'Viewed'), [live[1].key]: handledEntry(live[1], 'snooze', now + 1, 'soon') };
-    expect(attentionCards(visibleAttention(live, handled, now), 'all', 4, preference).cards.map(row => row.number)).toEqual([3, 4]);
-    expect(attentionCards(visibleAttention(live, handled, now + 1), 'all', 4, preference).cards.map(row => row.number)).toEqual([2, 3, 4]);
+    expect(attentionCards(visibleAttention(live, handled, now), 'all', 4, preference).map(row => row.number)).toEqual([3, 4]);
+    expect(attentionCards(visibleAttention(live, handled, now + 1), 'all', 4, preference).map(row => row.number)).toEqual([2, 3, 4]);
   });
 });
 

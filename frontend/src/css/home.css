@@ -101,7 +101,7 @@
   margin-top: 22px;
 }
 
-/* A compact header in regular weight: the label, the count, and the source tabs. */
+/* A compact header in regular weight: the label, then the Homes' source tabs or the count on Circles' Needs you. */
 .atn-head {
   display: flex;
   align-items: center;
@@ -152,10 +152,6 @@
   background: #ffffff;
   color: var(--text-1);
   box-shadow: 0 1px 2px rgba(31, 35, 40, 0.12);
-}
-
-.atn-filter__count {
-  color: #8c959f;
 }
 
 .atn-grid {

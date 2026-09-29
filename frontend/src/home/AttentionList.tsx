@@ -92,7 +92,7 @@ export default function AttentionList({
   const live = visibleAttention(reminders, handled, Math.max(now, Date.now()))
     .filter(item => !pinned.some(pin => pin.key === item.key));
   const filters = FILTERS.filter(id => id !== 'jira' || jiraConnected || live.some(item => attentionSource(item) === 'jira'));
-  const { cards, counts } = attentionCards(live, filters.includes(filter) ? filter : 'all', undefined, { circles, viewerLogin, onlyTeam });
+  const cards = attentionCards(live, filters.includes(filter) ? filter : 'all', undefined, { circles, viewerLogin, onlyTeam });
   const sessionEntries = session
     .map(key => handled[key])
     .filter((entry): entry is HandledEntry => entry !== undefined);
@@ -131,10 +131,7 @@ export default function AttentionList({
     setToast(null);
   }
 
-  const hasLead = lead !== undefined && lead !== null && !onlyTeam;
-  const leading = hasLead && filter === 'all' ? lead : null;
-  const extra = leading === null ? 0 : 1;
-  const count = cards.length < counts.all ? `${cards.length + extra} of ${counts.all + extra}` : `${counts.all + extra}`;
+  const leading = filter === 'all' && !onlyTeam ? lead ?? null : null;
   const startable = (item: AttentionItem) => item.type === 'issue' && item.canStartDevelopment !== false && onStartIssue !== undefined && item.issueState !== 'closed'
     && (item.jira === undefined || item.jira.status.category !== 'done' && item.jira.task === null);
 
@@ -142,7 +139,6 @@ export default function AttentionList({
     <section className={`atn-section is-${variant}`} aria-label="Needs attention">
       <div className="atn-head">
         <span className="atn-head__label">Needs attention</span>
-        <span className="atn-count">{count}</span>
         {(circles.length > 0 || onlyTeam) && (
           <button type="button" className={`atn-filter${onlyTeam ? ' is-active' : ''}`} aria-pressed={onlyTeam} onClick={() => setOnlyTeam(value => !value)}>Circles</button>
         )}
@@ -150,7 +146,7 @@ export default function AttentionList({
           {filters.map(id => (
             <button key={id} type="button" role="tab" aria-selected={filter === id}
               className={`atn-filter${filter === id ? ' is-active' : ''}`} onClick={() => setFilter(id)}>
-              {id === 'all' ? 'All' : ATTENTION_SOURCES[id].filter} <span className="atn-filter__count">{counts[id] + (id === 'all' && hasLead ? 1 : 0)}</span>
+              {id === 'all' ? 'All' : ATTENTION_SOURCES[id].filter}
             </button>
           ))}
         </div>

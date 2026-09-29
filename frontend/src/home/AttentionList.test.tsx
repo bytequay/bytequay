@@ -65,8 +65,8 @@ describe('AttentionList', () => {
     const html = list(items);
     expect(html).toContain('aria-pressed="false">Circles</button>');
     expect(html).toContain('title="Your private circle: Maintainers">Maintainers</span>');
-    expect(html).toContain('>PRs <');
-    expect(html).toContain('>Issues <');
+    expect(html).toContain('>PRs</button>');
+    expect(html).toContain('>Issues</button>');
   });
 
   it('never brings pinned or snoozed team items back through preference', () => {
@@ -187,23 +187,20 @@ describe('AttentionList', () => {
     expect(html).toContain('<div class="markdown-body"><p>Staging is mid-upgrade.</p></div>');
   });
 
-  it('shows at most four cards, counts the rest, and filters by source', () => {
+  it('shows at most four cards, counts nothing, and filters by source', () => {
     const items = [30920, 30921, 30922, 30923, 30924].map(number => prItem(number)).concat(issueItem(7));
     const html = list(items, {}, 'workspace');
 
     expect(html.match(/class="card atn-card /g)).toHaveLength(4);
-    expect(html).toContain('class="atn-count">4 of 6<');
-    expect(html).toMatch(/>PRs <span class="atn-filter__count">5</);
-    expect(html).toMatch(/>Issues <span class="atn-filter__count">1</);
-    expect(html).toMatch(/>Jira <span class="atn-filter__count">0</);
+    // Every watched update is eligible, so a total would count the repositories, not what needs the user.
+    expect(html).toMatch(/Needs attention<\/span><div class="atn-filters"/);
+    expect(html).toMatch(/>PRs<\/button><button[^>]*>Issues<\/button><button[^>]*>Jira<\/button>/);
     // Without Jira connected there is no Jira tab.
-    expect(list(items, {}, 'workspace', false)).not.toContain('>Jira <');
+    expect(list(items, {}, 'workspace', false)).not.toContain('>Jira</button>');
     // A workspace's own cards do not repeat its repository.
     expect(html).not.toContain('trinodb/trino</span>');
 
-    const issues = attentionCards(items, 'issue');
-    expect(issues.cards.map(item => item.number)).toEqual([7]);
-    expect(issues.counts).toEqual({ all: 6, pr: 5, issue: 1, jira: 0, task: 0 });
+    expect(attentionCards(items, 'issue').map(item => item.number)).toEqual([7]);
   });
 
   it('selects the newest cards across sources and within a filter before applying the cap', () => {
@@ -213,8 +210,8 @@ describe('AttentionList', () => {
     const issue = { ...issueItem(7), updatedAt: '2026-09-28T11:00:00Z' };
     const [ticket] = jiraAttentionItems([{ ...jiraIssue, updatedAt: '2026-09-28T12:00:00Z' }]);
     const items = [approval, prItem(1), { ...prItem(2), updatedAt: '2026-09-28T09:00:00Z' }, newest, issue, ticket];
-    expect(attentionCards(items, 'all').cards.map(item => item.key)).toEqual([newest.key, ticket.key, issue.key, items[2].key]);
-    expect(attentionCards(items, 'pr').cards.map(item => item.number)).toEqual([3, 2, 1]);
+    expect(attentionCards(items, 'all').map(item => item.key)).toEqual([newest.key, ticket.key, issue.key, items[2].key]);
+    expect(attentionCards(items, 'pr').map(item => item.number)).toEqual([3, 2, 1]);
     expect(items[0]).toBe(approval);
   });
 
@@ -227,7 +224,6 @@ describe('AttentionList', () => {
     for (const variant of ['home', 'workspace'] as const) {
       const html = list(items, {}, variant);
       expect([...html.matchAll(/class="atn-card__key">#(\d+)</g)].map(match => Number(match[1]))).toEqual([5, 1, 2, 3]);
-      expect(html).toContain('class="atn-count">4 of 5<');
     }
   });
 
@@ -239,21 +235,20 @@ describe('AttentionList', () => {
     const handled = { [reminder.key]: handledEntry(reminder, 'snooze', now, '1 hour') };
     const html = list(items, handled);
     expect([...html.matchAll(/class="atn-card__key">#(\d+)</g)].map(match => Number(match[1]))).toEqual([5, 1, 2, 3]);
-    expect(html).toContain('class="atn-count">4 of 5<');
   });
 
   it('brings in the next item when a card is acknowledged or snoozed, still capped at four', () => {
     const now = Date.parse('2026-08-30T00:00:00Z');
     vi.spyOn(Date, 'now').mockReturnValue(now);
     const items = [30920, 30921, 30922, 30923, 30924, 30925].map(number => prItem(number));
-    const shown = (handled: Handled) => attentionCards(visibleAttention(items, handled, now), 'all').cards.map(item => item.number);
+    const shown = (handled: Handled) => attentionCards(visibleAttention(items, handled, now), 'all').map(item => item.number);
     expect(shown({})).toEqual([30920, 30921, 30922, 30923]);
 
     const acknowledged = { [items[1].key]: handledEntry(items[1], 'ack', null, 'acknowledged') };
     expect(shown(acknowledged)).toEqual([30920, 30922, 30923, 30924]);
     const snoozed = { ...acknowledged, [items[0].key]: handledEntry(items[0], 'snooze', now + 3_600_000, '1 hour') };
     expect(shown(snoozed)).toEqual([30922, 30923, 30924, 30925]);
-    expect(list(items, snoozed)).toContain('class="atn-count">4<');
+    expect(list(items, snoozed).match(/class="card atn-card /g)).toHaveLength(4);
   });
 
   it('offers development for an issue and lists its labels, and says so when nothing needs you', () => {

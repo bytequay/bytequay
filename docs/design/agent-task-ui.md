@@ -976,9 +976,11 @@ whose cards keep their own height. Each shows at most four cards, newest source
 update or event first across all reasons. An older high-priority reason cannot
 bury a newer update; reason priority only breaks ties. Private team membership
 adds context and an explicit Team-only filter, never a ranking boost.
-Acknowledging or snoozing one brings in the next eligible item, and the count reads `4 of N`.
-Filter tabs above the grid (**All · PRs · Issues · Jira · Tasks**, each with its
-count) narrow the cards to one source; the cap applies after filtering. There
+Acknowledging or snoozing one brings in the next eligible item.
+Filter tabs above the grid (**All · PRs · Issues · Jira · Tasks**) narrow the
+cards to one source; the cap applies after filtering. Neither the header nor
+the tabs show a count: every update in a watched repository is eligible, so a
+total measures the repositories, not what needs the user. There
 are no **All issues** or **All pull requests** links. A card is a strip tinted
 by the source that produced the event (pull request green, issue blue, Jira
 ticket purple, agent task teal) showing its source's icon and key but no type

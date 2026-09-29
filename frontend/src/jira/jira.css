@@ -178,8 +178,14 @@
 .jira-detail > .jira-empty { flex: 1; }
 .jira-detail__head { flex: none; display: flex; flex-direction: column; gap: 8px; padding: 14px 20px 14px 28px; border-bottom: 1px solid #e3e3e6; }
 .jira-detail__crumbs { display: flex; align-items: center; gap: 8px; min-width: 0; color: #57606a; font-size: 12.5px; }
-.jira-detail__crumbs > span:not(.jira-spacer) { flex: none; white-space: nowrap; }
-.jira-detail__crumbs > .jira-detail__sprint { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.jira-detail__path { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.jira-detail__project { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.jira-detail__crumb { display: inline-flex; flex: none; align-items: center; gap: 5px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; white-space: nowrap; }
+button.jira-detail__crumb { cursor: pointer; }
+button.jira-detail__crumb:hover { color: #0969da; text-decoration: underline; }
+.jira-detail__path .pr-copy-button { display: inline-grid; flex: none; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #57606a; cursor: pointer; }
+.jira-detail__path .pr-copy-button svg { width: 14px; height: 14px; }
+.jira-detail__path .pr-copy-button:hover, .jira-detail__path .pr-copy-button.is-copied { background: #eff1f3; }
 .jira-detail__key { color: var(--text-1); font-weight: 600; }
 .jira-detail__sep { color: #d0d7de; }
 .jira-detail h2 { max-width: 960px; margin: 0; font-size: 20px; font-weight: 600; line-height: 1.3; letter-spacing: -0.2px; overflow-wrap: anywhere; text-wrap: pretty; }
@@ -216,7 +222,7 @@ textarea.jira-field { width: 100%; height: auto; padding: 6px 8px; line-height: 
 
 /* Subtasks, linked work items and the parent share one box. */
 .jira-work { border: 1px solid #e3e3e6; border-radius: 8px; overflow: hidden; }
-.jira-work > section + section, .jira-work__parent { border-top: 1px solid #eff1f3; }
+.jira-work > section + section { border-top: 1px solid #eff1f3; }
 .jira-work__head { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 8px 0 12px; font-size: 13px; }
 .jira-detail .jira-work h3 { margin: 0; font-size: 13px; }
 .jira-work__head .jira-count { margin-left: 0; }
@@ -237,8 +243,6 @@ textarea.jira-field { width: 100%; height: auto; padding: 6px 8px; line-height: 
 .jira-work__key { font-weight: 600; }
 .jira-work__hint { margin: 0; color: #8c959f; font-size: 11.5px; }
 .jira-work__hint.is-error { color: #cf222e; }
-.jira-work__parent { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 9px 12px; font-size: 13px; }
-.jira-work__parent .jira-parent { font-size: 12px; line-height: 20px; }
 
 /* Comments: the composer, then threads with replies on a rail under their root's text. */
 .jira-comments h3 { display: flex; align-items: center; }
@@ -273,11 +277,16 @@ textarea.jira-field { width: 100%; height: auto; padding: 6px 8px; line-height: 
 .jira-detail .jira-side__head h3 { margin: 0; color: #656d76; font-size: 11.5px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase; }
 .jira-side__head .jira-add { height: 24px; margin-right: -6px; padding: 0 6px; }
 .jira-side__bytequay { padding-top: 22px; border-top: 1px solid #e3e3e6; }
-.jira-fields { display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; row-gap: 13px; font-size: 13px; }
+.jira-fields { display: grid; grid-template-columns: 110px minmax(0, 1fr); align-items: center; row-gap: 13px; font-size: 13px; }
 .jira-fields__label { color: #57606a; }
 .jira-fields__person { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .jira-fields__person > span:last-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .jira-fields__labels { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.jira-fields__people { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.jira-fields__team { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--text-1); }
+.jira-fields__team > svg { flex: none; color: #8250df; }
+.jira-fields__team > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.jira-fields > .jira-parent { justify-self: start; max-width: 100%; font-size: 12px; line-height: 20px; }
 .jira-fields__labels .jira-label { font-size: 11.5px; }
 .jira-fields__stack { display: grid; gap: 3px; min-width: 0; }
 .jira-fields__goal { color: #9a6700; }

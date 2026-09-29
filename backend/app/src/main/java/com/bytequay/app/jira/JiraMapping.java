@@ -59,7 +59,7 @@ final class JiraMapping
                 markdown(siteUrl, description).strip(), fields.path("issuetype").path("name").asText(), status(fields.path("status")),
                 optional(fields.path("assignee")).map(JiraMapping::person), nodes(fields.path("labels")).stream().map(JsonNode::asText).collect(toImmutableList()),
                 optional(fields.path("priority")).map(JiraMapping::choice), optional(parent).map(item -> new JiraDtos.Parent(item.path("id").asText(),
-                        item.path("key").asText(), item.path("fields").path("summary").asText())),
+                        item.path("key").asText(), item.path("fields").path("summary").asText(), text(item.path("fields").path("issuetype"), "name"))),
                 !fields.path("subtasks").isEmpty() || fields.path("issuetype").path("hierarchyLevel").asInt() > 0,
                 false, instant(fields.path("updated").asText()), text(fields, "duedate"), Optional.empty(), ImmutableList.of(), false, completedAt(fields), Optional.empty());
     }
@@ -77,6 +77,11 @@ final class JiraMapping
         Optional<String> avatarUrl = ImmutableList.of("48x48", "32x32", "24x24", "16x16").stream()
                 .flatMap(size -> text(value.path("avatarUrls"), size).stream()).filter(JiraMapping::isAvatarUrl).findFirst();
         return new JiraDtos.Person(value.path("accountId").asText(), value.path("displayName").asText("Unknown user"), avatarUrl);
+    }
+
+    static Optional<JiraDtos.Person> reporter(JsonNode issue)
+    {
+        return optional(issue.path("fields").path("reporter")).map(JiraMapping::person);
     }
 
     private static boolean isAvatarUrl(String value)
@@ -140,11 +145,44 @@ final class JiraMapping
             if (entry.getKey().startsWith("customfield_") && entry.getValue().path("type").asText().equals("doc")) {
                 String body = markdown(siteUrl, entry.getValue()).strip();
                 if (!body.isEmpty()) {
-                    result.add(new JiraDtos.RichTextField(entry.getKey(), issue.path("names").path(entry.getKey()).asText(entry.getKey()), body));
+                    result.add(new JiraDtos.RichTextField(entry.getKey(), name(issue, entry.getKey()), body));
                 }
             }
         });
         return result.stream().sorted(Comparator.comparing(JiraDtos.RichTextField::name)).collect(toImmutableList());
+    }
+
+    /** Custom fields holding one or more users, such as "Co-Assignee(s)". */
+    static List<JiraDtos.PeopleField> peopleFields(JsonNode issue)
+    {
+        List<JiraDtos.PeopleField> result = new ArrayList<>();
+        issue.path("fields").fields().forEachRemaining(entry -> {
+            JsonNode value = entry.getValue();
+            List<JsonNode> users = value.isArray() ? nodes(value) : ImmutableList.of(value);
+            if (entry.getKey().startsWith("customfield_") && !users.isEmpty() && users.stream().allMatch(user -> user.hasNonNull("accountId"))) {
+                result.add(new JiraDtos.PeopleField(entry.getKey(), name(issue, entry.getKey()), users.stream().map(JiraMapping::person).collect(toImmutableList())));
+            }
+        });
+        return result.stream().sorted(Comparator.comparing(JiraDtos.PeopleField::name)).collect(toImmutableList());
+    }
+
+    /** Atlassian team fields, recognized by the schema an {@code expand=schema} read returns, since their ids differ per site. */
+    static List<JiraDtos.TeamField> teamFields(JsonNode issue)
+    {
+        List<JiraDtos.TeamField> result = new ArrayList<>();
+        issue.path("fields").fields().forEachRemaining(entry -> {
+            JsonNode schema = issue.path("schema").path(entry.getKey());
+            if (schema.path("type").asText().equals("team") || schema.path("custom").asText().endsWith(":atlassian-team")) {
+                text(entry.getValue(), "name").or(() -> text(entry.getValue(), "title"))
+                        .ifPresent(team -> result.add(new JiraDtos.TeamField(entry.getKey(), name(issue, entry.getKey()), team)));
+            }
+        });
+        return result.stream().sorted(Comparator.comparing(JiraDtos.TeamField::name)).collect(toImmutableList());
+    }
+
+    private static String name(JsonNode issue, String fieldId)
+    {
+        return issue.path("names").path(fieldId).asText(fieldId);
     }
 
     static JiraDtos.Comment comment(String siteUrl, Optional<String> accountId, JsonNode value)

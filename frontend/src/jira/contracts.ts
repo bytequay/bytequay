@@ -35,7 +35,7 @@ export type JiraActivity = {
 export type JiraIssue = {
   id: string; key: string; url: string; connectionId: string; cloudId: string; title: string; body: string;
   type: string; status: JiraStatus; assignee: JiraUser | null; labels: string[];
-  priority: { id: string; name: string } | null; parent: { id: string; key: string; title: string } | null;
+  priority: { id: string; name: string } | null; parent: { id: string; key: string; title: string; type: string | null } | null;
   hasChildren: boolean; isGoal: boolean; updatedAt: string; completedAt: string | null; dueDate: string | null;
   task: { id: string; workspaceId: string } | null;
   workspace: { id: string; name: string } | null;
@@ -59,6 +59,10 @@ export type JiraIssueDetail = {
   hierarchyLevel: number; children: JiraRelatedIssue[]; childrenTruncated: boolean; links: JiraIssueLink[];
   /** Site-defined multi-line text fields with content, such as "Additional Context", as Markdown. */
   richTextFields: { id: string; name: string; body: string }[];
+  project: string | null; reporter: JiraUser | null;
+  /** Site-defined user fields with someone in them, such as "Co-Assignee(s)". */
+  peopleFields: { id: string; name: string; people: JiraUser[] }[];
+  teamFields: { id: string; name: string; team: string }[];
 };
 export type JiraIssuePage = { issues: JiraIssue[]; fetchedAt: string | null; partial: boolean; error: string | null };
 export type JiraSourceRequest = { connectionId: string; cloudId: string; issueId: string; key: string; title: string; body: string; updatedAt: string };

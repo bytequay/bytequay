@@ -337,8 +337,50 @@ class TestJiraService
 
         List<JiraDtos.RichTextField> expected = ImmutableList.of(new JiraDtos.RichTextField("customfield_1", "Additional Context", "Tested on 8 workers"));
         assertThat(jira.detail("connection", "cloud", "1001", true).richTextFields()).isEqualTo(expected);
-        assertThat(reads).singleElement().asString().contains("fields=*all,-comment,-worklog", "expand=names");
+        assertThat(reads).singleElement().asString().contains("fields=*all,-comment,-worklog", "expand=names,schema");
         assertThat(jira.detail("connection", "cloud", "1001", false).richTextFields()).isEqualTo(expected);
+    }
+
+    @Test
+    void detailShowsReporterProjectPeopleAndTeamFields()
+            throws Exception
+    {
+        ObjectNode value = (ObjectNode) ticket();
+        ((ObjectNode) value.path("fields")).setAll((ObjectNode) json("""
+                {"project":{"key":"ENG","name":"Engineering"},"reporter":{"accountId":"anu","displayName":"Anu"},
+                 "parent":{"id":"1000","key":"ENG-3802","fields":{"summary":"Lakekeeper","issuetype":{"name":"Epic"}}},
+                 "customfield_1":[{"accountId":"vlad","displayName":"Vlad"}],"customfield_2":{"accountId":"sam","displayName":"Sam"},"customfield_3":[],
+                 "customfield_4":{"id":"t1","name":"ENG-Connectors","title":"ENG-Connectors"},"customfield_5":{"id":"7","value":"Option"}}
+                """));
+        value.set("names", json("{\"customfield_1\":\"Co-Assignee(s)\",\"customfield_2\":\"Approver\",\"customfield_4\":\"Team\",\"customfield_5\":\"Pillars\"}"));
+        value.set("schema", json("{\"customfield_4\":{\"type\":\"team\",\"custom\":\"com.atlassian.jira.plugin.system.customfieldtypes:atlassian-team\"}}"));
+        List<String> reads = new ArrayList<>();
+        doAnswer(call -> {
+            reads.add(URLDecoder.decode(call.getArgument(2), StandardCharsets.UTF_8));
+            return value;
+        }).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/1001?"), eq("GET"), any());
+
+        JiraDtos.Detail detail = jira.detail("connection", "cloud", "1001", true);
+        assertThat(reads).singleElement().asString().contains("expand=names,schema");
+        assertThat(detail.project()).contains("Engineering");
+        assertThat(detail.reporter()).contains(new JiraDtos.Person("anu", "Anu", Optional.empty()));
+        assertThat(detail.issue().parent()).contains(new JiraDtos.Parent("1000", "ENG-3802", "Lakekeeper", Optional.of("Epic")));
+        assertThat(detail.peopleFields()).containsExactly(
+                new JiraDtos.PeopleField("customfield_2", "Approver", ImmutableList.of(new JiraDtos.Person("sam", "Sam", Optional.empty()))),
+                new JiraDtos.PeopleField("customfield_1", "Co-Assignee(s)", ImmutableList.of(new JiraDtos.Person("vlad", "Vlad", Optional.empty()))));
+        assertThat(detail.teamFields()).containsExactly(new JiraDtos.TeamField("customfield_4", "Team", "ENG-Connectors"));
+        assertThat(jira.detail("connection", "cloud", "1001", false).peopleFields()).isEqualTo(detail.peopleFields());
+
+        // A detail cached before these fields existed still opens, without them.
+        String key = "jira.connection.cloud.issue.1001.detail";
+        ObjectNode cached = (ObjectNode) json(saved.get(key));
+        cached.remove(ImmutableList.of("project", "reporter", "peopleFields", "teamFields"));
+        saved.put(key, cached.toString());
+        JiraDtos.Detail legacy = jira.detail("connection", "cloud", "1001", false);
+        assertThat(legacy.project()).isEmpty();
+        assertThat(legacy.reporter()).isEmpty();
+        assertThat(legacy.peopleFields()).isEmpty();
+        assertThat(legacy.teamFields()).isEmpty();
     }
 
     @Test

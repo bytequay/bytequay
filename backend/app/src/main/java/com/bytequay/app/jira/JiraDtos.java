@@ -54,7 +54,7 @@ public final class JiraDtos
 
     public record Choice(String id, String name) {}
 
-    public record Parent(String id, String key, String title) {}
+    public record Parent(String id, String key, String title, Optional<String> type) {}
 
     public record TaskLink(String id, String workspaceId) {}
 
@@ -89,10 +89,23 @@ public final class JiraDtos
     /** A site-defined multi-line text field, such as "Additional Context", rendered as Markdown. */
     public record RichTextField(String id, String name, String body) {}
 
+    /** A site-defined user or multi-user field, such as "Co-Assignee(s)". */
+    public record PeopleField(String id, String name, List<Person> people)
+    {
+        public PeopleField
+        {
+            people = ImmutableList.copyOf(people);
+        }
+    }
+
+    /** An Atlassian team field and the team it names. */
+    public record TeamField(String id, String name, String team) {}
+
     /** {@code hierarchyLevel} is Jira's: subtasks are -1, standard tickets 0 and epics 1. */
     public record Detail(JiraIssue issue, List<Comment> comments, List<Transition> transitions, List<Field> editableFields,
             List<Person> assignees, Optional<Instant> fetchedAt, Optional<String> error, boolean commentsTruncated,
-            int hierarchyLevel, List<RelatedIssue> children, boolean childrenTruncated, List<IssueLink> links, List<RichTextField> richTextFields)
+            int hierarchyLevel, List<RelatedIssue> children, boolean childrenTruncated, List<IssueLink> links, List<RichTextField> richTextFields,
+            Optional<String> project, Optional<Person> reporter, List<PeopleField> peopleFields, List<TeamField> teamFields)
     {
         public Detail
         {
@@ -104,6 +117,8 @@ public final class JiraDtos
             children = children == null ? ImmutableList.of() : ImmutableList.copyOf(children);
             links = links == null ? ImmutableList.of() : ImmutableList.copyOf(links);
             richTextFields = richTextFields == null ? ImmutableList.of() : ImmutableList.copyOf(richTextFields);
+            peopleFields = peopleFields == null ? ImmutableList.of() : ImmutableList.copyOf(peopleFields);
+            teamFields = teamFields == null ? ImmutableList.of() : ImmutableList.copyOf(teamFields);
         }
     }
 

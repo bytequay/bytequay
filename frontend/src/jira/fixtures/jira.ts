@@ -18,7 +18,7 @@ export const jiraIssue: JiraIssue = {
   title: 'Preserve predicate pushdown for partition columns', body: 'Keep partition filters in the remote query.\n\n- Verify null values.\n- Preserve case-sensitive column names.',
   type: 'Story', status: { id: 'todo', name: 'To do', category: 'new' },
   assignee: { accountId: 'me', displayName: 'Alex Chen', avatarUrl: null }, labels: ['connectors'], priority: { id: '2', name: 'High' },
-  parent: { id: '1000', key: 'ENG-1000', title: 'Connector reliability' }, hasChildren: false, isGoal: false,
+  parent: { id: '1000', key: 'ENG-1000', title: 'Connector reliability', type: 'Epic' }, hasChildren: false, isGoal: false,
   updatedAt: '2026-09-26T08:00:00Z', completedAt: null, dueDate: null, task: null, workspace: null,
 };
 export function jiraDetail(issue: JiraIssue = jiraIssue): JiraIssueDetail {
@@ -31,5 +31,7 @@ export function jiraDetail(issue: JiraIssue = jiraIssue): JiraIssueDetail {
       { id: 'priority', name: 'Priority', required: false, schemaType: 'priority', allowedValues: [{ id: '2', name: 'High' }, { id: '3', name: 'Medium' }] },
       { id: 'duedate', name: 'Due date', required: false, schemaType: 'date', allowedValues: [] }],
     assignees: [{ accountId: 'me', displayName: 'Alex Chen', avatarUrl: null }], fetchedAt: issue.updatedAt, error: null, commentsTruncated: false,
-    hierarchyLevel: 0, children: [], childrenTruncated: false, links: [], richTextFields: [] };
+    hierarchyLevel: 0, children: [], childrenTruncated: false, links: [], richTextFields: [],
+    project: 'Engineering', reporter: { accountId: 'reviewer', displayName: 'Sam Rivera', avatarUrl: null }, peopleFields: [{ id: 'customfield_1', name: 'Co-Assignee(s)', people: [{ accountId: 'vlad', displayName: 'Vera Lind', avatarUrl: null }] }],
+    teamFields: [{ id: 'customfield_2', name: 'Team', team: 'ENG-Connectors' }] };
 }

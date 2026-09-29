@@ -22,7 +22,11 @@ The first release includes:
   zoom animation (disabled for reduced motion), description, the site's
   multi-line custom text fields that have content (such as “Additional
   Context”, named by Jira and read on each ticket refresh), comments (newest
-  thread first, under the comment box) and fields.
+  thread first, under the comment box) and fields. Its header shows where the
+  ticket sits, as project / parent / ticket, with a button that copies the
+  ticket's Jira link. Details list the assignee, the site's user fields that
+  name someone (such as “Co-Assignee(s)”), the reporter, the team, priority,
+  due date, labels, sprint and parent.
   Action icons and parent links keep their own actions. Escape or Close returns
   focus to the card; the board keeps its layout and scroll position. Ticket dialogs
   hide while the embedded browser or another layer is above them and restore with

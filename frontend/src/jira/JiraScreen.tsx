@@ -13,7 +13,7 @@
  */
 
 import { Fragment, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { Bookmark, Bug, Check, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, ClipboardList, Columns3, CornerDownRight, Equal, ExternalLink, Flag, FolderGit2, List, LoaderCircle, Minus, Pencil, Play, RefreshCw, Reply, Search, UserRound, X, Zap } from 'lucide-react';
+import { Bookmark, Bug, Check, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, ClipboardList, Columns3, CornerDownRight, Equal, ExternalLink, Flag, FolderGit2, List, LoaderCircle, Minus, Pencil, Play, RefreshCw, Reply, Search, UserRound, UsersRound, X, Zap } from 'lucide-react';
 import MarkdownBody from '../pulls/MarkdownBody';
 import { usePopoverDismiss } from '../pulls/code-tests/Outline';
 import { ago, relativeTime } from '../relativeTime';
@@ -27,6 +27,7 @@ import { settingsRoute } from '../settings/routes';
 import { LayerCovered } from '../Zoom';
 import { zoomReference } from '../githubReference';
 import PinButton from '../home/PinButton';
+import CopyLinkButton from '../CopyLinkButton';
 import { completeAttentionVisit, recordAttentionAction, useAttentionVisit } from '../home/useAttentionVisit';
 import { jiraAttentionItem } from './attention';
 import { JIRA_CHANGED, jiraAccountLabel, jiraSiteDomain, jiraIssueKey, jiraIssueLocation, jiraLocation, jiraRoute, notifyJiraChanged, type JiraBoard, type JiraComment, type JiraConnection, type JiraField, type JiraIssue, type JiraIssueDetail, type JiraIssuePage, type JiraLinkType, type JiraLocation, type JiraRelatedIssue, type JiraSite, type JiraSprint, type JiraStatus, type JiraUser } from './contracts';
@@ -545,7 +546,6 @@ function JiraWorkItems({ detail, location, busy, mutate }: { detail: JiraIssueDe
         <p className={`jira-work__hint${linkNote ? ' is-error' : ''}`}>{linkNote ?? 'Relationships come from Jira. ↵ to link · Esc to cancel'}</p>
       </form>}
     </section>
-    {issue.parent && <div className="jira-work__parent"><h3>Parent</h3><JiraParent parent={issue.parent} onOpen={() => open(issue.parent)} /></div>}
   </div>;
 }
 
@@ -678,9 +678,13 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
   return <dialog ref={dialog} className="jira-detail" aria-label="Ticket details" onCancel={event => { event.preventDefault(); if (!busy) close(); }}>
     <header className="jira-detail__head">
       <div className="jira-detail__crumbs">
-        {issue && <><JiraTypeIcon type={issue.type} /><span className="jira-detail__key">{issue.key}</span><span>{issue.type}</span>
-          {scope && <><span className="jira-detail__sep" aria-hidden="true">/</span><span>{scope.board}</span></>}
-          {scope?.sprint && <><span className="jira-detail__sep" aria-hidden="true">/</span><span className="jira-detail__sprint">{scope.sprint}</span></>}</>}
+        {issue && <nav className="jira-detail__path" aria-label="Ticket location">
+          {detail?.project && <><span className="jira-detail__project">{detail.project}</span><span className="jira-detail__sep" aria-hidden="true">/</span></>}
+          {issue.parent && <><button type="button" className="jira-detail__crumb" title={`${issue.parent.key} · ${issue.parent.title}`} onClick={() => { if (issue.parent) zoomReference({ kind: 'jira', ...location, issueId: issue.parent.id }); }}>
+            <JiraTypeIcon type={issue.parent.type ?? 'Parent'} />{issue.parent.key}</button><span className="jira-detail__sep" aria-hidden="true">/</span></>}
+          <span className="jira-detail__crumb"><JiraTypeIcon type={issue.type} /><span className="jira-detail__key">{issue.key}</span></span>
+          <CopyLinkButton value={issue.url} label="ticket link" />
+        </nav>}
         <span className="jira-spacer" />
         {issue && <PinButton className="bq-iconbtn" item={{ key: `jira:${issue.cloudId}:${issue.id}`, title: issue.title, reference: issue.key, target: { kind: 'jira', ...jiraIssueLocation(issue) } }} />}
         <button type="button" className="bq-iconbtn" aria-label="Refresh ticket" title="Refresh ticket" disabled={busy || loading} onClick={refresh}><RefreshCw size={15} className={loading || refreshing ? 'jira-spin' : ''} /></button>
@@ -748,6 +752,10 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
             <div className="jira-side__head"><h3>Details</h3><span className="jira-spacer" /><button type="button" className="jira-add" disabled={loading || busy || detail.editableFields.length === 0} onClick={() => { closeMenu(); setEditing(true); }}>Edit fields</button></div>
             <div className="jira-fields">
               <span className="jira-fields__label">Assignee</span><span className="jira-fields__person"><JiraAvatar person={issue.assignee} /><span className={issue.assignee ? '' : 'jira-dim'}>{issue.assignee?.displayName ?? 'Unassigned'}</span></span>
+              {detail.peopleFields.map(field => <Fragment key={field.id}><span className="jira-fields__label">{field.name}</span><span className="jira-fields__people">{field.people.map(person =>
+                <span className="jira-fields__person" key={person.accountId}><JiraAvatar person={person} /><span>{person.displayName}</span></span>)}</span></Fragment>)}
+              <span className="jira-fields__label">Reporter</span><span className="jira-fields__person"><JiraAvatar person={detail.reporter} /><span className={detail.reporter ? '' : 'jira-dim'}>{detail.reporter?.displayName ?? 'None'}</span></span>
+              {detail.teamFields.map(field => <Fragment key={field.id}><span className="jira-fields__label">{field.name}</span><span className="jira-fields__team"><UsersRound size={13} aria-hidden="true" /><span>{field.team}</span></span></Fragment>)}
               <span className="jira-fields__label">Priority</span>{issue.priority ? <JiraPriority priority={issue.priority} detailed /> : <span className="jira-dim">None</span>}
               <span className="jira-fields__label">Due date</span>{issue.dueDate ? <span>{new Date(`${issue.dueDate}T12:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span> : <span className="jira-dim">None</span>}
               <span className="jira-fields__label">Labels</span><span className="jira-fields__labels">{issue.labels.length > 0 ? issue.labels.map(label => <span className="jira-label" key={label}>{label}</span>) : <span className="jira-dim">None</span>}</span>
@@ -757,6 +765,7 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
                   {sprints.filter(value => value.state !== 'closed').map(value => <MenuItem key={value.id} onPick={() => moveTo(value.id)}><span className="jira-menu__label">{value.name}</span><SprintState sprint={value} /></MenuItem>)}
                   <MenuItem onPick={() => moveTo(null)}><span className="jira-menu__label">Backlog</span></MenuItem></Popover>}
               </div></>}
+              {issue.parent && <><span className="jira-fields__label">Parent</span><JiraParent parent={issue.parent} onOpen={() => { if (issue.parent) zoomReference({ kind: 'jira', ...location, issueId: issue.parent.id }); }} /></>}
             </div>
           </section>}
         <section className="jira-side__bytequay" aria-label="ByteQuay">

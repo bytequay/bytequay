@@ -223,9 +223,11 @@ public class JiraService
         JiraIssue issue = issue(connectionId, cloudId, issueId);
         return cache.read(issueKey(connectionId, cloudId, issueId) + ".detail", JiraDtos.Detail.class)
                 .map(saved -> new JiraDtos.Detail(issue, issue.comments(), saved.transitions(), saved.editableFields(), saved.assignees(), saved.fetchedAt(),
-                        saved.error(), issue.commentsTruncated(), saved.hierarchyLevel(), saved.children(), saved.childrenTruncated(), saved.links(), saved.richTextFields()))
+                        saved.error(), issue.commentsTruncated(), saved.hierarchyLevel(), saved.children(), saved.childrenTruncated(), saved.links(), saved.richTextFields(),
+                        saved.project(), saved.reporter(), saved.peopleFields(), saved.teamFields()))
                 .orElseGet(() -> new JiraDtos.Detail(issue, issue.comments(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(),
-                        Optional.empty(), issue.commentsTruncated(), 0, ImmutableList.of(), false, ImmutableList.of(), ImmutableList.of()));
+                        Optional.empty(), issue.commentsTruncated(), 0, ImmutableList.of(), false, ImmutableList.of(), ImmutableList.of(), Optional.empty(), Optional.empty(),
+                        ImmutableList.of(), ImmutableList.of()));
     }
 
     public JiraDtos.Detail refreshDetail(String connectionId, String cloudId, String issueId, boolean automatic)
@@ -235,8 +237,8 @@ public class JiraService
 
     private JiraDtos.Detail refreshDetail(String connectionId, String cloudId, String issueId)
     {
-        // Custom field ids differ per site, so the dialog asks for every field and the names that label them.
-        JsonNode value = get(connectionId, cloudId, query(issuePath(issueId), ImmutableMap.of("fields", "*all,-comment,-worklog", "expand", "names")));
+        // Custom field ids differ per site, so the dialog asks for every field with the names and schemas that label and type them.
+        JsonNode value = get(connectionId, cloudId, query(issuePath(issueId), ImmutableMap.of("fields", "*all,-comment,-worklog", "expand", "names,schema")));
         JiraIssue issue = refreshIssue(connectionId, cloudId, value);
         String path = issuePath(issueId);
         // These reads only need the ticket, so they run together. They must not take JiraIssueLocks: afterWrite waits for them while holding a stripe.
@@ -272,7 +274,9 @@ public class JiraService
         JiraDtos.Detail detail = new JiraDtos.Detail(complete, complete.comments(), transitions, fields, assignees,
                 Optional.of(Instant.now()), error, complete.commentsTruncated(), value.path("fields").path("issuetype").path("hierarchyLevel").asInt(),
                 nodes(children.path("issues")).stream().map(JiraMapping::related).collect(toImmutableList()), JiraMapping.text(children, "nextPageToken").isPresent(),
-                JiraMapping.links(value.path("fields").path("issuelinks")), JiraMapping.richTextFields(siteUrl, value));
+                JiraMapping.links(value.path("fields").path("issuelinks")), JiraMapping.richTextFields(siteUrl, value),
+                JiraMapping.text(value.path("fields").path("project"), "name"), JiraMapping.reporter(value),
+                JiraMapping.peopleFields(value), JiraMapping.teamFields(value));
         cache.write(issueKey(connectionId, cloudId, issueId) + ".detail", detail);
         return detail;
     }
@@ -442,7 +446,8 @@ public class JiraService
             if (parentId.isPresent() && !parentId.equals(JiraMapping.text(created, "parentId"))) {
                 return new JiraDtos.Detail(detail.issue(), detail.comments(), detail.transitions(), detail.editableFields(), detail.assignees(), detail.fetchedAt(),
                         Optional.of("Jira saved your reply as a new comment instead of a reply."), detail.commentsTruncated(), detail.hierarchyLevel(),
-                        detail.children(), detail.childrenTruncated(), detail.links(), detail.richTextFields());
+                        detail.children(), detail.childrenTruncated(), detail.links(), detail.richTextFields(), detail.project(), detail.reporter(), detail.peopleFields(),
+                        detail.teamFields());
             }
             return detail;
         });
@@ -572,7 +577,8 @@ public class JiraService
             JiraDtos.Detail saved = detail(connectionId, cloudId, issueId, false);
             return new JiraDtos.Detail(saved.issue(), saved.comments(), ImmutableList.of(), ImmutableList.of(), saved.assignees(), saved.fetchedAt(),
                     Optional.of("Saved to Jira, but refreshing failed. Refresh before making another change."), saved.commentsTruncated(), saved.hierarchyLevel(),
-                    saved.children(), saved.childrenTruncated(), saved.links(), saved.richTextFields());
+                    saved.children(), saved.childrenTruncated(), saved.links(), saved.richTextFields(), saved.project(), saved.reporter(), saved.peopleFields(),
+                    saved.teamFields());
         }
     }
 

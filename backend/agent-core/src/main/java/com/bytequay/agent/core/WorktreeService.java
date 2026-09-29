@@ -46,8 +46,10 @@ public interface WorktreeService
      * Removes a verified clean worktree without deleting its generated branch.
      *
      * <p>The caller owns task quiescence. The implementation revalidates the
-     * path, repository, and branch, refuses dirty work or an open Git operation,
-     * and never force-removes files. Repeating a successful cleanup is safe.
+     * path, repository, and branch, deletes the Claude CLI's
+     * {@code .claude/.cc-writes/} staging files, which are never work, refuses
+     * dirty work or an open Git operation, and never force-removes files.
+     * Repeating a successful cleanup is safe.
      *
      * @throws AgentConflictException when cleanliness or Git operation state blocks cleanup
      * @throws InvalidAgentRequestException when ownership is unverifiable

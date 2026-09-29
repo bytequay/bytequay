@@ -266,6 +266,26 @@ class TestManagedWorktreeService
     }
 
     @Test
+    void claudeStagingFoldersNeverBlockCleanup()
+            throws IOException
+    {
+        // The Claude CLI adds this rule to the user's global gitignore.
+        Path exclude = reportedPath(repository, "info/exclude");
+        Files.writeString(exclude, Files.readString(exclude) + "**/.claude/.cc-writes/\n");
+        TaskWorktree worktree = service.provision(command(TaskId.random()));
+        Path checkout = worktree.canonicalWorktree();
+        Files.createDirectories(checkout.resolve("src/.claude/.cc-writes"));
+        Files.createDirectories(checkout.resolve("src/main/.claude/.cc-writes"));
+        Files.writeString(checkout.resolve("src/main/.claude/.cc-writes/settings.json.tmp.0123abcd"), "interrupted write\n");
+        assertThat(service.inspect(worktree).dirty()).isTrue();
+
+        service.cleanup(worktree);
+
+        assertThat(checkout).doesNotExist();
+        assertThat(run(repository, "show-ref", "--verify", "refs/heads/" + worktree.generatedBranch()).successful()).isTrue();
+    }
+
+    @Test
     void readsUncommittedFilesAndCommitsWithoutOptionalLocks()
             throws IOException
     {

@@ -267,11 +267,13 @@ public final class ManagedWorktreeService
                 throw new AgentStorageException("Cannot determine whether the task worktree exists");
             }
 
+            Path checkout = verifyOwnedWorktree(workspace, repository, worktree);
+            deleteClaudeStagingFiles(checkout);
             WorktreeSnapshot snapshot = inspectVerified(workspace, repository, worktree);
             if (snapshot.uncommitted()) {
                 throw conflict("Task worktree has tracked, staged, or untracked changes");
             }
-            if (snapshot.dirty()) {
+            if (snapshot.dirty() && holdsIgnoredFiles(checkout)) {
                 throw conflict("Task worktree has ignored files, such as build output, that removing it would delete");
             }
             if (snapshot.gitOperationInProgress()) {
@@ -390,6 +392,30 @@ public final class ManagedWorktreeService
                 .anyMatch(path -> Files.exists(path, LinkOption.NOFOLLOW_LINKS));
         boolean uncommitted = status.lines().anyMatch(line -> !line.startsWith("!!"));
         return new WorktreeSnapshot(worktree, head, !status.isEmpty(), operationInProgress, uncommitted);
+    }
+
+    /** The Claude CLI leaves a .claude/.cc-writes/ staging folder in each directory its shell visits; nothing in one is task work. */
+    private void deleteClaudeStagingFiles(Path checkout)
+    {
+        String staged = requireOutput(git.runStdout(checkout, "ls-files", "-z", "--others", "--ignored", "--exclude=**/.claude/.cc-writes/"),
+                "list the Claude CLI's staging files");
+        try {
+            for (String path : staged.split("\0")) {
+                if (!path.isEmpty()) {
+                    Files.deleteIfExists(checkout.resolve(path));
+                }
+            }
+        }
+        catch (IOException failure) {
+            throw new AgentStorageException("Cannot delete the Claude CLI's staging files", failure);
+        }
+    }
+
+    /** Status also lists ignored folders that hold no file, such as emptied staging folders; removing those deletes nothing. */
+    private boolean holdsIgnoredFiles(Path checkout)
+    {
+        Result ignored = git.runStdout(checkout, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory", "--no-empty-directory");
+        return !ignored.successful() || ignored.truncated() || !ignored.output().isEmpty();
     }
 
     private Path verifyManagedRepository(Workspace workspace)

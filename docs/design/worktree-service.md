@@ -232,12 +232,15 @@ mid-read is left out rather than reported as clean.
 `cleanup(...)`:
 
 1. Repeats the same exact ownership checks as `inspect(...)`.
-2. Refuses a dirty worktree, staged or untracked files, ignored files that
+2. Deletes the files in the Claude CLI's `.claude/.cc-writes/` staging folders.
+   The CLI leaves one in each directory its shell visits and adds them to the
+   user's global gitignore; they never hold task work.
+3. Refuses a dirty worktree, staged or untracked files, ignored files that
    removal would delete, an open cherry-pick, rebase, merge, or other Git
-   operation.
-3. Runs non-force `git worktree remove` for that exact path.
-4. Verifies that Git no longer registers the worktree.
-5. Leaves the recorded generated branch in the managed repository as the local
+   operation. An ignored folder that holds no file does not count.
+4. Runs non-force `git worktree remove` for that exact path.
+5. Verifies that Git no longer registers the worktree.
+6. Leaves the recorded generated branch in the managed repository as the local
    result.
 
 Cleanup never runs `--force` and never deletes the generated branch. Therefore

@@ -310,7 +310,27 @@ class TestContextBuildService
         verify(tasks).create(any(CreateAgentTaskCommand.class));
         ArgumentCaptor<StartAgentTurnCommand> started = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
         verify(turns).start(started.capture());
-        assertThat(started.getValue().message()).contains("deeply nested", "40 source operations", "partial report", "later user approval");
+        assertThat(started.getValue().message()).contains("deeply nested", "40 source operations", "partial report", "later user approval",
+                "separate focused topics", "supplement component topics", "missing questions in remaining");
+    }
+
+    @Test
+    void discoveryContinuationRevisitsMissingComponentQuestionsInSurveyedAreas()
+    {
+        ContextDiscoveryReport report = new ContextDiscoveryReport("11111111-1111-4111-8111-111111111111", WORKSPACE, 7, REPOSITORY, SHA,
+                "Shared storage survey", ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                ImmutableList.of("plugin/other/ still needs its own write-contract questions"), true, ContextDiscoveryReport.Coverage.none(), NOW);
+        reports.save(Optional.empty(), report);
+        when(git.run(REPOSITORY_PATH, "rev-parse", "--verify", SHA + "^{commit}"))
+                .thenReturn(new GitCommandRunner.Result(0, SHA + "\n", false));
+
+        service.discover(WORKSPACE, new ContextBuildService.Request("continue-discovery", 0, 0, ImmutableList.of(), ImmutableList.of()), true);
+
+        ArgumentCaptor<StartAgentTurnCommand> started = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
+        verify(turns).start(started.capture());
+        assertThat(started.getValue().message()).contains("remaining questions", "missing component questions from earlier broad topics",
+                "even when their directories were surveyed", "missing questions in remaining", "Earlier topics, sources and evidence are kept");
+        assertThat(reports.find(WORKSPACE)).contains(report);
     }
 
     @Test

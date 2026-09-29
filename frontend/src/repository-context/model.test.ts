@@ -14,9 +14,9 @@
 import { describe, expect, it } from 'vitest';
 import type {
   ContextBuildViewDto, ContextDiscoveryReportDto, ContextEntryDto, ContextKnowledgeDraftDto, ContextLearningPlanDto, ContextMergedCandidateDto, ContextRunDto,
-  RepositoryNotebookDto,
+  ContextScopeDto, RepositoryNotebookDto,
 } from './contracts';
-import { filterNotes, noteDiff, openCandidates, pendingCounts, questionRow, statusCard, type StatusInput } from './model';
+import { filterNotes, noteDiff, openCandidates, pendingCounts, questionRow, scopeForTopic, statusCard, type StatusInput } from './model';
 
 const NOW = Date.parse('2026-09-29T12:00:00Z');
 const entry: ContextEntryDto = { id: 'knowledge:iceberg', kind: 'KNOWLEDGE', scopeId: 'iceberg', title: 'Iceberg metadata refresh',
@@ -103,6 +103,26 @@ describe('repository context status card', () => {
 });
 
 describe('repository context notes', () => {
+  it('associates discovery topics with the full path rule instead of the first path', () => {
+    const paths = ['plugin/trino-iceberg/', 'plugin/trino-delta-lake/'];
+    const shared: ContextScopeDto = { id: 'discovery:shared', title: 'Lakehouse connectors', enabled: true, discoveryEvidenceRef: null,
+      match: { kind: 'SELECTED', pathPrefixes: paths.toReversed(), terms: [] } };
+    const withTerms: ContextScopeDto = { ...shared, id: 'custom:lakehouse', match: { kind: 'SELECTED', pathPrefixes: paths, terms: ['lakehouse'] } };
+    expect(scopeForTopic(notebook, paths)).toBeUndefined();
+    expect(scopeForTopic({ ...notebook, scopes: [...notebook.scopes, withTerms] }, paths)).toBeUndefined();
+    expect(scopeForTopic({ ...notebook, scopes: [...notebook.scopes, shared] }, paths)).toBe(shared);
+    expect(scopeForTopic(notebook, [])?.id).toBe('project');
+    expect(scopeForTopic(notebook, [paths[0]])?.id).toBe('iceberg');
+  });
+
+  it('prefers an enabled exact area and retains a disabled match when no enabled match exists', () => {
+    const enabled = notebook.scopes[1];
+    const disabled = { ...enabled, id: 'disabled:iceberg', enabled: false };
+    const book = { ...notebook, scopes: [disabled, ...notebook.scopes] };
+    expect(scopeForTopic(book, ['plugin/trino-iceberg/'])).toBe(enabled);
+    expect(scopeForTopic({ ...book, scopes: [disabled] }, ['plugin/trino-iceberg/'])).toBe(disabled);
+  });
+
   it('links an answered question to its waiting draft or approved note, and says when a draft was dismissed', () => {
     const answered = [run(1, 'ANSWERED', 0, '2026-09-29T11:00:00Z', [entry.id])];
     expect(questionRow(plan.topics[0], 0, answered, null, { ...notebook, pendingDrafts: [draft] }).link).toEqual({ label: 'Review draft', kind: 'draft', id: 'draft:1' });

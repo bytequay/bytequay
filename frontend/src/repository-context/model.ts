@@ -76,6 +76,14 @@ export function noteArea(notebook: RepositoryNotebookDto, scopeId: string): Cont
   return area(notebook.scopes.find(scope => scope.id === scopeId), scopeId);
 }
 
+/** Discovery proposes paths only; reuse an area only when its entire matching rule agrees. */
+export function scopeForTopic(notebook: RepositoryNotebookDto, paths: string[]): ContextScopeDto | undefined {
+  if (paths.length === 0) return notebook.scopes.find(scope => scope.id === 'project');
+  const matches = notebook.scopes.filter(scope => scope.match.kind === 'SELECTED' && scope.match.terms.length === 0
+    && scope.match.pathPrefixes.length === paths.length && scope.match.pathPrefixes.every(path => paths.includes(path)));
+  return matches.find(scope => scope.enabled) ?? matches[0];
+}
+
 /* ── Runs ───────────────────────────────────────────────────────────── */
 
 export function currentRun(build: ContextBuildViewDto | null): ContextRunDto | null {

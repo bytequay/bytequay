@@ -419,10 +419,12 @@ public class ContextBuildService
     {
         if (build.mode() == ContextBuild.Mode.DISCOVER && build.continuesReport().isPresent()) {
             return "Continue the saved partial discovery of " + build.repository().fullName() + " at its recorded baseline " + build.baselineSha()
-                    + ". Use repository_context_discovery_read STATUS for the earlier topics, coverage and unsurveyed directories, then survey those areas. "
+                    + ". Use repository_context_discovery_read STATUS for the earlier topics, remaining questions, coverage and unsurveyed directories. "
+                    + "Survey unsurveyed areas and investigate missing component questions from earlier broad topics. "
                     + "Earlier topics, sources and evidence are kept; submit only new topics and sources, each with one to six focused learning questions "
-                    + "supported by read evidence. Do not read all code or follow external websites. "
-                    + "You have at most 40 source operations in this one turn. Mark the report partial and list remaining work if areas are still unsurveyed. "
+                    + "supported by read evidence. " + ContextAgentDiscoveryTools.TOPIC_GUIDANCE
+                    + "Do not read all code or follow external websites. You have at most 40 source operations in this one turn. "
+                    + "Mark the report partial and list remaining work if areas are still unsurveyed or component learning proposals remain unresolved. "
                     + "Submit the discovery report, then end; do not create notes, commit, push or publish.";
         }
         if (build.mode() == ContextBuild.Mode.DISCOVER) {
@@ -430,6 +432,7 @@ public class ContextBuildService
                     + ". Use the repository discovery tools to inspect project structure, build files, README and selected documentation. "
                     + "Search across the repository; modules can be deeply nested and need not follow a standard layout. "
                     + "Propose learning topics, each with one to six focused learning questions, their relevant code paths, and source documents supported by read evidence. "
+                    + ContextAgentDiscoveryTools.TOPIC_GUIDANCE
                     + "Do not read all code or follow external websites. External documentation links are suggestions for later user approval. "
                     + "You have at most 40 source operations in this one turn. Save a partial report with remaining questions before reaching the limit. "
                     + "Submit the discovery report, then end; do not create notes, commit, push or publish.";

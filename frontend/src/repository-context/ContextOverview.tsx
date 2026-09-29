@@ -20,7 +20,7 @@ import type { ContextDiscoveryReportDto } from './contracts';
 import { Chevron, Icon, Spinner, type IconName } from './icons';
 import {
   clock, currentRun, entryTimeKey, kindLabel, nextQuestion, openCandidates, planCounts, plural, reviewItems, shortDate, shortSha,
-  statusCard, topicSummary, topicsOutsidePlan, LIMITS, type QuestionRow, type StatusAction,
+  scopeForTopic, statusCard, topicSummary, topicsOutsidePlan, LIMITS, type QuestionRow, type StatusAction,
 } from './model';
 import type { ContextActions, ContextData } from './RepositoryContextPage';
 
@@ -360,9 +360,8 @@ function SuggestedTopics({ data, actions, busy, report, topics }: { data: Contex
     <div className="rcp-list">
       {topics.map(topic => {
         const open = expanded === topic.id;
-        const scopeId = topic.paths.length === 0 ? 'project' : 'path:' + topic.paths[0];
-        const existing = data.notebook.entries.filter(entry => entry.scopeId === scopeId).length;
-        const scope = data.notebook.scopes.find(value => value.id === scopeId);
+        const scope = scopeForTopic(data.notebook, topic.paths);
+        const existing = scope === undefined ? 0 : data.notebook.entries.filter(entry => entry.scopeId === scope.id).length;
         const areaName = topic.paths.length === 0 ? 'Project-wide' : scope?.title ?? null;
         const evidence = topic.evidenceReadIds.map(id => report.evidence.find(read => read.readId === id)).filter(read => read !== undefined);
         const checkbox = `rcp-topic-${topic.id}`;

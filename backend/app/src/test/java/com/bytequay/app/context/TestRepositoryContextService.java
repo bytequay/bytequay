@@ -193,6 +193,38 @@ class TestRepositoryContextService
     }
 
     @Test
+    void discoveredSharedScopeKeepsExistingNotesAndMatchesAnotherConnector()
+    {
+        ContextSourceEvidence icebergSource = discoveryEvidence("iceberg", "plugin/trino-iceberg/pom.xml", "Iceberg connector");
+        ContextScope iceberg = new ContextScope("path:plugin/trino-iceberg/", "Iceberg", new ContextMatch.Selected(
+                ImmutableList.of("plugin/trino-iceberg/"), ImmutableList.of()), true, Optional.empty(), Optional.of(icebergSource.id()));
+        RepositoryNotebook initial = service.registerDiscovered(WORKSPACE, 0, ImmutableList.of(iceberg), ImmutableList.of(), ImmutableList.of(icebergSource));
+        RepositoryNotebook before = service.editEntry(WORKSPACE, initial.revision(), new EditContextEntry(
+                ContextEntry.knowledgeId(iceberg.id()), iceberg.id(), "Iceberg snapshots", "Iceberg-only rule", "Existing approved knowledge",
+                ImmutableList.of(), ImmutableList.of(icebergSource.id())));
+        ContextSourceEvidence sharedSource = discoveryEvidence("shared", "pom.xml", "Shared connector modules");
+        ContextScope shared = new ContextScope("discovery:lakehouse", "Lakehouse connectors", new ContextMatch.Selected(
+                ImmutableList.of("plugin/trino-iceberg/", "plugin/trino-delta-lake/", "lib/trino-filesystem/"), ImmutableList.of()),
+                true, Optional.empty(), Optional.of(sharedSource.id()));
+
+        RepositoryNotebook registered = service.registerDiscovered(WORKSPACE, before.revision(),
+                ImmutableList.of(shared), ImmutableList.of(), ImmutableList.of(sharedSource));
+
+        assertThat(registered.scopes()).containsExactly(ContextScope.project(), iceberg, shared);
+        assertThat(registered.entries()).isEqualTo(before.entries());
+        RepositoryNotebook saved = service.editEntry(WORKSPACE, registered.revision(), new EditContextEntry(
+                ContextEntry.knowledgeId(shared.id()), shared.id(), "Shared storage behavior", "Connector storage contracts", "Approved shared knowledge",
+                ImmutableList.of(), ImmutableList.of(sharedSource.id())));
+        assertThat(saved.entries()).containsAll(before.entries());
+        ContextNotebookLookup lookup = new ContextNotebookLookup(service, new RepositoryContextMatcher(), new ContextNoteReader(service), mapper);
+        ContextNotebookLookup.SearchResult found = lookup.search(WORKSPACE, new ContextNotebookLookup.SearchQuery("",
+                ImmutableList.of("plugin/trino-delta-lake/src/main/java/DeltaLakeMetadata.java")));
+        assertThat(found.hits()).extracting(ContextNotebookLookup.Hit::entryId).containsExactly(ContextEntry.knowledgeId(shared.id()));
+        assertThat(found.hits().getFirst().scopeId()).isEqualTo(shared.id());
+        assertThat(service.getNotebook(WORKSPACE)).isEqualTo(saved);
+    }
+
+    @Test
     void sourceEvidenceStaysOnlyUntilTheSourceChanges()
     {
         ContextSourceEvidence module = discoveryEvidence("module", "component/pom.xml", "<project/>");

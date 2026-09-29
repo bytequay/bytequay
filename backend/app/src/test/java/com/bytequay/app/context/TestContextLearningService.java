@@ -90,6 +90,18 @@ class TestContextLearningService
         when(builds.get(WORKSPACE)).thenAnswer(ignored -> view.get());
         when(builds.learn(eq(WORKSPACE), any(), eq(SHA), anyList(), any())).thenAnswer(ignored -> view.get());
         when(unitOfWork.execute(any())).thenAnswer(call -> ((AgentUnitOfWork.Work<?>) call.getArgument(0)).run());
+        when(notebooks.registerDiscovered(eq(WORKSPACE), anyLong(), anyList(), anyList(), anyList())).thenAnswer(call -> {
+            RepositoryNotebook current = notebook.get();
+            List<ContextScope> scopes = call.getArgument(2);
+            List<RegisteredContextSource> sources = call.getArgument(3);
+            List<ContextSourceEvidence> evidence = call.getArgument(4);
+            RepositoryNotebook updated = new RepositoryNotebook(1, current.revision() + 1, current.useInReviews(), current.useInDevelopment(),
+                    ImmutableList.<RegisteredContextSource>builder().addAll(current.sources()).addAll(sources).build(),
+                    ImmutableList.<ContextScope>builder().addAll(current.scopes()).addAll(scopes).build(), current.entries(),
+                    ImmutableList.<ContextSourceEvidence>builder().addAll(current.sourceEvidence()).addAll(evidence).build(), Optional.empty());
+            notebook.set(updated);
+            return updated;
+        });
         learning = new ContextLearningService(reports, plans, buildStore, builds, notebooks, workspaces, git, unitOfWork, mapper, clock);
     }
 
@@ -186,21 +198,11 @@ class TestContextLearningService
                 ImmutableList.of("context-read:readme"), "README links to the docs");
         reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Iceberg snapshots",
                 ImmutableList.of("plugin/iceberg/"), ImmutableList.of("source:1"))), ImmutableList.of(source)));
-        when(notebooks.registerDiscovered(eq(WORKSPACE), eq(0L), anyList(), anyList(), anyList())).thenAnswer(call -> {
-            List<ContextScope> scopes = call.getArgument(2);
-            List<RegisteredContextSource> sources = call.getArgument(3);
-            List<ContextSourceEvidence> evidence = call.getArgument(4);
-            RepositoryNotebook updated = new RepositoryNotebook(1, 1, true, true, sources,
-                    ImmutableList.<ContextScope>builder().add(ContextScope.project()).addAll(scopes).build(),
-                    ImmutableList.of(), evidence, Optional.empty());
-            notebook.set(updated);
-            return updated;
-        });
 
         learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1"), ImmutableList.of()));
 
         ContextLearningPlan plan = plans.find(WORKSPACE).orElseThrow();
-        assertThat(plan.topics().getFirst().scopeId()).isEqualTo("path:plugin/iceberg/");
+        assertThat(plan.topics().getFirst().scopeId()).isEqualTo(notebook.get().scopes().getLast().id());
         assertThat(plan.topics().getFirst().paths()).containsExactly("plugin/iceberg/");
         assertThat(plan.documentationSources()).hasSize(1);
         assertThat(plan.documentationSources().getFirst().origin()).isEqualTo(com.bytequay.core.context.ContextEntryOrigin.GENERATED);
@@ -209,6 +211,99 @@ class TestContextLearningService
         assertThat(notebook.get().scopes().getLast().match())
                 .isEqualTo(new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/"), ImmutableList.of()));
         assertThat(notebook.get().sourceEvidence()).hasSize(1);
+    }
+
+    @Test
+    void givesDifferentFullPathSetsTheirOwnScopesAndReusesReorderedPaths()
+    {
+        ContextScope iceberg = new ContextScope("path:plugin/iceberg/", "Iceberg",
+                new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/"), ImmutableList.of()), true, Optional.empty(), Optional.empty());
+        ContextScope withTerms = new ContextScope("legacy", "Legacy topic",
+                new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/", "plugin/delta/"), ImmutableList.of("snapshots")),
+                true, Optional.empty(), Optional.empty());
+        notebook.set(new RepositoryNotebook(1, 0, true, true, ImmutableList.of(), ImmutableList.of(ContextScope.project(), iceberg, withTerms),
+                ImmutableList.of(), ImmutableList.of(), Optional.empty()));
+        reports.save(Optional.empty(), report(ImmutableList.of(
+                topic("topic:1", "Shared storage", ImmutableList.of("plugin/iceberg/", "plugin/delta/"), ImmutableList.of()),
+                topic("topic:2", "Shared catalogs", ImmutableList.of("plugin/delta/", "plugin/iceberg/"), ImmutableList.of()),
+                topic("topic:3", "Hive comparison", ImmutableList.of("plugin/iceberg/", "plugin/hive/"), ImmutableList.of())), ImmutableList.of()));
+
+        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT,
+                ImmutableList.of("topic:1", "topic:2", "topic:3"), ImmutableList.of()));
+
+        ContextLearningPlan plan = plans.find(WORKSPACE).orElseThrow();
+        assertThat(notebook.get().scopes()).hasSize(5).contains(iceberg, withTerms);
+        String shared = plan.topic("topic:1").scopeId();
+        assertThat(shared).isNotEqualTo(iceberg.id()).isNotEqualTo(withTerms.id());
+        assertThat(plan.topic("topic:2").scopeId()).isEqualTo(shared);
+        assertThat(plan.topic("topic:3").scopeId()).isNotEqualTo(shared).isNotEqualTo(iceberg.id());
+        assertThat(notebook.get().scopes().stream().filter(scope -> scope.id().equals(shared)).findFirst().orElseThrow().match())
+                .isEqualTo(new ContextMatch.Selected(ImmutableList.of("plugin/delta/", "plugin/iceberg/"), ImmutableList.of()));
+    }
+
+    @Test
+    void reusesAnEnabledLegacyScopeWithoutChangingItsRuleOrBreakingContinuation()
+    {
+        ContextMatch match = new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/", "plugin/delta/"), ImmutableList.of());
+        ContextScope disabled = new ContextScope("disabled", "Disabled duplicate", match, false, Optional.empty(), Optional.empty());
+        ContextScope legacy = new ContextScope("path:plugin/iceberg/", "Shared storage", match, true, Optional.empty(), Optional.empty());
+        notebook.set(new RepositoryNotebook(1, 0, true, true, ImmutableList.of(), ImmutableList.of(ContextScope.project(), disabled, legacy),
+                ImmutableList.of(), ImmutableList.of(), Optional.empty()));
+        reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Storage",
+                ImmutableList.of("plugin/delta/", "plugin/iceberg/"), ImmutableList.of())), ImmutableList.of()));
+
+        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1"), ImmutableList.of()));
+
+        ContextLearningPlan plan = plans.find(WORKSPACE).orElseThrow();
+        assertThat(plan.topic("topic:1").scopeId()).isEqualTo(legacy.id());
+        assertThat(notebook.get().scopes()).containsExactly(ContextScope.project(), disabled, legacy);
+        verify(notebooks, never()).registerDiscovered(eq(WORKSPACE), anyLong(), anyList(), anyList(), anyList());
+        ContextBuild bound = task(plan, "topic:1", 0);
+        buildStore.save(Optional.empty(), bound);
+        learning.progress(bound, "Read the next source.", false, ImmutableList.of());
+        view.set(view(1));
+        learning.continueLearning(WORKSPACE, new ContextLearningService.ContinueRequest("continue", 0, 1, plan.id()));
+        verify(builds, times(2)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), any());
+    }
+
+    @Test
+    void doesNotCreateAReplacementForADisabledExactScope()
+    {
+        ContextScope disabled = new ContextScope("path:plugin/iceberg/", "Shared storage",
+                new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/", "plugin/delta/"), ImmutableList.of()), false, Optional.empty(), Optional.empty());
+        notebook.set(new RepositoryNotebook(1, 0, true, true, ImmutableList.of(), ImmutableList.of(ContextScope.project(), disabled),
+                ImmutableList.of(), ImmutableList.of(), Optional.empty()));
+        reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Storage",
+                ImmutableList.of("plugin/delta/", "plugin/iceberg/"), ImmutableList.of())), ImmutableList.of()));
+
+        assertThatIllegalArgumentException().isThrownBy(() -> learning.start(WORKSPACE,
+                new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1"), ImmutableList.of())))
+                .withMessageContaining("Learning scope is disabled");
+        verify(notebooks, never()).registerDiscovered(eq(WORKSPACE), anyLong(), anyList(), anyList(), anyList());
+    }
+
+    @Test
+    void rejectsAnOlderMismatchedPlanBeforeStartingOrUsingALearningTask()
+    {
+        reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Iceberg",
+                ImmutableList.of("plugin/iceberg/"), ImmutableList.of())), ImmutableList.of()));
+        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1"), ImmutableList.of()));
+        ContextLearningPlan original = plans.find(WORKSPACE).orElseThrow();
+        ContextLearningPlan.Topic topic = original.topic("topic:1");
+        ContextLearningPlan mismatched = original.withProgress(ImmutableList.of(new ContextLearningPlan.Topic(topic.id(), topic.title(),
+                topic.scopeId(), topic.scopeMatchDigest(), ImmutableList.of("plugin/iceberg/", "plugin/delta/"),
+                topic.repositoryFiles(), topic.sourceIds(), topic.questions())), original.gaps());
+        plans.save(Optional.of(original), mismatched);
+        RepositoryNotebook saved = notebook.get();
+
+        assertThatIllegalArgumentException().isThrownBy(() -> learning.continueLearning(WORKSPACE,
+                new ContextLearningService.ContinueRequest("continue", saved.revision(), 0, mismatched.id())))
+                .withMessageContaining("Discard this learning plan").withMessageContaining("saved notes and drafts are kept");
+        assertThatIllegalArgumentException().isThrownBy(() -> learning.require(task(mismatched, "topic:1", 0)))
+                .withMessageContaining("Saved topic paths do not match");
+        verify(builds, times(1)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), any());
+        assertThat(notebook.get()).isEqualTo(saved);
+        assertThat(plans.find(WORKSPACE)).contains(mismatched);
     }
 
     @Test

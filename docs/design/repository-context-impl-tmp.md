@@ -1,5 +1,26 @@
 # Repository Context implementation checklist
 
+## Component discovery and scope matching correction
+
+- [x] Ask for independently useful component topics; shared topics supplement
+  them, and continuation revisits missing questions in surveyed directories.
+- [x] Reuse a scope only for an equivalent complete path rule. Keep existing
+  scopes, notes and accepted plans unchanged; no reset or automatic relearning.
+- [x] Reject an older mismatched plan before starting or using a learning task,
+  with instructions to reselect topics while preserving saved notes and drafts.
+- [x] Resolve suggested-topic note counts by the same complete matching rule.
+- [x] Add regressions for scope collisions, reordered paths, disabled scopes,
+  existing-plan continuation, and Delta-path retrieval of shared knowledge.
+- [x] Full backend `mvn verify`: 3,543 tests passed with no skips. After the final
+  old-plan guard, targeted `mvn verify -Dtest=TestContext*,TestRepositoryContext*`
+  also passed, including the new mismatch regression and build/style checks.
+- [x] Frontend lint, TypeScript and packaging passed. Repository context model,
+  contract and Chromium tests passed. The full frontend run had 1,387 passing
+  tests and three failures; both timeout failures passed separately. The remaining
+  Jira Viewed-notification failure reproduced on unchanged commit `3cee14a5c`.
+- [x] Verified in an isolated snapshot to exclude unrelated working changes.
+  No live model run, saved-note mutation, automatic relearning or data reset.
+
 ## Refactor development checkpoints
 
 The approved [discover, learn, and use contract](repository-context-refactor.md)

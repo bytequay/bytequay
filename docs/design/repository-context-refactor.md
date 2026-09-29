@@ -68,12 +68,27 @@ semantic index, vector database, crawler, or background learning scheduler.
 
 Discovery can itself be partial. Save the remaining inventory position and show
 what was not surveyed. Never claim a partial list is the complete project map.
+Suggest separate, evidenced topics for independently useful components. Shared
+architecture or comparison topics supplement those topics: including Delta Lake
+and Hive paths in an Iceberg-led topic does not cover their own learning questions.
+Continuation revisits missing component questions even in surveyed directories;
+unresolved components, paths and questions stay in the report's remaining work.
 
 ## 4. Bounded, incremental learning
 
 Learning answers small questions and saves useful notes. For example, Iceberg
 table concepts, Trino's read path, commit behavior, and delete semantics are
 separate units rather than one request to read an entire connector.
+
+Accepting a topic reuses a scope only when its complete path set matches,
+regardless of order, and it has no additional term rules. Otherwise it creates a
+scope identified by the complete rule. The first displayed path is only a compact
+label. Existing scope rules, approved notes and accepted plans remain unchanged;
+this correction needs no data reset. A previously accepted plan whose topic paths
+disagree with its saved scope is rejected before starting or using a learning
+task. The user can discard that plan and select topics again; notes and drafts
+stay. Correctly scoped plans continue normally. New discovery can add missing connector
+topics, which the user can select for learning without deleting prior notes.
 
 The accepted plan fixes repository revisions/document versions and allowed
 folders or website roots. Suggested web defaults are two link hops from the
@@ -210,7 +225,7 @@ The prototype's own "proposed" list is implemented as follows:
 | Next question preview | The plan response names the question the next run will take |
 | Discover remaining areas | A continuation discovery run; at an unchanged baseline its report keeps the earlier topics and evidence and adds new ones |
 | Live activity line | Recorded source operations retain their completed, failed or limit status; a separate run indicator shows the last activity's age without claiming a finished read is still running |
-| Grouping notes by area | By the note's scope, whose first path prefix names the area |
+| Grouping notes by area | By the note's scope and title; the first path prefix is a compact hint, not its matching identity |
 | Stopping discovery | Saves nothing; a submitted partial report is shown with the partial banner |
 | Explore & prepare context | A Home composer mode; the sent first message carries the explore instruction, and the transcript shows it as sent. Tasks have no explore flag, so the task header shows no mode chip |
 | Task draft card | Pending drafts whose recorded proposing task is this task, shown after its transcript; duplicate checks are not reported |

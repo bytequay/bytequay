@@ -45,6 +45,7 @@ import java.util.function.UnaryOperator;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.Comparator.comparing;
 import static java.util.Objects.requireNonNull;
 
 /** Accepts one discovery proposal and runs one saved learning question per explicit task. */
@@ -250,9 +251,7 @@ public class ContextLearningService
                         && topic.repositoryFiles().equals(assignment.repositoryFiles()),
                 "Learning assignment differs from the accepted topic");
         RepositoryNotebook notebook = notebooks.getNotebook(build.workspaceId());
-        checkArgument(notebook.scopes().stream().anyMatch(scope -> scope.id().equals(topic.scopeId()) && scope.enabled()
-                        && matchDigest(scope.match()).equals(topic.scopeMatchDigest())),
-                "Learning scope was disabled or its matching rule changed");
+        requireScope(notebook, topic);
         checkArgument(notebook.sources().containsAll(build.documentationSources()), "Approved documentation source changed");
         return plan;
     }
@@ -308,6 +307,7 @@ public class ContextLearningService
             return builds.get(plan.workspaceId());
         }
         ContextLearningPlan.Topic topic = topic(plan, target.orElseThrow().topicId());
+        requireScope(notebook, topic);
         int index = target.orElseThrow().question();
         checkArgument(index < topic.questions().size(), "Learning question changed");
         ContextLearningPlan.Question question = topic.questions().get(index);
@@ -346,18 +346,24 @@ public class ContextLearningService
         List<ContextScope> scopes = new ArrayList<>();
         Map<String, ContextScope> scopeById = new LinkedHashMap<>();
         notebook.scopes().forEach(scope -> scopeById.put(scope.id(), scope));
+        Map<String, ContextScope> topicScopes = new LinkedHashMap<>();
 
         for (ContextDiscoveryReport.Topic candidate : selected) {
-            String scopeId = candidate.paths().isEmpty() ? "project" : "path:" + candidate.paths().getFirst();
-            ContextScope existing = scopeById.get(scopeId);
-            checkArgument(existing == null || existing.enabled(), "Learning scope is disabled: " + scopeId);
-            if (existing == null) {
-                String ref = evidence(report, cited, candidate.evidenceReadIds().getFirst(), captured).id();
-                ContextScope scope = new ContextScope(scopeId, candidate.title(),
-                        new ContextMatch.Selected(candidate.paths(), ImmutableList.of()), true, Optional.empty(), Optional.of(ref));
-                scopes.add(scope);
-                scopeById.put(scopeId, scope);
-            }
+            ContextScope scope = scopeById.values().stream()
+                    .filter(value -> matchesPaths(value.match(), candidate.paths()))
+                    .min(comparing(value -> !value.enabled()))
+                    .orElseGet(() -> {
+                        ContextMatch match = new ContextMatch.Selected(candidate.paths().stream().sorted().toList(), ImmutableList.of());
+                        String scopeId = "discovery:" + matchDigest(match);
+                        checkArgument(!scopeById.containsKey(scopeId), "Discovered scope ID conflicts with existing configuration");
+                        String ref = evidence(report, cited, candidate.evidenceReadIds().getFirst(), captured).id();
+                        ContextScope created = new ContextScope(scopeId, candidate.title(), match, true, Optional.empty(), Optional.of(ref));
+                        scopes.add(created);
+                        scopeById.put(scopeId, created);
+                        return created;
+                    });
+            checkArgument(scope.enabled(), "Learning scope is disabled: " + scope.id());
+            topicScopes.put(candidate.id(), scope);
             for (String proposedId : candidate.sourceIds()) {
                 if (excluded.contains(proposedId)) {
                     continue;
@@ -395,10 +401,10 @@ public class ContextLearningService
                 }
                 source.evidenceReadIds().stream().map(cited::get).map(ContextDiscoveryReport.Evidence::path).forEach(files::add);
             });
-            String scopeId = candidate.paths().isEmpty() ? "project" : "path:" + candidate.paths().getFirst();
+            ContextScope scope = topicScopes.get(candidate.id());
             List<String> docs = candidate.sourceIds().stream().filter(sourceIds::containsKey).map(sourceIds::get).distinct().toList();
-            return new ContextLearningPlan.Topic(candidate.id(), candidate.title(), scopeId,
-                    matchDigest(scopeById.get(scopeId).match()), candidate.paths(), ImmutableList.copyOf(files), docs,
+            return new ContextLearningPlan.Topic(candidate.id(), candidate.title(), scope.id(),
+                    matchDigest(scope.match()), candidate.paths(), ImmutableList.copyOf(files), docs,
                     candidate.questions().stream().map(ContextLearningPlan.Question::open).toList());
         }).toList();
         List<RegisteredContextSource> documentation = sourceIds.values().stream().distinct().map(id -> notebook.sources().stream()
@@ -437,6 +443,22 @@ public class ContextLearningService
         catch (JsonProcessingException failure) {
             throw new IllegalArgumentException("Scope matching rule cannot be encoded", failure);
         }
+    }
+
+    private void requireScope(RepositoryNotebook notebook, ContextLearningPlan.Topic topic)
+    {
+        ContextScope scope = notebook.scopes().stream().filter(value -> value.id().equals(topic.scopeId()) && value.enabled()
+                        && matchDigest(value.match()).equals(topic.scopeMatchDigest())).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Learning scope was disabled or its matching rule changed"));
+        checkArgument(matchesPaths(scope.match(), topic.paths()),
+                "Saved topic paths do not match its note scope. Discard this learning plan and select topics again; saved notes and drafts are kept.");
+    }
+
+    private static boolean matchesPaths(ContextMatch rule, List<String> paths)
+    {
+        return paths.isEmpty() ? rule instanceof ContextMatch.Repository
+                : rule instanceof ContextMatch.Selected match && match.terms().isEmpty()
+                        && match.pathPrefixes().size() == paths.size() && match.pathPrefixes().containsAll(paths);
     }
 
     private String digest(StartRequest request)

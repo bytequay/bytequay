@@ -151,7 +151,7 @@ public class RepositoryContextService
      *
      * @param workspaceId owning retained workspace
      * @param expectedRevision notebook revision displayed with the discovered proposals
-     * @param scopes new path-stable scopes with server-validated discovery evidence references
+     * @param scopes new path scopes with server-validated discovery evidence references
      * @param sources new generated documentation registrations with server-validated discovery evidence references
      * @param evidence exact captured repository excerpts rederived by the caller outside mutation locks
      * @return notebook with one content revision increment and all prior user content preserved
@@ -171,8 +171,10 @@ public class RepositoryContextService
         ContextLimits.unique(additions.stream().map(ContextScope::id).toList(), "discovered scopes", 100);
         ContextLimits.unique(registrations.stream().map(RegisteredContextSource::id).toList(), "discovered sources", 100);
         ContextLimits.unique(captures.stream().map(ContextSourceEvidence::id).toList(), "discovery evidence", 800);
-        additions.forEach(scope -> checkArgument(scope.id().startsWith("path:") && scope.preparation().isEmpty() && scope.discoveryEvidenceRef().isPresent(),
-                "Discovered scope needs a stable path and captured evidence, without preparation metadata"));
+        additions.forEach(scope -> checkArgument(scope.match() instanceof ContextMatch.Selected match
+                        && !match.pathPrefixes().isEmpty() && match.terms().isEmpty()
+                        && scope.preparation().isEmpty() && scope.discoveryEvidenceRef().isPresent(),
+                "Discovered scope needs paths and captured evidence, without terms or preparation metadata"));
         registrations.forEach(source -> checkArgument(source.origin() == GENERATED && source.discoveryEvidenceRef().isPresent(),
                 "Discovered source needs generated origin and captured evidence"));
         return mutate(workspaceId, expectedRevision, current -> {

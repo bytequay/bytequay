@@ -63,10 +63,13 @@ and source-filter flow, and so does Needs you: handling an item in either place
 clears it in both. Circle selection happens before the four-row cap in the
 shared selector. Native notification eligibility is unchanged.
 
-The mixed preview shows the newest source updates across all item types. Circle
-membership never replaces a newer item with an older circle item. Home's
-Circles filter is independent of the source tabs and narrows the same
-newest-first list before the row cap. Acknowledgment, snooze and pins keep
+Among the last week's activity, Home ranks a circle member's review request or
+assignment above other people's asks, and a member's own pull requests and
+issues below everything tied to the viewer personally; [Agent Task
+UI](agent-task-ui.md) has the full order. A member's comments and updates on
+another person's pull request stay out of Home. Home's Circles filter is
+independent of the source tabs and narrows the same ranked list before the row
+cap. Acknowledgment, snooze and pins keep
 their existing visibility rules. Rows name the matching circle, member, and
 relationship (PR/issue author or review requester), separately from the latest
 activity actor. Another person's comment on a member's PR does not make that
@@ -75,8 +78,8 @@ Current attention projections expose author/requester logins, so circle
 matching uses saved GitHub logins. A renamed member can be re-added to refresh
 their profile without duplicating their numeric membership identity.
 
-Ordinary updates can appear in Home without a personal review or assignment
-request. Circle membership itself never creates an update. Adding or
+A circle member's own item can appear in Home without a personal review or
+assignment request. Circle membership itself never creates an update. Adding or
 removing a member does not change the source activity version or wake handled
 items. Pending-age presentation uses actual source evidence and never labels an
 update timestamp as a proven review-request timestamp.

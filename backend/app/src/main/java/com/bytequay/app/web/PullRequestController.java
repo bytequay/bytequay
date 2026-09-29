@@ -44,6 +44,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -80,9 +81,11 @@ public class PullRequestController
         Map<Long, PrActivitySummary> activities = pullRequests.findCachedLatestActivities(candidates);
         Map<Long, List<PrCommitLine>> commits = pullRequests.findCachedCommitsSinceReview(candidates);
         Map<Long, List<String>> failingChecks = pullRequests.findCachedFailingChecks(candidates);
+        Set<Long> mentioned = pullRequests.findMentioned(candidates);
         return candidates.stream()
                 .map(pullRequest -> new AttentionPullRequest(pullRequest, avatars.get(pullRequest.id()), activities.get(pullRequest.id()),
-                        commits.getOrDefault(pullRequest.id(), ImmutableList.of()), failingChecks.getOrDefault(pullRequest.id(), ImmutableList.of())))
+                        commits.getOrDefault(pullRequest.id(), ImmutableList.of()), failingChecks.getOrDefault(pullRequest.id(), ImmutableList.of()),
+                        mentioned.contains(pullRequest.id())))
                 .collect(toImmutableList());
     }
 
@@ -92,7 +95,8 @@ public class PullRequestController
             String authorAvatarUrl,
             PrActivitySummary latestActivity,
             List<PrCommitLine> commitsSinceReview,
-            List<String> failingChecks) {}
+            List<String> failingChecks,
+            boolean mentioned) {}
 
     @GetMapping("/prs/stored")
     public Optional<PullRequest> stored(@RequestParam("repo") String repo, @RequestParam("number") int number)

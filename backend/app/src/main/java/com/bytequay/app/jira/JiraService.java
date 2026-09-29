@@ -482,15 +482,19 @@ public class JiraService
         return ImmutableList.copyOf(result.values());
     }
 
+    /** Watched-board tickets assigned to the connected account; the rest of a board is nobody's attention item. */
     public List<JiraIssue> attention()
     {
         Map<String, JiraIssue> result = new LinkedHashMap<>();
-        List<String> connected = connections.list().stream().filter(connection -> connection.state().equals("connected")).map(JiraDtos.Connection::id).collect(toImmutableList());
+        Map<String, String> accounts = connections.list().stream().filter(connection -> connection.state().equals("connected") && connection.account().isPresent())
+                .collect(toImmutableMap(JiraDtos.Connection::id, connection -> connection.account().orElseThrow().accountId()));
         for (Scope scope : scopes()) {
-            if (!connected.contains(scope.connectionId())) {
+            Optional<String> account = Optional.ofNullable(accounts.get(scope.connectionId()));
+            if (account.isEmpty()) {
                 continue;
             }
-            page(scope).issues().forEach(issue -> result.put(issue.cloudId() + ":" + issue.id(), issue));
+            page(scope).issues().stream().filter(issue -> issue.assignee().map(JiraDtos.Person::accountId).equals(account))
+                    .forEach(issue -> result.put(issue.cloudId() + ":" + issue.id(), issue));
         }
         return ImmutableList.copyOf(result.values());
     }

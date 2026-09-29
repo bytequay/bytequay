@@ -52,9 +52,10 @@ Keep existing source close and task completion behavior. V1 does not introduce a
 
 ### Needs attention
 
-Needs attention includes updates from every cached issue in a watched repository,
-including unassigned issues, Goals, and issues with linked development. Ack and
-snooze continue to control visibility. The open-issue cache remains the source;
+Needs attention includes updates from cached issues in a watched repository that
+the viewer opened, that are assigned to the viewer, or that a circle member
+opened, Goals and issues with linked development included. Ack and snooze
+continue to control visibility. The open-issue cache remains the source;
 reading attention does not fetch remote issue details.
 
 - Both global Home and workspace Home use the same eligibility and action logic.

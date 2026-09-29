@@ -189,6 +189,13 @@ public class GitHubNotificationClient
                 .filter(GitHubNotificationRef::reviewRequested).map(GitHubNotificationRef::ref).collect(toImmutableSet());
     }
 
+    /** Pull requests whose thread GitHub last filed as a direct @mention of the viewer; a team mention does not count. */
+    public Set<PullRequestRef> mentions(String login)
+    {
+        return state(login.toLowerCase(Locale.ROOT)).threads().stream().filter(GitHubNotificationRef::pullRequest)
+                .filter(thread -> "mention".equals(thread.reason())).map(GitHubNotificationRef::ref).collect(toImmutableSet());
+    }
+
     public Optional<String> failure(String login)
     {
         return Optional.ofNullable(failures.get(login.toLowerCase(Locale.ROOT)));

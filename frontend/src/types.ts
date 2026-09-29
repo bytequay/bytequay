@@ -102,6 +102,8 @@ export type PullRequestDto = {
   commitsSinceReview?: { sha: string; message: string; actor: string | null; committedAt: string }[];
   /** Needs attention only: the latest checks failing on a PR whose CI fails. */
   failingChecks?: string[];
+  /** Needs attention only: the viewer's GitHub inbox files this PR as a direct @mention. */
+  mentioned?: boolean;
 };
 
 export type PullRequestPageDto = {

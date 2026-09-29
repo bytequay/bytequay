@@ -16,12 +16,15 @@ import type { PullRequestDto, RepositoryIssueSnapshotDto } from '../types';
 import {
   issueAttentionItems,
   attentionCandidates,
+  attentionCards,
   attentionEnded,
   attentionKind,
+  attentionRank,
   attentionSummary,
   attentionTime,
   handledEntry,
   handledSummary,
+  pullRequestItem,
   snoozeUntil,
   stillHandled,
   visibleAttention,
@@ -32,6 +35,9 @@ import { pr } from '../pulls/fixtures/pullRequest';
 import { jiraAttentionItems } from '../jira/attention';
 import type { JiraActivity, JiraUser } from '../jira/contracts';
 import { jiraIssue } from '../jira/fixtures/jira';
+import { taskAttentionItem } from '../agents/attention';
+import { previewTask } from '../agents/fixtures/previewBridge';
+import type { TeamCircle } from '../teams/types';
 
 
 describe('attentionKind', () => {
@@ -179,6 +185,70 @@ describe('attentionKind', () => {
     expect(visibleAttention(issueAttentionItems(source, 'workspace-id', 'jack'), handled, Date.now())).toEqual([]);
     source.issues[0].isGoal = false;
     expect(visibleAttention(issueAttentionItems(source, 'workspace-id', 'jack'), handled, Date.now())).toEqual([]);
+  });
+});
+
+describe('attentionRank', () => {
+  const circles: TeamCircle[] = [{ id: 'engine', name: 'Engine', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: [],
+    members: [{ githubId: 1, login: 'Alice', name: 'Alice', avatarUrl: '' }] }];
+  const theirs: Partial<PullRequestDto> = { origin: 'OTHER', author: 'bob' };
+  const row = (overrides: Partial<PullRequestDto>) => {
+    const pull = pr({ ...theirs, ...overrides });
+    return pullRequestItem(pull, attentionKind(pull, 'jack'));
+  };
+  const rank = (overrides: Partial<PullRequestDto>) => attentionRank(row(overrides), circles, 'jack');
+  const activity = (event: string, actor: string): NonNullable<PullRequestDto['latestActivity']> =>
+    ({ event, actor, timestamp: '2026-08-15T00:00:00Z', state: null, label: null, requestedReviewer: null });
+
+  it('ranks every event on your own pull requests first', () => {
+    expect(rank({ author: 'JACK', state: 'merged' })).toBe(0);
+    expect(rank({ author: 'jack', draft: true, latestActivity: activity('labeled', 'bob') })).toBe(0);
+    expect(rank({ author: 'jack', latestActivity: activity('commented', 'bob') })).toBe(0);
+  });
+
+  it("ranks review requests and mentions next, a circle member's first", () => {
+    expect(rank({ origin: 'REVIEW_REQUESTED', author: 'alice' })).toBe(1);
+    expect(rank({ origin: 'REVIEW_REQUESTED' })).toBe(2);
+    expect(rank({ mentioned: true })).toBe(2);
+    expect(rank({ author: 'alice', mentioned: true, state: 'merged' })).toBe(1);
+  });
+
+  it("then pull requests you reviewed or monitor, then circle members' own", () => {
+    expect(rank({ handledAction: 'APPROVED', reviewedAt: '2026-08-14T00:00:00Z', headPushedAt: '2026-08-14T06:00:00Z' })).toBe(3);
+    expect(rank({ handledAction: 'COMMENTED', reviewedAt: '2026-08-14T00:00:00Z', state: 'merged' })).toBe(3);
+    expect(rank({ monitoredAt: '2026-08-14T00:00:00Z' })).toBe(3);
+    expect(rank({ author: 'alice', latestActivity: activity('commented', 'bob') })).toBe(4);
+  });
+
+  it("leaves out updates with no tie to you or your circles, a circle member acting on another person's included", () => {
+    expect(rank({})).toBeNull();
+    expect(rank({ latestActivity: activity('commented', 'alice') })).toBeNull();
+    expect(rank({ requestedReviewers: ['alice'], latestActivity: activity('added_to_merge_queue', 'alice') })).toBeNull();
+    const cards = attentionCards([row({ number: 1, author: 'alice' }), row({ number: 2 }), row({ number: 3, author: 'jack', updatedAt: '2026-08-10T00:00:00Z' })],
+      'all', 4, { circles, viewerLogin: 'jack' }, Date.parse('2026-08-16T00:00:00Z'));
+    expect(cards.map(card => card.number)).toEqual([3, 1]);
+  });
+
+  it('ranks only the last week of activity, then older items newest first', () => {
+    const staleMine = row({ number: 1, author: 'jack', state: 'merged', updatedAt: '2026-08-01T00:00:00Z' });
+    const staleAsk = row({ number: 2, origin: 'REVIEW_REQUESTED', updatedAt: '2026-08-05T00:00:00Z' });
+    const circle = row({ number: 3, author: 'alice', updatedAt: '2026-08-19T00:00:00Z' });
+    const ask = row({ number: 4, origin: 'REVIEW_REQUESTED', updatedAt: '2026-08-14T00:00:00Z' });
+    const cards = attentionCards([staleMine, staleAsk, circle, ask], 'all', 4, { circles, viewerLogin: 'jack' }, Date.parse('2026-08-20T00:00:00Z'));
+    expect(cards.map(card => card.number)).toEqual([4, 3, 2, 1]);
+  });
+
+  it('ranks tasks, issues and assigned Jira tickets by the same ties', () => {
+    const [assigned] = issueAttentionItems(snapshot(), 'workspace-id', 'jack');
+    const [unassigned] = issueAttentionItems(snapshot(), 'workspace-id', 'someone-else');
+    expect(attentionRank(assigned, circles, 'jack')).toBe(2);
+    expect(attentionRank({ ...assigned, author: 'alice' }, circles, 'jack')).toBe(1);
+    expect(attentionRank({ ...unassigned, author: 'JACK' }, circles, 'jack')).toBe(0);
+    expect(attentionRank({ ...unassigned, author: 'alice' }, circles, 'jack')).toBe(4);
+    expect(attentionRank(unassigned, circles, 'jack')).toBeNull();
+    expect(attentionRank(jiraAttentionItems([jiraIssue])[0], circles, 'jack')).toBe(2);
+    const task = taskAttentionItem(previewTask('workspace', '1'), null, { id: 'workspace', name: '', repository: 'bytequay/app' });
+    expect(attentionRank(task, circles, 'jack')).toBe(0);
   });
 });
 

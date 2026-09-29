@@ -40,6 +40,10 @@ function prItem(number: number, kind: AttentionItem['kind'] = 'review', latestAc
   };
 }
 
+function by(item: AttentionItem, author: string): AttentionItem {
+  return { ...item, author, pr: item.pr === null ? null : { ...item.pr, author } };
+}
+
 function issueItem(number: number): AttentionItem {
   return {
     key: `trinodb/trino#${number}`, type: 'issue', kind: 'assigned', repo: 'trinodb/trino', number, title: `Issue ${number}`,
@@ -209,24 +213,29 @@ describe('AttentionList', () => {
     expect(attentionCards(items, 'issue').map(item => item.number)).toEqual([7]);
   });
 
-  it('selects the newest cards across sources and within a filter before applying the cap', () => {
-    const approval = { ...taskAttentionItem({ ...previewTask('workspace-1', 'task-1'), updatedAt: '2026-08-28T00:00:00Z' }, null,
+  it('ranks cards across sources, newest first within a rank, within a filter before applying the cap', () => {
+    const approval = { ...taskAttentionItem({ ...previewTask('workspace-1', 'task-1'), updatedAt: '2026-09-27T00:00:00Z' }, null,
       { id: 'workspace-1', name: 'Workspace', repository: 'trinodb/trino' }), kind: 'approval' as const };
-    const newest = { ...prItem(3, 'updated'), updatedAt: '2026-09-28T13:00:00Z' };
+    const mention = prItem(3, 'updated');
+    const newest = { ...mention, updatedAt: '2026-09-28T13:00:00Z', pr: { ...mention.pr, mentioned: true } };
     const issue = { ...issueItem(7), updatedAt: '2026-09-28T11:00:00Z' };
     const [ticket] = jiraAttentionItems([{ ...jiraIssue, updatedAt: '2026-09-28T12:00:00Z' }]);
-    const items = [approval, prItem(1), { ...prItem(2), updatedAt: '2026-09-28T09:00:00Z' }, newest, issue, ticket];
-    expect(attentionCards(items, 'all').map(item => item.key)).toEqual([newest.key, ticket.key, issue.key, items[2].key]);
-    expect(attentionCards(items, 'pr').map(item => item.number)).toEqual([3, 2, 1]);
+    const untied = { ...prItem(4, 'updated'), updatedAt: '2026-09-28T14:00:00Z' };
+    const items = [approval, prItem(1), { ...prItem(2), updatedAt: '2026-09-28T09:00:00Z' }, newest, issue, ticket, untied];
+    const now = Date.parse('2026-09-29T00:00:00Z');
+    expect(attentionCards(items, 'all', 4, undefined, now).map(item => item.key)).toEqual([approval.key, newest.key, ticket.key, issue.key]);
+    // #1 is older than a week, so it follows the ranked rows.
+    expect(attentionCards(items, 'pr', 4, undefined, now).map(item => item.number)).toEqual([3, 2, 1]);
     expect(items[0]).toBe(approval);
   });
 
-  it('puts the newest update first in both Homes even when four older review requests precede it', () => {
+  it("puts a circle member's review request first in both Homes and leaves out an outsider's newer update", () => {
     vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{
       id: 'trusted', name: 'Maintainers', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: [], members: [{ githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }],
     }] }, loading: false, error: null });
-    const items = [1, 2, 3, 4].map(number => prItem(number));
-    items.push({ ...prItem(5, 'updated'), author: 'outsider', updatedAt: '2026-09-28T13:00:00Z' });
+    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-30T00:00:00Z'));
+    const items = [1, 2, 3, 4].map(number => by(prItem(number), 'bob'));
+    items.push({ ...prItem(5), updatedAt: '2026-08-24T00:00:00Z' }, { ...by(prItem(6, 'updated'), 'outsider'), updatedAt: '2026-08-29T13:00:00Z' });
     for (const variant of ['home', 'workspace'] as const) {
       const html = list(items, {}, variant);
       expect([...html.matchAll(/class="card-key">#(\d+)</g)].map(match => Number(match[1]))).toEqual([5, 1, 2, 3]);
@@ -237,7 +246,7 @@ describe('AttentionList', () => {
     const now = Date.parse('2026-09-30T00:00:00Z');
     vi.spyOn(Date, 'now').mockReturnValue(now);
     const items = [1, 2, 3, 4].map(number => prItem(number));
-    const reminder = { ...prItem(5, 'updated'), updatedAt: '2026-09-28T13:00:00Z' };
+    const reminder = { ...prItem(5), updatedAt: '2026-09-28T13:00:00Z' };
     const handled = { [reminder.key]: handledEntry(reminder, 'snooze', now, '1 hour') };
     const html = list(items, handled);
     expect([...html.matchAll(/class="card-key">#(\d+)</g)].map(match => Number(match[1]))).toEqual([5, 1, 2, 3]);

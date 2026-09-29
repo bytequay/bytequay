@@ -232,8 +232,8 @@ without triggering another remote board refresh.
 
 Completed history has a separate cache and uses the enhanced board issues
 endpoint with a Done-category filter across sprints. History refreshes on request
-and stays out of watched scopes. Done tickets still present in a watched scope
-can appear in Needs attention. Jira board filters and mapped-status rules still bound the
+and stays out of watched scopes. Needs attention lists watched-scope tickets
+assigned to the connected account, Done ones included. Jira board filters and mapped-status rules still bound the
 result; the board endpoint excludes Scrum epics. Pagination remains bounded and
 partial results are identified in the UI.
 

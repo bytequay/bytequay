@@ -85,6 +85,7 @@ class TestPullRequestRefreshControllers
         when(pullRequests.findCachedCommitsSinceReview(candidates)).thenReturn(ImmutableMap.of(12L, ImmutableList.of(
                 new PrCommitLine("4f1a2c9", "Map CommitFailedException", Optional.of("alice"), NOW))));
         when(pullRequests.findCachedFailingChecks(candidates)).thenReturn(ImmutableMap.of(13L, ImmutableList.of("ci / test")));
+        when(pullRequests.findMentioned(candidates)).thenReturn(ImmutableSet.of(13L));
 
         standaloneSetup(new PullRequestController(pullRequests, refresh)).build()
                 .perform(get("/prs/attention"))
@@ -103,18 +104,21 @@ class TestPullRequestRefreshControllers
                 .andExpect(jsonPath("$[0].commitsSinceReview[0].sha").value("4f1a2c9"))
                 .andExpect(jsonPath("$[0].commitsSinceReview[0].message").value("Map CommitFailedException"))
                 .andExpect(jsonPath("$[0].failingChecks").isEmpty())
+                .andExpect(jsonPath("$[0].mentioned").value(false))
                 .andExpect(jsonPath("$[0].pullRequest").doesNotExist())
                 .andExpect(jsonPath("$[1].id").value(13))
                 .andExpect(jsonPath("$[1].authorAvatarUrl").value(nullValue()))
                 .andExpect(jsonPath("$[1].latestActivity").value(nullValue()))
                 .andExpect(jsonPath("$[1].commitsSinceReview").isEmpty())
-                .andExpect(jsonPath("$[1].failingChecks[0]").value("ci / test"));
+                .andExpect(jsonPath("$[1].failingChecks[0]").value("ci / test"))
+                .andExpect(jsonPath("$[1].mentioned").value(true));
 
         verify(pullRequests).listAttentionCandidates();
         verify(pullRequests).findCachedAuthorAvatarUrls(ImmutableSet.of(12L, 13L));
         verify(pullRequests).findCachedLatestActivities(candidates);
         verify(pullRequests).findCachedCommitsSinceReview(candidates);
         verify(pullRequests).findCachedFailingChecks(candidates);
+        verify(pullRequests).findMentioned(candidates);
         verifyNoMoreInteractions(pullRequests);
         verifyNoInteractions(refresh);
     }

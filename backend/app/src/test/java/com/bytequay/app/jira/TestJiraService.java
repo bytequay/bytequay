@@ -127,7 +127,7 @@ class TestJiraService
     }
 
     @Test
-    void attentionIncludesAllCachedConnectedBoardRowsWithoutRemoteReads()
+    void attentionIncludesConnectedBoardRowsAssignedToTheAccountWithoutRemoteReads()
             throws Exception
     {
         saved.put("jira.scopes", """
@@ -136,13 +136,15 @@ class TestJiraService
                  {"connectionId":"disconnected","cloudId":"cloud","boardId":82,"sprintId":9,"mine":true,"completed":false}]
                 """);
         JiraIssue unassigned = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", ticket());
-        JiraIssue doneParent = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", completedTicket("2001")).withChildren(true);
+        JiraIssue doneParent = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", assigned(completedTicket("2001"), "me")).withChildren(true);
+        JiraIssue theirs = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", assigned(completedTicket("4001"), "alice"));
         JiraIssueSource source = new JiraIssueSource("connection", "cloud", "2001", doneParent.key(), doneParent.url(), doneParent.title(), doneParent.body(), UPDATED);
         when(tasks.findBySource("cloud", "2001")).thenReturn(Optional.of(new JiraIssueTask("task", "workspace", source, "Implement", UPDATED)));
         cache.write("goal.cloud.2001", true);
         cache.write("connection.cloud.issue.1001", unassigned);
         cache.write("connection.cloud.issue.2001", doneParent);
-        cache.write("connection.cloud.scope.82.backlog.false", new JiraDtos.IssuePage(ImmutableList.of(unassigned, doneParent), Optional.of(UPDATED), Optional.empty(), false));
+        cache.write("connection.cloud.issue.4001", theirs);
+        cache.write("connection.cloud.scope.82.backlog.false", new JiraDtos.IssuePage(ImmutableList.of(unassigned, doneParent, theirs), Optional.of(UPDATED), Optional.empty(), false));
         cache.write("connection.cloud.scope.82.9.true", new JiraDtos.IssuePage(ImmutableList.of(unassigned), Optional.of(UPDATED), Optional.empty(), false));
         JiraIssue disconnected = JiraMapping.issue("disconnected", "cloud", "https://example.atlassian.net", completedTicket("3001"));
         cache.write("disconnected.cloud.issue.3001", disconnected);
@@ -151,8 +153,8 @@ class TestJiraService
         when(remote.list()).thenReturn(ImmutableList.of(connection));
 
         List<JiraIssue> attention = jira.attention();
-        assertThat(attention).extracting(JiraIssue::id).containsExactly("1001", "2001");
-        assertThat(attention.getFirst().assignee()).isEmpty();
+        assertThat(attention).extracting(JiraIssue::id).containsExactly("2001");
+        assertThat(attention.getLast().assignee().map(JiraDtos.Person::accountId)).contains("me");
         assertThat(attention.getLast().isGoal()).isTrue();
         assertThat(attention.getLast().hasChildren()).isTrue();
         assertThat(attention.getLast().status().category()).isEqualTo("done");
@@ -661,6 +663,13 @@ class TestJiraService
                 """);
         assertThat(JiraMapping.markdown("https://example.atlassian.net", text)).contains("[&lt;design&gt;](https://example.com/design)").doesNotContain("javascript:", "<design>");
         assertThat(mapper.valueToTree(JiraMapping.document("first\n\nthird")).path("content")).hasSize(3);
+    }
+
+    private JsonNode assigned(JsonNode ticket, String accountId)
+            throws Exception
+    {
+        ((ObjectNode) ticket.path("fields")).set("assignee", json("{\"accountId\":\"" + accountId + "\",\"displayName\":\"" + accountId + "\"}"));
+        return ticket;
     }
 
     private JsonNode ticket()

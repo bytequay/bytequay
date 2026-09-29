@@ -249,6 +249,14 @@ public class PullRequestService
         return snapshots.findCommitsAfter(since.buildOrThrow());
     }
 
+    /** Reads the last polled GitHub inbox, never GitHub itself. */
+    public Set<Long> findMentioned(List<PullRequest> pullRequests)
+    {
+        Set<PullRequestRef> mentions = credentialService.cachedLogin().map(notifications::mentions).orElse(ImmutableSet.of());
+        return pullRequests.stream().filter(pullRequest -> mentions.contains(parseRef(pullRequest.repo(), pullRequest.number())))
+                .map(PullRequest::id).collect(toImmutableSet());
+    }
+
     /** Reads the names of the cached checks failing on each PR whose CI is failing. */
     public Map<Long, List<String>> findCachedFailingChecks(List<PullRequest> pullRequests)
     {

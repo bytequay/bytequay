@@ -252,7 +252,9 @@ async function snoozing(): Promise<void> {
 }
 
 async function retainedReminder(): Promise<void> {
-  const original = item(50);
+  const requested = item(50);
+  // A pull request the viewer reviewed stays theirs to follow after it closes.
+  const original = { ...requested, pr: requested.pr === null ? null : { ...requested.pr, reviewedAt: '2026-09-01T00:00:00Z', handledAction: 'APPROVED' as const } };
   const f = mount([original]);
   window.bridge.findStoredPullRequest = async () => original.pr === null ? null : { ...original.pr, title: 'Closed while snoozed', state: 'closed' };
   try {

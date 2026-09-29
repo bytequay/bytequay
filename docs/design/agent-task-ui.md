@@ -973,15 +973,23 @@ its close control.
 
 Both Homes draw **Needs attention** as one box of rows, the same row Circles'
 **Needs you** draws for every pull request, issue, Jira ticket and agent task.
-Each shows at most four rows, newest source update or event first across all
-reasons. An older high-priority reason cannot bury a newer update; reason
-priority only breaks ties. Private circle membership adds context and an
-explicit Circles filter, never a ranking boost. Acknowledging or snoozing one
-brings in the next eligible item. Filter tabs above the list (**All · PRs ·
-Issues · Jira · Tasks**) narrow the rows to one source; the cap applies after
-filtering. Neither the header nor the tabs show a count: every update in a
-watched repository is eligible, so a total measures the repositories, not what
-needs the user. There are no
+Each shows at most four rows. Items whose newest source update or event falls
+in the last seven days are ranked by how they involve the user, newest first
+within a rank: the user's own pull requests (every event, merged and closed
+included), issues and agent tasks; then what asks them (a pending review
+request, a direct @mention, or an issue or Jira ticket assigned to them), a
+circle member's ask first; then pull requests they reviewed or monitor; then
+pull requests and issues a circle member opened. Older items follow, newest
+first: the list keeps every update until it is handled, and nobody
+acknowledges them all, so ranking old ones would bury the week's news under
+long-merged pull requests. Anything else stays off the list, including a circle
+member's comment or update on another person's pull request. Reason priority
+only breaks equal-time ties.
+Acknowledging or snoozing one brings in the next eligible item. Filter tabs
+above the list (**All · PRs · Issues · Jira · Tasks**) narrow the rows to one
+source; the cap applies after filtering. Neither the header nor the tabs show a
+count: every circle member's pull request stays eligible, so a total measures
+the circles, not what needs the user. There are no
 **All issues** or **All pull requests** links. A row leads with its source's
 icon in the source's colour (pull request green, issue blue, Jira ticket purple,
 agent task teal) but no type name, then the title on one line with its key,

@@ -99,7 +99,7 @@ export default function AttentionList({
   const live = visibleAttention(reminders, handled, Math.max(now, Date.now()))
     .filter(item => !pinned.some(pin => pin.key === item.key) && (!openOnly || attentionEnded(item) === null));
   const filters = FILTERS.filter(id => id !== 'jira' || jiraConnected || live.some(item => attentionSource(item) === 'jira'));
-  const cards = attentionCards(live, filters.includes(filter) ? filter : 'all', undefined, { circles, viewerLogin, onlyTeam });
+  const cards = attentionCards(live, filters.includes(filter) ? filter : 'all', undefined, { circles, viewerLogin, onlyTeam }, Math.max(now, Date.now()));
   const sessionEntries = session
     .map(key => handled[key])
     .filter((entry): entry is HandledEntry => entry !== undefined);

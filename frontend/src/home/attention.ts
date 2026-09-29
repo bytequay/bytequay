@@ -15,6 +15,7 @@ import type { JiraIssue } from '../jira/contracts';
 import type { AgentTaskActivityDto, AgentTaskDto, PullRequestDto, RepositoryIssueSnapshotDto } from '../types';
 import { pullRequestIsMine } from '../pulls/model';
 import { teamAttentionMatch, type TeamAttentionPreference } from '../teams/priority';
+import type { TeamCircle } from '../teams/types';
 
 /** Why an item is on the "Needs attention" list. */
 export type AttentionKind = 'approval' | 'review' | 'assigned' | 'changes' | 'failed' | 'blocked' | 'ci' | 'commits' | 'merge' | 'finished' | 'updated';
@@ -415,10 +416,37 @@ export const ATTENTION_CARD_LIMIT = 4;
 
 export type AttentionFilter = 'all' | AttentionSource;
 
-/** The cards a filter draws, capped. */
-export function attentionCards(live: AttentionItem[], filter: AttentionFilter, limit = ATTENTION_CARD_LIMIT, team?: TeamAttentionPreference): AttentionItem[] {
-  const eligible = team?.onlyTeam ? live.filter(item => teamAttentionMatch(item, team.circles, team.viewerLogin) !== null) : live;
-  return eligible.filter(item => filter === 'all' || attentionSource(item) === filter).sort(compareAttention).slice(0, limit);
+/**
+ * Where an item ranks by how it involves the viewer, lowest first: their own pull requests, issues and tasks;
+ * what asks them (review requests, @mentions, assignments), a circle member's ask first; pull requests they
+ * reviewed or monitor; then circle members' own pull requests and issues. Null keeps it off the list, such as
+ * a circle member's comment on someone else's pull request.
+ */
+export function attentionRank(item: AttentionItem, circles: TeamCircle[], viewerLogin: string | null): number | null {
+  if (item.task) return 0;
+  // The Jira attention read lists only tickets assigned to the viewer.
+  if (item.jira) return 2;
+  const pr = item.pr;
+  if (pr !== null ? pullRequestIsMine(pr, viewerLogin) : viewerLogin !== null && item.author?.toLowerCase() === viewerLogin.toLowerCase()) return 0;
+  const circle = teamAttentionMatch(item, circles, viewerLogin);
+  if (item.kind === 'review' || item.kind === 'assigned' || pr?.mentioned === true) return circle === null ? 2 : 1;
+  if (pr !== null && (pr.reviewedAt !== null || pr.handledAction !== null || pr.monitoredAt != null)) return 3;
+  return circle === null ? null : 4;
+}
+
+/** Activity this recent is ranked; nobody acknowledges every old item, so older ones would bury the news. */
+const RANKED_WINDOW_MS = 7 * 86_400_000;
+
+/** The cards a filter draws, capped: the last week's activity by rank, then older items newest first. */
+export function attentionCards(live: AttentionItem[], filter: AttentionFilter, limit = ATTENTION_CARD_LIMIT,
+  team: TeamAttentionPreference = { circles: [], viewerLogin: null }, now = Date.now()): AttentionItem[] {
+  return live.flatMap(item => {
+    const rank = attentionRank(item, team.circles, team.viewerLogin);
+    if (rank === null || (filter !== 'all' && attentionSource(item) !== filter)
+      || (team.onlyTeam && teamAttentionMatch(item, team.circles, team.viewerLogin) === null)) return [];
+    const recent = now - (Date.parse(attentionTime(item)) || 0) <= RANKED_WINDOW_MS;
+    return [{ item, order: recent ? rank : Number.MAX_SAFE_INTEGER }];
+  }).sort((left, right) => left.order - right.order || compareAttention(left.item, right.item)).slice(0, limit).map(entry => entry.item);
 }
 
 /* ── Acknowledged and snoozed rows ──────────────────────────────── */

@@ -48,7 +48,7 @@ export function goalHas(goal: GoalDto | null, ref: GoalRef | null): boolean {
   return goal !== null && ref !== null && goal.items.some((item) => item.kind === ref.kind && item.key === ref.key);
 }
 
-/** The items the user has to act on: those still showing in Needs attention. */
+/** The items with activity the user has not acknowledged, snoozed or visited, whether or not Needs attention ranks them. */
 export function needsYouKeys(visibleAttention: AttentionItem[]): ReadonlySet<string> {
   return new Set(visibleAttention.map(goalRef).filter((ref): ref is GoalRef => ref !== null).map(refKey));
 }

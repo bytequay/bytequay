@@ -83,6 +83,20 @@ class TestGitHubNotificationClient
     }
 
     @Test
+    void mentionsNameOnlyPullRequestsThatMentionTheViewerDirectly()
+    {
+        Fixture fixture = new Fixture();
+        String body = "[" + thread(1, true, true, START) + "," + thread(3, true, true, START).replace("subscribed", "mention") + ","
+                + thread(4, false, true, START).replace("subscribed", "mention") + "," + thread(5, true, true, START).replace("subscribed", "team_mention") + "]";
+        fixture.server.expect(requestTo(ENDPOINT + "1")).andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
+
+        fixture.client.poll("pat", "me", ignored -> {});
+
+        assertThat(fixture.client.mentions("ME")).containsExactly(PullRequestRef.of("owner", "repo", 3));
+        fixture.server.verify();
+    }
+
+    @Test
     void reviewRequestsRemainReadableDuringNotificationIngestion()
             throws Exception
     {

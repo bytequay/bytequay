@@ -528,9 +528,11 @@ only. Reading an activity feed never imports a PR or makes it eligible for Needs
 titles retain the PR-number fallback.
 
 Home and Workspace Home read an unpaginated update projection containing observed personal PRs and
-all cached PRs in currently watched repositories, including drafts and closure. Ordinary PR, issue,
-configured Jira-board, and unarchived local task updates remain eligible even when no action is
-required. Action tags still describe the actual relationship to the viewer. A bell on each PR card explicitly monitors that PR;
+all cached PRs in currently watched repositories, including drafts and closure. A row carries `mentioned`
+when the last polled GitHub inbox files that PR as a direct @mention of the viewer; reading it makes no
+GitHub call. Needs attention keeps only items tied to the viewer or their [circles](teams.md), ranked as
+[Agent Task UI](agent-task-ui.md) describes; the Jira attention read returns only watched-board tickets
+assigned to the connected account. Action tags still describe the actual relationship to the viewer. A bell on each PR card explicitly monitors that PR;
 monitoring is local SQLite state and performs no GitHub write. Enabling it establishes a current
 card-activity baseline without fetching repository permissions or diffs. Existing detail snapshots
 keep their own freshness timestamps; a missing detail remains a normal cache miss.
@@ -541,11 +543,11 @@ Attention rows display the latest known GitHub action, its actor, and its own ev
 Stored card previews and local timelines supply this summary in batch reads; display never fetches GitHub or loads
 full PR details per row. Local workflow events and subscription bookkeeping are excluded. When
 GitHub's PR update timestamp is newer than the known timeline action, the row says `Updated`
-without attributing it to a person. Cards initially sort by their newest source update or event timestamp;
-attention reason only breaks equal-time ties. The four-card limit is applied after handling and source
-filtering, with newest updates first across all sources. Private [circles](teams.md) affect eligibility
-only when the user selects the Circles filter; they never silently displace newer updates. The row's
-age uses this same source timestamp. Local activity
+without attributing it to a person. Cards with activity in the last seven days sort by how the item involves
+the viewer, then by their newest source update or event timestamp; older cards follow, newest first. Attention
+reason only breaks equal-time ties. The four-card limit is applied after handling and
+source filtering. A circle member's review request or assignment ranks above other people's, and a member's
+own PRs and issues rank last. The row's age uses this same source timestamp. Local activity
 timestamps continue to drive monitoring and acknowledgment, independently of the displayed age.
 
 Electron checks the local attention projection every five seconds, forwards it to both Home views,

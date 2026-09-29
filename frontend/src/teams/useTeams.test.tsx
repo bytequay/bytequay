@@ -69,7 +69,7 @@ it('does not overwrite a membership mutation with an earlier read and clears fai
   const old = request();
   getTeams.mockReturnValueOnce(old.promise);
   const first = hooks.refreshTeams();
-  hooks.updateTeams({ ...directory('alice'), circles: [{ id: 'saved', name: 'Saved', description: '', members: [], repositories: [] }] });
+  hooks.updateTeams({ ...directory('alice'), circles: [{ id: 'saved', name: 'Saved', description: '', avatar: { color: 'gray', shape: 'square' }, members: [], repositories: [] }] });
   old.resolve(directory('alice'));
   await first;
   function Probe() { const state = hooks.useTeams(); return <span>{state.directory?.circles[0]?.name ?? state.error ?? 'empty'}</span>; }

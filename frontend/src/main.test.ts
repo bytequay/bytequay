@@ -82,9 +82,9 @@ it('authenticates and validates Team IPC, with time for a bounded collection pas
     : String(url).endsWith('/contributors') ? contributors : directory)));
   vi.stubGlobal('fetch', fetch);
   const member = { githubId: 42, login: 'alice' };
-  await expect(desktop.handlers.get('teams:create')?.({}, { name: ' Internal ', description: ' Our reviewers ', repositories: ['Owner/Repo'], members: [member] })).resolves.toEqual(directory);
+  await expect(desktop.handlers.get('teams:create')?.({}, { name: ' Internal ', description: ' Our reviewers ', avatar: { color: 'gray', shape: 'square' }, repositories: ['Owner/Repo'], members: [member] })).resolves.toEqual(directory);
   expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/teams', expect.objectContaining({ method: 'POST',
-    body: JSON.stringify({ name: 'Internal', description: 'Our reviewers', repositories: ['owner/repo'], members: [member] }),
+    body: JSON.stringify({ name: 'Internal', description: 'Our reviewers', avatar: { color: 'gray', shape: 'square' }, repositories: ['owner/repo'], members: [member] }),
     headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' },
   }));
   await expect(desktop.handlers.get('teams:contributors')?.({})).resolves.toEqual(contributors);

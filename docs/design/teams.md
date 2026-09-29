@@ -10,7 +10,10 @@ changes GitHub membership, subscriptions, permissions, or notifications. Saved
 circles have no product member limit. A person may belong to multiple circles
 but receives one attention preference and is collected once.
 
-A circle has a name, description, and optional repository scope. Creation can
+A circle has a name, description, avatar, and optional repository scope. The
+avatar is a plain solid color from a fixed palette, drawn as a rounded square
+or a circle; a new circle starts on a color no other circle uses,
+and a circle saved before avatars existed reads as gray and square. Creation can
 include selected people and saves the circle only after all members resolve; a
 person who cannot be verified is named, and nothing is saved. Creation and Add
 people reuse the repository-assignee picker, searching contributors already

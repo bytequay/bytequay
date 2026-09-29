@@ -15,7 +15,7 @@ import type { RepositoryMetadataDto } from '../types';
 import { parseList } from '../goals/contracts';
 import { object, oneOf, optionalText, text } from '../pulls/wireParse';
 import {
-  TEAM_ACTIVITY_FILTERS, TEAM_EVENT_KINDS, type TeamActivityQuery, type TeamActivitySnapshot, type TeamCircleInput, type TeamCreateInput, type TeamDirectory,
+  CIRCLE_COLORS, CIRCLE_SHAPES, TEAM_ACTIVITY_FILTERS, TEAM_EVENT_KINDS, type TeamActivityQuery, type TeamActivitySnapshot, type TeamCircleInput, type TeamCreateInput, type TeamDirectory,
   type TeamMemberInput, type TeamStatistics,
 } from './types';
 
@@ -49,7 +49,11 @@ export function parseTeamInput(value: unknown): TeamCircleInput {
     if (!/^[a-z0-9_-]{1,100}\/[a-z0-9_.-]{1,100}$/.test(repo) || repo.endsWith('/.') || repo.endsWith('/..')) throw new Error('Use owner/repository for each repository');
     return repo;
   }, 'repositories');
-  return { name, description, repositories: [...new Set(repositories)] };
+  const avatar = object(input.avatar, 'avatar');
+  return {
+    name, description, avatar: { color: oneOf(avatar.color, CIRCLE_COLORS, 'avatar color'), shape: oneOf(avatar.shape, CIRCLE_SHAPES, 'avatar shape') },
+    repositories: [...new Set(repositories)],
+  };
 }
 
 export function parseTeamMemberInput(value: unknown): TeamMemberInput {

@@ -17,12 +17,23 @@ import Avatar from '../Avatar';
 import { remoteErrorMessage } from '../pulls/PullOverview';
 import type { RepositoryMetadataDto } from '../types';
 import { people } from './activity';
-import type { TeamCircle, TeamCreateInput } from './types';
+import { CIRCLE_COLORS, CIRCLE_SHAPES, type CircleAvatar, type TeamCircle, type TeamCreateInput } from './types';
 import '../css/confirm-dialog.css';
 
 type Contributor = RepositoryMetadataDto['contributors'][number];
 type Selected = { githubId: number; login: string; avatarUrl: string };
 const SHOWN = 50;
+
+/** A circle's avatar: a plain block of the color and shape chosen for it. */
+export function CircleIcon({ avatar, size = 'medium' }: { avatar: CircleAvatar; size?: 'small' | 'medium' | 'large' }) {
+  return <span className={`cir-avatar is-${size} is-${avatar.color} is-${avatar.shape}`} aria-hidden="true" />;
+}
+
+/** A new circle starts on the first color no other circle uses, so circles stay easy to tell apart. */
+function firstFreeAvatar(circles: TeamCircle[]): CircleAvatar {
+  const color = CIRCLE_COLORS.find(candidate => !circles.some(circle => circle.avatar.color === candidate)) ?? CIRCLE_COLORS[circles.length % CIRCLE_COLORS.length];
+  return { color, shape: 'square' };
+}
 
 /** The selected person a failed save names, so the dialog can mark them and offer to remove them. */
 export function unverifiedPerson(error: string | null, selected: { login: string }[]): string | null {
@@ -48,6 +59,7 @@ export default function CircleDialog({ circle, initialName = '', circles, busy, 
   const [name, setName] = useState(circle?.name ?? initialName);
   const [nameError, setNameError] = useState(false);
   const [description, setDescription] = useState(circle?.description ?? '');
+  const [avatar, setAvatar] = useState<CircleAvatar>(() => circle?.avatar ?? firstFreeAvatar(circles));
   const [selected, setSelected] = useState<Selected[]>([]);
   const [query, setQuery] = useState('');
   const [focus, setFocus] = useState(0);
@@ -129,7 +141,7 @@ export default function CircleDialog({ circle, initialName = '', circles, busy, 
     // A repository still being typed is part of the scope the user sees.
     const pending = draft.trim() === '' ? null : typedRepository(draft);
     if (draft.trim() !== '' && pending === null) return;
-    onSave({ name, description, repositories: pending === null || repositories.includes(pending) ? repositories : [...repositories, pending],
+    onSave({ name, description, avatar, repositories: pending === null || repositories.includes(pending) ? repositories : [...repositories, pending],
       members: selected.map(({ githubId, login }) => ({ githubId, login })) });
   }
   const suggestions = (watched ?? []).filter(repository => !repositories.includes(repository) && (!draft.trim() || repository.includes(draft.trim().toLowerCase()))).slice(0, 5);
@@ -153,6 +165,25 @@ export default function CircleDialog({ circle, initialName = '', circles, busy, 
           placeholder="Trusted OSS" onChange={event => { setName(event.target.value); setNameError(false); }} />
         {nameError && <span className="cir-field__error">Give the circle a name.</span>}
       </label>
+      <div className="cir-field">
+        <span>Avatar</span>
+        <div className="cir-avatar-field">
+          <CircleIcon avatar={avatar} size="large" />
+          <div className="cir-swatches" role="group" aria-label="Avatar color">
+            {CIRCLE_COLORS.map(color => {
+              const label = `${color.charAt(0).toUpperCase()}${color.slice(1)}`;
+              return <button type="button" key={color} className={`cir-swatch is-${color}`} aria-pressed={avatar.color === color} aria-label={label} title={label}
+                onClick={() => setAvatar(current => ({ ...current, color }))} />;
+            })}
+          </div>
+          <div className="atn-filters" role="group" aria-label="Avatar shape">
+            {CIRCLE_SHAPES.map(shape => <button type="button" key={shape} aria-pressed={avatar.shape === shape}
+              className={`atn-filter${avatar.shape === shape ? ' is-active' : ''}`} onClick={() => setAvatar(current => ({ ...current, shape }))}>
+              {shape === 'square' ? 'Square' : 'Circle'}
+            </button>)}
+          </div>
+        </div>
+      </div>
       <label className="cir-field"><span>Description <span className="cir-muted">· optional</span></span>
         <textarea aria-label="Circle description" rows={2} maxLength={2000} value={description} placeholder="People I review and collaborate with"
           onChange={event => setDescription(event.target.value)} />

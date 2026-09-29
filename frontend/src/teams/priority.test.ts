@@ -22,7 +22,7 @@ import type { PullRequestDto } from '../types';
 import { jiraAttentionItems } from '../jira/attention';
 import { jiraIssue } from '../jira/fixtures/jira';
 
-const circles: TeamCircle[] = [{ id: 'one', name: 'Maintainers', description: '', repositories: ['BYTEQUAY/APP'], members: [{ githubId: 1, login: 'Alice', name: 'Alice', avatarUrl: '' }] }];
+const circles: TeamCircle[] = [{ id: 'one', name: 'Maintainers', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: ['BYTEQUAY/APP'], members: [{ githubId: 1, login: 'Alice', name: 'Alice', avatarUrl: '' }] }];
 const preference = { circles, viewerLogin: 'jack' };
 const item = (number: number, author = 'alice', updatedAt = '2026-09-28T12:00:00Z') => {
   const pull = pr({ id: number, number, author, origin: 'REVIEW_REQUESTED', requestedReviewers: ['jack'], updatedAt });

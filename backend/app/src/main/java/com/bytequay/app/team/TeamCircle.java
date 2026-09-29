@@ -14,10 +14,12 @@
 package com.bytequay.app.team;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 import static com.bytequay.app.utils.StringInputUtil.normalizeNames;
@@ -26,7 +28,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
 /** Empty repository scope means all accessible activity collected for the members. */
-public record TeamCircle(String id, String name, String description, List<String> repositories, List<TeamMember> members)
+public record TeamCircle(String id, String name, String description, Avatar avatar, List<String> repositories, List<TeamMember> members)
 {
     private static final Pattern REPOSITORY = Pattern.compile("[A-Za-z0-9_-]{1,100}/[A-Za-z0-9_.-]{1,100}");
 
@@ -36,6 +38,7 @@ public record TeamCircle(String id, String name, String description, List<String
         requireNotBlank(name, "Circle name is required");
         name = name.strip();
         description = Optional.ofNullable(description).orElse("").strip();
+        avatar = Optional.ofNullable(avatar).orElse(Avatar.DEFAULT);
         checkArgument(id.length() <= 100, "Circle ID is too long");
         checkArgument(name.length() <= 100 && name.chars().noneMatch(Character::isISOControl), "Circle name must contain at most 100 printable characters");
         checkArgument(description.length() <= 2000, "Circle description must contain at most 2000 characters");
@@ -48,5 +51,21 @@ public record TeamCircle(String id, String name, String description, List<String
                 .collect(toImmutableList());
         members = ImmutableList.copyOf(members);
         checkArgument(members.stream().map(TeamMember::githubId).distinct().count() == members.size(), "Circle contains duplicate members");
+    }
+
+    /** A circle's avatar: a solid palette color, drawn as a circle or a rounded square. */
+    public record Avatar(String color, String shape)
+    {
+        // Keep in step with CIRCLE_COLORS and CIRCLE_SHAPES in the frontend's teams/types.ts.
+        private static final Set<String> COLORS = ImmutableSet.of("blue", "green", "purple", "orange", "red", "pink", "teal", "gray");
+        private static final Set<String> SHAPES = ImmutableSet.of("square", "circle");
+        // Declared after the sets it is validated against, which class initialization fills in order.
+        public static final Avatar DEFAULT = new Avatar("gray", "square");
+
+        public Avatar
+        {
+            checkArgument(COLORS.contains(color), "Unknown avatar color");
+            checkArgument(SHAPES.contains(shape), "Unknown avatar shape");
+        }
     }
 }

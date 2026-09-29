@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.team;
 
+import com.bytequay.app.team.TeamCircle.Avatar;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.google.common.collect.ImmutableList;
@@ -39,11 +40,12 @@ class TestTeamController
     {
         TeamService service = mock(TeamService.class);
         TeamDirectory directory = new TeamDirectory("alice", ImmutableList.of(
-                new TeamCircle("circle", "Friends", "Trusted maintainers", ImmutableList.of(), ImmutableList.of(new TeamMember(42, "bob", "Bob", "")))));
+                new TeamCircle("circle", "Friends", "Trusted maintainers", new Avatar("teal", "circle"), ImmutableList.of(),
+                        ImmutableList.of(new TeamMember(42, "bob", "Bob", "")))));
         when(service.directory()).thenReturn(directory);
         when(service.contributors()).thenReturn(ImmutableList.of(new RepositoryContributor(42, "bob", "avatar", false)));
-        when(service.create("Friends", "Trusted maintainers", ImmutableList.of(), ImmutableList.of(new TeamMemberInput(42, "bob")))).thenReturn(directory);
-        when(service.update("circle", "Work", "Internal work", ImmutableList.of("acme/app"))).thenReturn(directory);
+        when(service.create("Friends", "Trusted maintainers", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of(new TeamMemberInput(42, "bob")))).thenReturn(directory);
+        when(service.update("circle", "Work", "Internal work", new Avatar("blue", "circle"), ImmutableList.of("acme/app"))).thenReturn(directory);
         when(service.addMember("circle", new TeamMemberInput(42, "bob"))).thenReturn(directory);
         when(service.removeMember("circle", 42)).thenReturn(directory);
         when(service.remove("circle")).thenReturn(directory);
@@ -53,6 +55,8 @@ class TestTeamController
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.accountLogin").value("alice"))
                 .andExpect(jsonPath("$.circles[0].description").value("Trusted maintainers"))
+                .andExpect(jsonPath("$.circles[0].avatar.color").value("teal"))
+                .andExpect(jsonPath("$.circles[0].avatar.shape").value("circle"))
                 .andExpect(jsonPath("$.circles[0].members[0].githubId").value(42));
         mvc.perform(get("/api/teams/contributors"))
                 .andExpect(status().isOk())
@@ -62,8 +66,11 @@ class TestTeamController
                         .content("{\"name\":\"Friends\",\"description\":\"Trusted maintainers\",\"members\":[{\"githubId\":42,\"login\":\"bob\"}]}"))
                 .andExpect(status().isOk());
         mvc.perform(put("/api/teams/circle").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"name\":\"Work\",\"description\":\"Internal work\",\"repositories\":[\"acme/app\"]}"))
+                        .content("{\"name\":\"Work\",\"description\":\"Internal work\",\"avatar\":{\"color\":\"blue\",\"shape\":\"circle\"},\"repositories\":[\"acme/app\"]}"))
                 .andExpect(status().isOk());
+        mvc.perform(put("/api/teams/circle").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Work\",\"avatar\":{\"color\":\"chartreuse\",\"shape\":\"circle\"}}"))
+                .andExpect(status().isBadRequest());
         mvc.perform(post("/api/teams/circle/members").contentType(MediaType.APPLICATION_JSON).content("{\"githubId\":42,\"login\":\"bob\"}"))
                 .andExpect(status().isOk());
         mvc.perform(post("/api/teams/circle/members").contentType(MediaType.APPLICATION_JSON).content("{\"login\":\"bob\"}"))
@@ -73,8 +80,8 @@ class TestTeamController
         mvc.perform(delete("/api/teams/circle/members/42")).andExpect(status().isOk());
         mvc.perform(delete("/api/teams/circle")).andExpect(status().isOk());
         mvc.perform(delete("/api/teams/circle/members/not-a-number")).andExpect(status().isBadRequest());
-        verify(service).create("Friends", "Trusted maintainers", ImmutableList.of(), ImmutableList.of(new TeamMemberInput(42, "bob")));
-        verify(service).update("circle", "Work", "Internal work", ImmutableList.of("acme/app"));
+        verify(service).create("Friends", "Trusted maintainers", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of(new TeamMemberInput(42, "bob")));
+        verify(service).update("circle", "Work", "Internal work", new Avatar("blue", "circle"), ImmutableList.of("acme/app"));
         verify(service).addMember("circle", new TeamMemberInput(42, "bob"));
         verify(service).removeMember("circle", 42);
         verify(service).remove("circle");

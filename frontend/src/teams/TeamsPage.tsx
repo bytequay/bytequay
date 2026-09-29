@@ -21,7 +21,7 @@ import { usePopoverDismiss } from '../pulls/code-tests/Outline';
 import { ago } from '../relativeTime';
 import { ACTIVITY_TYPES, METRICS, membersOf, people, type ActivityType, type Metric } from './activity';
 import CircleActivity, { ACTIVITY_LIMIT_MAX } from './CircleActivity';
-import CircleDialog from './CircleDialog';
+import CircleDialog, { CircleIcon } from './CircleDialog';
 import CircleInsights from './CircleInsights';
 import CircleMembers from './CircleMembers';
 import { parseTeamCreateInput } from './contracts';
@@ -293,7 +293,7 @@ export default function TeamsPage() {
         <span className="cir-pane__rule" aria-hidden="true" />
         {circles.map(item => <button type="button" key={item.id} title={item.name} className={`cir-pane__row${circle?.id === item.id ? ' is-current' : ''}`}
           aria-current={circle?.id === item.id ? 'page' : undefined} onClick={() => selectCircle(item.id)}>
-          <span className="cir-initial" aria-hidden="true">{item.name.charAt(0).toUpperCase()}</span>
+          <CircleIcon avatar={item.avatar} />
           <span className="cir-stack"><span className="cir-pane__name">{item.name}</span><span className="cir-pane__meta">{people(item.members.length)} · {scopeShort(item)}</span></span>
         </button>)}
       </nav>
@@ -433,13 +433,15 @@ function Switcher({ circles, current, everyone, onSelect, onCreate, onClose }: {
   onClose: () => void;
 }) {
   const host = usePopoverDismiss(onClose, true);
-  const row = (id: string | null, name: string, count: number) => <button type="button" role="menuitem" key={id ?? 'all'} className="cir-menu__item" onClick={() => onSelect(id)}>
-    <span className="cir-menu__check">{(current?.id ?? null) === id && <Check size={14} strokeWidth={2.2} aria-hidden="true" />}</span>
+  const row = (circle: TeamCircle | null, name: string, count: number) => <button type="button" role="menuitem" key={circle?.id ?? 'all'} className="cir-menu__item"
+    onClick={() => onSelect(circle?.id ?? null)}>
+    <span className="cir-menu__check">{(current?.id ?? null) === (circle?.id ?? null) && <Check size={14} strokeWidth={2.2} aria-hidden="true" />}</span>
+    {circle ? <CircleIcon avatar={circle.avatar} size="small" /> : <span className="cir-initial is-small" aria-hidden="true"><Users size={11} /></span>}
     <span className="cir-ellipsis">{name}</span><span className="cir-muted">{count} people</span>
   </button>;
   return <div ref={host} className="cir-popover cir-menu cir-switcher__menu" role="menu" aria-label="Circles">
     {row(null, 'All circles', everyone)}
-    {circles.map(item => row(item.id, item.name, item.members.length))}
+    {circles.map(item => row(item, item.name, item.members.length))}
     <span className="cir-menu__rule" aria-hidden="true" />
     <button type="button" role="menuitem" className="cir-menu__item" onClick={onCreate}><span className="cir-menu__check"><Plus size={14} aria-hidden="true" /></span>New circle</button>
   </div>;

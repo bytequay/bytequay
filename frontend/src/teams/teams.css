@@ -47,6 +47,21 @@
   font-size: 11.5px; line-height: 16px; }
 .cir-initial { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; background: #f4f4f5;
   color: #57606a; font-size: 11.5px; font-weight: 600; }
+.cir-initial.is-small { width: 18px; height: 18px; border-radius: 5px; }
+
+/* A circle's avatar: a plain block of a palette color, as a rounded square or a circle. */
+.cir-avatar { flex: none; display: inline-block; width: 24px; height: 24px; border-radius: 6px; }
+.cir-avatar.is-small { width: 18px; height: 18px; border-radius: 5px; }
+.cir-avatar.is-large { width: 32px; height: 32px; border-radius: 8px; }
+.cir-avatar.is-circle { border-radius: 50%; }
+:is(.cir-avatar, .cir-swatch).is-blue { background: #0969da; }
+:is(.cir-avatar, .cir-swatch).is-green { background: #1a7f37; }
+:is(.cir-avatar, .cir-swatch).is-purple { background: #8250df; }
+:is(.cir-avatar, .cir-swatch).is-orange { background: #bc4c00; }
+:is(.cir-avatar, .cir-swatch).is-red { background: #cf222e; }
+:is(.cir-avatar, .cir-swatch).is-pink { background: #bf3989; }
+:is(.cir-avatar, .cir-swatch).is-teal { background: #0e7c86; }
+:is(.cir-avatar, .cir-swatch).is-gray { background: #6e7781; }
 
 /* ── Work surface ── */
 .cir-main { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; container: cir-main / inline-size; }
@@ -319,6 +334,11 @@
 .cir-field > :is(input, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
 .cir-field__error { color: #cf222e; font-size: 12px; }
 .cir-help { color: var(--text-3); font-size: 11.5px; line-height: 16px; }
+.cir-avatar-field { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-weight: 400; }
+.cir-swatches { display: flex; gap: 8px; }
+.cir-swatch { width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%; cursor: pointer; }
+.cir-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px #ffffff, 0 0 0 4px var(--text-1); }
+.cir-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 .cir-tokens { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 34px; box-sizing: border-box; padding: 4px 6px; border: 1px solid var(--border-input);
   border-radius: 8px; font-weight: 400; }
 .cir-tokens:focus-within { border-color: var(--accent); }

@@ -17,6 +17,7 @@ import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubAccountClient.UserIdentity;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.team.TeamCircle.Avatar;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.RepositoryMetadataStore;
@@ -80,9 +81,9 @@ public class TeamService
         return metadata.findAllContributors();
     }
 
-    public TeamDirectory create(String name, String description, List<String> repositories, List<TeamMemberInput> selected)
+    public TeamDirectory create(String name, String description, Avatar avatar, List<String> repositories, List<TeamMemberInput> selected)
     {
-        TeamCircle circle = new TeamCircle(UUID.randomUUID().toString(), name, description, repositories, ImmutableList.of());
+        TeamCircle circle = new TeamCircle(UUID.randomUUID().toString(), name, description, avatar, repositories, ImmutableList.of());
         List<TeamMemberInput> requested = ImmutableList.copyOf(selected).stream().distinct().collect(toImmutableList());
         Account owner = currentAccount();
         Map<Long, TeamMember> members = new LinkedHashMap<>();
@@ -90,13 +91,13 @@ public class TeamService
             TeamMember member = resolveMember(owner, input);
             members.put(member.githubId(), member);
         });
-        TeamCircle populated = new TeamCircle(circle.id(), circle.name(), circle.description(), circle.repositories(), ImmutableList.copyOf(members.values()));
+        TeamCircle populated = new TeamCircle(circle.id(), circle.name(), circle.description(), circle.avatar(), circle.repositories(), ImmutableList.copyOf(members.values()));
         return mutate(owner, circles -> ImmutableList.<TeamCircle>builder().addAll(circles).add(populated).build());
     }
 
-    public TeamDirectory update(String id, String name, String description, List<String> repositories)
+    public TeamDirectory update(String id, String name, String description, Avatar avatar, List<String> repositories)
     {
-        return change(currentAccount(), id, circle -> new TeamCircle(circle.id(), name, description, repositories, circle.members()));
+        return change(currentAccount(), id, circle -> new TeamCircle(circle.id(), name, description, avatar, repositories, circle.members()));
     }
 
     public TeamDirectory remove(String id)
@@ -118,14 +119,14 @@ public class TeamService
             List<TeamMember> members = new ArrayList<>(circle.members());
             members.removeIf(existing -> existing.githubId() == member.githubId());
             members.add(member);
-            return new TeamCircle(circle.id(), circle.name(), circle.description(), circle.repositories(), members);
+            return new TeamCircle(circle.id(), circle.name(), circle.description(), circle.avatar(), circle.repositories(), members);
         });
     }
 
     public TeamDirectory removeMember(String id, long githubId)
     {
         checkArgument(githubId > 0, "GitHub user ID must be positive");
-        return change(currentAccount(), id, circle -> new TeamCircle(circle.id(), circle.name(), circle.description(), circle.repositories(),
+        return change(currentAccount(), id, circle -> new TeamCircle(circle.id(), circle.name(), circle.description(), circle.avatar(), circle.repositories(),
                 circle.members().stream().filter(member -> member.githubId() != githubId).collect(toImmutableList())));
     }
 

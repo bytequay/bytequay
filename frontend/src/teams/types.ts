@@ -12,9 +12,14 @@
  * limitations under the License.
  */
 export type TeamMember = { githubId: number; login: string; name: string; avatarUrl: string };
-export type TeamCircle = { id: string; name: string; description: string; repositories: string[]; members: TeamMember[] };
+/** Keep in step with TeamCircle.Avatar in the backend. */
+export const CIRCLE_COLORS = ['blue', 'green', 'purple', 'orange', 'red', 'pink', 'teal', 'gray'] as const;
+export const CIRCLE_SHAPES = ['square', 'circle'] as const;
+/** A circle's avatar: a solid palette color, drawn as a rounded square or a circle. */
+export type CircleAvatar = { color: typeof CIRCLE_COLORS[number]; shape: typeof CIRCLE_SHAPES[number] };
+export type TeamCircle = { id: string; name: string; description: string; avatar: CircleAvatar; repositories: string[]; members: TeamMember[] };
 export type TeamDirectory = { accountLogin: string; circles: TeamCircle[] };
-export type TeamCircleInput = { name: string; description: string; repositories: string[] };
+export type TeamCircleInput = { name: string; description: string; avatar: CircleAvatar; repositories: string[] };
 export type TeamMemberInput = Pick<TeamMember, 'githubId' | 'login'>;
 export type TeamCreateInput = TeamCircleInput & { members: TeamMemberInput[] };
 /** Activity's type chips, then the drill-down metrics every count links to. */

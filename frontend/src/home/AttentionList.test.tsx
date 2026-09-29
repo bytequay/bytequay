@@ -59,7 +59,7 @@ describe('AttentionList', () => {
 
   it('shows a private-circle reason and keeps the Circles filter independent from the source tabs', () => {
     vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{
-      id: 'trusted', name: 'Maintainers', description: '', repositories: ['trinodb/trino'], members: [{ githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }],
+      id: 'trusted', name: 'Maintainers', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: ['trinodb/trino'], members: [{ githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }],
     }] }, loading: false, error: null });
     const items = [issueItem(7), prItem(1)];
     const html = list(items);
@@ -71,7 +71,7 @@ describe('AttentionList', () => {
 
   it('never brings pinned or snoozed team items back through preference', () => {
     vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{
-      id: 'trusted', name: 'Maintainers', description: '', repositories: [], members: [{ githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }],
+      id: 'trusted', name: 'Maintainers', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: [], members: [{ githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }],
     }] }, loading: false, error: null });
     vi.stubGlobal('window', { localStorage: { getItem: () => JSON.stringify([{ key: 'trinodb/trino#1', title: 'Pinned', target: { kind: 'pull', repo: 'trinodb/trino', number: 1 } }]) } });
     const items = [1, 2, 3].map(number => prItem(number));
@@ -81,7 +81,7 @@ describe('AttentionList', () => {
 
   it('names the actual member author without labeling the latest commenter as a teammate', () => {
     vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{
-      id: 'trusted', name: 'Maintainers', description: '', repositories: [], members: [{ githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }],
+      id: 'trusted', name: 'Maintainers', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: [], members: [{ githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }],
     }] }, loading: false, error: null });
     const html = list([prItem(1, 'review', {
       event: 'commented', actor: 'bob', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: null,
@@ -97,7 +97,7 @@ describe('AttentionList', () => {
 
   it('explains a member review request independently of the PR author', () => {
     vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{
-      id: 'trusted', name: 'Maintainers', description: '', repositories: [], members: [{ githubId: 2, login: 'bob', name: 'Bob', avatarUrl: '' }],
+      id: 'trusted', name: 'Maintainers', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: [], members: [{ githubId: 2, login: 'bob', name: 'Bob', avatarUrl: '' }],
     }] }, loading: false, error: null });
     const html = list([prItem(1, 'review', {
       event: 'review_requested', actor: 'bob', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: 'viewer',
@@ -220,7 +220,7 @@ describe('AttentionList', () => {
 
   it('puts the newest update first in both Homes even when four older review requests precede it', () => {
     vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{
-      id: 'trusted', name: 'Maintainers', description: '', repositories: [], members: [{ githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }],
+      id: 'trusted', name: 'Maintainers', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: [], members: [{ githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }],
     }] }, loading: false, error: null });
     const items = [1, 2, 3, 4].map(number => prItem(number));
     items.push({ ...prItem(5, 'updated'), author: 'outsider', updatedAt: '2026-09-28T13:00:00Z' });

@@ -35,8 +35,8 @@ const ago = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOStr
 
 function seededDirectory(): TeamDirectory {
   return { accountLogin: 'viewer', circles: [
-    { id: 'trusted-oss', name: 'Trusted OSS', description: 'Trusted open-source collaborators', repositories: ['trinodb/trino'], members: [alice, bob] },
-    { id: 'platform', name: 'Platform team', description: 'Our internal platform group', repositories: ['acme/query-engine'], members: [alice, cara] },
+    { id: 'trusted-oss', name: 'Trusted OSS', description: 'Trusted open-source collaborators', avatar: { color: 'teal', shape: 'circle' }, repositories: ['trinodb/trino'], members: [alice, bob] },
+    { id: 'platform', name: 'Platform team', description: 'Our internal platform group', avatar: { color: 'gray', shape: 'square' }, repositories: ['acme/query-engine'], members: [alice, cara] },
   ] };
 }
 
@@ -388,7 +388,7 @@ async function accountSwitchDuringRefresh() {
   f.delayRefresh(); await click('Refresh activity');
   assert(button('Refresh activity').disabled, 'The delayed refresh must be in flight');
   await f.switchAccount({ accountLogin: 'second-viewer', circles: [
-    { id: 'second-circle', name: 'Second account circle', description: '', repositories: ['acme/query-engine'], members: [cara] },
+    { id: 'second-circle', name: 'Second account circle', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: ['acme/query-engine'], members: [cara] },
   ] });
   await settled();
   assert(pageTitle() === 'All circles', 'An account change must reset the circle');
@@ -408,6 +408,27 @@ async function rememberedView() {
   assert(pageTitle() === 'Platform team' && selectedTab() === 'Insights', 'The last circle and view must reopen');
 }
 
+async function avatarChoice() {
+  const f = await mount();
+  await click('New circle');
+  assert(document.querySelector('.cir-swatch[aria-pressed="true"]')?.getAttribute('aria-label') === 'Blue', 'A new circle must start on a color no circle uses');
+  await input('Circle name', 'Reviewers');
+  await click('Pink');
+  await click('Circle', document.querySelector('[aria-label="Avatar shape"]') ?? document);
+  const preview = document.querySelector('.cir-dialog .cir-avatar');
+  assert(preview?.classList.contains('is-pink') === true && preview.classList.contains('is-circle') && preview.textContent === '', 'The preview must follow the pick');
+  await click('Create circle');
+  assert(JSON.stringify(f.directory.circles[2]?.avatar) === '{"color":"pink","shape":"circle"}', 'Create must save the avatar');
+  const tile = document.querySelector('.cir-pane [title="Reviewers"] .cir-avatar');
+  assert(tile?.classList.contains('is-pink') === true && tile.classList.contains('is-circle'), 'The circle list must draw the avatar');
+  await click('Edit');
+  await click('Green');
+  await click('Square', document.querySelector('[aria-label="Avatar shape"]') ?? document);
+  await click('Save changes');
+  assert(JSON.stringify(f.directory.circles[2]?.avatar) === '{"color":"green","shape":"square"}', 'Edit must save a changed avatar');
+  assert(document.querySelector('.cir-pane [title="Reviewers"] .cir-avatar')?.classList.contains('is-green') === true, 'The list must redraw the changed avatar');
+}
+
 async function homeNavigation() {
   const f = await mount(seededDirectory(), { home: true });
   await click('Circles', document.querySelector('.app-sidebar') ?? document);
@@ -420,7 +441,7 @@ async function homeNavigation() {
 export async function run() {
   const results: { name: string; error?: string }[] = [];
   const scenarios = { firstUse, saveFailure, membersAndUndo, activityWording, insightsDrill, personPanel, needsYou, refreshFailure,
-    accountSwitchDuringRefresh, rememberedView, homeNavigation };
+    accountSwitchDuringRefresh, rememberedView, avatarChoice, homeNavigation };
   for (const [name, scenario] of Object.entries(scenarios)) {
     try { await scenario(); results.push({ name }); }
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }

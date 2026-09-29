@@ -18,6 +18,7 @@ import com.bytequay.app.repository.github.GitHubAccountClient.UserIdentity;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.team.TeamCircle.Avatar;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.store.RepositoryMetadataStore;
@@ -60,7 +61,7 @@ class TestTeamService
     @Test
     void persistsNormalizedPrivateCirclesAndMemberIdentity()
     {
-        TeamCircle circle = service.create(" OSS friends ", "", ImmutableList.of(" Apache/Trino ", "apache/trino"), ImmutableList.of()).circles().getFirst();
+        TeamCircle circle = service.create(" OSS friends ", "", Avatar.DEFAULT, ImmutableList.of(" Apache/Trino ", "apache/trino"), ImmutableList.of()).circles().getFirst();
         when(github.fetchUserIdentity("token-a", Optional.of("old-name"))).thenReturn(identity(42, "old-name"));
         assertThat(service.addMember(circle.id(), new TeamMemberInput(42, "OLD-NAME")).circles().getFirst().members()).extracting(TeamMember::githubId).containsExactly(42L);
         when(github.fetchUserIdentity("token-a", Optional.of("new-name"))).thenReturn(identity(42, "new-name"));
@@ -69,40 +70,45 @@ class TestTeamService
         assertThat(saved.circles().getFirst().repositories()).containsExactly("apache/trino");
         assertThat(saved.circles().getFirst().members()).extracting(TeamMember::login).containsExactly("new-name");
         assertThat(new TeamService(store, mapper, credentials, github, metadata).directory()).isEqualTo(saved);
-        assertThat(service.update(circle.id(), "Maintainers", "", ImmutableList.of()).circles().getFirst().members()).hasSize(1);
+        assertThat(service.update(circle.id(), "Maintainers", "", Avatar.DEFAULT, ImmutableList.of()).circles().getFirst().members()).hasSize(1);
         assertThat(service.removeMember(circle.id(), 42).circles().getFirst().members()).isEmpty();
         assertThat(service.remove(circle.id()).circles()).isEmpty();
     }
 
     @Test
-    void createsDescriptionAndSelectedPeopleTogether()
+    void createsDescriptionAvatarAndSelectedPeopleTogether()
     {
         when(github.fetchUserIdentity("token-a", Optional.of("bob"))).thenReturn(identity(42, "bob"));
         when(github.fetchUserIdentity("token-a", Optional.of("old-bob"))).thenReturn(identity(42, "bob"));
         when(github.fetchUserIdentity("token-a", Optional.of("cara"))).thenReturn(identity(43, "cara"));
-        TeamCircle circle = service.create(" Friends ", " Trusted maintainers \n", ImmutableList.of(), ImmutableList.of(
+        TeamCircle circle = service.create(" Friends ", " Trusted maintainers \n", new Avatar("teal", "circle"), ImmutableList.of(), ImmutableList.of(
                 new TeamMemberInput(42, " BOB "), new TeamMemberInput(42, "bob"), new TeamMemberInput(42, "old-bob"), new TeamMemberInput(43, "cara")))
                 .circles().getFirst();
         assertThat(circle.name()).isEqualTo("Friends");
         assertThat(circle.description()).isEqualTo("Trusted maintainers");
+        assertThat(circle.avatar()).isEqualTo(new Avatar("teal", "circle"));
         assertThat(circle.members()).extracting(TeamMember::githubId).containsExactly(42L, 43L);
         verify(github, times(1)).fetchUserIdentity("token-a", Optional.of("bob"));
         assertThat(new TeamService(store, mapper, credentials, github, metadata).directory().circles()).containsExactly(circle);
 
-        TeamCircle updated = service.update(circle.id(), "Maintainers", "Working together", ImmutableList.of()).circles().getFirst();
+        TeamCircle updated = service.update(circle.id(), "Maintainers", "Working together", new Avatar("pink", "square"), ImmutableList.of()).circles().getFirst();
         assertThat(updated.description()).isEqualTo("Working together");
+        assertThat(updated.avatar()).isEqualTo(new Avatar("pink", "square"));
         assertThat(updated.members()).isEqualTo(circle.members());
         assertThat(service.removeMember(circle.id(), 42).circles().getFirst().description()).isEqualTo("Working together");
-        assertThat(service.addMember(circle.id(), new TeamMemberInput(42, "bob")).circles().getFirst().description()).isEqualTo("Working together");
+        assertThat(service.addMember(circle.id(), new TeamMemberInput(42, "bob")).circles().getFirst().avatar()).isEqualTo(new Avatar("pink", "square"));
+        assertThatThrownBy(() -> new Avatar("chartreuse", "square")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new Avatar("teal", "hexagon")).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     void failedInitialMemberResolutionDoesNotCreateAPartialCircle()
     {
-        TeamDirectory saved = service.create("Saved", "", ImmutableList.of(), ImmutableList.of());
+        TeamDirectory saved = service.create("Saved", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of());
         when(github.fetchUserIdentity("token-a", Optional.of("bob"))).thenReturn(identity(42, "bob"));
         when(github.fetchUserIdentity("token-a", Optional.of("missing"))).thenThrow(new IllegalStateException("GitHub user not found"));
-        assertThatThrownBy(() -> service.create("Friends", "Work", ImmutableList.of(), ImmutableList.of(new TeamMemberInput(42, "bob"), new TeamMemberInput(43, "missing"))))
+        var selected = ImmutableList.of(new TeamMemberInput(42, "bob"), new TeamMemberInput(43, "missing"));
+        assertThatThrownBy(() -> service.create("Friends", "Work", Avatar.DEFAULT, ImmutableList.of(), selected))
                 .isInstanceOf(IllegalStateException.class).hasMessage("GitHub user not found");
         assertThat(service.directory()).isEqualTo(saved);
     }
@@ -110,12 +116,12 @@ class TestTeamService
     @Test
     void reusedLoginCannotReplaceTheSelectedContributorIdentity()
     {
-        TeamDirectory saved = service.create("Saved", "", ImmutableList.of(), ImmutableList.of());
+        TeamDirectory saved = service.create("Saved", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of());
         when(github.fetchUserIdentity("token-a", Optional.of("bob"))).thenReturn(identity(42, "bob"));
         when(github.fetchUserIdentity("token-a", Optional.of("cara"))).thenReturn(identity(99, "cara"));
         var selected = ImmutableList.of(new TeamMemberInput(42, "bob"), new TeamMemberInput(43, "cara"));
 
-        assertThatThrownBy(() -> service.create("Friends", "Work", ImmutableList.of(), selected))
+        assertThatThrownBy(() -> service.create("Friends", "Work", Avatar.DEFAULT, ImmutableList.of(), selected))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("cara couldn't be verified");
         assertThat(service.directory()).isEqualTo(saved);
         assertThatThrownBy(() -> service.addMember(saved.circles().getFirst().id(), new TeamMemberInput(43, "cara")))
@@ -132,6 +138,7 @@ class TestTeamService
                 """);
         TeamCircle circle = service.directory().circles().getFirst();
         assertThat(circle.description()).isEmpty();
+        assertThat(circle.avatar()).isEqualTo(Avatar.DEFAULT);
         assertThat(circle.members()).containsExactly(new TeamMember(42, "bob", "Bob", ""));
     }
 
@@ -147,7 +154,7 @@ class TestTeamService
     @Test
     void accountIdentitySurvivesRenameAndSeparatesOtherAccounts()
     {
-        TeamCircle circle = service.create("My circle", "", ImmutableList.of(), ImmutableList.of()).circles().getFirst();
+        TeamCircle circle = service.create("My circle", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of()).circles().getFirst();
         assertThat(service.accountId()).isEqualTo(1);
         service.directory();
         verify(github, times(1)).fetchUserIdentity("token-a", Optional.empty());
@@ -161,7 +168,7 @@ class TestTeamService
     @Test
     void warmedDirectoryReadsDoNotCallGitHub()
     {
-        TeamDirectory directory = service.create("Local", "", ImmutableList.of(), ImmutableList.of());
+        TeamDirectory directory = service.create("Local", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of());
         clearInvocations(github, credentials);
         assertThat(service.directory()).isEqualTo(directory);
         verifyNoInteractions(github);
@@ -171,13 +178,13 @@ class TestTeamService
     @Test
     void rejectsInvalidInputWithoutChangingSavedCircles()
     {
-        TeamDirectory saved = service.create("Saved", "", ImmutableList.of(), ImmutableList.of());
+        TeamDirectory saved = service.create("Saved", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of());
         String id = saved.circles().getFirst().id();
-        assertThatThrownBy(() -> service.create(" ", "", ImmutableList.of(), ImmutableList.of())).isInstanceOf(ResponseStatusException.class);
-        assertThatThrownBy(() -> service.update(id, "x".repeat(101), "", ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.update(id, "Name", "", ImmutableList.of("owner/repo/extra"))).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.update(id, "Name", "x".repeat(2001), ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.create("Name", "", ImmutableList.of(), ImmutableList.of(new TeamMemberInput(42, "https://github.com/person"))))
+        assertThatThrownBy(() -> service.create(" ", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of())).isInstanceOf(ResponseStatusException.class);
+        assertThatThrownBy(() -> service.update(id, "x".repeat(101), "", Avatar.DEFAULT, ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.update(id, "Name", "", Avatar.DEFAULT, ImmutableList.of("owner/repo/extra"))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.update(id, "Name", "x".repeat(2001), Avatar.DEFAULT, ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.create("Name", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of(new TeamMemberInput(42, "https://github.com/person"))))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.addMember(id, new TeamMemberInput(42, "https://github.com/person"))).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.addMember(id, new TeamMemberInput(0, "person"))).isInstanceOf(IllegalArgumentException.class);
@@ -193,7 +200,7 @@ class TestTeamService
         service.directory();
         try (var executor = Executors.newFixedThreadPool(4)) {
             var tasks = IntStream.range(0, 40)
-                    .mapToObj(index -> executor.submit(() -> service.create("Circle " + index, "", ImmutableList.of(), ImmutableList.of())))
+                    .mapToObj(index -> executor.submit(() -> service.create("Circle " + index, "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of())))
                     .collect(toImmutableList());
             for (var task : tasks) {
                 task.get(5, TimeUnit.SECONDS);
@@ -205,14 +212,14 @@ class TestTeamService
     @Test
     void hasNoMemberCountCapAndPreservesUnreadableStorage()
     {
-        TeamCircle circle = service.create("People", "", ImmutableList.of(), ImmutableList.of()).circles().getFirst();
+        TeamCircle circle = service.create("People", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of()).circles().getFirst();
         for (int id = 1; id <= 101; id++) {
             when(github.fetchUserIdentity("token-a", Optional.of("member-" + id))).thenReturn(identity(id, "member-" + id));
             service.addMember(circle.id(), new TeamMemberInput(id, "member-" + id));
         }
         assertThat(service.directory().circles().getFirst().members()).hasSize(101);
         store.put("teams.directory.1", "invalid JSON");
-        assertThatThrownBy(() -> service.create("Another", "", ImmutableList.of(), ImmutableList.of())).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> service.create("Another", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of())).isInstanceOf(IllegalStateException.class);
         assertThat(store.get("teams.directory.1")).contains("invalid JSON");
     }
 

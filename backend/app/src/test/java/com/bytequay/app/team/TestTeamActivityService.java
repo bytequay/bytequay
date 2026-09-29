@@ -20,6 +20,7 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.team.TeamActivitySnapshot.Statistics;
+import com.bytequay.app.team.TeamCircle.Avatar;
 import com.bytequay.core.domain.TeamActivityEvent;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.store.AppSettingsStore;
@@ -67,7 +68,7 @@ class TestTeamActivityService
     {
         Fixture fixture = fixture();
         when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(
-                new TeamCircle("all", "All", "", ImmutableList.of(), ImmutableList.of(ALICE, BOB)))));
+                new TeamCircle("all", "All", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of(ALICE, BOB)))));
         when(fixture.store().findSince(anyLong(), any())).thenReturn(ImmutableList.of(
                 event("opened", "PR_OPENED", 2, 2, 7, "owner/repo", ImmutableList.of()),
                 event("merged", "PR_MERGED", 3, 2, 7, "owner/repo", ImmutableList.of()),
@@ -96,8 +97,8 @@ class TestTeamActivityService
     {
         Fixture fixture = fixture();
         when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(
-                new TeamCircle("alice", "Alice scope", "", ImmutableList.of("owner/repo"), ImmutableList.of(ALICE)),
-                new TeamCircle("bob", "Bob everywhere", "", ImmutableList.of(), ImmutableList.of(BOB)))));
+                new TeamCircle("alice", "Alice scope", "", Avatar.DEFAULT, ImmutableList.of("owner/repo"), ImmutableList.of(ALICE)),
+                new TeamCircle("bob", "Bob everywhere", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of(BOB)))));
         when(fixture.store().findSince(anyLong(), any())).thenReturn(ImmutableList.of(
                 event("one", "PR_OPENED", 2, 2, 7, "owner/repo", ImmutableList.of()),
                 event("two", "PR_OPENED", 2, 2, 8, "owner/repo", ImmutableList.of()),
@@ -121,7 +122,7 @@ class TestTeamActivityService
         Fixture fixture = fixture();
         List<TeamMember> members = ImmutableList.of(ALICE, BOB, new TeamMember(4, "carol", "", ""), new TeamMember(5, "dan", "", ""),
                 new TeamMember(6, "eve", "", ""), new TeamMember(7, "frank", "", ""));
-        when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(new TeamCircle("all", "All", "", ImmutableList.of(), members))));
+        when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(new TeamCircle("all", "All", "", Avatar.DEFAULT, ImmutableList.of(), members))));
         when(fixture.github().publicEvents(anyString(), anyString(), any())).thenReturn(new Observation(ImmutableList.of(), ImmutableList.of(), false));
         fixture.service().collect();
         TeamActivityService restarted = new TeamActivityService(fixture.teams(), fixture.credentials(), fixture.workspaces(), fixture.github(), fixture.store(),
@@ -137,7 +138,7 @@ class TestTeamActivityService
     {
         Fixture fixture = fixture();
         when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(
-                new TeamCircle("all", "All", "", ImmutableList.of(), ImmutableList.of(ALICE, BOB)))));
+                new TeamCircle("all", "All", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of(ALICE, BOB)))));
         TeamActivityEvent authoredMerge = new TeamActivityEvent("authored", "PR_MERGED", 3, "bob", "owner/repo", 7, "Title",
                 "https://github.com/owner/repo/pull/7", Instant.now().minusSeconds(3600), Optional.of(2L), Optional.of("alice"), "REPOSITORY", ImmutableList.of());
         when(fixture.store().findSince(anyLong(), any())).thenReturn(ImmutableList.of(
@@ -183,7 +184,7 @@ class TestTeamActivityService
     {
         Fixture fixture = fixture();
         when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(
-                new TeamCircle("all", "All", "", ImmutableList.of(), ImmutableList.of(ALICE)))));
+                new TeamCircle("all", "All", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of(ALICE)))));
         when(fixture.store().findSince(anyLong(), any())).thenReturn(ImmutableList.of(event("today", "PR_OPENED", 2, 2, 7, "owner/repo", ImmutableList.of())));
         assertThat(fixture.service().snapshot(Optional.empty(), Optional.empty(), 7, 100, "all").days())
                 .hasSize(7).allSatisfy(day -> assertThat(day.collected()).isFalse());
@@ -221,7 +222,7 @@ class TestTeamActivityService
     {
         Fixture fixture = fixture();
         when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(
-                new TeamCircle("all", "All", "", ImmutableList.of(), ImmutableList.of(ALICE)))));
+                new TeamCircle("all", "All", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of(ALICE)))));
         when(fixture.github().publicEvents(anyString(), anyString(), any())).thenAnswer(invocation -> {
             when(fixture.credentials().resolveGitHubCredential()).thenReturn(new GitHubCredential("other", new UserProfile("other", "", "", "", 0, 0, 0, "", "", "", "")));
             return new Observation(ImmutableList.of(event("one", "PR_OPENED", 2, 2, 7, "owner/repo", ImmutableList.of())), ImmutableList.of(), false);

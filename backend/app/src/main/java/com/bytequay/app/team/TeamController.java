@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.team;
 
+import com.bytequay.app.team.TeamCircle.Avatar;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.google.common.collect.ImmutableList;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -55,13 +56,13 @@ public class TeamController
     @PostMapping
     public TeamDirectory create(@RequestBody CircleRequest request)
     {
-        return teams.create(request.name(), request.description(), request.repositories(), request.members());
+        return teams.create(request.name(), request.description(), request.avatar(), request.repositories(), request.members());
     }
 
     @PutMapping("/{id}")
     public TeamDirectory update(@PathVariable String id, @RequestBody CircleRequest request)
     {
-        return teams.update(id, request.name(), request.description(), request.repositories());
+        return teams.update(id, request.name(), request.description(), request.avatar(), request.repositories());
     }
 
     @DeleteMapping("/{id}")
@@ -82,10 +83,11 @@ public class TeamController
         return teams.removeMember(id, githubId);
     }
 
-    public record CircleRequest(String name, String description, List<String> repositories, List<TeamMemberInput> members)
+    public record CircleRequest(String name, String description, Avatar avatar, List<String> repositories, List<TeamMemberInput> members)
     {
         public CircleRequest
         {
+            avatar = Optional.ofNullable(avatar).orElse(Avatar.DEFAULT);
             repositories = Optional.ofNullable(repositories).map(ImmutableList::copyOf).orElse(ImmutableList.of());
             members = Optional.ofNullable(members).map(ImmutableList::copyOf).orElse(ImmutableList.of());
         }

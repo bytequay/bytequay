@@ -88,6 +88,24 @@ class TestGitHubPullRequestSummaryClient
     }
 
     @Test
+    void viewerReviewOnACollectedCommitKeepsTheSummary()
+            throws Exception
+    {
+        Fixture fixture = fixture();
+        ObjectNode row = row(1);
+        row.withObject("/viewerReviews").withArray("nodes").add(MAPPER.readTree("""
+                {"databaseId":42,"state":"COMMENTED","submittedAt":"2026-09-20T10:00:00Z",
+                  "author":{"login":"viewer","avatarUrl":"https://avatars/viewer"},"commit":null}
+                """));
+        fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
+
+        GitHubPullRequestSummary summary = fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
+
+        assertThat(summary.viewerReview().orElseThrow().commitId()).isNull();
+        fixture.server().verify();
+    }
+
+    @Test
     void cardActivityCarriesOneCommentWithoutClaimingCiIsDiscussionActivity()
             throws Exception
     {

@@ -369,9 +369,11 @@ public class GitHubPullRequestSummaryClient
         if (!ImmutableSet.of("APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED").contains(state)) {
             throw incomplete("Unknown viewer review state");
         }
+        // GitHub nulls the commit once a force-push lets it be garbage-collected.
+        JsonNode commit = requiredNullable(review, "commit");
         return new PrReviewState(databaseId(review), login, text(author, "avatarUrl"), false, state,
                 instant(review, "submittedAt").orElseThrow(() -> incomplete("Missing review timestamp")), null, null,
-                text(required(review, "commit"), "oid"));
+                commit.isNull() ? null : text(commit, "oid"));
     }
 
     private static CiStatus ciStatus(JsonNode rollup)

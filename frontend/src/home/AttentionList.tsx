@@ -147,9 +147,9 @@ export default function AttentionList({
       <div className="atn-head">
         <span className="atn-head__label">Needs attention</span>
         {(circles.length > 0 || onlyTeam) && (
-          <button type="button" className={`atn-filter${onlyTeam ? ' is-active' : ''}`} aria-pressed={onlyTeam} onClick={() => setOnlyTeam(value => !value)}>Circles</button>
+          <button type="button" className={`atn-toggle${onlyTeam ? ' is-active' : ''}`} aria-pressed={onlyTeam} onClick={() => setOnlyTeam(value => !value)}>Circles</button>
         )}
-        <button type="button" className={`atn-filter${openOnly ? ' is-active' : ''}`} aria-pressed={openOnly} title="Hide merged and closed items"
+        <button type="button" className={`atn-toggle${openOnly ? ' is-active' : ''}`} aria-pressed={openOnly} title="Hide merged and closed items"
           onClick={() => {
             const next = !openOnly;
             setOpenOnly(next);

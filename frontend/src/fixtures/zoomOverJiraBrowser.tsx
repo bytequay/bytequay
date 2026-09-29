@@ -151,7 +151,7 @@ async function ticketLinksOverThePage(): Promise<void> {
     assert(reply !== null && reply !== undefined, 'The ticket layer takes comments');
     changeInput(reply, 'Tracked from the issue');
     await settle();
-    [...ticketLayer()?.querySelectorAll('button') ?? []].find(button => button.textContent === 'Send comment')?.click();
+    [...ticketLayer()?.querySelectorAll('button') ?? []].find(button => button.textContent === 'Send')?.click();
     await until(() => ticketLayer()?.textContent?.includes('Tracked from the issue') ?? false, 'The comment posted from the ticket layer');
 
     ticketLayer()?.querySelector<HTMLButtonElement>('button[aria-label="Open ENG-1007 in Jira"]')?.click();

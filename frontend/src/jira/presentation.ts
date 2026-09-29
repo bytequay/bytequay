@@ -23,6 +23,17 @@ export function jiraWorkflowGroup(issue: JiraIssue): string {
   return issue.status.name;
 }
 
+export type JiraPriorityLevel = 'urgent' | 'high' | 'medium' | 'low' | 'lowest' | 'neutral';
+/** How urgent a priority name reads: P1 is urgent, P4 neither urgent nor important. A tenant's own names keep no rank. */
+export function jiraPriorityLevel(name: string): JiraPriorityLevel {
+  const value = name.trim().toLowerCase();
+  if (/^(p1|highest|critical|blocker)$/.test(value)) return 'urgent';
+  if (/^(p2|high)$/.test(value)) return 'high';
+  if (/^(p3|medium)$/.test(value)) return 'medium';
+  if (/^(p4|low)$/.test(value)) return 'low';
+  return /^(p5|lowest)$/.test(value) ? 'lowest' : 'neutral';
+}
+
 export function completedGroups(issues: JiraIssue[], now = new Date()): { label: string; issues: JiraIssue[] }[] {
   const midnight = (offset: number) => new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset).getTime();
   const today = midnight(0);

@@ -14,7 +14,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
-import { completedGroups, jiraCommentThreads, jiraWorkflowGroup } from './presentation';
+import { completedGroups, jiraCommentThreads, jiraPriorityLevel, jiraWorkflowGroup } from './presentation';
 import { jiraIssue } from './fixtures/jira';
 import type { JiraComment } from './contracts';
 
@@ -47,6 +47,13 @@ describe('Jira completion dates', () => {
     expect(issue.status.name).toBe('Awaiting review');
     expect(jiraWorkflowGroup({ ...issue, status: { ...issue.status, name: 'Quality gate' } })).toBe('In progress');
     expect(jiraWorkflowGroup({ ...issue, status: { ...issue.status, category: 'unrecognized', name: 'Custom status' } })).toBe('Custom status');
+  });
+});
+
+describe('Jira priorities', () => {
+  it('ranks P-numbers and Jira defaults, never a tenant-specific name', () => {
+    expect(['P1', 'Highest', 'p2', 'High', 'P3', 'Medium', 'P4', 'Low', 'P5', 'Lowest', 'Expedite', 'P10']
+      .map(jiraPriorityLevel)).toEqual(['urgent', 'urgent', 'high', 'high', 'medium', 'medium', 'low', 'low', 'lowest', 'lowest', 'neutral', 'neutral']);
   });
 });
 

@@ -206,7 +206,7 @@
 .jira-detail .markdown-body :is(h1, h2, h3, h4, h5, h6) { display: block; margin: 20px 0 8px; padding: 0; border: 0; font-weight: 600; line-height: 1.3; letter-spacing: normal; }
 .jira-detail .markdown-body :is(h1, h2) { font-size: 20px; }
 .jira-detail .markdown-body h3 { font-size: 16px; }
-.jira-detail .markdown-body strong { font-weight: inherit; }
+.jira-detail .markdown-body :is(h1, h2, h3, h4, h5, h6) strong { font-weight: inherit; }
 .jira-detail .markdown-body > :first-child { margin-top: 0; }
 .jira-detail .markdown-body > :last-child { margin-bottom: 0; }
 .jira-field { box-sizing: border-box; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid #d0d7de; border-radius: 6px; background: #ffffff; color: var(--text-1); font: inherit; font-size: 13px; }

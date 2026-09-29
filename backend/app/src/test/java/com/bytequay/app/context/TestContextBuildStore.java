@@ -27,6 +27,7 @@ import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextReference;
 import com.bytequay.core.context.ContextRepositoryRead;
+import com.bytequay.core.context.ContextSourceRead;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.domain.RepoRef;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -42,6 +43,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.IntStream;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -100,6 +102,38 @@ class TestContextBuildStore
         assertThat(runs.getFirst().sequence()).isEqualTo(3);
         assertThat(runs.getLast().sequence()).isEqualTo(ContextBuildStore.MAX_RUNS + 2);
         assertThat(store.runs("different-workspace")).isEmpty();
+    }
+
+    @Test
+    void retainsEvidenceAndActivityForLargerRuns()
+    {
+        String excerpt = "x".repeat(4 * 1024);
+        ImmutableList.Builder<ContextSourceRead> reads = ImmutableList.builder();
+        ImmutableMap.Builder<String, CapturedSource> evidence = ImmutableMap.builder();
+        ImmutableMap.Builder<String, String> attempts = ImmutableMap.builder();
+        for (int index = 0; index < 256; index++) {
+            String id = "context-read:" + index;
+            String path = "src/File" + index + ".java";
+            reads.add(new ContextRepositoryRead(id, new ContextReference.RepositoryFile(1, REPOSITORY, path, SHA), SHA,
+                    Instant.EPOCH, 1, 1, 1, excerpt.length(), false, Optional.of(id)));
+            evidence.put(id, new CapturedSource("Captured source", excerpt));
+            attempts.put("read-operation:" + index, "Reserved").put("file:" + path, id);
+        }
+        List<ContextBuild.Activity> activity = IntStream.range(0, ContextBuild.Capture.MAX_ACTIVITY)
+                .mapToObj(index -> new ContextBuild.Activity(Instant.EPOCH, "x".repeat(400), ContextBuild.Activity.Tone.DONE)).toList();
+        ContextBuild build = build().withCapture(new ContextBuild.Capture(reads.build(), evidence.buildOrThrow(), attempts.buildOrThrow(),
+                ImmutableMap.of(), Optional.empty(), ImmutableList.of(), activity));
+        store.save(Optional.empty(), build);
+        assertThat(settings.get(ContextBuildStore.PREFIX + WORKSPACE).orElseThrow().length()).isGreaterThan(1024 * 1024);
+        assertThat(new ContextBuildStore(settings, tasks, mapper).find(WORKSPACE)).contains(build);
+
+        for (int sequence = 1; sequence <= ContextBuildStore.MAX_RUNS; sequence++) {
+            store.recordRun(WORKSPACE, new ContextRun(sequence, "task:" + sequence, ContextBuild.Mode.LEARN, Instant.EPOCH, Optional.of(Instant.EPOCH),
+                    Optional.empty(), Optional.empty(), ContextRun.Outcome.UNFINISHED, 256, 0,
+                    ImmutableList.of(), activity, Optional.empty()));
+        }
+        assertThat(settings.get(ContextBuildStore.RUNS_PREFIX + WORKSPACE).orElseThrow().length()).isGreaterThan(1024 * 1024);
+        assertThat(new ContextBuildStore(settings, tasks, mapper).runs(WORKSPACE)).hasSize(ContextBuildStore.MAX_RUNS);
     }
 
     private static ContextRun run(long sequence)

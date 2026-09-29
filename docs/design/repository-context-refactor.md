@@ -80,20 +80,36 @@ Learning answers small questions and saves useful notes. For example, Iceberg
 table concepts, Trino's read path, commit behavior, and delete semantics are
 separate units rather than one request to read an entire connector.
 
-Accepting a topic reuses a scope only when its complete path set matches,
+Every topic declares two separate boundaries: `paths` lists directories available
+to read, while `notePaths` lists where its saved notes apply. All questions in a
+topic share that note target. Discovery splits questions into separate topics
+when their applicability differs; it must not combine an Iceberg-only question
+and a cross-connector comparison under one shared target. An Iceberg question can
+read Delta Lake or Hive evidence for comparison while saving only Iceberg notes.
+Reading another connector does not establish that its behavior applies to Iceberg.
+Off-target findings become open questions or gaps for later explicit discovery,
+not automatic notes or learning runs. Shared targets require shared or comparison
+questions and evidence for the stated relationship.
+
+Accepting a topic reuses a scope only when its complete `notePaths` set matches,
 regardless of order, and it has no additional term rules. Otherwise it creates a
-scope identified by the complete rule. The first displayed path is only a compact
-label. Existing scope rules, approved notes and accepted plans remain unchanged;
-this correction needs no data reset. A previously accepted plan whose topic paths
-disagree with its saved scope is rejected before starting or using a learning
-task. The user can discard that plan and select topics again; notes and drafts
-stay. Correctly scoped plans continue normally. New discovery can add missing connector
-topics, which the user can select for learning without deleting prior notes.
+scope identified by that matching rule. The existing note's scope owns retrieval;
+read paths and evidence never automatically broaden it. Draft approval remains
+required and does not prove semantic correctness.
+
+The page shows **Notes apply to** separately from **Code available to read**.
+Explicit empty note paths mean repository-wide; missing note paths mean unknown.
+Old suggestions and plans remain inspectable with unknown applicability, but
+cannot start or use a learning task until the user rediscovers and reselects topics.
+No targets are guessed from the former mixed path list. A saved target that differs
+from its scope is rejected before source reads or note preparation. Existing
+notes, drafts, scope rules and progress are retained; discarding a plan removes
+only that plan. Existing broad notes are not automatically moved or reclassified.
 
 The accepted plan fixes repository revisions/document versions and allowed
 folders or website roots. Suggested web defaults are two link hops from the
-approved starting page and ten documentation pages per batch, with separate
-read/byte/tool limits for code. Continuation does not reset link depth or
+approved starting page, with bounded source responses and retained data.
+Continuation does not reset link depth or
 implicitly authorize another site, repository, or version. Repository file
 inventories use paths, not a directory-depth cutoff.
 
@@ -113,8 +129,36 @@ approval never grants more spending.
 Resume with relevant saved notes and progress, not the complete old conversation
 or every note. Recheck changed sources as necessary. Do not promise zero
 rereading, full expertise, or hard token/dollar ceilings where a provider only
-reports usage after a request. Source/tool/turn bounds must be enforced by
+reports usage after a request. Source-access, response-size and turn bounds must be enforced by
 ByteQuay, not merely written in a prompt. Save progress before exhausting them.
+
+Normal learning must fit within these bounds; limits prevent runaway work rather
+than requiring repeated runs to overcome an internal bookkeeping failure. Each
+uses the configured agent turn timeout (30 minutes by default), without a
+source-operation or documentation-open count quota. Reads, searches and opens
+remain recorded as activity, including failures and retries. Reading chunks and
+two link hops remain bounded. Input identity capture supports 4,096 distinct source
+paths and ancestor directories, then expands the directories into exact manifest
+lookups in batches of at most 512, within the existing ten-second metadata deadline.
+A scope allows 256 source paths and 1,024 ancestor directories; 2,048 fingerprint
+inputs fit within 128 KiB. Candidate build-file names do not each consume a logical
+path slot. Expanding ancestor manifest names must not prevent saving an evidenced draft.
+Incomplete identity errors include their actual reason.
+
+Stored capacity is separate from what an agent receives or may submit at once:
+discovery retains 200 topics, 200 sources and 400 evidence records under 4 MiB;
+the notebook retains 500 note identities, 256 scopes and 200 registered sources,
+with 4,000 evidence records, 8 MiB of prose/evidence and 16 MiB serialized storage.
+Retained fingerprints have a separate 2 MiB notebook allowance. A run can retain
+2 MiB of evidence and the 200 most recent activity lines; read receipts and attempt markers have
+no cumulative item-count quota. Build
+and run-history records each have a 4 MiB storage bound. Per-note 8 KiB bodies,
+one-question runs, 20-topic learning batches, bounded lookup pages and 1 MiB
+tool arguments remain unchanged. READY reports select supporting read receipts;
+EMPTY reports must account for every captured source. Receipt lists have no
+separate count quota, while tool and stored-result byte limits still apply.
+Larger stored catalogs never trigger automatic
+learning or automatic delivery of the whole notebook to an agent.
 
 Approved completed notes are usable immediately while other topics remain
 unfinished. A stopped run may have useful drafts without finishing a topic.

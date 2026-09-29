@@ -19,6 +19,7 @@ import com.bytequay.core.context.ContextClaim;
 import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextInputFingerprint;
 import com.bytequay.core.context.ContextKnowledgeDraft;
+import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextMatch;
 import com.bytequay.core.context.ContextPreparationResult;
 import com.bytequay.core.context.ContextReference;
@@ -27,6 +28,7 @@ import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.ContextSourceEvidence;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
+import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.review.AgentReview;
@@ -48,17 +50,20 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.stream.IntStream;
 
 import static com.bytequay.core.context.ContextEntryKind.KNOWLEDGE;
 import static com.bytequay.core.context.ContextEntryKind.MEMORY;
 import static com.bytequay.core.context.ContextEntryOrigin.GENERATED;
 import static com.bytequay.core.context.ContextEntryOrigin.USER;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
@@ -443,6 +448,64 @@ class TestRepositoryContextService
     }
 
     @Test
+    void accumulatedNotebookSurvivesStorageAndEditingBeyondPerRunLimits()
+    {
+        List<ContextEntry> notes = IntStream.range(0, ContextLimits.MAX_STORED_ENTRIES)
+                .mapToObj(index -> storedNote(index, "x".repeat(2048), IntStream.range(index * 8, (index + 1) * 8)
+                        .mapToObj(source -> "evidence:" + source).collect(toImmutableList()))).collect(toImmutableList());
+        List<ContextScope> scopes = ImmutableList.<ContextScope>builder().add(ContextScope.project()).addAll(IntStream.range(1, 256).mapToObj(index -> {
+            String scopeId = "component:" + index;
+            ContextInputFingerprint input = ContextInputFingerprint.create(scopeId,
+                    ImmutableMap.of("git:README.md", "a".repeat(2000), "git:pom.xml", "b".repeat(2000)), ImmutableList.of());
+            ContextPreparationResult preparation = new ContextPreparationResult("attempt:" + index, input, ContextPreparationResult.Outcome.FAILED,
+                    ImmutableList.of(), ImmutableList.of(), "Sources need another read");
+            return new ContextScope(scopeId, "Component " + index, new ContextMatch.Selected(ImmutableList.of("module-" + index + "/"), ImmutableList.of()),
+                    true, Optional.of(preparation), Optional.empty());
+        }).iterator()).build();
+        List<RegisteredContextSource> sources = IntStream.range(0, 200).mapToObj(index -> new RegisteredContextSource("source:" + index,
+                RegisteredContextSource.Kind.DOCUMENTATION_PAGE, "https://example.com/docs/page-" + index, USER, Optional.empty())).collect(toImmutableList());
+        List<ContextSourceEvidence> evidence = IntStream.range(0, 4000).mapToObj(index -> new ContextSourceEvidence("evidence:" + index,
+                new ContextReference.RepositoryFile(1, RepoRef.of("example", "repository"), "README.md", HEAD), "Captured source", "Evidence " + index,
+                ContextSourceEvidence.Capture.BYTEQUAY_READ, Optional.of(Instant.EPOCH), Optional.empty(), Optional.of(HEAD), false)).collect(toImmutableList());
+        List<ContextKnowledgeDraft> drafts = notes.subList(250, notes.size()).stream()
+                .map(note -> new ContextKnowledgeDraft("draft:" + note.id(), note, Optional.empty(), HEAD, "Awaiting approval")).collect(toImmutableList());
+        RepositoryNotebook accumulated = new RepositoryNotebook(1, 1, true, true, sources, scopes, notes.subList(0, 250), drafts, evidence, Optional.empty());
+
+        RepositoryNotebook saved = service.savePreparation(WORKSPACE, service.getNotebook(WORKSPACE), accumulated);
+        assertThat(ContextLimits.bytes(settings.get(KEY).orElseThrow())).isGreaterThan(ContextLimits.MAX_NOTEBOOK_BYTES);
+        assertThat(service.getNotebook(WORKSPACE)).isEqualTo(saved);
+        RepositoryNotebook edited = service.configure(WORKSPACE, saved.revision(), new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty()));
+        assertThat(service.getNotebook(WORKSPACE)).isEqualTo(edited);
+        assertThat(edited.entries()).hasSize(250);
+        assertThat(edited.pendingDrafts()).hasSize(250);
+        assertThat(edited.scopes()).hasSize(256);
+        assertThat(edited.scopes().stream().flatMap(scope -> scope.preparation().stream()).mapToLong(result -> result.inputFingerprint().inputBytes()).sum())
+                .isGreaterThan(ReviewContextSnapshot.MAXIMUM_INPUT_BYTES).isLessThanOrEqualTo(ContextLimits.MAX_STORED_INPUT_BYTES);
+        assertThat(edited.sources()).hasSize(200);
+        assertThat(edited.sourceEvidence()).hasSize(4000);
+        List<ContextKnowledgeDraft> tooMany = ImmutableList.<ContextKnowledgeDraft>builder().addAll(drafts)
+                .add(new ContextKnowledgeDraft("draft:overflow", storedNote(500, "Another note", ImmutableList.of()), Optional.empty(), HEAD, "Awaiting approval")).build();
+        assertThatThrownBy(() -> new RepositoryNotebook(1, 1, true, true, sources, scopes, accumulated.entries(), tooMany, evidence, Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("too many distinct note identities");
+    }
+
+    @Test
+    void serializedNotebookLimitStillRejectsOversizedWritesAndReads()
+    {
+        RepositoryNotebook saved = service.editEntry(WORKSPACE, 0, edit("Kept note"));
+        List<ContextEntry> notes = IntStream.range(0, ContextLimits.MAX_STORED_ENTRIES)
+                .mapToObj(index -> storedNote(index, "Escaped text " + String.valueOf((char) 1).repeat(6000), ImmutableList.of())).collect(toImmutableList());
+        RepositoryNotebook oversized = new RepositoryNotebook(1, 2, true, true, saved.sources(), saved.scopes(), notes, saved.sourceEvidence(), Optional.empty());
+
+        assertThatThrownBy(() -> service.savePreparation(WORKSPACE, saved, oversized))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Serialized notebook exceeds UTF-8 limit");
+        assertThat(service.getNotebook(WORKSPACE)).isEqualTo(saved);
+        settings.put(KEY, settings.get(KEY).orElseThrow() + " ".repeat(ContextLimits.MAX_STORED_NOTEBOOK_BYTES));
+        assertThatThrownBy(() -> service.getNotebook(WORKSPACE)).isInstanceOf(ContextStorageException.class)
+                .hasRootCauseMessage("Saved notebook exceeds UTF-8 limit");
+    }
+
+    @Test
     void savedLessonCopiesOnlySameWorkspaceRunEvidenceAndRetainsItAfterSourceDisappears()
     {
         when(reviews.findReview("review")).thenReturn(Optional.of(review(WORKSPACE)));
@@ -578,6 +641,12 @@ class TestRepositoryContextService
         return new ContextSourceEvidence(id, new ContextReference.RepositoryFile(1, RepoRef.of("example", "repository"), path, HEAD),
                 "Captured repository configuration evidence", excerpt, ContextSourceEvidence.Capture.BYTEQUAY_READ,
                 Optional.of(Instant.EPOCH), Optional.of(HEAD), Optional.of(HEAD), false);
+    }
+
+    private static ContextEntry storedNote(int index, String body, List<String> sourceIds)
+    {
+        return new ContextEntry("knowledge:project:" + index, KNOWLEDGE, "project", "Note " + index, "Summary", body,
+                ImmutableList.of(), sourceIds, USER, true, 1);
     }
 
     private static SaveContextLesson lesson(String review, String run, String evidence)

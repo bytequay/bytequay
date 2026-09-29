@@ -146,11 +146,12 @@ class TestContextPreparation
         ContextPreparationResult ready = result(READY, ImmutableList.of("knowledge:project"), reads);
         reads.clear();
         assertThat(ready.checkedReads()).hasSize(1);
-        List<ContextSourceRead> full = IntStream.range(0, ContextLimits.MAX_SOURCE_READS)
+        List<ContextSourceRead> full = IntStream.range(0, 201)
                 .mapToObj(index -> (ContextSourceRead) read("source" + index)).collect(toImmutableList());
-        assertThat(result(READY, ready.noteIds(), full).checkedReads()).hasSize(ContextLimits.MAX_SOURCE_READS);
-        List<ContextSourceRead> excessive = ImmutableList.<ContextSourceRead>builder().addAll(full).add(read("excessive")).build();
-        assertThatThrownBy(() -> result(READY, ready.noteIds(), excessive)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(result(READY, ready.noteIds(), full).checkedReads()).containsExactlyElementsOf(full);
+        assertThat(result(EMPTY, ImmutableList.of(), full).checkedReads()).containsExactlyElementsOf(full);
+        List<ContextSourceRead> duplicate = ImmutableList.<ContextSourceRead>builder().addAll(full).add(full.getFirst()).build();
+        assertThatThrownBy(() -> result(READY, ready.noteIds(), duplicate)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("duplicates");
     }
 
     @Test

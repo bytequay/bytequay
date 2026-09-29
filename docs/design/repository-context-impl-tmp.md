@@ -1,5 +1,54 @@
 # Repository Context implementation checklist
 
+## Allow normal learning in large repositories
+
+- [x] Remove discovery/learning operation-count and documentation-open quotas;
+  count research activity without stopping reads at an arbitrary number.
+- [x] Remove incidental receipt/evidence/attempt count caps from research capture
+  and trusted preparation input; retain duplicate checks and byte/storage guards.
+- [x] Align prompts and UI with the configured agent timeout and approved sources.
+- [x] Keep recent activity visible after long research; preserve historical limit records.
+- [x] Allow both supported drafts and evidenced no-note results after more than 128 reads.
+- [x] Increase run bookkeeping and evidence storage; preserve earlier limit outcomes.
+- [x] Expand cumulative discovery and notebook capacity without increasing tool
+  payloads, per-note bodies, website depth or automatic model work.
+- [x] Fix the Trino retry loop caused by the 512-path identity-capture ceiling;
+  retain changed-source detection and expose the specific failure reason.
+- [x] Verify research beyond the former quotas, large stored catalogs, failed-preparation recovery,
+  unchanged source boundaries and full backend/frontend build gates.
+
+Verification used a context-only snapshot over `0546f9b83`. JVM 25 `mvn verify`
+passed 3,624 tests with no failures, errors or skips. After removing the final
+checked-receipt count cap, focused `mvn verify` passed all 339 context tests and
+build/style checks. Regressions cover 301 learning operations, 251 discovery
+operations, documentation opens beyond the former limit, and 201 file reads
+followed by either a supported draft or a saved, reusable no-note result.
+Frontend lint, TypeScript, all 1,402 tests across 136 files, and macOS desktop
+packaging passed. The recovery regression uses 100 deeply nested Trino-style
+Java modules and verifies ancestor POM additions/removals still change the saved
+input identity. Existing notes and plans were not reset, and no live learning
+run or provider call was started.
+
+## Separate learning sources from note applicability
+
+- [x] Discovery declares `paths` for reading and explicit `notePaths` for note
+  applicability. Split topics whenever questions need different targets.
+- [x] Accepted plans preserve both boundaries. Scope creation, reuse and lookup
+  use note applicability; source reads keep the independently approved paths.
+- [x] Missing targets remain unknown in old saved reports/plans. Block learning
+  and preparation rather than infer targets, erase notes or start paid relearning.
+- [x] Show applicability beside source boundaries and expose saved follow-up gaps.
+- [x] Verify mixed connector reading, isolated note scopes, old-data preservation,
+  explicit shared targets, source access fences, and backend/frontend build gates.
+
+Verification uses an isolated snapshot of `97047907b` plus this change. Full
+backend `mvn verify` passed 3,617 tests without failures, errors or skips.
+Frontend lint, TypeScript and all 1,399 tests across 135 files passed, including
+19 repository-context Chromium scenarios. macOS desktop packaging passed.
+Desktop and narrow screenshots
+confirm the separate note targets and readable-source labels. No live model
+run, workspace note mutation or data reset was used.
+
 ## Component discovery and scope matching correction
 
 - [x] Ask for independently useful component topics; shared topics supplement
@@ -71,8 +120,9 @@ without separate authorization.
   Complete discovery may honestly return no suggested topics.
 - R4 accepts one saved plan and answers one question per explicit run. It retains
   approved sources, link parents/depths, opened/pending/failed inventory and saved
-  questions. Limits are 40 source operations, 10 initial documentation opens and
-  two link hops. Source expansion and draft approval never start a model.
+  questions. Runs use the configured agent timeout without an operation-count
+  quota. Approved documentation roots retain two link hops. Source expansion and
+  draft approval never start a model.
 - R5 supports optional task/Explore proposals from committed task HEAD evidence,
   generated review lessons, and local merged-work candidates from verified task
   links. Candidate selection freezes task/issue/review/check context; learning
@@ -130,7 +180,7 @@ without separate authorization.
   draft approval checks notebook/target versions and retained ownership. It does
   not certify current source applicability or perform a fresh Git comparison.
   Source identities remain inspectable. No live-provider quality or token-cost
-  acceptance run was performed, and source-operation limits are not dollar caps.
+  acceptance run was performed; runtime and storage limits are not dollar caps.
 
 ## UI refactor checkpoints
 

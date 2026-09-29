@@ -27,9 +27,12 @@ import static java.util.Objects.requireNonNull;
 public final class ContextLimits
 {
     public static final int MAX_ENTRIES = 100;
+    public static final int MAX_STORED_ENTRIES = 500;
     public static final int MAX_BODY_BYTES = 8 * 1024;
-    public static final int MAX_PROSE_BYTES = 256 * 1024;
+    public static final int MAX_PROSE_BYTES = 8 * 1024 * 1024;
     public static final int MAX_NOTEBOOK_BYTES = 1024 * 1024;
+    public static final int MAX_STORED_NOTEBOOK_BYTES = 16 * 1024 * 1024;
+    public static final int MAX_STORED_INPUT_BYTES = 2 * 1024 * 1024;
     public static final int MAX_SOURCES = 8;
     public static final int MAX_SOURCE_READS = 128;
 

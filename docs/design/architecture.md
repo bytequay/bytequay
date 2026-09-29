@@ -88,10 +88,11 @@ Start discovery explicitly allocates one restricted research task at a frozen
 revision. Language-neutral recursive filename/text search and selective file reads
 produce evidenced topic/source proposals. Learning accepts selected topics and
 answers one small question per explicit run. Saved plans retain remaining work and
-a bounded document inventory across Continue. Each run allows 40 source operations,
-including failures, and 10 initial document opens. Approved roots permit two link
-hops; continuation preserves parent/depth. New roots require explicit approval.
-Source limits are not hard token or dollar guarantees. Opening settings, startup
+a bounded document inventory across Continue. Reads, searches and document opens
+are counted for visibility, without a per-run count quota. The configured agent
+turn timeout bounds runtime. Approved roots permit two link hops; continuation
+preserves parent/depth. New roots require explicit approval.
+Runtime and storage safeguards are not token or dollar guarantees. Opening settings, startup
 and synchronization never launch a model.
 
 Source text is untrusted data. Captured Git/document/history identities and excerpts

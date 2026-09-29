@@ -16,10 +16,10 @@ import { ConfirmDialog } from '../ConfirmDialog';
 import { relativeTime } from '../relativeTime';
 import type { ContextRunDto, ContextSourceBoundary, ContextUsageOverviewDto, ContextUsageWindow } from './contracts';
 import ContextNoteDrawer, { type NoteTarget } from './ContextNoteDrawer';
-import { QuestionLine } from './ContextOverview';
+import { NoteApplicability, QuestionLine } from './ContextOverview';
 import { Chevron, Icon } from './icons';
 import {
-  clock, currentRun, latestRun, LIMITS, nextQuestion, noteArea, OUTCOME, plural, questionRow, runOrigin, shortDate, shortSha, timeOfDay, type QuestionRow,
+  clock, currentRun, latestRun, DOCUMENT_LINK_HOPS, needsTopicReselection, nextQuestion, noteArea, OUTCOME, plural, questionRow, runOrigin, shortDate, shortSha, timeOfDay, type QuestionRow,
 } from './model';
 import type { ContextActions, ContextData } from './RepositoryContextPage';
 
@@ -124,7 +124,8 @@ function PlanDrawer({ data, actions, busy, tab, onTab, onClose }: { data: Contex
   const [limitsOpen, setLimitsOpen] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const suggestions = plan?.documentInventory.suggestions ?? [];
-  const canRun = data.build.canStart && !busy && data.model.blocker === null;
+  const needsReselection = needsTopicReselection(plan);
+  const canRun = data.build.canStart && !busy && data.model.blocker === null && !needsReselection;
   const openRow = (row: QuestionRow) => {
     if (row.link !== null) actions.openDrawer({ kind: 'note', target: { kind: row.link.kind, id: row.link.id } });
   };
@@ -145,20 +146,25 @@ function PlanDrawer({ data, actions, busy, tab, onTab, onClose }: { data: Contex
         {plan === null ? <div className="rcp-empty">No learning plan is saved. Select suggested topics and Learn selected to start one.</div> : <>
           <div className="rcp-now">
             <div className="rcp-mini-label">{learning?.question ? `NOW · RUN ${learning.sequence}` : next !== null ? 'NEXT' : 'PLAN'}</div>
-            <div className="rcp-now__q">{learning?.question?.text ?? next?.text ?? 'All planned questions answered'}</div>
+            <div className="rcp-now__q">{needsReselection ? 'Reselect topics before continuing' : learning?.question?.text ?? next?.text ?? 'All planned questions answered'}</div>
             {(learning?.question || next) && <div className="rcp-now__meta">{learning?.question ? learning.question.topicTitle
               : `${next.topic.title} · ${next.resumes ? 'unfinished — resumes saved progress' : 'not started'}`}</div>}
           </div>
           {plan.topics.map(topic => <div key={topic.id}>
             <div className="rcp-plan-topic">{topic.title}</div>
+            <NoteApplicability paths={topic.notePaths} />
             {topic.questions.map((_, index) => <div className="rcp-plan-q" key={index}>
               <QuestionLine row={questionRow(topic, index, data.build.runs, running, data.notebook)} onOpen={openRow} /></div>)}
           </div>)}
-          <button type="button" className="rcp-how" aria-expanded={limitsOpen} onClick={() => setLimitsOpen(value => !value)}><Chevron open={limitsOpen} size={11} />Run limits</button>
-          {limitsOpen && <div className="rcp-limits-text">Each run: up to {LIMITS.operations} source operations (failures count), {LIMITS.documentOpens} initial documentation
-            opens, links up to {LIMITS.linkHops} hops from approved roots. ByteQuay enforces these; they bound work, not tokens or cost. Continuing doesn’t reset link depth or approve new sites.
-            {learning !== null && <div className="rcp-limits-text__now">Run {learning.sequence} so far: {learning.sourceOperations} of {LIMITS.operations} source operations
-              · {learning.documentOpens} of {LIMITS.documentOpens} documentation opens</div>}</div>}
+          {plan.gaps.length > 0 && <>
+            <div className="rcp-mini-label rcp-mt18">OPEN QUESTIONS AND GAPS</div>
+            {plan.gaps.map((gap, index) => <div className="rcp-why" key={index}><span className="rcp-why__mark">•</span><span><CodedLine text={gap} /></span></div>)}
+          </>}
+          <button type="button" className="rcp-how" aria-expanded={limitsOpen} onClick={() => setLimitsOpen(value => !value)}><Chevron open={limitsOpen} size={11} />How runs work</button>
+          {limitsOpen && <div className="rcp-limits-text">The agent chooses how many reads it needs within the approved sources. Each run uses the configured agent timeout and can be stopped.
+            Links stay within approved documentation roots, up to {DOCUMENT_LINK_HOPS} hops. Continuing doesn’t reset link depth or approve new sites.
+            {learning !== null && <div className="rcp-limits-text__now">Run {learning.sequence} so far: {plural(learning.sourceOperations, 'source operation')}
+              {' · '}{plural(learning.documentOpens, 'documentation open')}</div>}</div>}
           <div className="rcp-discard">Discarding the plan removes its remaining questions and source inventory; approved notes and drafts stay.{' '}
             <button type="button" className="rcp-link" disabled={busy || !data.build.canStart} onClick={() => setDiscarding(true)}>Discard remaining plan</button></div>
         </>}
@@ -176,8 +182,9 @@ function PlanDrawer({ data, actions, busy, tab, onTab, onClose }: { data: Contex
     <div className="rcp-drawer__foot">
       {learning !== null ? <div className="rcp-foot-line">
         <button type="button" className="rcp-btn rcp-btn--danger" disabled={busy} onClick={() => void actions.stop(learning)}>Stop run</button>
-        <span className="rcp-foot-line__text">Run {learning.sequence} · {learning.sourceOperations} of {LIMITS.operations} source operations · the plan and drafts are kept</span>
-      </div> : next !== null ? <div className="rcp-foot-line">
+        <span className="rcp-foot-line__text">Run {learning.sequence} · {plural(learning.sourceOperations, 'source operation')} · the plan and drafts are kept</span>
+      </div> : needsReselection ? <span className="rcp-foot-line__text">Discard this earlier plan and reselect topics with explicit note targets. Approved notes and drafts are kept.</span>
+        : next !== null ? <div className="rcp-foot-line">
         <button type="button" className="rcp-btn rcp-btn--secondary" disabled={!canRun} onClick={actions.continueLearning}><Icon name="bolt" size={13} />Continue learning</button>
         <span className="rcp-foot-line__text">{data.model.blocker ?? `Next: ${next.topic.title} · “${next.text}” · 1 run · ${data.model.label}`}</span>
       </div> : <span className="rcp-foot-line__text">{plan === null ? 'Nothing to continue.' : 'Every planned question is answered.'}</span>}
@@ -233,7 +240,7 @@ function PlanSources({ data, actions, busy }: { data: ContextData; actions: Cont
         <label className={`rcp-radio${root ? '' : ' is-disabled'}`}><input type="radio" name={`bound-${suggestion.url}`} checked={chosen === 'ROOT'} disabled={!root}
           onChange={() => setBoundary(value => ({ ...value, [suggestion.url]: 'ROOT' }))} />
           <span><span className="rcp-radio__name">Documentation root</span><span className="rcp-radio__sub">{root
-            ? <>Pages under <span className="rcp-mono">{where}</span>, up to {LIMITS.linkHops} links from this page. HTTPS only; other paths and sites stay excluded.</>
+            ? <>Pages under <span className="rcp-mono">{where}</span>, up to {DOCUMENT_LINK_HOPS} links from this page. HTTPS only; other paths and sites stay excluded.</>
             : 'Only a link that names a folder (ending in /) can be approved as a root.'}</span></span></label>
         <div className="rcp-prop__actions">
           <button type="button" className="rcp-btn rcp-btn--primary rcp-btn--sm" disabled={!canChange} onClick={() => decide(suggestion.url, true)}>Approve source</button>
@@ -242,7 +249,7 @@ function PlanSources({ data, actions, busy }: { data: ContextData; actions: Cont
         </div>
       </div>;
     })}
-    <div className="rcp-label">APPROVED · REPOSITORY AT {revision}</div>
+    <div className="rcp-label">CODE AVAILABLE TO READ · REPOSITORY AT {revision}</div>
     <div className="rcp-rows">
       {plan.topics.flatMap(topic => {
         const used = runsFor(topic.id);
@@ -269,7 +276,7 @@ function PlanSources({ data, actions, busy }: { data: ContextData; actions: Cont
         const open = inventoryOpen === source.id;
         return <div className="rcp-srcrow" key={source.id}>
           <div className="rcp-srcrow__line"><span className="rcp-srcrow__main"><span className="rcp-srcrow__target">{source.url}</span>
-            <span className="rcp-srcrow__sub">{topicsUsing(source.id) || 'Plan'} · {root ? `Web docs root · pages under this path, up to ${LIMITS.linkHops} links from the start page`
+            <span className="rcp-srcrow__sub">{topicsUsing(source.id) || 'Plan'} · {root ? `Web docs root · pages under this path, up to ${DOCUMENT_LINK_HOPS} links from the start page`
               : 'Web page · this page only'}</span></span><span className="rcp-srcrow__status">{status}</span></div>
           {root && <button type="button" className="rcp-inv" aria-expanded={open} onClick={() => setInventoryOpen(open ? null : source.id)}>
             <Chevron open={open} size={10} /><span className="rcp-inv__ok">{count('READ')} opened</span><span>· {count('PENDING')} pending</span>
@@ -432,7 +439,7 @@ function AdvancedDrawer({ data, actions, busy, onClose }: { data: ContextData; a
         {notebook.sources.length === 0 && <div className="rcp-adv-row"><span className="rcp-adv-row__kind">No documentation source is saved.</span></div>}
         {notebook.sources.map(source => <div className="rcp-adv-row" key={source.id}>
           <span className="rcp-adv-row__main rcp-mono">{source.url}</span>
-          <span className="rcp-adv-row__kind">{source.kind === 'DOCUMENTATION_ROOT' ? `Root · ${LIMITS.linkHops} link hops` : 'Page'}</span>
+          <span className="rcp-adv-row__kind">{source.kind === 'DOCUMENTATION_ROOT' ? `Root · ${DOCUMENT_LINK_HOPS} link hops` : 'Page'}</span>
           <button type="button" className="rcp-link" disabled={busy} onClick={() => save(sources.filter(value => value.id !== source.id), 'Source removed · captured evidence is kept')}>Remove</button>
         </div>)}
       </div>

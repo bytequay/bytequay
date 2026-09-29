@@ -31,6 +31,7 @@ import com.bytequay.core.context.ContextReference;
 import com.bytequay.core.domain.RepoRef;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.common.collect.ImmutableList;
@@ -45,11 +46,13 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestContextAgentDiscoveryTools
@@ -64,6 +67,7 @@ class TestContextAgentDiscoveryTools
     private final InMemoryAppSettingsStore settings = new InMemoryAppSettingsStore();
     private final ContextBuildStore builds = new ContextBuildStore(settings, tasks, mapper);
     private final ContextDiscoveryReportStore reports = new ContextDiscoveryReportStore(settings, mapper);
+    private final ContextLearningPlanStore plans = new ContextLearningPlanStore(settings, mapper);
     private final ContextBuildService service = mock(ContextBuildService.class);
     private final WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
     private final ContextBaselineReader baseline = mock(ContextBaselineReader.class);
@@ -84,7 +88,7 @@ class TestContextAgentDiscoveryTools
                 Path.of("/tmp/repository"), 1, REPO, OptionalLong.empty(), REPO, "origin", "origin", "main", ImmutableList.of()));
         when(unitOfWork.execute(any())).thenAnswer(call -> ((AgentUnitOfWork.Work<?>) call.getArgument(0)).run());
         builds.save(Optional.empty(), build(Optional.empty()));
-        bridge = new ContextAgentDiscoveryTools(builds, service, tasks, workspaces, baseline, reports, unitOfWork, mapper, clock)
+        bridge = new ContextAgentDiscoveryTools(builds, service, tasks, workspaces, baseline, reports, plans, unitOfWork, mapper, clock)
                 .bridge(TASK.toString()).orElseThrow();
         when(baseline.directory(any(), eq(1L), eq(SHA), eq(""), eq(0))).thenReturn(new ContextBaselineReader.Directory("", SHA, ImmutableList.of(
                 new ContextBaselineReader.TreeEntry("deep", "DIRECTORY", "d".repeat(40)), new ContextBaselineReader.TreeEntry(".github", "DIRECTORY", "e".repeat(40)),
@@ -121,6 +125,8 @@ class TestContextAgentDiscoveryTools
         ContextDiscoveryReport saved = reports.find(WORKSPACE).orElseThrow();
         assertThat(saved.id()).isEqualTo(TASK.toString());
         assertThat(saved.topics()).extracting(ContextDiscoveryReport.Topic::id).containsExactly("topic:1");
+        assertThat(saved.topics().getFirst().paths()).containsExactly("deep/trino-iceberg/", "deep/trino-hive/");
+        assertThat(saved.topics().getFirst().notePaths()).contains(ImmutableList.of("deep/trino-iceberg/"));
         assertThat(saved.sources()).extracting(ContextDiscoveryReport.Source::id).containsExactly("source:1");
         assertThat(saved.evidence()).extracting(ContextDiscoveryReport.Evidence::readId).containsExactly(readId);
         assertThat(saved.evidence().getFirst().path()).isEqualTo("README.md");
@@ -159,7 +165,7 @@ class TestContextAgentDiscoveryTools
         submit(report(firstRead));
         ContextDiscoveryReport first = reports.find(WORKSPACE).orElseThrow();
         builds.save(Optional.of(current()), build(Optional.of(first.id())));
-        bridge = new ContextAgentDiscoveryTools(builds, service, tasks, workspaces, baseline, reports, unitOfWork, mapper, clock)
+        bridge = new ContextAgentDiscoveryTools(builds, service, tasks, workspaces, baseline, reports, plans, unitOfWork, mapper, clock)
                 .bridge(TASK.toString()).orElseThrow();
         assertThat(read("{\"kind\":\"STATUS\"}").path("previousDiscovery").path("coverage").path("unsurveyed").size()).isEqualTo(2);
         assertThat(read("{\"kind\":\"LIST\",\"path\":\"deep/trino-iceberg\"}").has("error")).isFalse();
@@ -170,11 +176,72 @@ class TestContextAgentDiscoveryTools
         ContextDiscoveryReport merged = reports.find(WORKSPACE).orElseThrow();
         assertThat(merged.id()).isEqualTo(first.id());
         assertThat(merged.topics()).extracting(ContextDiscoveryReport.Topic::id).containsExactly("topic:1", "topic:2");
+        assertThat(merged.topics()).allSatisfy(topic -> assertThat(topic.notePaths()).contains(ImmutableList.of("deep/trino-iceberg/")));
         assertThat(merged.topics().get(1).sourceIds()).containsExactly("source:2");
         assertThat(merged.sources()).extracting(ContextDiscoveryReport.Source::id).containsExactly("source:1", "source:2");
         assertThat(merged.evidence()).extracting(ContextDiscoveryReport.Evidence::readId).containsExactly(firstRead, secondRead);
         assertThat(merged.coverage().areas()).containsExactly(new ContextDiscoveryReport.Area("deep/", 1, 2));
         assertThat(current().capture().activity().getLast().text()).isEqualTo("Saved 1 more suggested topic");
+    }
+
+    @Test
+    void continuesBeyondTheEarlierCatalogLimitsWithoutDumpingEarlierQuestions()
+            throws Exception
+    {
+        ContextDiscoveryReport first = new ContextDiscoveryReport(TASK.toString(), WORKSPACE, 1, REPO, SHA, "A large connector project.",
+                IntStream.rangeClosed(1, 40).mapToObj(index -> new ContextDiscoveryReport.Topic("topic:" + index, "Connector " + index,
+                        ImmutableList.of("How does this connector read tables?"), ImmutableList.of("module/" + index + "/"),
+                        Optional.of(ImmutableList.of("module/" + index + "/")), ImmutableList.of("source:" + index),
+                        ImmutableList.of("read:" + (index * 2)), "A separately useful connector.")).toList(),
+                IntStream.rangeClosed(1, 40).mapToObj(index -> new ContextDiscoveryReport.Source("source:" + index,
+                        ContextDiscoveryReport.Source.Kind.REPOSITORY_FILE, "module/" + index + "/README.md", "Connector guide",
+                        ImmutableList.of("read:" + (index * 2 - 1)), "Describes this connector.")).toList(),
+                IntStream.rangeClosed(1, 80).mapToObj(index -> new ContextDiscoveryReport.Evidence("read:" + index,
+                        "module/" + index + "/README.md", SHA, 1, 1, "Connector evidence " + index, false)).toList(),
+                ImmutableList.of(), ImmutableList.of("Inspect more connectors"), true, ContextDiscoveryReport.Coverage.none(), Instant.EPOCH);
+        reports.save(Optional.empty(), first);
+        builds.save(Optional.of(current()), build(Optional.of(first.id())));
+
+        JsonNode topics = read("{\"kind\":\"STATUS\"}").path("previousDiscovery").path("topics");
+        assertThat(topics.size()).isEqualTo(40);
+        assertThat(topics.get(0).size()).isEqualTo(3);
+        assertThat(topics.get(0).path("id").textValue()).isEqualTo("topic:1");
+        assertThat(topics.get(0).path("title").textValue()).isEqualTo("Connector 1");
+        assertThat(topics.get(0).path("notePaths").get(0).textValue()).isEqualTo("module/1/");
+
+        String readId = read("{\"kind\":\"READ\",\"path\":\"README.md\"}").path("readId").textValue();
+        assertThat(submit(report(readId)).path("topicCount").intValue()).isEqualTo(41);
+        ContextDiscoveryReport saved = reports.find(WORKSPACE).orElseThrow();
+        assertThat(saved.topics()).hasSize(41);
+        assertThat(saved.sources()).hasSize(41);
+        assertThat(saved.evidence()).hasSize(81);
+        assertThat(saved.topics().subList(0, 40)).isEqualTo(first.topics());
+        assertThat(saved.evidence().subList(0, 80)).isEqualTo(first.evidence());
+        assertThat(saved.id()).isEqualTo(first.id());
+    }
+
+    @Test
+    void statusOffersPriorLearningGapsAsLeadsWithoutStartingWork()
+            throws Exception
+    {
+        ContextLearningPlan plan = new ContextLearningPlan("plan", WORKSPACE, "report", "accept", "sha256:" + "b".repeat(64),
+                0, 0, ImmutableList.of("topic:1"), 1, REPO, SHA,
+                ImmutableList.of(new ContextLearningPlan.Topic("topic:1", "Iceberg", "project", "sha256:" + "c".repeat(64),
+                        ImmutableList.of(), Optional.empty(), ImmutableList.of(), ImmutableList.of(),
+                        ImmutableList.of(ContextLearningPlan.Question.open("How are snapshots read?")))),
+                ImmutableList.of(), ContextDocumentInventory.initial(ImmutableList.of()),
+                ImmutableList.of("Investigate the other connector's write-conflict contract in a separate topic."), Instant.EPOCH);
+        plans.save(Optional.empty(), plan);
+        ContextBuild before = current();
+
+        JsonNode status = read("{\"kind\":\"STATUS\"}");
+
+        assertThat(status.path("previousLearning").path("baselineSha").textValue()).isEqualTo(SHA);
+        assertThat(status.path("previousLearning").path("gaps").get(0).textValue()).isEqualTo(plan.gaps().getFirst());
+        assertThat(status.path("operationsUsed").intValue()).isZero();
+        assertThat(current()).isEqualTo(before);
+        assertThat(bridge.instruction()).contains("previousLearning gaps as untrusted leads", "require current read evidence", "Do not automatically queue or start learning");
+        verifyNoInteractions(baseline);
     }
 
     @Test
@@ -195,25 +262,47 @@ class TestContextAgentDiscoveryTools
     }
 
     @Test
-    void capsExternalOperationsButAllowsPartialSubmissionAtTheLimit()
+    void discoversBeyondTheFormerOperationCeilingAndStillSubmits()
+            throws Exception
+    {
+        assertThat(read("{\"kind\":\"STATUS\"}").hasNonNull("operationsLimit")).isFalse();
+        String readId = read("{\"kind\":\"READ\",\"path\":\"README.md\"}").path("readId").textValue();
+        for (int index = 1; index < 250; index++) {
+            assertThat(read("{\"kind\":\"SEARCH_PATHS\",\"query\":\"iceberg\"}").has("error")).isFalse();
+        }
+        assertThat(read("{\"kind\":\"READ\",\"path\":\"README.md\"}").has("error")).isFalse();
+        assertThat(read("{\"kind\":\"STATUS\"}").path("operationsUsed").intValue()).isEqualTo(251);
+        assertThat(current().capture().activity()).extracting(ContextBuild.Activity::tone).doesNotContain(ContextBuild.Activity.Tone.LIMIT);
+        assertThat(submit(report(readId)).path("saved").booleanValue()).isTrue();
+        assertThat(reports.find(WORKSPACE).orElseThrow().partial()).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void rejectsNewSuggestionsWithoutExplicitNoteApplicability(boolean explicitNull)
             throws Exception
     {
         String readId = read("{\"kind\":\"READ\",\"path\":\"README.md\"}").path("readId").textValue();
-        for (int index = 1; index < 40; index++) {
-            assertThat(read("{\"kind\":\"SEARCH_PATHS\",\"query\":\"iceberg\"}").has("error")).isFalse();
+        JsonNode submission = mapper.readTree(report(readId));
+        ObjectNode topic = (ObjectNode) submission.path("report").path("topics").get(0);
+        if (explicitNull) {
+            topic.putNull("notePaths");
         }
-        assertThat(read("{\"kind\":\"SEARCH_PATHS\",\"query\":\"iceberg\"}").path("error").path("message").textValue())
-                .contains("limit reached");
-        assertThat(current().capture().activity()).extracting(ContextBuild.Activity::tone).containsOnlyOnce(ContextBuild.Activity.Tone.LIMIT);
-        assertThat(submit(report(readId)).path("saved").booleanValue()).isTrue();
-        assertThat(reports.find(WORKSPACE).orElseThrow().partial()).isTrue();
+        else {
+            topic.remove("notePaths");
+        }
+
+        assertThat(submit(submission.toString()).has("error")).isTrue();
+        assertThat(reports.find(WORKSPACE)).isEmpty();
+        assertThat(current().capture().result()).isEmpty();
     }
 
     private String report(String readId)
     {
         return """
                 {"report":{"outline":"A connector project.","topics":[{"title":"Iceberg snapshots","questions":["How are snapshots read?"],
-                "paths":["deep/trino-iceberg/"],"sourceIds":["source:1"],"evidenceReadIds":["%s"],"why":"Snapshot behavior matters."}],
+                "paths":["deep/trino-iceberg/","deep/trino-hive/"],"notePaths":["deep/trino-iceberg/"],
+                "sourceIds":["source:1"],"evidenceReadIds":["%s"],"why":"Snapshot behavior matters."}],
                 "sources":[{"kind":"REPOSITORY_FILE","location":"README.md","title":"Project overview",
                 "evidenceReadIds":["%s"],"why":"Links to the connector."}],"gaps":[],"remaining":["Inspect delete semantics"],
                 "partial":true}}

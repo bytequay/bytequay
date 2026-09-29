@@ -19,8 +19,8 @@ import type { AgentRuntimeStopImpactDto } from '../types';
 import type { ContextDiscoveryReportDto } from './contracts';
 import { Chevron, Icon, Spinner, type IconName } from './icons';
 import {
-  clock, currentRun, entryTimeKey, kindLabel, nextQuestion, openCandidates, planCounts, plural, reviewItems, shortDate, shortSha,
-  scopeForTopic, statusCard, topicSummary, topicsOutsidePlan, LIMITS, type QuestionRow, type StatusAction,
+  clock, currentRun, entryTimeKey, kindLabel, needsTopicReselection, nextQuestion, openCandidates, planCounts, plural, reviewItems, shortDate, shortSha,
+  scopeForTopic, statusCard, topicSummary, topicsOutsidePlan, DOCUMENT_LINK_HOPS, type QuestionRow, type StatusAction,
 } from './model';
 import type { ContextActions, ContextData } from './RepositoryContextPage';
 
@@ -200,6 +200,11 @@ function ReviewSection({ data, actions }: { data: ContextData; actions: ContextA
 
 /* ── Learning plan ───────────────────────────────────────────────────── */
 
+export function NoteApplicability({ paths }: { paths: string[] | null }) {
+  return <div className="rcp-note-caption">Notes apply to{' '}{paths === null ? 'not recorded — discover again before learning'
+    : paths.length === 0 ? 'Project-wide' : paths.map(path => <span className="rcp-path-chip" key={path}>{path}</span>)}</div>;
+}
+
 export function QuestionLine({ row, onOpen }: { row: QuestionRow; onOpen: (row: QuestionRow) => void }) {
   const glyph = row.state === 'RUNNING' ? <Spinner size={11} /> : row.state === 'ANSWERED' ? '✓' : row.state === 'UNFINISHED' ? '◐' : '○';
   return <>
@@ -240,6 +245,7 @@ function PlanSection({ data, actions }: { data: ContextData; actions: ContextAct
                 : row.state === 'UNFINISHED' ? ' is-partial' : ''}`} />)}</span>
           </button>
           {expanded && <div className="rcp-questions">
+            <NoteApplicability paths={topic.notePaths} />
             {summary.rows.map(row => <div className="rcp-q" key={row.index}><QuestionLine row={row} onOpen={openRow} /></div>)}
           </div>}
         </div>;
@@ -336,7 +342,7 @@ const SOURCE_KIND: Record<ContextDiscoveryReportDto['sources'][number]['kind'], 
 
 function sourceBound(kind: ContextDiscoveryReportDto['sources'][number]['kind'], sha: string): string {
   if (kind === 'REPOSITORY_FILE') return `at ${shortSha(sha)}`;
-  return kind === 'DOCUMENTATION_ROOT' ? `pages under this path, up to ${LIMITS.linkHops} links from its start page` : 'this page only';
+  return kind === 'DOCUMENTATION_ROOT' ? `pages under this path, up to ${DOCUMENT_LINK_HOPS} links from its start page` : 'this page only';
 }
 
 function SuggestedTopics({ data, actions, busy, report, topics }: { data: ContextData; actions: ContextActions; busy: boolean;
@@ -347,12 +353,13 @@ function SuggestedTopics({ data, actions, busy, report, topics }: { data: Contex
   const [limitsOpen, setLimitsOpen] = useState(false);
   const plan = data.planView.plan;
   const revision = data.baseline === null ? shortSha(report.baselineSha) : `${data.baseline.branch}@${shortSha(report.baselineSha)}`;
-  const chosen = topics.filter(topic => selected.includes(topic.id));
+  const chosen = topics.filter(topic => selected.includes(topic.id) && topic.notePaths !== null);
   const sourcesOf = (topic: ContextDiscoveryReportDto['topics'][number]) => topic.sourceIds.filter(id => !excluded.includes(id));
   const questions = chosen.reduce((sum, topic) => sum + topic.questions.length, 0);
   const sources = new Set(chosen.flatMap(sourcesOf)).size;
   const newerDiscovery = plan !== null && plan.reportId !== report.id && nextQuestion(data.planView) !== null;
-  const canLearn = chosen.length > 0 && data.build.canStart && !busy && data.model.blocker === null && !newerDiscovery;
+  const needsReselection = needsTopicReselection(plan);
+  const canLearn = chosen.length > 0 && data.build.canStart && !busy && data.model.blocker === null && !newerDiscovery && !needsReselection;
   const toggle = (id: string, list: string[], set: (value: string[]) => void) => set(list.includes(id) ? list.filter(value => value !== id) : [...list, id]);
   return <section aria-label="Suggested topics">
     <div className="rcp-section-head"><span className="rcp-label">{plan === null ? 'SUGGESTED TOPICS' : 'SUGGESTED TOPICS NOT IN YOUR PLAN'} · {topics.length}</span>
@@ -360,20 +367,22 @@ function SuggestedTopics({ data, actions, busy, report, topics }: { data: Contex
     <div className="rcp-list">
       {topics.map(topic => {
         const open = expanded === topic.id;
-        const scope = scopeForTopic(data.notebook, topic.paths);
+        const scope = scopeForTopic(data.notebook, topic.notePaths);
         const existing = scope === undefined ? 0 : data.notebook.entries.filter(entry => entry.scopeId === scope.id).length;
-        const areaName = topic.paths.length === 0 ? 'Project-wide' : scope?.title ?? null;
+        const notePaths = topic.notePaths;
+        const areaName = notePaths === null ? 'Note targets need discovery' : notePaths.length === 0 ? 'Project-wide' : scope?.title ?? null;
         const evidence = topic.evidenceReadIds.map(id => report.evidence.find(read => read.readId === id)).filter(read => read !== undefined);
         const checkbox = `rcp-topic-${topic.id}`;
         return <div className="rcp-sugg" key={topic.id}>
           <div className="rcp-sugg__row">
-            <input type="checkbox" className="rcp-check" id={checkbox} checked={selected.includes(topic.id)} onChange={() => toggle(topic.id, selected, setSelected)} />
+            <input type="checkbox" className="rcp-check" id={checkbox} checked={selected.includes(topic.id)} disabled={notePaths === null}
+              onChange={() => toggle(topic.id, selected, setSelected)} />
             <label className="rcp-sugg__label" htmlFor={checkbox}>
               <span className="rcp-sugg__line"><span className="rcp-sugg__title">{topic.title}</span>
                 {existing > 0 && <span className="rcp-existing" title="Learning adds drafts or proposes updates; approved notes stay in use">{plural(existing, 'approved note')}</span>}</span>
-              <span className="rcp-sugg__meta">{areaName !== null && <><span className="rcp-sugg__area">{areaName}</span>{topic.paths.length > 0 && <span className="rcp-sep">·</span>}</>}
-                {topic.paths.length > 0 && <span className="rcp-sugg__path">{topic.paths[0]}</span>}
-                {topic.paths.length > 1 && <span className="rcp-sugg__more">+{topic.paths.length - 1}</span>}</span>
+              <span className="rcp-sugg__meta">{areaName !== null && <><span className="rcp-sugg__area">{areaName}</span>{notePaths !== null && notePaths.length > 0 && <span className="rcp-sep">·</span>}</>}
+                {notePaths !== null && notePaths.length > 0 && <span className="rcp-sugg__path">{notePaths[0]}</span>}
+                {notePaths !== null && notePaths.length > 1 && <span className="rcp-sugg__more">+{notePaths.length - 1}</span>}</span>
             </label>
             <span className="rcp-sugg__count">{plural(topic.questions.length, 'question')} · {plural(sourcesOf(topic).length, 'source')}</span>
             <button type="button" className="rcp-inspect" aria-expanded={open} aria-label={`${open ? 'Hide details for' : 'Inspect'} ${topic.title}`}
@@ -381,9 +390,10 @@ function SuggestedTopics({ data, actions, busy, report, topics }: { data: Contex
           </div>
           {open && <div className="rcp-sugg__detail">
             <div>
+              <NoteApplicability paths={notePaths} />
               <div className="rcp-mini-label">LEARNING QUESTIONS · ONE PER RUN</div>
               {topic.questions.map((question, index) => <div className="rcp-sugg__q" key={index}><span className="rcp-sugg__qn">{index + 1}</span><span>{question}</span></div>)}
-              <div className="rcp-mini-label rcp-mt12">CODE PATHS</div>
+              <div className="rcp-mini-label rcp-mt12">CODE AVAILABLE TO READ</div>
               <div className="rcp-chips">{(topic.paths.length === 0 ? ['/'] : topic.paths).map(path => <span className="rcp-path-chip" key={path}>{path}</span>)}</div>
             </div>
             <div>
@@ -412,19 +422,19 @@ function SuggestedTopics({ data, actions, busy, report, topics }: { data: Contex
       <div className="rcp-bar__main">
         <div className="rcp-bar__title">{chosen.length ? `${plural(chosen.length, 'topic')} selected · ${plural(questions, 'question')} · ${plural(sources, 'source')}` : 'Select topics to learn'}</div>
         <div className="rcp-bar__line"><Icon name="bolt" size={12} className="rcp-bolt" />
-          <span>{newerDiscovery ? 'Finish or discard the current plan to learn from this newer discovery'
+          <span>{needsReselection ? 'Discard the earlier plan and reselect topics; approved notes and drafts are kept'
+            : newerDiscovery ? 'Finish or discard the current plan to learn from this newer discovery'
             : data.model.blocker ?? `${plan === null ? 'Saves a learning plan, then starts 1 run on its first question' : 'Adds them to your plan, then starts 1 run on the first new question'} · ${data.model.label}`}</span>
           <span className="rcp-sep">·</span>
-          <button type="button" className="rcp-link" aria-expanded={limitsOpen} onClick={() => setLimitsOpen(value => !value)}>Run limits</button></div>
+          <button type="button" className="rcp-link" aria-expanded={limitsOpen} onClick={() => setLimitsOpen(value => !value)}>How runs work</button></div>
       </div>
       <button type="button" className="rcp-btn rcp-btn--primary" disabled={!canLearn} onClick={() => actions.learn(chosen.map(topic => topic.id), excluded)}>
         <Icon name="bolt" size={13} />Learn selected</button>
-      {limitsOpen && <div className="rcp-limits" role="dialog" aria-label="Run limits">
+      {limitsOpen && <div className="rcp-limits" role="dialog" aria-label="How runs work">
         <div className="rcp-limits__title">Each learning run</div>
-        <div>· up to {LIMITS.operations} source operations — reads, searches and listings, failures included</div>
-        <div>· up to {LIMITS.documentOpens} initial documentation opens</div>
-        <div>· links up to {LIMITS.linkHops} hops from approved documentation roots</div>
-        <div className="rcp-mt6">ByteQuay enforces these. They bound the work, not tokens or cost. At a limit the run stops starting new work and saves progress.</div>
+        <div>The agent chooses how many reads it needs within the approved sources.</div>
+        <div>Links stay within approved documentation roots, up to {DOCUMENT_LINK_HOPS} hops.</div>
+        <div className="rcp-mt6">Each run uses the configured agent timeout. You can stop it; saved progress and drafts are kept.</div>
       </div>}
     </div>
   </section>;

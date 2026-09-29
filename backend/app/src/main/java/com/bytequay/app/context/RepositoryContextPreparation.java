@@ -118,7 +118,7 @@ public class RepositoryContextPreparation
         return new Plan(notebook, captured.stream().map(input -> {
             Map<String, String> selected = new LinkedHashMap<>(input.inputs());
             history.forEach(read -> selected.put(read.sourceKey(), ContextInputReader.historyIdentity(read)));
-            if (selected.size() > 128 || selected.entrySet().stream().mapToInt(entry -> ContextLimits.bytes(entry.getKey())
+            if (selected.size() > ContextInputFingerprint.MAXIMUM_INPUTS || selected.entrySet().stream().mapToInt(entry -> ContextLimits.bytes(entry.getKey())
                     + ContextLimits.bytes(entry.getValue())).sum() > ContextInputFingerprint.MAXIMUM_INPUT_BYTES) {
                 List<String> gaps = ImmutableList.<String>builder().addAll(new TopKSelector(9).select(input.gaps()))
                         .add("Selected history exceeds the per-scope input budget; select fewer sources or a narrower scope.").build();
@@ -164,7 +164,8 @@ public class RepositoryContextPreparation
                     gaps.add(scope.id() + ": scope is disabled.");
                 }
                 else if (input.digest().isEmpty()) {
-                    gaps.add(scope.id() + ": input observation is incomplete; no generation owner was admitted.");
+                    gaps.add(ContextText.excerpt(scope.id() + ": input observation is incomplete; no generation owner was admitted. "
+                            + String.join("; ", input.gaps()), 1000));
                 }
                 else if (reuseCompleted && reusable(current, scope, input, execution)) {
                     reused.add(scope.preparation().orElseThrow());
@@ -462,7 +463,7 @@ public class RepositoryContextPreparation
             checkArgument(reviewId.isPresent() == runId.isPresent(), "Review and run identities must be paired");
             sourceReads = ImmutableList.copyOf(sourceReads);
             evidence = ImmutableMap.copyOf(evidence);
-            ContextLimits.unique(sourceReads.stream().map(ContextSourceRead::id).toList(), "captured source reads", ContextLimits.MAX_SOURCE_READS);
+            checkArgument(sourceReads.stream().map(ContextSourceRead::id).distinct().count() == sourceReads.size(), "Captured source reads contain duplicates");
             for (ContextSourceRead read : sourceReads) {
                 if (read.evidenceRef().isPresent()) {
                     CapturedSource source = evidence.get(read.evidenceRef().orElseThrow());
@@ -555,7 +556,7 @@ public class RepositoryContextPreparation
             noteIds = ImmutableList.copyOf(noteIds);
             checkedSourceIds = ImmutableList.copyOf(checkedSourceIds);
             ContextLimits.unique(noteIds, "reported note ids", ContextLimits.MAX_ENTRIES);
-            ContextLimits.unique(checkedSourceIds, "checked source ids", ContextLimits.MAX_SOURCE_READS);
+            checkArgument(checkedSourceIds.stream().distinct().count() == checkedSourceIds.size(), "Checked source ids contain duplicates");
             checkedSourceIds.forEach(id -> ContextLimits.text(id, "checked source id", 100));
             ContextLimits.text(explanation, "preparation explanation", 2000);
         }

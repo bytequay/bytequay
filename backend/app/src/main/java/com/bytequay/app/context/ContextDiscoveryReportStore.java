@@ -18,7 +18,9 @@ import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.store.AppSettingsStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Component;
 
 import java.util.Optional;
@@ -31,6 +33,7 @@ import static java.util.Objects.requireNonNull;
 public class ContextDiscoveryReportStore
 {
     static final String PREFIX = "workspace.repositoryContextDiscoveryReport.";
+    private static final int MAX_REPORT_BYTES = 4 * 1024 * 1024;
     private final AppSettingsStore settings;
     private final ObjectMapper mapper;
 
@@ -47,8 +50,15 @@ public class ContextDiscoveryReportStore
     {
         return settings.get(PREFIX + workspaceId).map(json -> {
             try {
-                checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_NOTEBOOK_BYTES, "Saved discovery report exceeds 1 MiB");
-                ContextDiscoveryReport report = requireNonNull(mapper.readValue(json, ContextDiscoveryReport.class), "Saved discovery report is null");
+                checkArgument(ContextLimits.bytes(json) <= MAX_REPORT_BYTES, "Saved discovery report exceeds 4 MiB");
+                JsonNode value = requireNonNull(mapper.readTree(json), "Saved discovery report is null");
+                // Old suggestions remain inspectable, but unknown applicability must never be inferred from their source paths.
+                value.path("topics").forEach(topic -> {
+                    if (topic instanceof ObjectNode object && !object.has("notePaths")) {
+                        object.putNull("notePaths");
+                    }
+                });
+                ContextDiscoveryReport report = mapper.treeToValue(value, ContextDiscoveryReport.class);
                 checkArgument(report.workspaceId().equals(workspaceId), "Saved discovery report belongs to another workspace");
                 return report;
             }
@@ -64,7 +74,7 @@ public class ContextDiscoveryReportStore
             checkArgument(find(replacement.workspaceId()).equals(expected), "Discovery report changed; inspect the latest result");
             try {
                 String json = mapper.writeValueAsString(replacement);
-                checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_NOTEBOOK_BYTES, "Discovery report exceeds 1 MiB");
+                checkArgument(ContextLimits.bytes(json) <= MAX_REPORT_BYTES, "Discovery report exceeds 4 MiB");
                 settings.put(PREFIX + replacement.workspaceId(), json);
                 return replacement;
             }

@@ -38,13 +38,14 @@ import static java.util.Objects.requireNonNull;
  */
 public record ContextInputFingerprint(String scopeId, Map<String, String> inputs, Optional<String> digest, List<String> gaps)
 {
-    public static final int MAXIMUM_INPUT_BYTES = 32 * 1024;
+    public static final int MAXIMUM_INPUTS = 2048;
+    public static final int MAXIMUM_INPUT_BYTES = 128 * 1024;
 
     public ContextInputFingerprint
     {
         ContextLimits.text(scopeId, "fingerprint scope id", 1100);
         inputs = ImmutableMap.copyOf(inputs);
-        checkArgument(inputs.size() <= 128, "Too many fingerprint inputs");
+        checkArgument(inputs.size() <= MAXIMUM_INPUTS, "Too many fingerprint inputs");
         inputs.forEach((key, value) -> {
             ContextLimits.text(key, "fingerprint input key", 1200);
             ContextLimits.text(value, "fingerprint input value", 2000);

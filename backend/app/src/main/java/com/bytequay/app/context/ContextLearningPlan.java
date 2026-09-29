@@ -153,7 +153,7 @@ public record ContextLearningPlan(
         }
     }
 
-    public record Topic(String id, String title, String scopeId, String scopeMatchDigest, List<String> paths, List<String> repositoryFiles,
+    public record Topic(String id, String title, String scopeId, String scopeMatchDigest, List<String> paths, Optional<List<String>> notePaths, List<String> repositoryFiles,
             List<String> sourceIds, List<Question> questions)
     {
         public static final int MAX_QUESTIONS = 6;
@@ -165,6 +165,11 @@ public record ContextLearningPlan(
             ContextLimits.text(scopeId, "topic scope", 1100);
             checkArgument(scopeMatchDigest.matches("sha256:[0-9a-f]{64}"), "Invalid accepted scope match");
             paths = ImmutableList.copyOf(paths);
+            notePaths = requireNonNull(notePaths, "notePaths is null").map(ImmutableList::copyOf);
+            notePaths.ifPresent(values -> {
+                ContextLimits.unique(values, "note paths", 8);
+                values.forEach(ContextLimits::pathPrefix);
+            });
             repositoryFiles = ImmutableList.copyOf(repositoryFiles);
             sourceIds = ImmutableList.copyOf(sourceIds);
             questions = ImmutableList.copyOf(questions);
@@ -180,12 +185,12 @@ public record ContextLearningPlan(
         {
             List<Question> updated = new ArrayList<>(questions);
             updated.set(index, replacement);
-            return new Topic(id, title, scopeId, scopeMatchDigest, paths, repositoryFiles, sourceIds, updated);
+            return new Topic(id, title, scopeId, scopeMatchDigest, paths, notePaths, repositoryFiles, sourceIds, updated);
         }
 
         public Topic withSource(String sourceId)
         {
-            return sourceIds.contains(sourceId) ? this : new Topic(id, title, scopeId, scopeMatchDigest, paths, repositoryFiles,
+            return sourceIds.contains(sourceId) ? this : new Topic(id, title, scopeId, scopeMatchDigest, paths, notePaths, repositoryFiles,
                     ImmutableList.<String>builder().addAll(sourceIds).add(sourceId).build(), questions);
         }
     }

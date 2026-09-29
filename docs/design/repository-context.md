@@ -643,10 +643,12 @@ A nonblank returned page and its receipt are saved in one run update; the exact
 excerpt lives once in the existing evidence map. The full temporary page body
 is not persisted.
 The existing evidence read and Save lesson action retain access to those
-excerpts after the temporary capture is gone. Baseline and selected document
+excerpts after the temporary capture is gone. In review runs, baseline and selected document
 reads share a limit of 128 retained receipts per run. Repeated successful calls
 consume that limit, even if they select the same page; source listing does not.
-This bounds these additions, not the entire existing run evidence map.
+This bounds these additions, not the entire existing run evidence map. Standalone
+discovery and learning have no research-operation count quota; their capture is
+bounded by retained bytes and the configured agent turn timeout.
 
 The document HTTP client is separate from authenticated GitHub clients. The
 Boot-managed Apache HTTP client supplies a connection-time DNS resolver, so the
@@ -1045,8 +1047,8 @@ These placeholder strings abbreviate full objects only in the examples above.
 For a nonblank read, its notebook `evidenceRef` becomes the globally unique read
 ID and resolves to the copied excerpt in `sourceEvidence`; run-local IDs such
 as E1 cannot collide across reviews. A blank receipt keeps no evidence reference
-and creates no invented prose. Each result permits at most 128 checked reads,
-matching the execution's capture budget. This checked-input inventory is separate
+and creates no invented prose. Checked-read inventories have no separate count
+quota. This checked-input inventory is separate
 from the eight-source limit for an individual note or claim. An EMPTY builder
 result must be able to account for every captured read, including observations
 that did not become note citations. Existing notebook and tool-response byte
@@ -1076,8 +1078,9 @@ provisioning has no retained worktree ownership to replace.
 
 The binding's capture contains typed sourceReads, retained evidence, source
 attempts, exact operation receipts, an optional structured result and gaps.
-It is bounded to 128 source receipts, 128 evidence/attempt entries, 20 operation
-receipts, 256 KiB evidence text, forty gaps of at most 1,000 bytes, and 1 MiB
+Source receipts, evidence entries and source attempts have no cumulative count
+quota. It retains at most 20 preparation receipts, 2 MiB evidence text,
+forty gaps of at most 1,000 bytes, and 4 MiB
 serialized storage. Each operation records its normalized digest and exact
 result, bounded to 64 KiB. These are capture/replay facts, not another lifecycle
 state machine. Successful note sources are copied into the notebook so replacing
@@ -1251,7 +1254,7 @@ text; complete note bodies are never cut to fit.
   a 32-bit big-endian length prefix. Baseline SHA and notebook revision are
   provenance, not implicit digest inputs. Any incomplete essential observation
   produces gaps and an absent digest, never a reusable partial or empty result.
-  Inventories are bounded to 128 inputs and 32 KiB per scope, and 256 KiB of
+  Inventories are bounded to 2,048 inputs and 128 KiB per scope, and 256 KiB of
   input keys/values across at most 100 scopes. An inventory that exceeds the
   run budget is replaced by an explicit incomplete record. These identity
   records do not consume the model's note-text budget and do not establish
@@ -1639,8 +1642,10 @@ so newly added relevant input invalidates an earlier negative preparation.
 Each ancestor's supported manifest names and object identities, including absent
 files, form one `git-manifests:<directory>` input. This avoids exhausting the
 per-scope input count with nonexistent manifest paths. Actual Git lookup paths
-still share the 512-path, 128-path batch and ten-second bounds; an omitted or
-failed lookup makes the inventory incomplete. Changes, additions and removals
+share a 4,096-item budget for source paths and ancestor directories; possible
+manifest names are expanded after this selection. Exact lookups use batches of
+at most 512 paths under a ten-second deadline. An omitted or failed lookup makes
+the inventory incomplete. Changes, additions and removals
 within the manifest group invalidate reuse and source applicability, while
 unrelated sibling files do not. Referenced source files remain individual
 `git:<path>` inputs.
@@ -1718,10 +1723,10 @@ explicit essential gaps; it does not infer tool decisions from assistant prose.
 | Immutable delivery bindings per run | 128 |
 | One context source response | 16 KiB, paginated |
 | One notebook entry body | 8 KiB |
-| Entries per workspace | 100 |
+| Stored note identities per workspace | 500 |
 | Sources per entry / claims per entry | 8 / 12 |
-| Aggregate current notebook prose | 256 KiB |
-| Serialized notebook, including receipts/source excerpts | 1 MiB |
+| Aggregate current notebook prose | 8 MiB |
+| Serialized notebook, including receipts/source excerpts | 16 MiB |
 
 KiB means 1,024 UTF-8 bytes. Count actual encoded text, not Java characters.
 Keep code-point boundaries. Include source labels and pagination metadata within

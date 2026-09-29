@@ -22,6 +22,9 @@ import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.context.ContextEntry;
+import com.bytequay.core.context.ContextEntryKind;
+import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.ContextMatch;
 import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.ContextSourceEvidence;
@@ -205,12 +208,51 @@ class TestContextLearningService
         assertThat(plan.topics().getFirst().scopeId()).isEqualTo(notebook.get().scopes().getLast().id());
         assertThat(plan.topics().getFirst().paths()).containsExactly("plugin/iceberg/");
         assertThat(plan.documentationSources()).hasSize(1);
-        assertThat(plan.documentationSources().getFirst().origin()).isEqualTo(com.bytequay.core.context.ContextEntryOrigin.GENERATED);
+        assertThat(plan.documentationSources().getFirst().origin()).isEqualTo(ContextEntryOrigin.GENERATED);
         assertThat(plan.documentInventory().items()).hasSize(1);
         assertThat(plan.documentInventory().items().getFirst().status()).isEqualTo(ContextDocumentInventory.Status.PENDING);
         assertThat(notebook.get().scopes().getLast().match())
                 .isEqualTo(new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/"), ImmutableList.of()));
         assertThat(notebook.get().sourceEvidence()).hasSize(1);
+    }
+
+    @Test
+    void keepsConnectorNotesSeparateWhileAllowingTheSameSupportingReadPaths()
+    {
+        List<String> reads = ImmutableList.of("plugin/iceberg/", "plugin/delta/", "plugin/hive/");
+        ContextScope iceberg = new ContextScope("path:plugin/iceberg/", "Iceberg",
+                new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/"), ImmutableList.of()), true, Optional.empty(), Optional.empty());
+        ContextEntry saved = new ContextEntry(ContextEntry.knowledgeId(iceberg.id()), ContextEntryKind.KNOWLEDGE, iceberg.id(),
+                "Iceberg metadata", "Iceberg uses snapshots.", "An existing approved Iceberg note.", ImmutableList.of(), ImmutableList.of(),
+                ContextEntryOrigin.USER, true, 1);
+        notebook.set(new RepositoryNotebook(1, 0, true, true, ImmutableList.of(), ImmutableList.of(ContextScope.project(), iceberg),
+                ImmutableList.of(saved), ImmutableList.of(), Optional.empty()));
+        reports.save(Optional.empty(), report(ImmutableList.of(
+                topic("topic:1", "Iceberg file selection", reads, Optional.of(ImmutableList.of("plugin/iceberg/")), ImmutableList.of()),
+                topic("topic:2", "Delta transaction log", reads, Optional.of(ImmutableList.of("plugin/delta/")), ImmutableList.of())), ImmutableList.of()));
+
+        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT,
+                ImmutableList.of("topic:1", "topic:2"), ImmutableList.of()));
+
+        ContextLearningPlan plan = plans.find(WORKSPACE).orElseThrow();
+        assertThat(plan.topic("topic:1").scopeId()).isEqualTo(iceberg.id());
+        assertThat(plan.topic("topic:1").notePaths()).contains(ImmutableList.of("plugin/iceberg/"));
+        assertThat(plan.topic("topic:2").notePaths()).contains(ImmutableList.of("plugin/delta/"));
+        ContextScope delta = notebook.get().scopes().stream().filter(scope -> scope.id().equals(plan.topic("topic:2").scopeId())).findFirst().orElseThrow();
+        assertThat(delta.match()).isEqualTo(new ContextMatch.Selected(ImmutableList.of("plugin/delta/"), ImmutableList.of()));
+        assertThat(notebook.get().scopes()).containsExactly(ContextScope.project(), iceberg, delta);
+        assertThat(notebook.get().entries()).containsExactly(saved);
+        ArgumentCaptor<ContextBuild.Assignment> assignments = ArgumentCaptor.forClass(ContextBuild.Assignment.class);
+        verify(builds).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), assignments.capture());
+        assertThat(assignments.getValue().paths()).isEqualTo(reads);
+        ContextBuild bound = task(plan, "topic:1", 0);
+        assertThat(learning.require(bound)).isEqualTo(plan);
+        learning.progress(bound, "Established Iceberg file selection from its metadata implementation.", true, ImmutableList.of());
+        learning.continueLearning(WORKSPACE, new ContextLearningService.ContinueRequest("continue", notebook.get().revision(), 0, plan.id()));
+        verify(builds, times(2)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), assignments.capture());
+        assertThat(assignments.getAllValues().getLast().topicId()).isEqualTo("topic:2");
+        assertThat(assignments.getAllValues().getLast().paths()).isEqualTo(reads);
+        assertThat(notebook.get().entries()).containsExactly(saved);
     }
 
     @Test
@@ -283,7 +325,7 @@ class TestContextLearningService
     }
 
     @Test
-    void rejectsAnOlderMismatchedPlanBeforeStartingOrUsingALearningTask()
+    void rejectsMismatchedNoteApplicabilityBeforeStartingOrUsingALearningTask()
     {
         reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Iceberg",
                 ImmutableList.of("plugin/iceberg/"), ImmutableList.of())), ImmutableList.of()));
@@ -291,7 +333,7 @@ class TestContextLearningService
         ContextLearningPlan original = plans.find(WORKSPACE).orElseThrow();
         ContextLearningPlan.Topic topic = original.topic("topic:1");
         ContextLearningPlan mismatched = original.withProgress(ImmutableList.of(new ContextLearningPlan.Topic(topic.id(), topic.title(),
-                topic.scopeId(), topic.scopeMatchDigest(), ImmutableList.of("plugin/iceberg/", "plugin/delta/"),
+                topic.scopeId(), topic.scopeMatchDigest(), topic.paths(), Optional.of(ImmutableList.of("plugin/iceberg/", "plugin/delta/")),
                 topic.repositoryFiles(), topic.sourceIds(), topic.questions())), original.gaps());
         plans.save(Optional.of(original), mismatched);
         RepositoryNotebook saved = notebook.get();
@@ -300,10 +342,77 @@ class TestContextLearningService
                 new ContextLearningService.ContinueRequest("continue", saved.revision(), 0, mismatched.id())))
                 .withMessageContaining("Discard this learning plan").withMessageContaining("saved notes and drafts are kept");
         assertThatIllegalArgumentException().isThrownBy(() -> learning.require(task(mismatched, "topic:1", 0)))
-                .withMessageContaining("Saved topic paths do not match");
+                .withMessageContaining("Saved note paths do not match");
         verify(builds, times(1)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), any());
         assertThat(notebook.get()).isEqualTo(saved);
         assertThat(plans.find(WORKSPACE)).contains(mismatched);
+    }
+
+    @Test
+    void rejectsDiscoveryWithoutNoteApplicabilityBeforeAllocatingAnything()
+    {
+        reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Lakehouse connectors",
+                ImmutableList.of("plugin/iceberg/", "plugin/delta/"), Optional.empty(), ImmutableList.of())), ImmutableList.of()));
+        RepositoryNotebook saved = notebook.get();
+
+        assertThatIllegalArgumentException().isThrownBy(() -> learning.start(WORKSPACE,
+                new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1"), ImmutableList.of())))
+                .withMessageContaining("note applicability");
+
+        assertThat(plans.find(WORKSPACE)).isEmpty();
+        assertThat(notebook.get()).isEqualTo(saved);
+        verify(notebooks, never()).registerDiscovered(eq(WORKSPACE), anyLong(), anyList(), anyList(), anyList());
+        verify(builds, never()).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), any());
+    }
+
+    @Test
+    void keepsTheNotebookButRejectsContinuingOrUsingAPlanWithoutNoteApplicability()
+    {
+        reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Iceberg",
+                ImmutableList.of("plugin/iceberg/"), ImmutableList.of())), ImmutableList.of()));
+        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1"), ImmutableList.of()));
+        ContextLearningPlan original = plans.find(WORKSPACE).orElseThrow();
+        ContextLearningPlan.Topic topic = original.topic("topic:1");
+        ContextLearningPlan legacy = original.withProgress(ImmutableList.of(new ContextLearningPlan.Topic(topic.id(), topic.title(),
+                topic.scopeId(), topic.scopeMatchDigest(), topic.paths(), Optional.empty(),
+                topic.repositoryFiles(), topic.sourceIds(), topic.questions())), original.gaps());
+        plans.save(Optional.of(original), legacy);
+        RepositoryNotebook current = notebook.get();
+        ContextEntry note = new ContextEntry(ContextEntry.knowledgeId(topic.scopeId()), ContextEntryKind.KNOWLEDGE, topic.scopeId(),
+                "Iceberg metadata", "Iceberg uses snapshots.", "Keep this approved Iceberg note.", ImmutableList.of(), ImmutableList.of(),
+                ContextEntryOrigin.USER, true, 1);
+        notebook.set(new RepositoryNotebook(1, current.revision(), true, true, current.sources(), current.scopes(),
+                ImmutableList.of(note), current.sourceEvidence(), Optional.empty()));
+        RepositoryNotebook saved = notebook.get();
+
+        assertThatIllegalArgumentException().isThrownBy(() -> learning.continueLearning(WORKSPACE,
+                new ContextLearningService.ContinueRequest("continue", saved.revision(), 0, legacy.id())))
+                .withMessageContaining("note applicability").withMessageContaining("saved notes and drafts are kept");
+        assertThatIllegalArgumentException().isThrownBy(() -> learning.require(task(legacy, "topic:1", 0)))
+                .withMessageContaining("note applicability");
+
+        verify(builds, times(1)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), any());
+        assertThat(notebook.get()).isEqualTo(saved);
+        assertThat(plans.find(WORKSPACE)).contains(legacy);
+    }
+
+    @Test
+    void rejectsAnEditedScopeEvenWhenTheApprovedNotePathsStillMatch()
+    {
+        reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Shared storage",
+                ImmutableList.of("plugin/iceberg/", "plugin/delta/"), ImmutableList.of())), ImmutableList.of()));
+        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1"), ImmutableList.of()));
+        ContextLearningPlan plan = plans.find(WORKSPACE).orElseThrow();
+        RepositoryNotebook current = notebook.get();
+        ContextScope scope = current.scopes().getLast();
+        ContextScope reordered = new ContextScope(scope.id(), scope.title(),
+                new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/", "plugin/delta/"), ImmutableList.of()),
+                true, scope.preparation(), scope.discoveryEvidenceRef());
+        notebook.set(new RepositoryNotebook(1, current.revision(), true, true, current.sources(), ImmutableList.of(ContextScope.project(), reordered),
+                current.entries(), current.sourceEvidence(), Optional.empty()));
+
+        assertThatIllegalArgumentException().isThrownBy(() -> learning.require(task(plan, "topic:1", 0)))
+                .withMessageContaining("matching rule changed");
     }
 
     @Test
@@ -330,7 +439,7 @@ class TestContextLearningService
         String pageUrl = "https://other.example.org/one-page.html";
         String declinedUrl = "https://third.example.org/guide.html";
         RegisteredContextSource original = new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT,
-                "https://example.com/docs/", com.bytequay.core.context.ContextEntryOrigin.USER, Optional.empty());
+                "https://example.com/docs/", ContextEntryOrigin.USER, Optional.empty());
         notebook.set(new RepositoryNotebook(1, 0, true, true, ImmutableList.of(original), ImmutableList.of(ContextScope.project()),
                 ImmutableList.of(), ImmutableList.of(), Optional.empty()));
         ContextDiscoveryReport.Source source = new ContextDiscoveryReport.Source("source:1",
@@ -357,7 +466,7 @@ class TestContextLearningService
         ContextLearningPlan beforeStaleApproval = plans.find(WORKSPACE).orElseThrow();
         RepositoryNotebook beforeSourceEdit = notebook.get();
         RegisteredContextSource edited = new RegisteredContextSource(original.id(), original.kind(),
-                "https://example.com/changed/", com.bytequay.core.context.ContextEntryOrigin.USER, Optional.empty());
+                "https://example.com/changed/", ContextEntryOrigin.USER, Optional.empty());
         notebook.set(new RepositoryNotebook(1, 1, true, true, ImmutableList.of(edited), ImmutableList.of(ContextScope.project()),
                 ImmutableList.of(), ImmutableList.of(), Optional.empty()));
         assertThatIllegalArgumentException().isThrownBy(() -> learning.allowSource(WORKSPACE,
@@ -371,7 +480,7 @@ class TestContextLearningService
             EditContextConfiguration edit = call.getArgument(2);
             List<RegisteredContextSource> registered = edit.sources().orElseThrow().stream()
                     .map(value -> new RegisteredContextSource(value.id(), value.kind(), value.url(),
-                            com.bytequay.core.context.ContextEntryOrigin.USER, Optional.empty())).toList();
+                            ContextEntryOrigin.USER, Optional.empty())).toList();
             RepositoryNotebook updated = new RepositoryNotebook(1, notebook.get().revision() + 1, true, true, registered,
                     notebook.get().scopes(), ImmutableList.of(), ImmutableList.of(), Optional.empty());
             notebook.set(updated);
@@ -430,10 +539,15 @@ class TestContextLearningService
 
     private static ContextDiscoveryReport.Topic topic(String id, String title, List<String> paths, List<String> sources)
     {
+        return topic(id, title, paths, Optional.of(paths), sources);
+    }
+
+    private static ContextDiscoveryReport.Topic topic(String id, String title, List<String> paths, Optional<List<String>> notePaths, List<String> sources)
+    {
         return new ContextDiscoveryReport.Topic(id, title,
                 ImmutableList.of(id.equals("topic:1") && paths.isEmpty() ? "How is the project structured?" : "What does this area require?",
                         "Where are its tests?"),
-                paths, sources, ImmutableList.of("context-read:readme"), "Repository guide identifies this area");
+                paths, notePaths, sources, ImmutableList.of("context-read:readme"), "Repository guide identifies this area");
     }
 
     private static ContextBuild task(ContextLearningPlan plan, String topicId, int question)

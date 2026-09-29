@@ -153,7 +153,7 @@ public record ContextBuild(
             List<ContextSourceRead> sourceReads, Map<String, CapturedSource> evidence, Map<String, String> attempts,
             Map<String, Operation> operations, Optional<Result> result, List<String> gaps, List<Activity> activity)
     {
-        public static final int MAX_ACTIVITY = 60;
+        public static final int MAX_ACTIVITY = 200;
 
         public Capture
         {
@@ -165,14 +165,14 @@ public record ContextBuild(
             gaps = ImmutableList.copyOf(gaps);
             activity = ImmutableList.copyOf(activity);
             checkArgument(activity.size() <= MAX_ACTIVITY, "Too many activity lines");
-            ContextLimits.unique(sourceReads.stream().map(ContextSourceRead::id).toList(), "build source receipts", ContextLimits.MAX_SOURCE_READS);
-            checkArgument(evidence.size() <= 128 && attempts.size() <= 128 && operations.size() <= 20, "Build capture limit reached");
+            checkArgument(sourceReads.stream().map(ContextSourceRead::id).distinct().count() == sourceReads.size(), "Build source receipts contain duplicates");
+            checkArgument(operations.size() <= 20, "Too many preparation receipts");
             attempts.forEach((key, value) -> {
                 ContextLimits.text(key, "source attempt key", 1500);
                 ContextLimits.text(value, "source attempt result", 2000);
             });
             operations.keySet().forEach(key -> ContextLimits.text(key, "operation key", 120));
-            checkArgument(evidence.values().stream().mapToLong(source -> ContextLimits.bytes(source.excerpt())).sum() <= 256 * 1024, "Build evidence exceeds 256 KiB");
+            checkArgument(evidence.values().stream().mapToLong(source -> ContextLimits.bytes(source.excerpt())).sum() <= 2 * 1024 * 1024, "Build evidence exceeds 2 MiB");
             checkArgument(gaps.size() <= 40, "Too many build limitations");
             gaps.forEach(gap -> ContextLimits.text(gap, "build limitation", 1000));
             Map<String, CapturedSource> captured = evidence;
@@ -190,14 +190,12 @@ public record ContextBuild(
             return new Capture(ImmutableList.of(), ImmutableMap.of(), ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), ImmutableList.of(), ImmutableList.of());
         }
 
-        /** Keeps the earliest lines once the bound is reached; the transcript still records everything. */
+        /** Keeps recent activity visible during long runs; the task transcript retains earlier operations. */
         public Capture logged(Instant at, String text, Activity.Tone tone)
         {
-            if (activity.size() >= MAX_ACTIVITY) {
-                return this;
-            }
             return new Capture(sourceReads, evidence, attempts, operations, result, gaps, ImmutableList.<Activity>builder()
-                    .addAll(activity).add(new Activity(at, ContextText.excerpt(text, 400), tone)).build());
+                    .addAll(activity.subList(Math.max(0, activity.size() - MAX_ACTIVITY + 1), activity.size()))
+                    .add(new Activity(at, ContextText.excerpt(text, 400), tone)).build());
         }
     }
 }

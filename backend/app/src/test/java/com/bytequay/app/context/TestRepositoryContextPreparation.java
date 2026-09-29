@@ -27,9 +27,9 @@ import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextInputFingerprint;
-import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextMatch;
 import com.bytequay.core.context.ContextPacket;
+import com.bytequay.core.context.ContextPreparationResult;
 import com.bytequay.core.context.ContextReference;
 import com.bytequay.core.context.ContextRepositoryRead;
 import com.bytequay.core.context.ContextScope;
@@ -316,13 +316,17 @@ class TestRepositoryContextPreparation
     }
 
     @Test
-    void emptyPreparationRetainsMoreCheckedReadsThanNoteCitationsAllow()
+    void emptyPreparationRetainsTwoHundredAndOneCompleteFileReads()
     {
-        Execution owner = repositoryExecution(13, true);
+        Execution owner = repositoryExecution(201, false);
         var admitted = begin(owner);
         List<String> checked = owner.sourceReads().stream().map(ContextSourceRead::id).collect(ImmutableList.toImmutableList());
         var report = new GeneratedReport(ImmutableList.of(new ScopeReport("project", EMPTY, ImmutableList.of(), checked,
-                "Every selected source was inspected and empty")), ImmutableList.of());
+                "Every selected source was inspected without finding useful context")), ImmutableList.of());
+        var missing = new GeneratedReport(ImmutableList.of(new ScopeReport("project", EMPTY, ImmutableList.of(),
+                ImmutableList.<String>builder().addAll(checked).add("context-read:missing").build(), "Inspected sources")), ImmutableList.of());
+        assertThatThrownBy(() -> preparation.prepareCompletion(owner, admitted.attempt().orElseThrow().attemptId(), missing))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Unknown captured source read");
 
         var receipt = preparation.complete(owner, preparation.prepareCompletion(owner, admitted.attempt().orElseThrow().attemptId(), report));
 
@@ -332,9 +336,9 @@ class TestRepositoryContextPreparation
         });
         RepositoryNotebook saved = notebooks.getNotebook("workspace");
         assertThat(saved.entries()).isEmpty();
-        assertThat(saved.sourceEvidence()).isEmpty();
+        assertThat(saved.sourceEvidence()).hasSize(201);
         assertThat(saved.revision()).isZero();
-        assertThat(saved.scopes().getFirst().preparation().orElseThrow().checkedReads()).hasSize(13);
+        assertThat(saved.scopes().getFirst().preparation().orElseThrow().checkedReads()).hasSize(201);
         assertThat(begin(owner).status()).isEqualTo(REUSED);
     }
 
@@ -362,15 +366,26 @@ class TestRepositoryContextPreparation
     }
 
     @Test
-    void checkedReadBudgetStillRejectsOversizedReportsAndExecutions()
+    void checkedReportsAcceptAllResearchReadsWhileRejectingInvalidReceipts()
     {
-        List<String> tooMany = IntStream.rangeClosed(0, ContextLimits.MAX_SOURCE_READS)
-                .mapToObj(index -> "context-read:" + index).collect(ImmutableList.toImmutableList());
-
-        assertThatThrownBy(() -> new ScopeReport("project", EMPTY, ImmutableList.of(), tooMany, "Inspected sources"))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("checked source ids exceeds");
-        assertThatThrownBy(() -> repositoryExecution(ContextLimits.MAX_SOURCE_READS + 1, true))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("captured source reads exceeds");
+        Execution owner = repositoryExecution(201, false);
+        List<String> checked = owner.sourceReads().stream().map(ContextSourceRead::id).collect(ImmutableList.toImmutableList());
+        assertThat(new ScopeReport("project", EMPTY, ImmutableList.of(), checked, "Inspected sources").checkedSourceIds()).hasSize(201);
+        assertThatThrownBy(() -> new ScopeReport("project", EMPTY, ImmutableList.of(),
+                ImmutableList.<String>builder().addAll(checked).add(checked.getFirst()).build(), "Inspected sources"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("duplicates");
+        assertThatThrownBy(() -> new ScopeReport("project", EMPTY, ImmutableList.of(), ImmutableList.of("x".repeat(101)), "Inspected sources"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("checked source id");
+        ContextInputFingerprint input = ContextInputFingerprint.create("project", ImmutableMap.of("README.md", SHA), ImmutableList.of());
+        assertThatThrownBy(() -> new ContextPreparationResult("attempt", input, EMPTY, ImmutableList.of(),
+                ImmutableList.<ContextSourceRead>builder().addAll(owner.sourceReads()).add(owner.sourceReads().getFirst()).build(), "Inspected sources"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("duplicates");
+        ContextRepositoryRead first = (ContextRepositoryRead) owner.sourceReads().getFirst();
+        ContextRepositoryRead truncated = new ContextRepositoryRead(first.id(), first.reference(), first.blobId(), first.readAt(), first.startLine(),
+                first.endLine(), first.totalLines(), first.utf8Bytes(), true, first.evidenceRef());
+        assertThatThrownBy(() -> new ContextPreparationResult("attempt", input, EMPTY, ImmutableList.of(),
+                ImmutableList.<ContextSourceRead>builder().add(truncated).addAll(owner.sourceReads().subList(1, 201)).build(), "Inspected sources"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("incomplete or failed source reads");
         assertThat(notebooks.getNotebook("workspace").activePreparation()).isEmpty();
     }
 
@@ -502,14 +517,17 @@ class TestRepositoryContextPreparation
     void historyInputOverflowDefersWithoutStartingPreparation()
     {
         when(inputs.capture(any(), any(), any(), anyList())).thenReturn(ImmutableList.of(ContextInputFingerprint.create("project",
-                IntStream.range(0, 128).boxed().collect(ImmutableMap.toImmutableMap(index -> "git:path-" + index, index -> SHA)), ImmutableList.of())));
+                IntStream.range(0, ContextInputFingerprint.MAXIMUM_INPUTS).boxed()
+                        .collect(ImmutableMap.toImmutableMap(index -> "git:path-" + index, index -> SHA)), ImmutableList.of())));
         Execution owner = withHistory(execution("turn", false, SHA), "history", "Merged decision", 2);
         var plan = preparation.plan(owner, ImmutableList.of("project"), ImmutableList.of("context-read:history"));
         assertThat(plan.inputs()).singleElement().satisfies(input -> {
             assertThat(input.digest()).isEmpty();
             assertThat(input.gaps()).anyMatch(gap -> gap.contains("input budget"));
         });
-        assertThat(preparation.begin(owner, "request", DIGEST, 0, plan).status()).isEqualTo(DEFERRED);
+        var admission = preparation.begin(owner, "request", DIGEST, 0, plan);
+        assertThat(admission.status()).isEqualTo(DEFERRED);
+        assertThat(admission.gaps()).anySatisfy(gap -> assertThat(gap).contains("Selected history exceeds the per-scope input budget"));
         assertThat(notebooks.getNotebook("workspace").activePreparation()).isEmpty();
     }
 

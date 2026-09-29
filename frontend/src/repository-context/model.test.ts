@@ -16,7 +16,7 @@ import type {
   ContextBuildViewDto, ContextDiscoveryReportDto, ContextEntryDto, ContextKnowledgeDraftDto, ContextLearningPlanDto, ContextMergedCandidateDto, ContextRunDto,
   ContextScopeDto, RepositoryNotebookDto,
 } from './contracts';
-import { filterNotes, noteDiff, openCandidates, pendingCounts, questionRow, scopeForTopic, statusCard, type StatusInput } from './model';
+import { filterNotes, needsTopicReselection, noteDiff, openCandidates, pendingCounts, questionRow, scopeForTopic, statusCard, type StatusInput } from './model';
 
 const NOW = Date.parse('2026-09-29T12:00:00Z');
 const entry: ContextEntryDto = { id: 'knowledge:iceberg', kind: 'KNOWLEDGE', scopeId: 'iceberg', title: 'Iceberg metadata refresh',
@@ -30,16 +30,16 @@ const notebook: RepositoryNotebookDto = { schemaVersion: 1, revision: 8, useInRe
   entries: [], pendingDrafts: [], sourceEvidence: [] };
 const report: ContextDiscoveryReportDto = { id: 'report', workspaceId: 'w',
   baselineSha: 'a'.repeat(40), topics: [{ id: 'topic:iceberg', title: 'Iceberg connector', questions: ['How is metadata refreshed?', 'How are commits retried?'],
-    paths: ['plugin/trino-iceberg/'], sourceIds: [], evidenceReadIds: [], why: '' }], sources: [], evidence: [], remaining: [], partial: true,
+    paths: ['plugin/trino-iceberg/', 'plugin/trino-hive/'], notePaths: ['plugin/trino-iceberg/'], sourceIds: [], evidenceReadIds: [], why: '' }], sources: [], evidence: [], remaining: [], partial: true,
   coverage: { areas: [{ path: 'plugin/', surveyed: 10, total: 40 }], unsurveyed: [], unsurveyedTruncated: false }, createdAt: '2026-09-29T09:00:00Z' };
-const plan: ContextLearningPlanDto = { id: 'plan', workspaceId: 'w', reportId: 'report', baselineSha: report.baselineSha, topics: [{ id: 'topic:iceberg', title: 'Iceberg connector', scopeId: 'iceberg', paths: ['plugin/trino-iceberg/'],
+const plan: ContextLearningPlanDto = { id: 'plan', workspaceId: 'w', reportId: 'report', baselineSha: report.baselineSha, topics: [{ id: 'topic:iceberg', title: 'Iceberg connector', scopeId: 'iceberg', paths: ['plugin/trino-iceberg/', 'plugin/trino-hive/'], notePaths: ['plugin/trino-iceberg/'],
     repositoryFiles: [], sourceIds: [], questions: [{ text: 'How is metadata refreshed?', status: 'COMPLETED', progress: 'Answered.' },
       { text: 'How are commits retried?', status: 'UNFINISHED', progress: 'Read the commit loop.' }] }],
-  documentationSources: [], documentInventory: { items: [], suggestions: [], truncated: false } };
+  gaps: [], documentationSources: [], documentInventory: { items: [], suggestions: [], truncated: false } };
 const run = (sequence: number, outcome: ContextRunDto['outcome'], index: number, at: string, noteIds: string[] = []): ContextRunDto => ({
   sequence, taskId: `task-${sequence}`, mode: 'LEARN', requestedAt: at, endedAt: outcome === 'RUNNING' ? null : at,
   question: { planId: 'plan', topicId: 'topic:iceberg', topicTitle: 'Iceberg connector', index, text: plan.topics[0].questions[index].text },
-  pullRequest: null, outcome, sourceOperations: 40, documentOpens: 0, noteIds, activity: [], detail: null });
+  pullRequest: null, outcome, sourceOperations: 17, documentOpens: 0, noteIds, activity: [], detail: null });
 const build = (runs: ContextRunDto[]): ContextBuildViewDto => ({ buildRequestSequence: runs.length, notebookRevision: 8, canStart: runs.every(value => value.outcome !== 'RUNNING'),
   runs, build: null });
 const input = (patch: Partial<StatusInput>): StatusInput => ({ repository: 'trinodb/trino', baseline: { branch: 'master', sha: 'a'.repeat(40) }, model: 'Codex · 5.6',
@@ -58,6 +58,18 @@ describe('repository context status card', () => {
     expect(card.headline).toBe('1 topic suggested');
     expect(card.secondary).toEqual({ label: 'Discover remaining areas', bolt: true, action: 'discover-rest' });
     expect(card.foot?.text).toContain('30 of 40 module directories');
+  });
+
+  it('requires explicit note targets before learning from earlier suggestions or plans', () => {
+    const earlierReport = { ...report, topics: report.topics.map(topic => ({ ...topic, notePaths: null as null })) };
+    const earlierPlan = { ...plan, topics: plan.topics.map(topic => ({ ...topic, notePaths: null as null })) };
+    expect(statusCard(input({ report: earlierReport })).primary).toEqual({ label: 'Discover again', bolt: true, action: 'discover' });
+    const card = statusCard(input({ report, planView: { plan: earlierPlan, next: { topicId: 'topic:iceberg', question: 1 } } }));
+    expect(card.headline).toBe('Reselect topics before continuing');
+    expect(card.primary).toEqual({ label: 'Review learning plan', bolt: false, action: 'plan' });
+    expect(card.body).toContain('Approved notes and drafts are kept');
+    expect(needsTopicReselection(earlierPlan)).toBe(true);
+    expect(needsTopicReselection(plan)).toBe(false);
   });
 
   it('keeps a finished run distinct from a finished topic and resumes the unfinished question', () => {
@@ -112,7 +124,10 @@ describe('repository context notes', () => {
     expect(scopeForTopic({ ...notebook, scopes: [...notebook.scopes, withTerms] }, paths)).toBeUndefined();
     expect(scopeForTopic({ ...notebook, scopes: [...notebook.scopes, shared] }, paths)).toBe(shared);
     expect(scopeForTopic(notebook, [])?.id).toBe('project');
+    expect(scopeForTopic(notebook, null)).toBeUndefined();
     expect(scopeForTopic(notebook, [paths[0]])?.id).toBe('iceberg');
+    expect(scopeForTopic(notebook, report.topics[0].notePaths)?.id).toBe('iceberg');
+    expect(scopeForTopic(notebook, report.topics[0].paths)).toBeUndefined();
   });
 
   it('prefers an enabled exact area and retains a disabled match when no enabled match exists', () => {

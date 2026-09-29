@@ -30,6 +30,7 @@ import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -48,10 +49,12 @@ import java.util.UUID;
 import java.util.stream.IntStream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -471,17 +474,50 @@ class TestContextInputReader
     }
 
     @Test
-    void aPartlyOmittedManifestGroupNeverProducesACompleteIdentity()
+    void fingerprintsRetainedReadsAcrossOneHundredModulesWithoutLosingAncestorManifestChanges()
+            throws IOException
+    {
+        initialize();
+        for (int index = 0; index < 100; index++) {
+            write("plugin/trino-module-" + index + "/src/main/java/io/trino/plugin/module" + index + "/Module.java", "Module responsibilities");
+        }
+        String baseline = commit();
+        List<ContextSourceEvidence> sources = IntStream.range(0, 100)
+                .mapToObj(index -> fileSource("context-read:source-" + index,
+                        "plugin/trino-module-" + index + "/src/main/java/io/trino/plugin/module" + index + "/Module.java", baseline)).toList();
+        ContextInputFingerprint incomplete = ContextInputFingerprint.create("project", ImmutableMap.of(),
+                ImmutableList.of("Essential paths exceeded the shared limit of 512."));
+        ContextPreparationResult failed = new ContextPreparationResult("previous", incomplete, ContextPreparationResult.Outcome.FAILED, ImmutableList.of(),
+                sources.stream().map(source -> new ContextRepositoryRead(source.id(),
+                        (ContextReference.RepositoryFile) source.reference(), SHA, Instant.EPOCH, 1, 1, 1, 7, false, Optional.of(source.id())))
+                        .collect(toImmutableList()), "The previous fingerprint budget was too small.");
+        ContextScope project = new ContextScope("project", "Project overview", new ContextMatch.Repository(), true, Optional.of(failed), Optional.empty());
+        RepositoryNotebook notebook = new RepositoryNotebook(1, 0, true, ImmutableList.of(), ImmutableList.of(project), ImmutableList.of(), sources, Optional.empty());
+
+        ContextInputFingerprint before = capture(baseline, notebook).getFirst();
+
+        assertThat(before.gaps()).isEmpty();
+        assertThat(before.digest()).isPresent();
+        assertThat(before.inputs()).hasSizeGreaterThan(512);
+        write("plugin/trino-module-99/pom.xml", "New parent build contract");
+        ContextInputFingerprint changed = capture(commit(), notebook).getFirst();
+        assertThat(changed.digest()).isPresent().isNotEqualTo(before.digest());
+        assertThat(changed.inputs().get("git-manifests:plugin/trino-module-99")).isNotEqualTo(before.inputs().get("git-manifests:plugin/trino-module-99"));
+        Files.delete(repository.resolve("plugin/trino-module-99/pom.xml"));
+        assertThat(capture(commit(), notebook).getFirst()).isEqualTo(before);
+    }
+
+    @Test
+    void deepAncestorManifestNamesDoNotConsumeTheSourcePathBudget()
     {
         GitCommandRunner local = emptyGit();
-        String path = "a/".repeat(30) + "source.md";
+        String path = "a/".repeat(180) + "source.md";
         RepositoryNotebook notebook = notebook(ImmutableList.of(), ImmutableList.of(fileSource("source", path, SHA)));
         ContextInputFingerprint input = new ContextInputReader(local).capture(workspace(), Optional.of(SHA), notebook, notebook.scopes()).getLast();
 
-        assertThat(input.digest()).isEmpty();
-        assertThat(input.gaps()).anySatisfy(gap -> assertThat(gap).contains("shared limit"));
-        assertThat(input.inputs()).doesNotContainKey("git-manifests:a");
-        verify(local, times(5)).runLocalBounded(eq(repository), any(Duration.class), eq(256 * 1024), anyList());
+        assertThat(input.digest()).isPresent();
+        assertThat(input.gaps()).isEmpty();
+        assertThat(input.inputs()).containsKey("git-manifests:a");
     }
 
     @Test
@@ -489,7 +525,8 @@ class TestContextInputReader
     {
         GitCommandRunner local = emptyGit();
         List<ContextScope> scopes = ImmutableList.<ContextScope>builder().add(ContextScope.project())
-                .addAll(IntStream.range(0, 99).mapToObj(index -> scope("module-" + index + "/component")).collect(toImmutableList())).build();
+                .addAll(IntStream.range(0, 99).mapToObj(index -> scope("group-" + index + "/" + "module/".repeat(45) + "component"))
+                        .collect(toImmutableList())).build();
         RepositoryNotebook notebook = new RepositoryNotebook(1, 0, true, ImmutableList.of(), scopes, ImmutableList.of(), ImmutableList.of(), Optional.empty());
         List<ContextInputFingerprint> fingerprints = new ContextInputReader(local).capture(workspace(), Optional.of(SHA), notebook, scopes);
 
@@ -498,16 +535,18 @@ class TestContextInputReader
             assertThat(input.gaps()).anySatisfy(gap -> assertThat(gap).contains("shared limit"));
         });
         assertThat(fingerprints).allSatisfy(input -> {
-            assertThat(input.inputs()).hasSizeLessThanOrEqualTo(128);
+            assertThat(input.inputs()).hasSizeLessThanOrEqualTo(ContextInputFingerprint.MAXIMUM_INPUTS);
             assertThat(input.inputBytes()).isLessThanOrEqualTo(ContextInputFingerprint.MAXIMUM_INPUT_BYTES);
         });
         ArgumentCaptor<Duration> timeout = ArgumentCaptor.forClass(Duration.class);
         ArgumentCaptor<List<String>> arguments = ArgumentCaptor.captor();
-        verify(local, times(5)).runLocalBounded(eq(repository), timeout.capture(), eq(256 * 1024), arguments.capture());
+        verify(local, atLeastOnce()).runLocalBounded(eq(repository), timeout.capture(), eq(256 * 1024), arguments.capture());
         assertThat(timeout.getAllValues()).allSatisfy(value -> assertThat(value).isPositive().isLessThanOrEqualTo(Duration.ofSeconds(2)));
         assertThat(arguments.getAllValues()).allSatisfy(value -> {
             assertThat(value).startsWith("--literal-pathspecs", "ls-tree", "-t", "-z", "--full-tree", SHA, "--");
-            assertThat(value).hasSizeLessThanOrEqualTo(135);
+            assertThat(value).hasSizeLessThanOrEqualTo(519);
+            assertThat(value.subList(7, value.size()).stream().mapToInt(path -> path.getBytes(UTF_8).length + 1).sum())
+                    .isLessThanOrEqualTo(128 * 1024);
         });
     }
 

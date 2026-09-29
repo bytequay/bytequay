@@ -43,6 +43,7 @@ public class ContextBuildStore
     static final String PREFIX = "workspace.repositoryContextBuild.";
     static final String RUNS_PREFIX = "workspace.repositoryContextRuns.";
     static final int MAX_RUNS = 30;
+    private static final int MAX_STORED_BYTES = 4 * 1024 * 1024;
     private final AppSettingsStore settings;
     private final AgentTaskStore tasks;
     private final ObjectMapper mapper;
@@ -64,7 +65,7 @@ public class ContextBuildStore
     {
         return settings.get(PREFIX + workspaceId).map(json -> {
             try {
-                checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_NOTEBOOK_BYTES, "Saved context build exceeds 1 MiB");
+                checkArgument(ContextLimits.bytes(json) <= MAX_STORED_BYTES, "Saved context build exceeds 4 MiB");
                 ContextBuild build = requireNonNull(mapper.readValue(json, ContextBuild.class), "Saved build is null");
                 checkArgument(build.workspaceId().equals(workspaceId), "Saved build belongs to another workspace");
                 return build;
@@ -85,7 +86,7 @@ public class ContextBuildStore
     {
         return settings.get(RUNS_PREFIX + workspaceId).map(json -> {
             try {
-                checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_NOTEBOOK_BYTES, "Saved context runs exceed 1 MiB");
+                checkArgument(ContextLimits.bytes(json) <= MAX_STORED_BYTES, "Saved context runs exceed 4 MiB");
                 List<ContextRun> runs = ImmutableList.copyOf(mapper.readValue(json, ContextRun[].class));
                 checkArgument(runs.size() <= MAX_RUNS, "Too many saved context runs");
                 return runs;
@@ -108,7 +109,7 @@ public class ContextBuildStore
             List<ContextRun> kept = updated.subList(Math.max(0, updated.size() - MAX_RUNS), updated.size());
             try {
                 String json = mapper.writeValueAsString(kept);
-                checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_NOTEBOOK_BYTES, "Context runs exceed 1 MiB");
+                checkArgument(ContextLimits.bytes(json) <= MAX_STORED_BYTES, "Context runs exceed 4 MiB");
                 settings.put(RUNS_PREFIX + workspaceId, json);
                 return null;
             }
@@ -124,7 +125,7 @@ public class ContextBuildStore
             checkArgument(find(replacement.workspaceId()).equals(expected), "Context build changed; inspect the latest request before retrying");
             try {
                 String json = mapper.writeValueAsString(replacement);
-                checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_NOTEBOOK_BYTES, "Context build exceeds 1 MiB");
+                checkArgument(ContextLimits.bytes(json) <= MAX_STORED_BYTES, "Context build exceeds 4 MiB");
                 settings.put(PREFIX + replacement.workspaceId(), json);
                 return replacement;
             }

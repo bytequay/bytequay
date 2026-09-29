@@ -20,8 +20,7 @@ import type {
   ContextScopeDto, ContextSourceEvidenceDto, ContextTimesDto, RepositoryNotebookDto,
 } from './contracts';
 
-/** The run limits ByteQuay enforces; they bound work, not tokens or cost. */
-export const LIMITS = { operations: 40, documentOpens: 10, linkHops: 2 };
+export const DOCUMENT_LINK_HOPS = 2;
 /** A finished run older than this is summarized as earlier work rather than as the run that just ended. */
 const RECENT_RUN_MS = 6 * 3_600_000;
 
@@ -76,12 +75,17 @@ export function noteArea(notebook: RepositoryNotebookDto, scopeId: string): Cont
   return area(notebook.scopes.find(scope => scope.id === scopeId), scopeId);
 }
 
-/** Discovery proposes paths only; reuse an area only when its entire matching rule agrees. */
-export function scopeForTopic(notebook: RepositoryNotebookDto, paths: string[]): ContextScopeDto | undefined {
+/** Readable source paths never imply applicability; reuse only an explicitly proposed note target. */
+export function scopeForTopic(notebook: RepositoryNotebookDto, paths: string[] | null): ContextScopeDto | undefined {
+  if (paths === null) return undefined;
   if (paths.length === 0) return notebook.scopes.find(scope => scope.id === 'project');
   const matches = notebook.scopes.filter(scope => scope.match.kind === 'SELECTED' && scope.match.terms.length === 0
     && scope.match.pathPrefixes.length === paths.length && scope.match.pathPrefixes.every(path => paths.includes(path)));
   return matches.find(scope => scope.enabled) ?? matches[0];
+}
+
+export function needsTopicReselection(plan: ContextLearningPlanDto | null): boolean {
+  return plan?.topics.some(topic => topic.notePaths === null) ?? false;
 }
 
 /* ── Runs ───────────────────────────────────────────────────────────── */
@@ -320,11 +324,21 @@ export function statusCard(input: StatusInput): StatusCard {
       secondary: { label: 'Find topics to learn', bolt: true, action: 'discover' },
       runLine: `Starts 1 discovery run · ${model} · your ${plural(approved, 'note')} stay as they are` };
   }
+  if (needsTopicReselection(plan)) {
+    return { ...blank, icon: 'alert', tone: 'amber', headline: 'Reselect topics before continuing',
+      body: 'This earlier plan does not say where its notes apply. Discard the remaining plan, discover again, and select topics with explicit note targets. Approved notes and drafts are kept.',
+      primary: { label: 'Review learning plan', bolt: false, action: 'plan' } };
+  }
+  if (plan === null && report?.topics.some(topic => topic.notePaths === null)) {
+    return { ...blank, icon: 'alert', tone: 'amber', headline: 'Update suggestions before learning',
+      body: 'Earlier suggestions do not say where their notes apply. Discover again to set note targets. Approved notes and drafts are kept.',
+      primary: { label: 'Discover again', bolt: true, action: 'discover' }, runLine: `Starts 1 discovery run · ${model} · read-only` };
+  }
   if (plan === null && report !== null) {
     const topics = report.topics.length;
     const card: StatusCard = { ...blank, icon: 'doc', tone: 'blue',
       headline: topics ? `${plural(topics, 'topic')} suggested` : 'No topics suggested',
-      body: topics ? 'Select the topics worth learning. Each lists its questions, code paths and proposed sources — use Inspect to check them before you start.'
+      body: topics ? 'Select the topics worth learning. Inspect where notes will apply and which sources the agent can read before you start.'
         : 'Discovery didn’t find a topic worth learning in the areas it surveyed.',
       foot: { text: coverageFoot(report), link: { label: 'See coverage', action: 'coverage' } } };
     return report.partial ? { ...card, secondary: { label: 'Discover remaining areas', bolt: true, action: 'discover-rest' },

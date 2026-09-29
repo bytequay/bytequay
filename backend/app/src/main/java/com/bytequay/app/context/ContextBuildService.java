@@ -423,7 +423,7 @@ public class ContextBuildService
                     + "Survey unsurveyed areas and investigate missing component questions from earlier broad topics. "
                     + "Earlier topics, sources and evidence are kept; submit only new topics and sources, each with one to six focused learning questions "
                     + "supported by read evidence. " + ContextAgentDiscoveryTools.TOPIC_GUIDANCE
-                    + "Do not read all code or follow external websites. You have at most 40 source operations in this one turn. "
+                    + "Do not read all code or follow external websites. Work within the configured agent turn timeout. "
                     + "Mark the report partial and list remaining work if areas are still unsurveyed or component learning proposals remain unresolved. "
                     + "Submit the discovery report, then end; do not create notes, commit, push or publish.";
         }
@@ -434,7 +434,7 @@ public class ContextBuildService
                     + "Propose learning topics, each with one to six focused learning questions, their relevant code paths, and source documents supported by read evidence. "
                     + ContextAgentDiscoveryTools.TOPIC_GUIDANCE
                     + "Do not read all code or follow external websites. External documentation links are suggestions for later user approval. "
-                    + "You have at most 40 source operations in this one turn. Save a partial report with remaining questions before reaching the limit. "
+                    + "Work within the configured agent turn timeout. Save a partial report with remaining questions if the survey is unfinished. "
                     + "Submit the discovery report, then end; do not create notes, commit, push or publish.";
         }
         if (build.assignment().isPresent()) {
@@ -443,7 +443,9 @@ public class ContextBuildService
                     + assignment.question() + (assignment.progress().isEmpty() ? "" : " Saved progress from an earlier run: " + assignment.progress())
                     + " Use repository_context_read SELECTION for saved progress and exact source boundaries. "
                     + "Inspect existing notes before drafting duplicates. Read only what answers this question, within the approved paths and documentation inventory. "
-                    + "At most 40 source operations and 10 documentation opens are allowed this turn, with two link hops from each approved root. "
+                    + ContextBuildTools.TARGET_GUIDANCE
+                    + "Research has no operation-count quota; the configured agent turn timeout applies. "
+                    + "Stay within two link hops from each approved root. "
                     + "Save useful supported drafts with repository_context_prepare; record this question as answered or save its progress with repository_context_progress. "
                     + "A partial answer is allowed. Preserve uncertainty and source gaps. Do not claim a whole module or website was learned. "
                     + "Stop after this unit. The user approves further runs and note activation separately.";

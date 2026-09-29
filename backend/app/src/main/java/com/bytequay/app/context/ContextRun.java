@@ -36,8 +36,6 @@ public record ContextRun(
         Optional<Question> question, Optional<Integer> pullRequest, Outcome outcome, int sourceOperations, int documentOpens,
         List<String> noteIds, List<ContextBuild.Activity> activity, Optional<String> detail)
 {
-    public static final int MAX_SOURCE_OPERATIONS = 40;
-    public static final int MAX_DOCUMENT_OPENS = 10;
     /** Capture attempt key under which a learning run records whether its question was answered. */
     public static final String PROGRESS = "question-progress";
     public static final String COMPLETED = "COMPLETED";
@@ -75,7 +73,7 @@ public record ContextRun(
                 assignment.topicTitle(), assignment.questionIndex(), assignment.question()));
         Optional<Integer> pullRequest = build.assignment().isPresent() ? Optional.empty() : build.history().stream()
                 .filter(history -> history.kind() == ContextHistoryReader.SourceKind.PR).map(ContextBuild.History::number).findFirst();
-        Outcome outcome = outcome(build, task, turn, operations, opens, notes);
+        Outcome outcome = outcome(build, task, turn, notes);
         Optional<String> detail = task.flatMap(AgentTask::terminalReason).or(() -> capture.gaps().stream().findFirst())
                 .filter(ignored -> outcome == Outcome.FAILED).map(value -> ContextText.excerpt(value, 1000));
         Optional<Instant> ended = outcome == Outcome.RUNNING ? Optional.empty()
@@ -84,7 +82,7 @@ public record ContextRun(
                 operations, opens, notes, capture.activity(), detail);
     }
 
-    private static Outcome outcome(ContextBuild build, Optional<AgentTask> task, Optional<AgentTurn> turn, int operations, int opens, List<String> notes)
+    private static Outcome outcome(ContextBuild build, Optional<AgentTask> task, Optional<AgentTurn> turn, List<String> notes)
     {
         if (task.isEmpty()) {
             return build.capture().attempts().containsKey("allocation-failed") ? Outcome.FAILED : Outcome.RUNNING;
@@ -100,7 +98,7 @@ public record ContextRun(
         if (settled) {
             return build.mode() == ContextBuild.Mode.DISCOVER ? Outcome.SUBMITTED : notes.isEmpty() ? Outcome.NO_NOTE : Outcome.ANSWERED;
         }
-        if (operations >= MAX_SOURCE_OPERATIONS || opens >= MAX_DOCUMENT_OPENS) {
+        if (build.capture().activity().stream().anyMatch(line -> line.tone() == ContextBuild.Activity.Tone.LIMIT)) {
             return Outcome.LIMIT;
         }
         return progress.equals(UNFINISHED) ? Outcome.UNFINISHED : Outcome.FAILED;

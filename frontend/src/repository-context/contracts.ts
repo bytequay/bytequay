@@ -67,7 +67,7 @@ export type StartContextDiscoveryRequest = ContextRunFence & { continuation: boo
 export type ContextCoverageDto = { areas: Array<{ path: string; surveyed: number; total: number }>; unsurveyed: string[]; unsurveyedTruncated: boolean };
 export type ContextDiscoveryReportDto = {
   id: string; workspaceId: string; baselineSha: string;
-  topics: Array<{ id: string; title: string; questions: string[]; paths: string[]; sourceIds: string[]; evidenceReadIds: string[]; why: string }>;
+  topics: Array<{ id: string; title: string; questions: string[]; paths: string[]; notePaths: string[] | null; sourceIds: string[]; evidenceReadIds: string[]; why: string }>;
   sources: Array<{ id: string; kind: 'REPOSITORY_FILE' | 'DOCUMENTATION_ROOT' | 'DOCUMENTATION_PAGE'; location: string }>;
   evidence: Array<{ readId: string; path: string; startLine: number; endLine: number }>;
   remaining: string[]; partial: boolean; coverage: ContextCoverageDto; createdAt: string;
@@ -87,11 +87,11 @@ export type ContextMergedCandidateDto = {
 };
 export type ContextMergedCandidatesDto = { candidates: ContextMergedCandidateDto[] };
 export type ContextQuestionStatus = 'PENDING' | 'UNFINISHED' | 'COMPLETED';
-export type ContextPlanTopicDto = { id: string; title: string; scopeId: string; paths: string[]; repositoryFiles: string[];
+export type ContextPlanTopicDto = { id: string; title: string; scopeId: string; paths: string[]; notePaths: string[] | null; repositoryFiles: string[];
   sourceIds: string[]; questions: Array<{ text: string; status: ContextQuestionStatus; progress: string }> };
 export type ContextSuggestionDto = { url: string; parentUrl: string; topicId: string; question: number; taskId: string; foundAt: string };
 export type ContextLearningPlanDto = {
-  id: string; workspaceId: string; reportId: string; baselineSha: string;
+  id: string; workspaceId: string; reportId: string; baselineSha: string; gaps: string[];
   topics: ContextPlanTopicDto[];
   documentationSources: ContextSourceDto[];
   documentInventory: { items: Array<{ sourceId: string; resolvedUrl: string; relativePage: string | null; depth: number;
@@ -379,7 +379,7 @@ export function parseStartContextLearningRequest(value: unknown): StartContextLe
   const item = request(value, ['requestKey', 'expectedRevision', 'expectedBuildSequence', 'reportId', 'topicIds', 'excludedSourceIds']);
   const result = { ...runFence(item, 'learning'), reportId: text(item.reportId, 'learning report id'), topicIds: strings(item.topicIds, 'learning topic IDs'),
     excludedSourceIds: strings(item.excludedSourceIds, 'excluded source IDs') };
-  if (result.reportId.trim() === '' || result.topicIds.length === 0 || result.topicIds.length > 20 || result.excludedSourceIds.length > 40
+  if (result.reportId.trim() === '' || result.topicIds.length === 0 || result.topicIds.length > 20 || result.excludedSourceIds.length > 200
     || result.topicIds.some(id => id.trim() === '') || new Set(result.topicIds).size !== result.topicIds.length) malformed('learning selection');
   return result;
 }
@@ -451,7 +451,8 @@ export function parseContextDiscoveryReport(value: unknown, workspaceId: string)
       const questions = strings(topic.questions, 'topic questions');
       if (questions.length === 0 || questions.length > 6) malformed('topic questions');
       return { id: text(topic.id, 'topic id'), title: text(topic.title, 'topic title'), questions,
-        paths: strings(topic.paths, 'topic paths'), sourceIds: strings(topic.sourceIds, 'topic source IDs'),
+        paths: strings(topic.paths, 'topic paths'), notePaths: topic.notePaths == null ? null : strings(topic.notePaths, 'topic note paths'),
+        sourceIds: strings(topic.sourceIds, 'topic source IDs'),
         evidenceReadIds: strings(topic.evidenceReadIds, 'topic evidence IDs'), why: text(topic.why, 'topic rationale') }; }),
     sources: array(report.sources, 'discovery sources', value => { const source = object(value, 'discovery source');
       return { id: text(source.id, 'discovery source id'), kind: oneOf(source.kind,
@@ -483,7 +484,8 @@ function planTopic(value: unknown): ContextPlanTopicDto {
   });
   if (questions.length === 0 || questions.length > 6) malformed('plan questions');
   return { id: text(topic.id, 'plan topic id'), title: text(topic.title, 'plan topic title'), scopeId: text(topic.scopeId, 'plan scope id'),
-    paths: strings(topic.paths, 'plan paths'), repositoryFiles: strings(topic.repositoryFiles, 'plan repository files'),
+    paths: strings(topic.paths, 'plan paths'), notePaths: topic.notePaths == null ? null : strings(topic.notePaths, 'plan note paths'),
+    repositoryFiles: strings(topic.repositoryFiles, 'plan repository files'),
     sourceIds: strings(topic.sourceIds, 'plan source IDs'), questions };
 }
 function questionTarget(value: unknown): ContextQuestionTarget {
@@ -501,7 +503,7 @@ export function parseContextLearningPlanView(value: unknown, workspaceId: string
   const inventory = object(plan.documentInventory, 'document inventory');
   const result: ContextLearningPlanDto = {
     id: text(plan.id, 'plan id'), workspaceId: text(plan.workspaceId, 'plan workspace'), reportId: text(plan.reportId, 'plan report'),
-    baselineSha: text(plan.baselineSha, 'plan baseline'),
+    baselineSha: text(plan.baselineSha, 'plan baseline'), gaps: strings(plan.gaps, 'learning gaps'),
     topics: array(plan.topics, 'plan topics', planTopic),
     documentationSources: array(plan.documentationSources, 'plan documentation sources', source),
     documentInventory: {

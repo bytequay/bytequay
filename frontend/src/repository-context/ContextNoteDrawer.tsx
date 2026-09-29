@@ -127,7 +127,7 @@ export default function ContextNoteDrawer({ data, actions, busy, target, onTarge
         {close}
       </div>
       <div className="rcp-note-title">{shown.title}</div>
-      <div className="rcp-applies"><span>Applies to</span>{area.paths.map(path => <span className="rcp-path-chip" key={path}>{path}</span>)}</div>
+      <div className="rcp-applies"><span>Notes apply to</span>{area.paths.map(path => <span className="rcp-path-chip" key={path}>{path}</span>)}</div>
       <div className="rcp-origin">From {origin}{at ? ` · ${relativeTime(at, { suffix: false, now: data.now }) === 'now' ? 'just now' : `${relativeTime(at, { suffix: false, now: data.now })} ago`}` : ''}</div>
       {isUpdate && editing === null && <div className="rcp-seg rcp-seg--drawer" role="tablist" aria-label="Compare versions">
         {([['changes', 'Changes'], ['draft', `Draft v${nextVersion}`], ['active', `Approved v${active.version}`]] as const).map(([id, label]) =>

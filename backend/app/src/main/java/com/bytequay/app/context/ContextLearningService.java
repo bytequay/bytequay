@@ -112,6 +112,8 @@ public class ContextLearningService
         List<ContextDiscoveryReport.Topic> selected = request.topicIds().stream().map(id -> report.topics().stream()
                 .filter(topic -> topic.id().equals(id)).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Selected discovery topic is unavailable: " + id))).toList();
+        checkArgument(selected.stream().allMatch(topic -> topic.notePaths().isPresent()),
+                "These suggestions have no explicit note applicability. Discover again before learning; saved notes and drafts are kept.");
         RepositoryNotebook notebook = notebooks.getNotebook(workspaceId);
         checkArgument(notebook.revision() == request.expectedRevision(), "Notebook revision changed; inspect current context");
         ContextBuildService.View before = builds.get(workspaceId);
@@ -349,11 +351,12 @@ public class ContextLearningService
         Map<String, ContextScope> topicScopes = new LinkedHashMap<>();
 
         for (ContextDiscoveryReport.Topic candidate : selected) {
+            List<String> notePaths = candidate.notePaths().orElseThrow();
             ContextScope scope = scopeById.values().stream()
-                    .filter(value -> matchesPaths(value.match(), candidate.paths()))
+                    .filter(value -> matchesPaths(value.match(), notePaths))
                     .min(comparing(value -> !value.enabled()))
                     .orElseGet(() -> {
-                        ContextMatch match = new ContextMatch.Selected(candidate.paths().stream().sorted().toList(), ImmutableList.of());
+                        ContextMatch match = new ContextMatch.Selected(notePaths.stream().sorted().toList(), ImmutableList.of());
                         String scopeId = "discovery:" + matchDigest(match);
                         checkArgument(!scopeById.containsKey(scopeId), "Discovered scope ID conflicts with existing configuration");
                         String ref = evidence(report, cited, candidate.evidenceReadIds().getFirst(), captured).id();
@@ -404,7 +407,7 @@ public class ContextLearningService
             ContextScope scope = topicScopes.get(candidate.id());
             List<String> docs = candidate.sourceIds().stream().filter(sourceIds::containsKey).map(sourceIds::get).distinct().toList();
             return new ContextLearningPlan.Topic(candidate.id(), candidate.title(), scope.id(),
-                    matchDigest(scope.match()), candidate.paths(), ImmutableList.copyOf(files), docs,
+                    matchDigest(scope.match()), candidate.paths(), candidate.notePaths(), ImmutableList.copyOf(files), docs,
                     candidate.questions().stream().map(ContextLearningPlan.Question::open).toList());
         }).toList();
         List<RegisteredContextSource> documentation = sourceIds.values().stream().distinct().map(id -> notebook.sources().stream()
@@ -447,11 +450,13 @@ public class ContextLearningService
 
     private void requireScope(RepositoryNotebook notebook, ContextLearningPlan.Topic topic)
     {
+        List<String> notePaths = topic.notePaths().orElseThrow(() -> new IllegalArgumentException(
+                "This learning plan has no explicit note applicability. Discard the plan and discover again; saved notes and drafts are kept."));
         ContextScope scope = notebook.scopes().stream().filter(value -> value.id().equals(topic.scopeId()) && value.enabled()
                         && matchDigest(value.match()).equals(topic.scopeMatchDigest())).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Learning scope was disabled or its matching rule changed"));
-        checkArgument(matchesPaths(scope.match(), topic.paths()),
-                "Saved topic paths do not match its note scope. Discard this learning plan and select topics again; saved notes and drafts are kept.");
+        checkArgument(matchesPaths(scope.match(), notePaths),
+                "Saved note paths do not match its note scope. Discard this learning plan and select topics again; saved notes and drafts are kept.");
     }
 
     private static boolean matchesPaths(ContextMatch rule, List<String> paths)

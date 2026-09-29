@@ -19,6 +19,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -32,9 +33,9 @@ public record ContextDiscoveryReport(
         List<Topic> topics, List<Source> sources, List<Evidence> evidence, List<String> gaps, List<String> remaining,
         boolean partial, Coverage coverage, Instant createdAt)
 {
-    public static final int MAX_TOPICS = 40;
-    public static final int MAX_SOURCES = 40;
-    public static final int MAX_EVIDENCE = 80;
+    public static final int MAX_TOPICS = 200;
+    public static final int MAX_SOURCES = 200;
+    public static final int MAX_EVIDENCE = 400;
 
     public ContextDiscoveryReport
     {
@@ -67,7 +68,9 @@ public record ContextDiscoveryReport(
         requireNonNull(createdAt, "createdAt is null");
     }
 
-    public record Topic(String id, String title, List<String> questions, List<String> paths, List<String> sourceIds, List<String> evidenceReadIds, String why)
+    /** Source paths bound reading; note paths separately declare where every question's notes apply. Missing targets need rediscovery. */
+    public record Topic(String id, String title, List<String> questions, List<String> paths, Optional<List<String>> notePaths,
+            List<String> sourceIds, List<String> evidenceReadIds, String why)
     {
         public Topic
         {
@@ -79,6 +82,11 @@ public record ContextDiscoveryReport(
             questions.forEach(question -> ContextLimits.text(question, "learning question", 1000));
             ContextLimits.text(why, "topic rationale", 1000);
             paths = ImmutableList.copyOf(paths);
+            notePaths = requireNonNull(notePaths, "notePaths is null").map(ImmutableList::copyOf);
+            notePaths.ifPresent(values -> {
+                ContextLimits.unique(values, "note paths", 8);
+                values.forEach(ContextLimits::pathPrefix);
+            });
             sourceIds = ImmutableList.copyOf(sourceIds);
             evidenceReadIds = ImmutableList.copyOf(evidenceReadIds);
             ContextLimits.unique(paths, "topic paths", 8);

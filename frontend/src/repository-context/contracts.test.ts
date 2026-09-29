@@ -303,31 +303,41 @@ describe('repository context contracts', () => {
   it('keeps agent discovery and accepted learning tied to saved identities and source bounds', () => {
     const report: ContextDiscoveryReportDto = { id: 'discovery-task', workspaceId: 'workspace', baselineSha: 'a'.repeat(40),
       topics: [{ id: 'topic:1', title: 'Iceberg connector', questions: ['How are tables read?', 'How are snapshots committed?'],
-        paths: ['plugin/trino-iceberg/'], sourceIds: ['source:1'], evidenceReadIds: ['read:1'], why: 'README identifies the connector.' }],
+        paths: ['plugin/trino-iceberg/', 'plugin/trino-hive/'], notePaths: ['plugin/trino-iceberg/'], sourceIds: ['source:1'], evidenceReadIds: ['read:1'], why: 'README identifies the connector.' }],
       sources: [{ id: 'source:1', kind: 'DOCUMENTATION_ROOT', location: 'https://trino.io/docs/current/connector/' }],
       evidence: [{ readId: 'read:1', path: 'plugin/trino-iceberg/README.md', startLine: 1, endLine: 2 }], remaining: ['Other connectors'], partial: true,
       coverage: { areas: [{ path: 'plugin/', surveyed: 1, total: 40 }], unsurveyed: ['plugin/trino-hive/'], unsurveyedTruncated: false },
       createdAt: '2026-09-01T00:00:00Z' };
     expect(parseContextDiscoveryReport({ report }, 'workspace')).toEqual(report);
     expect(parseContextDiscoveryReport({ report: null }, 'workspace')).toBeNull();
+    for (const notePaths of [undefined, null, []] as Array<string[] | null | undefined>) {
+      expect(parseContextDiscoveryReport({ report: { ...report, topics: [{ ...report.topics[0], notePaths }] } }, 'workspace')?.topics[0].notePaths)
+        .toEqual(notePaths ?? null);
+    }
     for (const invalid of [{ report: { ...report, workspaceId: 'another' } },
+      { report: { ...report, topics: [{ ...report.topics[0], notePaths: 'plugin/trino-iceberg/' }] } },
       { report: { ...report, topics: [{ ...report.topics[0], sourceIds: ['unproposed'] }] } },
       { report: { ...report, evidence: [{ ...report.evidence[0], endLine: 0 }] } },
       { report: { ...report, topics: [{ ...report.topics[0], questions: [] }] } },
       { report: { ...report, topics: [{ ...report.topics[0], questions: Array(7).fill('Why?') }] } }])
       expect(() => parseContextDiscoveryReport(invalid, 'workspace')).toThrow('Malformed repository context');
     const plan: ContextLearningPlanDto = { id: 'plan-1', workspaceId: 'workspace', reportId: report.id, baselineSha: report.baselineSha,
-      topics: [{ id: 'topic:1', title: 'Iceberg connector', scopeId: 'path:plugin/trino-iceberg/', paths: ['plugin/trino-iceberg/'],
+      topics: [{ id: 'topic:1', title: 'Iceberg connector', scopeId: 'path:plugin/trino-iceberg/', paths: ['plugin/trino-iceberg/', 'plugin/trino-hive/'], notePaths: ['plugin/trino-iceberg/'],
         repositoryFiles: [], sourceIds: ['source:1'], questions: [{ text: 'How are tables read?', status: 'UNFINISHED', progress: 'Read the split manager.' },
           { text: 'How are snapshots committed?', status: 'PENDING', progress: '' }] }],
-      documentationSources: [source], documentInventory: { items: [{ sourceId: source.id, resolvedUrl: source.url,
+      gaps: ['Delta Lake transaction-log behavior needs its own learning topic.'], documentationSources: [source], documentInventory: { items: [{ sourceId: source.id, resolvedUrl: source.url,
         relativePage: null, depth: 0, status: 'PENDING', detail: '' }],
         suggestions: [{ url: 'https://example.org/iceberg/', parentUrl: source.url, topicId: 'topic:1', question: 0, taskId: 'learn-task',
           foundAt: '2026-09-01T00:00:00Z' }], truncated: false } };
     const planView = { plan, next: { topicId: 'topic:1', question: 0 } };
     expect(parseContextLearningPlanView(planView, 'workspace')).toEqual(planView);
     expect(parseContextLearningPlanView({ plan: null, next: null }, 'workspace')).toEqual({ plan: null, next: null });
+    for (const notePaths of [undefined, null, []] as Array<string[] | null | undefined>) {
+      expect(parseContextLearningPlanView({ ...planView, plan: { ...plan, topics: [{ ...plan.topics[0], notePaths }] } }, 'workspace').plan?.topics[0].notePaths)
+        .toEqual(notePaths ?? null);
+    }
     for (const invalid of [{ plan, next: { topicId: 'topic:1', question: 2 } }, { plan: null, next: planView.next },
+      { plan: { ...plan, topics: [{ ...plan.topics[0], notePaths: 'plugin/trino-iceberg/' }] }, next: null },
       { plan: { ...plan, topics: [{ ...plan.topics[0], questions: [{ ...plan.topics[0].questions[0], status: 'GUESS' }] }] }, next: null },
       { plan: { ...plan, topics: [{ ...plan.topics[0], questions: [{ ...plan.topics[0].questions[1], progress: 'Started' }] }] }, next: null },
       { plan: { ...plan, documentInventory: { ...plan.documentInventory, suggestions: [{ ...plan.documentInventory.suggestions[0], topicId: 'other' }] } },
@@ -337,6 +347,10 @@ describe('repository context contracts', () => {
     expect(parseStartContextDiscoveryRequest({ ...base, continuation: true }).continuation).toBe(true);
     expect(parseStartContextLearningRequest({ ...base, reportId: report.id, topicIds: ['topic:1'], excludedSourceIds: ['source:1'] }).excludedSourceIds)
       .toEqual(['source:1']);
+    const excludedSourceIds = Array.from({ length: 200 }, (_, index) => `source:${index + 1}`);
+    expect(parseStartContextLearningRequest({ ...base, reportId: report.id, topicIds: ['topic:1'], excludedSourceIds }).excludedSourceIds).toHaveLength(200);
+    expect(() => parseStartContextLearningRequest({ ...base, reportId: report.id, topicIds: ['topic:1'], excludedSourceIds: [...excludedSourceIds, 'source:201'] }))
+      .toThrow('Malformed repository context');
     expect(parseContinueContextLearningRequest({ ...base, planId: plan.id }).planId).toBe(plan.id);
     expect(parseDiscardContextLearningPlanRequest({ planId: plan.id, expectedRevision: 7, expectedBuildSequence: 1 }).planId).toBe(plan.id);
     const allow = { planId: plan.id, suggestedUrl: 'https://example.org/iceberg/', boundary: 'ROOT', expectedRevision: 7, expectedBuildSequence: 1 };

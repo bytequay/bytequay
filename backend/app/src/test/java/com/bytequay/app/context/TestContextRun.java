@@ -52,7 +52,7 @@ class TestContextRun
             AgentPermissionPolicy.AUTO, Duration.ofMinutes(10), ImmutableList.of());
 
     @Test
-    void separatesAnsweredQuestionsFromNotesPagesAndLimits()
+    void separatesAnsweredQuestionsFromNotesAndUnfinishedWork()
     {
         ContextBuild.Result drafted = new ContextBuild.Result(ImmutableList.of(ready("knowledge:project:commit")));
 
@@ -67,13 +67,16 @@ class TestContextRun
         assertThat(noNote.outcome()).isEqualTo(ContextRun.Outcome.NO_NOTE);
 
         ImmutableMap.Builder<String, String> operations = ImmutableMap.builder();
-        for (int index = 0; index < ContextRun.MAX_SOURCE_OPERATIONS; index++) {
+        for (int index = 0; index < 250; index++) {
             operations.put("read-operation:" + index, "Reserved");
         }
-        ContextRun limited = ContextRun.of(learning(operations.put("document-open:0", "Reserved").buildOrThrow(), Optional.empty()), task(), finished(false));
-        assertThat(limited.outcome()).isEqualTo(ContextRun.Outcome.LIMIT);
-        assertThat(limited.sourceOperations()).isEqualTo(ContextRun.MAX_SOURCE_OPERATIONS);
-        assertThat(limited.documentOpens()).isEqualTo(1);
+        for (int index = 0; index < 20; index++) {
+            operations.put("document-open:" + index, "Reserved");
+        }
+        ContextRun unfinished = ContextRun.of(learning(operations.put(ContextRun.PROGRESS, ContextRun.UNFINISHED).buildOrThrow(), Optional.empty()), task(), finished(false));
+        assertThat(unfinished.outcome()).isEqualTo(ContextRun.Outcome.UNFINISHED);
+        assertThat(unfinished.sourceOperations()).isEqualTo(250);
+        assertThat(unfinished.documentOpens()).isEqualTo(20);
 
         assertThat(ContextRun.of(learning(ImmutableMap.of(ContextRun.PROGRESS, ContextRun.UNFINISHED), Optional.empty()), task(), finished(false)).outcome())
                 .isEqualTo(ContextRun.Outcome.UNFINISHED);
@@ -85,6 +88,23 @@ class TestContextRun
         assertThat(failed.detail()).contains("The Codex CLI needs sign-in");
         assertThat(ContextRun.of(learning(ImmutableMap.of(), Optional.empty()), task(), Optional.of(running())).outcome())
                 .isEqualTo(ContextRun.Outcome.RUNNING);
+    }
+
+    @Test
+    void retainsTheLimitOutcomeOfARunStoppedAtThePreviousCeiling()
+    {
+        ImmutableMap.Builder<String, String> operations = ImmutableMap.builder();
+        for (int index = 0; index < 40; index++) {
+            operations.put("read-operation:" + index, "Reserved");
+        }
+        ContextBuild build = learning(operations.buildOrThrow(), Optional.empty());
+        ContextBuild limited = build.withCapture(build.capture().logged(NOW,
+                "Reached 40 of 40 source operations · no further reads this run", ContextBuild.Activity.Tone.LIMIT));
+
+        ContextRun run = ContextRun.of(limited, task(), finished(false));
+
+        assertThat(run.sourceOperations()).isEqualTo(40);
+        assertThat(run.outcome()).isEqualTo(ContextRun.Outcome.LIMIT);
     }
 
     @Test

@@ -29,6 +29,7 @@ import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 import org.springframework.stereotype.Service;
@@ -57,13 +58,14 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class ContextInputReader
 {
-    private static final int SCOPE_PATH_LIMIT = 120;
-    private static final int TOTAL_PATH_LIMIT = 512;
-    private static final int BATCH_SIZE = 128;
+    private static final int SCOPE_PATH_LIMIT = 256;
+    private static final int MANIFEST_DIRECTORY_LIMIT = 1024;
+    private static final int TOTAL_PATH_LIMIT = 4096;
+    private static final int BATCH_SIZE = 512;
+    private static final int BATCH_ARGUMENT_BYTES = 128 * 1024;
     private static final int OUTPUT_LIMIT = 256 * 1024;
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(2);
     private static final Duration TOTAL_TIMEOUT = Duration.ofSeconds(10);
-    private static final TopKSelector SCOPE_PATHS = new TopKSelector(SCOPE_PATH_LIMIT);
     private static final TopKSelector TOTAL_PATHS = new TopKSelector(TOTAL_PATH_LIMIT);
     private static final List<String> MANIFESTS = ImmutableList.of(
             "pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts", "gradle.properties", "gradle/libs.versions.toml",
@@ -83,7 +85,8 @@ public class ContextInputReader
      * Captures comparable inputs at an immutable monitored commit, without reading HEAD, disk files or remote content.
      * Scope/source configuration is hashed in full. Ancestor manifests share one framed identity per directory,
      * including missing candidates, so their addition, removal or content change invalidates reuse.
-     * At most five Git commands inspect 512 distinct requested paths; excluded or unreadable essential inputs remove the digest.
+     * At most 4096 source paths and ancestor directories are selected before manifest expansion; all batches share one deadline.
+     * Excluded or unreadable essential inputs remove the digest.
      */
     public List<ContextInputFingerprint> capture(
             WorkspaceRepositoryContext workspace, Optional<String> baselineSha, RepositoryNotebook notebook, List<ContextScope> scopes)
@@ -101,14 +104,22 @@ public class ContextInputReader
                 .orElseGet(() -> new Read(ImmutableMap.of(), Optional.of("The captured immutable monitored baseline is unavailable.")));
         String catalog = catalogHash(notebook.sources());
         List<Plan> plans = scopes.stream().map(scope -> plan(workspace, notebook, scope, root, catalog)).collect(toImmutableList());
-        List<String> requested = TOTAL_PATHS.select(plans.stream().flatMap(plan -> Stream.concat(plan.paths().stream(),
-                        plan.manifestDirectories().stream().flatMap(ContextInputReader::manifestPaths)))
-                .filter(path -> path.contains("/")).distinct().sorted()).collect(toImmutableList());
+        Set<String> manifestDirectories = plans.stream().flatMap(plan -> plan.manifestDirectories().stream()).collect(ImmutableSet.toImmutableSet());
+        List<String> selected = TOTAL_PATHS.select(plans.stream().flatMap(plan -> Stream.concat(
+                plan.paths().stream().filter(path -> path.contains("/")), plan.manifestDirectories().stream())).distinct().sorted()).collect(toImmutableList());
+        List<String> requested = selected.stream().flatMap(path -> manifestDirectories.contains(path)
+                        ? Stream.concat(Stream.of(path), manifestPaths(path)) : Stream.of(path))
+                .filter(path -> path.contains("/")).distinct().sorted().collect(toImmutableList());
         Map<String, String> objects = new LinkedHashMap<>(root.objects());
         Map<String, String> failures = new LinkedHashMap<>();
         if (root.gap().isEmpty()) {
-            for (int from = 0; from < requested.size(); from += BATCH_SIZE) {
-                List<String> batch = requested.subList(from, Math.min(requested.size(), from + BATCH_SIZE));
+            for (int from = 0; from < requested.size(); ) {
+                int to = from + 1;
+                int argumentBytes = bytes(requested.get(from)) + 1;
+                while (to < requested.size() && to - from < BATCH_SIZE && argumentBytes + bytes(requested.get(to)) + 1 <= BATCH_ARGUMENT_BYTES) {
+                    argumentBytes += bytes(requested.get(to++)) + 1;
+                }
+                List<String> batch = requested.subList(from, to);
                 Read read = read(workspace, baselineSha.orElseThrow(), batch, deadline);
                 for (String path : batch) {
                     if (read.gap().isPresent()) {
@@ -118,6 +129,7 @@ public class ContextInputReader
                         objects.put(path, read.objects().getOrDefault(path, "ABSENT"));
                     }
                 }
+                from = to;
             }
         }
         return plans.stream().map(plan -> fingerprint(plan, root, objects, failures)).collect(toImmutableList());
@@ -178,7 +190,7 @@ public class ContextInputReader
             }
         }
         historyInputs.forEach((key, identities) -> {
-            if (inputs.size() < 127) {
+            if (inputs.size() < ContextInputFingerprint.MAXIMUM_INPUTS - 1) {
                 inputs.put(key, identities.size() == 1 ? identities.iterator().next()
                         : Hashing.sha256().hashString(String.join("\n", identities.stream().sorted().toList()), UTF_8).toString());
             }
@@ -221,27 +233,27 @@ public class ContextInputReader
         Stream<String> project = scope.match() instanceof ContextMatch.Repository
                 ? Stream.concat(PROJECT_PATHS.stream(), root.objects().keySet().stream().filter(ContextInputReader::projectDocument).sorted())
                 : Stream.empty();
-        List<String> ancestors = new TopKSelector(SCOPE_PATH_LIMIT + 1).select(
+        List<String> ancestors = new TopKSelector(MANIFEST_DIRECTORY_LIMIT + 1).select(
                 Stream.concat(prefixes.stream(), files.stream().sorted()).flatMap(ContextInputReader::parents).distinct()
                         .filter(parent -> prefixes.stream().noneMatch(prefix -> parent.equals(prefix) || parent.startsWith(prefix + "/"))))
                 .collect(toImmutableList());
-        if (ancestors.size() > SCOPE_PATH_LIMIT) {
-            gaps.add("Ancestor manifest directories exceeded the per-scope limit of " + SCOPE_PATH_LIMIT + ".");
+        if (ancestors.size() > MANIFEST_DIRECTORY_LIMIT) {
+            gaps.add("Ancestor manifest directories exceeded the per-scope limit of " + MANIFEST_DIRECTORY_LIMIT + ".");
         }
         List<String> candidates = new TopKSelector(SCOPE_PATH_LIMIT + 1).select(Stream.of(prefixes.stream(), files.stream().sorted(), project, MANIFESTS.stream())
                 .flatMap(stream -> stream).distinct()).collect(toImmutableList());
         if (candidates.size() > SCOPE_PATH_LIMIT) {
             gaps.add("Essential paths exceeded the per-scope limit of " + SCOPE_PATH_LIMIT + ".");
         }
-        List<String> paths = safePaths(candidates, gaps);
-        List<String> manifestDirectories = safePaths(ancestors, gaps);
+        List<String> paths = safePaths(candidates, gaps, SCOPE_PATH_LIMIT);
+        List<String> manifestDirectories = safePaths(ancestors, gaps, MANIFEST_DIRECTORY_LIMIT);
         return new Plan(scope.id(), ImmutableMap.copyOf(inputs), paths, manifestDirectories, ImmutableList.copyOf(gaps));
     }
 
-    private static List<String> safePaths(List<String> candidates, Set<String> gaps)
+    private static List<String> safePaths(List<String> candidates, Set<String> gaps, int maximum)
     {
         ImmutableList.Builder<String> paths = ImmutableList.builder();
-        for (String candidate : SCOPE_PATHS.select(candidates)) {
+        for (String candidate : new TopKSelector(maximum).select(candidates)) {
             try {
                 ContextLimits.pathPrefix(candidate + "/");
                 paths.add(candidate);
@@ -280,7 +292,7 @@ public class ContextInputReader
         int inputBytes = inputs.entrySet().stream().mapToInt(entry -> bytes(entry.getKey()) + bytes(entry.getValue())).sum();
         for (Map.Entry<String, String> identity : identities.entrySet()) {
             int added = bytes(identity.getKey()) + bytes(identity.getValue());
-            if (inputs.size() >= 128 || inputBytes + added > ContextInputFingerprint.MAXIMUM_INPUT_BYTES) {
+            if (inputs.size() >= ContextInputFingerprint.MAXIMUM_INPUTS || inputBytes + added > ContextInputFingerprint.MAXIMUM_INPUT_BYTES) {
                 gaps.add("Essential inputs exceeded the per-scope count or UTF-8 byte budget.");
                 continue;
             }

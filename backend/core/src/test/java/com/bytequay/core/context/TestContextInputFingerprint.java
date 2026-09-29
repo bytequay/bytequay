@@ -85,10 +85,12 @@ class TestContextInputFingerprint
     void boundsInputCountKeysValuesAndTotalUtf8Bytes()
     {
         Map<String, String> inputs = new LinkedHashMap<>();
-        IntStream.range(0, 16).forEach(index -> inputs.put(String.valueOf(1000 + index), "é".repeat(1000)));
-        inputs.put("rest", "a".repeat(700));
+        int fullInputs = ContextInputFingerprint.MAXIMUM_INPUT_BYTES / 2004;
+        int remainingBytes = ContextInputFingerprint.MAXIMUM_INPUT_BYTES - fullInputs * 2004 - "rest".length();
+        IntStream.range(0, fullInputs).forEach(index -> inputs.put(String.valueOf(1000 + index), "é".repeat(1000)));
+        inputs.put("rest", "a".repeat(remainingBytes));
         assertThat(ContextInputFingerprint.create("project", inputs, ImmutableList.of()).inputBytes()).isEqualTo(ContextInputFingerprint.MAXIMUM_INPUT_BYTES);
-        inputs.put("rest", "a".repeat(701));
+        inputs.put("rest", "a".repeat(remainingBytes + 1));
         assertThatThrownBy(() -> ContextInputFingerprint.create("project", inputs, ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);
 
         assertThat(ContextInputFingerprint.create("project", ImmutableMap.of("é".repeat(600), "é".repeat(1000)), ImmutableList.of()).inputBytes()).isEqualTo(3200);
@@ -97,8 +99,8 @@ class TestContextInputFingerprint
         assertThatThrownBy(() -> ContextInputFingerprint.create("project", ImmutableMap.of("git:input", "é".repeat(1001)), ImmutableList.of()))
                 .isInstanceOf(IllegalArgumentException.class);
         Map<String, String> many = new LinkedHashMap<>();
-        IntStream.range(0, 128).forEach(index -> many.put("input-" + index, "ABSENT"));
-        assertThat(ContextInputFingerprint.create("project", many, ImmutableList.of()).inputs()).hasSize(128);
+        IntStream.range(0, ContextInputFingerprint.MAXIMUM_INPUTS).forEach(index -> many.put("input-" + index, "ABSENT"));
+        assertThat(ContextInputFingerprint.create("project", many, ImmutableList.of()).inputs()).hasSize(ContextInputFingerprint.MAXIMUM_INPUTS);
         many.put("one-too-many", "ABSENT");
         assertThatThrownBy(() -> ContextInputFingerprint.create("project", many, ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);
     }

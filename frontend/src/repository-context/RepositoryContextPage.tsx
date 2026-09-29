@@ -25,7 +25,7 @@ import { ContextDrawers, type Drawer } from './ContextDrawers';
 import ContextNotes from './ContextNotes';
 import ContextOverview from './ContextOverview';
 import { Icon } from './icons';
-import { currentRun, modelLine, pendingCounts, plural, shortSha, type TaskTitles } from './model';
+import { currentRun, modelLine, needsTopicReselection, pendingCounts, plural, shortSha, type TaskTitles } from './model';
 import { CONTEXT_CHANGED } from './reviewCount';
 import '../css/repository-context.css';
 
@@ -185,6 +185,13 @@ export default function RepositoryContextPage({ workspace, initialDraftId = null
   }, [loadAll]);
 
   const start = useCallback((next: PendingStart) => perform(async () => {
+    if (next.kind === 'learn' && (needsTopicReselection(planView?.plan ?? null) || report?.id !== next.request.reportId
+      || next.request.topicIds.some(id => report.topics.find(topic => topic.id === id)?.notePaths == null))) {
+      throw new Error('Discover again and reselect topics with explicit note targets. Approved notes and drafts are kept.');
+    }
+    if (next.kind === 'continue' && (planView?.plan?.id !== next.request.planId || needsTopicReselection(planView.plan))) {
+      throw new Error('Reselect topics before continuing. Approved notes and drafts are kept.');
+    }
     sessionStorage.setItem(pendingKey(workspaceId), JSON.stringify(next));
     setPending(next);
     const accepted = next.kind === 'discover' ? await window.bridge.startRepositoryContextDiscovery(workspaceId, next.request)
@@ -195,7 +202,7 @@ export default function RepositoryContextPage({ workspace, initialDraftId = null
     setBuild(accepted);
     setDrawer(null);
     await loadAll();
-  }), [loadAll, perform, workspaceId]);
+  }), [loadAll, perform, planView, report, workspaceId]);
 
   const fence = () => ({ requestKey: crypto.randomUUID(), expectedRevision: notebook?.revision ?? 0, expectedBuildSequence: build?.buildRequestSequence ?? 0 });
 

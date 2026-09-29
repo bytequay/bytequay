@@ -62,14 +62,14 @@ public record RepositoryNotebook(
         pendingDrafts = ImmutableList.copyOf(pendingDrafts);
         sourceEvidence = ImmutableList.copyOf(sourceEvidence);
         requireNonNull(activePreparation, "activePreparation is null");
-        ContextLimits.unique(sources.stream().map(RegisteredContextSource::id).toList(), "sources", 100);
-        ContextLimits.unique(scopes.stream().map(ContextScope::id).toList(), "scopes", 100);
-        ContextLimits.unique(entries.stream().map(ContextEntry::id).toList(), "entries", ContextLimits.MAX_ENTRIES);
-        ContextLimits.unique(pendingDrafts.stream().map(ContextKnowledgeDraft::id).toList(), "drafts", ContextLimits.MAX_ENTRIES);
-        ContextLimits.unique(pendingDrafts.stream().map(draft -> draft.entry().id()).toList(), "draft entry ids", ContextLimits.MAX_ENTRIES);
+        ContextLimits.unique(sources.stream().map(RegisteredContextSource::id).toList(), "sources", 200);
+        ContextLimits.unique(scopes.stream().map(ContextScope::id).toList(), "scopes", 256);
+        ContextLimits.unique(entries.stream().map(ContextEntry::id).toList(), "entries", ContextLimits.MAX_STORED_ENTRIES);
+        ContextLimits.unique(pendingDrafts.stream().map(ContextKnowledgeDraft::id).toList(), "drafts", ContextLimits.MAX_STORED_ENTRIES);
+        ContextLimits.unique(pendingDrafts.stream().map(draft -> draft.entry().id()).toList(), "draft entry ids", ContextLimits.MAX_STORED_ENTRIES);
         checkArgument(Stream.concat(entries.stream().map(ContextEntry::id), pendingDrafts.stream().map(draft -> draft.entry().id())).distinct().count()
-                <= ContextLimits.MAX_ENTRIES, "Notebook has too many distinct note identities");
-        ContextLimits.unique(sourceEvidence.stream().map(ContextSourceEvidence::id).toList(), "source evidence", 800);
+                <= ContextLimits.MAX_STORED_ENTRIES, "Notebook has too many distinct note identities");
+        ContextLimits.unique(sourceEvidence.stream().map(ContextSourceEvidence::id).toList(), "source evidence", 4000);
         Set<String> scopeIds = scopes.stream().map(ContextScope::id).collect(toSet());
         Set<String> evidenceIds = sourceEvidence.stream().map(ContextSourceEvidence::id).collect(toSet());
         checkArgument(scopeIds.contains("project"), "Project scope is missing");
@@ -82,7 +82,7 @@ public record RepositoryNotebook(
             checkArgument(active.inputs().stream().allMatch(input -> scopeIds.contains(input.scopeId())), "Active preparation scope is missing");
         });
         List<ContextPreparationResult> results = scopes.stream().flatMap(scope -> scope.preparation().stream()).toList();
-        checkArgument(results.stream().mapToLong(result -> result.inputFingerprint().inputBytes()).sum() <= ReviewContextSnapshot.MAXIMUM_INPUT_BYTES,
+        checkArgument(results.stream().mapToLong(result -> result.inputFingerprint().inputBytes()).sum() <= ContextLimits.MAX_STORED_INPUT_BYTES,
                 "Retained preparation inputs exceed UTF-8 budget");
         Map<String, ContextSourceEvidence> sourcesById = sourceEvidence.stream().collect(toImmutableMap(ContextSourceEvidence::id, source -> source));
         Stream.concat(scopes.stream().flatMap(scope -> scope.discoveryEvidenceRef().stream()),

@@ -310,8 +310,9 @@ class TestContextBuildService
         verify(tasks).create(any(CreateAgentTaskCommand.class));
         ArgumentCaptor<StartAgentTurnCommand> started = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
         verify(turns).start(started.capture());
-        assertThat(started.getValue().message()).contains("deeply nested", "40 source operations", "partial report", "later user approval",
-                "separate focused topics", "supplement component topics", "missing questions in remaining");
+        assertThat(started.getValue().message()).contains("deeply nested", "partial report", "later user approval",
+                "separate focused topics", "supplement component topics", "missing questions in remaining",
+                "All questions in a topic must share notePaths", "split questions into separate topics when their applicability differs");
     }
 
     @Test
@@ -534,7 +535,7 @@ class TestContextBuildService
             ContextBuild.Assignment assignment)
     {
         ContextLearningPlan.Topic topic = new ContextLearningPlan.Topic(assignment.topicId(), assignment.topicTitle(),
-                "project", "sha256:" + "a".repeat(64), assignment.paths(), assignment.repositoryFiles(), sourceIds,
+                "project", "sha256:" + "a".repeat(64), assignment.paths(), Optional.of(ImmutableList.of()), assignment.repositoryFiles(), sourceIds,
                 ImmutableList.of(ContextLearningPlan.Question.open(assignment.question())));
         return new ContextLearningPlan(assignment.planId(), WORKSPACE, "report", "accept", "sha256:" + "b".repeat(64),
                 notebooks.getNotebook(WORKSPACE).revision(), 0, ImmutableList.of(topic.id()), 7, REPOSITORY, SHA,

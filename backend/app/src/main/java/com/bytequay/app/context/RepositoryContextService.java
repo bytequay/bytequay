@@ -470,7 +470,7 @@ public class RepositoryContextService
                     changed.useInReviews(), changed.useInDevelopment(), changed.sources(), changed.scopes(),
                     changed.entries(), changed.pendingDrafts(), changed.sourceEvidence(), changed.activePreparation());
             String json = encode(saved);
-            checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_NOTEBOOK_BYTES, "Serialized notebook exceeds UTF-8 limit");
+            checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_STORED_NOTEBOOK_BYTES, "Serialized notebook exceeds UTF-8 limit");
             settings.put(key(workspaceId), json);
             stamp(workspaceId, current, saved, proposer);
             return saved;
@@ -572,7 +572,7 @@ public class RepositoryContextService
                 throw new ContextConflictException(current.revision());
             }
             String json = encode(replacement);
-            checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_NOTEBOOK_BYTES, "Serialized notebook exceeds UTF-8 limit");
+            checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_STORED_NOTEBOOK_BYTES, "Serialized notebook exceeds UTF-8 limit");
             settings.put(key(workspaceId), json);
             stamp(workspaceId, current, replacement, Optional.empty());
             return replacement;
@@ -607,7 +607,7 @@ public class RepositoryContextService
     private RepositoryNotebook decode(String json)
     {
         try {
-            checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_NOTEBOOK_BYTES, "Saved notebook exceeds UTF-8 limit");
+            checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_STORED_NOTEBOOK_BYTES, "Saved notebook exceeds UTF-8 limit");
             JsonNode parsed = mapper.readTree(json);
             checkArgument(parsed instanceof ObjectNode, "Saved notebook must be an object");
             ObjectNode saved = (ObjectNode) parsed;

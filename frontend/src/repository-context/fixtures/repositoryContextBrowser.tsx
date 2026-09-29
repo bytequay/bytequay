@@ -106,15 +106,15 @@ const times = (full: boolean): ContextTimesDto => full ? {
 } : { entries: {}, drafts: {} };
 
 const TOPICS: ContextDiscoveryReportDto['topics'] = [
-  { id: 'topic:iceberg', title: 'Iceberg connector', paths: ['plugin/trino-iceberg/'], sourceIds: ['src:iceberg-docs', 'src:iceberg-readme'], evidenceReadIds: ['read:1'],
+  { id: 'topic:iceberg', title: 'Iceberg connector', paths: ['plugin/trino-iceberg/', 'plugin/trino-hive/', 'lib/trino-filesystem/'], notePaths: ['plugin/trino-iceberg/'], sourceIds: ['src:iceberg-docs', 'src:iceberg-readme'], evidenceReadIds: ['read:1'],
     questions: ['How does the connector load and cache table metadata?', 'How are commits retried when snapshots conflict?', 'How are delete files applied during reads?'],
     why: 'The README and `IcebergMetadata` show the connector owns table commits and metadata caching.' },
-  { id: 'topic:planner', title: 'Query planning and optimizer rules', paths: ['core/trino-main/src/main/java/io/trino/sql/planner/'], sourceIds: ['src:planner-doc'],
+  { id: 'topic:planner', title: 'Query planning and optimizer rules', paths: ['core/trino-main/src/main/java/io/trino/sql/planner/'], notePaths: ['core/trino-main/src/main/java/io/trino/sql/planner/'], sourceIds: ['src:planner-doc'],
     evidenceReadIds: ['read:2'], why: '`PlanOptimizers` registers the rule sets every query runs through.',
     questions: ['In what order do optimizer rules run?', 'How are cost estimates produced?', 'When does the planner add exchanges?', 'How are dynamic filters planned?'] },
-  { id: 'topic:spi', title: 'Connector SPI', paths: ['core/trino-spi/'], sourceIds: [], evidenceReadIds: [], why: 'Every connector implements these interfaces.',
+  { id: 'topic:spi', title: 'Connector SPI', paths: ['core/trino-spi/'], notePaths: ['core/trino-spi/'], sourceIds: [], evidenceReadIds: [], why: 'Every connector implements these interfaces.',
     questions: ['Which SPI changes need a deprecation cycle?', 'How are connector capabilities declared?'] },
-  { id: 'topic:hive', title: 'Hive connector', paths: ['plugin/trino-hive/'], sourceIds: [], evidenceReadIds: [], why: 'Shares metastore code with Iceberg.',
+  { id: 'topic:hive', title: 'Hive connector', paths: ['plugin/trino-hive/'], notePaths: ['plugin/trino-hive/'], sourceIds: [], evidenceReadIds: [], why: 'Shares metastore code with Iceberg.',
     questions: ['How are partitions pruned?', 'How does the metastore cache expire?'] },
 ];
 
@@ -137,13 +137,13 @@ function plan(): ContextLearningPlanDto {
     discoveryEvidenceRef: 'read:1' };
   return { id: 'plan-1', workspaceId: 'ws-1', reportId: 'report-1', baselineSha: SHA,
     topics: [
-      { id: 'topic:iceberg', title: 'Iceberg connector', scopeId: ICEBERG, paths: ['plugin/trino-iceberg/'], sourceIds: [docs.id],
+      { id: 'topic:iceberg', title: 'Iceberg connector', scopeId: ICEBERG, paths: TOPICS[0].paths, notePaths: TOPICS[0].notePaths, sourceIds: [docs.id],
         repositoryFiles: ['plugin/trino-iceberg/README.md', 'plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergMetadata.java'],
         questions: [{ text: TOPICS[0].questions[0], status: 'COMPLETED', progress: 'Answered.' }, { text: TOPICS[0].questions[1], status: 'COMPLETED', progress: 'Answered.' },
           { text: TOPICS[0].questions[2], status: 'UNFINISHED', progress: 'Read `DeleteManager` and the positional delete reader.' }] },
-      { id: 'topic:planner', title: 'Query planning and optimizer rules', scopeId: PLANNER, paths: TOPICS[1].paths, sourceIds: [], repositoryFiles: [],
+      { id: 'topic:planner', title: 'Query planning and optimizer rules', scopeId: PLANNER, paths: TOPICS[1].paths, notePaths: TOPICS[1].notePaths, sourceIds: [], repositoryFiles: [],
         questions: TOPICS[1].questions.map(text => ({ text, status: 'PENDING' as const, progress: '' })) }],
-    documentationSources: [docs],
+    gaps: ['Delta Lake transaction-log behavior needs its own learning topic.'], documentationSources: [docs],
     documentInventory: { truncated: false,
       items: [{ sourceId: docs.id, resolvedUrl: docs.url, relativePage: null, depth: 0, status: 'READ', detail: '' }],
       suggestions: [{ url: 'https://iceberg.apache.org/docs/latest/', parentUrl: docs.url, topicId: 'topic:iceberg', question: 2, taskId: 'task-run-4', foundAt: ago(21) }] } };
@@ -152,12 +152,12 @@ function plan(): ContextLearningPlanDto {
 function contextRun(sequence: number, outcome: ContextRunDto['outcome'], minutesAgo: number, question: number | null, patch: Partial<ContextRunDto> = {}): ContextRunDto {
   const topic = TOPICS[0];
   return { sequence, taskId: `task-run-${sequence}`, mode: question === null ? 'DISCOVER' : 'LEARN', requestedAt: ago(minutesAgo + 12),
-    endedAt: outcome === 'RUNNING' ? null : ago(minutesAgo), pullRequest: null, outcome, sourceOperations: outcome === 'LIMIT' ? 40 : 17, documentOpens: 2, noteIds: [],
+    endedAt: outcome === 'RUNNING' ? null : ago(minutesAgo), pullRequest: null, outcome, sourceOperations: outcome === 'LIMIT' ? 100 : 17, documentOpens: 2, noteIds: [],
     question: question === null ? null : { planId: 'plan-1', topicId: topic.id, topicTitle: topic.title, index: question, text: topic.questions[question] },
     activity: [{ at: ago(minutesAgo + 11), text: 'Listed plugin/trino-iceberg/src/main/java', tone: 'DONE' },
       { at: ago(minutesAgo + 9), text: 'Read IcebergMetadata.java lines 412–468', tone: 'DONE' },
       { at: ago(minutesAgo + 6), text: 'Opened trino.io/docs/current/connector/iceberg.html', tone: 'DONE' },
-      ...outcome === 'LIMIT' ? [{ at: ago(minutesAgo), text: 'Reached 40 source operations · progress saved', tone: 'LIMIT' as const }] : []],
+      ...outcome === 'LIMIT' ? [{ at: ago(minutesAgo), text: 'Reached 100 source operations · progress saved', tone: 'LIMIT' as const }] : []],
     detail: null, ...patch };
 }
 
@@ -183,7 +183,7 @@ function scene(name: Scene): State {
   const history = full ? HISTORY : name === 'suggested' ? [HISTORY[0]] : [];
   const runs = name === 'discovering' ? [contextRun(1, 'RUNNING', 2, null, { activity: [{ at: ago(2), text: 'Listed the repository root', tone: 'DONE' },
     { at: ago(1), text: 'Read README.md', tone: 'DONE' }, { at: ago(0.5), text: 'Reading pom.xml', tone: 'DONE' }] })]
-    : name === 'learning' ? [...history, contextRun(5, 'RUNNING', 3, 2)] : history;
+    : name === 'learning' ? [...history, contextRun(5, 'RUNNING', 3, 2, { sourceOperations: 137, documentOpens: 12 })] : history;
   const running = runs.find(value => value.outcome === 'RUNNING');
   return {
     notebook: notebook(full), times: times(full), report: name === 'fresh' || name === 'discovering' ? null : report(),
@@ -304,11 +304,15 @@ function install() {
 let root: Root | null = null;
 let host: HTMLDivElement | null = null;
 
-async function render(name: Scene, initialRunId: string | null = null): Promise<HTMLDivElement> {
+async function render(name: Scene, initialRunId: string | null = null, missingNoteTargets = false): Promise<HTMLDivElement> {
   if (root !== null) flushSync(() => root?.unmount());
   host?.remove();
   document.querySelectorAll('.bq-toast').forEach(toast => toast.remove());
   state = scene(name);
+  if (missingNoteTargets) {
+    if (state.report !== null) state.report.topics = state.report.topics.map(topic => ({ ...topic, notePaths: null as null }));
+    if (state.planView.plan !== null) state.planView.plan.topics = state.planView.plan.topics.map(topic => ({ ...topic, notePaths: null as null }));
+  }
   host = document.createElement('div');
   host.className = 'app-shell';
   host.style.cssText = 'display:flex;height:100vh;width:100vw;overflow:hidden';
@@ -380,12 +384,44 @@ const scenarios: Array<[string, () => Promise<void>]> = [
     assert(!(control('Learn selected') as HTMLButtonElement).disabled === false, 'Learning needs a selection');
     await check('Iceberg connector');
     await click('Inspect Iceberg connector');
+    const topic = document.querySelector('.rcp-sugg');
+    assert(topic !== null, 'The selected topic is visible');
+    assert(text(topic.querySelector('.rcp-note-caption')).includes('plugin/trino-iceberg/')
+      && !text(topic.querySelector('.rcp-note-caption')).includes('plugin/trino-hive/'), 'Only Iceberg is a note target');
+    assert(text(topic).includes('CODE AVAILABLE TO READ') && text(topic).includes('plugin/trino-hive/'), 'Hive remains available as source code');
+    assert(!text(topic.querySelector('.rcp-sugg__meta')).includes('+2'), 'The collapsed applicability does not count source-only paths');
     await check('https://trino.io/docs/current/connector/iceberg.html');
     assert(text().includes('1 topic selected · 3 questions · 1 source'), 'The selection bar counts questions and approved sources');
+    await click('How runs work');
+    assert(text().includes('configured agent timeout') && text().includes('up to 2 hops'), 'The learning action explains its timeout and approved source boundary');
+    assert(!text().includes('100 source operations') && !text().includes('10 initial documentation opens'), 'Learning does not advertise source-operation quotas');
+    await click('How runs work');
     await click('Learn selected');
     const request = state.calls.starts[0]?.request as { topicIds: string[]; excludedSourceIds: string[] };
     assert(state.calls.starts[0]?.kind === 'learn' && request.topicIds.join() === 'topic:iceberg', 'Only the selected topic is learned');
     assert(request.excludedSourceIds.join() === 'src:iceberg-docs', 'The unchecked source is excluded from approval');
+  }],
+  ['earlier suggestions require discovery without clearing notes', async () => {
+    await render('suggested', null, true);
+    assert(text().includes('Update suggestions before learning'), 'Earlier suggestions explain why discovery is needed');
+    const checkbox = document.querySelector<HTMLInputElement>('.rcp-sugg input[type=checkbox]');
+    assert(checkbox?.disabled === true && (control('Learn selected') as HTMLButtonElement).disabled, 'Unknown note targets cannot start learning');
+    assert(state.calls.starts.length === 0, 'Opening earlier suggestions starts no run');
+    await click('Discover again');
+    assert(state.calls.starts.map(start => start.kind).join() === 'discover', 'Discovery remains explicit');
+  }],
+  ['earlier plans require reselection and keep their notes and drafts', async () => {
+    await render('review', null, true);
+    const notes = state.notebook.entries.length;
+    const drafts = state.notebook.pendingDrafts.length;
+    assert(text().includes('Reselect topics before continuing'), 'Earlier plans are not shown as complete or resumable');
+    await click('Review learning plan');
+    assert(text(drawer()).includes('Approved notes and drafts are kept'), 'The plan explains preservation');
+    assert(text(drawer()).includes('OPEN QUESTIONS AND GAPS') && text(drawer()).includes('Delta Lake transaction-log behavior needs its own learning topic.'),
+      'Deferred learning opportunities remain visible');
+    assert(![...drawer().querySelectorAll('button')].some(button => button.textContent?.includes('Continue learning')), 'No continuation is offered');
+    assert(state.calls.starts.length === 0 && state.notebook.entries.length === notes && state.notebook.pendingDrafts.length === drafts,
+      'Inspecting earlier data neither starts a run nor removes notes');
   }],
   ['discovery and learning activity never offer an interactive task route', async () => {
     for (const name of ['discovering', 'learning'] as const) {
@@ -460,6 +496,7 @@ const scenarios: Array<[string, () => Promise<void>]> = [
   }],
   ['continuing learning starts one run on the saved next question', async () => {
     await render('review');
+    assert(text().includes('Run 4 reached its source limit'), 'Saved historical limit outcomes remain truthful');
     assert(text().includes('Next: Iceberg connector · “How are delete files applied during reads?” · resumes saved progress'), 'The run line names the next question');
     await click('Continue learning');
     assert(state.calls.starts.length === 1 && state.calls.starts[0].kind === 'continue', 'Continue sends one request');
@@ -467,6 +504,12 @@ const scenarios: Array<[string, () => Promise<void>]> = [
   ['a running learning question shows its question and can be stopped', async () => {
     await render('learning');
     assert(text().includes('Learning · Iceberg connector') && text().includes('“How are delete files applied during reads?”'), 'The card names the running question');
+    await click('View details');
+    await click('Plan', drawer());
+    await click('How runs work', drawer());
+    assert(text(drawer()).includes('137 source operations') && text(drawer()).includes('12 documentation opens'), 'The plan reports observed source counts');
+    assert(!text(drawer()).includes('of 100 source operations') && !text(drawer()).includes('of 10 documentation opens'), 'Observed counts have no quota denominator');
+    await click('Close', drawer());
     await click('Stop');
     assert(state.calls.stops.join() === 'task-run-5', 'Stop names the running task');
   }],

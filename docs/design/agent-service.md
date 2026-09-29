@@ -223,6 +223,13 @@ file reads. It saves an outline and evidenced topic/source suggestions. Learn
 selected accepts a bounded plan and starts one question; Continue starts another
 run from saved progress. No page load, synchronization or startup starts a model.
 
+Learning topics distinguish source-read paths from explicit note applicability.
+All questions in a topic share the latter; different targets require separate
+topics. Task assignments retain the read boundary, while the accepted scope fixes
+where drafts apply. Off-target findings stay in saved progress/gaps for later
+explicit discovery. Unknown targets in older plans block learning and preparation
+without changing existing notes or drafts.
+
 ContextBuildService validates the configured Review model, notebook revision,
 source selection and prior task cleanup before allocation. Its saved binding fixes
 task identity, repository routing, baseline and purpose. The resolver chooses the
@@ -236,12 +243,14 @@ run history. They open read-only Repository context activity, never an interacti
 task screen. Generic send and steer endpoints reject noninteractive tasks;
 workflow-owned services retain their existing turn controls.
 
-A run reserves at most 40 source operations and 10 initial document opens before
-access; failures and retries count. Document links stay inside approved roots and
+A run records source operations and document opens before access; failures and
+retries count for observability, without a per-run research quota. The configured
+agent turn timeout bounds runtime, as it does for development. Document links stay inside approved roots and
 two link hops, with parent/depth persisted across Continue. Other URLs are proposals
 for explicit source expansion. Source inventory tracks opened, pending, failed and
 excluded pages without claiming that opening a page means complete understanding.
-These are source-operation limits, not provider token/cost guarantees.
+Source responses and retained data remain byte-bounded; neither runtime nor storage
+limits provide a hard provider token/cost guarantee.
 
 Generated knowledge and lessons are pending drafts. Approval activates them after
 revision/version checks; old active versions remain available while updates wait.

@@ -31,6 +31,7 @@ export const EMPTY_TIMELINE_PAYLOAD: PullTimelinePayloadDto = {
   sourceNumber: null,
   milestoneTitle: null,
   requestedReviewer: null,
+  assignee: null,
   path: null,
   diffHunk: null,
   line: null,

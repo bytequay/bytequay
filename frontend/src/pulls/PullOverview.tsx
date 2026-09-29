@@ -1367,6 +1367,8 @@ function eventText(activity: Activity, activities: Activity[]) {
       ))}{reviewers.length > 3 && ` and ${reviewers.length - 3} other ${reviewers.length === 4 ? 'person' : 'people'}`}</>;
     }
     case 'review_request_removed': return <>removed a review request</>;
+    case 'assigned': return <>assigned{p.assignee ? <> <strong>{p.assignee}</strong></> : null}</>;
+    case 'unassigned': return <>unassigned{p.assignee ? <> <strong>{p.assignee}</strong></> : null}</>;
     case 'milestoned': return <>added this to the <strong>{p.milestoneTitle}</strong> milestone</>;
     case 'demilestoned': return <>removed this from the <strong>{p.milestoneTitle}</strong> milestone</>;
     case 'added_to_merge_queue': return <>added this to the merge queue</>;

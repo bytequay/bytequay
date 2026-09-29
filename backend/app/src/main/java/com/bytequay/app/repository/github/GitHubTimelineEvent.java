@@ -28,6 +28,7 @@ public record GitHubTimelineEvent(
         Actor actor,
         User user,
         @JsonProperty("requested_reviewer") User requestedReviewer,
+        User assignee,
         String body,
         String state,
         @JsonProperty("html_url") String htmlUrl,

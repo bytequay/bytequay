@@ -36,7 +36,7 @@ const issue = {
 };
 
 const timeline: WorkspaceIssueTimelineEventDto[] = [
-  { githubId: 1, event: 'assigned', actor: 'alice', timestamp: '2026-08-20T11:00:00Z', body: null, payload },
+  { githubId: 1, event: 'assigned', actor: 'alice', timestamp: '2026-08-20T11:00:00Z', body: null, payload: { ...payload, assignee: 'bob' } },
   {
     githubId: 2,
     event: 'commented',
@@ -45,6 +45,7 @@ const timeline: WorkspaceIssueTimelineEventDto[] = [
     body: 'I can reproduce this.',
     payload: { ...payload, actorAvatarUrl: 'https://avatars.example/carol', reactions: [{ content: '+1', count: 2 }] },
   },
+  { githubId: 4, event: 'unassigned', actor: 'alice', timestamp: '2026-08-21T11:00:00Z', body: null, payload: { ...payload, assignee: 'bob' } },
 ];
 
 const metadata: RepositoryMetadataDto = {
@@ -106,7 +107,8 @@ describe('WorkspaceIssuesScreen', () => {
     expect(html).toContain('class="pr-card pr-description"');
     expect(html).toContain('<h3>Description</h3>');
     expect(html).toContain('I can reproduce this.');
-    expect(html).toContain('assigned this issue');
+    expect(html).toContain('assigned this issue to <strong>bob</strong>');
+    expect(html).toContain('removed <strong>bob</strong> from this issue');
     expect(html).toContain('Assignees');
     expect(html).toContain('Participants');
     expect(html).toContain('aria-label="Issue type"');

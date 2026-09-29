@@ -29,6 +29,7 @@ public record PrTimelinePayload(
         String state,
         String htmlUrl,
         String requestedReviewer,
+        String assignee,
         String label,
         String labelColor,
         String renameFrom,
@@ -76,6 +77,7 @@ public record PrTimelinePayload(
                 .state(payload.state())
                 .htmlUrl(payload.htmlUrl())
                 .requestedReviewer(payload.requestedReviewer())
+                .assignee(payload.assignee())
                 .label(payload.label())
                 .labelColor(payload.labelColor())
                 .renameFrom(payload.renameFrom())
@@ -107,6 +109,7 @@ public record PrTimelinePayload(
         private String state;
         private String htmlUrl;
         private String requestedReviewer;
+        private String assignee;
         private String label;
         private String labelColor;
         private String renameFrom;
@@ -158,6 +161,12 @@ public record PrTimelinePayload(
         public Builder requestedReviewer(String requestedReviewer)
         {
             this.requestedReviewer = requestedReviewer;
+            return this;
+        }
+
+        public Builder assignee(String assignee)
+        {
+            this.assignee = assignee;
             return this;
         }
 
@@ -295,6 +304,7 @@ public record PrTimelinePayload(
                     state,
                     htmlUrl,
                     requestedReviewer,
+                    assignee,
                     label,
                     labelColor,
                     renameFrom,

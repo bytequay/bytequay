@@ -280,6 +280,7 @@ export type PullTimelinePayloadDto = {
   sourceNumber: number | null;
   milestoneTitle: string | null;
   requestedReviewer: string | null;
+  assignee: string | null;
   path: string | null;
   diffHunk: string | null;
   line: number | null;

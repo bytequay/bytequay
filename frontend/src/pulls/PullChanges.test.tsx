@@ -71,7 +71,7 @@ function reviewActivity(id: number, body: string, payload: Partial<PullTimelineP
     payload: {
       actorAvatarUrl: null, actorBot: false, state: null, htmlUrl: null, label: null, labelColor: null,
       renameFrom: null, renameTo: null, commitSha: null, commitMessage: null, sourceTitle: null,
-      sourceUrl: null, sourceNumber: null, milestoneTitle: null, requestedReviewer: null,
+      sourceUrl: null, sourceNumber: null, milestoneTitle: null, requestedReviewer: null, assignee: null,
       path: file.filename, diffHunk: file.patch, line: 96, originalLine: 96, startLine: null,
       originalStartLine: null, side: 'RIGHT', resolved: false, outdated: false, reactions: [],
       comments: [{

@@ -31,7 +31,7 @@ import { loadHandled } from '../../home/attention';
 const payload: PullTimelinePayloadDto = {
   actorAvatarUrl: null, actorBot: false, state: null, htmlUrl: null, label: null, labelColor: null,
   renameFrom: null, renameTo: null, commitSha: null, commitMessage: null, sourceTitle: null, sourceUrl: null,
-  sourceNumber: null, milestoneTitle: null, requestedReviewer: null, path: null, diffHunk: null, line: null,
+  sourceNumber: null, milestoneTitle: null, requestedReviewer: null, assignee: null, path: null, diffHunk: null, line: null,
   originalLine: null, startLine: null, originalStartLine: null, side: null, resolved: false, outdated: false, reactions: [], comments: [],
 };
 const file = (filename: string): DiffFileDto => ({ filename, status: 'modified', additions: 1, deletions: 1, patch: '@@ -1 +1 @@\n-old\n+new' });

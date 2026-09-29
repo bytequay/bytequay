@@ -374,7 +374,7 @@ class TestSqlitePrDetailStore
     void roundTripsTheTypedTimelinePayloadAndUnavailableSections()
     {
         PrTimelinePayload payload = new PrTimelinePayload(
-                "https://avatars/bot", true, null, "https://github/event", "reviewer", "docs", "d4c5f9",
+                "https://avatars/bot", true, null, "https://github/event", "reviewer", "assignee", "docs", "d4c5f9",
                 null, null, null, null, null, null, null, null, null, null,
                 null, null, null, null, null, false, false,
                 ImmutableList.of(new PrReaction("+1", 2, true)), ImmutableList.of());
@@ -397,6 +397,7 @@ class TestSqlitePrDetailStore
         assertThat(restored.raw().labelColors()).containsEntry("docs", "d4c5f9");
         assertThat(restored.timeline()).singleElement().satisfies(event -> {
             assertThat(event.payload().requestedReviewer()).isEqualTo("reviewer");
+            assertThat(event.payload().assignee()).isEqualTo("assignee");
             assertThat(event.payload().label()).isEqualTo("docs");
             assertThat(event.payload().reactions()).containsExactly(new PrReaction("+1", 2, true));
         });
@@ -463,7 +464,7 @@ class TestSqlitePrDetailStore
         PrTimelineEvent commit = new PrTimelineEvent(
                 null, "committed", "alice", NOW.plusSeconds(1), "first",
                 new PrTimelinePayload(
-                        null, false, null, null, null, null, null,
+                        null, false, null, null, null, null, null, null,
                         null, null, "c0ffee", null, null, null, null, null, null, null,
                         null, null, null, null, null, false, false,
                         ImmutableList.of(), ImmutableList.of()),

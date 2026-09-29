@@ -19,7 +19,7 @@ import { pullRequestDiffRevision } from './usePullRequestChanges';
 const payload: PullTimelinePayloadDto = {
   actorAvatarUrl: null, actorBot: false, state: null, htmlUrl: null, label: null, labelColor: null,
   renameFrom: null, renameTo: null, commitSha: 'first-sha', commitMessage: null, sourceTitle: null,
-  sourceUrl: null, sourceNumber: null, milestoneTitle: null, requestedReviewer: null, path: null,
+  sourceUrl: null, sourceNumber: null, milestoneTitle: null, requestedReviewer: null, assignee: null, path: null,
   diffHunk: null, line: null, originalLine: null, startLine: null, originalStartLine: null,
   side: null, resolved: false, outdated: false, reactions: [], comments: [],
 };

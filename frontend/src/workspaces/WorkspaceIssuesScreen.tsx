@@ -537,7 +537,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
             <div className="pull-detail__title-row">
               <h1>{linkIssueNumbers(selected.title, repository, true)} {selected.isGoal && <GoalBadge />}</h1>
               <div className="pull-detail__header-actions">
-                <span className="attention-visit-status" role="status">{visit.status}</span>
+                {visit.status && <span className="attention-visit-status" role="status">{visit.status}</span>}
                 <PinButton className="pull-detail__icon-action" item={{ key: `${repository}#${selected.number}`, title: selected.title,
                   reference: `${repository} #${selected.number}`, target: { kind: 'issue', repo: repository, number: selected.number, workspaceId } }} />
                 <button className="pull-detail__icon-action" type="button" title="Refresh" aria-label="Refresh" disabled={detailLoading}
@@ -929,8 +929,8 @@ function IssueEvent({ event, colors }: { event: WorkspaceIssueTimelineEventDto; 
 function issueEventText(event: WorkspaceIssueTimelineEventDto, colors: Record<string, string>) {
   const payload = event.payload;
   switch (event.event) {
-    case 'assigned': return <>assigned this issue</>;
-    case 'unassigned': return <>removed an assignee</>;
+    case 'assigned': return <>assigned this issue{payload.assignee ? <> to <strong>{payload.assignee}</strong></> : null}</>;
+    case 'unassigned': return <>removed{payload.assignee ? <> <strong>{payload.assignee}</strong></> : <> an assignee</>} from this issue</>;
     case 'labeled': return <>added <span className="pr-label" style={labelStyle(payload.labelColor ?? colors[payload.label ?? ''])}>{payload.label ?? 'a label'}</span></>;
     case 'unlabeled': return <>removed <span className="pr-label" style={labelStyle(payload.labelColor ?? colors[payload.label ?? ''])}>{payload.label ?? 'a label'}</span></>;
     case 'milestoned': return <>added this to the <strong>{payload.milestoneTitle}</strong> milestone</>;

@@ -462,6 +462,25 @@ class TestGitHubPullRequestOverviewClient
     }
 
     @Test
+    void mapsAssigneesFromTimelineEvents()
+    {
+        Fixture fixture = fixture();
+        fixture.api().expect(requestTo(
+                        "https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
+                .andRespond(withSuccess("""
+                        [{"id":1,"event":"assigned","created_at":"2026-08-20T10:00:00Z",
+                          "actor":{"login":"alice"},"assignee":{"login":"bob"}},
+                         {"id":2,"event":"unassigned","created_at":"2026-08-20T11:00:00Z",
+                          "actor":{"login":"alice"},"assignee":{"login":"carol"}}]
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(fixture.client().fetchPrTimeline("pat", PULL_REQUEST))
+                .extracting(event -> event.event() + ":" + event.payload().assignee())
+                .containsExactly("assigned:bob", "unassigned:carol");
+        fixture.verify();
+    }
+
+    @Test
     void addsGraphQlReactionsToReviewTimelineEvents()
     {
         Fixture fixture = fixture();

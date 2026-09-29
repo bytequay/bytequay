@@ -1283,6 +1283,7 @@ public class GitHubPullRequestReadClient
                         .state(event.state())
                         .htmlUrl(event.htmlUrl())
                         .requestedReviewer(Optional.ofNullable(event.requestedReviewer()).map(GitHubTimelineEvent.User::login).orElse(null))
+                        .assignee(Optional.ofNullable(event.assignee()).map(GitHubTimelineEvent.User::login).orElse(null))
                         .label(Optional.ofNullable(event.label()).map(GitHubTimelineEvent.Label::name).orElse(null))
                         .labelColor(Optional.ofNullable(event.label()).map(GitHubTimelineEvent.Label::color).orElse(null))
                         .renameFrom(Optional.ofNullable(event.rename()).map(GitHubTimelineEvent.Rename::from).orElse(null))

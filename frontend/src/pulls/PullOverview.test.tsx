@@ -810,6 +810,21 @@ describe('PullOverview', () => {
     expect(html).toContain('<span>labels</span>');
   });
 
+  it('names the assignee in assignment events', () => {
+    const value = detail();
+    value.recentActivity = [
+      { actor: 'ezra-b', eventType: 'assigned', timestamp: '2026-08-20T09:10:00Z', body: null, githubId: 1,
+        payload: { ...emptyPayload, assignee: 'alice' } },
+      { actor: 'ezra-b', eventType: 'unassigned', timestamp: '2026-08-20T09:11:00Z', body: null, githubId: 2,
+        payload: { ...emptyPayload, assignee: 'bob' } },
+    ];
+
+    const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+
+    expect(html).toContain('assigned <strong>alice</strong>');
+    expect(html).toContain('unassigned <strong>bob</strong>');
+  });
+
   it('renders an unresolved review thread open and foldable', () => {
     const value = detail();
     value.recentActivity = [{

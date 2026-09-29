@@ -538,8 +538,13 @@ global Pull Requests page combines its account-centric rows with the projections
 monitored by current workspaces.
 
 `PullRequestRefreshService` is the single synchronous refresh boundary. Its dashboard and
-repository methods update PR rows, changed PR details, and derived local view state through the
-existing `PullRequestService` and stores before returning. One process-local lock prevents
+repository methods paginate discovery and persist all discovered PR cards through the existing
+`PullRequestService` and stores before optional enrichment. Card refresh batches compact CI, review,
+head, count, and activity facts. Only the newest 30 PRs per repository warm full histories and diffs
+through the existing conditional refresh; personal discovery does not add another warm allowance
+for watched repositories. Omitted rows remain cached; older monitored and notified PRs retain
+summary coverage. Handled reviews with new activity may read reply metadata to preserve their
+needs-review status. Enrichment failures do not discard successfully discovered rows. One process-local lock prevents
 overlapping PR refreshes; there is no refresh queue or persisted in-progress state.
 `PullRequestSnapshotService` owns the local detail and diff snapshot boundary, including the
 remote fetch-and-persist operations used by refresh. `PullRequestSyncJob` owns the periodic timer,

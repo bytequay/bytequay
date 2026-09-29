@@ -117,7 +117,7 @@ class TestPullRequestRefreshService
         service.refreshDashboardRows();
 
         InOrder order = inOrder(pullRequests);
-        order.verify(pullRequests).syncFromGitHub(false);
+        order.verify(pullRequests).syncFromGitHub();
         order.verify(pullRequests).syncRepository(firstRepository);
         order.verify(pullRequests).syncRepository(secondRepository);
     }
@@ -217,7 +217,7 @@ class TestPullRequestRefreshService
             fullRefresh.get(5, TimeUnit.SECONDS);
         }
 
-        verify(pullRequests, never()).syncFromGitHub(false);
+        verify(pullRequests).syncFromGitHub();
         verify(workspaces, never()).findAll();
     }
 

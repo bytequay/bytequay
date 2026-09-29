@@ -120,7 +120,7 @@ class TestSqliteIssueDevelopmentStore
     }
 
     @Test
-    void filtersAssignedEligibilityBeforeLimitingAcrossAllCachedIssues()
+    void attentionIncludesEveryCachedRepositoryIssueRegardlessOfAssignmentGoalOrLinkedTask()
     {
         List<RepositoryIssue> firstPage = IntStream.rangeClosed(1, 100).mapToObj(number -> issue(number, "bob")).collect(ImmutableList.toImmutableList());
         issues.saveSyncPage(REPOSITORY_ID, firstPage, "sync-1");
@@ -138,8 +138,8 @@ class TestSqliteIssueDevelopmentStore
         entityManager.clear();
 
         assertThat(issues.findPage(REPOSITORY_ID, RepoRef.of("owner", "repo"), 0, 100).issues()).doesNotContain(eligible);
-        assertThat(issues.findAssignedEligible(REPOSITORY_ID, "Alice", 1)).containsExactly(eligible);
-        assertThat(issues.findAssignedEligible(REPOSITORY_ID, "ALICE", 5)).containsExactly(eligible, next);
+        assertThat(issues.findPage(REPOSITORY_ID, RepoRef.of("owner", "repo"), 0, Integer.MAX_VALUE).issues())
+                .hasSize(105).containsAll(firstPage).contains(goal, linked, eligible, unrelated, next).doesNotContain(issue(106, "alice"));
     }
 
     @Test

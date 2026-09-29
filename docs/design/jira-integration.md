@@ -68,8 +68,9 @@ The first release includes:
   for a ticket that has some, reads one page of them and says when more exist;
   links come with the ticket read. A project that requires more fields on create
   is reported as needing Jira.
-- Surface cached, assigned, unfinished leaf tickets from watched active sprints
-  in global Needs attention. A workspace's Home lists only the tickets assigned
+- Surface cached tickets from connected watched board scopes in global Needs
+  attention, including backlog, parent, Goal, linked, unassigned, and Done
+  tickets present in those scopes. A workspace's Home lists only the tickets assigned
   to that workspace; Jira project names are never guessed to be
   repository/workspace names.
 - Each card says what last changed on its ticket. Every refresh compares the
@@ -81,7 +82,7 @@ The first release includes:
   nothing ByteQuay saves changed, it reads that ticket's newest comment once.
   Jira's changelog is never read, so a status or field change names no actor,
   and the description is not compared because board and ticket reads format it
-  differently. The card's strip says the ticket is assigned to you; the change
+  differently. The card's strip shows its current status; the change
   is its folded actor line, and a card with no recorded change names the
   ticket's status and sprint there instead.
 
@@ -229,7 +230,8 @@ without triggering another remote board refresh.
 
 Completed history has a separate cache and uses the enhanced board issues
 endpoint with a Done-category filter across sprints. History refreshes on request
-and stays out of watched scopes and Needs attention. Jira board filters and mapped-status rules still bound the
+and stays out of watched scopes. Done tickets still present in a watched scope
+can appear in Needs attention. Jira board filters and mapped-status rules still bound the
 result; the board endpoint excludes Scrum epics. Pagination remains bounded and
 partial results are identified in the UI.
 

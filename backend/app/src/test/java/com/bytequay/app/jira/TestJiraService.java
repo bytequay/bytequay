@@ -127,6 +127,40 @@ class TestJiraService
     }
 
     @Test
+    void attentionIncludesAllCachedConnectedBoardRowsWithoutRemoteReads()
+            throws Exception
+    {
+        saved.put("jira.scopes", """
+                [{"connectionId":"connection","cloudId":"cloud","boardId":82,"sprintId":null,"mine":false,"completed":false},
+                 {"connectionId":"connection","cloudId":"cloud","boardId":82,"sprintId":9,"mine":true,"completed":false},
+                 {"connectionId":"disconnected","cloudId":"cloud","boardId":82,"sprintId":9,"mine":true,"completed":false}]
+                """);
+        JiraIssue unassigned = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", ticket());
+        JiraIssue doneParent = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", completedTicket("2001")).withChildren(true);
+        JiraIssueSource source = new JiraIssueSource("connection", "cloud", "2001", doneParent.key(), doneParent.url(), doneParent.title(), doneParent.body(), UPDATED);
+        when(tasks.findBySource("cloud", "2001")).thenReturn(Optional.of(new JiraIssueTask("task", "workspace", source, "Implement", UPDATED)));
+        cache.write("goal.cloud.2001", true);
+        cache.write("connection.cloud.issue.1001", unassigned);
+        cache.write("connection.cloud.issue.2001", doneParent);
+        cache.write("connection.cloud.scope.82.backlog.false", new JiraDtos.IssuePage(ImmutableList.of(unassigned, doneParent), Optional.of(UPDATED), Optional.empty(), false));
+        cache.write("connection.cloud.scope.82.9.true", new JiraDtos.IssuePage(ImmutableList.of(unassigned), Optional.of(UPDATED), Optional.empty(), false));
+        JiraIssue disconnected = JiraMapping.issue("disconnected", "cloud", "https://example.atlassian.net", completedTicket("3001"));
+        cache.write("disconnected.cloud.issue.3001", disconnected);
+        cache.write("disconnected.cloud.scope.82.9.true", new JiraDtos.IssuePage(ImmutableList.of(disconnected), Optional.of(UPDATED), Optional.empty(), false));
+        JiraDtos.Connection connection = remote.get("connection");
+        when(remote.list()).thenReturn(ImmutableList.of(connection));
+
+        List<JiraIssue> attention = jira.attention();
+        assertThat(attention).extracting(JiraIssue::id).containsExactly("1001", "2001");
+        assertThat(attention.getFirst().assignee()).isEmpty();
+        assertThat(attention.getLast().isGoal()).isTrue();
+        assertThat(attention.getLast().hasChildren()).isTrue();
+        assertThat(attention.getLast().status().category()).isEqualTo("done");
+        assertThat(attention.getLast().task()).contains(new JiraDtos.TaskLink("task", "workspace"));
+        verify(remote, never()).request(anyString(), anyString(), anyString(), anyString(), any());
+    }
+
+    @Test
     void ticketLinkKeyResolvesToTheIssueIdItIsCachedUnder()
             throws Exception
     {

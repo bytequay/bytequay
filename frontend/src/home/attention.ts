@@ -14,7 +14,7 @@
 import type { JiraIssue } from '../jira/contracts';
 import type { AgentTaskActivityDto, AgentTaskDto, PullRequestDto, RepositoryIssueSnapshotDto } from '../types';
 import { pullRequestIsMine } from '../pulls/model';
-import { preferTeamAttention, teamAttentionMatch, type TeamAttentionPreference } from '../teams/priority';
+import { teamAttentionMatch, type TeamAttentionPreference } from '../teams/priority';
 
 /** Why an item is on the "Needs attention" list. */
 export type AttentionKind = 'approval' | 'review' | 'assigned' | 'changes' | 'failed' | 'blocked' | 'ci' | 'commits' | 'merge' | 'finished' | 'updated';
@@ -32,7 +32,7 @@ export const ATTENTION_SOURCES: Record<AttentionSource, { label: string; filter:
 // For simultaneous updates, show work waiting on the user first.
 const PRIORITY: AttentionKind[] = ['approval', 'review', 'assigned', 'changes', 'failed', 'ci', 'blocked', 'commits', 'merge', 'finished', 'updated'];
 
-/** One card: a pull request, an issue or ticket assigned to you, or an agent task that waits on you. */
+/** One source update: a pull request, an issue or ticket, or a local agent task. */
 export type AttentionItem = {
   jira?: JiraIssue;
   /** An agent task and what it last said and waits on. */
@@ -57,6 +57,8 @@ export type AttentionItem = {
   commentCount: number;
   /** Retained reminders can outlive the workspace's open-issue cache. */
   issueState?: string;
+  /** Whether this issue or ticket can launch a new development task. */
+  canStartDevelopment?: boolean;
   /** Issues open inside their workspace. */
   workspaceId: string | null;
   workspaceName?: string;
@@ -75,8 +77,8 @@ export type AttentionLink = {
   tone: AttentionTone;
 };
 
-/** Authored and explicitly monitored PRs follow all activity; review work follows its relationship to you. */
-export function attentionKind(pr: PullRequestDto, viewerLogin?: string | null): AttentionKind | null {
+/** Every discovered PR can report an update; personal relationships give it a more specific reason. */
+export function attentionKind(pr: PullRequestDto, viewerLogin?: string | null): AttentionKind {
   const mine = pullRequestIsMine(pr, viewerLogin);
   const requested = pr.origin === 'REVIEW_REQUESTED'
     || viewerLogin != null && pr.requestedReviewers.some(login => login.toLowerCase() === viewerLogin.toLowerCase());
@@ -85,7 +87,7 @@ export function attentionKind(pr: PullRequestDto, viewerLogin?: string | null): 
     && Date.parse(pr.activityAt ?? pr.updatedAt) > Date.parse(pr.monitoredAt);
   const followsAllActivity = mine || monitoredChange;
 
-  if (pr.state !== 'open' || pr.draft) return followsAllActivity ? 'updated' : null;
+  if (pr.state !== 'open' || pr.draft) return 'updated';
   if (!mine && requested && (pr.reviewedAt === null || pr.handledAction === null
     || pr.reviewRequestedAt != null && Date.parse(pr.reviewRequestedAt) > Date.parse(pr.reviewedAt))) return 'review';
   if (followsAllActivity && pr.reviewDecision === 'CHANGES_REQUESTED') return 'changes';
@@ -94,7 +96,7 @@ export function attentionKind(pr: PullRequestDto, viewerLogin?: string | null): 
   if ((followsAllActivity || reviewing) && hasCommitsSinceReview(pr)) return 'commits';
   if ((followsAllActivity || reviewing) && pr.mergeable === true && pr.mergeableState === 'clean'
     && pr.ciStatus !== 'FAILING' && pr.ciStatus !== 'PENDING') return 'merge';
-  return followsAllActivity ? 'updated' : null;
+  return 'updated';
 }
 
 function hasCommitsSinceReview(pr: PullRequestDto): boolean {
@@ -125,30 +127,31 @@ export function pullRequestItem(pr: PullRequestDto, kind: AttentionKind = 'updat
 /** The same source identity and snapshot for an issue card and its detail page. */
 export function issueAttentionItem(issue: RepositoryIssueSnapshotDto['issues'][number], repo: string, workspaceId: string | null): AttentionItem {
   return {
-    key: `${repo}#${issue.number}`, sourceKey: `github.com:issue:${issue.id}`, type: 'issue', kind: 'assigned',
+    key: `${repo}#${issue.number}`, sourceKey: `github.com:issue:${issue.id}`, type: 'issue', kind: 'updated',
     repo, number: issue.number, title: issue.title, author: issue.author, authorAvatarUrl: issue.authorAvatarUrl,
     createdAt: issue.createdAt, updatedAt: issue.updatedAt, labels: issue.labels, pr: null,
     body: issue.body, commentCount: issue.commentCount, workspaceId,
+    canStartDevelopment: !issue.isGoal && issue.developmentTask == null,
   };
 }
 
-/** Open issues in one workspace that are assigned to the signed-in user. */
-export function assignedIssues(
+/** All cached issues in one workspace, with assignment used only to name the card. */
+export function issueAttentionItems(
   snapshot: RepositoryIssueSnapshotDto,
   workspaceId: string,
   login: string,
 ): AttentionItem[] {
   const repo = `${snapshot.repository.owner}/${snapshot.repository.repo}`;
   const me = login.toLowerCase();
-  return snapshot.issues
-    .filter(issue => !issue.isGoal && issue.developmentTask == null
-      && issue.assignees.some(assignee => assignee.toLowerCase() === me))
-    .map(issue => issueAttentionItem(issue, repo, workspaceId));
+  return snapshot.issues.map(issue => ({
+    ...issueAttentionItem(issue, repo, workspaceId),
+    kind: issue.assignees.some(assignee => assignee.toLowerCase() === me) ? 'assigned' : 'updated',
+  }));
 }
 
 /**
  * The dataCache entries Home and every workspace Home paint their first frame from: the last
- * /prs/attention rows, the viewer's profile, and every workspace's assigned issues. Rows are ranked
+ * /prs/attention rows, the viewer's profile, and every workspace's issues. Rows are ranked
  * with all three, so seeding the rows alone would re-sort them once the login and issues land.
  */
 export const ATTENTION_SEED = { prs: 'home:attention', profile: 'home:profile', issues: 'home:issues' };
@@ -166,9 +169,7 @@ export function attentionCandidates(
     if (!previous || (issue.workspaceId ?? '').localeCompare(previous.workspaceId ?? '') < 0) bySource.set(key, issue);
   }
   const items = prs
-    .map(pr => ({ pr, kind: attentionKind(pr, viewerLogin) }))
-    .filter((row): row is { pr: PullRequestDto; kind: AttentionKind } => row.kind !== null)
-    .map(row => pullRequestItem(row.pr, row.kind))
+    .map(pr => pullRequestItem(pr, attentionKind(pr, viewerLogin)))
     .concat([...bySource.values()]);
   return items.sort(compareAttention);
 }
@@ -351,18 +352,20 @@ function taskSummary(item: AttentionItem, task: NonNullable<AttentionItem['task'
   }
   if (task.activity?.latestTurn == null) return { tag: { label: 'Idle', tone: 'green' }, actor, verb: 'is ready for a prompt', detail: said };
   if (item.kind === 'failed') return { tag: KIND_TAGS.failed, actor, verb: 'stopped with an error', detail: said };
-  return { tag: KIND_TAGS.finished, actor, verb: 'finished a turn', detail: said };
+  if (item.kind === 'finished') return { tag: KIND_TAGS.finished, actor, verb: 'finished a turn', detail: said };
+  return { tag: { label: 'Idle', tone: 'green' }, actor, verb: 'updated this task', detail: said };
 }
 
 function words(names: string[]): string {
   return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
-/** A ticket stays assigned to you; its actor line says what last changed on it, or else where it stands. */
+/** A ticket's actor line says what last changed on it, or else where it stands. */
 function jiraSummary(item: AttentionItem, jira: NonNullable<AttentionItem['jira']>, labels: AttentionDetail | null): AttentionSummary {
   const tag: AttentionSummary['tag'] = jira.status.category === 'done'
     ? { label: jira.status.name, tone: 'green' }
-    : jira.task !== null ? { label: 'In development', tone: 'blue' } : KIND_TAGS.assigned;
+    : jira.task !== null ? { label: 'In development', tone: 'blue' }
+      : item.kind === 'assigned' ? KIND_TAGS.assigned : { label: jira.status.name, tone: statusPill(jira.status).tone };
   const activity = jira.latestActivity ?? null;
   if (activity?.kind === 'STATUS_CHANGED' && activity.from !== null && activity.to !== null) {
     return {
@@ -415,7 +418,7 @@ export function attentionCards(live: AttentionItem[], filter: AttentionFilter, l
   const counts: Record<AttentionFilter, number> = { all: eligible.length, pr: 0, issue: 0, jira: 0, task: 0 };
   for (const item of eligible) counts[attentionSource(item)] += 1;
   const sorted = eligible.filter(item => filter === 'all' || attentionSource(item) === filter).sort(compareAttention);
-  return { cards: preferTeamAttention(sorted, team, limit), counts };
+  return { cards: sorted.slice(0, limit), counts };
 }
 
 /* ── Acknowledged and snoozed rows ──────────────────────────────── */
@@ -463,7 +466,7 @@ export function attentionActivityVersion(item: AttentionItem): string {
   if (item.task) {
     const { dto, activity } = item.task;
     return JSON.stringify([dto.updatedAt, dto.state, activity?.latestTurn?.id, activity?.latestTurn?.state,
-      activity?.latestTurn?.endedAt, activity?.pendingApproval?.approvalId]);
+      activity?.latestTurn?.endedAt, activity?.pendingApproval?.approvalId, item.updatedAt]);
   }
   if (item.jira) return JSON.stringify([item.updatedAt, item.title, item.jira.status.id, item.jira.assignee?.accountId,
     [...item.labels].sort(), item.jira.priority?.id, item.jira.dueDate]);

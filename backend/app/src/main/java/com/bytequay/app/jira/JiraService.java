@@ -484,17 +484,12 @@ public class JiraService
     public List<JiraIssue> attention()
     {
         Map<String, JiraIssue> result = new LinkedHashMap<>();
+        List<String> connected = connections.list().stream().filter(connection -> connection.state().equals("connected")).map(JiraDtos.Connection::id).collect(toImmutableList());
         for (Scope scope : scopes()) {
-            if (scope.completed() || !scope.mine() || scope.sprintId().isEmpty() || connections.list()
-                    .stream().noneMatch(connection -> connection.id().equals(scope.connectionId()) && connection.state().equals("connected"))) {
+            if (!connected.contains(scope.connectionId())) {
                 continue;
             }
-            boolean active = sprints(scope.connectionId(), scope.cloudId(), scope.boardId(), false).stream()
-                    .anyMatch(sprint -> sprint.id() == scope.sprintId().orElseThrow() && sprint.state().equals("active"));
-            if (active) {
-                page(scope).issues().stream().filter(issue -> !issue.isGoal() && !issue.hasChildren() && !issue.status().category().equals("done") && issue.task().isEmpty())
-                        .forEach(issue -> result.put(issue.cloudId() + ":" + issue.id(), issue));
-            }
+            page(scope).issues().forEach(issue -> result.put(issue.cloudId() + ":" + issue.id(), issue));
         }
         return ImmutableList.copyOf(result.values());
     }

@@ -97,10 +97,8 @@ export default function AttentionList({
   const live = visibleAttention(reminders, handled, Math.max(now, Date.now()))
     .filter(item => !pinned.some(pin => pin.key === item.key));
   const filters = FILTERS.filter(id => id !== 'jira' || jiraConnected || live.some(item => attentionSource(item) === 'jira'));
-  const protectedKeys = new Set(Object.entries(handled).filter(([, entry]) => entry.kind === 'snooze' && entry.until !== null && entry.until <= Math.max(now, Date.now()))
-    .map(([key]) => key));
   const { cards, counts } = attentionCards(live, filters.includes(filter) ? filter : 'all', cardLimit,
-    { circles, viewerLogin, onlyTeam: teamOnly, protectedKeys });
+    { circles, viewerLogin, onlyTeam: teamOnly });
   const sessionEntries = session
     .map(key => handled[key])
     .filter((entry): entry is HandledEntry => entry !== undefined);
@@ -140,7 +138,7 @@ export default function AttentionList({
   }
 
   const count = cards.length < counts.all ? `${cards.length} of ${counts.all}` : `${counts.all}`;
-  const startable = (item: AttentionItem) => item.type === 'issue' && onStartIssue !== undefined && item.issueState !== 'closed'
+  const startable = (item: AttentionItem) => item.type === 'issue' && item.canStartDevelopment !== false && onStartIssue !== undefined && item.issueState !== 'closed'
     && (item.jira === undefined || item.jira.status.category !== 'done' && item.jira.task === null);
 
   return (

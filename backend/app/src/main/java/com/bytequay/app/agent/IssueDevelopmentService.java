@@ -37,13 +37,11 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
-import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Striped;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
-import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Function;
@@ -119,12 +117,7 @@ public class IssueDevelopmentService
     public RepositoryIssuePage attention(String workspaceId)
     {
         Workspace workspace = workspace(workspaceId);
-        List<RepositoryIssue> eligible = credentials.cachedLogin()
-                .map(login -> issues.findAssignedEligible(workspace.monitoredRepositoryId(), login, 101))
-                .orElseGet(ImmutableList::of);
-        RepositoryIssuePage snapshot = issues.findPage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), 0, 1);
-        return new RepositoryIssuePage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(),
-                eligible.subList(0, Math.min(100, eligible.size())), 0, 100, eligible.size(), eligible.size() > 100, snapshot.syncedAt());
+        return issues.findPage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), 0, Integer.MAX_VALUE);
     }
 
     public Optional<Source> source(String taskId)

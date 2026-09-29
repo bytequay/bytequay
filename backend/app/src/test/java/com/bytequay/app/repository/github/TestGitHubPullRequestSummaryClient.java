@@ -1,0 +1,333 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.repository.github;
+
+import com.bytequay.core.domain.PullRequest.Origin;
+import com.bytequay.core.domain.PullRequestDetail.CiStatus;
+import com.bytequay.core.domain.PullRequestRef;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.mock.http.client.MockClientHttpRequest;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.IntStream;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+
+class TestGitHubPullRequestSummaryClient
+{
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final String ENDPOINT = "https://api.github.test/graphql";
+    private static final PullRequestRef REF = PullRequestRef.of("owner", "repo", 1);
+
+    @Test
+    void readsCardAndNotificationFactsWithoutDetailEndpoints()
+            throws Exception
+    {
+        Fixture fixture = fixture();
+        ObjectNode row = row(1);
+        row.withObject("/viewerReviews").withArray("nodes").add(MAPPER.readTree("""
+                {"databaseId":42,"state":"APPROVED","submittedAt":"2026-09-20T10:00:00Z",
+                  "author":{"login":"viewer","avatarUrl":"https://avatars/viewer"},"commit":{"oid":"reviewed-sha"}}
+                """));
+        fixture.server().expect(requestTo(ENDPOINT)).andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer pat"))
+                .andExpect(request -> {
+                    var payload = MAPPER.readTree(((MockClientHttpRequest) request).getBodyAsString());
+                    assertThat(payload.path("query").asText()).contains("databaseId:fullDatabaseId", "reviews(last:1", "checkRunCountsByState", "reviewRequested:timelineItems(last:20")
+                            .doesNotContain("body", "files(", "reviewThreads(");
+                    assertThat(payload.path("variables").path("login").asText()).isEqualTo("viewer");
+                }).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
+
+        GitHubPullRequestSummary summary = fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
+
+        assertThat(summary.pullRequest().origin()).isEqualTo(Origin.REVIEW_REQUESTED);
+        assertThat(summary.pullRequest().requestedReviewers()).containsExactly("viewer");
+        assertThat(summary.pullRequest().labels()).containsExactly("bug");
+        assertThat(summary.pullRequest().mergeable()).isTrue();
+        assertThat(summary.pullRequest().mergeableState()).isEqualTo("clean");
+        assertThat(summary.ciStatus()).isEqualTo(CiStatus.PENDING);
+        assertThat(summary.additions()).isEqualTo(15);
+        assertThat(summary.deletions()).isEqualTo(3);
+        assertThat(summary.commentCount()).isEqualTo(4);
+        assertThat(summary.headSha()).isEqualTo("new-head");
+        assertThat(summary.headCommittedAt()).contains(Instant.parse("2026-09-21T10:00:00Z"));
+        assertThat(summary.reviewDecision()).contains("APPROVED");
+        assertThat(summary.viewerReview()).isPresent();
+        assertThat(summary.viewerReview().orElseThrow().commitId()).isEqualTo("reviewed-sha");
+        assertThat(summary.reviewRequestedAt()).contains(Instant.parse("2026-09-21T11:00:00Z"));
+        fixture.server().verify();
+    }
+
+    @Test
+    void batchesThirtyDistinctReferencesAndDoesNotFetchEmptySelections()
+            throws Exception
+    {
+        Fixture fixture = fixture();
+        List<PullRequestRef> refs = IntStream.rangeClosed(1, 31).mapToObj(number -> PullRequestRef.of("owner", "repo", number)).toList();
+        ObjectNode first = MAPPER.createObjectNode();
+        ObjectNode data = first.putObject("data");
+        for (int index = 0; index < 30; index++) {
+            data.putObject("r" + index).set("pullRequest", row(index + 1));
+        }
+        fixture.server().expect(requestTo(ENDPOINT)).andExpect(request -> {
+            var variables = MAPPER.readTree(((MockClientHttpRequest) request).getBodyAsString()).path("variables");
+            assertThat(variables.path("number29").intValue()).isEqualTo(30);
+            assertThat(variables.has("number30")).isFalse();
+        }).andRespond(withSuccess(first.toString(), MediaType.APPLICATION_JSON));
+        fixture.server().expect(requestTo(ENDPOINT)).andExpect(request -> {
+            var variables = MAPPER.readTree(((MockClientHttpRequest) request).getBodyAsString()).path("variables");
+            assertThat(variables.path("number0").intValue()).isEqualTo(31);
+            assertThat(variables.has("number1")).isFalse();
+        }).andRespond(withSuccess(response(row(31)), MediaType.APPLICATION_JSON));
+
+        assertThat(fixture.client().fetchSummaries("pat", ImmutableList.of(), "viewer")).isEmpty();
+        assertThat(fixture.client().fetchSummaries("pat", ImmutableList.<PullRequestRef>builder().addAll(refs).add(REF).build(), "viewer")).hasSize(31);
+        fixture.server().verify();
+    }
+
+    @Test
+    void refusesPartialOrUnknownFactsInsteadOfOverwritingGoodLocalState()
+            throws Exception
+    {
+        Fixture fixture = fixture();
+        ObjectNode response = MAPPER.createObjectNode();
+        ObjectNode data = response.putObject("data");
+        ObjectNode partialLabels = row(1);
+        partialLabels.withObject("/labels/pageInfo").put("hasNextPage", true);
+        data.putObject("r0").set("pullRequest", partialLabels);
+        ObjectNode missingChecks = row(2);
+        missingChecks.remove("statusCheckRollup");
+        data.putObject("r1").set("pullRequest", missingChecks);
+        ObjectNode unknownChecks = row(3);
+        unknownChecks.withObject("/statusCheckRollup").put("state", "UNRECOGNIZED");
+        data.putObject("r2").set("pullRequest", unknownChecks);
+        data.putObject("r3").set("pullRequest", row(4));
+        data.putObject("r4").set("pullRequest", row(5));
+        response.putArray("errors").addObject().put("message", "Unavailable").putArray("path").add("r3").add("pullRequest").add("statusCheckRollup");
+        fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess(response.toString(), MediaType.APPLICATION_JSON));
+
+        List<PullRequestRef> refs = IntStream.rangeClosed(1, 5).mapToObj(number -> PullRequestRef.of("owner", "repo", number)).toList();
+        assertThat(fixture.client().fetchSummaries("pat", refs, "viewer")).extracting(summary -> summary.pullRequest().number()).containsExactly(5);
+        fixture.server().verify();
+    }
+
+    @Test
+    void mapsAllCheckStatesAndDistinguishesNoChecks()
+            throws Exception
+    {
+        Fixture fixture = fixture();
+        Map<String, CiStatus> states = ImmutableMap.of("SUCCESS", CiStatus.PASSING, "PENDING", CiStatus.PENDING, "EXPECTED", CiStatus.PENDING,
+                "FAILURE", CiStatus.FAILING, "ERROR", CiStatus.FAILING, "NONE", CiStatus.NONE);
+        for (String state : states.keySet()) {
+            ObjectNode row = row(1);
+            if (state.equals("NONE")) {
+                row.putNull("statusCheckRollup");
+            }
+            else {
+                row.withObject("/statusCheckRollup").put("state", state);
+            }
+            fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
+        }
+        for (Map.Entry<String, CiStatus> entry : states.entrySet()) {
+            assertThat(fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst().ciStatus()).isEqualTo(entry.getValue());
+        }
+        fixture.server().verify();
+    }
+
+    @Test
+    void normalizesReviewRequiredWithoutLosingDismissedReviewEvidence()
+            throws Exception
+    {
+        Fixture fixture = fixture();
+        ObjectNode noDecision = row(1).putNull("reviewDecision");
+        noDecision.withObject("/viewerReviews").withArray("nodes").add(MAPPER.readTree("""
+                {"databaseId":42,"state":"DISMISSED","submittedAt":"2026-09-20T10:00:00Z",
+                  "author":{"login":"viewer","avatarUrl":"https://avatars/viewer"},"commit":{"oid":"reviewed-sha"}}
+                """));
+        ObjectNode required = noDecision.deepCopy().put("reviewDecision", "REVIEW_REQUIRED");
+        ObjectNode approved = noDecision.deepCopy().put("reviewDecision", "APPROVED");
+        ObjectNode changesRequested = noDecision.deepCopy().put("reviewDecision", "CHANGES_REQUESTED");
+        for (ObjectNode row : ImmutableList.of(noDecision, required, approved, changesRequested)) {
+            fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
+        }
+
+        GitHubPullRequestSummary baseline = fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
+        GitHubPullRequestSummary pending = fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
+
+        assertThat(baseline.reviewDecision()).isEmpty();
+        assertThat(pending.reviewDecision()).isEmpty();
+        assertThat(pending.activityVersion()).isEqualTo(baseline.activityVersion());
+        assertThat(pending.viewerReview()).isEqualTo(baseline.viewerReview());
+        assertThat(pending.viewerReview().orElseThrow().state()).isEqualTo("DISMISSED");
+        assertThat(fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst().reviewDecision()).contains("APPROVED");
+        assertThat(fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst().reviewDecision()).contains("CHANGES_REQUESTED");
+        fixture.server().verify();
+    }
+
+    @Test
+    void tracksTimelineAndIndividualCheckProgressWithoutPullRequestUpdateChanges()
+            throws Exception
+    {
+        Fixture fixture = fixture();
+        ObjectNode original = row(1);
+        ObjectNode checksChanged = original.deepCopy();
+        checksChanged.withObject("/statusCheckRollup/contexts").withArray("checkRunCountsByState")
+                .addObject().put("state", "SUCCESS").put("count", 1);
+        ObjectNode timelineChanged = original.deepCopy();
+        timelineChanged.withObject("/activity").put("updatedAt", "2026-09-21T12:00:00Z");
+        ObjectNode headChanged = original.deepCopy().put("headRefOid", "changed-head");
+        ObjectNode mergeChanged = original.deepCopy().put("mergeStateStatus", "BLOCKED");
+        ObjectNode reviewChanged = original.deepCopy().put("reviewDecision", "CHANGES_REQUESTED");
+        List<ObjectNode> changes = ImmutableList.of(checksChanged, timelineChanged, headChanged, mergeChanged, reviewChanged);
+        for (ObjectNode row : ImmutableList.<ObjectNode>builder().add(original).addAll(changes).build()) {
+            fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
+        }
+        String initial = fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst().activityVersion();
+        for (int index = 0; index < changes.size(); index++) {
+            assertThat(fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst().activityVersion()).isNotEqualTo(initial);
+        }
+        fixture.server().verify();
+    }
+
+    @Test
+    void rejectsAQueryLevelFailure()
+    {
+        Fixture fixture = fixture();
+        fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess("""
+                {"data":{},"errors":[{"message":"Query failed"}]}
+                """, MediaType.APPLICATION_JSON));
+        assertThatThrownBy(() -> fixture.client().fetchSummaries("pat", ImmutableList.of(REF), "viewer"))
+                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("GraphQL request failed");
+        fixture.server().verify();
+    }
+
+    @Test
+    void findsAuthorRepliesBeyondTheFirstThreadAndNewestCommentPageThenCachesTheAnswer()
+    {
+        Fixture fixture = fixture();
+        fixture.server().expect(requestTo(ENDPOINT)).andExpect(request -> {
+            var payload = MAPPER.readTree(((MockClientHttpRequest) request).getBodyAsString());
+            assertThat(payload.path("query").asText()).contains("reviewThreads(first:100", "root:comments(first:1)", "comments(last:100)")
+                    .doesNotContain("body", "reactions", "diffHunk");
+            assertThat(payload.path("variables").path("after").isNull()).isTrue();
+        }).andRespond(withSuccess("""
+                {"data":{"repository":{"pullRequest":{"reviewThreads":{
+                  "nodes":[{"id":"OTHER_THREAD","root":{"nodes":[{"author":{"login":"someone-else"}}]}}],
+                  "pageInfo":{"hasNextPage":true,"endCursor":"next-thread"}}}}}}
+                """, MediaType.APPLICATION_JSON));
+        fixture.server().expect(requestTo(ENDPOINT)).andExpect(request -> {
+            var payload = MAPPER.readTree(((MockClientHttpRequest) request).getBodyAsString());
+            assertThat(payload.path("variables").path("after").asText()).isEqualTo("next-thread");
+        }).andRespond(withSuccess("""
+                {"data":{"repository":{"pullRequest":{"reviewThreads":{
+                  "nodes":[{"id":"VIEWER_THREAD","root":{"nodes":[{"author":{"login":"viewer"}}]},
+                    "comments":{"nodes":[{"createdAt":"2026-09-23T10:00:00Z","author":{"login":"someone-else"},"replyTo":{"id":"ROOT"}}],
+                      "pageInfo":{"hasPreviousPage":true,"startCursor":"older-comments"}}}],
+                  "pageInfo":{"hasNextPage":true,"endCursor":"unneeded-next-thread"}}}}}}
+                """, MediaType.APPLICATION_JSON));
+        fixture.server().expect(requestTo(ENDPOINT)).andExpect(request -> {
+            var payload = MAPPER.readTree(((MockClientHttpRequest) request).getBodyAsString());
+            assertThat(payload.path("variables").path("id").asText()).isEqualTo("VIEWER_THREAD");
+            assertThat(payload.path("variables").path("before").asText()).isEqualTo("older-comments");
+        }).andRespond(withSuccess("""
+                {"data":{"node":{"comments":{
+                  "nodes":[{"createdAt":"2026-09-21T10:00:00Z","author":{"login":"author"},"replyTo":{"id":"ROOT"}}],
+                  "pageInfo":{"hasPreviousPage":true,"startCursor":"unneeded-older-page"}}}}}
+                """, MediaType.APPLICATION_JSON));
+
+        Instant reviewedAt = Instant.parse("2026-09-20T10:00:00Z");
+        assertThat(fixture.client().hasAuthorReplyAfter("pat", REF, "viewer", "author", reviewedAt, "activity-1")).isTrue();
+        assertThat(fixture.client().hasAuthorReplyAfter("pat", REF, "VIEWER", "AUTHOR", reviewedAt, "activity-1")).isTrue();
+        fixture.server().verify();
+    }
+
+    @Test
+    void cachesOnlyCompleteReplyAnswersAndChecksAgainWhenActivityChanges()
+    {
+        Fixture fixture = fixture();
+        fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess("""
+                {"data":{},"errors":[{"message":"Unavailable","path":["repository","pullRequest","reviewThreads"]}]}
+                """, MediaType.APPLICATION_JSON));
+        fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess("""
+                {"data":{"repository":{"pullRequest":{"reviewThreads":{
+                  "nodes":[{"id":"VIEWER_THREAD","root":{"nodes":[{"author":{"login":"viewer"}}]},
+                    "comments":{"nodes":[{"createdAt":"2026-09-19T10:00:00Z","author":{"login":"author"},"replyTo":{"id":"ROOT"}}],
+                      "pageInfo":{"hasPreviousPage":false,"startCursor":null}}}],
+                  "pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}
+                """, MediaType.APPLICATION_JSON));
+        fixture.server().expect(requestTo(ENDPOINT)).andRespond(withSuccess("""
+                {"data":{"repository":{"pullRequest":{"reviewThreads":{
+                  "nodes":[{"id":"VIEWER_THREAD","root":{"nodes":[{"author":{"login":"viewer"}}]},
+                    "comments":{"nodes":[{"createdAt":"2026-09-21T10:00:00Z","author":{"login":"author"},"replyTo":{"id":"ROOT"}}],
+                      "pageInfo":{"hasPreviousPage":false,"startCursor":null}}}],
+                  "pageInfo":{"hasNextPage":false,"endCursor":null}}}}}}
+                """, MediaType.APPLICATION_JSON));
+
+        Instant reviewedAt = Instant.parse("2026-09-20T10:00:00Z");
+        assertThatThrownBy(() -> fixture.client().hasAuthorReplyAfter("pat", REF, "viewer", "author", reviewedAt, "activity-1"))
+                .isInstanceOf(ResponseStatusException.class);
+        assertThat(fixture.client().hasAuthorReplyAfter("pat", REF, "viewer", "author", reviewedAt, "activity-1")).isFalse();
+        assertThat(fixture.client().hasAuthorReplyAfter("pat", REF, "viewer", "author", reviewedAt, "activity-1")).isFalse();
+        assertThat(fixture.client().hasAuthorReplyAfter("pat", REF, "viewer", "author", reviewedAt, "activity-2")).isTrue();
+        fixture.server().verify();
+    }
+
+    private static ObjectNode row(int number)
+            throws Exception
+    {
+        return (ObjectNode) MAPPER.readTree("""
+                {"databaseId":"123","number":%d,"title":"Summary","url":"https://github.com/owner/repo/pull/%d",
+                 "createdAt":"2026-09-19T10:00:00Z","updatedAt":"2026-09-21T11:00:00Z","closedAt":null,"mergedAt":null,
+                 "state":"OPEN","isDraft":false,"author":{"login":"author"},"repository":{"nameWithOwner":"owner/repo"},
+                 "additions":15,"deletions":3,"comments":{"totalCount":4},"headRefName":"topic","headRefOid":"new-head",
+                 "mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED",
+                 "labels":{"nodes":[{"name":"bug","color":"ffffff"}],"pageInfo":{"hasNextPage":false}},
+                 "reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"User","login":"viewer"}}],"pageInfo":{"hasNextPage":false}},
+                 "viewerReviews":{"nodes":[]},"commits":{"nodes":[{"commit":{"committedDate":"2026-09-21T10:00:00Z"}}]},
+                 "statusCheckRollup":{"state":"PENDING","contexts":{"checkRunCountsByState":[{"state":"IN_PROGRESS","count":1}],"statusContextCountsByState":[]}},
+                 "activity":{"updatedAt":"2026-09-21T11:00:00Z","totalCount":5},
+                 "reviewRequested":{"nodes":[{"createdAt":"2026-09-21T11:00:00Z","requestedReviewer":{"__typename":"User","login":"viewer"}}]}}
+                """.formatted(number, number));
+    }
+
+    private static String response(ObjectNode row)
+    {
+        ObjectNode response = MAPPER.createObjectNode();
+        response.putObject("data").putObject("r0").set("pullRequest", row);
+        return response.toString();
+    }
+
+    private static Fixture fixture()
+    {
+        RestClient.Builder builder = RestClient.builder().baseUrl(ENDPOINT);
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        return new Fixture(new GitHubPullRequestSummaryClient(builder.build()), server);
+    }
+
+    private record Fixture(GitHubPullRequestSummaryClient client, MockRestServiceServer server) {}
+}

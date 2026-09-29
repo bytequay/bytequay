@@ -286,6 +286,11 @@ public class PullRequestSnapshotService
                 .map(PrRawDetail::updatedAt);
     }
 
+    boolean detailIsIncomplete(long prId)
+    {
+        return details.find(prId).filter(detail -> !detail.unavailableSections().isEmpty()).isPresent();
+    }
+
     Optional<String> findDetailEtag(long prId)
     {
         return details.findEtag(prId);

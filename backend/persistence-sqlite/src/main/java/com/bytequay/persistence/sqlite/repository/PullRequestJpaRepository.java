@@ -29,9 +29,11 @@ import java.util.Set;
 public interface PullRequestJpaRepository
         extends JpaRepository<PullRequestEntity, Long>
 {
-    @Query("SELECT e FROM PullRequestEntity e WHERE e.origin IN ('AUTHORED', 'REVIEW_REQUESTED') "
+    @Query("SELECT e FROM PullRequestEntity e WHERE e.dashboardVisible = true OR e.origin IN ('AUTHORED', 'REVIEW_REQUESTED') "
             + "OR e.monitoredAt IS NOT NULL OR e.reviewRequestedAt IS NOT NULL "
             + "OR EXISTS (SELECT v.prId FROM PrViewStateEntity v WHERE v.prId = e.id AND v.reviewedAt IS NOT NULL) "
+            + "OR (e.workspaceVisible = true AND EXISTS (SELECT w.id FROM WorkspaceEntity w "
+            + "WHERE w.watched = true AND LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo))))) "
             + "ORDER BY e.updatedAt DESC, e.id DESC")
     List<PullRequestEntity> findAttentionCandidates();
 

@@ -61,7 +61,8 @@ describe('task attention', () => {
     const facts = activity({ latestTurn: { id: 'turn-2', state: 'RUNNING', endedAt: null } });
     const detail = taskAttentionItem(running, facts, WORKSPACE);
     expect(detail.key).toBe('task:t');
-    expect(taskAttentionItems([running], { t: facts }, WORKSPACE)).toEqual([]);
+    expect(taskAttentionItems([running], { t: facts }, WORKSPACE)).toEqual([detail]);
+    expect(attentionSummary(detail).tag.label).toBe('Running');
     const prompted = handledEntry(detail, 'ack', null, 'Prompted');
     const finished: AgentTaskDto = { ...running, mutationClaim: null };
     const done = activity({ latestTurn: { id: 'turn-2', state: 'COMPLETED', endedAt: '2026-09-27T12:00:00Z' } });
@@ -72,18 +73,31 @@ describe('task attention', () => {
     expect(stillHandled(prompted, card, Date.parse('2026-09-27T12:01:00Z'))).toBe(false);
   });
 
-  it('asks for the user while a task waits on an approval, fails, or finishes a turn, and stays quiet while it works', () => {
+  it('includes every unarchived task update with a truthful state', () => {
     const finished = activity({ latestTurn: { id: 'turn-1', state: 'COMPLETED', endedAt: '2026-09-27T10:00:00Z' } });
     expect(taskAttentionKind(task('t'), activity({ pendingApproval: COMMAND }))).toBe('approval');
     expect(taskAttentionKind(task('t'), finished)).toBe('finished');
     expect(taskAttentionKind(task('t'), activity({ latestTurn: { id: 'turn-1', state: 'FAILED', endedAt: '2026-09-27T10:00:00Z' } }))).toBe('failed');
     expect(taskAttentionKind(task('t', { mutationClaim: { kind: 'RECOVERY', ownerId: 'x', acquiredAt: '2026-09-27T10:00:00Z' } }), finished)).toBe('failed');
-    // A running turn, a cancelled one, a finished or archived task, and a fresh task say nothing.
-    expect(taskAttentionKind(task('t', { mutationClaim: { kind: 'TURN', ownerId: 'turn-2', acquiredAt: '2026-09-27T10:00:00Z' } }), finished)).toBeNull();
-    expect(taskAttentionKind(task('t'), activity({ latestTurn: { id: 'turn-1', state: 'CANCELLED', endedAt: '2026-09-27T10:00:00Z' } }))).toBeNull();
-    expect(taskAttentionKind(task('t', { state: 'COMPLETED' }), finished)).toBeNull();
+    // Running, cancelled, fresh and completed tasks remain visible; archived tasks do not.
+    expect(taskAttentionKind(task('t', { mutationClaim: { kind: 'TURN', ownerId: 'turn-2', acquiredAt: '2026-09-27T10:00:00Z' } }), finished)).toBe('updated');
+    expect(taskAttentionKind(task('t'), activity({ latestTurn: { id: 'turn-1', state: 'CANCELLED', endedAt: '2026-09-27T10:00:00Z' } }))).toBe('updated');
+    expect(taskAttentionKind(task('t', { state: 'COMPLETED' }), finished)).toBe('finished');
     expect(taskAttentionKind(task('t', { archivedAt: '2026-09-27T11:00:00Z' }), finished)).toBeNull();
-    expect(taskAttentionKind(task('t'), null)).toBeNull();
+    expect(taskAttentionKind(task('t'), null)).toBe('updated');
+  });
+
+  it('uses the latest task or message change and wakes an acknowledged running task', () => {
+    const running = task('t', { updatedAt: '2026-09-27T11:00:00Z',
+      mutationClaim: { kind: 'TURN', ownerId: 'turn-2', acquiredAt: '2026-09-27T11:00:00Z' } });
+    const previous = activity({ latestTurn: { id: 'turn-1', state: 'COMPLETED', endedAt: '2026-09-27T10:00:00Z' } });
+    const original = taskAttentionItem(running, previous, WORKSPACE);
+    expect(original.updatedAt).toBe(running.updatedAt);
+    const changed = taskAttentionItem(running, { ...previous, lastMessage: {
+      author: 'AGENT', text: 'Tests are running.', at: '2026-09-27T12:00:00Z', turnId: 'turn-2',
+    } }, WORKSPACE);
+    expect(changed.updatedAt).toBe('2026-09-27T12:00:00Z');
+    expect(stillHandled(handledEntry(original, 'ack', null, 'Viewed'), changed, 0)).toBe(false);
   });
 
   it('draws an approval as the exact command, names the lane, and links the task to its ticket, pull request and issue', () => {

@@ -37,8 +37,9 @@ describe('Jira development', () => {
     expect(jiraLocation('#/home')).toBeNull();
     expect(jiraRoute(source)).not.toContain('body=');
     expect(jiraRoute(source)).not.toContain('title=');
-    const items = jiraAttentionItems([jiraIssue, { ...jiraIssue, cloudId: 'other' }, { ...jiraIssue, isGoal: true }, { ...jiraIssue, hasChildren: true }, { ...jiraIssue, task: { id: 'task', workspaceId: 'ws' } }]);
-    expect(items.map(item => item.key)).toEqual(['jira:site:1007', 'jira:other:1007']);
+    const items = jiraAttentionItems([jiraIssue, { ...jiraIssue, cloudId: 'other' }, { ...jiraIssue, id: 'goal', isGoal: true }, { ...jiraIssue, id: 'parent', hasChildren: true }, { ...jiraIssue, id: 'linked', task: { id: 'task', workspaceId: 'ws' } }]);
+    expect(items.map(item => item.key)).toEqual(['jira:site:1007', 'jira:other:1007', 'jira:site:goal', 'jira:site:parent', 'jira:site:linked']);
+    expect(items.map(item => item.canStartDevelopment)).toEqual([true, true, false, false, false]);
     expect(items[0].reference).toBe('ENG-1007');
   });
   it('uses a selected Goal icon and cannot run parents', () => {

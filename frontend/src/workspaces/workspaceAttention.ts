@@ -18,7 +18,7 @@ import { useJiraAttention } from '../jira/attention';
 import { getCached, setCached } from '../dataCache';
 import {
   ATTENTION_SEED,
-  assignedIssues,
+  issueAttentionItems,
   attentionCandidates,
   loadHandled,
   saveHandled,
@@ -97,7 +97,7 @@ export function useWorkspaceAttention(workspaceId: string, repository: string, t
       const current = ++request;
       void window.bridge.fetchWorkspaceIssueAttention(workspaceId).then(snapshot => {
         if (!active || current !== request) return;
-        const assigned = assignedIssues(snapshot, workspaceId, login);
+        const assigned = issueAttentionItems(snapshot, workspaceId, login);
         setCached(ATTENTION_SEED.issues, (getCached<AttentionItem[]>(ATTENTION_SEED.issues) ?? [])
           .filter(item => item.workspaceId !== workspaceId).concat(assigned));
         setIssues(assigned);

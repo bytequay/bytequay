@@ -127,7 +127,8 @@ describe('AttentionList', () => {
     const closed = { ...issueItem(99), issueState: 'closed' };
     const ticket = jiraAttentionItems([jiraIssue])[0];
     const done = { ...ticket, jira: { ...jiraIssue, status: { id: 'done', name: 'Done', category: 'done' } } };
-    for (const item of [closed, done]) {
+    for (const item of [closed, done, { ...issueItem(99), canStartDevelopment: false },
+      ...jiraAttentionItems([{ ...jiraIssue, isGoal: true }, { ...jiraIssue, hasChildren: true }, { ...jiraIssue, task: { id: 'task', workspaceId: 'ws' } }])]) {
       const html = list([item]);
       expect(html).toContain(item.title);
       expect(html).not.toContain('aria-label="Start development');
@@ -197,7 +198,7 @@ describe('AttentionList', () => {
     const html = list([ticket]);
 
     expect(html).toContain('class="card atn-card is-jira"');
-    expect(html).toMatch(/class="atn-card__head">.*class="pill is-outline">Assigned to you<.*class="atn-card__body"/);
+    expect(html).toMatch(/class="atn-card__head">.*class="pill is-outline">To do<.*class="atn-card__body"/);
     expect(html).toContain('<button class="card-fold" type="button" aria-expanded="false" title="Show details">');
     expect(html).toMatch(/<span class="pill is-blue is-square is-struck">In Progress<\/span><svg[^>]*aria-label="to"[^>]*>.*?<\/svg><span class="pill is-red is-square">Blocked<\/span>/);
     expect(html).toContain('<div class="markdown-body"><p>Staging is mid-upgrade.</p></div>');
@@ -235,8 +236,11 @@ describe('AttentionList', () => {
   });
 
   it('puts the newest update first in both Homes even when four older review requests precede it', () => {
+    vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{
+      id: 'trusted', name: 'Maintainers', description: '', repositories: [], members: [{ githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }],
+    }] }, loading: false, error: null });
     const items = [1, 2, 3, 4].map(number => prItem(number));
-    items.push({ ...prItem(5, 'updated'), updatedAt: '2026-09-28T13:00:00Z' });
+    items.push({ ...prItem(5, 'updated'), author: 'outsider', updatedAt: '2026-09-28T13:00:00Z' });
     for (const variant of ['home', 'workspace'] as const) {
       const html = list(items, {}, variant);
       expect([...html.matchAll(/class="atn-card__key">#(\d+)</g)].map(match => Number(match[1]))).toEqual([5, 1, 2, 3]);

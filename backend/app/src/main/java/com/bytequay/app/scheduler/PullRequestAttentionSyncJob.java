@@ -41,7 +41,7 @@ public class PullRequestAttentionSyncJob
         this.settings = requireNonNull(settings, "settings is null");
     }
 
-    @Scheduled(fixedDelay = 15_000, scheduler = "attentionScheduler")
+    @Scheduled(fixedDelay = 60_000, scheduler = "attentionScheduler")
     public void tick()
     {
         if (!credentials.isGitHubAccountConfigured() || settings.inQuietHours()) {

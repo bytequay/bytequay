@@ -65,8 +65,7 @@ public class SelectedPullRequestReader
      * @throws RuntimeException the existing refresh error when no cached detail is available
      *
      * On failure, the original cached detail and timestamps are retained even if the refresh partially
-     * wrote local state. Selected reads may retry on later calls; background sync's retry backoff does
-     * not apply. This method never marks a PR viewed or starts a repository-wide refresh.
+     * wrote local state. Selected reads may retry on later calls. This method never marks a PR viewed or starts a repository-wide refresh.
      */
     public Read read(String repo, int number, Section section)
     {

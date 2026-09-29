@@ -19,6 +19,8 @@ import type { TeamCircle } from './types';
 import { taskAttentionItem } from '../agents/attention';
 import { previewTask } from '../agents/fixtures/previewBridge';
 import type { PullRequestDto } from '../types';
+import { jiraAttentionItems } from '../jira/attention';
+import { jiraIssue } from '../jira/fixtures/jira';
 
 const circles: TeamCircle[] = [{ id: 'one', name: 'Maintainers', description: '', repositories: ['BYTEQUAY/APP'], members: [{ githubId: 1, login: 'Alice', name: 'Alice', avatarUrl: '' }] }];
 const preference = { circles, viewerLogin: 'jack' };
@@ -43,13 +45,13 @@ describe('private team priority', () => {
     expect(teamAttentionMatch(item(1), [{ ...circles[0], members: [] }], 'jack')).toBeNull();
   });
 
-  it('promotes candidates beyond the old cap and reserves the oldest other request before filling unused slots', () => {
+  it('keeps the newest updates before older team cards and old review requests', () => {
     const others = [1, 2, 3, 4].map(number => item(number, 'bob'));
     others[2].pr = { ...others[2].pr, reviewRequestedAt: '2026-09-01T00:00:00Z' };
     const trusted = [5, 6, 7, 8].map(number => item(number, 'alice', '2026-09-27T00:00:00Z'));
     const live = [...others, ...trusted];
-    expect(attentionCards(live, 'all', 4, preference).cards.map(row => row.number)).toEqual([5, 6, 7, 3]);
-    expect(attentionCards([...others, trusted[0]], 'all', 4, preference).cards.map(row => row.number)).toEqual([5, 3, 1, 2]);
+    expect(attentionCards(live, 'all', 4, preference).cards.map(row => row.number)).toEqual([1, 2, 3, 4]);
+    expect(attentionCards([...others, trusted[0]], 'all', 4, preference).cards.map(row => row.number)).toEqual([1, 2, 3, 4]);
     expect(attentionCards(trusted, 'all', 4, preference).cards.map(row => row.number)).toEqual([5, 6, 7, 8]);
     expect(live[0]).toBe(others[0]);
     expect(trusted[0].updatedAt).toBe('2026-09-27T00:00:00Z');
@@ -65,16 +67,20 @@ describe('private team priority', () => {
     expect(selected.counts).toEqual({ all: 4, pr: 3, issue: 1, jira: 0, task: 0 });
   });
 
-  it('preserves protected agent needs and due reminders ahead of preference', () => {
-    const agent = { ...taskAttentionItem(previewTask('workspace', '1'), null, { id: 'workspace', name: '', repository: 'bytequay/app' }),
-      kind: 'approval' as const, updatedAt: '2026-09-01T00:00:00Z' };
-    const reminder = item(21, 'bob', '2026-09-02T00:00:00Z');
-    const live = [...[1, 2, 3, 4].map(number => item(number)), reminder, agent];
-    expect(attentionCards(live, 'all', 4, { ...preference, protectedKeys: new Set([reminder.key]) }).cards.map(row => row.key))
-      .toEqual([reminder.key, agent.key, live[0].key, live[1].key]);
+  it('ranks all four sources by updates even when older team and approval cards exist', () => {
+    const newest = item(1, 'bob', '2026-09-28T15:00:00Z');
+    const issue: AttentionItem = { ...item(2, 'bob', '2026-09-28T14:00:00Z'), type: 'issue', pr: null };
+    const [ticket] = jiraAttentionItems([{ ...jiraIssue, updatedAt: '2026-09-28T13:00:00Z' }]);
+    const task = taskAttentionItem({ ...previewTask('workspace', '1'), updatedAt: '2026-09-28T12:00:00Z' }, null,
+      { id: 'workspace', name: '', repository: 'bytequay/app' });
+    const oldApproval = { ...task, key: 'old-task', kind: 'approval' as const, updatedAt: '2026-09-01T00:00:00Z' };
+    const oldTeam = item(3, 'alice', '2026-09-01T00:00:00Z');
+    const selected = attentionCards([oldTeam, oldApproval, task, ticket, issue, newest], 'all', 4, preference);
+    expect(selected.cards.map(row => row.key)).toEqual([newest.key, issue.key, ticket.key, task.key]);
+    expect(selected.counts).toEqual({ all: 6, pr: 2, issue: 1, jira: 1, task: 2 });
   });
 
-  it('applies preference only to live rows and never wakes acknowledged or timed-snoozed members', () => {
+  it('keeps team filtering limited to live rows and never wakes acknowledged or timed-snoozed members', () => {
     const now = Date.parse('2026-09-28T13:00:00Z');
     const live = [item(1), item(2), item(3), item(4, 'bob')];
     const handled = { [live[0].key]: handledEntry(live[0], 'ack', null, 'Viewed'), [live[1].key]: handledEntry(live[1], 'snooze', now + 1, 'soon') };

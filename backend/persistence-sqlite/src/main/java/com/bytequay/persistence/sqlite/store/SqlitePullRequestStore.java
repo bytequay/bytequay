@@ -398,7 +398,10 @@ public class SqlitePullRequestStore
                 return;
             }
             Map<String, String> previousFingerprints = Optional.ofNullable(entity.getActivityFingerprints()).orElse(ImmutableMap.of());
-            if (activityFingerprints.entrySet().stream().anyMatch(entry -> previousFingerprints.containsKey(entry.getKey())
+            // Review decisions use different summary/detail semantics; their source fingerprints detect actual review changes.
+            if (entity.getCiStatus() != ciStatus
+                    || !Objects.equals(entity.getHeadPushedAt(), headPushedAt)
+                    || activityFingerprints.entrySet().stream().anyMatch(entry -> previousFingerprints.containsKey(entry.getKey())
                     && !Objects.equals(previousFingerprints.get(entry.getKey()), entry.getValue()))) {
                 entity.setActivityAt(Instant.now());
             }

@@ -52,19 +52,18 @@ Keep existing source close and task completion behavior. V1 does not introduce a
 
 ### Needs attention
 
-Use the existing assigned-issue rule with minimal additional filters:
-
-`open issue + assigned to signed-in user + not Goal + no linked development + not currently handled/snoozed`
-
-Assignment is a recommendation filter, not a prerequisite for manually starting another accessible issue from its issue card.
+Needs attention includes updates from every cached issue in a watched repository,
+including unassigned issues, Goals, and issues with linked development. Ack and
+snooze continue to control visibility. The open-issue cache remains the source;
+reading attention does not fetch remote issue details.
 
 - Both global Home and workspace Home use the same eligibility and action logic.
-- Show **Assigned to you** as the reason, with **Start development** and the existing Open/Ack/Snooze actions. Do not present these items as value-ranked or verified unfixed.
-- After launch, remove the unstarted-work suggestion. The source issue still exposes **View task**, and existing task/PR surfaces handle ongoing work.
-- Goal marking removes the start suggestion; unmarking reevaluates normal eligibility without clearing Ack/Snooze.
+- Show assignment only when it matches the viewer. Preserve the existing Open/Ack/Snooze actions; development availability still follows Goal and linked-task metadata.
+- After launch, the source issue retains its updates and exposes **View task**.
+- Goal marking removes the start action without hiding subsequent issue updates or clearing Ack/Snooze.
 - Preserve current visible row limits and PR ordering. Do not add desktop notifications or change notification preferences.
 - Deduplicate repeated upstream issues on global Home using canonical source identity. Keep the displayed workspace route explicit and stable; never start in an unrelated last-active workspace. Reuse the existing workspace chooser if a choice is required.
-- Filter the cached issue set before applying the candidate limit. Fix the current first-100-before-assignment blind spot with a narrow cached-query filter, rather than adding a new discovery pipeline or GitHub crawler.
+- Read the whole cached repository issue set before applying shared card ranking and limits, so the first 100 rows cannot hide an update.
 - Refresh the two views after classification, successful launch and issue-sync completion. Prefer existing invalidation/event mechanisms; if a cached refresh fallback is needed, reuse the current attention refresh lifecycle.
 - Correct mixed-list navigation minimally: separate **All pull requests** and **All issues** destinations using existing screens instead of sending every “See all” action to PRs. No new combined page is required in v1.
 
@@ -101,11 +100,11 @@ An open issue's cache row can be removed after closure or sync. Classification a
 
 **Depends on:** Changes 1 and 2.
 
-**Build:** shared eligibility and development actions, global deduplication, cached-query filtering before limits, refresh/invalidation, and correct existing-screen navigation for PR versus issue overflow.
+**Build:** shared update eligibility and development actions, global deduplication, cached reads before card limits, refresh/invalidation, and correct existing-screen navigation for PR versus issue overflow.
 
 **Likely locations:** `home/attention.ts`, `AttentionList`, `AttentionPreview`, `HomePage`, `AgentHome`, and the existing cached-issue query.
 
-**Complete when:** an eligible assigned issue appears in both Homes and starts through the same composer; marking as Goal or starting it removes the new-work suggestion everywhere; Ack/Snooze and PR attention retain their behavior.
+**Complete when:** cached issue updates appear in both Homes and eligible issues start through the same composer; marking as Goal or starting it changes the action without suppressing later updates; Ack/Snooze retain their behavior.
 
 Each change should be independently reviewable. Keep all three in the v1 release acceptance boundary.
 
@@ -118,7 +117,7 @@ Use focused checks for persistence, admission/replay, and attention eligibility 
 3. Normal launch retains upstream identity while using the intended checkout/fork and current automation settings.
 4. Double submit and retry produce one task/first turn and retain the original accepted snapshot.
 5. Source provenance remains readable after closure or cache removal; earlier linked tasks survive classification changes.
-6. Both Homes agree on assignment, Goal exclusion, linked-work suppression, deduplication and Ack/Snooze. Include an eligible issue beyond the former first 100 cached rows.
+6. Both Homes include updates regardless of assignment, Goal status, or linked work, while preserving the corresponding action restrictions, deduplication and Ack/Snooze. Include an issue beyond the former first 100 cached rows.
 7. Existing free-text creation, PR-originated tasks, review and task completion remain valid.
 8. Both providers receive the task-bound issue tool on initial and resumed sessions. Tool reads use only ByteQuay data, reject source/task selectors, disclose unavailable context and retain the accepted issue after cache removal.
 9. The source card stays above the composer and supports hover/focus preview; the initial request card replaces only its own user message, without hiding subsequent instructions, images or review requests.

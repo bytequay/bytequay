@@ -26,6 +26,8 @@ import com.bytequay.app.repository.github.GitHubMergeClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient.AttentionPrRef;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullRequestFetch;
+import com.bytequay.app.repository.github.GitHubPullRequestSummary;
+import com.bytequay.app.repository.github.GitHubPullRequestSummaryClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -64,10 +66,12 @@ import com.bytequay.core.domain.RepositoryPickerUser;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.StoredPrDiff;
 import com.bytequay.core.domain.UserProfile;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrDiffStore;
 import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -87,13 +91,13 @@ import org.springframework.boot.web.server.WebServer;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -103,7 +107,9 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -119,6 +125,7 @@ import static org.mockito.Mockito.when;
 class TestPullRequestService
 {
     @Mock private GitHubPullRequestReadClient gitHub;
+    @Mock private GitHubPullRequestSummaryClient summaries;
     @Mock private GitHubPullRequestWriteClient writes;
     @Mock private GitHubRepoClient repositories;
     @Mock private GitHubMergeClient merges;
@@ -130,6 +137,7 @@ class TestPullRequestService
     @Mock private PrViewStateStore viewStateStore;
     @Mock private CredentialService credentialService;
     @Mock private WorkspaceMetadataService metadata;
+    @Mock private WorkspaceStore workspaces;
     @Mock private RecentTouchRecorder recent;
     @Mock private WebServerApplicationContext applicationContext;
     @Mock private WebServer server;
@@ -146,7 +154,7 @@ class TestPullRequestService
         service = new PullRequestService(
                 gitHub, writes, repositories, merges, accounts, store, snapshots,
                 new PullRequestDetailFetcher(gitHub, actions, Runnable::run),
-                viewStateStore, recent, credentialService, metadata, Runnable::run, applicationContext);
+                viewStateStore, recent, credentialService, metadata, summaries, workspaces, applicationContext);
         org.mockito.Mockito.lenient().when(diffStore.findDefaultEtags(anyLong())).thenReturn(PrDiffEtags.none());
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubToken()).thenReturn("pat");
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubCredential()).thenReturn(
@@ -190,17 +198,19 @@ class TestPullRequestService
     void readsCommitsSinceTheLastReviewOnlyForPullRequestsWhoseHeadMovedSince()
     {
         Instant requested = REVIEWED_AT.minusSeconds(3600);
-        PullRequest reviewedThenPushed = attentionPullRequest(12, REVIEWED_AT, requested, REVIEWED_AT.plusSeconds(60), null);
+        PullRequest reviewedThenPushed = attentionPullRequest(12, REVIEWED_AT, requested, REVIEWED_AT.plusSeconds(60), null, REVIEWED_AT.plusSeconds(60));
         PullRequest requestedThenPushed = attentionPullRequest(13, null, requested, requested.plusSeconds(60), null);
         PullRequest untouchedSinceReview = attentionPullRequest(14, REVIEWED_AT, requested, REVIEWED_AT.minusSeconds(60), null);
         PullRequest neverAsked = attentionPullRequest(15, null, null, REVIEWED_AT, null);
         List<PrCommitLine> commits = ImmutableList.of(new PrCommitLine("abc", "Fix it", Optional.of("alice"), REVIEWED_AT.plusSeconds(60)));
+        when(detailStore.findSyncedAt("owner/repo", 12)).thenReturn(Optional.of(REVIEWED_AT.plusSeconds(60)));
         when(detailStore.findCommitsAfter(ImmutableMap.of(12L, REVIEWED_AT, 13L, requested))).thenReturn(ImmutableMap.of(12L, commits));
 
         assertThat(service.findCachedCommitsSinceReview(ImmutableList.of(reviewedThenPushed, requestedThenPushed, untouchedSinceReview, neverAsked)))
                 .containsExactlyEntriesOf(ImmutableMap.of(12L, commits));
 
         verify(detailStore).findCommitsAfter(ImmutableMap.of(12L, REVIEWED_AT, 13L, requested));
+        verify(detailStore).findSyncedAt("owner/repo", 12);
         verifyNoMoreInteractions(detailStore);
         verifyNoInteractions(gitHub, writes, repositories, merges, actions, accounts, diffStore, metadata);
     }
@@ -208,8 +218,9 @@ class TestPullRequestService
     @Test
     void namesTheLatestFailingChecksOfFailingPullRequestsOnly()
     {
-        PullRequest failing = attentionPullRequest(12, null, null, null, PullRequestDetail.CiStatus.FAILING);
+        PullRequest failing = attentionPullRequest(12, null, null, null, PullRequestDetail.CiStatus.FAILING, REVIEWED_AT);
         PullRequest passing = attentionPullRequest(13, null, null, null, PullRequestDetail.CiStatus.PASSING);
+        when(detailStore.findSyncedAt("owner/repo", 12)).thenReturn(Optional.of(REVIEWED_AT.plusSeconds(1)));
         when(detailStore.findCheckRuns(ImmutableSet.of(12L))).thenReturn(ImmutableMap.of(12L, ImmutableList.of(
                 new PrCheckRunState(1L, "ci / test", "completed", "failure", null, "check_run", REVIEWED_AT, REVIEWED_AT),
                 new PrCheckRunState(2L, "ci / lint", "completed", "failure", null, "check_run", REVIEWED_AT, REVIEWED_AT),
@@ -219,8 +230,27 @@ class TestPullRequestService
                 .containsExactlyEntriesOf(ImmutableMap.of(12L, ImmutableList.of("ci / test")));
 
         verify(detailStore).findCheckRuns(ImmutableSet.of(12L));
+        verify(detailStore).findSyncedAt("owner/repo", 12);
         verifyNoMoreInteractions(detailStore);
         verifyNoInteractions(gitHub, writes, repositories, merges, actions, accounts, diffStore, metadata);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void summaryChangesSuppressStaleOrMissingCheckNamesAndCommitLists(boolean detailExists)
+    {
+        Instant activityAt = REVIEWED_AT.plusSeconds(60);
+        PullRequest changed = attentionPullRequest(12, REVIEWED_AT, null, activityAt, PullRequestDetail.CiStatus.FAILING, activityAt);
+        when(detailStore.findSyncedAt("owner/repo", 12)).thenReturn(detailExists ? Optional.of(REVIEWED_AT) : Optional.empty());
+
+        assertThat(service.findCachedCommitsSinceReview(ImmutableList.of(changed))).isEmpty();
+        assertThat(service.findCachedFailingChecks(ImmutableList.of(changed))).isEmpty();
+
+        verify(detailStore, times(2)).findSyncedAt("owner/repo", 12);
+        verify(detailStore).findCommitsAfter(ImmutableMap.of());
+        verify(detailStore).findCheckRuns(ImmutableSet.of());
+        verifyNoMoreInteractions(detailStore);
+        verifyNoInteractions(gitHub, summaries, writes, repositories, merges, actions, accounts, diffStore, metadata);
     }
 
     @Test
@@ -251,53 +281,24 @@ class TestPullRequestService
     }
 
     @Test
-    void monitorEstablishesFreshBaselineWithoutLoadingPermissionsOrDiffs()
+    void monitorEstablishesCardBaselineBeforeEnablingNotificationsWithoutLoadingDetail()
     {
         PullRequest row = storedPullRequest();
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
-        PrTimelineEvent comment = new PrTimelineEvent(99L, "commented", "alice", REVIEWED_AT, "Existing comment", Optional.empty());
-        StoredPrDetail baseline = new StoredPrDetail(raw(), stored().reviews(), ImmutableList.of(comment), stored().checkRuns(), ImmutableList.of(), true);
+        GitHubPullRequestSummary summary = summary(pullRequest(), PullRequestDetail.CiStatus.FAILING, "checks-v1");
         when(store.findById(row.id())).thenReturn(Optional.of(row));
-        when(detailStore.find(row.id())).thenReturn(Optional.of(new StoredPrDetail(raw(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), true)));
-        when(gitHub.fetchPrDetail("pat", ref)).thenReturn(baseline.raw());
-        when(gitHub.fetchPrReviews("pat", ref)).thenReturn(baseline.reviews());
-        when(gitHub.fetchPrIssueComments("pat", ref)).thenReturn(baseline.timeline());
-        when(gitHub.enrichTimelineReferences("pat", ref, baseline.timeline())).thenReturn(baseline.timeline());
-        when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head")).thenReturn(baseline.checkRuns());
+        when(summaries.fetchSummaries("pat", ImmutableList.of(ref), "me")).thenReturn(ImmutableList.of(summary));
+        when(store.saveObserved(summary.pullRequest())).thenReturn(row);
 
         assertThat(service.setMonitored(row.id(), true)).isEqualTo(row);
 
-        var order = inOrder(detailStore, store);
-        order.verify(detailStore).save(row.id(), baseline);
-        order.verify(store).updateEnrichment(
-                eq(row.id()), any(), any(), anyInt(), anyInt(), anyInt(), any(), any(), any(), any(), anyList(), any(), any(), any(),
-                eq(PullRequestService.activityFingerprints(baseline)));
+        var order = inOrder(store);
+        order.verify(store).saveObserved(summary.pullRequest());
+        order.verify(store).updateEnrichment(row.id(), summary.pullRequest().updatedAt(), PullRequestDetail.CiStatus.FAILING, 4, 2, 1,
+                null, null, REVIEWED_AT, "feature", ImmutableList.of(), row.origin(), Optional.empty(), Optional.of("APPROVED"),
+                ImmutableMap.of("summary", "checks-v1"));
         order.verify(store).setMonitored(row.id(), true);
-        verify(gitHub).fetchPrDetail("pat", ref);
-        verify(gitHub).fetchPrReviews("pat", ref);
-        verify(gitHub).fetchPrTimeline("pat", ref);
-        verify(gitHub).fetchPrIssueComments("pat", ref);
-        verify(gitHub).fetchPrCommits("pat", ref);
-        verify(gitHub).fetchPrReviewThreads("pat", ref);
-        verify(gitHub).fetchPrDescriptionReactions("pat", ref);
-        verify(gitHub).enrichTimelineReferences("pat", ref, baseline.timeline());
-        verifyNoMoreInteractions(gitHub);
-        verifyNoInteractions(accounts, diffStore, writes);
-    }
-
-    @Test
-    void monitoringWithoutCachedDetailLeavesPermissionLoadingToTheDetailRefresh()
-    {
-        PullRequest row = storedPullRequest();
-        when(store.findById(row.id())).thenReturn(Optional.of(row));
-        when(gitHub.fetchPrDetail("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(raw());
-
-        service.setMonitored(row.id(), true);
-
-        verify(detailStore).find(row.id());
-        verifyNoMoreInteractions(detailStore);
-        verify(store).setMonitored(row.id(), true);
-        verifyNoInteractions(accounts, diffStore, writes);
+        verifyNoInteractions(gitHub, actions, accounts, detailStore, diffStore, writes);
     }
 
     @Test
@@ -309,22 +310,21 @@ class TestPullRequestService
         service.setMonitored(row.id(), false);
 
         verify(store).setMonitored(row.id(), false);
-        verifyNoInteractions(credentialService, gitHub, actions, accounts, detailStore, diffStore, viewStateStore);
+        verifyNoInteractions(credentialService, gitHub, summaries, actions, accounts, detailStore, diffStore, viewStateStore);
     }
 
     @Test
-    void monitoringRemainsDisabledWhenTheFreshBaselineIsIncomplete()
+    void monitoringRemainsDisabledWhenTheFreshSummaryIsUnavailable()
     {
         PullRequest row = storedPullRequest();
         when(store.findById(row.id())).thenReturn(Optional.of(row));
-        when(gitHub.fetchPrDetail("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(raw());
-        when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head")).thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Checks unavailable"));
+        when(summaries.fetchSummaries("pat", ImmutableList.of(PullRequestRef.of("owner", "repo", 7)), "me")).thenReturn(ImmutableList.of());
 
         assertThatThrownBy(() -> service.setMonitored(row.id(), true))
                 .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
         verify(store).findById(row.id());
         verifyNoMoreInteractions(store);
-        verifyNoInteractions(detailStore, diffStore, viewStateStore, accounts);
+        verifyNoInteractions(gitHub, actions, detailStore, diffStore, viewStateStore, accounts);
     }
 
     @Test
@@ -352,32 +352,260 @@ class TestPullRequestService
     }
 
     @Test
-    void scheduledDashboardSyncRefreshesRetainedPrsMissingFromSearch()
+    void watchedRepositoryRowsRemainDiscoverableWhileItsWarmingBelongsToTheRepositorySync()
     {
-        when(gitHub.searchPullRequestsPaged(anyString(), anyString(), anyInt(), anyInt()))
-                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
-        when(store.findAttentionCandidates()).thenReturn(ImmutableList.of(storedPullRequest()));
-        PullRequestService monitoredService = spy(service);
-        doReturn(new PullRequestService.DetailRefresh(false, PullRequestDetailMapper.toPullRequestDetail(12L, "owner/repo", 7, stored(), false)))
-                .when(monitoredService).refreshPullRequestDetailFromGitHub("owner/repo", 7);
+        service = spy(service);
+        doNothing().when(service).warmDetails(anyList());
+        RepoRef repository = RepoRef.of("owner", "repo");
+        Workspace workspace = new Workspace("workspace", "Workspace", 1, repository, Optional.empty(), Optional.empty(), 1, repository,
+                Workspace.Topology.DIRECT, "main", "https://github.com/owner/repo.git", Optional.empty(), Optional.empty(), "/tmp/bytequay-test",
+                Optional.empty(), Optional.empty(), 0, REVIEWED_AT, REVIEWED_AT);
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(workspace));
+        PullRequest monitored = monitoredPullRequest(91);
+        PullRequest unmonitored = storedPullRequest(pullRequestNumber(92));
+        PullRequestRef monitoredRef = PullRequestRef.of("owner", "repo", 91);
+        PullRequestRef notificationRef = PullRequestRef.of("owner", "repo", 93);
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(pullRequest()), false));
+        when(store.findAttentionCandidates()).thenReturn(ImmutableList.of(monitored, unmonitored));
+        when(gitHub.fetchPrNotificationRefs("pat")).thenReturn(ImmutableList.of(new AttentionPrRef(notificationRef, "subscribed", REVIEWED_AT)));
 
-        monitoredService.syncFromGitHub();
+        service.syncFromGitHub();
+        service.syncAttentionSummaries();
 
-        verify(monitoredService).refreshPullRequestDetailFromGitHub("owner/repo", 7);
+        verify(summaries).fetchSummaries("pat", ImmutableList.of(monitoredRef, notificationRef), "me");
+        verify(store).saveDashboardSyncPage(eq(ImmutableList.of(pullRequest())), anyString());
+        verify(store, times(2)).saveObserved(pullRequest());
+        verify(store, never()).completeDashboardSync(anyString(), anyString());
+        verifyNoInteractions(detailStore, diffStore, actions, accounts);
     }
 
     @Test
-    void fastSummarySyncReadsOnlyTheNewestPageWithoutDetailsOrPruning()
+    void dashboardDiscoversEveryPageWhileWarmingOnlyThirtyNewestPullRequests()
     {
-        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+        service = spy(service);
+        doReturn(null).when(service).refreshPullRequestDetailFromGitHub(anyString(), anyInt());
+        List<FetchedPullRequest> rows = IntStream.rangeClosed(1, 120).mapToObj(TestPullRequestService::pullRequestNumber).toList();
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), anyInt(), eq(100))).thenAnswer(invocation -> {
+            String query = invocation.getArgument(1);
+            int page = invocation.getArgument(2);
+            if (!query.equals("is:pr is:open author:@me")) {
+                return new PullRequestHistoryPage(ImmutableList.of(), false);
+            }
+            return new PullRequestHistoryPage(page == 1 ? rows.subList(0, 100) : rows.subList(100, 120), page == 1);
+        });
+
+        service.syncFromGitHub();
+
+        verify(store).saveDashboardSyncPage(eq(rows), anyString());
+        verify(store, times(120)).saveObserved(any());
+        ArgumentCaptor<List<PullRequestRef>> summarized = ArgumentCaptor.forClass(List.class);
+        verify(summaries, times(4)).fetchSummaries(eq("pat"), summarized.capture(), eq("me"));
+        assertThat(summarized.getAllValues().stream().flatMap(List::stream)).hasSize(120);
+        ArgumentCaptor<Integer> warmed = ArgumentCaptor.forClass(Integer.class);
+        verify(service, times(30)).refreshPullRequestDetailFromGitHub(eq("owner/repo"), warmed.capture());
+        assertThat(warmed.getAllValues()).containsExactlyElementsOf(IntStream.iterate(120, number -> number - 1).limit(30).boxed().toList());
+        verify(gitHub).searchPullRequestsPaged("pat", "is:pr is:open author:@me", 2, 100);
+        verify(gitHub, times(5)).searchPullRequestsPaged(eq("pat"), anyString(), anyInt(), eq(100));
+        verify(gitHub).fetchPrNotificationRefs("pat");
+        verifyNoMoreInteractions(gitHub);
+        verify(store, never()).completeDashboardSync(anyString(), anyString());
+        verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
+    }
+
+    @Test
+    void discoveryLimitFailureRetainsObservedRowsWithoutClaimingACompleteSweep()
+    {
+        when(gitHub.searchPullRequestsPaged(eq("pat"), eq("is:pr is:open author:@me"), anyInt(), eq(100)))
                 .thenReturn(new PullRequestHistoryPage(ImmutableList.of(pullRequest()), true));
+
+        assertThatThrownBy(service::syncFromGitHub).isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("search result limit");
+
+        verify(gitHub, times(10)).searchPullRequestsPaged(eq("pat"), eq("is:pr is:open author:@me"), anyInt(), eq(100));
+        verify(store).saveObserved(pullRequest());
+        verify(store, never()).saveDashboardSyncPage(anyList(), anyString());
+        verify(store, never()).completeDashboardSync(anyString(), anyString());
+        verifyNoInteractions(summaries, detailStore, diffStore, actions, accounts);
+    }
+
+    @Test
+    void failedCardEnrichmentRetainsAllDiscoveryAndStillWarmsDetails()
+    {
+        service = spy(service);
+        doReturn(null).when(service).refreshPullRequestDetailFromGitHub(anyString(), anyInt());
+        List<FetchedPullRequest> rows = IntStream.rangeClosed(1, 31).mapToObj(TestPullRequestService::pullRequestNumber).toList();
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100))).thenAnswer(invocation ->
+                new PullRequestHistoryPage(invocation.getArgument(1).equals("is:pr is:open author:@me") ? rows : ImmutableList.of(), false));
+        List<PullRequestRef> firstBatch = rows.subList(0, 30).stream().map(row -> PullRequestRef.of("owner", "repo", row.number())).toList();
+        when(summaries.fetchSummaries("pat", firstBatch, "me"))
+                .thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub API request failed with status 502."));
+
+        service.syncFromGitHub();
+
+        verify(store).saveDashboardSyncPage(eq(rows), anyString());
+        verify(store, times(31)).saveObserved(any());
+        verify(summaries).fetchSummaries("pat", ImmutableList.of(PullRequestRef.of("owner", "repo", 31)), "me");
+        verify(service, times(30)).refreshPullRequestDetailFromGitHub(eq("owner/repo"), anyInt());
+        verify(service, never()).refreshPullRequestDetailFromGitHub("owner/repo", 1);
+        verify(store, never()).completeDashboardSync(anyString(), anyString());
+    }
+
+    @Test
+    void fullDetailWarmingSkipsFreshSnapshotsAndContinuesAfterAnUpstreamFailure()
+    {
+        service = spy(service);
+        List<FetchedPullRequest> rows = IntStream.rangeClosed(1, 4).mapToObj(TestPullRequestService::pullRequestNumber).toList();
+        when(store.findIdByRepoAndNumber("owner/repo", 1)).thenReturn(Optional.of(1L));
+        when(store.findIdByRepoAndNumber("owner/repo", 2)).thenReturn(Optional.of(2L));
+        PrRawDetail currentRaw = new PrRawDetail(null, null, null, null, null, null, rows.get(1).updatedAt(), null,
+                "body", ImmutableList.of(), null, ImmutableList.of(), null, false, true, "clean", 4, 2, 1, 0, ImmutableList.of(), "head", "feature", null);
+        StoredPrDetail cached = new StoredPrDetail(currentRaw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+        when(detailStore.find(1L)).thenReturn(Optional.of(cached));
+        when(detailStore.find(2L)).thenReturn(Optional.of(cached));
+        when(detailStore.findSyncedAt("owner/repo", 1)).thenReturn(Optional.of(Instant.now()));
+        when(detailStore.findSyncedAt("owner/repo", 2)).thenReturn(Optional.of(Instant.now().minusSeconds(420)));
+        doReturn(null).when(service).refreshPullRequestDetailFromGitHub("owner/repo", 2);
+        doThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub unavailable"))
+                .when(service).refreshPullRequestDetailFromGitHub("owner/repo", 3);
+        doReturn(null).when(service).refreshPullRequestDetailFromGitHub("owner/repo", 4);
+
+        service.warmDetails(rows);
+
+        verify(service, never()).refreshPullRequestDetailFromGitHub("owner/repo", 1);
+        var order = inOrder(service);
+        order.verify(service).refreshPullRequestDetailFromGitHub("owner/repo", 2);
+        order.verify(service).refreshPullRequestDetailFromGitHub("owner/repo", 3);
+        order.verify(service).refreshPullRequestDetailFromGitHub("owner/repo", 4);
+        verifyNoInteractions(gitHub, actions, accounts, diffStore);
+    }
+
+    @Test
+    void fullDetailWarmingRetriesAFreshPartialSnapshotWithoutItsCachedEtag()
+    {
+        service = spy(service);
+        FetchedPullRequest row = pullRequest();
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", row.number());
+        PrRawDetail currentRaw = new PrRawDetail(null, null, null, null, null, null, row.updatedAt(), null,
+                "body", ImmutableList.of(), null, ImmutableList.of(), null, false, true, "clean", 4, 2, 1, 0, ImmutableList.of(), "head", "feature", null);
+        StoredPrDetail partial = new StoredPrDetail(currentRaw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(StoredPrDetail.COMMENTS));
+        when(store.findIdByRepoAndNumber("owner/repo", row.number())).thenReturn(Optional.of(12L));
+        when(detailStore.find(12L)).thenReturn(Optional.of(partial));
+        org.mockito.Mockito.lenient().when(detailStore.findSyncedAt("owner/repo", row.number())).thenReturn(Optional.of(Instant.now()));
+        org.mockito.Mockito.lenient().when(detailStore.findEtag(12L)).thenReturn(Optional.of("\"cached-etag\""));
+        when(gitHub.getPullRequest("pat", ref, Optional.empty()))
+                .thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Stop after verifying the unconditional request"));
+
+        service.warmDetails(ImmutableList.of(row));
+
+        verify(service).refreshAllPullRequestDetailFromGitHub("owner/repo", row.number());
+        verify(service, never()).refreshPullRequestDetailFromGitHub(anyString(), anyInt());
+        verify(gitHub).getPullRequest("pat", ref, Optional.empty());
+        verify(detailStore, never()).findEtag(anyLong());
+        verifyNoMoreInteractions(gitHub);
+        verifyNoInteractions(actions, accounts, diffStore);
+    }
+
+    @Test
+    void backgroundSummaryUpdatesCiAndReviewCardsWithoutDownloadingDetail()
+    {
+        service = spy(service);
+        doNothing().when(service).warmDetails(anyList());
+        FetchedPullRequest fetched = pullRequest("open", REVIEWED_AT.plusSeconds(60), null);
+        PullRequest row = storedPullRequest(fetched);
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        GitHubPullRequestSummary summary = summary(fetched, PullRequestDetail.CiStatus.FAILING, "checks-v2");
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(fetched), false));
+        when(summaries.fetchSummaries("pat", ImmutableList.of(ref), "me")).thenReturn(ImmutableList.of(summary));
+        when(store.saveObserved(fetched)).thenReturn(row);
+        PrViewState reviewed = new PrViewState(row.id(), REVIEWED_AT, REVIEWED_AT, HandledAction.APPROVED, "previous-head");
+        when(viewStateStore.findByPrIds(ImmutableSet.of(row.id()))).thenReturn(ImmutableMap.of(row.id(), reviewed));
+
+        service.syncFromGitHub();
+
+        verify(store).updateEnrichment(eq(row.id()), eq(fetched.updatedAt()), eq(PullRequestDetail.CiStatus.FAILING), eq(4), eq(2), eq(1),
+                isNull(), isNull(), any(Instant.class), eq("feature"), eq(ImmutableList.of()), eq(row.origin()), eq(Optional.empty()), eq(Optional.of("APPROVED")),
+                eq(ImmutableMap.of("summary", "checks-v2")));
+        verify(viewStateStore).markNeedsReview(row.id());
+        verify(summaries).fetchSummaries("pat", ImmutableList.of(ref), "me");
+        verifyNoMoreInteractions(summaries);
+        verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
+    }
+
+    @Test
+    void backgroundSummaryReconcilesANewerViewerReviewBeforeCheckingForAnotherReview()
+    {
+        service = spy(service);
+        doNothing().when(service).warmDetails(anyList());
+        PullRequest row = storedPullRequest();
+        Instant reviewedAt = REVIEWED_AT.plusSeconds(60);
+        GitHubPullRequestSummary summary = new GitHubPullRequestSummary(pullRequest(), PullRequestDetail.CiStatus.PASSING, 4, 2, 1, "head",
+                Optional.of(REVIEWED_AT), Optional.of("APPROVED"),
+                Optional.of(new PrReviewState(1L, "me", null, false, "APPROVED", reviewedAt, null, null, "head")), Optional.empty(), "review-v2");
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(pullRequest()), false));
+        when(summaries.fetchSummaries("pat", ImmutableList.of(PullRequestRef.of("owner", "repo", 7)), "me")).thenReturn(ImmutableList.of(summary));
+        when(store.saveObserved(pullRequest())).thenReturn(row);
+        PrViewState previous = new PrViewState(row.id(), REVIEWED_AT, REVIEWED_AT, HandledAction.APPROVED, "old-head");
+        PrViewState updated = new PrViewState(row.id(), REVIEWED_AT, reviewedAt, HandledAction.APPROVED, "head");
+        when(viewStateStore.findByPrIds(ImmutableSet.of(row.id()))).thenReturn(ImmutableMap.of(row.id(), previous), ImmutableMap.of(row.id(), updated));
+
+        service.syncFromGitHub();
+
+        verify(viewStateStore).markReviewed(row.id(), HandledAction.APPROVED, "head", reviewedAt);
+        verify(viewStateStore, never()).markNeedsReview(row.id());
+        verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void backgroundSummaryReopensHandledReviewOnlyWhenTheAuthorReplied(boolean authorReplied)
+    {
+        service = spy(service);
+        doNothing().when(service).warmDetails(anyList());
+        FetchedPullRequest fetched = pullRequest("open", REVIEWED_AT.plusSeconds(60), null).withViewerOrigin("me");
+        PullRequest row = storedPullRequest(fetched);
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        GitHubPullRequestSummary summary = summary(fetched, PullRequestDetail.CiStatus.PASSING, "reply-v2");
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(fetched), false));
+        when(summaries.fetchSummaries("pat", ImmutableList.of(ref), "me")).thenReturn(ImmutableList.of(summary));
+        when(store.saveObserved(any())).thenReturn(row);
+        PrViewState reviewed = new PrViewState(row.id(), REVIEWED_AT, REVIEWED_AT, HandledAction.COMMENTED, "head");
+        when(viewStateStore.findByPrIds(ImmutableSet.of(row.id()))).thenReturn(ImmutableMap.of(row.id(), reviewed));
+        when(summaries.hasAuthorReplyAfter("pat", ref, "me", "alice", REVIEWED_AT, "reply-v2")).thenReturn(authorReplied);
+
+        service.syncFromGitHub();
+
+        verify(summaries).hasAuthorReplyAfter("pat", ref, "me", "alice", REVIEWED_AT, "reply-v2");
+        verify(viewStateStore, times(authorReplied ? 1 : 0)).markNeedsReview(row.id());
+        verify(store).updateEnrichment(row.id(), fetched.updatedAt(), PullRequestDetail.CiStatus.PASSING, 4, 2, 1,
+                null, null, REVIEWED_AT, "feature", ImmutableList.of(), row.origin(), Optional.empty(), Optional.of("APPROVED"),
+                ImmutableMap.of("summary", "reply-v2"));
+        verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
+    }
+
+    @Test
+    void fastSummarySyncReadsOnlyTheFirstHundredRowsPerQueryWithoutDetailsOrPruning()
+    {
+        List<FetchedPullRequest> rows = IntStream.rangeClosed(1, 120).mapToObj(TestPullRequestService::pullRequestNumber).toList();
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), anyInt(), eq(100))).thenAnswer(invocation -> {
+            if (!invocation.getArgument(1).equals("is:pr is:open author:@me")) {
+                return new PullRequestHistoryPage(ImmutableList.of(), false);
+            }
+            int page = invocation.getArgument(2);
+            return new PullRequestHistoryPage(page == 1 ? rows.subList(0, 100) : rows.subList(100, 120), page == 1);
+        });
 
         service.syncAttentionSummaries();
 
         verify(gitHub, times(4)).searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100));
         verify(gitHub).fetchPrNotificationRefs("pat");
         verifyNoMoreInteractions(gitHub);
-        verify(store).saveObserved(pullRequest().withOrigin(PullRequest.Origin.AUTHORED));
+        ArgumentCaptor<FetchedPullRequest> saved = ArgumentCaptor.forClass(FetchedPullRequest.class);
+        verify(store, times(100)).saveObserved(saved.capture());
+        assertThat(saved.getAllValues()).containsExactlyElementsOf(rows.subList(0, 100));
         verifyNoMoreInteractions(store);
         verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
     }
@@ -673,29 +901,69 @@ class TestPullRequestService
         assertThat(command.getValue()).isEqualTo(new RerunFailedJobsCommand(ref, 101, headSha, 3, true));
     }
 
-    @Test
-    void workspaceSyncScopesGitHubAndDoesNotReplaceGlobalList()
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void workspaceSyncPreservesNotificationReviewRequestsWithoutPruningRows(boolean notified)
     {
+        service = spy(service);
+        doNothing().when(service).warmDetails(anyList());
         RepoRef repository = RepoRef.of("owner", "repo");
-        when(gitHub.searchPullRequestsPaged(
-                eq("pat"), org.mockito.ArgumentMatchers.contains("repo:owner/repo"), anyInt(), anyInt()))
-                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        FetchedPullRequest fetched = pullRequest().withViewerOrigin("me");
+        GitHubPullRequestSummary summary = summary(fetched, PullRequestDetail.CiStatus.PASSING, "v1");
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100))).thenAnswer(invocation ->
+                new PullRequestHistoryPage(invocation.<String>getArgument(1).contains("updated:") ? ImmutableList.of(pullRequest()) : ImmutableList.of(), false));
+        when(gitHub.fetchPrNotificationRefs("pat")).thenReturn(notified
+                ? ImmutableList.of(new AttentionPrRef(ref, "review_requested", REVIEWED_AT)) : ImmutableList.of());
+        when(summaries.fetchSummaries("pat", ImmutableList.of(ref), "me")).thenReturn(ImmutableList.of(summary));
+        when(store.saveRepositorySyncPage(eq("owner/repo"), anyList(), anyString())).thenAnswer(invocation ->
+                invocation.<List<FetchedPullRequest>>getArgument(1).stream().map(TestPullRequestService::storedPullRequest).toList());
 
         service.syncRepository(repository);
 
-        verify(store).completeRepositorySync(eq("owner/repo"), any(Instant.class));
-        verify(store, never()).saveDashboardSyncPage(any(), anyString());
-        ArgumentCaptor<String> queries = ArgumentCaptor.forClass(String.class);
-        verify(gitHub, org.mockito.Mockito.times(3)).searchPullRequestsPaged(
-                eq("pat"), queries.capture(), anyInt(), anyInt());
-        assertThat(queries.getAllValues()).hasSize(3);
-        assertThat(queries.getAllValues().get(0))
-                .startsWith("is:pr updated:>=")
-                .endsWith(" repo:owner/repo")
-                .doesNotContain("is:open", "is:closed");
-        assertThat(queries.getAllValues().subList(1, 3)).containsExactly(
-                "is:pr is:open repo:owner/repo",
-                "is:pr is:open user-review-requested:@me repo:owner/repo");
+        verify(gitHub, times(2)).searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100));
+        verify(gitHub).fetchPrNotificationRefs("pat");
+        verifyNoMoreInteractions(gitHub);
+        ArgumentCaptor<List<FetchedPullRequest>> saved = ArgumentCaptor.forClass(List.class);
+        verify(store, times(3)).saveRepositorySyncPage(eq("owner/repo"), saved.capture(), anyString());
+        assertThat(saved.getAllValues().getFirst()).containsExactly(fetched);
+        assertThat(saved.getValue()).containsExactly(fetched.withOrigin(notified ? PullRequest.Origin.REVIEW_REQUESTED : PullRequest.Origin.OTHER));
+        assertThat(saved.getValue().getFirst().requestedReviewers()).isEmpty();
+        verify(service).warmDetails(ImmutableList.of(fetched));
+        verify(store, never()).findRepositoryRowsMissingSync(anyString(), anyString());
+        verify(store, never()).completeRepositorySync(anyString(), any());
+        verify(store, never()).saveDashboardSyncPage(anyList(), anyString());
+        verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
+    }
+
+    @Test
+    void workspaceDiscoversAllRecentAndOpenPagesThenWarmsOnlyThirtyNewest()
+    {
+        service = spy(service);
+        doReturn(null).when(service).refreshPullRequestDetailFromGitHub(anyString(), anyInt());
+        List<FetchedPullRequest> rows = IntStream.rangeClosed(1, 120).mapToObj(TestPullRequestService::pullRequestNumber).toList();
+        FetchedPullRequest olderOpen = pullRequestNumber(121).withViewerOrigin("me");
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), anyInt(), eq(100))).thenAnswer(invocation -> {
+            if (invocation.<String>getArgument(1).endsWith("is:open")) {
+                return new PullRequestHistoryPage(ImmutableList.of(olderOpen), false);
+            }
+            int page = invocation.getArgument(2);
+            return new PullRequestHistoryPage(page == 1 ? rows.subList(0, 100) : rows.subList(100, 120), page == 1);
+        });
+
+        service.syncRepository(RepoRef.of("owner", "repo"));
+
+        ArgumentCaptor<List<FetchedPullRequest>> saved = ArgumentCaptor.forClass(List.class);
+        verify(store, times(3)).saveRepositorySyncPage(eq("owner/repo"), saved.capture(), anyString());
+        assertThat(saved.getAllValues().stream().flatMap(List::stream)).hasSize(121);
+        ArgumentCaptor<List<PullRequestRef>> summarized = ArgumentCaptor.forClass(List.class);
+        verify(summaries, times(5)).fetchSummaries(eq("pat"), summarized.capture(), eq("me"));
+        assertThat(summarized.getAllValues().stream().flatMap(List::stream)).hasSize(121);
+        ArgumentCaptor<Integer> warmed = ArgumentCaptor.forClass(Integer.class);
+        verify(service, times(30)).refreshPullRequestDetailFromGitHub(eq("owner/repo"), warmed.capture());
+        assertThat(warmed.getAllValues()).containsExactlyElementsOf(IntStream.iterate(121, number -> number - 1).limit(30).boxed().toList());
+        verify(store, never()).completeRepositorySync(anyString(), any());
+        verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
     }
 
     @Test
@@ -712,95 +980,6 @@ class TestPullRequestService
                 eq(ImmutableList.of(fetched.withViewerOrigin("me"))),
                 anyString());
         verify(gitHub, never()).searchPullRequestsPaged(anyString(), anyString(), anyInt(), anyInt());
-    }
-
-    @Test
-    void dashboardListSyncLeavesDetailAndDiffForTheNextFullRefresh()
-    {
-        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
-        Instant currentUpdatedAt = pullRequest().updatedAt();
-        when(gitHub.searchPullRequestsPaged(
-                eq("pat"), anyString(), anyInt(), anyInt()))
-                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(pullRequest()), false));
-        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
-        when(store.findUpdatedAtByIds(ImmutableSet.of(12L)))
-                .thenReturn(ImmutableMap.of(12L, currentUpdatedAt));
-        when(store.saveDashboardSyncPage(anyList(), anyString()))
-                .thenReturn(ImmutableList.of(storedPullRequest()));
-        when(store.completeDashboardSync(anyString(), anyString())).thenReturn(ImmutableSet.of());
-        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
-        when(detailStore.findSyncedAt("owner/repo", 7))
-                .thenReturn(Optional.of(Instant.parse("2026-08-21T00:00:00Z")));
-        when(accounts.fetchViewerCanWrite("pat", RepoRef.of("owner", "repo"))).thenReturn(true);
-        when(gitHub.fetchPrDetail("pat", ref)).thenReturn(raw());
-        when(gitHub.fetchPrReviews("pat", ref)).thenReturn(ImmutableList.of());
-        when(gitHub.fetchPrTimeline("pat", ref)).thenReturn(ImmutableList.of());
-        when(gitHub.fetchPrIssueComments("pat", ref)).thenReturn(ImmutableList.of());
-        when(gitHub.fetchPrCommits("pat", ref)).thenReturn(ImmutableList.of());
-        when(gitHub.fetchPrReviewThreads("pat", ref)).thenReturn(ImmutableList.of());
-        when(gitHub.fetchPrDescriptionReactions("pat", ref)).thenReturn(ImmutableList.of());
-        when(gitHub.enrichTimelineReferences(eq("pat"), eq(ref), anyList()))
-                .thenAnswer(invocation -> invocation.getArgument(2));
-        when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head"))
-                .thenReturn(ImmutableList.of());
-        when(viewStateStore.findByPrIds(ImmutableSet.of(12L))).thenReturn(ImmutableMap.of());
-        when(gitHub.fetchPrDiffFiles(eq("pat"), eq(ref), anyList(), any()))
-                .thenReturn(new ConditionalList<>(Optional.of(ImmutableList.of()), Optional.of("\"files\"")));
-        when(gitHub.fetchPrDiffCommits(eq("pat"), eq(ref), anyList(), any()))
-                .thenReturn(new ConditionalList<>(Optional.of(ImmutableList.of()), Optional.of("\"commits\"")));
-
-        service.syncFromGitHub(false);
-
-        verify(store).saveDashboardSyncPage(anyList(), anyString());
-        verify(store).completeDashboardSync(anyString(), eq("me"));
-        verify(store, never()).findUpdatedAtByIds(any());
-        verify(store, never()).updateEnrichment(
-                eq(12L), any(), any(), anyInt(), anyInt(), anyInt(), any(), any(), any(), any(), anyList(), any(), any(), any(), any());
-        verify(accounts, never()).fetchViewerCanWrite(anyString(), any());
-        verify(gitHub, never()).fetchPrDetail(anyString(), any());
-        verify(actions, never()).fetchPrCheckRuns(anyString(), anyString(), anyString(), anyString());
-        verify(detailStore, never()).save(anyLong(), any());
-        verify(gitHub, never()).fetchPrDiffFiles(anyString(), any(), anyList(), any());
-        verify(diffStore, never()).saveDefault(anyLong(), any(), any());
-
-        service.syncFromGitHub();
-
-        verify(gitHub).fetchPrDetail("pat", ref);
-        verify(detailStore).save(eq(12L), any());
-        verify(diffStore).saveDefault(eq(12L), any(), any());
-    }
-
-    @Test
-    void workspaceSyncRefreshesSearchMissingPullRequestByExactReference()
-    {
-        RepoRef repository = RepoRef.of("owner", "repo");
-        PullRequest stored = storedPullRequest();
-        FetchedPullRequest closed = pullRequest(
-                99,
-                "closed", Instant.parse("2026-08-22T00:00:00Z"), Instant.parse("2026-08-22T00:00:00Z"));
-        when(gitHub.searchPullRequestsPaged(
-                eq("pat"), org.mockito.ArgumentMatchers.contains("repo:owner/repo"), anyInt(), anyInt()))
-                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
-        when(store.findRepositoryRowsMissingSync(eq("owner/repo"), anyString()))
-                .thenReturn(ImmutableList.of(stored));
-        when(gitHub.getPullRequest("pat", PullRequestRef.of("owner", "repo", 7)))
-                .thenReturn(closed);
-        when(store.saveRepositorySyncPage(eq("owner/repo"), anyList(), anyString()))
-                .thenReturn(ImmutableList.of(storedPullRequest(
-                        "closed",
-                        Instant.parse("2026-08-22T00:00:00Z"),
-                        Instant.parse("2026-08-22T00:00:00Z"))));
-
-        service.syncRepository(repository);
-
-        verify(gitHub).getPullRequest("pat", PullRequestRef.of("owner", "repo", 7));
-        ArgumentCaptor<List<FetchedPullRequest>> saved = ArgumentCaptor.forClass(List.class);
-        verify(store).saveRepositorySyncPage(eq("owner/repo"), saved.capture(), anyString());
-        assertThat(saved.getValue()).extracting(FetchedPullRequest::state).containsExactly("closed");
-        assertThat(saved.getValue()).extracting(FetchedPullRequest::githubId).containsExactly(99L);
-        // A repository sweep covers every author, so it populates the list and
-        // leaves detail to whoever opens the row.
-        verify(gitHub, never()).fetchPrDetail(anyString(), any());
     }
 
     @Test
@@ -925,8 +1104,9 @@ class TestPullRequestService
                 .isSameAs(notFound);
     }
 
-    @Test
-    void explicitDetailRefreshPreservesTheStoredIdentityAcrossGitHubResponseShapes()
+    @ParameterizedTest
+    @CsvSource({"false,false", "true,false", "false,true", "true,true"})
+    void fullDetailRefreshPreservesStoredIdentityAndNotificationReviewRequests(boolean backgroundWarm, boolean reviewRequested)
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         FetchedPullRequest pullRequest = pullRequest(
@@ -935,7 +1115,9 @@ class TestPullRequestService
                 new DiffFile("a.txt", "modified", 1, 0, "+line"));
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         // the store resolves the row on repo and number and hands back the stored row
-        when(store.saveObserved(any())).thenReturn(storedPullRequest());
+        when(store.saveObserved(any())).thenAnswer(invocation -> storedPullRequest(invocation.getArgument(0)));
+        when(gitHub.fetchPrNotificationRefs("pat")).thenReturn(reviewRequested
+                ? ImmutableList.of(new AttentionPrRef(ref, "review_requested", REVIEWED_AT)) : ImmutableList.of());
         when(gitHub.getPullRequest("pat", ref, Optional.empty()))
                 .thenReturn(new PullRequestFetch(Optional.of(pullRequest), Optional.of("\"etag-1\"")));
         when(accounts.fetchViewerCanWrite("pat", RepoRef.of("owner", "repo"))).thenReturn(true);
@@ -957,20 +1139,71 @@ class TestPullRequestService
         when(gitHub.fetchPrDiffCommits(eq("pat"), eq(ref), anyList(), any()))
                 .thenReturn(new ConditionalList<>(Optional.of(ImmutableList.of()), Optional.of("\"commits-1\"")));
 
-        PullRequestService.DetailRefresh refreshed = service.refreshPullRequestDetailFromGitHub("owner/repo", 7);
-
-        assertThat(refreshed.full()).isTrue();
-        assertThat(refreshed.detail().body()).isEqualTo("body");
+        if (backgroundWarm) {
+            service.warmDetails(ImmutableList.of(pullRequest));
+        }
+        else {
+            PullRequestService.DetailRefresh refreshed = service.refreshPullRequestDetailFromGitHub("owner/repo", 7);
+            assertThat(refreshed.full()).isTrue();
+            assertThat(refreshed.detail().body()).isEqualTo("body");
+        }
 
         ArgumentCaptor<FetchedPullRequest> observed = ArgumentCaptor.forClass(FetchedPullRequest.class);
         verify(store).saveObserved(observed.capture());
         assertThat(observed.getValue().githubId()).isEqualTo(99L);
+        assertThat(observed.getValue().origin()).isEqualTo(reviewRequested ? PullRequest.Origin.REVIEW_REQUESTED : PullRequest.Origin.OTHER);
+        ArgumentCaptor<PullRequest.Origin> enrichedOrigin = ArgumentCaptor.forClass(PullRequest.Origin.class);
+        verify(store).updateEnrichment(eq(12L), any(), any(), anyInt(), anyInt(), anyInt(), any(), any(), any(), any(), anyList(), enrichedOrigin.capture(), any(), any(), any());
+        assertThat(enrichedOrigin.getValue()).isEqualTo(reviewRequested ? PullRequest.Origin.REVIEW_REQUESTED : PullRequest.Origin.OTHER);
         ArgumentCaptor<StoredPrDetail> detail = ArgumentCaptor.forClass(StoredPrDetail.class);
         verify(detailStore).save(eq(12L), detail.capture());
         assertThat(detail.getValue().viewerCanWrite()).isTrue();
         verify(detailStore).updateEtag(12L, Optional.of("\"etag-1\""));
         verify(diffStore).saveDefault(eq(12L), any(StoredPrDiff.class), eq(
                 new PrDiffEtags(Optional.of("\"files-1\""), Optional.of("\"commits-1\""))));
+    }
+
+    @Test
+    void failedDiffRefreshClearsThePrEtagAndRetriesWithoutDiscardingCachedDiffs()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        AtomicReference<Optional<String>> etag = new AtomicReference<>(Optional.of("\"old-pr\""));
+        List<DiffFile> oldFiles = ImmutableList.of(new DiffFile("old.txt", "modified", 1, 0, "+old"));
+        List<DiffFile> newFiles = ImmutableList.of(new DiffFile("new.txt", "modified", 1, 0, "+new"));
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(store.saveObserved(any())).thenAnswer(invocation -> storedPullRequest(invocation.getArgument(0)));
+        when(detailStore.findEtag(12L)).thenAnswer(invocation -> etag.get());
+        doAnswer(invocation -> {
+            etag.set(invocation.getArgument(1));
+            return null;
+        }).when(detailStore).updateEtag(eq(12L), any());
+        when(gitHub.getPullRequest(eq("pat"), eq(ref), any()))
+                .thenReturn(new PullRequestFetch(Optional.of(pullRequest()), Optional.of("\"new-pr\"")));
+        when(gitHub.fetchPrDetail("pat", ref)).thenReturn(raw());
+        when(gitHub.enrichTimelineReferences(eq("pat"), eq(ref), anyList())).thenAnswer(invocation -> invocation.getArgument(2));
+        when(diffStore.find(12L, null, null)).thenReturn(Optional.of(new StoredPrDiff(oldFiles, ImmutableList.of(), ImmutableMap.of())));
+        when(diffStore.findDefaultEtags(12L)).thenReturn(new PrDiffEtags(Optional.of("\"old-files\""), Optional.empty()));
+        when(gitHub.fetchPrDiffFiles("pat", ref, oldFiles, Optional.of("\"old-files\"")))
+                .thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Diff unavailable"))
+                .thenReturn(new ConditionalList<>(Optional.of(newFiles), Optional.of("\"new-files\"")));
+        when(gitHub.fetchPrDiffCommits(eq("pat"), eq(ref), anyList(), any()))
+                .thenReturn(new ConditionalList<>(Optional.of(ImmutableList.of()), Optional.of("\"commits\"")));
+
+        assertThat(service.refreshPullRequestDetailFromGitHub("owner/repo", 7).full()).isTrue();
+
+        assertThat(etag.get()).isEmpty();
+        verify(detailStore).updateEtag(12L, Optional.empty());
+        verify(diffStore, never()).saveDefault(anyLong(), any(), any());
+        verify(diffStore, never()).deleteByPrIds(any());
+
+        assertThat(service.refreshPullRequestDetailFromGitHub("owner/repo", 7).full()).isTrue();
+
+        verify(gitHub).getPullRequest("pat", ref, Optional.of("\"old-pr\""));
+        verify(gitHub).getPullRequest("pat", ref, Optional.empty());
+        verify(gitHub, times(2)).fetchPrDetail("pat", ref);
+        verify(diffStore).saveDefault(eq(12L), eq(new StoredPrDiff(newFiles, ImmutableList.of(), ImmutableMap.of())),
+                eq(new PrDiffEtags(Optional.of("\"new-files\""), Optional.of("\"commits\""))));
+        assertThat(etag.get()).contains("\"new-pr\"");
     }
 
     @Test
@@ -997,6 +1230,32 @@ class TestPullRequestService
         verify(detailStore).saveStatus(eq(12L), any());
     }
 
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(longs = {-60, 60})
+    void detailRefreshNeverRegressesTheLatestObservedHeadTimestamp(Long commitOffset)
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 12);
+        Instant observedPush = REVIEWED_AT.plusSeconds(3600);
+        PullRequest beforeSummary = attentionPullRequest(12, null, null, null, null);
+        PullRequest current = attentionPullRequest(12, null, null, observedPush, null);
+        List<PrTimelineEvent> timeline = commitOffset == null ? ImmutableList.of() : ImmutableList.of(
+                new PrTimelineEvent(1L, "committed", "alice", observedPush.plusSeconds(commitOffset), "Commit", Optional.empty()));
+        StoredPrDetail cached = new StoredPrDetail(raw(), ImmutableList.of(), timeline, ImmutableList.of(), ImmutableList.of());
+        when(store.findIdByRepoAndNumber("owner/repo", 12)).thenReturn(Optional.of(12L));
+        when(store.findById(12L)).thenReturn(Optional.of(beforeSummary), Optional.of(current));
+        when(detailStore.find(12L)).thenReturn(Optional.of(cached));
+        when(gitHub.getPullRequest("pat", ref, Optional.empty())).thenReturn(new PullRequestFetch(Optional.empty(), Optional.empty()));
+        when(actions.refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any()))
+                .thenReturn(new PrCheckRunsFetch(ImmutableList.of(), Optional.empty(), Optional.empty()));
+
+        service.refreshPullRequestDetailFromGitHub("owner/repo", 12);
+
+        ArgumentCaptor<Instant> pushedAt = ArgumentCaptor.forClass(Instant.class);
+        verify(store).updateEnrichment(eq(12L), any(), any(), anyInt(), anyInt(), anyInt(), any(), any(), pushedAt.capture(), any(), anyList(), any(), any(), any(), any());
+        assertThat(pushedAt.getValue()).isEqualTo(commitOffset != null && commitOffset > 0 ? observedPush.plusSeconds(commitOffset) : observedPush);
+    }
+
     @Test
     void manualDetailRefreshDoesNotSendTheStoredEtag()
     {
@@ -1008,86 +1267,6 @@ class TestPullRequestService
                 .isSameAs(failure);
 
         verify(detailStore, never()).findEtag(anyLong());
-    }
-
-    @Test
-    void fullyRefreshesOnlyNewChangedOrMissingPullRequestDetails()
-    {
-        Instant now = Instant.parse("2026-08-24T12:00:00Z");
-        PullRequest pullRequest = storedPullRequest("closed", now.minusSeconds(60), now.minusSeconds(60));
-
-        assertThat(PullRequestService.refreshMode(
-                pullRequest, null, Optional.empty(), Optional.empty(), now))
-                .isEqualTo(PullRequestService.RefreshMode.FULL);
-        assertThat(PullRequestService.refreshMode(
-                pullRequest,
-                now.minusSeconds(120),
-                Optional.of(pullRequest.updatedAt()),
-                Optional.of(now.minusSeconds(60)),
-                now))
-                .isEqualTo(PullRequestService.RefreshMode.FULL);
-        assertThat(PullRequestService.refreshMode(
-                pullRequest,
-                pullRequest.updatedAt(),
-                Optional.of(pullRequest.updatedAt()),
-                Optional.empty(),
-                now))
-                .isEqualTo(PullRequestService.RefreshMode.FULL);
-        assertThat(PullRequestService.refreshMode(
-                pullRequest,
-                pullRequest.updatedAt(),
-                Optional.of(pullRequest.updatedAt().minusSeconds(1)),
-                Optional.of(now.minusSeconds(60)),
-                now))
-                .isEqualTo(PullRequestService.RefreshMode.FULL);
-    }
-
-    @Test
-    void holdsOffPullRequestsWhoseDetailJustFailed()
-    {
-        Instant now = Instant.parse("2026-08-24T12:00:00Z");
-
-        assertThat(PullRequestService.failedWithinBackoff(null, now)).isFalse();
-        assertThat(PullRequestService.failedWithinBackoff(now.minus(Duration.ofHours(5)), now)).isTrue();
-        assertThat(PullRequestService.failedWithinBackoff(now.minus(Duration.ofHours(7)), now)).isFalse();
-    }
-
-    @Test
-    void refreshesAllOpenStatusesEverySixMinutes()
-    {
-        Instant now = Instant.parse("2026-08-24T12:00:00Z");
-        PullRequest recentOpen = storedPullRequest("open", now.minusSeconds(5 * 60 * 60), null);
-        PullRequest oldOpen = storedPullRequest("open", now.minusSeconds(31L * 24 * 60 * 60), null);
-        PullRequest closed = storedPullRequest("closed", now.minusSeconds(60), now.minusSeconds(60));
-
-        assertThat(PullRequestService.refreshMode(
-                recentOpen,
-                recentOpen.updatedAt(),
-                Optional.of(recentOpen.updatedAt()),
-                Optional.of(now.minusSeconds(6 * 60)),
-                now))
-                .isEqualTo(PullRequestService.RefreshMode.STATUS);
-        assertThat(PullRequestService.refreshMode(
-                recentOpen,
-                recentOpen.updatedAt(),
-                Optional.of(recentOpen.updatedAt()),
-                Optional.of(now.minusSeconds(5 * 60)),
-                now))
-                .isEqualTo(PullRequestService.RefreshMode.NONE);
-        assertThat(PullRequestService.refreshMode(
-                oldOpen,
-                oldOpen.updatedAt(),
-                Optional.of(oldOpen.updatedAt()),
-                Optional.of(now.minusSeconds(7 * 60)),
-                now))
-                .isEqualTo(PullRequestService.RefreshMode.STATUS);
-        assertThat(PullRequestService.refreshMode(
-                closed,
-                closed.updatedAt(),
-                Optional.of(closed.updatedAt()),
-                Optional.of(now.minusSeconds(7 * 60)),
-                now))
-                .isEqualTo(PullRequestService.RefreshMode.NONE);
     }
 
     @Test
@@ -1705,12 +1884,18 @@ class TestPullRequestService
 
     private static PullRequest attentionPullRequest(long id, Instant reviewedAt, Instant reviewRequestedAt, Instant headPushedAt, PullRequestDetail.CiStatus ciStatus)
     {
+        return attentionPullRequest(id, reviewedAt, reviewRequestedAt, headPushedAt, ciStatus, null);
+    }
+
+    private static PullRequest attentionPullRequest(
+            long id, Instant reviewedAt, Instant reviewRequestedAt, Instant headPushedAt, PullRequestDetail.CiStatus ciStatus, Instant activityAt)
+    {
         return new PullRequest(
                 id, "owner/repo", (int) id, "Title", "alice", "https://github.com/owner/repo/pull/" + id,
                 REVIEWED_AT, REVIEWED_AT, PullRequest.Origin.REVIEW_REQUESTED, ImmutableList.of(),
                 ImmutableMap.of(), false, null, reviewedAt, null, ImmutableList.of(),
                 ciStatus, 0, 0, 0, "open", null, null,
-                null, null, headPushedAt, "feature", null, null, reviewRequestedAt, null);
+                null, null, headPushedAt, "feature", null, activityAt, reviewRequestedAt, null);
     }
 
     private static PullRequest storedPullRequest(String state, Instant updatedAt, Instant closedAt)
@@ -1726,6 +1911,29 @@ class TestPullRequestService
                 fetched.labelColors(), fetched.draft(), null, null, null, fetched.requestedReviewers(),
                 null, 0, 0, 0, fetched.state(), fetched.closedAt(), fetched.mergedAt(),
                 fetched.mergeable(), fetched.mergeableState(), null, fetched.headRef(), null, null, null, null);
+    }
+
+    private static GitHubPullRequestSummary summary(FetchedPullRequest fetched, PullRequestDetail.CiStatus ciStatus, String version)
+    {
+        return new GitHubPullRequestSummary(fetched, ciStatus, 4, 2, 1, "head", Optional.of(REVIEWED_AT), Optional.of("APPROVED"),
+                Optional.empty(), Optional.empty(), version);
+    }
+
+    private static FetchedPullRequest pullRequestNumber(int number)
+    {
+        FetchedPullRequest original = pullRequest();
+        return new FetchedPullRequest((long) number, original.repo(), number, original.title(), original.author(), original.htmlUrl(), original.createdAt(),
+                REVIEWED_AT.plusSeconds(number), original.origin(), original.labels(), original.labelColors(), original.draft(), original.state(),
+                original.closedAt(), original.mergedAt(), original.requestedReviewers(), original.mergeable(), original.mergeableState(), original.headRef());
+    }
+
+    private static PullRequest monitoredPullRequest(int number)
+    {
+        PullRequest row = storedPullRequest(pullRequestNumber(number));
+        return new PullRequest(row.id(), row.repo(), row.number(), row.title(), row.author(), row.htmlUrl(), row.createdAt(), row.updatedAt(), row.origin(),
+                row.labels(), row.labelColors(), row.draft(), row.viewedAt(), row.reviewedAt(), row.handledAction(), row.requestedReviewers(), row.ciStatus(),
+                row.additions(), row.deletions(), row.commentCount(), row.state(), row.closedAt(), row.mergedAt(), row.mergeable(), row.mergeableState(),
+                row.headPushedAt(), row.headRef(), REVIEWED_AT, row.activityAt(), row.reviewRequestedAt(), row.reviewDecision());
     }
 
     private static FetchedPullRequest pullRequest()

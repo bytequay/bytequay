@@ -25,20 +25,20 @@ Both Home views reuse the existing eligibility, acknowledgment, snooze, pin,
 and source-filter flow. Circle selection happens before the four-card cap in
 the shared card selector. Native notification eligibility is unchanged.
 
-The mixed preview prefers up to three qualifying team items while preserving
-one other actionable item when both groups have work. Existing task/approval
-and due-reminder behavior remains protected. Unused positions are filled from
-the remaining candidates. A Team-only filter is independent of the source tabs.
-Cards name the matching circle, member, and relationship (PR/issue author or
-review requester), separately from the latest activity actor. Another person's
-comment on a member's PR does not make that commenter a circle member.
-Multiple memberships never stack preference.
-Current attention projections expose author/requester logins, so preference
-matches saved GitHub logins. A renamed member can be re-added to refresh their
+The mixed preview shows the newest source updates across all item types. Circle
+membership never replaces a newer item with an older team item. A Team-only
+filter is independent of the source tabs and narrows the same newest-first
+list before the card cap. Acknowledgment, snooze and pins keep their existing
+visibility rules. Cards name the matching circle, member, and relationship
+(PR/issue author or review requester), separately from the latest activity actor.
+Another person's comment on a member's PR does not make that commenter a circle
+member.
+Current attention projections expose author/requester logins, so team matching
+uses saved GitHub logins. A renamed member can be re-added to refresh their
 profile without duplicating their numeric membership identity.
 
-A new ordinary PR, issue, or ambient comment belongs to Team activity; circle
-membership alone does not manufacture a request for the viewer. Adding or
+Ordinary updates can appear in Home without a personal review or assignment
+request. Circle membership itself never creates an update. Adding or
 removing a member does not change the source activity version or wake handled
 items. Pending-age presentation uses actual source evidence and never labels an
 update timestamp as a proven review-request timestamp.

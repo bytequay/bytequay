@@ -535,8 +535,8 @@ public class GitHubPullRequestReadClient
                         .build())
                         .retrieve()
                         .body(GitHubSearchResponse.class));
-        if (response == null || response.items() == null) {
-            return new PullRequestHistoryPage(ImmutableList.of(), false);
+        if (response == null || response.items() == null || Boolean.TRUE.equals(response.incompleteResults())) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned incomplete pull request search results");
         }
         PullRequest.Origin origin =
                 query.contains("review-requested") ? REVIEW_REQUESTED : AUTHORED;
@@ -544,13 +544,11 @@ public class GitHubPullRequestReadClient
                 response.items().stream()
                         .map(item -> toPullRequest(item, origin))
                         .collect(toImmutableList());
-        // GitHub caps search at 1000 results, so a page that runs off
-        // the end either by total or by the cap should report no more.
+        // Report remaining results honestly; discovery handles GitHub's search ceiling without pruning omissions.
         int loadedSoFar = (safePage - 1) * safePerPage + items.size();
         boolean hasMore =
                 items.size() == safePerPage
-                        && loadedSoFar < response.totalCount()
-                        && loadedSoFar < 1000;
+                        && loadedSoFar < response.totalCount();
         return new PullRequestHistoryPage(items, hasMore);
     }
 

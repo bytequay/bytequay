@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PullRequestDto, RepositoryIssueSnapshotDto } from '../types';
 import {
-  assignedIssues,
+  issueAttentionItems,
   attentionCandidates,
   attentionKind,
   attentionSummary,
@@ -55,10 +55,10 @@ describe('attentionKind', () => {
     expect(attentionKind(pr({ origin: 'OTHER', author: 'JACK', ciStatus: 'FAILING' }), 'jack')).toBe('ci');
   });
 
-  it('excludes unrelated PRs even when their CI fails or they are mergeable', () => {
-    expect(attentionKind(pr({ origin: 'OTHER', ciStatus: 'FAILING' }))).toBeNull();
-    expect(attentionKind(pr({ origin: 'OTHER' }))).toBeNull();
-    expect(attentionKind(pr({ origin: 'AUTHORED', author: 'alice' }), 'jack')).toBeNull();
+  it('includes ordinary discovered PR updates without inventing a personal request', () => {
+    expect(attentionKind(pr({ origin: 'OTHER', ciStatus: 'FAILING' }))).toBe('updated');
+    expect(attentionKind(pr({ origin: 'OTHER' }))).toBe('updated');
+    expect(attentionKind(pr({ origin: 'AUTHORED', author: 'alice' }), 'jack')).toBe('updated');
   });
 
   it('includes requests and re-requests after an earlier completed review', () => {
@@ -78,26 +78,26 @@ describe('attentionKind', () => {
       const reviewed = pr({ origin: 'OTHER', handledAction: 'APPROVED', ...relationship });
       expect(attentionKind(reviewed)).toBe('merge');
       expect(attentionKind({ ...reviewed, headPushedAt: '2026-08-14T06:00:00Z' })).toBe('commits');
-      expect(attentionKind({ ...reviewed, ciStatus: 'FAILING' })).toBeNull();
-      expect(attentionKind({ ...reviewed, ciStatus: 'PENDING' })).toBeNull();
-      expect(attentionKind({ ...reviewed, draft: true })).toBeNull();
-      expect(attentionKind({ ...reviewed, state: 'merged' })).toBeNull();
+      expect(attentionKind({ ...reviewed, ciStatus: 'FAILING' })).toBe('updated');
+      expect(attentionKind({ ...reviewed, ciStatus: 'PENDING' })).toBe('updated');
+      expect(attentionKind({ ...reviewed, draft: true })).toBe('updated');
+      expect(attentionKind({ ...reviewed, state: 'merged' })).toBe('updated');
     }
   });
 
-  it('follows changes only after monitoring starts, including CI and closure', () => {
+  it('uses monitoring changes for specific reasons while every source update remains eligible', () => {
     const monitored = pr({
       origin: 'OTHER', monitoredAt: '2026-08-15T01:00:00Z', activityAt: '2026-08-15T00:00:00Z',
     });
-    expect(attentionKind(monitored)).toBeNull();
-    expect(attentionKind({ ...monitored, activityAt: monitored.monitoredAt })).toBeNull();
+    expect(attentionKind(monitored)).toBe('updated');
+    expect(attentionKind({ ...monitored, activityAt: monitored.monitoredAt })).toBe('updated');
     const changed = { ...monitored, activityAt: '2026-08-15T02:00:00Z' };
     expect(attentionKind({ ...changed, ciStatus: 'FAILING' })).toBe('ci');
     expect(attentionKind({ ...changed, ciStatus: 'PENDING' })).toBe('updated');
     expect(attentionKind({ ...changed, state: 'closed' })).toBe('updated');
     expect(attentionKind({ ...changed, state: 'merged' })).toBe('updated');
     expect(attentionKind({ ...changed, draft: true })).toBe('updated');
-    expect(attentionKind({ ...changed, monitoredAt: null, ciStatus: 'FAILING' })).toBeNull();
+    expect(attentionKind({ ...changed, monitoredAt: null, ciStatus: 'FAILING' })).toBe('updated');
   });
 
   it('sorts by the most recent update before the attention reason', () => {
@@ -129,7 +129,7 @@ describe('attentionKind', () => {
   it('uses reason priority only when the source update times match', () => {
     const rows = attentionCandidates(
       [pr({ number: 1, ciStatus: 'FAILING' }), pr({ number: 2, origin: 'REVIEW_REQUESTED' })],
-      assignedIssues(snapshot(), 'workspace-id', 'JACK'),
+      issueAttentionItems(snapshot(), 'workspace-id', 'JACK'),
     );
 
     expect(rows.map(row => row.kind)).toEqual(['review', 'assigned', 'ci']);
@@ -142,24 +142,27 @@ describe('attentionKind', () => {
     });
   });
 
-  it('keeps only issues assigned to the signed-in user', () => {
-    expect(assignedIssues(snapshot(), 'workspace-id', 'someone-else')).toEqual([]);
+  it('includes unassigned issue updates without calling them assigned to the viewer', () => {
+    const [item] = issueAttentionItems(snapshot(), 'workspace-id', 'someone-else');
+    expect(item.kind).toBe('updated');
+    expect(attentionSummary(item).tag.label).toBe('Open');
   });
 
-  it('excludes Goals and previously started development, even when the source stays open', () => {
+  it('keeps Goal and linked-task issue updates while preventing a new development launch', () => {
     const source = snapshot();
     source.issues.push(
       { ...source.issues[0], id: 10, number: 8, isGoal: true },
       { ...source.issues[0], id: 11, number: 9, developmentTask: { taskId: 'finished-task', workspaceId: 'other-workspace' } },
     );
-    expect(assignedIssues(source, 'workspace-id', 'jack').map(item => item.number)).toEqual([7]);
+    expect(issueAttentionItems(source, 'workspace-id', 'jack').map(item => item.number)).toEqual([7, 8, 9]);
+    expect(issueAttentionItems(source, 'workspace-id', 'jack').map(item => item.canStartDevelopment)).toEqual([true, false, false]);
     source.issues[1].isGoal = false;
-    expect(assignedIssues(source, 'workspace-id', 'jack').map(item => item.number)).toEqual([7, 8]);
+    expect(issueAttentionItems(source, 'workspace-id', 'jack').map(item => item.canStartDevelopment)).toEqual([true, true, false]);
   });
 
   it('deduplicates the upstream issue across workspaces with a stable launch destination', () => {
-    const first = assignedIssues(snapshot(), 'workspace-a', 'jack');
-    const second = assignedIssues(snapshot(), 'workspace-b', 'jack');
+    const first = issueAttentionItems(snapshot(), 'workspace-a', 'jack');
+    const second = issueAttentionItems(snapshot(), 'workspace-b', 'jack');
     expect(attentionCandidates([], [...second, ...first])).toEqual(first);
     expect(attentionCandidates([], [...first, ...second])).toEqual(first);
     // Repository display names can change without changing the source identity.
@@ -169,12 +172,12 @@ describe('attentionKind', () => {
 
   it('keeps acknowledgement after Goal classification changes', () => {
     const source = snapshot();
-    const original = assignedIssues(source, 'workspace-id', 'jack')[0];
+    const original = issueAttentionItems(source, 'workspace-id', 'jack')[0];
     const handled = { [original.key]: handledEntry(original, 'ack', null, 'acknowledged') };
     source.issues[0].isGoal = true;
-    expect(assignedIssues(source, 'workspace-id', 'jack')).toEqual([]);
+    expect(visibleAttention(issueAttentionItems(source, 'workspace-id', 'jack'), handled, Date.now())).toEqual([]);
     source.issues[0].isGoal = false;
-    expect(visibleAttention(assignedIssues(source, 'workspace-id', 'jack'), handled, Date.now())).toEqual([]);
+    expect(visibleAttention(issueAttentionItems(source, 'workspace-id', 'jack'), handled, Date.now())).toEqual([]);
   });
 });
 
@@ -373,11 +376,11 @@ describe('Jira ticket events', () => {
   const ticket = (latestActivity: JiraActivity | null) => jiraAttentionItems([{ ...jiraIssue, updatedAt: '2026-09-27T09:00:00Z', latestActivity }])[0];
   const status = (name: string, category: string) => ({ id: name, name, category });
 
-  it('says a ticket moved, where from and to, with a note that came with it, while the ticket stays yours', () => {
+  it('says a ticket moved, where from and to, with a note that came with it, while the card names its current status', () => {
     const moved = ticket({ kind: 'STATUS_CHANGED', at: '2026-09-27T09:00:00Z', actor: null, from: status('In Progress', 'indeterminate'),
       to: status('Blocked', 'indeterminate'), note: 'Staging is mid-upgrade.', fields: [] });
     expect(attentionSummary(moved)).toEqual({
-      tag: { label: 'Assigned to you', tone: 'green' },
+      tag: { label: jiraIssue.status.name, tone: 'neutral' },
       actor: null,
       verb: 'Moved to Blocked',
       detail: { kind: 'status', from: { name: 'In Progress', tone: 'blue' }, to: { name: 'Blocked', tone: 'red' }, note: 'Staging is mid-upgrade.' },
@@ -388,13 +391,13 @@ describe('Jira ticket events', () => {
     expect(attentionSummary(done).detail).toMatchObject({ from: { tone: 'neutral' }, to: { tone: 'green' } });
   });
 
-  it('quotes a comment with who wrote it, names changed fields, and otherwise says the ticket is yours', () => {
+  it('quotes a comment with who wrote it, names changed fields, and otherwise names the ticket status', () => {
     const priya: JiraUser = { accountId: 'priya', displayName: 'Priya Raman', avatarUrl: null };
     expect(attentionSummary(ticket({ kind: 'COMMENTED', at: '2026-09-27T09:00:00Z', actor: priya, from: null, to: null, note: 'Can we keep it?', fields: [] })))
-      .toEqual({ tag: { label: 'Assigned to you', tone: 'green' }, actor: { name: 'Priya Raman', avatarUrl: null }, verb: 'commented',
+      .toEqual({ tag: { label: jiraIssue.status.name, tone: 'neutral' }, actor: { name: 'Priya Raman', avatarUrl: null }, verb: 'commented',
         detail: { kind: 'quote', text: 'Can we keep it?', file: null } });
     expect(attentionSummary(ticket({ kind: 'FIELDS_CHANGED', at: '2026-09-27T09:00:00Z', actor: null, from: null, to: null, note: null,
       fields: ['priority', 'labels', 'due date'] }))).toMatchObject({ verb: 'Updated in Jira', detail: { kind: 'text', text: 'Changed priority, labels and due date' } });
-    expect(attentionSummary(ticket(null)).tag).toEqual({ label: 'Assigned to you', tone: 'green' });
+    expect(attentionSummary(ticket(null)).tag).toEqual({ label: jiraIssue.status.name, tone: 'neutral' });
   });
 });

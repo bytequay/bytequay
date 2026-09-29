@@ -23,6 +23,8 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -377,6 +379,35 @@ class TestGitHubPullRequestOverviewClient
                 .andRespond(withSuccess("{\"total_count\":0,\"items\":[]}", MediaType.APPLICATION_JSON));
 
         assertThat(fixture.client().searchPullRequestsPaged("pat", "is:pr author:me", 1, 20).items()).isEmpty();
+        fixture.verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "null", "{}", "{\"total_count\":1,\"items\":null}", "{\"total_count\":0,\"items\":[],\"incomplete_results\":true}"})
+    void incompleteSearchResponsesCannotReportACompleteEmptyDiscovery(String body)
+    {
+        Fixture fixture = fixture();
+        fixture.api().expect(request -> assertThat(request.getURI().getPath()).isEqualTo("/search/issues"))
+                .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> fixture.client().searchPullRequestsPaged("pat", "is:pr author:me", 1, 100))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY));
+        fixture.verify();
+    }
+
+    @Test
+    void searchResultCeilingRemainsIncompleteWhenMoreRowsExist()
+    {
+        Fixture fixture = fixture();
+        String items = IntStream.rangeClosed(901, 1000).mapToObj(number -> """
+                {"id":%d,"number":%d,"title":"Pull request","html_url":"https://github.com/owner/repo/pull/%d",
+                 "repository_url":"https://api.github.com/repos/owner/repo","state":"open","user":{"login":"author"},
+                 "created_at":"2026-09-20T00:00:00Z","updated_at":"2026-09-21T00:00:00Z"}
+                """.formatted(number, number, number)).collect(joining(",", "[", "]"));
+        fixture.api().expect(request -> assertThat(request.getURI().getQuery()).contains("page=10"))
+                .andRespond(withSuccess("{\"total_count\":1001,\"items\":" + items + "}", MediaType.APPLICATION_JSON));
+
+        assertThat(fixture.client().searchPullRequestsPaged("pat", "is:pr author:me", 10, 100).hasMore()).isTrue();
         fixture.verify();
     }
 

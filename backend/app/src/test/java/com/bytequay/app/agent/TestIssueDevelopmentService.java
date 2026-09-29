@@ -62,7 +62,6 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -103,7 +102,6 @@ class TestIssueDevelopmentService
         when(workspaces.findById(anyString())).thenReturn(Optional.of(workspace));
         when(issues.find(2, 7)).thenReturn(Optional.of(new RepositoryIssue(70, 7, SOURCE.title(), SOURCE.body(), "alice", "", SOURCE.url(),
                 ImmutableList.of(), ImmutableList.of("alice"), 0, NOW, NOW)));
-        when(issues.findPage(2, REPO, 0, 1)).thenReturn(new RepositoryIssuePage(2, REPO, ImmutableList.of(), 0, 1, 0, false, Optional.of(NOW)));
         when(sources.findGoal("github.com", 70)).thenAnswer(ignored -> Optional.ofNullable(goal.get()));
         when(sources.findTask("github.com", 70)).thenAnswer(ignored -> Optional.ofNullable(linked.get()));
         when(sources.findByTaskId(taskId.toString())).thenAnswer(ignored -> Optional.ofNullable(linked.get()));
@@ -249,18 +247,13 @@ class TestIssueDevelopmentService
     }
 
     @Test
-    void attentionReadsCachedViewerOnlyAndDoesNotFetchCredentials()
+    void attentionReturnsTheWholeCachedRepositoryWithoutCredentialsOrRemoteReads()
     {
-        assertThat(service.attention("workspace").issues()).isEmpty();
-        verify(issues, never()).findAssignedEligible(anyLong(), anyString(), anyInt());
-        when(credentials.cachedLogin()).thenReturn(Optional.of("alice"));
         RepositoryIssue cached = issues.find(2, 7).orElseThrow();
-        when(issues.findAssignedEligible(2, "alice", 101)).thenReturn(ImmutableList.of(cached));
-        assertThat(service.attention("workspace").issues()).hasSize(1);
-        verify(credentials, times(2)).cachedLogin();
-        verify(credentials, never()).resolveGitHubCredential();
-        verify(credentials, never()).resolveGitHubToken();
-        verifyNoInteractions(github);
+        RepositoryIssuePage page = new RepositoryIssuePage(2, REPO, ImmutableList.of(cached), 0, Integer.MAX_VALUE, 1, false, Optional.of(NOW));
+        when(issues.findPage(2, REPO, 0, Integer.MAX_VALUE)).thenReturn(page);
+        assertThat(service.attention("workspace")).isSameAs(page);
+        verifyNoInteractions(credentials, github);
     }
 
     @Test

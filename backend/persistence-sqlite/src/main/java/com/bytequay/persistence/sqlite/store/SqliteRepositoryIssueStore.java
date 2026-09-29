@@ -83,16 +83,6 @@ public class SqliteRepositoryIssueStore
     }
 
     @Override
-    @Transactional(readOnly = true)
-    public List<RepositoryIssue> findAssignedEligible(long repositoryId, String login, int limit)
-    {
-        requireNonNull(login, "login is null");
-        checkArgument(!login.isBlank(), "login must not be blank");
-        checkArgument(limit > 0, "limit must be positive");
-        return issueRows.findAssignedEligible(repositoryId, login, limit).stream().map(RepositoryIssueEntity::toDomain).collect(ImmutableList.toImmutableList());
-    }
-
-    @Override
     @Transactional
     public void saveSyncPage(long repositoryId, List<RepositoryIssue> issues, String syncMarker)
     {

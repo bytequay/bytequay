@@ -974,8 +974,9 @@ its close control.
 Both Homes draw **Needs attention** as cards in a grid of 360px-minimum columns
 whose cards keep their own height. Each shows at most four cards, newest source
 update or event first across all reasons. An older high-priority reason cannot
-bury a newer update; reason priority only breaks ties. Acknowledging or
-snoozing one brings in the next eligible item, and the count reads `4 of N`.
+bury a newer update; reason priority only breaks ties. Private team membership
+adds context and an explicit Team-only filter, never a ranking boost.
+Acknowledging or snoozing one brings in the next eligible item, and the count reads `4 of N`.
 Filter tabs above the grid (**All · PRs · Issues · Jira · Tasks**, each with its
 count) narrow the cards to one source; the cap applies after filtering. There
 are no **All issues** or **All pull requests** links. A card is a strip tinted
@@ -990,7 +991,8 @@ outline around plain text: Review requested, Changes requested, Checks failing,
 Merge blocked, New commits or Ready to merge for a pull request, or Merged,
 Closed, Draft, Approved or Open for one that only moved; Approval needed,
 Question for you, Turn finished, Turn failed or Recovery required for a task;
-Assigned to you for an issue or Jira ticket. The body is the title clamped to
+Assigned to you for an assigned issue, Open for another issue, or the actual
+status for a Jira ticket. The body is the title clamped to
 two lines, then the event that put the card here: the actor's avatar and what
 they did (commented, pushed commits, requested your review, finished a turn,
 moved the ticket), folded over a detail block about that same event until the
@@ -1028,9 +1030,13 @@ ineligible items still return with their latest available state. There is no
 hover preview. With nothing left, the section says **Nothing needs you right
 now.**
 
-The sources are pull requests, assigned issues and Jira tickets, and agent
-tasks. `GET /prs/attention` carries each pull request's cached details from its
-stored timeline, commits and check runs: the latest comment's opening text and
+The sources are all discovered personal and watched-repository pull requests,
+cached watched-repository issues, tickets in connected saved Jira board scopes,
+and unarchived local agent tasks. Assignment, Goal marking, a linked task, or
+an ordinary update does not remove an item from this list. Those facts still
+control whether Start development is offered. Source discovery is independent
+of the limit used to warm full pull-request details. `GET /prs/attention` carries
+each pull request's cached details from its stored timeline, commits and check runs: the latest comment's opening text and
 the file and line of an inline one, the commits cached after the viewer's last
 review (or the review request when there was none), and the names of the
 latest failing checks. Failing test names are not stored, so a CI detail names
@@ -1038,10 +1044,11 @@ the check. `GET /api/jira/attention` sends each ticket with the last change
 ByteQuay saw on it: a status move with where it went and any comment with it, a
 comment with its author, or the fields that changed (see
 [jira-integration.md](jira-integration.md)); a workspace's Home lists the
-tickets assigned to that workspace. A task waits on the user when it has a pending approval (the command
-it wants to run, or the questions of an `AskUserQuestion` card), when its latest
-turn completed or failed while the task stays open and idle, or when it needs
-recovery; a running turn says nothing until it stops. Both Homes read
+tickets assigned to that workspace. Task cards include running, idle and terminal
+updates as well as approvals,
+questions and recovery. Their age follows the newest task change, root message,
+turn completion, approval or execution claim. Archived tasks stay out of Home.
+Both Homes read
 `GET /agent/tasks/activity?workspaceId=…` on a short tick: one batched local read
 returning, by task id, the pending approval, the newest turn, and the start of
 the newest root message (a user message, or a final answer or commentary of the

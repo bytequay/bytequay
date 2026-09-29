@@ -13,7 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import AttentionList from '../home/AttentionList';
-import { assignedIssues, attentionCandidates, loadHandled, saveHandled, type AttentionItem, type Handled } from '../home/attention';
+import { issueAttentionItems, attentionCandidates, loadHandled, saveHandled, type AttentionItem, type Handled } from '../home/attention';
 import { zoomReference } from '../githubReference';
 import type { PullRequestDto } from '../types';
 import { ISSUE_DEVELOPMENT_CHANGED } from '../workspaces/issueDevelopment';
@@ -32,7 +32,7 @@ export default function TeamsAttention({ accountLogin, circleId, memberId }: { a
       try {
         const [prs, workspaces] = await Promise.all([window.bridge.fetchAttentionPrs(), window.bridge.listWorkspaces()]);
         const results = await Promise.allSettled(workspaces.map(async workspace =>
-          assignedIssues(await window.bridge.fetchWorkspaceIssueAttention(workspace.id), workspace.id, accountLogin)));
+          issueAttentionItems(await window.bridge.fetchWorkspaceIssueAttention(workspace.id), workspace.id, accountLogin)));
         if (!active || request !== generation) return;
         setCandidates(attentionCandidates(prs, results.flatMap(result => result.status === 'fulfilled' ? result.value : []), accountLogin));
         setError(results.some(result => result.status === 'rejected') ? 'Some assigned issues could not be loaded.' : null);

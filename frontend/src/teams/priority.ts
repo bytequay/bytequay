@@ -20,8 +20,6 @@ export type TeamAttentionPreference = {
   circles: TeamCircle[];
   viewerLogin: string | null;
   onlyTeam?: boolean;
-  /** Due reminders already passed the same handling and pin checks as other cards. */
-  protectedKeys?: ReadonlySet<string>;
 };
 
 /** Local circles match GitHub identities, never a Jira display name or an agent lane. */
@@ -39,27 +37,4 @@ export function teamAttentionMatch(item: AttentionItem, circles: TeamCircle[], v
     if (member) return { circle, member, reason: 'review-requester' };
   }
   return null;
-}
-
-/** Select from already eligible, handled, scoped, and newest-first cards without changing their timestamps. */
-export function preferTeamAttention(sorted: AttentionItem[], preference: TeamAttentionPreference | undefined, limit: number): AttentionItem[] {
-  if (preference === undefined || preference.onlyTeam) return sorted.slice(0, limit);
-  const trusted = sorted.filter(item => teamAttentionMatch(item, preference.circles, preference.viewerLogin) !== null);
-  if (trusted.length === 0) return sorted.slice(0, limit);
-  const selected: AttentionItem[] = [];
-  const keys = new Set<string>();
-  const add = (item: AttentionItem) => {
-    if (selected.length < limit && !keys.has(item.key)) { selected.push(item); keys.add(item.key); }
-  };
-  sorted.filter(item => preference.protectedKeys?.has(item.key) || item.task && (item.kind === 'approval' || item.kind === 'failed')).forEach(add);
-  const trustedKeys = new Set(trusted.map(item => item.key));
-  const otherRequests = sorted.filter(item => !keys.has(item.key) && !trustedKeys.has(item.key) && item.kind !== 'updated' && item.kind !== 'finished');
-  // Assignment time is not available for issues. Use their source update as the honest fallback, not an invented waiting age.
-  const requestTime = (item: AttentionItem) => Date.parse(item.pr?.reviewRequestedAt ?? item.updatedAt) || 0;
-  const oldest = otherRequests.reduce<AttentionItem | null>((previous, item) => previous === null || requestTime(item) < requestTime(previous) ? item : previous, null);
-  const available = limit - selected.length;
-  trusted.filter(item => !keys.has(item.key)).slice(0, Math.max(0, Math.min(3, available - (oldest === null ? 0 : 1)))).forEach(add);
-  if (oldest !== null) add(oldest);
-  sorted.forEach(add);
-  return selected;
 }

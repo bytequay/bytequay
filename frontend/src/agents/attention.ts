@@ -26,15 +26,15 @@ export type TaskAttentionWorkspace = { id: string; name: string; repository: str
 /** A task in the workspace it belongs to, so a pull request's card can find the task that opened it. */
 export type WorkspaceTask = { task: AgentTaskDto; workspace: TaskAttentionWorkspace };
 
-/** Why an open task waits on the user, or null while it works or rests without news. */
+/** The latest state of every visible task; archived tasks stay out of Home. */
 export function taskAttentionKind(task: AgentTaskDto, activity: AgentTaskActivityDto | null): AttentionKind | null {
-  if (task.state !== 'OPEN' || taskArchived(task)) return null;
+  if (taskArchived(task)) return null;
+  if (task.state !== 'OPEN') return task.state === 'FAILED' ? 'failed' : 'finished';
   if (activity?.pendingApproval != null) return 'approval';
   if (task.mutationClaim?.kind === 'RECOVERY') return 'failed';
-  // A running turn or unfinished delivery automation will say more when it stops.
-  if (task.mutationClaim != null || task.developmentContinuationUnfinished) return null;
+  if (task.mutationClaim != null || task.developmentContinuationUnfinished) return 'updated';
   const turn = activity?.latestTurn ?? null;
-  return turn?.state === 'FAILED' ? 'failed' : turn?.state === 'COMPLETED' ? 'finished' : null;
+  return turn?.state === 'FAILED' ? 'failed' : turn?.state === 'COMPLETED' ? 'finished' : 'updated';
 }
 
 export type TaskCardState = {
@@ -79,10 +79,8 @@ export function taskLastMessage(task: AgentTaskDto, activity: AgentTaskActivityD
 
 /** When the thing the card reports happened; a later one brings an acknowledged card back. */
 function eventTime(task: AgentTaskDto, activity: AgentTaskActivityDto | null): string {
-  return activity?.pendingApproval?.occurredAt
-    ?? (task.mutationClaim?.kind === 'RECOVERY' ? task.mutationClaim.acquiredAt : null)
-    ?? activity?.latestTurn?.endedAt
-    ?? task.updatedAt;
+  return [activity?.pendingApproval?.occurredAt, task.mutationClaim?.acquiredAt, activity?.latestTurn?.endedAt, activity?.lastMessage?.at]
+    .reduce<string>((latest, at) => at != null && Date.parse(at) > Date.parse(latest) ? at : latest, task.updatedAt);
 }
 
 function pullRequestStatus(pullRequest: AgentTaskPullRequestDto): { status: string; tone: AttentionTone } {
@@ -107,7 +105,7 @@ export function taskLink(task: AgentTaskDto): AttentionLink {
   return { source: 'task', key: 'Task', title: task.title, status: pill.label, tone };
 }
 
-/** The open tasks of one workspace that wait on the user, as attention cards. */
+/** Every unarchived task in one workspace, as an update card. */
 export function taskAttentionItems(
   tasks: AgentTaskDto[],
   activity: Record<string, AgentTaskActivityDto>,
@@ -134,7 +132,7 @@ export function taskAttentionItem(
   return {
     key: `task:${task.id}`,
     type: 'task',
-    kind: taskAttentionKind(task, activity) ?? 'finished',
+    kind: taskAttentionKind(task, activity) ?? 'updated',
     task: { dto: task, activity },
     reference: lane,
     repo: workspace.repository,
@@ -158,7 +156,8 @@ export function taskAttentionItem(
 export function taskAttentionAfterQueue(item: AttentionItem | null, queued: Pick<AgentQueuedInputDto, 'taskId' | 'createdAt'>): AttentionItem | undefined {
   if (item?.task === undefined || item.task.dto.id !== queued.taskId) return undefined;
   if (Date.parse(queued.createdAt) <= Date.parse(item.task.dto.updatedAt)) return item;
-  return { ...item, task: { ...item.task, dto: { ...item.task.dto, updatedAt: queued.createdAt } } };
+  return { ...item, updatedAt: Date.parse(queued.createdAt) > Date.parse(item.updatedAt) ? queued.createdAt : item.updatedAt,
+    task: { ...item.task, dto: { ...item.task.dto, updatedAt: queued.createdAt } } };
 }
 
 /** Ties each pull request's card to the tasks whose branch opened it. */

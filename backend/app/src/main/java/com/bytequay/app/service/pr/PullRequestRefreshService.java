@@ -135,7 +135,7 @@ public class PullRequestRefreshService
         events.publishEvent(new PullRequestsRefreshed());
     }
 
-    /** Uses the existing list scans without fetching pull-request detail or diffs. */
+    /** Refreshes discovered rows and the bounded warm-detail set for each repository. */
     public void refreshDashboardRows()
     {
         if (!refreshLock.tryLock()) {
@@ -144,7 +144,7 @@ public class PullRequestRefreshService
                     "A pull request refresh is already in progress; try again shortly");
         }
         try {
-            pullRequests.syncFromGitHub(false);
+            pullRequests.syncFromGitHub();
         }
         finally {
             refreshLock.unlock();

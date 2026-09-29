@@ -448,35 +448,48 @@ The normalized repository name and PR number uniquely identify a pull request in
 search and pull-request endpoints expose different numeric IDs for the same PR, so ingestion retains
 the existing local row ID whenever either endpoint returns that repository-and-number pair.
 
-Repository refresh discovers every pull request updated within 30 days without filtering by state,
-plus older pull requests that remain open. Search results can add or update rows but their absence
-never deletes a row. A known row omitted by the current search is reconciled through GitHub's exact
-repository-and-number endpoint before retention runs. Closed rows expire only after both their close
-time and last GitHub update are older than 30 days. A dedicated summary job checks every 15 seconds,
-reading the newest 100 rows from each personal dashboard search without fetching detail, checks,
-or diffs. This bounded scan only adds or updates rows; it never prunes omitted rows. GitHub's
-notification feed supplements search and respects its conditional responses and server-specified
-polling interval. The summary job has its own scheduler so a slow repository or detail scan cannot
-hold up new cards. Older responses cannot overwrite newer stored summaries.
+Repository discovery paginates open pull requests and pull requests updated within the recent
+30-day window. Personal discovery paginates its authored, review-requested, and reviewed queries.
+Every discovered list row is persisted before optional enrichment; the detail warm limit does not
+limit discovery or Home eligibility. Incomplete searches and GitHub's 1,000-result search ceiling
+surface an error while retaining already saved pages. Missing rows never complete a pruning sweep.
 
-The separate full background refresh uses the configured interval, six minutes by default.
-New PRs, changed GitHub update timestamps, and missing local details refresh the full aggregate
-during that scan. An unchanged open dashboard PR refreshes mergeability and CI
-when its stored status is at least six minutes old, including older open PRs. Explicitly monitored
-PRs continue refreshing after closure; unmonitored unchanged closed PRs are skipped. Authored closed
-PR discovery uses recent activity, so a new comment can bring an older closed PR back into the snapshot.
+A dedicated summary job checks the newest 100 rows from each of the four personal search queries
+every 60 seconds without fetching histories, checks, or diffs. Its four search requests per tick
+leave room in GitHub's search quota for the fully paginated scheduled discovery. GitHub's notification
+feed supplements search and respects its conditional responses and server-specified polling interval.
+The summary job has its own scheduler.
+Older responses cannot overwrite newer stored summaries.
+
+The configured background interval, six minutes by default, refreshes compact card facts in
+GraphQL batches of at most 30 PRs: CI rollup, mergeability, review state, latest head and viewer
+review, counts, and activity metadata. These update the existing PR projection and notification
+baseline without creating or marking a full detail snapshot fresh. Monitoring establishes the same
+summary baseline before its timestamp is saved. A handled review with newer activity may additionally
+read author-reply metadata to decide whether it needs review again; successful checks are cached by
+activity version. Failed enrichment batches retain the successfully discovered list rows and other
+successful batches; they do not prevent the warm-detail pass.
+
+The newest 30 discovered PRs per repository keep full histories, comments, reactions, checks, and
+default diffs warm. PRs warm sequentially through the existing conditional detail refresh and stored
+ETags, skipping complete, recently synchronized snapshots that match the source update. Partial
+snapshots retry fully, and failed diffs leave the PR ETag empty so a status-only response cannot
+prevent their recovery. Watched repositories
+own their warm allowance so personal discovery does not add another 30. Older monitored and notified
+PRs retain summary coverage; opening any older PR or using it in an active task refreshes its details.
+Issue background refresh already reads list pages only; its complete open-issue projection remains
+unchanged so omitted issues are not falsely treated as closed.
 
 Dashboard refresh requests for the same GitHub credential join an in-flight dashboard refresh and
-reuse a successful dashboard snapshot for six minutes after it completes. Scheduled full refreshes
+reuse a successful dashboard snapshot for six minutes after it completes. Scheduled card refreshes
 already enforce their interval and bypass this cache, avoiding a skipped six-minute cycle. A credential change waits
 for older in-flight work and then starts a new scan. This keeps a manual refresh from queuing behind
 scheduled repository work and then repeating the same GitHub discovery scan. The frontend keeps the
 persisted list visible while a refresh is in progress, reloads the current search when it completes,
 and reports sync failures in the list without replacing cached rows. The pull-request toolbar reuses
 the existing dashboard and repository list scans, running the repository scan once for each currently
-monitored repository. It persists only fields returned by those list APIs; detail-derived metrics and
-diffs remain cached until the selected PR's focused polling or the scheduled full refresh updates
-them. The global list combines personalized dashboard rows with current workspace projections.
+monitored repository. It refreshes discovered rows and their bounded warm-detail set. The global list
+combines personalized dashboard rows with current workspace projections.
 
 Default PR diff files and commit metadata refresh with changed PR detail. Commit-range diffs and
 full file bodies refresh only after the user requests that range or expands that file, and are
@@ -488,13 +501,13 @@ the detail and list refresh completes. These writes invalidate the detail ETag w
 the stored snapshot and diffs, so refresh can reuse unchanged patches and concurrent readers
 continue to see cached data.
 
-Home and Workspace Home read an unpaginated personal attention projection. Authored PRs follow all
-activity, including drafts and closure. Other PRs qualify for review requests, or new commits and
-merge readiness when the user was requested or has reviewed them. Repository watching alone does
-not make another author's failed CI actionable. A bell on each PR card explicitly monitors that PR;
+Home and Workspace Home read an unpaginated update projection containing observed personal PRs and
+all cached PRs in currently watched repositories, including drafts and closure. Ordinary PR, issue,
+configured Jira-board, and unarchived local task updates remain eligible even when no action is
+required. Action tags still describe the actual relationship to the viewer. A bell on each PR card explicitly monitors that PR;
 monitoring is local SQLite state and performs no GitHub write. Enabling it establishes a current
-activity baseline without fetching repository permissions or diffs. Existing detail snapshots receive
-the fresh activity while retaining cached write access; a missing detail remains a normal cache miss.
+card-activity baseline without fetching repository permissions or diffs. Existing detail snapshots
+keep their own freshness timestamps; a missing detail remains a normal cache miss.
 Subsequent changes enter Needs attention. Stored activity timestamps include
 check changes that do not advance GitHub's PR update timestamp.
 
@@ -503,9 +516,9 @@ The local timeline supplies this summary in one batch read; display never fetche
 full PR details per row. Local workflow events and subscription bookkeeping are excluded. When
 GitHub's PR update timestamp is newer than the known timeline action, the row says `Updated`
 without attributing it to a person. Cards initially sort by their newest source update or event timestamp;
-attention reason only breaks equal-time ties. After handling and source filtering, private
-[teams](teams.md) prefer up to three trusted-person items and preserve one other pending request
-before the four-card limit. Urgent task actions and due reminders remain protected. The row's
+attention reason only breaks equal-time ties. The four-card limit is applied after handling and source
+filtering, with newest updates first across all sources. Private [teams](teams.md) affect eligibility
+only when the user selects Team only; they never silently displace newer updates. The row's
 age uses this same source timestamp. Local activity
 timestamps continue to drive monitoring and acknowledgment, independently of the displayed age.
 

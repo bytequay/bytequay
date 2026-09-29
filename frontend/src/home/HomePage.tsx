@@ -24,7 +24,7 @@ import { attentionWorkspace, goalHas, goalRef } from '../goals/model';
 import { toggleGoalItem, usePinnedGoals } from '../goals/useGoals';
 import {
   ATTENTION_SEED,
-  assignedIssues,
+  issueAttentionItems,
   attentionCandidates,
   loadHandled,
   saveHandled,
@@ -240,7 +240,7 @@ function HomePage({
       const current = ++request;
       void Promise.allSettled(workspaceKey.split(',').map(workspaceId =>
         window.bridge.fetchWorkspaceIssueAttention(workspaceId)
-          .then(snapshot => assignedIssues(snapshot, workspaceId, login))))
+          .then(snapshot => issueAttentionItems(snapshot, workspaceId, login))))
         .then(results => {
           if (cancelled || current !== request) return;
           const items = results.flatMap(result => result.status === 'fulfilled' ? result.value : []);

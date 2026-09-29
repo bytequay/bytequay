@@ -96,13 +96,40 @@ class TestSqlitePullRequestWorkspaceScope
         assertThat(store.findById(row.id()).orElseThrow().activityAt()).isEqualTo(baselineActivity);
 
         store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.FAILING, 1, 0, 0, true, "clean", null, "feature",
-                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.empty(), ImmutableMap.of("checks", "failed"));
+                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.empty(), ImmutableMap.of("summary", "failed"));
         PullRequest changed = store.findById(row.id()).orElseThrow();
         assertThat(changed.updatedAt()).isEqualTo(row.updatedAt());
         assertThat(changed.activityAt()).isAfter(changed.monitoredAt());
         store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.FAILING, 1, 0, 0, true, "clean", null, "feature",
-                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.empty(), ImmutableMap.of("checks", "failed"));
+                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.empty(), ImmutableMap.of("summary", "failed"));
         assertThat(store.findById(row.id()).orElseThrow().activityAt()).isEqualTo(changed.activityAt());
+    }
+
+    @Test
+    void reviewProjectionDifferencesDoNotCreateActivityButChangedReviewSourcesDo()
+    {
+        PullRequest row = store.saveObserved(pullRequest(1, "owner/project", 1));
+        store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PASSING, 1, 0, 0, true, "clean", null, "feature",
+                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"),
+                ImmutableMap.of("summary", "summary-v1", "reviews", "reviews-v1"));
+        store.setMonitored(row.id(), true);
+        Instant baselineActivity = store.findById(row.id()).orElseThrow().activityAt();
+
+        for (Optional<String> decision : ImmutableList.of(Optional.of("REVIEW_REQUIRED"), Optional.<String>empty(), Optional.of("APPROVED"))) {
+            store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PASSING, 1, 0, 0, true, "clean", null, "feature",
+                    ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), decision, ImmutableMap.of("summary", "summary-v1"));
+            store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PASSING, 1, 0, 0, true, "clean", null, "feature",
+                    ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"), ImmutableMap.of("reviews", "reviews-v1"));
+            assertThat(store.findById(row.id()).orElseThrow().activityAt()).isEqualTo(baselineActivity);
+        }
+
+        store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PASSING, 1, 0, 0, true, "clean", null, "feature",
+                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("CHANGES_REQUESTED"), ImmutableMap.of("summary", "summary-v2"));
+        PullRequest summaryChanged = store.findById(row.id()).orElseThrow();
+        assertThat(summaryChanged.activityAt()).isAfter(summaryChanged.monitoredAt());
+        store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PASSING, 1, 0, 0, true, "clean", null, "feature",
+                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("CHANGES_REQUESTED"), ImmutableMap.of("reviews", "reviews-v2"));
+        assertThat(store.findById(row.id()).orElseThrow().activityAt()).isAfter(summaryChanged.activityAt());
     }
 
     @Test
@@ -232,7 +259,7 @@ class TestSqlitePullRequestWorkspaceScope
     }
 
     @Test
-    void attentionIncludesEveryRelatedRowAndRetainsPastReviewRequests()
+    void attentionIncludesObservedUpdatesAndRetainsPastReviewRequests()
     {
         ImmutableList.Builder<FetchedPullRequest> rows = ImmutableList.builder();
         for (int index = 1; index <= 55; index++) {
@@ -246,9 +273,24 @@ class TestSqlitePullRequestWorkspaceScope
         PullRequest requested = store.saveObserved(pullRequest(58, "owner/project", 58).withOrigin(PullRequest.Origin.REVIEW_REQUESTED));
         store.saveObserved(pullRequest(58, "owner/project", 58).withOrigin(PullRequest.Origin.OTHER));
 
-        assertThat(store.findAttentionCandidates()).hasSize(57).extracting(PullRequest::id).doesNotContain(unrelated.id());
+        assertThat(store.findAttentionCandidates()).hasSize(58).extracting(PullRequest::id).contains(unrelated.id());
         assertThat(store.findById(requested.id()).orElseThrow().reviewRequestedAt()).isNotNull();
         assertThat(store.findById(reviewed.id()).orElseThrow().reviewedAt()).isEqualTo(reviewedAt);
+    }
+
+    @Test
+    void attentionIncludesOrdinaryWatchedRepositoryUpdatesWithoutADetailSnapshot()
+    {
+        Workspace workspace = workspace("updates", 100, RepoRef.of("owner", "project"));
+        workspaceStore.createOrGet(workspace);
+        PullRequest watched = store.saveRepositorySyncPage("owner/project", ImmutableList.of(
+                pullRequest(1, "owner/project", 1).withOrigin(PullRequest.Origin.OTHER)), "scan").getFirst();
+        store.saveRepositorySyncPage("unwatched/project", ImmutableList.of(
+                pullRequest(2, "unwatched/project", 2).withOrigin(PullRequest.Origin.OTHER)), "scan");
+
+        assertThat(store.findAttentionCandidates()).extracting(PullRequest::id).containsExactly(watched.id());
+        workspaceStore.setWatched(workspace.id(), false);
+        assertThat(store.findAttentionCandidates()).isEmpty();
     }
 
     @Test

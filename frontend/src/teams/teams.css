@@ -3,11 +3,11 @@
 .teams-eyebrow { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-3); }
 .teams-heading h1 { margin: 6px 0; font-size: 28px; font-weight: 650; letter-spacing: -0.8px; }
 .teams-heading p, .teams-muted { color: var(--text-3); font-size: 13px; line-height: 1.6; margin: 6px 0 16px; }
-.teams-page .bq-button, .teams-home-preview .bq-button { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+.teams-page .bq-button { display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
 .teams-page button { cursor: pointer; }
 .teams-page button:disabled { cursor: default; opacity: 0.55; }
 .teams-page :is(input, select, textarea) { border: 1px solid var(--border-input); border-radius: 6px; background: var(--bg-input); color: var(--text-1); padding: 7px 10px; font: inherit; font-size: 13px; }
-.teams-page :is(button, input, select, textarea):focus-visible, .teams-home-preview button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.teams-page :is(button, input, select, textarea):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .teams-page select { max-width: 280px; }
 .teams-controls { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; }
 .teams-controls > label { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--text-3); }
@@ -78,10 +78,6 @@
 .teams-circle-form p { font-size: 12px; line-height: 1.6; color: var(--text-3); margin: 0; }
 .teams-circle-form textarea { resize: vertical; }
 .teams-circle-form .teams-danger { align-self: start; color: var(--red); }
-.teams-home-preview .teams-section-heading { margin-bottom: 0; }
-.teams-activity.is-compact .teams-activity-row { gap: 8px; padding: 12px 0; }
-.teams-activity.is-compact .teams-activity-meta { font-size: 10px; }
-.teams-activity.is-compact .teams-work-link { font-size: 12px; line-height: 1.4; }
 .teams-spinning { animation: teams-spin 1s linear infinite; }
 @keyframes teams-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .teams-spinning { animation: none; } }

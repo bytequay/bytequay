@@ -18,16 +18,15 @@ import { relativeTime } from '../relativeTime';
 import { groupTeamActivity, TEAM_EVENT_LABELS } from './activity';
 import type { TeamActivityEvent, TeamMember } from './types';
 
-export default function TeamActivityList({ events, members, compact = false, onPerson }: {
+export default function TeamActivityList({ events, members, onPerson }: {
   events: TeamActivityEvent[];
   members: TeamMember[];
-  compact?: boolean;
   onPerson?: (id: number) => void;
 }) {
   const groups = groupTeamActivity(events);
   if (groups.length === 0) return <div className="teams-empty">No recorded activity in this view.</div>;
-  return <div className={`teams-activity${compact ? ' is-compact' : ''}`}>
-    {(compact ? groups.slice(0, 4) : groups).map(group => {
+  return <div className="teams-activity">
+    {groups.map(group => {
       const event = group[0];
       const person = members.find(member => member.githubId === event.actorId);
       return <article className="teams-activity-row" key={event.id}>
@@ -35,17 +34,17 @@ export default function TeamActivityList({ events, members, compact = false, onP
           ? <button type="button" className="teams-avatar" aria-label={`View ${person.login}`} onClick={() => onPerson(person.githubId)}>
             <Avatar login={event.actorLogin} avatarUrl={person.avatarUrl} size={28} />
           </button>
-          : event.actorId === 0 ? <GitPullRequest size={24} aria-hidden="true" /> : <Avatar login={event.actorLogin} avatarUrl={person?.avatarUrl} size={compact ? 24 : 28} />}
+          : event.actorId === 0 ? <GitPullRequest size={24} aria-hidden="true" /> : <Avatar login={event.actorLogin} avatarUrl={person?.avatarUrl} size={28} />}
         <div className="teams-activity-body">
           <div className="teams-activity-meta">{event.actorId === 0 ? 'Pull request merged · merger unavailable' : <><strong>{event.actorLogin}</strong> {TEAM_EVENT_LABELS[event.kind]}</>}</div>
           <button type="button" className="teams-work-link" onClick={() => openActivityLink(event.url)}>
-            {!compact && (event.kind.startsWith('ISSUE_') ? <CircleDot size={15} /> : <GitPullRequest size={15} />)}
+            {event.kind.startsWith('ISSUE_') ? <CircleDot size={15} /> : <GitPullRequest size={15} />}
             <span>{event.title}</span><ArrowUpRight size={12} aria-hidden="true" />
           </button>
           <div className="teams-activity-meta">{event.repository} #{event.number}
             {event.viewerInteractionMemberIds.length > 0 && <span className="teams-badge">With you</span>}
           </div>
-          {group.length > 1 && !compact && <details className="teams-event-details">
+          {group.length > 1 && <details className="teams-event-details">
             <summary>{group.length} recorded updates</summary>
             {group.map(item => <div key={item.id}><span>{item.actorId === 0 ? 'Pull request merged · merger unavailable' : <><strong>{item.actorLogin}</strong> {TEAM_EVENT_LABELS[item.kind]}</>}</span>
               <button type="button" onClick={() => openActivityLink(item.url)} aria-label={`Open ${item.actorLogin}'s update`}>View</button>

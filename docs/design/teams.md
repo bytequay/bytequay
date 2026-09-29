@@ -45,8 +45,9 @@ update timestamp as a proven review-request timestamp.
 
 ## Activity and insights
 
-Teams opens a local-first page with circle management, member selection,
-activity, people, and insights. Home includes a compact Team activity entrance.
+The Teams sidebar entrance opens a local-first page with circle management,
+member selection, activity, people, and insights. Team activity is shown here;
+Home's activity sidebar contains GitHub and following activity.
 All events retain source identity, actor identity, repository/item identity, and
 event time before grouping or display limits. Statistics use retained facts,
 not the visible page. Contributions and direct interactions with the viewer

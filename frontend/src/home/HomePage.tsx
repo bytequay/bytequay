@@ -32,7 +32,6 @@ import {
   type Handled,
 } from './attention';
 import ContributionCard from './ContributionCard';
-import TeamHomePreview from '../teams/TeamHomePreview';
 import { getCached, getCachedFresh, setCached } from '../dataCache';
 import WatchedReposGrid from './WatchedReposGrid';
 import { relativeTime } from '../relativeTime';
@@ -343,7 +342,6 @@ function HomePage({
 
       {/* ── Right panel: GitHub activity + Following activity ── */}
       <aside className="home-side">
-        <TeamHomePreview viewerLogin={login ?? null} />
         <section className="home-side-section home-side-section--recent-activity">
           <h3 className="home-side-section__title">GitHub activity</h3>
           {events.length === 0 ? (

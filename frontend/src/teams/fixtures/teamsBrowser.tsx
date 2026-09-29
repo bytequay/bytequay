@@ -17,7 +17,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import AppSidebar, { type AppPage } from '../../AppSidebar';
 import { assert, settle } from '../../fixtures/harness';
 import type { Bridge } from '../../types';
-import TeamHomePreview from '../TeamHomePreview';
 import TeamsPage from '../TeamsPage';
 import { membersOf } from '../activity';
 import type { TeamActivityEvent, TeamActivityQuery, TeamActivitySnapshot, TeamDirectory, TeamMember, TeamPersonStatistics } from '../types';
@@ -184,7 +183,7 @@ async function mount(initial = seededDirectory(), home = false, observations = s
         onWorkspaceTab={noOp} canGoBack={false} canGoForward={false} onBack={noOp} onForward={noOp}
         browserRailVisible={false} onToggleBrowserRail={noOp} />
       <main className="app-content">{page === 'teams' ? <TeamsPage />
-        : <div style={{ padding: 36, maxWidth: 620 }}><h1>Home</h1><TeamHomePreview viewerLogin="viewer" /></div>}</main>
+        : <div style={{ padding: 36, maxWidth: 620 }}><h1>Home</h1></div>}</main>
     </div>;
   }
   const host = document.getElementById('root');
@@ -304,11 +303,10 @@ async function refreshFailure() {
 
 async function homeNavigation() {
   const f = await mount(seededDirectory(), true);
-  assert(document.querySelectorAll('.teams-home-preview .teams-activity-row').length === 4, 'Home must show the four most recent grouped work items');
-  await click('View all');
-  assert(window.location.hash === '#/teams' && document.querySelector('.teams-page h1')?.textContent === 'Teams', 'Home’s View all must reach the Teams destination');
+  await click('Teams', document.querySelector('.app-sidebar') ?? document);
+  assert(window.location.hash === '#/teams' && document.querySelector('.teams-page h1')?.textContent === 'Teams', 'Sidebar Teams must reach the Teams destination');
   await click('Home', document.querySelector('.app-sidebar') ?? document);
-  assert(document.querySelector('.teams-home-preview') !== null, 'Sidebar Home must restore the preview');
+  assert(document.querySelector('.app-content h1')?.textContent === 'Home', 'Sidebar Home must return to Home');
   await click('Teams', document.querySelector('.app-sidebar') ?? document);
   assert(document.querySelector('.teams-page') !== null && f.refreshes === 0, 'Sidebar Teams must use local data without remote collection');
 }

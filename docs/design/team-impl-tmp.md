@@ -119,3 +119,15 @@ Logs: `/private/tmp/bytequay-team-usability-backend-final.log`,
 `/private/tmp/bytequay-team-usability-tests-final.log`,
 `/private/tmp/bytequay-team-usability-lint.log`, and
 `/private/tmp/bytequay-team-usability-tsc.log`.
+
+## Home activity sidebar cleanup
+
+- [x] Remove the "From your teams" sidebar section and unused preview code/styles.
+- [x] Keep Team activity accessible through the Teams sidebar entrance.
+- [x] Update the existing navigation scenario and design contract.
+- [x] Verify frontend lint, TypeScript, all 1,370 tests across 132 files, and desktop packaging.
+
+Verification logs: `/private/tmp/bytequay-home-team-removal-lint.log`,
+`/private/tmp/bytequay-home-team-removal-tsc.log`,
+`/private/tmp/bytequay-home-team-removal-tests.log`, and
+`/private/tmp/bytequay-home-team-removal-package.log`.

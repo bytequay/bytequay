@@ -304,6 +304,27 @@ export default function AppSidebar({
         {GLOBAL_NAV_ITEMS.map(navItem)}
         <div className="app-sidebar__rule" />
       </nav>
+      {workspace === null ? (
+        <nav className="app-sidebar__nav" aria-label="Application navigation">
+          {APP_NAV_ITEMS.filter(item => item.page !== 'jira' || jiraConnected).map(navItem)}
+        </nav>
+      ) : (
+        <>
+          <button
+            type="button"
+            className="app-sidebar__ws-head"
+            aria-label={`${workspace.name} workspace home`}
+            title={workspace.localRepositoryPath}
+            onClick={() => onWorkspaceTab('home')}
+          >
+            <Avatar login={workspace.monitoredOwner} size={18} />
+            <span className="app-sidebar__ws-name app-sidebar__label" title={workspace.name}>{workspace.name}</span>
+          </button>
+          <nav className="app-sidebar__nav" aria-label="Workspace navigation">
+            {WORKSPACE_TABS.filter(item => item.tab !== 'jira' || jiraConnected).map(workspaceItem)}
+          </nav>
+        </>
+      )}
       {pinnedItems.length > 0 && <section className="app-sidebar__pinned" aria-label="Pinned">
         <button type="button" className="app-sidebar__pinned-heading" aria-label="Pinned items"
           aria-expanded={pinsExpanded} aria-controls="pinned-items" onClick={() => setPinsExpanded(value => !value)}>
@@ -326,27 +347,6 @@ export default function AppSidebar({
           </div>)}
         </nav>}
       </section>}
-      {workspace === null ? (
-        <nav className="app-sidebar__nav" aria-label="Application navigation">
-          {APP_NAV_ITEMS.filter(item => item.page !== 'jira' || jiraConnected).map(navItem)}
-        </nav>
-      ) : (
-        <>
-          <button
-            type="button"
-            className="app-sidebar__ws-head"
-            aria-label={`${workspace.name} workspace home`}
-            title={workspace.localRepositoryPath}
-            onClick={() => onWorkspaceTab('home')}
-          >
-            <Avatar login={workspace.monitoredOwner} size={18} />
-            <span className="app-sidebar__ws-name app-sidebar__label" title={workspace.name}>{workspace.name}</span>
-          </button>
-          <nav className="app-sidebar__nav" aria-label="Workspace navigation">
-            {WORKSPACE_TABS.filter(item => item.tab !== 'jira' || jiraConnected).map(workspaceItem)}
-          </nav>
-        </>
-      )}
       </>}
       {settingsBody === null && <div className="app-sidebar__spacer" />}
       <nav className="app-sidebar__nav app-sidebar__nav--bottom" aria-label="Application settings">

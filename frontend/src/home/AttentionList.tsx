@@ -204,35 +204,7 @@ export default function AttentionList({
         </div>
       )}
 
-      {snooze && createPortal(
-        <div className="atn-menu-catcher" onClick={() => setSnooze(null)}>
-          <div
-            className="atn-menu"
-            style={anchorPanel(
-              snooze.anchor,
-              MENU_WIDTH,
-              MENU_HEIGHT,
-              snooze.anchor.right - MENU_WIDTH,
-            )}
-            onClick={event => event.stopPropagation()}
-          >
-            <div className="atn-menu__label">SNOOZE UNTIL</div>
-            {SNOOZE_OPTIONS.map(option => (
-              <button
-                className="atn-menu__item"
-                key={option.id}
-                type="button"
-                onClick={() => applySnooze(snooze.item, option.id, option.label)}
-              >
-                <span className="atn-menu__icon">{option.icon}</span>
-                <span className="atn-menu__text">{option.label}</span>
-                <span className="atn-menu__hint">{snoozeHint(option.id, Date.now())}</span>
-              </button>
-            ))}
-          </div>
-        </div>,
-        document.body,
-      )}
+      {snooze && <SnoozeMenu anchor={snooze.anchor} onClose={() => setSnooze(null)} onPick={option => applySnooze(snooze.item, option.id, option.label)} />}
 
       {toast && (
         <Toast
@@ -244,5 +216,24 @@ export default function AttentionList({
         />
       )}
     </section>
+  );
+}
+
+/** The snooze choices, under the button that asked for them; a click anywhere else closes them. */
+export function SnoozeMenu({ anchor, onPick, onClose }: { anchor: DOMRect; onPick: (option: typeof SNOOZE_OPTIONS[number]) => void; onClose: () => void }) {
+  return createPortal(
+    <div className="atn-menu-catcher" onClick={onClose}>
+      <div className="atn-menu" style={anchorPanel(anchor, MENU_WIDTH, MENU_HEIGHT, anchor.right - MENU_WIDTH)} onClick={event => event.stopPropagation()}>
+        <div className="atn-menu__label">SNOOZE UNTIL</div>
+        {SNOOZE_OPTIONS.map(option => (
+          <button className="atn-menu__item" key={option.id} type="button" onClick={() => onPick(option)}>
+            <span className="atn-menu__icon">{option.icon}</span>
+            <span className="atn-menu__text">{option.label}</span>
+            <span className="atn-menu__hint">{snoozeHint(option.id, Date.now())}</span>
+          </button>
+        ))}
+      </div>
+    </div>,
+    document.body,
   );
 }

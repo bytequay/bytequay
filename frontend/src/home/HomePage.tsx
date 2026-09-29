@@ -59,9 +59,8 @@ const SEED = {
   issues: ATTENTION_SEED.issues,
 };
 
-/** Fill the title omitted by some GitHub activity payloads using the
- * existing cached single-PR endpoint. Duplicate events share one lookup. */
-async function enrichActivityPrTitles(events: RecentEventDto[]): Promise<RecentEventDto[]> {
+/** Activity titles may reuse stored PRs, but must never import followed people's work into attention. */
+export async function enrichActivityPrTitles(events: RecentEventDto[]): Promise<RecentEventDto[]> {
   const missing = new Map(events
     .filter(event => event.type.startsWith('PullRequest') && event.prNumber > 0 && !event.prTitle)
     .map(event => [`${event.repo}#${event.prNumber}`, event] as const));
@@ -70,14 +69,10 @@ async function enrichActivityPrTitles(events: RecentEventDto[]): Promise<RecentE
     const slash = event.repo.indexOf('/');
     if (slash < 1) return;
     try {
-      const pr = await window.bridge.getRepoPull(
-        event.repo.slice(0, slash),
-        event.repo.slice(slash + 1),
-        event.prNumber,
-      );
-      titles.set(key, pr.title);
+      const pr = await window.bridge.findStoredPullRequest(event.repo, event.prNumber);
+      if (pr !== null) titles.set(key, pr.title);
     }
-    catch { /* Leave the compact #number fallback when offline. */ }
+    catch { /* Preserve the #number fallback when no stored title can be read. */ }
   }));
   return events.map(event => ({
     ...event,
@@ -187,9 +182,8 @@ function HomePage({
   const workspaceKey = workspaces.map(workspace => workspace.id).join(',');
   const login = profile?.login;
 
-  // Both activity feeds cost a REST page plus a per-PR title fan-out, and Home
-  // remounts on every tab switch, so they are served from the shared cache and
-  // only re-fetched once an entry ages out.
+  // Home remounts on every tab switch, so share the activity feed cache until it
+  // ages out. Missing titles only consult the local PR store.
   useEffect(() => {
     if (!login) return;
     const feeds = [

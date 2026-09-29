@@ -18,7 +18,6 @@ import com.bytequay.app.service.RepoService;
 import com.bytequay.app.workspace.RepositorySearchResult;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.ContributionCalendar;
-import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RecentEvent;
 import com.bytequay.core.domain.UserCommitSummary;
 import com.bytequay.core.domain.UserProfile;
@@ -72,15 +71,6 @@ public class RepoController
             @RequestParam("date") String date)
     {
         return repos.getUserCommitsOnDate(login, date);
-    }
-
-    @GetMapping("/repos/{owner}/{repo}/pulls/{number}")
-    public PullRequest getRepoPull(
-            @PathVariable String owner,
-            @PathVariable String repo,
-            @PathVariable int number)
-    {
-        return repos.getRepoPullRequest(owner, repo, number);
     }
 
     @GetMapping("/repos/{owner}/{repo}/issues/{number}/preview")

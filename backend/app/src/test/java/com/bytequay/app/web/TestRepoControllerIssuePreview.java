@@ -21,8 +21,6 @@ import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.store.PrViewStateStore;
-import com.bytequay.core.store.PullRequestStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
@@ -41,15 +39,12 @@ class TestRepoControllerIssuePreview
 {
     private final GitHubRepoClient gitHub = mock(GitHubRepoClient.class);
     private final CredentialService credentials = mock(CredentialService.class);
-    private final PullRequestStore pullRequests = mock(PullRequestStore.class);
     private final WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
     private final RepoController controller = new RepoController(
             new RepoService(
                     mock(GitHubPullRequestReadClient.class),
-                    pullRequests,
                     mock(GitHubAccountClient.class),
                     gitHub,
-                    mock(PrViewStateStore.class),
                     credentials),
             workspaces);
 
@@ -72,7 +67,7 @@ class TestRepoControllerIssuePreview
                 .andExpect(jsonPath("$.pullRequest").value(false));
 
         verify(gitHub).fetchIssuePreview("pat", RepoRef.of("trinodb", "trino"), 30611);
-        verifyNoInteractions(workspaces, pullRequests);
+        verifyNoInteractions(workspaces);
     }
 
     @Test
@@ -82,6 +77,16 @@ class TestRepoControllerIssuePreview
         standaloneSetup(controller).build().perform(get("/api/repos/trinodb/trino/issues/0/preview"))
                 .andExpect(status().isBadRequest());
 
-        verifyNoInteractions(credentials, gitHub, workspaces, pullRequests);
+        verifyNoInteractions(credentials, gitHub, workspaces);
+    }
+
+    @Test
+    void activityTitleLookupsCannotImportPullRequests()
+            throws Exception
+    {
+        standaloneSetup(controller).build().perform(get("/api/repos/example/harbor/pulls/32005"))
+                .andExpect(status().isNotFound());
+
+        verifyNoInteractions(credentials, gitHub, workspaces);
     }
 }

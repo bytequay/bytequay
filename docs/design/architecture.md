@@ -523,6 +523,10 @@ the detail and list refresh completes. These writes invalidate the detail ETag w
 the stored snapshot and diffs, so refresh can reuse unchanged patches and concurrent readers
 continue to see cached data.
 
+Home's recent and followed-person activity feeds resolve missing PR titles from existing SQLite rows
+only. Reading an activity feed never imports a PR or makes it eligible for Needs attention; uncached
+titles retain the PR-number fallback.
+
 Home and Workspace Home read an unpaginated update projection containing observed personal PRs and
 all cached PRs in currently watched repositories, including drafts and closure. Ordinary PR, issue,
 configured Jira-board, and unarchived local task updates remain eligible even when no action is

@@ -18,8 +18,6 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.store.PrViewStateStore;
-import com.bytequay.core.store.PullRequestStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -49,10 +47,8 @@ class TestRepoServiceCodeSnippet
         credentials = mock(CredentialService.class);
         service = new RepoService(
                 pullRequests,
-                mock(PullRequestStore.class),
                 mock(GitHubAccountClient.class),
                 mock(GitHubRepoClient.class),
-                mock(PrViewStateStore.class),
                 credentials);
     }
 

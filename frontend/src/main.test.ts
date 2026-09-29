@@ -67,6 +67,18 @@ it.each(['pat:save', 'pat:delete', 'github:cli-import'])('invalidates every wind
   desktop.accountNotifications.forEach(send => expect(send).not.toHaveBeenCalled());
 });
 
+it('reads activity titles through the local stored-PR endpoint without an import IPC', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const fetch = vi.fn(async (_url: string | URL) => new Response('null', { headers: { 'Content-Type': 'application/json' } }));
+  vi.stubGlobal('fetch', fetch);
+
+  expect(desktop.handlers.has('repos:pull')).toBe(false);
+  await expect(desktop.handlers.get('prs:stored')?.({}, 'example/harbor', 32005)).resolves.toBeNull();
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(String(fetch.mock.calls[0][0])).toBe('http://127.0.0.1:9527/prs/stored?repo=example%2Fharbor&number=32005');
+});
+
 it('authenticates and validates Team IPC, with time for a bounded collection pass', async () => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');

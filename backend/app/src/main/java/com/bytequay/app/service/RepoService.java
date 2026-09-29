@@ -18,18 +18,12 @@ import com.bytequay.app.repository.github.GitHubIssuePreview;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.core.domain.ContributionCalendar;
-import com.bytequay.core.domain.PullRequest;
-import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RecentEvent;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserCommitSummary;
 import com.bytequay.core.domain.UserProfile;
-import com.bytequay.core.store.PrViewStateStore;
-import com.bytequay.core.store.PullRequestStore;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -56,23 +50,17 @@ public class RepoService
     private final GitHubPullRequestReadClient pullRequests;
     private final GitHubAccountClient accounts;
     private final GitHubRepoClient repositories;
-    private final PrViewStateStore viewStateStore;
-    private final PullRequestStore pullRequestStore;
     private final CredentialService credentialService;
 
     public RepoService(
             GitHubPullRequestReadClient pullRequests,
-            PullRequestStore pullRequestStore,
             GitHubAccountClient accounts,
             GitHubRepoClient repositories,
-            PrViewStateStore viewStateStore,
             CredentialService credentialService)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
-        this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");
         this.accounts = requireNonNull(accounts, "accounts is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
-        this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
     }
 
@@ -108,18 +96,6 @@ public class RepoService
     {
         requireNotBlank(login, "login must not be blank");
         return accounts.fetchUserProfile(credentialService.resolveGitHubToken(), login);
-    }
-
-    public PullRequest getRepoPullRequest(String owner, String repo, int number)
-    {
-        GitHubCredential credential = credentialService.resolveGitHubCredential();
-        PullRequestRef ref = PullRequestRef.of(owner, repo, number);
-        // Storing it first is what turns a fetched pull request into one this
-        // application can work with: only a stored row carries an id, and view
-        // state hangs off that id.
-        PullRequest stored = pullRequestStore.saveObserved(
-                pullRequests.getPullRequest(credential.token(), ref).withViewerOrigin(credential.profile().login()));
-        return stored.withViewState(viewStateStore.findByPrIds(ImmutableSet.of(stored.id())).get(stored.id()));
     }
 
     public GitHubIssuePreview getIssuePreview(String owner, String repo, int number)

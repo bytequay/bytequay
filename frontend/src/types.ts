@@ -1493,7 +1493,6 @@ export type Bridge = JiraBridge & {
   getGitHubUserProfile: (login: string) => Promise<UserProfileDto>;
   getContributionCalendar: (login: string) => Promise<ContributionCalendarDto>;
   getUserCommitsOnDate: (login: string, date: string) => Promise<UserCommitDto[]>;
-  getRepoPull: (owner: string, repo: string, number: number) => Promise<PullRequestDto>;
   fetchGitHubIssuePreview: (owner: string, repo: string, number: number) => Promise<GitHubIssuePreviewDto>;
   fetchGitHubCodeSnippet: (request: GitHubCodeSnippetRequest) => Promise<GitHubCodeSnippetDto>;
   getRecentActivity: (login: string) => Promise<RecentEventDto[]>;

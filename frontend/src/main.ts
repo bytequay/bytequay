@@ -1917,10 +1917,6 @@ function registerIpc(): void {
     url.searchParams.set('date', date);
     return backendJson(url);
   });
-  ipcMain.handle('repos:pull', (_event, owner: string, repo: string, number: number) =>
-    backendJson(
-      `${backendBase()}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}`,
-    ));
   ipcMain.handle('repos:issue-preview', (_event, owner: string, repo: string, number: number) =>
     backendJson(
       `${backendBase()}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}/preview`,

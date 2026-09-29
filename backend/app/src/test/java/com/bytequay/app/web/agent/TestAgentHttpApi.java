@@ -31,6 +31,7 @@ import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskBranches;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
@@ -746,6 +747,20 @@ class TestAgentHttpApi
                 null).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(tasks.get(workflowTaskId).state().name()).isEqualTo("OPEN");
         assertThat(workflowTask.taskWorktree().orElseThrow().canonicalWorktree()).exists();
+        assertThat(get("/agent/tasks/" + workflowTaskId + "?workspaceId=" + workspaceId).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(post("/agent/tasks/" + workflowTaskId + "/turns",
+                ImmutableMap.of("message", "Change the assignment", "expectedVersion", workflowTask.version()), "workflow-input")
+                .getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        driver.holdNextTurn();
+        var workflowTurn = turns.start(new StartAgentTurnCommand(workflowTaskId, "Research", ImmutableList.of(), "workflow-owned-turn"));
+        try {
+            assertThat(post("/agent/turns/" + workflowTurn.id() + "/steer", ImmutableMap.of("message", "Change the assignment"), "workflow-steer")
+                    .getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        }
+        finally {
+            driver.completeHeldTurn();
+        }
     }
 
     @Test

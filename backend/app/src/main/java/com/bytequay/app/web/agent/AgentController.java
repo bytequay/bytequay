@@ -599,6 +599,7 @@ public class AgentController
         checkArgument(request.expectedVersion() != null, "expectedVersion is null");
         checkArgument(request.expectedVersion() >= 0, "expectedVersion is negative");
         TaskId id = TaskId.valueOf(taskId);
+        checkArgument(taskService.get(id).interactive(), "Workflow-owned tasks cannot accept interactive input");
         boolean replay = turnService.findTurnByIdempotencyKey(id, idempotencyKey).isPresent();
         // A replay owns its persisted attachments. Re-enter core so its completion/outbox recovery
         // still runs, while mutable files and defaults cannot block the accepted request.
@@ -682,6 +683,7 @@ public class AgentController
         requireNotBlank(idempotencyKey, "Idempotency-Key must not be blank");
         checkArgument(request.developmentAutomation().isEmpty(), "Steering cannot change accepted automation settings");
         TurnId id = TurnId.valueOf(turnId);
+        checkArgument(taskService.get(turnService.get(id).taskId()).interactive(), "Workflow-owned tasks cannot accept interactive input");
         var repeated = turnService.findSteerByIdempotencyKey(id, idempotencyKey);
         List<AgentAttachment> attachments = repeated.isPresent()
                 ? ImmutableList.of()

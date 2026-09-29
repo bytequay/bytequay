@@ -34,9 +34,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -76,6 +79,44 @@ class TestGitHubNotificationClient
         assertThat(received.get(1).ref()).isEqualTo(PullRequestRef.of("owner", "repo", 2));
         assertThat(fixture.client.reviewRequests("ME")).containsExactly(PullRequestRef.of("owner", "repo", 1));
         assertThat(fixture.stored.get(KEY)).contains("\"completedAt\"", "\"lastModified\"").doesNotContain("pat", "Bearer");
+        fixture.server.verify();
+    }
+
+    @Test
+    void reviewRequestsRemainReadableDuringNotificationIngestion()
+            throws Exception
+    {
+        Fixture fixture = new Fixture();
+        fixture.server.expect(requestTo(ENDPOINT + "1"))
+                .andRespond(withSuccess("[" + thread(1, true, true, START) + "]", MediaType.APPLICATION_JSON));
+        fixture.server.expect(requestTo(ENDPOINT + "1"))
+                .andRespond(withSuccess("[" + thread(2, true, true, START.plusSeconds(60)) + "]", MediaType.APPLICATION_JSON));
+        fixture.client.poll("pat", "me", ignored -> {});
+        fixture.now.set(START.plusSeconds(60));
+        CountDownLatch ingesting = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var poll = executor.submit(() -> fixture.client.poll("pat", "me", ignored -> {
+                ingesting.countDown();
+                try {
+                    assertThat(release.await(10, SECONDS)).isTrue();
+                }
+                catch (InterruptedException failure) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(failure);
+                }
+            }));
+            try {
+                assertThat(ingesting.await(5, SECONDS)).isTrue();
+                var read = executor.submit(() -> fixture.client.reviewRequests("ME"));
+                assertThat(read.get(5, SECONDS)).containsExactly(PullRequestRef.of("owner", "repo", 1));
+            }
+            finally {
+                release.countDown();
+            }
+            poll.get(5, SECONDS);
+        }
+        assertThat(fixture.client.reviewRequests("me")).containsExactlyInAnyOrder(PullRequestRef.of("owner", "repo", 1), PullRequestRef.of("owner", "repo", 2));
         fixture.server.verify();
     }
 

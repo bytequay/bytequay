@@ -59,7 +59,7 @@ public class GitHubNotificationClient
     private final AppSettingsStore settings;
     private final ObjectMapper mapper;
     private final Clock clock;
-    private final Map<String, State> states = new HashMap<>();
+    private final Map<String, State> states = new ConcurrentHashMap<>();
     private final Map<String, Instant> pollAt = new HashMap<>();
     private final Map<String, String> credentials = new HashMap<>();
     private final Map<String, String> failures = new ConcurrentHashMap<>();
@@ -182,8 +182,9 @@ public class GitHubNotificationClient
     }
 
     /** GitHub's reason is sticky subscription history; this remains a fallback for team review requests, not proof of a current request. */
-    public synchronized Set<PullRequestRef> reviewRequests(String login)
+    public Set<PullRequestRef> reviewRequests(String login)
     {
+        // Display requests read the last immutable snapshot without waiting for inbox network calls or ingestion.
         return state(login.toLowerCase(Locale.ROOT)).threads().stream().filter(GitHubNotificationRef::pullRequest)
                 .filter(GitHubNotificationRef::reviewRequested).map(GitHubNotificationRef::ref).collect(toImmutableSet());
     }

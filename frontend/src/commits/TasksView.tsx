@@ -61,10 +61,8 @@ function taskMeta(execution: CherryPickExecution): string {
   return `${route} · ${parts.join(' · ')}`;
 }
 
-export default function TasksView({ workspaceId, embedded = false, onOpenTask, onNewCherryPick }: {
+export default function TasksView({ workspaceId, onOpenTask, onNewCherryPick }: {
   workspaceId: string;
-  /** Drawn as one section of a wider Tasks page rather than as a page of its own. */
-  embedded?: boolean;
   onOpenTask: (execution: CherryPickExecution) => void;
   onNewCherryPick: () => void;
 }) {
@@ -95,9 +93,9 @@ export default function TasksView({ workspaceId, embedded = false, onOpenTask, o
   const openCount = tasks.filter(isOpenTask).length;
 
   return (
-    <div className={`cmt-tasks${embedded ? ' is-embedded' : ''}`}>
+    <div className="cmt-tasks">
       <div className="cmt-tasks-head">
-        {embedded ? <span className="cmt-tasks-label">Cherry-pick executions</span> : <h1>Cherry-pick tasks</h1>}
+        <h1>Cherry-pick tasks</h1>
         <span className="cmt-tasks-sub">
           {openCount} running or paused · {tasks.length - openCount} finished
         </span>

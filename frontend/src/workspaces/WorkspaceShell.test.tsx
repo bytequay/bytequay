@@ -385,7 +385,7 @@ describe('watched repository workspace UI', () => {
     expect(html).not.toContain('zoom-scrim');
     expect(html).not.toContain('zoom-card');
     // The list the task was picked from is replaced, not left behind a card.
-    expect(html).not.toContain('Cherry-pick executions');
+    expect(html).not.toContain('aria-label="Task types"');
   });
 
   it('opens a cherry-pick execution without leaving the Tasks tab', () => {

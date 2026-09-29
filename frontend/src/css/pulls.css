@@ -1324,6 +1324,8 @@
 :is(.pull-diff-code, .pull-diff-threads, .ct-inline-card, .ct-unplaced__card) :is(.pr-inline-thread, .pr-thread-row, .lrc, .agr-finding) {
   max-width: 780px; margin-left: 0; font-family: var(--font-sans); font-size: var(--ui-font-size); line-height: 1.4;
 }
+.pull-diff-code :is(.pr-inline-thread, .pr-thread-row) > summary { font-size: var(--font-size-sm); font-weight: 400; }
+.pull-diff-code :is(.pr-inline-thread, .pr-thread-row) > summary strong { font-weight: inherit; }
 .pull-diff-threads { display: grid; gap: 10px; padding: 12px; background: #f6f8fa; }
 .pull-diff-threads > p { margin: 0; color: #59636e; font-size: var(--ui-font-size); }
 .pull-changes__loading { border: 1px solid #d5dbe1; border-radius: 8px; background: #fff; color: #59636e; padding: 14px; font-size: var(--ui-font-size); }

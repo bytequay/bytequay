@@ -733,6 +733,24 @@ class TestPullRequestService
     }
 
     @Test
+    void watchedRepositoryNotificationsDoNotSavePullRequests()
+    {
+        GitHubNotificationRef notification = new GitHubNotificationRef("thread-1", PullRequestRef.of("owner", "repo", 7), true,
+                "Title", "subscribed", REVIEWED_AT, Optional.empty());
+        doAnswer(invocation -> {
+            invocation.<Consumer<GitHubNotificationRef>>getArgument(2).accept(notification);
+            return null;
+        }).when(notifications).poll(eq("pat"), eq("me"), any());
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
+
+        service.syncAttentionSummaries();
+
+        verify(gitHub, never()).getPullRequest("pat", PullRequestRef.of("owner", "repo", 7));
+        verify(store, never()).saveObserved(any());
+    }
+
+    @Test
     void notificationIssuesUseTheirCardProjectionWithoutFetchingPullRequestDetails()
     {
         GitHubNotificationRef notification = new GitHubNotificationRef("issue-1", PullRequestRef.of("owner", "repo", 7), false,

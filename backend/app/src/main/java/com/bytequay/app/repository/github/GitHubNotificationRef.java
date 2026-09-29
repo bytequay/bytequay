@@ -37,4 +37,10 @@ public record GitHubNotificationRef(String id, PullRequestRef ref, boolean pullR
     {
         return "review_requested".equals(reason);
     }
+
+    /** GitHub files threads it sent only because the viewer watches the repository as "subscribed". */
+    public boolean repositoryWatch()
+    {
+        return "subscribed".equals(reason);
+    }
 }

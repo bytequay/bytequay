@@ -480,6 +480,10 @@ public class PullRequestService
             issues.refreshNotifiedIssue(RepoRef.of(ref.owner(), ref.repo()), ref.number());
             return;
         }
+        if (notification.repositoryWatch()) {
+            // Watching someone's repository on GitHub does not make its pull requests the viewer's work.
+            return;
+        }
         FetchedPullRequest fetched = gitHub.getPullRequest(credential.token(), ref).withViewerOrigin(credential.profile().login());
         PullRequest row = store.saveObserved(notification.reviewRequested() && fetched.origin() != AUTHORED
                 ? fetched.withOrigin(REVIEW_REQUESTED) : fetched);

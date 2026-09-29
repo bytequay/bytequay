@@ -54,18 +54,20 @@ to the viewer whose author or review requester is a member in the selected
 scope. Circle repository scope applies. Rows name the member and relationship
 separately from the latest activity actor, who is labeled when outside every
 circle; hovering that latest activity unfolds its comment, up to a hundred
-words. Other updates stay in Activity.
+words. The rows are the ones both Homes draw for Needs attention, so resting on
+one for two seconds opens the item's hover card there too. Other updates stay
+in Activity.
 
 Both Home views reuse the existing eligibility, acknowledgment, snooze, pin,
 and source-filter flow, and so does Needs you: handling an item in either place
-clears it in both. Circle selection happens before the four-card cap in the
-shared card selector. Native notification eligibility is unchanged.
+clears it in both. Circle selection happens before the four-row cap in the
+shared selector. Native notification eligibility is unchanged.
 
 The mixed preview shows the newest source updates across all item types. Circle
 membership never replaces a newer item with an older circle item. Home's
 Circles filter is independent of the source tabs and narrows the same
-newest-first list before the card cap. Acknowledgment, snooze and pins keep
-their existing visibility rules. Cards name the matching circle, member, and
+newest-first list before the row cap. Acknowledgment, snooze and pins keep
+their existing visibility rules. Rows name the matching circle, member, and
 relationship (PR/issue author or review requester), separately from the latest
 activity actor. Another person's comment on a member's PR does not make that
 commenter a circle member.

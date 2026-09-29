@@ -948,7 +948,7 @@ The workspace Home is [Workspace Home.dc.html](Workspace%20Home.dc.html): a
 header with the 28px repository avatar, the repository name and the overview
 control, the same composer docked at the bottom as on the Tasks page, with the
 repository chip and three starting points that fill it as pills in one row
-above it, the repository's own **Needs attention** cards (drawn from the same
+above it, the repository's own **Needs attention** rows (drawn from the same
 candidates and ack/snooze store as the application Home, as described below),
 and the open tasks as a responsive
 grid of compact cards. A card names the task and its state (**Needs you**,
@@ -971,43 +971,63 @@ opens its task, its ✕ completes an idle task after confirmation, and a dashed
 card starts a new one. Nothing in a window is interactive but the window and
 its close control.
 
-Both Homes draw **Needs attention** as cards in a grid of 360px-minimum columns
-whose cards keep their own height. Each shows at most four cards, newest source
-update or event first across all reasons. An older high-priority reason cannot
-bury a newer update; reason priority only breaks ties. Private team membership
-adds context and an explicit Team-only filter, never a ranking boost.
-Acknowledging or snoozing one brings in the next eligible item.
-Filter tabs above the grid (**All · PRs · Issues · Jira · Tasks**) narrow the
-cards to one source; the cap applies after filtering. Neither the header nor
-the tabs show a count: every update in a watched repository is eligible, so a
-total measures the repositories, not what needs the user. There
-are no **All issues** or **All pull requests** links. A card is a strip tinted
-by the source that produced the event (pull request green, issue blue, Jira
-ticket purple, agent task teal) showing its source's icon and key but no type
-name, the repository on the application Home only, where the item stands, a
-**Goal** badge when the item is in its workspace's pinned goal, and age; while
-the pointer or focus is inside the card the age gives way to ◎ (add to or remove
-from that goal), Start development (issues and tickets that can start),
-Acknowledge and Snooze, beside the chevron. Where the item stands is a golden
+Both Homes draw **Needs attention** as one box of rows, the same row Circles'
+**Needs you** draws for every pull request, issue, Jira ticket and agent task.
+Each shows at most four rows, newest source update or event first across all
+reasons. An older high-priority reason cannot bury a newer update; reason
+priority only breaks ties. Private circle membership adds context and an
+explicit Circles filter, never a ranking boost. Acknowledging or snoozing one
+brings in the next eligible item. Filter tabs above the list (**All · PRs ·
+Issues · Jira · Tasks**) narrow the rows to one source; the cap applies after
+filtering. Neither the header nor the tabs show a count: every update in a
+watched repository is eligible, so a total measures the repositories, not what
+needs the user. There are no
+**All issues** or **All pull requests** links. A row leads with its source's
+icon in the source's colour (pull request green, issue blue, Jira ticket purple,
+agent task teal) but no type name, then the title on one line with its key,
+where the item stands and a **Goal** badge when the item is in its workspace's
+pinned goal, and its age on the right. Where the item stands is a golden
 outline around plain text: Review requested, Changes requested, Checks failing,
 Merge blocked, New commits or Ready to merge for a pull request, or Merged,
 Closed, Draft, Approved or Open for one that only moved; Approval needed,
 Question for you, Turn finished, Turn failed or Recovery required for a task;
 Assigned to you for an assigned issue, Open for another issue, or the actual
-status for a Jira ticket. The body is the title clamped to
-two lines, then the event that put the card here: the actor's avatar and what
-they did (commented, pushed commits, requested your review, finished a turn,
-moved the ticket), folded over a detail block about that same event until the
-line is clicked, the way the linked items unfold. A comment or review renders
-its opening Markdown, a label change names the label, and an event with nothing
-to show falls back to what the item waits on, such as the commits since your
-last review or the failing check. Linked items start folded to one row of icons
-and keys and unfold to a row per item with its title and status. Ack and snooze
-keep the shared store, undo toast and session **Bring back**. **ACK** records
-only acknowledgment, never a review, prompt or source mutation. It clears that
-snapshot until the item changes. Snooze is a timed reminder: activity does not
-end it early, and the deadline brings back the latest card even without new
-activity. The menu offers one hour, tomorrow and next Monday.
+status for a Jira ticket. The line below names who the item is from and how:
+the author who authored a pull request or opened an issue (assigned to you,
+when it is), a ticket's assignee, or a task's lane; a circle member is named the
+way Circles names them, beside the circle. The application Home then names the
+repository, or the workspace an issue would start in, and linked items follow
+as their keys, with each title and status on hover. The last line is the
+latest event: **Latest:** the actor and what they did (commented, pushed
+commits, requested your review, finished a turn, moved the ticket) and when.
+Hovering that line, or focusing the row, unfolds what happened below it: a
+comment or review renders its opening Markdown, up to a hundred words, a label
+change names the label, and an event with nothing to show falls back to what
+the item waits on, such as the commits since your last review or the failing
+check. A pull request with no recorded event still shows the line when it
+waits on commits or checks; an issue, or a ticket with nothing new, has none.
+While the pointer or focus is inside the row the age gives way to Pin, ◎ (add
+to or remove from that goal), Start development (issues and tickets that can
+start), Acknowledge, Snooze and Open.
+
+Resting the pointer on a row for two seconds opens the item's hover card, the
+shared reference card: the source's icon, key and where the item stands, the
+title, who it is from and when it was opened and updated, a grid of facts (a
+pull request's review decision, checks, requested reviewers and comments; an
+issue's comments and activity; a ticket's status, priority, type and due date;
+a task's model, effort, branch and pull request), then an issue's or ticket's
+description, a task's last message or a pull request's latest event, its
+labels, and Start development, Ack, Snooze and Open. The card is built only
+from what the list already holds: resting on a row never reads a source or
+marks a pull request viewed, so a pull request's description stays on its
+page. Leaving the row and its card closes it; moving or resizing the card
+keeps it open until Escape or a press outside.
+
+Ack and snooze keep the shared store, undo toast and session **Bring back**.
+**ACK** records only acknowledgment, never a review, prompt or source mutation.
+It clears that snapshot until the item changes. Snooze is a timed reminder:
+activity does not end it early, and the deadline brings back the latest row
+even without new activity. The menu offers one hour, tomorrow and next Monday.
 
 Opening an item keeps its notification visible while its details remain
 open, without showing a **Viewed** label. Successful actions show **Reviewed**,
@@ -1018,7 +1038,7 @@ it eligible again. Multiple mounted details of the same item share one visit.
 Source snapshots returned by successful writes are consumed before clearing,
 so the user's own action does not immediately reappear after refresh.
 
-A pin action on every attention card and item detail adds the item to the
+A pin action on every attention row and item detail adds the item to the
 global **Pinned** sidebar section. PRs, issues, Jira tickets and tasks retain
 their explicit source or workspace destination across navigation and app
 restart. Pinned items stay out of both Needs attention views and monitored PR
@@ -1026,11 +1046,10 @@ desktop notifications, including after source changes. Unpinning restores
 normal attention eligibility while preserving any ACK or snooze. Pinning and
 handling are renderer-local preferences and never write to GitHub or Jira.
 
-Ordinary cards render the shared stored projections. Timed snoozes retain a
+Ordinary rows render the shared stored projections. Timed snoozes retain a
 snapshot and reread their source after expiry, so closed or otherwise
-ineligible items still return with their latest available state. There is no
-hover preview. With nothing left, the section says **Nothing needs you right
-now.**
+ineligible items still return with their latest available state. With nothing
+left, the section says **Nothing needs you right now.**
 
 The sources are all discovered personal and watched-repository pull requests,
 cached watched-repository issues, tickets in connected saved Jira board scopes,
@@ -1046,7 +1065,7 @@ the check. `GET /api/jira/attention` sends each ticket with the last change
 ByteQuay saw on it: a status move with where it went and any comment with it, a
 comment with its author, or the fields that changed (see
 [jira-integration.md](jira-integration.md)); a workspace's Home lists the
-tickets assigned to that workspace. Task cards include running, idle and terminal
+tickets assigned to that workspace. Task rows include running, idle and terminal
 updates as well as approvals,
 questions and recovery. Their age follows the newest task change, root message,
 turn completion, approval or execution claim. Archived tasks stay out of Home.
@@ -1056,10 +1075,10 @@ returning, by task id, the pending approval, the newest turn, and the start of
 the newest root message (a user message, or a final answer or commentary of the
 task's own agent), which a backwards scan of the task's event log finds within
 a bounded number of records. A task whose transcript retention removed quotes
-its kept final answer. A task card's key is its lane's name without the model
-(Claude Code, Codex, or a DeepSeek key's own name such as ds-001), and its linked
-items are its Jira ticket, pull request and issue; a pull request's card links
-the task whose branch opened it.
+its kept final answer. A task row names its lane without the model (Claude
+Code, Codex, or a DeepSeek key's own name such as ds-001), and its linked items
+are its Jira ticket, pull request and issue; a pull request's row links the
+task whose branch opened it.
 
 **Goals.** A workspace can hold several goals, each a local list of pull
 requests, issues, Jira tickets and agent tasks toward one outcome. One is

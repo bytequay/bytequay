@@ -52,13 +52,13 @@ export async function runAttentionActions(): Promise<void> {
   try {
     render();
     assert(host.textContent?.includes('Assigned to you') === true, 'Issue must explain its attention reason');
-    assert(host.textContent?.includes('My app fork') === true, 'Global card must show the destination workspace');
+    assert(host.textContent?.includes('My app fork') === true, 'A global row must show the destination workspace');
     button('Start development for #7').click();
-    assert(started === 1 && opened === 0, 'Start must not also open the issue card');
-    host.querySelector<HTMLElement>('.atn-card')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    assert(started === 1 && opened === 0, 'Start must not also open the issue row');
+    host.querySelector<HTMLElement>('.item-row')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     assert(opened === 1 && started === 1, 'Keyboard open must not start development');
     flushSync(() => button('Acknowledge #7').click());
-    assert(handled[issue.key]?.kind === 'ack' && !host.querySelector('.atn-card'), 'Ack must hide the suggestion');
+    assert(handled[issue.key]?.kind === 'ack' && !host.querySelector('.item-row'), 'Ack must hide the suggestion');
     assert(host.textContent?.includes('Nothing needs you right now.') === true, 'An empty list must say nothing needs you');
     assert(started === 1 && opened === 1, 'Ack must not launch or navigate');
   }

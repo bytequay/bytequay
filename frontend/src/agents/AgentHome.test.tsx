@@ -59,7 +59,7 @@ describe('agent home on a return visit', () => {
     expect(seeded).toContain('Reviewer named by login');
     expect(seeded).toContain('Assigned in this workspace');
     expect(seeded).toContain('Start development for #3');
-    expect(seeded.match(/class="card atn-card /g)).toHaveLength(3);
+    expect(seeded.match(/class="card-row item-row"/g)).toHaveLength(3);
     expect(seeded).not.toContain('All issues');
     expect(seeded).not.toContain('All pull requests');
     expect(seeded).not.toContain('Elsewhere');

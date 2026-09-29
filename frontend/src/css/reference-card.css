@@ -1,8 +1,9 @@
 /* ── Reference hover card ────────────────────────────────────────
-   One card for every issue and pull request preview: Home's attention
-   list, Markdown references, and the agent issue attachment. The head is
-   the drag handle and the browser's own grip resizes the card, so the
-   frame stays fixed while only the description scrolls. */
+   One card for every issue, pull request, Jira ticket and agent task
+   preview: Needs attention and Circles rows, Markdown references, and the
+   agent issue attachment. The head is the drag handle and the browser's own
+   grip resizes the card, so the frame stays fixed while only the
+   description scrolls. */
 
 .ref-card {
   position: fixed;
@@ -204,6 +205,15 @@
 }
 
 .ref-card__spacer { flex: 1; }
+
+/* The buttons move to their own line together rather than one at a time. */
+.ref-card__buttons {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
 
 .ref-card__tag {
   border-radius: 10px;

@@ -360,20 +360,20 @@ async function needsYou() {
   const f = await mount(seededDirectory(), { prs: [alicePr(), pr({ id: 9002, repo: 'trinodb/trino', number: 24831, title: 'Someone else’s change', author: 'stranger',
     origin: 'REVIEW_REQUESTED', requestedReviewers: ['viewer'] })] });
   await settled();
-  const rows = document.querySelectorAll('.cir-needs .cir-row');
+  const rows = document.querySelectorAll('.cir-needs .item-row');
   assert(rows.length === 1 && rows[0].textContent?.includes('alice') === true && rows[0].textContent.includes('authored'),
     'Needs you must list a member’s review request and leave others out');
   assert(rows[0].textContent.includes('Latest: mallory (not in your circles) commented'), 'The latest actor must be labeled apart from the member');
-  const comment = rows[0].querySelector('.cir-row__comment');
+  const comment = rows[0].querySelector('.item-row__detail');
   assert(comment !== null && getComputedStyle(comment).display === 'none', 'The comment must stay folded until the line is hovered');
   const words = comment.textContent?.trim().split(/\s+/) ?? [];
   assert(words.length === 100 && words[99].endsWith('…'), 'The unfolded comment must stop at a hundred words');
   assert(document.querySelector('.bq-page-tabs [aria-selected="true"] .bq-page-tabs__count')?.textContent === '1', 'The tab must count the backlog');
-  await click('Acknowledge', rows[0]);
+  await click('Acknowledge #24830', rows[0]);
   assert(document.querySelector('.cir-needs') === null && text().includes('Nothing needs you right now'), 'Acknowledging must clear the row');
   assert(Object.keys(JSON.parse(window.localStorage.getItem('bytequay.attention.handled.v1') ?? '{}')).includes('trinodb/trino#24830'), 'Handling must reach Home too');
   await click('Undo');
-  assert(document.querySelectorAll('.cir-needs .cir-row').length === 1, 'Undo must bring the row back');
+  assert(document.querySelectorAll('.cir-needs .item-row').length === 1, 'Undo must bring the row back');
   const reads = f.workspaceReads;
   const activityReads = f.queries.length;
   window.dispatchEvent(new CustomEvent('bytequay:pr-attention-updated', { detail: [alicePr()] }));
@@ -467,13 +467,13 @@ export async function run() {
 export async function hoverTarget(): Promise<{ x: number; y: number }> {
   await mount(seededDirectory(), { prs: [alicePr()] });
   await settled();
-  const line = document.querySelector('.cir-row__latest-line')?.getBoundingClientRect();
+  const line = document.querySelector('.item-row__latest-line')?.getBoundingClientRect();
   assert(line !== undefined, 'Missing latest line');
   return { x: Math.round(line.left + 40), y: Math.round(line.top + line.height / 2) };
 }
 
 export function commentShown(): boolean {
-  const box = document.querySelector('.cir-row__comment');
+  const box = document.querySelector('.item-row__detail');
   return box !== null && getComputedStyle(box).display !== 'none';
 }
 

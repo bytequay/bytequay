@@ -13,25 +13,32 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { CircleDot, GitPullRequest } from 'lucide-react';
+import { CircleDot, GitPullRequest, SquareCheck } from 'lucide-react';
 import Avatar from './Avatar';
 import CopyLinkButton from './CopyLinkButton';
+import type { AttentionSource, AttentionTone } from './home/attention';
+import JiraIcon from './jira/JiraIcon';
 import RepoAvatar from './RepoAvatar';
 import { ago } from './relativeTime';
 
 const CARD_WIDTH = 500;
-const CARD_HEIGHT = { pr: 400, issue: 460 };
+const CARD_HEIGHT: Record<AttentionSource, number> = { pr: 400, issue: 460, jira: 460, task: 400 };
+const KINDS: Record<AttentionSource, string> = { pr: 'Pull request', issue: 'Issue', jira: 'Jira ticket', task: 'Agent task' };
 /** How far from the bottom right corner the browser's own resize grip takes a press. */
 const RESIZE_GRIP = 18;
 
 export type ReferenceCardChip = { label: string; color: string; background: string };
 
-/** The one shape every issue and pull-request hover card renders, whichever surface opened it. */
+/** The one shape every hover card renders, whichever surface opened it: an issue, a pull request, a Jira ticket or an agent task. */
 export type ReferenceCardItem = {
-  type: 'pr' | 'issue';
-  /** owner/repo */
+  type: AttentionSource;
+  /** owner/repo; empty for a Jira ticket. */
   repo: string;
   number: number;
+  /** Replaces "owner/repo #n" in the head, such as a ticket's key. */
+  reference?: string;
+  /** What the copy button copies; GitHub's page when absent, and no button when null. */
+  url?: string | null;
   title: string;
   author: string | null;
   authorAvatarUrl?: string | null;
@@ -45,14 +52,30 @@ export type ReferenceCardItem = {
   facts?: { label: string; value: string }[];
 };
 
-const STATE_CHIPS: Record<string, ReferenceCardChip> = {
-  open: { label: 'Open', color: '#1a7f37', background: '#dafbe1' },
-  draft: { label: 'Draft', color: '#57606a', background: '#eceff2' },
-  merged: { label: 'Merged', color: '#8250df', background: '#fbefff' },
-  closed: { label: 'Closed', color: '#cf222e', background: '#ffebe9' },
+/** The pill tones of cards.css, for a chip drawn with inline colours; keep the two in step. */
+const TONES: Record<AttentionTone, Pick<ReferenceCardChip, 'color' | 'background'>> = {
+  blue: { color: '#0969da', background: '#ddf4ff' },
+  amber: { color: '#9a6700', background: '#fff8c5' },
+  red: { color: '#cf222e', background: '#ffebe9' },
+  green: { color: '#1a7f37', background: '#dafbe1' },
+  neutral: { color: '#57606a', background: '#eceff2' },
+  orange: { color: '#bc4c00', background: '#fff1e5' },
+  purple: { color: '#8250df', background: '#fbefff' },
 };
 
-/** Where the reference lives on GitHub, which is the only host these cards ever describe. */
+const STATE_CHIPS: Record<string, ReferenceCardChip> = {
+  open: { label: 'Open', ...TONES.green },
+  draft: { label: 'Draft', ...TONES.neutral },
+  merged: { label: 'Merged', ...TONES.purple },
+  closed: { label: 'Closed', ...TONES.red },
+};
+
+/** A chip in one of the pill tones. */
+export function toneChip(label: string, tone: AttentionTone): ReferenceCardChip {
+  return { label, ...TONES[tone] };
+}
+
+/** Where an issue or pull request lives on GitHub. */
 export function referenceUrl(item: Pick<ReferenceCardItem, 'type' | 'repo' | 'number'>): string {
   return `https://github.com/${item.repo}/${item.type === 'pr' ? 'pull' : 'issues'}/${item.number}`;
 }
@@ -171,7 +194,8 @@ export function useHoverCard(openDelay = 350, closeDelay = 140): HoverCard {
     showTimer.current = window.setTimeout(() => {
       pinnedNow.current = false;
       setPinned(false);
-      setAnchor(rect);
+      // Measured again on opening, since the trigger may have grown meanwhile, such as a row unfolding its comment.
+      setAnchor(element.isConnected ? element.getBoundingClientRect() : rect);
     }, delay);
   }, [openDelay]);
   const hide = useCallback((delay = closeDelay) => {
@@ -290,7 +314,9 @@ export default function ReferenceCard({ id, hover, item, body, actions }: {
   };
 
   const [owner, repo] = item.repo.split('/');
-  const KindIcon = item.type === 'pr' ? GitPullRequest : CircleDot;
+  const KindIcon = item.type === 'jira' ? JiraIcon : item.type === 'pr' ? GitPullRequest : item.type === 'task' ? SquareCheck : CircleDot;
+  const github = item.type === 'pr' || item.type === 'issue';
+  const url = item.url === undefined ? referenceUrl(item) : item.url;
   const byline = item.byline ?? defaultByline(item);
   const style: CSSProperties = {
     maxHeight: Math.min(CARD_HEIGHT[item.type], window.innerHeight - 20),
@@ -306,7 +332,7 @@ export default function ReferenceCard({ id, hover, item, body, actions }: {
       className="ref-card"
       style={style}
       role="dialog"
-      aria-label={`${item.type === 'pr' ? 'Pull request' : 'Issue'} preview`}
+      aria-label={`${KINDS[item.type]} preview`}
       onMouseDown={startResize}
       onMouseEnter={hold}
       onMouseLeave={() => hide()}
@@ -320,19 +346,19 @@ export default function ReferenceCard({ id, hover, item, body, actions }: {
             style={item.chip ? { color: item.chip.color } : undefined}
             aria-hidden="true"
           />
-          <RepoAvatar owner={owner} repo={repo ?? ''} size={16} radius={4} />
-          <span className="ref-card__meta">{item.repo} #{item.number}</span>
+          {owner !== '' && <RepoAvatar owner={owner} repo={repo ?? ''} size={16} radius={4} />}
+          <span className="ref-card__meta">{item.reference ?? `${item.repo} #${item.number}`}</span>
           {item.chip && (
             <span className="ref-card__chip" style={{ color: item.chip.color, background: item.chip.background }}>
               {item.chip.label}
             </span>
           )}
-          <CopyLinkButton value={referenceUrl(item)} label={item.type === 'pr' ? 'pull request link' : 'issue link'} />
+          {url !== null && <CopyLinkButton value={url} label={`${KINDS[item.type].toLowerCase()} link`} />}
         </div>
         <div className="ref-card__title">{item.title}</div>
         {byline !== '' && (
           <div className="ref-card__byline">
-            <Avatar login={item.author ?? ''} avatarUrl={item.authorAvatarUrl} size={19} />
+            <Avatar login={item.author ?? ''} avatarUrl={item.authorAvatarUrl} size={19} allowGitHubFallback={github} />
             <span>{byline}</span>
           </div>
         )}
@@ -351,12 +377,12 @@ export default function ReferenceCard({ id, hover, item, body, actions }: {
 
       <div className="ref-card__foot">
         <div className="ref-card__body">{body}</div>
-        <div className="ref-card__actions" role="group" aria-label={`Actions for #${item.number}`}>
+        <div className="ref-card__actions" role="group" aria-label={`Actions for ${item.reference ?? `#${item.number}`}`}>
           {(item.labels ?? []).slice(0, 3).map(label => (
             <span className="ref-card__tag" key={label}>{label}</span>
           ))}
           <div className="ref-card__spacer" />
-          {actions}
+          {actions !== undefined && <div className="ref-card__buttons">{actions}</div>}
         </div>
       </div>
     </div>,

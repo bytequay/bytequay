@@ -14,7 +14,7 @@
 import { Fragment, useState } from 'react';
 import { ArrowUpRight, ChevronDown, ChevronRight, CircleCheck, CircleDot, GitMerge, GitPullRequest } from 'lucide-react';
 import Avatar from '../Avatar';
-import { Clickable, Pill } from '../cards/Card';
+import { ItemRow, Pill } from '../cards/Card';
 import { openActivityLink } from '../githubReference';
 import { relativeTime } from '../relativeTime';
 import { activityVerb, actorRole, dayHeader, groupTeamActivity, workByline, workState } from './activity';
@@ -96,33 +96,32 @@ export default function CircleActivity({ snapshot, people, viewerLogin, days, pe
       });
       return <Fragment key={key}>
         {newDay && <div className="cir-day">{day}</div>}
-        <Clickable className="card-row cir-row cir-group" label={`${lead.title}, ${lead.repository} #${lead.number}`} onOpen={() => { void openActivityLink(lead.url); }}>
-          <span className={`cir-row__icon cir-state is-${workState(group)}`}>{STATE_ICONS[workState(group)]}</span>
-          <div className="cir-row__body">
-            <div className="cir-row__title"><span title={lead.title}>{lead.title}</span><span className="card-key">#{lead.number}</span></div>
-            <div className="cir-row__meta">
-              <ActorLine event={lead} people={people} viewerLogin={viewerLogin} names={names} />
-              <span className="cir-sep">·</span>
-              <span className="cir-muted">{lead.repository}</span>
-              {!activityVerb(lead, viewerLogin, names).includes('your') && <span className="cir-muted">{workByline(lead, viewerLogin)}</span>}
-              {group.length > 1 && <button type="button" className="cir-more" aria-expanded={open} onClick={event => { event.stopPropagation(); toggle(); }}>
-                {open ? <ChevronDown size={12} strokeWidth={2} aria-hidden="true" /> : <ChevronRight size={12} strokeWidth={2} aria-hidden="true" />}
-                {open ? `Hide ${group.length - 1} more` : `+${group.length - 1} more`}
-              </button>}
-            </div>
-            {open && <div className="cir-updates">
-              {group.slice(1).map(event => <div className="cir-update" key={event.id}>
-                <ActorLine event={event} people={people} viewerLogin={viewerLogin} names={names} />
-                <span className="cir-spacer" />
-                <time className="card-age" dateTime={event.occurredAt} title={exact(event.occurredAt)}>{relativeTime(event.occurredAt, { suffix: false })}</time>
-                <button type="button" className="cir-link" aria-label="Open this update" onClick={click => { click.stopPropagation(); void openActivityLink(event.url); }}>
-                  Open<ArrowUpRight size={12} aria-hidden="true" />
-                </button>
-              </div>)}
-            </div>}
-          </div>
-          <time className="card-age" dateTime={lead.occurredAt} title={exact(lead.occurredAt)}>{relativeTime(lead.occurredAt, { suffix: false })}</time>
-        </Clickable>
+        <ItemRow className="cir-group" label={`${lead.title}, ${lead.repository} #${lead.number}`} onOpen={() => { void openActivityLink(lead.url); }}
+          icon={<span className={`cir-state is-${workState(group)}`}>{STATE_ICONS[workState(group)]}</span>}
+          title={lead.title}
+          marks={<span className="card-key">#{lead.number}</span>}
+          meta={<>
+            <ActorLine event={lead} people={people} viewerLogin={viewerLogin} names={names} />
+            <span className="cir-sep">·</span>
+            <span className="cir-muted">{lead.repository}</span>
+            {!activityVerb(lead, viewerLogin, names).includes('your') && <span className="cir-muted">{workByline(lead, viewerLogin)}</span>}
+            {group.length > 1 && <button type="button" className="cir-more" aria-expanded={open} onClick={event => { event.stopPropagation(); toggle(); }}>
+              {open ? <ChevronDown size={12} strokeWidth={2} aria-hidden="true" /> : <ChevronRight size={12} strokeWidth={2} aria-hidden="true" />}
+              {open ? `Hide ${group.length - 1} more` : `+${group.length - 1} more`}
+            </button>}
+          </>}
+          age={<time className="card-age" dateTime={lead.occurredAt} title={exact(lead.occurredAt)}>{relativeTime(lead.occurredAt, { suffix: false })}</time>}>
+          {open && <div className="cir-updates">
+            {group.slice(1).map(event => <div className="cir-update" key={event.id}>
+              <ActorLine event={event} people={people} viewerLogin={viewerLogin} names={names} />
+              <span className="cir-spacer" />
+              <time className="card-age" dateTime={event.occurredAt} title={exact(event.occurredAt)}>{relativeTime(event.occurredAt, { suffix: false })}</time>
+              <button type="button" className="cir-link" aria-label="Open this update" onClick={click => { click.stopPropagation(); void openActivityLink(event.url); }}>
+                Open<ArrowUpRight size={12} aria-hidden="true" />
+              </button>
+            </div>)}
+          </div>}
+        </ItemRow>
       </Fragment>;
     })}
     <div className="cir-feed__foot">

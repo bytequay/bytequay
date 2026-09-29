@@ -15,7 +15,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import Toast from '../Toast';
 import { anchorPanel } from '../ReferenceCard';
-import AttentionCard from './AttentionCard';
+import AttentionRow from './AttentionRow';
 import { usePinnedItems } from './pinned';
 import { useSnoozedAttention } from './useSnoozedAttention';
 import { useTeams } from '../teams/useTeams';
@@ -57,7 +57,7 @@ type Props = {
   goal?: (item: AttentionItem) => GoalToggle | null;
   /** Whether Jira is connected; without it there is no Jira tab unless a Jira card is listed anyway. */
   jiraConnected?: boolean;
-  /** A card that is not an attention item, shown first under All: a workspace's Repository context drafts waiting review. */
+  /** A row that is not an attention item, shown first under All: a workspace's Repository context drafts waiting review. */
   lead?: ReactNode;
 };
 
@@ -153,20 +153,21 @@ export default function AttentionList({
       </div>
 
       {cards.length > 0 || leading !== null ? (
-        <div className="atn-grid">
+        <div className="item-list" role="list">
           {leading}
           {cards.map(item => {
             const membership = item.issueState === 'closed' ? null : goal?.(item) ?? null;
+            const match = teamAttentionMatch(item, circles, viewerLogin);
             return (
-              <AttentionCard
+              <AttentionRow
                 key={item.key}
                 item={item}
-                teamMatch={teamAttentionMatch(item, circles, viewerLogin)}
+                circle={match === null ? null : { match, circles: [match.circle] }}
                 viewerLogin={viewerLogin}
                 showRepo={variant === 'home'}
                 onOpen={() => onOpen(item)}
                 onAcknowledge={() => acknowledge(item)}
-                onSnooze={button => setSnooze({ item, anchor: button.getBoundingClientRect() })}
+                onSnooze={anchor => setSnooze({ item, anchor })}
                 onStart={startable(item) ? () => onStartIssue?.(item) : undefined}
                 inGoal={membership?.inGoal ?? false}
                 onToggleGoal={membership === null ? undefined : () => {

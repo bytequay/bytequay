@@ -16,10 +16,11 @@ import type { ReactNode } from 'react';
 import Avatar from '../Avatar';
 import { SourceIcon } from '../cards/Card';
 import { openActivityLink } from '../githubReference';
+import { itemRelation } from '../home/AttentionRow';
 import { usePopoverDismiss } from '../pulls/code-tests/Outline';
 import { relativeTime } from '../relativeTime';
 import { activityVerb, METRICS, type Metric } from './activity';
-import { needAge, needRelation, openAttentionItem } from './NeedsYou';
+import { needAge, openAttentionItem } from './NeedsYou';
 import type { CircleNeed } from './priority';
 import type { TeamActivitySnapshot, TeamCircle, TeamEventKind, TeamMember, TeamStatistics } from './types';
 
@@ -83,13 +84,13 @@ export default function PersonPanel({ member, circles, backLabel, needs, snapsho
 
       {needs.length > 0 && <>
         <div className="cir-label">Needs you</div>
-        <div className="cir-list">
+        <div className="item-list">
           {needs.map(need => {
             const age = needAge(need);
             return <button type="button" key={need.item.key} className="cir-need" onClick={() => openAttentionItem(need.item)}>
               <SourceIcon source={need.item.type} size={14} tinted />
               <span className="cir-stack"><span className="cir-ellipsis">{need.item.title}</span>
-                <span className="cir-muted cir-ellipsis">{needRelation(need)} · {need.item.repo} #{need.item.number}</span></span>
+                <span className="cir-muted cir-ellipsis">{itemRelation(need.item, need.match)} · {need.item.repo} #{need.item.number}</span></span>
               <span className="card-age" title={age.title}>{relativeTime(age.at, { suffix: false })}</span>
             </button>;
           })}
@@ -108,7 +109,7 @@ export default function PersonPanel({ member, circles, backLabel, needs, snapsho
       </div>
 
       <div className="cir-label">With you</div>
-      <div className="cir-list">
+      <div className="item-list">
         <button type="button" className="cir-with" onClick={() => onDrill('interactions')}>
           <span className="cir-stack"><span>Direct interactions</span>
             <span className="cir-muted">Mentions, review requests between you, and reviews of each other’s PRs</span></span>

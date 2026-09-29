@@ -12,7 +12,7 @@
 .cir-anchor { position: relative; }
 .cir-mono { font-family: var(--mono); }
 
-:is(.cir-iconbtn, .cir-pane__row, .cir-switcher__button, .cir-people, .cir-select, .cir-status, .cir-chip, .cir-more, .cir-link, .cir-tile, .cir-count,
+:is(.cir-iconbtn, .cir-pane__row, .cir-switcher__button, .cir-people, .cir-select, .cir-status, .cir-more, .cir-link, .cir-tile, .cir-count,
   .cir-cell, .cir-person-link, .cir-metric, .cir-with, .cir-need, .cir-recent__row, .cir-tag, .cir-menu__item, .cir-template, .cir-suggestion,
   .cir-token__x, .cir-back, .cir-metric-chip button):focus-visible {
   outline: 2px solid var(--accent);
@@ -144,34 +144,15 @@
 .cir-banner .bq-button { height: 26px; }
 .cir-banner.is-quiet { border-color: var(--border); background: #f6f8fa; color: var(--text-2); }
 
-/* ── Rows: Needs you and Activity ── */
+/* ── Needs you and Activity ── */
 .cir-needs { display: flex; flex-direction: column; gap: 18px; }
-.cir-list { margin-top: 6px; overflow: hidden; border: 1px solid #e3e3e6; border-radius: 10px; }
-.cir-list > [role="listitem"] + [role="listitem"] > .cir-row, .cir-list > .cir-need + .cir-need { border-top: 1px solid #f0f0f2; }
-.cir-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 10px 12px 10px 14px; background: #ffffff; cursor: pointer; }
-.cir-row:hover { background: #f6f8fa; }
-.cir-row__icon { display: flex; padding-top: 2px; }
-.cir-row__title { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-.cir-row__title > span:first-child { min-width: 0; overflow: hidden; font-size: 13.5px; line-height: 19px; text-overflow: ellipsis; white-space: nowrap; }
-.cir-row__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 3px; color: #57606a; font-size: 12.5px; line-height: 18px; }
-.cir-row__meta > span { white-space: nowrap; }
-.cir-row__latest { min-width: 0; margin-top: 3px; }
-.cir-row__latest-line { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--text-3); font-size: 12px; line-height: 16px; }
-.cir-row__latest-line > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* White on the hovered row's grey, so the unfolded comment still reads as its own box. */
-.cir-row__latest .cir-row__comment { display: none; margin-top: 6px; padding: 6px 9px; border: 1px solid #e3e3e6; border-radius: 8px; background: #ffffff; }
-:is(.cir-row__latest.has-comment:hover, .cir-row:focus-visible .cir-row__latest.has-comment) .cir-row__comment { display: flex; }
-.cir-row > .card-age, .cir-row > .card-actions { padding-top: 1px; }
-.cir-chip { display: inline-flex; align-items: center; gap: 6px; min-width: 0; padding: 0 4px 0 0; border: 0; border-radius: 10px; background: transparent;
-  color: var(--text-1); font: inherit; cursor: pointer; }
-.cir-chip:hover { background: rgba(31, 35, 40, 0.06); }
-.cir-chip > span { max-width: 260px; overflow: hidden; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 
 .cir-feed { display: flex; flex-direction: column; }
 .cir-day { position: sticky; top: -14px; z-index: 2; margin-top: 2px; padding: 12px 10px 6px; background: #ffffff; color: var(--text-2); font-size: 12px; font-weight: 600; }
-.cir-row.cir-group { padding: 9px 10px; border-radius: 8px; background: transparent; }
-.cir-row.cir-group:hover { background: #f6f8fa; }
-.cir-group .cir-row__meta { gap: 4px 7px; }
+.item-row.cir-group { padding: 9px 10px; border-radius: 8px; background: transparent; }
+.item-row.cir-group:hover { background: #f6f8fa; }
+.cir-group .item-row__meta { gap: 4px 7px; }
+.cir-state { display: flex; }
 .cir-state.is-pr, .cir-state.is-issue { color: #1a7f37; }
 .cir-state.is-merged, .cir-state.is-closed { color: #8250df; }
 .cir-actor { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -303,7 +284,7 @@
 .cir-metric.is-empty .cir-metric__value { color: #8c959f; }
 .cir-with { display: flex; align-items: flex-start; gap: 12px; width: 100%; padding: 10px 12px; border: 0; background: #ffffff; color: var(--text-1); font: inherit;
   font-size: 13px; text-align: left; cursor: pointer; }
-.cir-with + .cir-with { border-top: 1px solid #f0f0f2; }
+.cir-with + .cir-with, .cir-need + .cir-need { border-top: 1px solid #f0f0f2; }
 .cir-with:hover { background: #f6f8fa; }
 .cir-with .cir-stack { flex: 1; }
 .cir-with .cir-muted { font-size: 12px; line-height: 16px; text-wrap: pretty; }

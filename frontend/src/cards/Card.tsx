@@ -11,17 +11,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
-import { ChevronRight, CircleDot, GitPullRequest, LoaderCircle, SquareCheck } from 'lucide-react';
+import type { CSSProperties, MouseEvent, ReactNode } from 'react';
+import { CircleDot, GitPullRequest, LoaderCircle, SquareCheck } from 'lucide-react';
 import JiraIcon from '../jira/JiraIcon';
 import { relativeTime } from '../relativeTime';
 import type { AttentionSource, AttentionTone } from '../home/attention';
 import '../css/cards.css';
 
 /*
- * The one base every card and card row draws with: Needs attention, the Tasks page, a workspace's open
- * tasks and a goal's items. A surface keeps only its own layout; the box, its keyboard behaviour, its
- * hover actions, pills, badges and folds come from here.
+ * The one base every card and card row draws with: Needs attention, Circles, the Tasks page, a workspace's
+ * open tasks and a goal's items. A surface keeps only its own layout; the box, its keyboard behaviour, its
+ * hover actions, pills and badges come from here.
  */
 
 type ClickableProps = {
@@ -53,8 +53,40 @@ export function Card({ compact = false, selected = false, className = '', ...pro
 }
 
 /** When a card's item last moved. A card's actions take its place while the pointer or focus is inside. */
-export function CardAge({ at, now }: { at: string; now?: number }): React.JSX.Element {
-  return <time className="card-age" dateTime={at} title={new Date(at).toLocaleString()}>{relativeTime(at, { suffix: false, now })}</time>;
+export function CardAge({ at, now, title }: { at: string; now?: number; title?: string }): React.JSX.Element {
+  return <time className="card-age" dateTime={at} title={title ?? new Date(at).toLocaleString()}>{relativeTime(at, { suffix: false, now })}</time>;
+}
+
+/**
+ * A row in a box of rows, the way Needs attention and Circles list items: the source's icon, the title
+ * and what sits beside it, a line of who and where, then whatever the surface adds below; its actions
+ * take the age's place while the pointer or focus is inside.
+ */
+export function ItemRow({ className = '', label, onOpen, icon, title, marks, meta, children, actions, age }: {
+  className?: string;
+  label: string;
+  onOpen: () => void;
+  icon: ReactNode;
+  title: string;
+  /** Beside the title: its key, and badges such as where the item stands. */
+  marks?: ReactNode;
+  meta: ReactNode;
+  children?: ReactNode;
+  actions?: ReactNode;
+  age: ReactNode;
+}): React.JSX.Element {
+  return (
+    <Clickable className={`card-row item-row ${className}`.trim()} label={label} onOpen={onOpen}>
+      <span className="item-row__icon">{icon}</span>
+      <div className="item-row__body">
+        <div className="item-row__title"><span title={title}>{title}</span>{marks}</div>
+        <div className="item-row__meta">{meta}</div>
+        {children}
+      </div>
+      {actions}
+      {age}
+    </Clickable>
+  );
 }
 
 /** The actions a card or row shows while the pointer or focus is inside it, in place of an age that follows them. */
@@ -125,17 +157,4 @@ export function SourceIcon({ source, size = 14, tinted = false }: { source: Atte
 /** A linked item named by its source's icon and its key. */
 export function LinkKey({ source, name, title, size = 14 }: { source: AttentionSource; name: string; title?: string; size?: number }): React.JSX.Element {
   return <span className="card-link" title={title}><SourceIcon source={source} size={size} tinted /><span className="card-key">{name}</span></span>;
-}
-
-/** A line that folds what follows it: a chevron, then the line; a click unfolds the rest in place. */
-export function Fold({ summary, showTitle, hideTitle, children }: { summary: ReactNode; showTitle: string; hideTitle: string; children: ReactNode }): React.JSX.Element {
-  const [open, setOpen] = useState(false);
-  return <>
-    <button className="card-fold" type="button" aria-expanded={open} title={open ? hideTitle : showTitle}
-      onClick={(event) => { event.stopPropagation(); setOpen((value) => !value); }}>
-      <ChevronRight className="card-fold__chev" size={12} strokeWidth={2.4} aria-hidden="true" />
-      {summary}
-    </button>
-    <div hidden={!open}>{children}</div>
-  </>;
 }

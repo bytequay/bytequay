@@ -96,7 +96,7 @@
 }
 
 /* ── Needs attention ─────────────────────────────────────────────
-   Cards in a grid, each tinted by the source that produced it; a card keeps its own height. */
+   A header with the source tabs over one box of rows (the shared rows in cards.css). */
 .atn-section.is-workspace {
   margin-top: 22px;
 }
@@ -121,10 +121,6 @@
   font-size: 11.5px;
   color: #8c959f;
   white-space: nowrap;
-}
-
-.atn-spacer {
-  flex: 1;
 }
 
 .atn-filters {
@@ -154,109 +150,6 @@
   box-shadow: 0 1px 2px rgba(31, 35, 40, 0.12);
 }
 
-.atn-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  gap: 12px;
-  align-items: start;
-  margin-top: 10px;
-}
-
-/* An attention card: a strip tinted by its source over the body; the box comes from .card. */
-.atn-card {
-  overflow: hidden;
-}
-
-.atn-card__head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  height: 30px;
-  padding: 0 8px 0 10px;
-  background: var(--src-bg);
-  color: var(--src-fg);
-}
-
-.atn-card__head > svg {
-  flex: none;
-}
-
-.atn-card__key {
-  font-family: var(--mono);
-  font-size: 12px;
-  opacity: 0.8;
-  white-space: nowrap;
-}
-
-/* Repository context names a destination, not a reference number. */
-.atn-card.is-context .atn-card__key { font-family: inherit; }
-
-.atn-card__repo {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  font-size: 11.5px;
-  color: #57606a;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.atn-card__chev {
-  flex: none;
-  color: #8c959f;
-}
-
-.atn-card__body {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  padding: 9px 12px 10px;
-}
-
-.atn-card__title {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  font-size: 13px;
-  line-height: 18px;
-  color: var(--text-1);
-}
-
-.atn-card__team {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  color: var(--text-3);
-  font-size: 11px;
-  overflow-wrap: anywhere;
-}
-
-.atn-card__team .pill { max-width: 100%; white-space: normal; }
-
-.atn-card__why {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.atn-card__verb {
-  min-width: 0;
-  font-size: 12px;
-  color: #57606a;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.atn-card__actor {
-  color: var(--text-1);
-}
-
 /* A ticket's status move: where it was, struck through, then where it is. */
 .atn-detail__status {
   display: flex;
@@ -278,22 +171,12 @@
   color: #57606a;
 }
 
-/* A comment reads as the Markdown it was written in, clamped to three of the detail's lines. Blocks sit
-   flush, headings and strong text read like the rest, and a link reads as text: the card opens it. */
+/* A comment reads as the Markdown it was written in, cut to its first hundred words. Blocks sit flush,
+   headings and strong text read like the rest, and a link reads as text: the row opens it. */
 .atn-detail .markdown-body {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
   padding: 0;
   font-size: inherit;
   line-height: inherit;
-}
-
-/* A quote meant to be read whole, such as a circle row's unfolded comment, is not clamped. */
-.atn-detail.is-whole .markdown-body {
-  display: block;
-  overflow: visible;
 }
 
 .atn-detail .markdown-body :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6, .md-code-block, .md-table-scroll, .md-details, .md-alert) {
@@ -384,25 +267,6 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-}
-
-/* Linked items: one folded row of icons and keys that unfolds to a row per item. */
-.atn-links {
-  display: flex;
-  flex-direction: column;
-  margin-bottom: -4px;
-  padding-top: 3px;
-  border-top: 1px solid #eceff2;
-}
-
-.atn-link__title {
-  flex: 1;
-  min-width: 0;
-  font-size: 12.5px;
-  color: var(--text-1);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .atn-clear {

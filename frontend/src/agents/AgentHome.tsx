@@ -23,7 +23,7 @@ import { zoomReference } from '../githubReference';
 import { jiraIssueLocation } from '../jira/contracts';
 import { relativeTime } from '../relativeTime';
 import { useRenameDraft } from '../renameDraft';
-import { ContextReviewCard } from '../repository-context/ContextCards';
+import { ContextReviewRow } from '../repository-context/ContextCards';
 import { useContextReview, type ContextReview } from '../repository-context/reviewCount';
 import { displayModelName, effortLabel, laneLabel } from '../settings/model';
 import {
@@ -278,7 +278,7 @@ export function AgentHomeView({
           onOpen={onOpenAttention}
           onStartIssue={onStartIssue}
           goal={goal}
-          lead={contextReview !== null && contextReview.total > 0 ? <ContextReviewCard workspaceId={workspaceId} review={contextReview} /> : undefined}
+          lead={contextReview !== null && contextReview.total > 0 ? <ContextReviewRow workspaceId={workspaceId} review={contextReview} /> : undefined}
         />
         <section className="agt-open-tasks" aria-label="Open tasks">
           <div className="agt-open-tasks__head">

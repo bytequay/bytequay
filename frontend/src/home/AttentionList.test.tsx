@@ -76,7 +76,7 @@ describe('AttentionList', () => {
     vi.stubGlobal('window', { localStorage: { getItem: () => JSON.stringify([{ key: 'trinodb/trino#1', title: 'Pinned', target: { kind: 'pull', repo: 'trinodb/trino', number: 1 } }]) } });
     const items = [1, 2, 3].map(number => prItem(number));
     const html = list(items, { [items[1].key]: handledEntry(items[1], 'snooze', Date.now() + 3_600_000, 'soon') });
-    expect([...html.matchAll(/class="atn-card__key">#(\d+)</g)].map(match => Number(match[1]))).toEqual([3]);
+    expect([...html.matchAll(/class="card-key">#(\d+)</g)].map(match => Number(match[1]))).toEqual([3]);
   });
 
   it('names the actual member author without labeling the latest commenter as a teammate', () => {
@@ -86,13 +86,14 @@ describe('AttentionList', () => {
     const html = list([prItem(1, 'review', {
       event: 'commented', actor: 'bob', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: null,
     })]);
-    expect(html).toContain('PR author: <strong>@alice</strong>');
-    expect(html).toContain('title="Your private circle: Maintainers">Maintainers</span>');
-    expect(html).toContain('class="atn-card__actor">bob</span> commented');
+    expect(html).toMatch(/<span class="item-person">.*?<span>alice<\/span><\/span><span>authored<\/span><span class="pill is-blue" title="Your private circle: Maintainers">Maintainers<\/span>/);
+    expect(html).toContain('<span>Latest: bob commented · ');
     expect(html).not.toContain('Your team');
 
     const unrelated = { ...prItem(2), author: 'outsider', pr: { ...pullRequest(2), author: 'outsider' } };
-    expect(list([unrelated])).not.toContain('atn-card__team');
+    const plain = list([unrelated]);
+    expect(plain).toMatch(/<span>outsider<\/span><\/span><span>authored<\/span>/);
+    expect(plain).not.toContain('Your private circle');
   });
 
   it('explains a member review request independently of the PR author', () => {
@@ -102,8 +103,8 @@ describe('AttentionList', () => {
     const html = list([prItem(1, 'review', {
       event: 'review_requested', actor: 'bob', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: 'viewer',
     })]);
-    expect(html).toContain('Review requested by <strong>@bob</strong>');
-    expect(html).not.toContain('PR author: <strong>@bob');
+    expect(html).toMatch(/<span>bob<\/span><\/span><span>requested your review<\/span>/);
+    expect(html).not.toMatch(/<span>bob<\/span><\/span><span>authored/);
   });
 
   it('keeps resolved reminders readable without offering to start development again', () => {
@@ -119,26 +120,29 @@ describe('AttentionList', () => {
     expect(list([issueItem(99)])).toContain('aria-label="Start development for #99"');
   });
 
-  it('draws a card tinted by its source, with the reason, the actor and what happened', () => {
+  it('draws a row with its source, where it stands, who it is from and the latest event', () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-30T00:00:00Z'));
     const html = list([prItem(30920, 'review', {
       event: 'review_requested', actor: 'bob', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: 'viewer',
     })]);
 
-    // The box, its keyboard behaviour and its hover actions come from the shared card base.
-    expect(html).toContain('class="card atn-card is-pr" role="button" tabindex="0"');
+    // The row, its keyboard behaviour and its hover actions come from the shared card base, one row in one list box.
+    expect(html).toContain('<div class="item-list" role="list"><div role="listitem"><div class="card-row item-row" role="button" tabindex="0"');
+    expect(html).toContain('<span class="item-row__icon"><span class="card-src is-pr">');
     expect(html).toContain('lucide-git-pull-request');
-    // The strip names no type, and a pull request's reason sits in it.
+    // The row names no type, and where a pull request stands sits beside its title and key.
     expect(html).not.toContain('>Pull request<');
-    expect(html).toMatch(/class="atn-card__head">.*class="pill is-outline">Review requested<.*class="atn-card__body"/);
-    expect(html).toContain('class="atn-card__key">#30920<');
-    // Global Home names the repository on each card; the age is the actual event's.
-    expect(html).toContain('trinodb/trino</span>');
+    expect(html).toContain('<span title="Change 30920">Change 30920</span><span class="card-key">#30920</span><span class="pill is-outline">Review requested</span>');
+    // Global Home names the repository beside the author; the age is the actual event's.
+    expect(html).toMatch(/<span>alice<\/span><\/span><span>authored<\/span><span class="item-row__sep">·<\/span><span class="item-row__muted">trinodb\/trino<\/span>/);
     expect(html).toContain('dateTime="2026-08-28T00:00:00Z"');
     expect(html).toContain('>2d</time>');
-    expect(html).toContain('<span class="atn-card__actor">bob</span> requested your review');
+    expect(html).toContain('<span>Latest: bob requested your review · 2d</span>');
     expect(html).toContain('aria-label="Acknowledge #30920"');
     expect(html).toContain('aria-label="Snooze #30920"');
+    expect(html).toContain('aria-label="Open #30920"');
+    // The hover card waits for the pointer to rest on the row.
+    expect(html).not.toContain('role="dialog"');
     // The "All issues" and "All pull requests" links are gone.
     expect(html).not.toContain('All pull requests');
     expect(html).not.toContain('All issues');
@@ -160,15 +164,16 @@ describe('AttentionList', () => {
     expect(six).toContain('<div class="atn-detail__lead">and 3 more</div>');
   });
 
-  it('draws a review comment as the Markdown it was written in, under the name of the file it was left on', () => {
+  it('unfolds a review comment as the Markdown it was written in, under the name of the file it was left on', () => {
     const html = list([prItem(30985, 'review', {
       event: 'review_thread', actor: 'ravi-moreau', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: null,
       excerpt: '`TransactionLogAccess.java:562` declares the same record.', path: 'plugin/trino-delta-lake/src/main/java/CheckpointWriter.java', line: 101,
     })]);
 
-    // What happened starts folded under the actor line, which unfolds it.
-    expect(html).toContain('<button class="card-fold" type="button" aria-expanded="false" title="Show details">');
-    expect(html).toContain('<div hidden=""><div class="card-box atn-detail">');
+    // What happened waits under the latest line, which unfolds it while hovered.
+    expect(html).toContain('<div class="item-row__latest has-detail">');
+    expect(html).toContain('<span>Latest: ravi-moreau left a review comment · ');
+    expect(html).toContain('<div class="item-row__detail atn-detail">');
     expect(html).toContain('<p><code>TransactionLogAccess.java:562</code> declares the same record.</p>');
     expect(html).toContain('<div class="atn-detail__file" title="plugin/trino-delta-lake/src/main/java/CheckpointWriter.java:101">on CheckpointWriter.java:101</div>');
   });
@@ -180,25 +185,26 @@ describe('AttentionList', () => {
     } }]);
     const html = list([ticket]);
 
-    expect(html).toContain('class="card atn-card is-jira"');
-    expect(html).toMatch(/class="atn-card__head">.*class="pill is-outline">To do<.*class="atn-card__body"/);
-    expect(html).toContain('<button class="card-fold" type="button" aria-expanded="false" title="Show details">');
+    expect(html).toContain('<span class="card-src is-jira">');
+    expect(html).toMatch(/class="item-row__title">.*?class="pill is-outline">To do</);
+    expect(html).toContain('<div class="item-row__latest has-detail">');
+    expect(html).toContain('<span>Latest: Moved to Blocked · ');
     expect(html).toMatch(/<span class="pill is-blue is-square is-struck">In Progress<\/span><svg[^>]*aria-label="to"[^>]*>.*?<\/svg><span class="pill is-red is-square">Blocked<\/span>/);
     expect(html).toContain('<div class="markdown-body"><p>Staging is mid-upgrade.</p></div>');
   });
 
-  it('shows at most four cards, counts nothing, and filters by source', () => {
+  it('shows at most four rows, counts nothing, and filters by source', () => {
     const items = [30920, 30921, 30922, 30923, 30924].map(number => prItem(number)).concat(issueItem(7));
     const html = list(items, {}, 'workspace');
 
-    expect(html.match(/class="card atn-card /g)).toHaveLength(4);
+    expect(html.match(/class="card-row item-row"/g)).toHaveLength(4);
     // Every watched update is eligible, so a total would count the repositories, not what needs the user.
     expect(html).toMatch(/Needs attention<\/span><div class="atn-filters"/);
     expect(html).toMatch(/>PRs<\/button><button[^>]*>Issues<\/button><button[^>]*>Jira<\/button>/);
     // Without Jira connected there is no Jira tab.
     expect(list(items, {}, 'workspace', false)).not.toContain('>Jira</button>');
-    // A workspace's own cards do not repeat its repository.
-    expect(html).not.toContain('trinodb/trino</span>');
+    // A workspace's own rows do not repeat its repository.
+    expect(html).not.toContain('item-row__muted');
 
     expect(attentionCards(items, 'issue').map(item => item.number)).toEqual([7]);
   });
@@ -223,7 +229,7 @@ describe('AttentionList', () => {
     items.push({ ...prItem(5, 'updated'), author: 'outsider', updatedAt: '2026-09-28T13:00:00Z' });
     for (const variant of ['home', 'workspace'] as const) {
       const html = list(items, {}, variant);
-      expect([...html.matchAll(/class="atn-card__key">#(\d+)</g)].map(match => Number(match[1]))).toEqual([5, 1, 2, 3]);
+      expect([...html.matchAll(/class="card-key">#(\d+)</g)].map(match => Number(match[1]))).toEqual([5, 1, 2, 3]);
     }
   });
 
@@ -234,7 +240,7 @@ describe('AttentionList', () => {
     const reminder = { ...prItem(5, 'updated'), updatedAt: '2026-09-28T13:00:00Z' };
     const handled = { [reminder.key]: handledEntry(reminder, 'snooze', now, '1 hour') };
     const html = list(items, handled);
-    expect([...html.matchAll(/class="atn-card__key">#(\d+)</g)].map(match => Number(match[1]))).toEqual([5, 1, 2, 3]);
+    expect([...html.matchAll(/class="card-key">#(\d+)</g)].map(match => Number(match[1]))).toEqual([5, 1, 2, 3]);
   });
 
   it('brings in the next item when a card is acknowledged or snoozed, still capped at four', () => {
@@ -248,22 +254,23 @@ describe('AttentionList', () => {
     expect(shown(acknowledged)).toEqual([30920, 30922, 30923, 30924]);
     const snoozed = { ...acknowledged, [items[0].key]: handledEntry(items[0], 'snooze', now + 3_600_000, '1 hour') };
     expect(shown(snoozed)).toEqual([30922, 30923, 30924, 30925]);
-    expect(list(items, snoozed).match(/class="card atn-card /g)).toHaveLength(4);
+    expect(list(items, snoozed).match(/class="card-row item-row"/g)).toHaveLength(4);
   });
 
-  it('offers development for an issue and lists its labels, and says so when nothing needs you', () => {
+  it('offers development for an issue, leaves its labels to the hover card, and says so when nothing needs you', () => {
     const html = list([issueItem(7)]);
-    expect(html).toContain('class="card atn-card is-issue"');
+    expect(html).toContain('<span class="card-src is-issue">');
     expect(html).toContain('class="pill is-outline">Assigned to you<');
-    expect(html).toContain('<span class="atn-card__actor">finn-ep</span> opened this issue');
+    expect(html).toMatch(/<span>finn-ep<\/span><\/span><span>opened · assigned to you<\/span>/);
+    // An issue's opening is the line above; there is no event to name below it.
+    expect(html).not.toContain('Latest:');
     expect(html).toContain('aria-label="Start development for #7"');
-    expect(html).toContain('>bug</span>');
-    expect(html).toContain('>iceberg</span>');
+    expect(html).not.toContain('>bug</span>');
 
     expect(list([], {}, 'workspace')).toContain('Nothing needs you right now.');
   });
 
-  it('starts linked items folded to one row of keys', () => {
+  it('names linked items by their keys, with titles and statuses on hover', () => {
     const item: AttentionItem = {
       ...prItem(31264),
       links: [
@@ -272,11 +279,10 @@ describe('AttentionList', () => {
       ],
     };
     const html = list([item]);
-    expect(html).toContain('aria-expanded="false"');
     expect(html).toContain('>TRINO-412</span>');
     expect(html).toContain('>#31190</span>');
     expect(html).not.toContain('LINKED');
-    // Titles and statuses wait, hidden, until the row unfolds.
-    expect(html).toMatch(/<button class="card-fold" type="button" aria-expanded="false" title="Show linked items">.*?<\/button><div hidden="">.*Validate the fix/);
+    expect(html).toContain('<span class="card-link" title="Validate the fix · Blocked">');
+    expect(html).toContain('<span class="card-link" title="Checkpoint drops deletion vectors · Open">');
   });
 });

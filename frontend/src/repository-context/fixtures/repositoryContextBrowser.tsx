@@ -506,7 +506,7 @@ const scenarios: Array<[string, () => Promise<void>]> = [
   }],
   ['Home offers the waiting review and task drafts open the same review drawer', async () => {
     await renderHome();
-    assert(text(document.querySelector('.atn-card.is-context')).includes('3 drafts and 1 source to review'), 'Home counts drafts and sources');
+    assert(text(document.querySelector('.item-row.is-context')).includes('3 drafts and 1 source to review'), 'Home counts drafts and sources');
     assert(text().includes('Sending starts a task with Codex · 5.6 Terra High.'), 'Explore mode names the run it starts');
     await renderTaskDraft();
     const card = document.querySelector('.rcx-draft');
@@ -556,7 +556,7 @@ async function renderHome(): Promise<void> {
       onBack={() => {}} onForward={() => {}} workspace={workspace} workspaceTab="home" onWorkspaceTab={() => {}} />
     <main className="app-content"><Home /></main>
   </>));
-  await waitFor(() => document.querySelector('.atn-card.is-context') !== null, 'The Home card appears');
+  await waitFor(() => document.querySelector('.item-row.is-context') !== null, 'The Home row appears');
 }
 
 /** A task's transcript end, with the draft that task proposed. */

@@ -15,7 +15,11 @@ import { useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import AppSidebar from '../../AppSidebar';
+import { taskAttentionItem } from '../../agents/attention';
+import { previewTask } from '../../agents/fixtures/previewBridge';
 import { assert, settle } from '../../fixtures/harness';
+import { jiraAttentionItem } from '../../jira/attention';
+import { jiraIssue } from '../../jira/fixtures/jira';
 import type { Bridge, ModelSettingsDto, PullRequestDto, WorkspaceDto } from '../../types';
 import AttentionList from '../AttentionList';
 import HomePage from '../HomePage';
@@ -101,8 +105,8 @@ function mount(initial: AttentionItem[]) {
   return {
     host,
     get opens() { return opens; },
-    cards: () => [...host.querySelectorAll<HTMLElement>('.atn-card')],
-    async open() { host.querySelector<HTMLElement>('.atn-card')?.click(); await settle(); },
+    cards: () => [...host.querySelectorAll<HTMLElement>('.item-row')],
+    async open() { host.querySelector<HTMLElement>('.item-row')?.click(); await settle(); },
     async visit(key: string) { selected = key; readers = 1; render(); await settle(); },
     async close() { readers = 0; render(); await settle(); },
     async readers(value: number) { readers = value; render(); await settle(); },
@@ -267,6 +271,36 @@ async function retainedReminder(): Promise<void> {
   finally { await f.dispose(); }
 }
 
+const pause = (ms: number) => new Promise<void>(resolve => window.setTimeout(resolve, ms));
+
+async function hoverCards(): Promise<void> {
+  const pull = item(52);
+  const task = taskAttentionItem(previewTask('ws-1', 'task-52'), null, { id: 'ws-1', name: 'octo/app', repository: 'octo/app' });
+  const f = mount([pull, jiraAttentionItem(jiraIssue), task]);
+  try {
+    await settle();
+    const rows = [...f.host.querySelectorAll<HTMLElement>('[role="listitem"]')];
+    assert(rows.length === 3, 'Every item must list as a row');
+    // React reads enter and leave from mouseover and mouseout; a real pointer is not needed to rest on a row.
+    rows.forEach(row => row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+    await pause(1500); await settle();
+    assert(document.querySelector('.ref-card') === null, 'A hover card must wait for the pointer to rest two seconds');
+    await pause(700); await settle();
+    const cards = [...document.querySelectorAll('.ref-card')];
+    const card = (label: string) => cards.find(candidate => candidate.getAttribute('aria-label') === label);
+    assert(card('Pull request preview')?.textContent?.includes('REVIEWERS') === true && card('Pull request preview')?.textContent?.includes(pull.title) === true,
+      'Resting on a pull request must show its metadata');
+    assert(card('Jira ticket preview')?.textContent?.includes(jiraIssue.key) === true && card('Jira ticket preview')?.textContent?.includes('PRIORITY') === true,
+      'Resting on a ticket must show its metadata');
+    assert(card('Agent task preview')?.textContent?.includes('BRANCH') === true, 'Resting on a task must show its metadata');
+    rows.forEach(row => row.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })));
+    await pause(200); await settle();
+    assert(document.querySelector('.ref-card') === null, 'Leaving a row must close its hover card');
+    assert(f.opens === 0 && Object.keys(loadHandled()).length === 0, 'Hovering must neither open nor handle an item');
+  }
+  finally { await f.dispose(); }
+}
+
 async function latestSummary(): Promise<void> {
   window.localStorage.clear();
   const pending: ((rows: PullRequestDto[]) => void)[] = [];
@@ -295,10 +329,10 @@ async function latestSummary(): Promise<void> {
     assert(pending.length === 2, 'Both Homes start their local attention reads');
     window.dispatchEvent(new CustomEvent('bytequay:pr-attention-updated', { detail: [newest] }));
     await settle();
-    assert(host.querySelector('.atn-card')?.textContent?.includes(newest.title) === true
+    assert(host.querySelector('.item-row')?.textContent?.includes(newest.title) === true
       && host.querySelector('.workspace-attention')?.textContent === newest.title, 'A fresh summary immediately reaches both Homes');
     pending.forEach(resolve => resolve([])); await settle();
-    assert(host.querySelector('.atn-card')?.textContent?.includes(newest.title) === true
+    assert(host.querySelector('.item-row')?.textContent?.includes(newest.title) === true
       && host.querySelector('.workspace-attention')?.textContent === newest.title
       && getCached<PullRequestDto[]>(ATTENTION_SEED.prs)?.[0]?.title === newest.title,
     'Older reads completing after a broadcast cannot erase its review request or cache');
@@ -309,7 +343,8 @@ async function latestSummary(): Promise<void> {
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const results: { name: string; error?: string }[] = [];
   for (const [name, scenario] of [['viewed until close', viewing], ['successful action status', actions], ['canonical post-write snapshot', canonicalSnapshot],
-    ['global pins', pinning], ['timed snoozes', snoozing], ['retained reminders', retainedReminder], ['latest summary wins', latestSummary]] as const) {
+    ['global pins', pinning], ['timed snoozes', snoozing], ['retained reminders', retainedReminder], ['hover cards', hoverCards],
+    ['latest summary wins', latestSummary]] as const) {
     try { await scenario(); results.push({ name }); }
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
   }

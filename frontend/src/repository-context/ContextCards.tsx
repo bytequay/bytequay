@@ -12,8 +12,8 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import { ChevronRight, FileText } from 'lucide-react';
-import { Card, CardAge, Pill } from '../cards/Card';
+import { FileText } from 'lucide-react';
+import { Card, CardAge, ItemRow, Pill } from '../cards/Card';
 import { workspaceContextDraftRoute, workspaceRoute } from '../workspaces/model';
 import type { ContextKnowledgeDraftDto, RepositoryNotebookDto } from './contracts';
 import { kindLabel, noteArea, plural } from './model';
@@ -24,24 +24,18 @@ const open = (workspaceId: string, draftId: string | null) => {
   window.location.hash = draftId === null ? workspaceRoute(workspaceId, 'context') : workspaceContextDraftRoute(workspaceId, draftId);
 };
 
-/** Home's Needs attention card for drafts and source proposals; it opens the same review drawer as the page. */
-export function ContextReviewCard({ workspaceId, review }: { workspaceId: string; review: ContextReview }) {
+/** Home's Needs attention row for drafts and source proposals; it opens the same review drawer as the page. */
+export function ContextReviewRow({ workspaceId, review }: { workspaceId: string; review: ContextReview }) {
   const parts = [review.drafts ? plural(review.drafts, 'draft') : null, review.sources ? plural(review.sources, 'source') : null].filter(part => part !== null);
   const title = `${parts.join(' and ')} to review`;
-  return <Card className="atn-card is-context" label={`Repository context: ${title}`} onOpen={() => open(workspaceId, review.firstDraftId)}>
-    <div className="atn-card__head">
-      <FileText size={14} strokeWidth={1.9} aria-hidden="true" />
-      <span className="atn-card__key">Repository context</span>
-      <Pill outline>Needs review</Pill>
-      <span className="atn-spacer" />
-      {review.latestAt !== null && <CardAge at={review.latestAt} />}
-      <ChevronRight className="atn-card__chev" size={13} aria-hidden="true" />
-    </div>
-    <div className="atn-card__body">
-      <div className="atn-card__title">{title}</div>
-      <div className="atn-card__why"><span className="atn-card__verb">Not available to agents until approved</span></div>
-    </div>
-  </Card>;
+  return <div role="listitem">
+    <ItemRow className="is-context" label={`Repository context: ${title}`} onOpen={() => open(workspaceId, review.firstDraftId)}
+      icon={<span className="card-src is-context"><FileText size={16} strokeWidth={1.9} aria-hidden="true" /></span>}
+      title={title}
+      marks={<Pill outline>Needs review</Pill>}
+      meta={<><span>Repository context</span><span className="item-row__sep">·</span><span className="item-row__muted">Not available to agents until approved</span></>}
+      age={review.latestAt === null ? null : <CardAge at={review.latestAt} />} />
+  </div>;
 }
 
 /** Drafts this task proposed that still wait for review, read from the recorded proposing task. */

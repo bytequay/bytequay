@@ -1,6 +1,6 @@
 /* ── Cards ─────────────────────────────────────────────
-   The base every card and card row draws with (cards/Card.tsx): Needs attention, the Tasks page, a
-   workspace's open tasks and a goal's items. A surface's own stylesheet adds only its layout
+   The base every card and card row draws with (cards/Card.tsx): Needs attention, Circles, the Tasks
+   page, a workspace's open tasks and a goal's items. A surface's own stylesheet adds only its layout
    (padding, gaps, what sits where) and never restyles these properties, so which stylesheet loads
    first does not matter. Nothing in a card is bold. */
 
@@ -102,7 +102,7 @@
   cursor: not-allowed;
 }
 
-:is(.card-iconbtn, .card-fold):focus-visible {
+:is(.card-iconbtn, .item-person):focus-visible {
   outline: 2px solid var(--control-strong);
   outline-offset: 1px;
 }
@@ -200,43 +200,148 @@
   background: #f6f8fa;
 }
 
-/* A folded line, and the rows it unfolds. */
-.card-fold,
-.card-fold-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  height: 24px;
-  margin: 0 -6px;
-  padding: 0 6px;
-  border-radius: 6px;
+/* ── Rows ──
+   One box of rows (ItemRow): Needs attention on both Homes, and Needs you and Activity on Circles. */
+.item-list {
+  margin-top: 6px;
+  overflow: hidden;
+  border: 1px solid #e3e3e6;
+  border-radius: 10px;
 }
 
-.card-fold {
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
+.item-list > [role="listitem"] + [role="listitem"] > .item-row {
+  border-top: 1px solid #f0f0f2;
+}
+
+.item-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 10px 12px 10px 14px;
+  background: #ffffff;
   cursor: pointer;
 }
 
-.card-fold:hover,
-.card-fold-row:hover {
-  background: rgba(31, 35, 40, 0.05);
+.item-row:hover {
+  background: #f6f8fa;
 }
 
-.card-fold-row {
-  padding-left: 26px;
+.item-row__icon {
+  display: flex;
+  padding-top: 2px;
 }
 
-.card-fold__chev {
-  flex: none;
+.item-row__title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.item-row__title > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13.5px;
+  line-height: 19px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 3px;
   color: #57606a;
-  transition: transform 0.15s;
+  font-size: 12.5px;
+  line-height: 18px;
 }
 
-.card-fold[aria-expanded="true"] .card-fold__chev {
-  transform: rotate(90deg);
+.item-row__meta > span {
+  white-space: nowrap;
+}
+
+.item-row__sep {
+  color: var(--text-4);
+}
+
+.item-row__muted {
+  color: var(--text-3);
+}
+
+.item-row > :is(.card-age, .card-actions) {
+  padding-top: 1px;
+}
+
+/* Who the row is from: an avatar and a name, a button where the name opens the person. */
+.item-person {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 4px 0 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+}
+
+button.item-person {
+  cursor: pointer;
+}
+
+button.item-person:hover {
+  background: rgba(31, 35, 40, 0.06);
+}
+
+.item-person > span {
+  max-width: 260px;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The latest event, one line that unfolds what happened while it is hovered or the row has focus. */
+.item-row__latest {
+  min-width: 0;
+  margin-top: 3px;
+}
+
+.item-row__latest-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.item-row__latest-line > svg {
+  flex: none;
+}
+
+.item-row__latest-line > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* White on the hovered row's grey, so the unfolded detail still reads as its own box. */
+.item-row__latest > .item-row__detail {
+  display: none;
+  margin-top: 6px;
+  padding: 6px 9px;
+  border: 1px solid #e3e3e6;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+:is(.item-row__latest.has-detail:hover, .item-row:focus-visible .item-row__latest.has-detail) > .item-row__detail {
+  display: flex;
 }

@@ -12,31 +12,24 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import { ArrowUpRight, Check, Clock3, MessageSquare } from 'lucide-react';
-import Avatar from '../Avatar';
-import { CardActions, Clickable, IconButton, Pill, SourceIcon } from '../cards/Card';
+import { Check } from 'lucide-react';
 import { zoomReference } from '../githubReference';
 import { SnoozeMenu } from '../home/AttentionList';
+import AttentionRow from '../home/AttentionRow';
 import {
-  attentionCandidates, attentionSummary, handledEntry, issueAttentionItems, loadHandled, saveHandled, snoozeHint, snoozeUntil, visibleAttention,
+  attentionCandidates, handledEntry, issueAttentionItems, loadHandled, saveHandled, snoozeHint, snoozeUntil, visibleAttention,
   type AttentionItem, type Handled, type SnoozeId,
 } from '../home/attention';
 import { usePinnedItems } from '../home/pinned';
-import MarkdownBody from '../pulls/MarkdownBody';
 import { useSnoozedAttention } from '../home/useSnoozedAttention';
 import { remoteErrorMessage } from '../pulls/PullOverview';
-import { previewMarkdown } from '../ReferenceCard';
-import { ago, relativeTime } from '../relativeTime';
+import { ago } from '../relativeTime';
 import type { PullRequestDto } from '../types';
 import { ISSUE_DEVELOPMENT_CHANGED } from '../workspaces/issueDevelopment';
-import { firstWords } from './activity';
 import type { CircleNeed } from './priority';
 import type { TeamCircle } from './types';
 
 export type Notify = (text: string, undo?: () => void) => void;
-
-/** How much of the latest comment a row unfolds. */
-const COMMENT_WORDS = 100;
 
 /** Home's attention candidates after its eligibility, handled state, timed reminders and pins; handling here clears Home too. */
 export function useLiveAttention(accountLogin: string | undefined) {
@@ -100,11 +93,6 @@ export function openAttentionItem(item: AttentionItem): void {
   else if (item.workspaceId) zoomReference({ kind: 'issue', repo: item.repo, number: item.number, workspaceId: item.workspaceId });
 }
 
-export function needRelation(need: CircleNeed): string {
-  if (need.match.reason === 'review-requester') return 'requested your review';
-  return need.item.type === 'issue' ? 'opened · assigned to you' : 'authored';
-}
-
 /** How long it has waited, from source evidence only; an update time is never passed off as a request time. */
 export function needAge(need: CircleNeed): { at: string; title: string } {
   const { item } = need;
@@ -161,80 +149,19 @@ export default function NeedsYou({ needs, circles, allMemberLogins, viewerLogin,
     { label: 'Review requested', rows: needs.filter(need => need.action === 'review') },
     { label: 'Assigned issues', rows: needs.filter(need => need.action === 'assigned') },
   ].filter(section => section.rows.length > 0);
+  const outside = (login: string | null) => login !== null && !allMemberLogins.has(login.toLowerCase())
+    && login.toLowerCase() !== viewerLogin?.toLowerCase();
+  const circlesOf = (githubId: number) => showCircle ? circles.filter(circle => circle.members.some(person => person.githubId === githubId)) : [];
   return <div className="cir-needs">
     {sections.map(section => <section key={section.label} aria-label={section.label}>
       <div className="atn-head"><span className="atn-head__label">{section.label}</span><span className="atn-count">{section.rows.length}</span></div>
-      <div className="cir-list" role="list">
-        {section.rows.map(need => <NeedRow key={need.item.key} need={need} circles={circles} allMemberLogins={allMemberLogins} viewerLogin={viewerLogin}
-          showCircle={showCircle} onPerson={onPerson} onAcknowledge={() => acknowledge(need.item)}
-          onSnooze={anchor => setSnooze({ need, anchor })} />)}
+      <div className="item-list" role="list">
+        {/* The sections already say where each item stands. */}
+        {section.rows.map(need => <AttentionRow key={need.item.key} item={need.item} viewerLogin={viewerLogin} showRepo showState={false} age={needAge(need)}
+          circle={{ match: need.match, circles: circlesOf(need.match.member.githubId), outside, onPerson }}
+          onOpen={() => openAttentionItem(need.item)} onAcknowledge={() => acknowledge(need.item)} onSnooze={anchor => setSnooze({ need, anchor })} />)}
       </div>
     </section>)}
     {snooze && <SnoozeMenu anchor={snooze.anchor} onClose={() => setSnooze(null)} onPick={option => snoozeFor(snooze.need.item, option.id, option.label)} />}
-  </div>;
-}
-
-function NeedRow({ need, circles, allMemberLogins, viewerLogin, showCircle, onPerson, onAcknowledge, onSnooze }: {
-  need: CircleNeed;
-  circles: TeamCircle[];
-  allMemberLogins: ReadonlySet<string>;
-  viewerLogin: string | null;
-  showCircle: boolean;
-  onPerson: (memberId: number) => void;
-  onAcknowledge: () => void;
-  onSnooze: (anchor: DOMRect) => void;
-}) {
-  const { item, match } = need;
-  const member = match.member;
-  const inCircles = circles.filter(circle => circle.members.some(person => person.githubId === member.githubId));
-  const outside = (login: string | null) => login !== null && !allMemberLogins.has(login.toLowerCase())
-    && login.toLowerCase() !== viewerLogin?.toLowerCase();
-  const activity = item.pr?.latestActivity ?? null;
-  const summary = activity === null ? null : attentionSummary(item, viewerLogin);
-  const latestActor = summary?.actor?.name ?? null;
-  const age = needAge(need);
-  return <div role="listitem">
-    <Clickable className="card-row cir-row" label={`${item.title}, ${item.repo} #${item.number}`} onOpen={() => openAttentionItem(item)}>
-      <span className="cir-row__icon"><SourceIcon source={item.type} size={16} tinted /></span>
-      <div className="cir-row__body">
-        <div className="cir-row__title"><span title={item.title}>{item.title}</span><span className="card-key">#{item.number}</span></div>
-        <div className="cir-row__meta">
-          <button type="button" className="cir-chip" title="Circle member · open person" onClick={event => { event.stopPropagation(); onPerson(member.githubId); }}>
-            <Avatar login={member.login} avatarUrl={member.avatarUrl} size={18} /><span>{member.login}</span>
-          </button>
-          <span>{needRelation(need)}</span>
-          {showCircle && inCircles.length > 0 && <Pill tone="blue" title={`Your private circles: ${inCircles.map(circle => circle.name).join(', ')}`}>
-            {inCircles[0].name}{inCircles.length > 1 ? ` +${inCircles.length - 1}` : ''}
-          </Pill>}
-          <span className="cir-sep">·</span>
-          <span className="cir-muted">{item.repo}</span>
-          {match.reason === 'review-requester' && outside(item.author) && <>
-            <span className="cir-sep">·</span><span className="cir-muted">PR by {item.author} (not in your circles)</span>
-          </>}
-        </div>
-        {summary !== null && activity !== null && <div className={`cir-row__latest${activity.excerpt ? ' has-comment' : ''}`}>
-          <div className="cir-row__latest-line">
-            <MessageSquare size={12} aria-hidden="true" />
-            <span>Latest: {latestActor === null ? 'an account the source did not identify'
-              : latestActor.toLowerCase() === viewerLogin?.toLowerCase() ? 'you'
-                : `${latestActor}${outside(latestActor) ? ' (not in your circles)' : ''}`} {summary.verb} · {relativeTime(activity.timestamp, { suffix: false })}</span>
-          </div>
-          {/* Hovering the line, or focusing the row, unfolds what the comment says. */}
-          {activity.excerpt && <div className="atn-detail is-whole cir-row__comment">
-            <MarkdownBody body={previewMarkdown(firstWords(activity.excerpt, COMMENT_WORDS))} />
-            {activity.path && <div className="atn-detail__file" title={activity.line == null ? activity.path : `${activity.path}:${activity.line}`}>
-              on {activity.path.slice(activity.path.lastIndexOf('/') + 1)}</div>}
-          </div>}
-        </div>}
-      </div>
-      <CardActions label="Item actions">
-        <IconButton label="Acknowledge" title="Acknowledge — clears it until something new happens" tone="ack" onClick={onAcknowledge}>
-          <Check size={15} strokeWidth={2} aria-hidden="true" />
-        </IconButton>
-        <IconButton label="Snooze" onClick={event => onSnooze(event.currentTarget.getBoundingClientRect())}><Clock3 size={15} aria-hidden="true" /></IconButton>
-        <IconButton label="Open" onClick={() => openAttentionItem(item)}><ArrowUpRight size={14} aria-hidden="true" /></IconButton>
-      </CardActions>
-      <span className="card-age" title={age.title}>{relativeTime(age.at, { suffix: false })}</span>
-    </Clickable>
   </div>;
 }

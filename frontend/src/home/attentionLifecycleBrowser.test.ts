@@ -38,6 +38,6 @@ it('handles attention visits, actions, global pins and timed reminders in Chromi
       }
     `,
   });
-  expect(results).toHaveLength(7);
+  expect(results).toHaveLength(8);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, 30_000);

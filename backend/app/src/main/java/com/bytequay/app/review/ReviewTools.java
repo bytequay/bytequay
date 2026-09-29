@@ -22,6 +22,7 @@ import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.context.ContextBaselineReader;
+import com.bytequay.app.context.ContextBuildTools;
 import com.bytequay.app.context.ContextConflictException;
 import com.bytequay.app.context.ContextHistoryReader;
 import com.bytequay.app.context.ContextNotFoundException;
@@ -490,7 +491,7 @@ public class ReviewTools
                         + "Drafts need user approval before other tasks can use them; existing approved versions remain active. "
                         + "EMPTY/FAILED use empty noteIds and no entry. checkedSourceIds allows up to " + ContextLimits.MAX_SOURCE_READS + " readIds; "
                         + "each entry/claim sourceIds allows up to " + ContextLimits.MAX_SOURCES + " readIds. "
-                        + "entry sources must be checkedSourceIds, and claim sources must belong to the entry. "
+                        + "entry sources must be checkedSourceIds, and claim sources must belong to the entry. " + ContextBuildTools.NOTE_TEXT_GUIDANCE
                         + "Prose limits are UTF-8 bytes: title 200, summary 1000, body " + ContextLimits.MAX_BODY_BYTES + ", each claim 2000; at most 12 claims. "
                         + "Report every admitted scope as READY, EMPTY or FAILED. EMPTY means inspected complete inputs yielded no useful note. "
                         + "JOINED/DEFERRED does not grant write ownership: continue the review or retry later; no background wait or new builder starts. "

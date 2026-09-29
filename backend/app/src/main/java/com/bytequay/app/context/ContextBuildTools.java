@@ -77,6 +77,9 @@ public class ContextBuildTools
     static final String TARGET_GUIDANCE = "The assigned scope defines where saved notes apply; allowed source paths are only reading boundaries. "
             + "Reading another component does not establish the assigned target's behavior. Save only evidence-backed conclusions about the assigned target and question. "
             + "Record out-of-target findings as progress gaps or future questions; do not save them under the assigned scope or start extra learning. ";
+    public static final String NOTE_TEXT_GUIDANCE = "Write titles, summaries, bodies and claims about the code, not this run: omit commit SHAs, baseline names, "
+            + "run numbers and dates; ByteQuay records each source's revision. Cite each claim's supporting lines: after broad reads, re-read just those lines "
+            + "with an explicit startLine/endLine and cite that readId, so later source checks do not flag edits the claim does not depend on. ";
     private static final String UNCONFIRMED_COMPLETION = "Drafts were saved, but question completion was not confirmed. Continue will check this question again.";
     private static final String POLICY = "This is explicit repository learning. Use repository_context_read SELECTION first. "
             + "Before preparation BEGIN, inspect TREE at root (path empty, page 0), repository documentation and files, and attempt every registered DOCUMENT. "
@@ -165,7 +168,7 @@ public class ContextBuildTools
                         + "each entry/claim sourceIds allows up to " + ContextLimits.MAX_SOURCES + " readIds. "
                         + "entry sources must be checkedSourceIds, and claim sources must belong to the entry. "
                         + "Claim basis: DOCUMENTED cites documentation, OBSERVED cites code read at the baseline, RECORDED_DECISION cites a merged decision; "
-                        + "INFERENCE and QUESTION mark what the sources do not establish. "
+                        + "INFERENCE and QUESTION mark what the sources do not establish. " + NOTE_TEXT_GUIDANCE
                         + "Prose limits are UTF-8 bytes: title 200, summary 1000, body " + ContextLimits.MAX_BODY_BYTES + ", each claim 2000; at most 12 claims. "
                         + "Use the scope list returned in attempt.scopes; never overwrite protected content. JOINED or DEFERRED finishes with gaps, without another task.",
                         prepareSchema(), arguments -> call(task.id().toString(), turn, arguments, true)),

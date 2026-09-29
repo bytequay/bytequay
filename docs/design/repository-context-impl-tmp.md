@@ -3,7 +3,7 @@
 ## Check note sources at read
 
 The [source check at read](repository-context-refactor.md#source-check-at-read)
-is implemented.
+and the note-text rule are implemented.
 
 - [x] Compare an exact read's repository-file sources with the reader's commit:
   the development task's committed HEAD, the review's frozen head or the
@@ -16,7 +16,10 @@ is implemented.
   exact retries.
 - [x] Keep list and search unchecked. Report a failed check as a limitation
   without failing the read.
-- [x] Tell readers to re-read changed sources and trust current code.
+- [x] Tell drafting agents to keep commit SHAs, baseline names, run numbers and
+  dates out of note text, and to cite each claim's supporting lines by re-reading
+  them with an explicit range. Tell readers to re-read changed sources and trust
+  current code.
 - [x] Verify unchanged, moved, changed, deleted, truncated, non-repository and
   failed checks, and unrelated edits in a cited file, in the development, review
   and learning reads. Also verify exact retries and the backend build gate.

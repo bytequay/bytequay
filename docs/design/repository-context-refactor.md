@@ -22,6 +22,15 @@ An area can have several focused notes. An area/path is an association for
 finding candidates, not proof that every note applies to every change there.
 Notes retain stable identity, kind, title, summary, body, source references,
 applicable area/path associations, origin, enabled state, and version.
+Source references record each file's commit and blob. Titles, summaries, bodies
+and claims describe the code, not the run that produced them: they omit commit
+SHAs, baseline names, run numbers and dates unless the subject is itself a
+specific version, so a note does not read as dated when the branch moves.
+Existing note text is not rewritten; users can edit it. Each claim cites the
+lines that support it: after exploring with broad reads, the agent re-reads the
+supporting lines with an explicit range and cites that read, so the
+[source check at read](#source-check-at-read) does not flag edits the claim
+does not depend on.
 
 Agent-generated new notes and updates are drafts. Pending drafts are separate
 from active entries and excluded from ordinary agent lookup. An update retains

@@ -30,10 +30,9 @@
 .jira-header__updated { white-space: nowrap; }
 
 /* Buttons: bordered with a label, borderless with only an icon. */
-.jira-btn { display: inline-flex; flex: none; align-items: center; justify-content: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid #d0d7de; border-radius: 6px; box-sizing: border-box; background: #ffffff; color: var(--text-1); font: inherit; font-size: 12.5px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.jira-btn { display: inline-flex; flex: none; align-items: center; justify-content: center; gap: 6px; height: 28px; padding: 0 10px; border: 1px solid #d0d7de; border-radius: 6px; box-sizing: border-box; background: #ffffff; color: var(--text-1); font: inherit; font-size: 12.5px; font-weight: 400; white-space: nowrap; cursor: pointer; }
 .jira-btn:hover:not(:disabled) { background: #f6f8fa; }
 .jira-btn:disabled { border-color: #e3e3e6; background: #f6f8fa; color: #8c959f; cursor: default; }
-.jira-btn.is-plain { font-weight: 400; }
 .jira-btn.is-primary:not(:disabled) { border-color: rgba(31, 35, 40, 0.15); background: #1f883d; color: #ffffff; }
 .jira-btn.is-primary:hover:not(:disabled) { background: #1a7f37; }
 .jira-btn.is-link { color: #0969da; }
@@ -186,7 +185,7 @@
 .jira-detail h2 { max-width: 960px; margin: 0; font-size: 20px; font-weight: 600; line-height: 1.3; letter-spacing: -0.2px; overflow-wrap: anywhere; text-wrap: pretty; }
 .jira-detail__bar { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .jira-detail__updated { min-width: 0; overflow: hidden; font-size: 12.5px; white-space: nowrap; text-overflow: ellipsis; }
-.jira-status-button { display: inline-flex; flex: none; align-items: center; gap: 5px; height: 26px; padding: 0 8px 0 9px; border: 1px solid #d0d7de; border-radius: 6px; box-sizing: border-box; background: #eff1f3; color: #57606a; font: inherit; font-size: 12.5px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.jira-status-button { display: inline-flex; flex: none; align-items: center; gap: 5px; height: 26px; padding: 0 8px 0 9px; border: 1px solid #d0d7de; border-radius: 6px; box-sizing: border-box; background: #eff1f3; color: #57606a; font: inherit; font-size: 12.5px; font-weight: 400; white-space: nowrap; cursor: pointer; }
 .jira-status-button.is-indeterminate { border-color: #b6e3ff; background: #ddf4ff; color: #0969da; }
 .jira-status-button.is-done { border-color: #aceebb; background: #dafbe1; color: #1a7f37; }
 .jira-status-button:disabled { cursor: default; }
@@ -207,7 +206,7 @@
 .jira-detail .markdown-body :is(h1, h2, h3, h4, h5, h6) { display: block; margin: 20px 0 8px; padding: 0; border: 0; font-weight: 600; line-height: 1.3; letter-spacing: normal; }
 .jira-detail .markdown-body :is(h1, h2) { font-size: 20px; }
 .jira-detail .markdown-body h3 { font-size: 16px; }
-.jira-detail .markdown-body :is(h1, h2, h3, h4, h5, h6) strong { font-weight: inherit; }
+.jira-detail .markdown-body strong { font-weight: inherit; }
 .jira-detail .markdown-body > :first-child { margin-top: 0; }
 .jira-detail .markdown-body > :last-child { margin-bottom: 0; }
 .jira-field { box-sizing: border-box; min-width: 0; height: 28px; padding: 0 8px; border: 1px solid #d0d7de; border-radius: 6px; background: #ffffff; color: var(--text-1); font: inherit; font-size: 13px; }
@@ -243,10 +242,11 @@ textarea.jira-field { width: 100%; height: auto; padding: 6px 8px; line-height: 
 
 /* Comments: the composer, then threads with replies on a rail under their root's text. */
 .jira-comments h3 { display: flex; align-items: center; }
-.jira-composer { display: flex; align-items: flex-end; gap: 10px; padding: 8px 8px 8px 12px; border: 1px solid #d0d7de; border-radius: 8px; }
+/* The box resizes, not the textarea, so the grip sits in its corner beside Send. */
+.jira-composer { display: flex; align-items: flex-end; gap: 10px; box-sizing: border-box; min-height: 122px; padding: 8px 8px 8px 12px; border: 1px solid #d0d7de; border-radius: 8px; overflow: hidden; resize: vertical; }
 .jira-composer:focus-within { border-color: #0969da; box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.15); }
-.jira-composer textarea { flex: 1; min-width: 0; min-height: 104px; padding: 2px 0; border: 0; outline: none; background: transparent; color: var(--text-1); font: inherit; font-size: 13px; line-height: 1.5; resize: vertical; }
-.jira-composer .jira-btn { height: 26px; }
+.jira-composer textarea { flex: 1; align-self: stretch; min-width: 0; padding: 2px 0; border: 0; outline: none; background: transparent; color: var(--text-1); font: inherit; font-size: 13px; line-height: 1.5; resize: none; }
+.jira-composer .jira-btn { height: 26px; margin-right: 10px; }
 .jira-kbd { flex: none; padding-bottom: 5px; color: #8c959f; font-size: 11.5px; }
 .jira-threads { display: flex; flex-direction: column; gap: 18px; margin-top: 18px; }
 .jira-comments > .jira-notice, .jira-comments > .jira-muted { margin: 18px 0 0; }

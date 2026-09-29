@@ -521,8 +521,8 @@ function JiraWorkItems({ detail, location, busy, mutate }: { detail: JiraIssueDe
         <div className="jira-work__fields">
           {childTypes !== null && childTypes.length > 1 && <select className="jira-field" aria-label="Work type" value={typeId} disabled={busy} onChange={event => setTypeId(event.target.value)}>{childTypes.map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select>}
           <input className="jira-field" aria-label={`New ${noun}`} placeholder={`${epic ? 'Child work item' : 'Subtask'} summary`} maxLength={255} autoFocus value={summary} onChange={event => setSummary(event.target.value)} />
-          <button type="submit" className="jira-btn is-primary is-plain" disabled={busy || !typeId || !summary.trim()}>Create</button>
-          <button type="button" className="jira-btn is-plain" disabled={busy} onClick={() => setForm(null)}>Cancel</button>
+          <button type="submit" className="jira-btn is-primary" disabled={busy || !typeId || !summary.trim()}>Create</button>
+          <button type="button" className="jira-btn" disabled={busy} onClick={() => setForm(null)}>Cancel</button>
         </div>
         <p className={`jira-work__hint${loadError ? ' is-error' : ''}`}>{childNote ?? `Creates a ${typeName} under ${issue.key} in Jira. ↵ to create · Esc to cancel`}</p>
       </form>}
@@ -538,8 +538,8 @@ function JiraWorkItems({ detail, location, busy, mutate }: { detail: JiraIssueDe
           <select className="jira-field" aria-label="Link relationship" value={relation} disabled={busy || linkTypes === null} onChange={event => setRelation(event.target.value)}>
             <option value="" disabled>{linkTypes === null ? 'Loading…' : 'Relationship…'}</option>{relations.map(value => <option key={value.value} value={value.value}>{value.label}</option>)}</select>
           <input className="jira-field" aria-label="Work item to link" placeholder="ENG-1234 or ticket link" autoFocus value={key} onChange={event => setKey(event.target.value)} />
-          <button type="submit" className="jira-btn is-primary is-plain" disabled={busy || !relation || target === null || linkError !== null}>Link</button>
-          <button type="button" className="jira-btn is-plain" disabled={busy} onClick={() => setForm(null)}>Cancel</button>
+          <button type="submit" className="jira-btn is-primary" disabled={busy || !relation || target === null || linkError !== null}>Link</button>
+          <button type="button" className="jira-btn" disabled={busy} onClick={() => setForm(null)}>Cancel</button>
         </div>
         {relationLabel && target !== null && linkError === null && <div className="jira-work__preview"><span className="jira-work__key">{issue.key}</span><span>{relationLabel}</span><span className="jira-work__key">{target}</span><span className="jira-muted">Will be checked in Jira</span></div>}
         <p className={`jira-work__hint${linkNote ? ' is-error' : ''}`}>{linkNote ?? 'Relationships come from Jira. ↵ to link · Esc to cancel'}</p>
@@ -666,7 +666,7 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
     {commentEdit?.id === value.id
       ? <form className="jira-comment-edit" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); setCommentEdit(null); } }} onSubmit={event => { event.preventDefault(); const body = commentEdit.body.trim(); if (body) void mutate(() => window.bridge.editJiraComment(location, value.id, body, commentEdit.updated), () => setCommentEdit(null)); }}>
         <textarea className="jira-field" aria-label="Edit comment" rows={4} autoFocus value={commentEdit.body} onChange={event => setCommentEdit({ ...commentEdit, body: event.target.value })} onKeyDown={submitOnCommandEnter} />
-        <div className="jira-form-actions"><button type="button" className="jira-btn is-plain" disabled={busy} onClick={() => setCommentEdit(null)}>Cancel</button><button type="submit" className="jira-btn is-primary is-plain" disabled={busy || !commentEdit.body.trim()}>Save</button></div>
+        <div className="jira-form-actions"><button type="button" className="jira-btn" disabled={busy} onClick={() => setCommentEdit(null)}>Cancel</button><button type="submit" className="jira-btn is-primary" disabled={busy || !commentEdit.body.trim()}>Save</button></div>
       </form>
       : <><MarkdownBody body={value.body} /><div className="jira-comment__actions">
         <button type="button" className="bq-iconbtn" aria-label={`Reply to ${value.author.displayName}`} title="Reply" onClick={() => setReply(current => ({ threadId, parentId, to: value.author.displayName, body: current?.threadId === threadId ? current.body : '' }))}><Reply size={14} /></button>
@@ -696,8 +696,8 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
                 <div className="jira-menu__title">{transition.name}</div>
                 {transition.fields.some(value => value.required && !supportedTransitionField(value)) && <p className="jira-notice">This transition requires fields that must be completed in Jira. <button type="button" className="jira-link" onClick={() => { void window.bridge.openInAppBrowser(issue.url); }}>Open in Jira</button></p>}
                 {transition.fields.filter(supportedTransitionField).map(value => <TransitionField key={value.id} field={value} value={transitionFields[value.id] ?? ''} onChange={text => setTransitionFields(current => ({ ...current, [value.id]: text }))} />)}
-                <div className="jira-form-actions"><button type="button" className="jira-btn is-plain" onClick={() => { setTransitionId(''); setTransitionFields({}); }}>Back</button>
-                  <button type="submit" className="jira-btn is-primary is-plain" disabled={busy || transition.fields.some(value => value.required && (!supportedTransitionField(value) || !transitionFields[value.id]))}>{transition.name}</button></div>
+                <div className="jira-form-actions"><button type="button" className="jira-btn" onClick={() => { setTransitionId(''); setTransitionFields({}); }}>Back</button>
+                  <button type="submit" className="jira-btn is-primary" disabled={busy || transition.fields.some(value => value.required && (!supportedTransitionField(value) || !transitionFields[value.id]))}>{transition.name}</button></div>
               </form>
               : <><div className="jira-menu__title">Transitions</div>{detail.transitions.map(value => <MenuItem key={value.id} onPick={() => chooseTransition(value)}><StatusPill status={value.to} />{value.name !== value.to.name && <span className="jira-muted">{value.name}</span>}</MenuItem>)}</>}
             </Popover>}
@@ -732,7 +732,7 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
                 {replying && <form className="jira-reply-form" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); setReply(null); } }} onSubmit={event => { event.preventDefault(); const body = replying.body.trim(); if (!body) return; if (replyRequest.current?.body !== body || replyRequest.current.parentId !== replying.parentId) replyRequest.current = { body, parentId: replying.parentId, id: crypto.randomUUID() }; const request = replyRequest.current; void mutate(() => window.bridge.commentJiraIssue(location, request.body, request.id, request.parentId), () => { setReply(null); replyRequest.current = null; }, 'comment'); }}>
                   <textarea aria-label={`Reply to ${replying.to}`} rows={3} autoFocus placeholder={`Reply to ${replying.to}…`} value={replying.body} onChange={event => setReply({ ...replying, body: event.target.value })} onKeyDown={submitOnCommandEnter} />
                   <div className="jira-reply-form__foot"><span className="jira-muted">Replying in this thread · ⌘↵ to send · Esc to cancel</span><span className="jira-spacer" />
-                    <button type="button" className="jira-btn is-plain" disabled={busy} onClick={() => setReply(null)}>Cancel</button><button type="submit" className="jira-btn is-primary is-plain" disabled={busy || !replying.body.trim()}>Reply</button></div>
+                    <button type="button" className="jira-btn" disabled={busy} onClick={() => setReply(null)}>Cancel</button><button type="submit" className="jira-btn is-primary" disabled={busy || !replying.body.trim()}>Reply</button></div>
                 </form>}
               </div>}
             </div>;
@@ -845,7 +845,7 @@ function JiraFieldEditor({ detail, busy, onCancel, onSave }: { detail: JiraIssue
       <div className="jira-priority-grid" role="group" aria-label="Priority">{detail.editableFields.find(value => value.id === 'priority')?.allowedValues.map(value =>
         <button type="button" key={value.id} className={`jira-priority-option is-${jiraPriorityLevel(value.name)}`} aria-pressed={priority === value.id} onClick={() => setPriority(value.id)}><JiraPriority priority={value} detailed /></button>)}</div></div>}
     {editable('duedate') && <div className="jira-edit__field"><span className="jira-edit__label">Due date{dot(changed.duedate)}</span>
-      <div className="jira-edit__row"><input className="jira-field" type="date" aria-label="Due date" value={dueDate} onChange={event => setDueDate(event.target.value)} />{dueDate && <button type="button" className="jira-btn is-plain" title="Clear due date" onClick={() => setDueDate('')}>Clear</button>}</div></div>}
+      <div className="jira-edit__row"><input className="jira-field" type="date" aria-label="Due date" value={dueDate} onChange={event => setDueDate(event.target.value)} />{dueDate && <button type="button" className="jira-btn" title="Clear due date" onClick={() => setDueDate('')}>Clear</button>}</div></div>}
     {editable('labels') && <div className="jira-edit__field"><span className="jira-edit__label">Labels{dot(changed.labels)}</span>
       <div className="jira-labels-input">{labels.map(value => <span className="jira-label-chip" key={value}>{value}<button type="button" aria-label={`Remove ${value}`} title="Remove" onClick={() => setLabels(labels.filter(item => item !== value))}><X size={10} strokeWidth={2.6} /></button></span>)}
         <input aria-label="Labels" placeholder="Add label…" value={label} onChange={event => setLabel(event.target.value)} onKeyDown={event => {
@@ -855,7 +855,7 @@ function JiraFieldEditor({ detail, busy, onCancel, onSave }: { detail: JiraIssue
       <p className="jira-edit__hint">↵ to add · no spaces in Jira labels</p></div>}
     <p className="jira-edit__note">Only changed fields are sent. If someone changed this ticket in Jira since you opened it, you’ll be asked to refresh first. Other fields: <button type="button" className="jira-link" onClick={() => { void window.bridge.openInAppBrowser(issue.url); }}>Open in Jira</button></p>
     <div className="jira-edit__foot"><span className="jira-edit__count">{busy ? 'Saving…' : count > 0 ? `${count} field${count === 1 ? '' : 's'} changed` : 'No changes'}</span><span className="jira-spacer" />
-      <button type="button" className="jira-btn is-plain" disabled={busy} onClick={onCancel}>Cancel</button><button type="button" className="jira-btn is-primary is-plain" disabled={!canSave} onClick={save}>Save</button></div>
+      <button type="button" className="jira-btn" disabled={busy} onClick={onCancel}>Cancel</button><button type="button" className="jira-btn is-primary" disabled={!canSave} onClick={save}>Save</button></div>
   </section>;
 }
 

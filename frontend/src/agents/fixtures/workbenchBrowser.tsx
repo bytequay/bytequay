@@ -26,7 +26,7 @@ import { initialAgentTaskState } from '../model';
 import { createPreviewBridge, previewTask, TASK_BODY_NOOPS } from './previewBridge';
 import type { TaskDiscussionDto } from '../discussions/contracts';
 import type { AgentTaskDto, Bridge, PullRequestDto } from '../../types';
-import type { CodeHostRef, WorktreeChangesRequest } from '../../pulls/code-tests/contracts';
+import type { CodeHostRef, WorktreeChangesDto, WorktreeChangesRequest } from '../../pulls/code-tests/contracts';
 import { assert, settle } from '../../fixtures/harness';
 import '../../css/base.css';
 
@@ -78,7 +78,7 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
       localReview={localReview} bridge={window.bridge} review={review} />;
   };
   const Harness = () => {
-    const [tab, setTab] = useState<'pr' | 'files' | 'changes' | 'review' | 'code' | 'agents' | 'discussions'>('review');
+    const [tab, setTab] = useState<'pr' | 'files' | 'changes' | 'review' | 'code' | 'agents' | 'discussions'>('pr');
     const [linked, setLinked] = useState(false);
     linkPullRequest = () => setLinked(true);
     return <AgentTaskBody {...TASK_BODY_NOOPS} models={[]} state={{ ...initialAgentTaskState(), task, connection: 'open' }}
@@ -98,6 +98,11 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
     flushSync(() => root.render(<Harness />));
     await settle();
     assert(host.querySelector('[aria-label="Task destinations"]')?.querySelectorAll('button').length === 2, 'Only PR and WorkBench are top-level until the conversation opens a utility tab');
+    click('WorkBench'); await settle();
+    const firstView = host.querySelector('[aria-label="WorkBench views"] button');
+    assert(firstView?.textContent?.trim() === 'Changes' && firstView.getAttribute('aria-pressed') === 'true',
+      'Opening WorkBench without a PR must select its leftmost Changes tab');
+    click('Summary'); await settle();
     assert(host.textContent?.includes('Review changes') === true, 'Local tasks must offer a separate reviewer before creating a PR');
     const summary = host.querySelector('.agr-development-learning');
     click('Changes'); await settle();
@@ -199,7 +204,11 @@ export async function utilityTabs(): Promise<string> {
   bridge.getAgentTurn = async turnId => ({ ...await getTurn(turnId), id: turnId });
   bridge.listTaskDiscussions = async () => [discussion];
   const originalBridge = window.bridge;
-  Object.defineProperty(window, 'bridge', { configurable: true, value: { ...bridge, findTaskAgentReview: async (): Promise<null> => null } });
+  Object.defineProperty(window, 'bridge', { configurable: true, value: { ...bridge, findTaskAgentReview: async (): Promise<null> => null,
+    readWorktreeChanges: async (): Promise<WorktreeChangesDto> => ({ scope: 'ALL', selectedCommit: null, sourceFingerprint: 'working-copy',
+      baseSha: 'base', headSha: 'head', baseLabel: 'main', branch: 'feature', truncated: false,
+      commits: [], staged: [], unstaged: [], untracked: [], files: [] }),
+  } });
   const host = document.createElement('div');
   host.style.cssText = 'width:1400px;height:850px';
   document.body.append(host);
@@ -222,15 +231,15 @@ export async function utilityTabs(): Promise<string> {
     assert(host.querySelector('.attention-visit-status')?.textContent === 'Viewed', 'A successfully opened task must show Viewed');
     assert(loadHandled()[attentionKey] === undefined, 'The task must stay in attention while its detail remains open');
     host.querySelector<HTMLButtonElement>('[aria-label="Show or hide the side panel"]')?.click(); await settle();
-    assert(panel() === 'Summary' && !tab(), 'The panel must not show a Discussions tab the conversation never opened');
+    assert(panel() === 'Changes' && !tab(), 'The panel must default to Changes without showing an unopened Discussions tab');
     (await footer()).click(); await settle();
     assert(panel() === 'Discussions' && tab(), 'A discussion footer must open its tab');
     assert(host.querySelector('[aria-label="WorkBench views"]') === null, 'A top-level utility tab must not keep showing the WorkBench views');
     [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'WorkBench')?.click(); await settle();
-    assert(panel() === 'Summary' && tab(), 'An opened tab must stay while another view shows');
+    assert(panel() === 'Changes' && tab(), 'An opened tab must stay while another view shows');
     (await footer()).click(); await settle();
     host.querySelector<HTMLButtonElement>('[aria-label="Close Discussions"]')?.click(); await settle();
-    assert(panel() === 'Summary' && !tab(), 'Closing the showing tab must remove it and return to the view it covered');
+    assert(panel() === 'Changes' && !tab(), 'Closing the showing tab must remove it and return to the view it covered');
     (await footer()).click(); await settle();
     assert(panel() === 'Discussions' && tab(), 'The footer must reopen a closed tab');
     assert(loadHandled()[attentionKey] === undefined, 'Switching task utility tabs must not consume its notification');

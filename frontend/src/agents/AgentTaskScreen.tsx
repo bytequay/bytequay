@@ -1657,10 +1657,10 @@ export default function AgentTaskScreen({
   };
   const [ciPollingError, setCiPollingError] = useState<string | null>(null);
   const [openAgent, setOpenAgent] = useState<string | null>(null);
-  const [panelTab, setPanelTab] = useState<PanelTab>('review');
+  const [panelTab, setPanelTab] = useState<PanelTab>('changes');
   const [utilityTabs, setUtilityTabs] = useState<UtilityTab[]>([]);
   // The view a Subagents or Discussions tab covers, shown again when that tab closes.
-  const coveredTab = useRef<PanelTab>('review');
+  const coveredTab = useRef<PanelTab>('changes');
   if (panelTab !== 'agents' && panelTab !== 'discussions') coveredTab.current = panelTab;
   const openUtility = (tab: UtilityTab): void => {
     setUtilityTabs(open => (open.includes(tab) ? open : [...open, tab]));

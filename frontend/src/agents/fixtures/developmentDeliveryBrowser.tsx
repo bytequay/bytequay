@@ -244,6 +244,8 @@ export async function runDevelopmentDeliveryScenarios(): Promise<{ name: string;
   Object.defineProperty(window, 'bridge', { configurable: true, value: {
     fetchPullRequestDetailByRef: async (): Promise<PullRequestDetailDto> => detail,
     refreshPullRequestDetailByRef: async (): Promise<PullRequestDetailRefreshDto> => ({ full: true, detail, status: null }),
+    fetchPrDiffFiles: async () => [],
+    fetchPrDiffCommits: async () => [],
     getUserProfile: async (): Promise<null> => null,
     fetchRepoUsers: async (): Promise<RepoUserDto[]> => [],
     fetchRepoLabels: async (): Promise<RepoLabelDto[]> => [],

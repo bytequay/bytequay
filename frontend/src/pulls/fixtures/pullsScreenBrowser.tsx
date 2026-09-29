@@ -105,8 +105,9 @@ export async function runMainScreen(keepMounted = false): Promise<string> {
       && loadHandled()['owner/repo#7'] === undefined,
     'A loaded PR must omit the visit label while its attention notification remains visible');
     button('WorkBench').click(); await settle();
-    button('Changes').click();
-    await settle();
+    const firstView = host.querySelector('[aria-label="WorkBench views"] button');
+    assert(firstView?.textContent?.trim() === 'Changes' && firstView.getAttribute('aria-pressed') === 'true',
+      'Opening WorkBench must select its leftmost Changes tab');
     const choice = host.querySelector<HTMLInputElement>('[aria-label="Select one: one"]');
     assert(choice !== null, 'Main PR page must load its commit picker');
     assert(host.querySelector('[aria-label="Changes source"]') === null,
@@ -256,11 +257,16 @@ export async function runReviewWorkspace(local = false): Promise<string> {
       return detail;
     },
     refreshPullRequestDetailByRef: async () => ({ full: true as const, detail, status: null }),
+    fetchPrDiffFiles: async () => [file('reviewed.txt')],
+    fetchPrDiffCommits: async () => commits,
+    readWorktreeChanges: async (_host, request) => ({ scope: request.scope, selectedCommit: null, sourceFingerprint: 'review',
+      baseSha: 'base', headSha: 'head', baseLabel: 'main', branch: 'feature', truncated: false,
+      commits: [], staged: [], unstaged: [], untracked: [], files: [file('reviewed.txt')] }),
     listLocalReviewComments: async () => [],
     recordRecentTouch: async () => {},
   } satisfies Pick<Bridge, 'getUserProfile' | 'getModelSettings' | 'getAgentTurn' | 'getAgentReview' | 'findAgentReview' | 'findPullRequestTask' | 'getAgentTask' | 'listCodeFiles' | 'listCodeRuns'
     | 'readAgentReviewHistory' | 'fetchAttentionPrs' | 'fetchPrs' | 'fetchPullRequestDetailByRef'
-    | 'refreshPullRequestDetailByRef' | 'listLocalReviewComments' | 'recordRecentTouch'>;
+    | 'refreshPullRequestDetailByRef' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'readWorktreeChanges' | 'listLocalReviewComments' | 'recordRecentTouch'>;
   const originalBridge = window.bridge;
   Object.assign(window, { bridge });
   const host = document.createElement('div');
@@ -276,6 +282,11 @@ export async function runReviewWorkspace(local = false): Promise<string> {
     const pane = host.querySelector<HTMLElement>('.pull-detail');
     assert(conversation?.textContent?.includes('I found one authentication regression.') === true,
       'The left workspace conversation must replay the review agent response');
+    const firstView = pane?.querySelector('[aria-label="WorkBench views"] button');
+    assert(firstView?.textContent?.trim() === 'Changes' && firstView.getAttribute('aria-pressed') === 'true'
+      && pane?.querySelector('.pull-diff-file') !== null && pane?.querySelector('.pull-file-tree') === null,
+    'Review WorkBench must start on leftmost Changes with its file tree closed');
+    [...pane.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Summary')?.click(); await settle();
     assert(pane?.textContent?.includes('Change intention') === true && pane.querySelector('[data-finding-id="finding-1"]') !== null,
       'The right PR pane must show independent learning and finding cards');
     assert(conversation.parentElement === pane.parentElement
@@ -370,10 +381,13 @@ export async function runOpenReviewWorkspaceStream(): Promise<string> {
     fetchAttentionPrs: async () => [],
     fetchPullRequestDetailByRef: async () => detail,
     refreshPullRequestDetailByRef: async () => ({ full: true as const, detail, status: null }),
+    fetchPrDiffFiles: async () => [file('reviewed.txt')],
+    fetchPrDiffCommits: async () => commits,
     listLocalReviewComments: async () => [],
     recordRecentTouch: async () => {},
   } satisfies Pick<Bridge, 'getUserProfile' | 'getModelSettings' | 'getAgentTurn' | 'getAgentReview' | 'readAgentReviewHistory'
-    | 'subscribeAgentReview' | 'fetchAttentionPrs' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'listLocalReviewComments' | 'recordRecentTouch'>;
+    | 'subscribeAgentReview' | 'fetchAttentionPrs' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef'
+    | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'listLocalReviewComments' | 'recordRecentTouch'>;
   const originalBridge = window.bridge;
   Object.assign(window, { bridge });
   const host = document.createElement('div');
@@ -387,6 +401,7 @@ export async function runOpenReviewWorkspaceStream(): Promise<string> {
     for (let attempt = 0; attempt < 20 && !(conversation().includes('I found one authentication regression.') && streams.length > 0); attempt++) await settle();
     await settle();
     const pane = host.querySelector<HTMLElement>('.pull-detail');
+    [...pane?.querySelectorAll<HTMLButtonElement>('button') ?? []].find(button => button.textContent?.trim() === 'Summary')?.click(); await settle();
     assert(pane?.textContent?.includes('Change intention') === true, 'The open review must show its learning cards beside the conversation');
     // Leaving and returning to Summary remounts its cards while the conversation stays mounted.
     pane.querySelector<HTMLButtonElement>('.pull-detail__pr-tab')?.click();

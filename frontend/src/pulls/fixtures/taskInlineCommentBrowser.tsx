@@ -211,10 +211,11 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
     const attach = host.querySelector<HTMLButtonElement>('[aria-label="Attach an image"]');
     assert(attach !== null && !attach.disabled, 'Fixture must exercise a retained image attachment');
     attach.click(); await settle();
-    const readsBeforeChanges = localReads;
     if (mode === 'idle') {
-      button(host, 'View changes').click();
+      button(host, 'Summary').click(); await settle();
     }
+    const readsBeforeChanges = localReads;
+    if (mode === 'idle') button(host, 'View changes').click();
     else button(host, 'Changes').click();
     await settle();
     assert(host.querySelector('[aria-label="Changes source"]') === null && localReads === readsBeforeChanges

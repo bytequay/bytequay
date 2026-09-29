@@ -74,7 +74,7 @@ function LocalReviewWorkspace({ review, onReviewChange, onBack, headerAction }: 
   headerAction?: ReactNode;
 }): React.JSX.Element {
   const pane = useTaskPane();
-  const [tab, setTab] = useState<HeaderTab>('review');
+  const [tab, setTab] = useState<HeaderTab>('changes');
   const [changesToolbar, setChangesToolbar] = useState<HTMLElement | null>(null);
   const [codeVisited, setCodeVisited] = useState(false);
   const [changesVisited, setChangesVisited] = useState(false);

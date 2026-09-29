@@ -355,7 +355,7 @@ export default function PullsScreen({
   const [reviewCardFocus, setReviewCardFocus] = useState<ReviewCardFocus | null>(null);
   const [tab, setTab] = useState<PullTab>(PULL_TABS[0].key);
   const [selected, setSelected] = useState<number | null>(null);
-  const [detailTab, setDetailTab] = useState<DetailTab>(initialReviewId === undefined ? 'overview' : 'review');
+  const [detailTab, setDetailTab] = useState<DetailTab>(initialReviewId === undefined ? 'overview' : 'files');
   // Code & Tests stays mounted after its first visit so drafts, open files and runs survive tab switches.
   const [codeTabKey, setCodeTabKey] = useState<string | null>(null);
   const [summaryTabKey, setSummaryTabKey] = useState<string | null>(null);
@@ -1331,7 +1331,7 @@ export function PullDetailHeader({
   const prSelected = tab === 'overview';
   const workbenchSelected = tab !== null && !prSelected;
   const changesSelected = tab === 'files' || tab === 'changes';
-  const lastWorkbenchTab = useRef<HeaderTab>('review');
+  const lastWorkbenchTab = useRef<HeaderTab | null>(null);
   if (workbenchSelected) lastWorkbenchTab.current = tab;
   const draft = detail?.draft === true;
   const canOpenMerge = pr !== null && detail?.state?.toLowerCase() === 'open';
@@ -1378,7 +1378,7 @@ export function PullDetailHeader({
             <PullRequestIcon merged={iconState === 'merged'} /> PR{pr === null ? '' : ` #${pr.number}`}
           </button>
           <button className={workbenchSelected ? 'is-active' : ''} type="button" aria-pressed={workbenchSelected}
-            onClick={() => onTab(lastWorkbenchTab.current)}>
+            onClick={() => onTab(lastWorkbenchTab.current ?? (pr === null ? 'changes' : 'files'))}>
             <Code size={14} strokeWidth={1.8} aria-hidden="true" /> WorkBench
             {reviewChip?.chip != null && <span className={`pull-detail__review-chip is-${reviewChip.tone}`}>
               {reviewChip.busy && <span className="agr-spinner" aria-hidden="true" />}{reviewChip.chip}
@@ -1434,9 +1434,9 @@ export function PullDetailHeader({
       </div>
       {workbenchSelected && <div className="pull-detail__subtoolbar">
         <nav className="pull-detail__tabs pull-detail__subtabs" aria-label="WorkBench views">
-          <button type="button" className={tab === 'review' ? 'is-active' : ''} aria-pressed={tab === 'review'} onClick={() => onTab('review')}><CommentIcon /> Summary</button>
           <button type="button" className={changesSelected ? 'is-active' : ''} aria-pressed={changesSelected}
             onClick={() => onTab(pr !== null ? 'files' : 'changes')}><Diff size={14} aria-hidden="true" /> Changes</button>
+          <button type="button" className={tab === 'review' ? 'is-active' : ''} aria-pressed={tab === 'review'} onClick={() => onTab('review')}><CommentIcon /> Summary</button>
           <button type="button" className={tab === 'code' ? 'is-active' : ''} aria-pressed={tab === 'code'} onClick={() => onTab('code')} disabled={!codeAvailable}
             title={codeAvailable ? undefined : 'Available when this task has a worktree'}><Code size={14} aria-hidden="true" /> Code &amp; Tests</button>
         </nav>

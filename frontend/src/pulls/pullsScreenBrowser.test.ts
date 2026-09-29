@@ -21,3 +21,12 @@ it('acknowledges a viewed PR when leaving zoom without closing the regular detai
   });
   expect(result).toContain('Main PR page');
 }, 30_000);
+
+it('opens Changes in local and linked review workspaces while keeping Summary independent', async () => {
+  const results = await runBrowserFixture<string[]>({
+    prefix: 'bytequay-review-workbench-', entry: 'src/pulls/fixtures/pullsScreenBrowser.tsx', global: 'PullAttentionTests', styles: true,
+    width: 1450, height: 950,
+    body: `const results = await window.webContents.executeJavaScript('(async () => [await PullAttentionTests.runReviewWorkspace(), await PullAttentionTests.runReviewWorkspace(true), await PullAttentionTests.runOpenReviewWorkspaceStream()])()');`,
+  });
+  expect(results).toHaveLength(3);
+}, 30_000);

@@ -160,6 +160,7 @@ export async function run(): Promise<string[]> {
     assert(request('turn-reply').textContent?.includes('Reply to review') === true, 'Repeated discussion input must retain its reply label');
     results.push('Actual review workspace replays compact green cards and preserves ordinary input');
 
+    button(pane, 'Summary').click(); await settle();
     const intention = pane.querySelector<HTMLElement>(`[data-review-card="${current.id}:purpose"]`);
     const rows = [...pane.querySelectorAll<HTMLElement>('.agr-event:has(.agr-commit__title)')];
     const commitCards = current.commits.map(commit => pane.querySelector<HTMLElement>(`[data-review-card="${current.id}:commit:${commit.sha}"]`));

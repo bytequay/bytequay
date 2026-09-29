@@ -599,9 +599,9 @@ inventory still traverses children and grandchildren without display metadata.
 Such an inventory-only child does not manufacture cards or a V2 path, including
 saved children of resumed turns.
 
-The panel opens on the task's pull request and uses the main PR page's toolbar,
+The panel opens on Changes and uses the main PR page's toolbar,
 content spacing, and actions. **PR** and **WorkBench** are the primary destinations. WorkBench contains
-**Summary**, **Changes**, and **Code & Tests** for development and review tasks.
+**Changes**, **Summary**, and **Code & Tests** for development and review tasks.
 Development tasks also expose the learning tab before a PR exists. After a
 successful turn changes code or commits, a dedicated **Refine summary** turn
 updates the change intention and each commit’s design and implementation.
@@ -892,7 +892,7 @@ result, and **Failed** when it could not finish. It is titled by its pull
 request's number and stored title, or by repository and number before ByteQuay
 has stored the pull request, and it sits in the day of its latest activity.
 Selecting a review opens that exact review in the existing PR detail
-overlay's **Summary** tab; closing the overlay returns to the
+overlay's **Changes** tab; closing the overlay returns to the
 list. A review also has a **View inside workspace** icon. It opens the
 exact review at `tasks/review/{reviewId}`, so reload and back/forward retain
 the selected review. The workspace shows the existing review conversation on

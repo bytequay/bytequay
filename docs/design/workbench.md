@@ -8,9 +8,10 @@ execution engine, task lifecycle, or worktree owner.
 
 The task and pull-request side panels have two primary destinations: **PR** and
 **WorkBench**. PR shows the overview with the existing
-GitHub checks, publication, and merge actions. WorkBench contains **Summary**,
-**Changes**, and **Code & Tests**. In a task panel, Discussions and Subagents
-join PR and WorkBench as top-level tabs only once the conversation opens them:
+GitHub checks, publication, and merge actions. WorkBench contains **Changes**,
+**Summary**, and **Code & Tests**, in that order. Changes is the initial view;
+returning to WorkBench preserves the last selected view. In a task panel,
+Discussions and Subagents join PR and WorkBench as top-level tabs only once the conversation opens them:
 a subagent chip, a discussion footer or passage mark, or a newly asked
 discussion. While one shows, WorkBench's views are hidden. Each closes with its
 ×, which returns to the view it covered, and the conversation reopens it.
@@ -48,7 +49,7 @@ linked, Changes uses only its published comparison and commit history.
 Selecting a commit displays its changed files without checking it out.
 
 The file-list toggle and Collapse all start a dedicated toolbar row below the
-Summary, Changes, and Code & Tests tabs, followed by the commit selector and
+Changes, Summary, and Code & Tests tabs, followed by the commit selector and
 diff totals. Local-only comparisons also show folded revision details in this
 row. The changed-file sidebar defaults open in zoom/fullscreen and closed in
 the side panel; an explicit user toggle is retained for that mode.

@@ -34,7 +34,8 @@ public record PrActivitySummary(
         Optional<String> path,
         OptionalInt line)
 {
-    private static final int EXCERPT_LENGTH = 280;
+    // About a hundred words, which a circle row shows when its latest comment is expanded; cards clamp to three lines.
+    private static final int EXCERPT_LENGTH = 800;
 
     public PrActivitySummary
     {

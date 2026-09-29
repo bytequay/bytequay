@@ -72,7 +72,8 @@ function statistics(person: TeamMember): TeamStatistics {
 
 const alicePr = (patch: Partial<PullRequestDto> = {}) => pr({ id: 9001, repo: 'trinodb/trino', number: 24830, title: 'Add dynamic filtering for Iceberg MERGE',
   author: 'alice', origin: 'REVIEW_REQUESTED', requestedReviewers: ['viewer'], reviewRequestedAt: ago(50), updatedAt: ago(3),
-  latestActivity: { event: 'commented', actor: 'mallory', timestamp: ago(3), label: null, state: null, requestedReviewer: null }, ...patch });
+  latestActivity: { event: 'commented', actor: 'mallory', timestamp: ago(3), label: null, state: null, requestedReviewer: null,
+    excerpt: `**Walkthrough** ${Array.from({ length: 130 }, (_, index) => `word${index}`).join(' ')}` }, ...patch });
 
 function button(label: string, host: ParentNode = document): HTMLButtonElement {
   const found = [...host.querySelectorAll<HTMLButtonElement>('button, [role="button"]')]
@@ -361,6 +362,10 @@ async function needsYou() {
   assert(rows.length === 1 && rows[0].textContent?.includes('alice') === true && rows[0].textContent.includes('authored'),
     'Needs you must list a member’s review request and leave others out');
   assert(rows[0].textContent.includes('Latest: mallory (not in your circles) commented'), 'The latest actor must be labeled apart from the member');
+  const comment = rows[0].querySelector('.cir-row__comment');
+  assert(comment !== null && getComputedStyle(comment).display === 'none', 'The comment must stay folded until the line is hovered');
+  const words = comment.textContent?.trim().split(/\s+/) ?? [];
+  assert(words.length === 100 && words[99].endsWith('…'), 'The unfolded comment must stop at a hundred words');
   assert(document.querySelector('.bq-page-tabs [aria-selected="true"] .bq-page-tabs__count')?.textContent === '1', 'The tab must count the backlog');
   await click('Acknowledge', rows[0]);
   assert(document.querySelector('.cir-needs') === null && text().includes('Nothing needs you right now'), 'Acknowledging must clear the row');
@@ -448,6 +453,20 @@ export async function run() {
     finally { await dispose(); }
   }
   return results;
+}
+
+/** A real pointer is moved here by the test's main process, since a script cannot fake :hover. */
+export async function hoverTarget(): Promise<{ x: number; y: number }> {
+  await mount(seededDirectory(), { prs: [alicePr()] });
+  await settled();
+  const line = document.querySelector('.cir-row__latest-line')?.getBoundingClientRect();
+  assert(line !== undefined, 'Missing latest line');
+  return { x: Math.round(line.left + 40), y: Math.round(line.top + line.height / 2) };
+}
+
+export function commentShown(): boolean {
+  const box = document.querySelector('.cir-row__comment');
+  return box !== null && getComputedStyle(box).display !== 'none';
 }
 
 export async function showPreview(view: 'needs' | 'activity' | 'members' | 'insights' | 'person' | 'create' | 'edit' | 'empty' | 'remove' = 'needs') {

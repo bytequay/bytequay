@@ -294,6 +294,12 @@
   line-height: inherit;
 }
 
+/* A quote meant to be read whole, such as a circle row's unfolded comment, is not clamped. */
+.atn-detail.is-whole .markdown-body {
+  display: block;
+  overflow: visible;
+}
+
 .atn-detail .markdown-body :is(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6, .md-code-block, .md-table-scroll, .md-details, .md-alert) {
   margin: 0;
 }

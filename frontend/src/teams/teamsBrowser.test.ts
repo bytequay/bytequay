@@ -26,6 +26,11 @@ it('manages private circles and inspects recorded activity in Chromium', async (
     timeoutMs: 60_000,
     body: `
       const results = await window.webContents.executeJavaScript('TeamsBrowserTests.run()');
+      const hover = await window.webContents.executeJavaScript('TeamsBrowserTests.hoverTarget()');
+      window.webContents.sendInputEvent({ type: 'mouseMove', x: hover.x, y: hover.y });
+      await new Promise(resolve => setTimeout(resolve, 200));
+      const unfolded = await window.webContents.executeJavaScript('TeamsBrowserTests.commentShown()');
+      results.push(unfolded ? { name: 'commentOnHover' } : { name: 'commentOnHover', error: 'Hovering the latest line must unfold the comment' });
       const screenshots = process.env.BYTEQUAY_TEAMS_SCREENSHOTS;
       if (screenshots) {
         const { mkdir, writeFile } = require('node:fs/promises');
@@ -38,10 +43,14 @@ it('manages private circles and inspects recorded activity in Chromium', async (
             await new Promise(resolve => setTimeout(resolve, 150));
             await writeFile(join(screenshots, 'bytequay-circles-' + view + '-' + width + '.png'), (await window.webContents.capturePage()).toPNG());
           }
+          const point = await window.webContents.executeJavaScript('TeamsBrowserTests.hoverTarget()');
+          window.webContents.sendInputEvent({ type: 'mouseMove', x: point.x, y: point.y });
+          await new Promise(resolve => setTimeout(resolve, 200));
+          await writeFile(join(screenshots, 'bytequay-circles-comment-' + width + '.png'), (await window.webContents.capturePage()).toPNG());
         }
       }
     `,
   });
-  expect(results).toHaveLength(12);
+  expect(results).toHaveLength(13);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, 90_000);

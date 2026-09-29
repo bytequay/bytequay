@@ -22,15 +22,21 @@ import {
   type AttentionItem, type Handled, type SnoozeId,
 } from '../home/attention';
 import { usePinnedItems } from '../home/pinned';
+import MarkdownBody from '../pulls/MarkdownBody';
 import { useSnoozedAttention } from '../home/useSnoozedAttention';
 import { remoteErrorMessage } from '../pulls/PullOverview';
+import { previewMarkdown } from '../ReferenceCard';
 import { ago, relativeTime } from '../relativeTime';
 import type { PullRequestDto } from '../types';
 import { ISSUE_DEVELOPMENT_CHANGED } from '../workspaces/issueDevelopment';
+import { firstWords } from './activity';
 import type { CircleNeed } from './priority';
 import type { TeamCircle } from './types';
 
 export type Notify = (text: string, undo?: () => void) => void;
+
+/** How much of the latest comment a row unfolds. */
+const COMMENT_WORDS = 100;
 
 /** Home's attention candidates after its eligibility, handled state, timed reminders and pins; handling here clears Home too. */
 export function useLiveAttention(accountLogin: string | undefined) {
@@ -205,11 +211,19 @@ function NeedRow({ need, circles, allMemberLogins, viewerLogin, showCircle, onPe
             <span className="cir-sep">·</span><span className="cir-muted">PR by {item.author} (not in your circles)</span>
           </>}
         </div>
-        {summary !== null && activity !== null && <div className="cir-row__latest">
-          <MessageSquare size={12} aria-hidden="true" />
-          <span>Latest: {latestActor === null ? 'an account the source did not identify'
-            : latestActor.toLowerCase() === viewerLogin?.toLowerCase() ? 'you'
-              : `${latestActor}${outside(latestActor) ? ' (not in your circles)' : ''}`} {summary.verb} · {relativeTime(activity.timestamp, { suffix: false })}</span>
+        {summary !== null && activity !== null && <div className={`cir-row__latest${activity.excerpt ? ' has-comment' : ''}`}>
+          <div className="cir-row__latest-line">
+            <MessageSquare size={12} aria-hidden="true" />
+            <span>Latest: {latestActor === null ? 'an account the source did not identify'
+              : latestActor.toLowerCase() === viewerLogin?.toLowerCase() ? 'you'
+                : `${latestActor}${outside(latestActor) ? ' (not in your circles)' : ''}`} {summary.verb} · {relativeTime(activity.timestamp, { suffix: false })}</span>
+          </div>
+          {/* Hovering the line, or focusing the row, unfolds what the comment says. */}
+          {activity.excerpt && <div className="atn-detail is-whole cir-row__comment">
+            <MarkdownBody body={previewMarkdown(firstWords(activity.excerpt, COMMENT_WORDS))} />
+            {activity.path && <div className="atn-detail__file" title={activity.line == null ? activity.path : `${activity.path}:${activity.line}`}>
+              on {activity.path.slice(activity.path.lastIndexOf('/') + 1)}</div>}
+          </div>}
         </div>}
       </div>
       <CardActions label="Item actions">

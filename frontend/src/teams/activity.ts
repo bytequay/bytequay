@@ -116,3 +116,16 @@ export function contributionSummary(statistics: TeamStatistics): string {
 export function people(count: number): string {
   return count === 0 ? 'No people yet' : `${count} ${count === 1 ? 'person' : 'people'}`;
 }
+
+/** The text through its first `count` words, marked with an ellipsis when that cuts it short. */
+export function firstWords(text: string, count: number): string {
+  let words = 0;
+  for (const match of text.matchAll(/\S+/g)) {
+    words += 1;
+    if (words === count) {
+      const end = (match.index ?? 0) + match[0].length;
+      return end < text.trimEnd().length ? `${text.slice(0, end)}…` : text;
+    }
+  }
+  return text;
+}

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { activityVerb, actorRole, contributionSummary, groupTeamActivity, membersOf, workByline, workState } from './activity';
+import { activityVerb, actorRole, contributionSummary, firstWords, groupTeamActivity, membersOf, workByline, workState } from './activity';
 import { parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamLogin } from './contracts';
 import type { TeamActivityEvent, TeamActivitySnapshot, TeamDirectory } from './types';
 
@@ -118,5 +118,8 @@ describe('Circle activity wording', () => {
     expect(workState([as({ kind: 'ISSUE_OPENED' })])).toBe('issue');
     expect(contributionSummary({ ...statistics, prsOpened: 2, prsReviewed: 1, issuesOpened: 1 })).toBe('2 opened · 1 reviewed · 1 issue update');
     expect(contributionSummary({ ...statistics, comments: 4 })).toBe('');
+    expect(firstWords('Walkthrough:\n\nAdds  view properties', 3)).toBe('Walkthrough:\n\nAdds  view…');
+    expect(firstWords('Short comment ', 100)).toBe('Short comment ');
+    expect(firstWords('one two three', 3)).toBe('one two three');
   });
 });

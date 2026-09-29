@@ -159,10 +159,10 @@ class TestSqlitePrDetailStore
     @Test
     void quotesTheStartOfALongComment()
     {
-        String body = "x".repeat(400);
+        String body = "x".repeat(1000);
         store.save(prId, detail(new PrTimelineEvent(1L, "commented", "reviewer", NOW, body, Optional.empty())));
 
-        assertThat(store.findLatestActivities(ImmutableSet.of(prId)).get(prId).excerpt()).contains("x".repeat(280) + "…");
+        assertThat(store.findLatestActivities(ImmutableSet.of(prId)).get(prId).excerpt()).contains("x".repeat(800) + "…");
         assertThat(PrActivitySummary.excerpt(" \n ")).isEmpty();
         assertThat(PrActivitySummary.excerpt(null)).isEmpty();
     }

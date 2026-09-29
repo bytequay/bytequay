@@ -53,7 +53,8 @@ requests (including new commits on a PR the viewer reviews) and issues assigned
 to the viewer whose author or review requester is a member in the selected
 scope. Circle repository scope applies. Rows name the member and relationship
 separately from the latest activity actor, who is labeled when outside every
-circle. Other updates stay in Activity.
+circle; hovering that latest activity unfolds its comment, up to a hundred
+words. Other updates stay in Activity.
 
 Both Home views reuse the existing eligibility, acknowledgment, snooze, pin,
 and source-filter flow, and so does Needs you: handling an item in either place

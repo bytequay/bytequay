@@ -899,10 +899,18 @@
 
 .home-repo-tile__stats {
   display: flex;
+  align-items: center;
   gap: 12px;
   margin-top: 7px;
   font-size: 11.5px;
   color: #8c959f;
+}
+
+.home-circle-tile__people {
+  display: inline-flex;
+  align-items: center;
+  /* .cir-avatars overlaps its avatars with a negative right margin. */
+  gap: 10px;
 }
 
 .home-repo-tile__stats b {

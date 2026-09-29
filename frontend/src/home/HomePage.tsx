@@ -28,12 +28,15 @@ import {
   attentionCandidates,
   loadHandled,
   saveHandled,
+  visibleAttention,
   type AttentionItem,
   type Handled,
 } from './attention';
 import ContributionCard from './ContributionCard';
 import { getCached, getCachedFresh, setCached } from '../dataCache';
 import WatchedReposGrid from './WatchedReposGrid';
+import CirclesGrid from './CirclesGrid';
+import { useTeams } from '../teams/useTeams';
 import { relativeTime } from '../relativeTime';
 import { openActivityLink, zoomReference } from '../githubReference';
 import { workspaceAgentTaskRoute, workspaceIsUpdating } from '../workspaces/model';
@@ -94,6 +97,7 @@ function HomePage({
     () => getCached<PullRequestDto[]>(SEED.attention) ?? null);
   const [attentionError, setAttentionError] = useState<string | null>(null);
   const jira = useJiraAttention();
+  const teams = useTeams(profile?.login ?? null);
   const [issueAttentionError, setIssueAttentionError] = useState<string | null>(null);
   const [loading, setLoading] = useState(() => getCached(SEED.workspaces) === undefined);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
@@ -330,6 +334,11 @@ function HomePage({
         prs={prs ?? []}
         onOpenWorkspace={onOpenWorkspace}
         onWatch={() => setShowModal(true)}
+      />
+      <CirclesGrid
+        directory={teams.directory}
+        attention={visibleAttention(candidates, handled, Date.now())}
+        viewerLogin={login ?? null}
       />
 
       </main>

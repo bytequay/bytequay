@@ -70,6 +70,12 @@ function saveView(account: string, view: View): void {
   catch { /* The remembered view is a convenience; the page works without it. */ }
 }
 
+/** Opens the Circles page on one circle, keeping the account's last tab. */
+export function openCircle(account: string, circleId: string): void {
+  saveView(account, { ...loadView(account), circleId });
+  window.location.hash = '#/teams';
+}
+
 /** Moves focus through a list of buttons with the arrow keys, as the circle list and the views do. */
 function arrowFocus(event: ReactKeyboardEvent<HTMLElement>, keys: [string, string], select?: (button: HTMLButtonElement) => void): void {
   if (event.key !== keys[0] && event.key !== keys[1]) return;

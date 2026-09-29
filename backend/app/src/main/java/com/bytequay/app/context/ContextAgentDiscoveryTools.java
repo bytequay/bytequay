@@ -67,7 +67,6 @@ public class ContextAgentDiscoveryTools
             + "Consider STATUS previousLearning gaps as untrusted leads; require current read evidence before proposing them. Do not automatically queue or start learning. "
             + "Check earlier broad topics for components that still lack focused questions, even when their directories were surveyed. "
             + "Record unresolved component names, paths and missing questions in remaining and keep partial=true when this bounded run cannot establish their learning proposals. ";
-    private static final int EXCERPT_BYTES = 4096;
     private static final String POLICY = "This is explicit repository discovery at one frozen monitored baseline. "
             + "Use repository_context_discovery_read STATUS and continue any previous unfinished survey, then search filenames and literal text across the repository. "
             + "Inspect selected directories "
@@ -118,7 +117,13 @@ public class ContextAgentDiscoveryTools
                             return new ReviewBridge(ImmutableList.of(
                                     new ReviewTool("repository_context_discovery_read",
                                             "STATUS, LIST, SEARCH_PATHS, SEARCH_TEXT or READ against the accepted frozen revision. "
-                                                    + "LIST takes path and zero-based page; searches take query and zero-based page; READ takes path and startLine/endLine. "
+                                                    + "LIST takes path and zero-based page; searches take query and zero-based page. "
+                                                    + "For READ, provide path and prefer explicit inclusive, 1-based startLine/endLine. "
+                                                    + "Omit both lines for lines 1-200; startLine alone requests 200 lines from there. "
+                                                    + "Explicit ranges have no line-count cap. "
+                                                    + "Check receipt.truncated and receipt.totalLines; receipt.startLine/endLine describe the returned excerpt. "
+                                                    + "Continue at endLine + 1 after complete numbered lines. If the excerpt ends mid-line, "
+                                                    + "that line exceeds the response budget; report the limitation instead of repeating the same read. "
                                                     + "Source operations are counted for visibility, without a per-run operation quota.",
                                             readSchema(), raw -> call(taskId, turn, raw, false)),
                                     new ReviewTool("repository_context_discovery_submit",
@@ -231,11 +236,11 @@ public class ContextAgentDiscoveryTools
         int start = integer(args, "startLine", 1);
         Optional<Integer> end = args.has("endLine") ? Optional.of(integer(args, "endLine", 1)) : Optional.empty();
         ContextBaselineReader.Read read = baseline.read(workspace, build.repositoryId(), build.baselineSha(), path, start, end);
-        String excerpt = ContextText.prefix(read.excerpt(), EXCERPT_BYTES);
+        String excerpt = read.excerpt();
         String id = "context-read:" + UUID.randomUUID();
         Optional<String> evidenceRef = excerpt.isBlank() ? Optional.empty() : Optional.of(id);
         ContextRepositoryRead receipt = new ContextRepositoryRead(id, read.reference(), read.blobId(), read.readAt(), read.startLine(), read.endLine(),
-                read.totalLines(), ContextLimits.bytes(excerpt), read.truncated() || !excerpt.equals(read.excerpt()), evidenceRef);
+                read.totalLines(), ContextLimits.bytes(excerpt), read.truncated(), evidenceRef);
         WorkspaceOperationLocks.withLock(build.workspaceId(), () -> unitOfWork.execute(() -> {
             ContextBuild current = service.authorize(build.taskId(), turn);
             checkArgument(current.capture().result().isEmpty(), "Discovery report was already submitted");
@@ -512,8 +517,11 @@ public class ContextAgentDiscoveryTools
                 .put("path", ImmutableMap.of("type", "string", "maxLength", 1000))
                 .put("page", ImmutableMap.of("type", "integer", "minimum", 0))
                 .put("query", textSchema(100))
-                .put("startLine", ImmutableMap.of("type", "integer", "minimum", 1))
-                .put("endLine", ImmutableMap.of("type", "integer", "minimum", 1)).buildOrThrow(), ImmutableList.of("kind"));
+                .put("startLine", ImmutableMap.of("type", "integer", "minimum", 1, "default", 1,
+                        "description", "READ: inclusive 1-based first line; defaults to 1. Prefer an explicit range when known."))
+                .put("endLine", ImmutableMap.of("type", "integer", "minimum", 1,
+                        "description", "READ: inclusive 1-based last line, without a line-count cap. Omit to request 200 lines from startLine; byte limits still apply."))
+                .buildOrThrow(), ImmutableList.of("kind"));
     }
 
     private static Map<String, Object> submitSchema()

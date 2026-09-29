@@ -508,6 +508,18 @@ class TestContextBuildTools
     }
 
     @Test
+    void fileReadSchemaExplainsOptionalRangesAndByteLimitedContinuation()
+    {
+        JsonNode schema = mapper.valueToTree(bridge.tool("repository_context_read").orElseThrow().inputSchema());
+        assertThat(schema.at("/properties/startLine/default").intValue()).isEqualTo(1);
+        assertThat(schema.at("/properties/startLine/description").textValue()).contains("inclusive 1-based", "Prefer an explicit range");
+        assertThat(schema.at("/properties/endLine/description").textValue()).contains("without a line-count cap", "200 lines from startLine");
+        assertThat(schema.at("/properties/endLine").has("maximum")).isFalse();
+        assertThat(bridge.tool("repository_context_read").orElseThrow().description()).contains("lines 1-200", "16 KiB", "receipt.truncated", "receipt.totalLines",
+                "endLine + 1", "report the limitation instead of repeating the same read");
+    }
+
+    @Test
     void preparationSchemaExplainsFocusedDraftNotesAndSeparatesCheckedReadsFromCitations()
     {
         JsonNode schema = mapper.valueToTree(bridge.tool("repository_context_prepare").orElseThrow().inputSchema());

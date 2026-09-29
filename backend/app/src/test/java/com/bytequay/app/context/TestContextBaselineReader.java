@@ -256,22 +256,47 @@ class TestContextBaselineReader
     }
 
     @Test
-    void boundsLineWindowsAndExplicitRangesWithoutOverflow()
+    void defaultsToTwoHundredLinesButHonorsExplicitRangesWithoutOverflow()
             throws IOException
     {
         initialize();
-        Files.writeString(repository.resolve(PATH), IntStream.rangeClosed(1, 300).mapToObj(value -> "line " + value).collect(joining("\n")));
+        Files.writeString(repository.resolve(PATH), IntStream.rangeClosed(1, 1000).mapToObj(value -> "line " + value).collect(joining("\n")));
         ReviewRun run = run(Optional.of(commit()));
 
         ContextBaselineReader.Read read = read(git, run, PATH, 50, Optional.of(Integer.MAX_VALUE));
-        assertThat(read.totalLines()).isEqualTo(300);
-        assertThat(read.endLine()).isEqualTo(249);
-        assertThat(read.excerpt()).startsWith("50  line 50\n").endsWith("249  line 249\n");
+        assertThat(read.totalLines()).isEqualTo(1000);
+        assertThat(read.endLine()).isEqualTo(1000);
+        assertThat(read.truncated()).isFalse();
+        assertThat(read.excerpt()).startsWith("50  line 50\n").endsWith("1000  line 1000\n");
+        assertThat(read(git, run, PATH, 1, Optional.empty()).endLine()).isEqualTo(200);
+        assertThat(read(git, run, PATH, 1, Optional.of(1000)).excerpt().lines()).hasSize(1000);
         assertThat(read(git, run, PATH, 50, Optional.empty()).endLine()).isEqualTo(249);
         assertThat(read(git, run, PATH, 50, Optional.of(51)).excerpt()).isEqualTo("50  line 50\n51  line 51\n");
-        assertThat(read(git, run, PATH, 299, Optional.empty()).endLine()).isEqualTo(300);
+        assertThat(read(git, run, PATH, 999, Optional.empty()).endLine()).isEqualTo(1000);
         assertThatIllegalArgumentException().isThrownBy(() -> read(git, run, PATH, Integer.MAX_VALUE, Optional.empty())).withMessageContaining("outside");
         assertThatIllegalArgumentException().isThrownBy(() -> read(git, run, PATH, 50, Optional.of(49))).withMessageContaining("precede");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {4 * 1024, 16 * 1024})
+    void byteBoundedRangesContinueWithoutSkippingSourceLines(int maximumBytes)
+            throws IOException
+    {
+        initialize();
+        String content = "x".repeat(100);
+        Files.writeString(repository.resolve(PATH), (content + "\n").repeat(1000));
+        ReviewRun run = run(Optional.of(commit()));
+
+        ContextBaselineReader.Read first = read(git, run, PATH, 1, Optional.of(1000)).limitedTo(maximumBytes);
+        ContextBaselineReader.Read next = read(git, run, PATH, first.endLine() + 1, Optional.of(1000)).limitedTo(maximumBytes);
+
+        assertThat(first.truncated()).isTrue();
+        assertThat(first.totalLines()).isEqualTo(1000);
+        assertThat(ContextLimits.bytes(first.excerpt())).isLessThanOrEqualTo(maximumBytes);
+        assertThat(first.excerpt().lines()).hasSize(first.endLine());
+        assertThat(first.excerpt()).endsWith(first.endLine() + "  " + content + "\n");
+        assertThat(next.excerpt()).startsWith((first.endLine() + 1) + "  " + content + "\n");
+        assertThat(next.excerpt().lines()).hasSize(next.endLine() - next.startLine() + 1);
     }
 
     @Test
@@ -285,6 +310,7 @@ class TestContextBaselineReader
         assertThat(read.truncated()).isTrue();
         assertThat(ContextLimits.bytes(read.excerpt())).isEqualTo(16 * 1024 - 1);
         assertThat(read.excerpt()).startsWith("1  😀").endsWith("😀").doesNotContain("…", "\uFFFD");
+        assertThat(read.endLine()).isEqualTo(1);
         assertThat(read.totalLines()).isEqualTo(2);
     }
 

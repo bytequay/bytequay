@@ -143,6 +143,10 @@ public class ContextBuildTools
                 .map(claim -> TurnId.valueOf(claim.ownerId()));
         return new ReviewBridge(ImmutableList.of(
                 new ReviewTool("repository_context_read", "Read the accepted source selection, frozen directory tree/files, registered documents or selected history. "
+                        + "For FILE, prefer explicit inclusive, 1-based startLine/endLine. Omit both for lines 1-200; startLine alone requests 200 lines from there. "
+                        + "Explicit ranges have no line-count cap; source text is limited to 16 KiB. Check receipt.truncated and receipt.totalLines; "
+                        + "receipt.startLine/endLine describe the returned excerpt. Continue at endLine + 1 after complete numbered lines, "
+                        + "but if the excerpt ends mid-line, that line exceeds the response budget; report the limitation instead of repeating the same read. "
                         + "TREE path is empty for root or a directory path with an optional trailing slash; page starts at zero. DOCUMENT page starts at one. "
                         + "SEARCH_PATHS finds names anywhere; SEARCH_TEXT finds up to two literal hits per file within approved paths. Search page starts at zero. "
                         + "DOCUMENT defaults to a fresh initial read; continuation uses returned captureId. Failures remain explicit limitations.",
@@ -852,7 +856,10 @@ public class ContextBuildTools
                 .put("kind", ImmutableMap.of("type", "string", "enum",
                         ImmutableList.of("SELECTION", "NOTES", "NOTE", "TREE", "SEARCH_PATHS", "SEARCH_TEXT", "FILE", "DOCUMENT", "HISTORY")))
                 .put("path", ImmutableMap.of("type", "string", "maxLength", 1100)).put("page", ImmutableMap.of("type", "integer", "minimum", 0))
-                .put("startLine", ImmutableMap.of("type", "integer", "minimum", 1)).put("endLine", ImmutableMap.of("type", "integer", "minimum", 1))
+                .put("startLine", ImmutableMap.of("type", "integer", "minimum", 1, "default", 1,
+                        "description", "FILE: inclusive 1-based first line; defaults to 1. Prefer an explicit range when known."))
+                .put("endLine", ImmutableMap.of("type", "integer", "minimum", 1,
+                        "description", "FILE: inclusive 1-based last line, without a line-count cap. Omit to request 200 lines from startLine; byte limits still apply."))
                 .put("sourceId", textSchema(500)).put("relativePage", textSchema(2000)).put("captureId", textSchema(100))
                 .put("sourceKind", ImmutableMap.of("type", "string", "enum", ImmutableList.of("PR", "ISSUE")))
                 .put("query", ImmutableMap.of("type", "string", "maxLength", 200)).put("paths", stringArray(20, 1000))

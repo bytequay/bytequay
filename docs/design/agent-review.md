@@ -811,8 +811,11 @@ defines limits, cache lifetime, error behavior and remaining preparation gates.
 The source read accepts revision=baseline on context-enabled bound runs. It
 reads only regular UTF-8 file blobs at the snapshot's captured monitored commit,
 independent of current worktree, index or PR edits, without lazy fetch or Git
-replacement objects. Complete blobs are limited to 128 KiB; numbered windows
-to 200 lines and 16 KiB. Each success retains commit/blob/range metadata and
+replacement objects. Complete blobs are limited to 2 MiB; numbered windows
+default to 200 lines, while explicit ranges have no line-count cap. Returned text
+remains limited to 16 KiB and reports its actual range, preferring complete lines
+for continuation. A single oversized line remains explicitly partial.
+Each success retains commit/blob/range metadata and
 optional exact evidence together. A successful empty file has a receipt;
 missing, unsupported or incomplete reads do not. Baseline and document reads
 share a 128-receipt limit per run. The application rechecks the accepted turn

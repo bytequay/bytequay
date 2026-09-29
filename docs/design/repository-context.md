@@ -707,15 +707,22 @@ ContextBaselineReader resolves the literal path in that exact commit, then
 reads its regular-file blob. It ignores worktree/index edits and disables Git
 replacement objects and lazy fetching. Missing local objects remain failures.
 Two local commands have separate two-second deadlines; inventory output is
-bounded to 8 KiB and the complete blob to 128 KiB. Trees, symlinks, gitlinks,
+bounded to 8 KiB and the complete blob to 2 MiB. Trees, symlinks, gitlinks,
 binary/unsupported UTF-8 content and incomplete output are rejected. The
 current text check conservatively also rejects a literal replacement character.
 No claim is made about a file's total lines until its complete blob was read.
 
-The response contains at most 200 numbered source lines and 16 KiB of UTF-8
-excerpt, plus exact commit/blob identity, total lines, requested bounded range,
-read time and a truncation flag. Byte truncation can end within a source line;
-the recorded range is not a claim that every character in it was returned.
+Agents should specify an inclusive, one-based startLine/endLine range when they
+know which source they need. Explicit ranges have no line-count cap. Omitting
+both returns lines 1-200; omitting only endLine requests 200 lines from startLine.
+Source text remains bounded to 16 KiB per response. Discovery preserves that same
+returned text without imposing another smaller excerpt limit.
+Responses include exact commit/blob identity, total lines, the returned range,
+read time and a truncation flag. Byte-limited excerpts prefer complete lines, so
+agents can continue at endLine+1 when more source is needed. A single line larger
+than the byte budget remains explicitly partial; the agent must report that
+limitation instead of repeatedly requesting the same line. Earlier truncated
+receipts may retain the originally requested range and are not rewritten.
 Nonblank text is retained as ReviewEvidence. A complete empty file returns
 startLine=1, endLine=0, totalLines=0 and an evidence-free receipt. Failure returns
 no receipt; neither an empty file nor a blank document establishes EMPTY
@@ -2333,7 +2340,7 @@ public class ContextBaselineReader
      * @param baseline full immutable commit SHA saved with the request, never a model revision
      * @param path literal repository-relative file path
      * @param startLine first one-based line; an empty file accepts only line one
-     * @param endLine optional inclusive last line, capped to 200 lines from the start
+     * @param endLine optional inclusive last line; omission defaults to 200 lines from the start
      * @return exact file/blob identity, read time, line counts and at most 16 KiB UTF-8
      *         numbered text; a complete empty file has no invented evidence text
      * @throws IllegalArgumentException for identity/range/path mismatch, missing or
@@ -2341,7 +2348,7 @@ public class ContextBaselineReader
      *
      * Run outside mutation locks. Read immutable local objects with replacement
      * objects and lazy fetching disabled; worktree, index and HEAD are not inputs.
-     * The full blob must fit 128 KiB before reporting source lines or an excerpt.
+     * The full blob must fit 2 MiB before reporting source lines or an excerpt.
      * The caller owns accepted-turn checks and durable receipt/evidence registration.
      */
     public Read read(WorkspaceRepositoryContext workspace, long repositoryId,

@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -177,7 +178,7 @@ public record ContextDiscoveryReport(
             ContextLimits.pathPrefix(path + "/");
             checkArgument(blobId.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Invalid evidence blob");
             checkArgument(startLine > 0 && endLine >= startLine, "Invalid evidence line range");
-            ContextLimits.text(excerpt, "source excerpt", 4096);
+            checkText(excerpt, "source excerpt");
         }
     }
 }

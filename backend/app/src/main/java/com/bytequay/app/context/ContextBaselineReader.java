@@ -41,7 +41,7 @@ public class ContextBaselineReader
     private static final int INVENTORY_BYTES = 8 * 1024;
     private static final int BLOB_BYTES = 2 * 1024 * 1024;
     private static final int EXCERPT_BYTES = 16 * 1024;
-    private static final int SOURCE_LINES = 200;
+    private static final int DEFAULT_SOURCE_LINES = 200;
     private static final int DIRECTORY_BYTES = 128 * 1024;
     private static final int DIRECTORY_PAGE_SIZE = 100;
     private static final int DIRECTORY_PAGES = 10;
@@ -64,7 +64,7 @@ public class ContextBaselineReader
      * @param run owning context-enabled run; its captured baseline is the only accepted revision
      * @param path literal repository-relative file path
      * @param startLine first one-based line; an empty file accepts only line one
-     * @param endLine optional inclusive last line, capped to 200 lines from the start
+     * @param endLine optional inclusive last line; omission defaults to 200 lines from the start
      * @return backend-observed source identity and a line-numbered UTF-8 excerpt of at most 16 KiB
      * @throws IllegalArgumentException for unavailable context, mismatched repository identity, invalid ranges,
      *         non-regular files, incomplete Git output or unsupported binary/non-UTF-8 content
@@ -102,14 +102,13 @@ public class ContextBaselineReader
         checkArgument(content.output().indexOf('\0') < 0 && content.output().indexOf('\uFFFD') < 0, "The baseline file is not supported UTF-8 text");
         List<String> lines = content.output().lines().collect(ImmutableList.toImmutableList());
         checkArgument(startLine <= lines.size() || (lines.isEmpty() && startLine == 1), "The starting line is outside the baseline file");
-        int end = (int) Math.min(lines.size(), Math.min((long) startLine + SOURCE_LINES - 1, endLine.map(Integer::longValue).orElse(Long.MAX_VALUE)));
+        int end = (int) Math.min(lines.size(), endLine.map(Integer::longValue).orElse((long) startLine + DEFAULT_SOURCE_LINES - 1));
         StringBuilder window = new StringBuilder();
         for (int line = startLine; line <= end; line++) {
             window.append(line).append("  ").append(lines.get(line - 1)).append('\n');
         }
-        String excerpt = ContextText.prefix(window.toString(), EXCERPT_BYTES);
         return new Read(new ContextReference.RepositoryFile(repositoryId, workspace.monitoredRepository(), path, baseline), blob,
-                Instant.now(clock), startLine, end, lines.size(), excerpt, excerpt.length() < window.length());
+                Instant.now(clock), startLine, end, lines.size(), window.toString(), false).limitedTo(EXCERPT_BYTES);
     }
 
     /**
@@ -289,5 +288,22 @@ public class ContextBaselineReader
         return fields[2];
     }
 
-    public record Read(ContextReference.RepositoryFile reference, String blobId, Instant readAt, int startLine, int endLine, int totalLines, String excerpt, boolean truncated) {}
+    public record Read(ContextReference.RepositoryFile reference, String blobId, Instant readAt, int startLine, int endLine, int totalLines, String excerpt, boolean truncated)
+    {
+        /** Prefer complete lines so the next range can start at endLine + 1; an oversized first line remains explicitly partial. */
+        public Read limitedTo(int maximumBytes)
+        {
+            checkArgument(maximumBytes > 0, "Source excerpt budget must be positive");
+            String limited = ContextText.prefix(excerpt, maximumBytes);
+            if (limited.equals(excerpt)) {
+                return this;
+            }
+            int newline = limited.lastIndexOf('\n');
+            if (newline >= 0) {
+                limited = limited.substring(0, newline + 1);
+            }
+            int returnedEnd = startLine + (int) limited.lines().count() - 1;
+            return new Read(reference, blobId, readAt, startLine, returnedEnd, totalLines, limited, true);
+        }
+    }
 }

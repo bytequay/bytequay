@@ -23,7 +23,8 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * One numbered excerpt from a frozen repository blob, including a successful empty-file read.
- * The line range identifies requested source coverage; truncation means the returned excerpt does not cover that range completely.
+ * New captures record the returned line range; older truncated captures may retain the requested range.
+ * Truncation means the requested source window was not returned completely, and an oversized line may itself be partial.
  */
 public record ContextRepositoryRead(
         String id,

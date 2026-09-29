@@ -48,6 +48,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.stream.IntStream;
 
+import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -103,6 +104,40 @@ class TestContextAgentDiscoveryTools
                         SHA, Instant.EPOCH, 1, 1, 1, "1  Iceberg connector uses snapshots.\n", false));
         when(baseline.searchPaths(any(), eq(1L), eq(SHA), eq("iceberg"), eq(0)))
                 .thenReturn(new ContextBaselineReader.PathSearch("iceberg", ImmutableList.of("deep/trino-iceberg/pom.xml"), 0, false));
+    }
+
+    @Test
+    void readSchemaExplainsOptionalRangesAndByteLimitedContinuation()
+    {
+        JsonNode schema = mapper.valueToTree(bridge.tool("repository_context_discovery_read").orElseThrow().inputSchema());
+        assertThat(schema.at("/properties/startLine/default").intValue()).isEqualTo(1);
+        assertThat(schema.at("/properties/startLine/description").textValue()).contains("inclusive 1-based", "Prefer an explicit range");
+        assertThat(schema.at("/properties/endLine/description").textValue()).contains("without a line-count cap", "200 lines from startLine");
+        assertThat(schema.at("/properties/endLine").has("maximum")).isFalse();
+        assertThat(bridge.tool("repository_context_discovery_read").orElseThrow().description()).contains("lines 1-200", "receipt.truncated",
+                "receipt.totalLines", "endLine + 1", "report the limitation instead of repeating the same read").doesNotContain("4 KiB");
+    }
+
+    @Test
+    void discoveryPreservesAndSavesSourceTextBeyondFourKiB()
+            throws Exception
+    {
+        String excerpt = IntStream.rangeClosed(1, 500).mapToObj(line -> line + "  source line " + line + "\n").collect(joining());
+        when(baseline.read(any(), eq(1L), eq(SHA), eq("README.md"), eq(1), eq(Optional.of(500))))
+                .thenReturn(new ContextBaselineReader.Read(new ContextReference.RepositoryFile(1, REPO, "README.md", SHA),
+                        SHA, Instant.EPOCH, 1, 500, 500, excerpt, false));
+
+        JsonNode result = read("{\"kind\":\"READ\",\"path\":\"README.md\",\"startLine\":1,\"endLine\":500}");
+
+        assertThat(result.at("/receipt/endLine").intValue()).isEqualTo(500);
+        assertThat(result.at("/receipt/totalLines").intValue()).isEqualTo(500);
+        assertThat(result.at("/receipt/truncated").booleanValue()).isFalse();
+        assertThat(result.path("source").textValue()).isEqualTo(excerpt).hasSizeGreaterThan(4096);
+        assertThat(current().capture().sourceReads()).singleElement().satisfies(receipt ->
+                assertThat(mapper.valueToTree(receipt).path("endLine").intValue()).isEqualTo(500));
+        assertThat(submit(report(result.path("readId").textValue())).path("saved").booleanValue()).isTrue();
+        assertThat(reports.find(WORKSPACE).orElseThrow().evidence()).singleElement().satisfies(evidence ->
+                assertThat(evidence.excerpt()).isEqualTo(excerpt));
     }
 
     @Test

@@ -1,5 +1,23 @@
 # Repository Context implementation checklist
 
+## Let the agent choose source line ranges
+
+- [x] Honor explicit inclusive startLine/endLine ranges without a 200-line cap;
+  keep 200 lines as the default when endLine is omitted.
+- [x] Explain defaults, byte limits and explicit ranges in learning, discovery
+  and baseline review tool descriptions.
+- [x] Record returned line coverage after byte clipping, including discovery's
+  smaller excerpt, and prefer complete lines for safe continuation.
+- [x] Verify explicit ranges, default reads, byte clipping, continuation and
+  unchanged source ownership through backend and desktop build checks.
+
+Verification used an isolated snapshot over `b0693bd32`. Full JVM 25 `mvn verify`
+passed 3,632 tests with no failures, errors or skips. Frontend lint, TypeScript,
+all 1,408 tests across 136 files, and macOS desktop packaging passed. The reader
+regressions cover explicit 1,000-line requests, the 200-line default, both byte
+budgets, oversized Unicode lines, safe continuation, and discovery receipts.
+No live model run or saved-note mutation was used.
+
 ## Allow normal learning in large repositories
 
 - [x] Remove discovery/learning operation-count and documentation-open quotas;

@@ -151,8 +151,9 @@ class TestContextBuildService
     private final AgentDriver driver = mock(AgentDriver.class);
     private final ContextBuildCoordinator coordinator = mock(ContextBuildCoordinator.class);
     private final GitCommandRunner git = mock(GitCommandRunner.class);
-    private final RepositoryContextService notebooks = new RepositoryContextService(settings, mapper, workspaceStore, reviews);
+    private final RepositoryContextService notebooks = new RepositoryContextService(settings, mapper, workspaceStore, reviews, Clock.systemUTC());
     private final ContextLearningPlanStore plans = mock(ContextLearningPlanStore.class);
+    private final ContextDiscoveryReportStore reports = new ContextDiscoveryReportStore(settings, mapper);
     private final ContextBuildStore builds = new ContextBuildStore(settings, taskStore, mapper);
     private final RepositoryContextPreparation preparation = new RepositoryContextPreparation(notebooks, mock(ContextInputReader.class), workspaces);
     private final Map<TaskId, AgentTask> savedTasks = new LinkedHashMap<>();
@@ -223,15 +224,15 @@ class TestContextBuildService
     @Test
     void explicitlyLaunchesWithoutAReviewAndFreezesBindingBeforeTaskAndTurnEvenWhenReviewsAreOff()
     {
-        notebooks.setUseInReviews(WORKSPACE, 0, false);
-        notebooks.configure(WORKSPACE, 1, new EditContextConfiguration(Optional.empty(), Optional.of(ImmutableList.of(new EditContextConfiguration.Source(
-                "docs", RegisteredContextSource.Kind.DOCUMENTATION_PAGE, "https://example.com/docs"))), Optional.empty()));
+        notebooks.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty()));
+        notebooks.configure(WORKSPACE, 1, new EditContextConfiguration(Optional.empty(), Optional.empty(), Optional.of(ImmutableList.of(new EditContextConfiguration.Source(
+                "docs", RegisteredContextSource.Kind.DOCUMENTATION_PAGE, "https://example.com/docs")))));
         assertThat(service.get(WORKSPACE).build()).isEmpty();
         verifyNoInteractions(tasks, turns, drivers, git, reviews, coordinator);
         ContextBuildService.Request request = new ContextBuildService.Request("learn", 2, 0, ImmutableList.of("project"), ImmutableList.of());
         RegisteredContextSource selectedDoc = new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_PAGE,
                 "https://example.com/docs", ContextEntryOrigin.USER, Optional.empty());
-        ContextBuild.Assignment assignment = new ContextBuild.Assignment("plan", "topic:1", "Project overview",
+        ContextBuild.Assignment assignment = new ContextBuild.Assignment("plan", "topic:1", "Project", 0, "Project overview", "",
                 ImmutableList.of(), ImmutableList.of("README.md"));
         ContextLearningPlan accepted = acceptedPlan(ImmutableList.of(selectedDoc), ImmutableList.of("docs"), assignment);
         when(plans.find(WORKSPACE)).thenReturn(Optional.of(accepted));
@@ -266,20 +267,15 @@ class TestContextBuildService
     @Test
     void rejectsSourceExpansionThatWinsBeforeTaskAdmission()
     {
-        notebooks.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.empty(), Optional.of(ImmutableList.of(
+        notebooks.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.empty(), Optional.empty(), Optional.of(ImmutableList.of(
                 new EditContextConfiguration.Source("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://example.com/docs/"),
-                new EditContextConfiguration.Source("extra", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://other.example.org/spec/"))), Optional.empty()));
+                new EditContextConfiguration.Source("extra", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://other.example.org/spec/")))));
         List<RegisteredContextSource> sources = notebooks.getNotebook(WORKSPACE).sources();
-        ContextBuild.Assignment assignment = new ContextBuild.Assignment("plan", "topic:1", "Project overview",
+        ContextBuild.Assignment assignment = new ContextBuild.Assignment("plan", "topic:1", "Project", 0, "Project overview", "",
                 ImmutableList.of(), ImmutableList.of("README.md"));
         ContextLearningPlan original = acceptedPlan(ImmutableList.of(sources.getFirst()), ImmutableList.of("docs"), assignment);
-        ContextLearningPlan.Topic changed = new ContextLearningPlan.Topic("topic:1", "Project overview", assignment.question(),
-                "project", "sha256:" + "a".repeat(64), assignment.paths(), assignment.repositoryFiles(), ImmutableList.of("docs", "extra"),
-                ContextLearningPlan.Status.PENDING, assignment.question());
-        ContextLearningPlan expanded = new ContextLearningPlan(original.id(), original.workspaceId(), original.reportId(),
-                original.acceptedRequestKey(), original.acceptedRequestDigest(), original.acceptedNotebookRevision(),
-                original.initialBuildSequence(), original.acceptedTopicIds(), original.repositoryId(), original.repository(), original.baselineSha(),
-                ImmutableList.of(changed), sources, ContextDocumentInventory.initial(sources), original.gaps(), original.acceptedAt());
+        ContextLearningPlan.Topic changed = original.topics().getFirst().withSource("extra");
+        ContextLearningPlan expanded = original.withSources(ImmutableList.of(changed), ContextDocumentInventory.initial(sources));
         AtomicReference<ContextLearningPlan> plan = new AtomicReference<>(original);
         when(plans.find(WORKSPACE)).thenAnswer(ignored -> Optional.of(plan.get()));
         when(git.run(REPOSITORY_PATH, "rev-parse", "--verify", SHA + "^{commit}"))
@@ -303,12 +299,12 @@ class TestContextBuildService
         verifyNoInteractions(tasks, turns, drivers, git);
         ContextBuildService.Request request = new ContextBuildService.Request("discover", 0, 0, ImmutableList.of(), ImmutableList.of());
 
-        ContextBuildService.View first = service.discover(WORKSPACE, request);
-        assertThat(first.build().orElseThrow().mode()).isEqualTo(ContextBuild.Mode.DISCOVER);
+        ContextBuildService.View first = service.discover(WORKSPACE, request, false);
+        assertThat(builds.find(WORKSPACE).orElseThrow().mode()).isEqualTo(ContextBuild.Mode.DISCOVER);
         ContextBuild accepted = builds.find(WORKSPACE).orElseThrow();
         assertThat(accepted.scopeIds()).isEmpty();
         assertThat(accepted.documentationSources()).isEmpty();
-        assertThat(service.discover(WORKSPACE, request)).isEqualTo(first);
+        assertThat(service.discover(WORKSPACE, request, false)).isEqualTo(first);
         assertThat(service.get(WORKSPACE)).isEqualTo(first);
         assertThatThrownBy(() -> service.learnHistory(WORKSPACE, request)).hasMessageContaining("Select scopes");
         verify(tasks).create(any(CreateAgentTaskCommand.class));
@@ -349,7 +345,7 @@ class TestContextBuildService
         assertThatThrownBy(() -> service.learnHistory(WORKSPACE, request("second", 1))).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("cleaned up");
         ContextBuildService.View retained = service.get(WORKSPACE);
         assertThat(retained.canStart()).isFalse();
-        assertThat(retained.build().orElseThrow().task().orElseThrow().worktreePath()).isEqualTo(savedTasks.get(firstTask).worktree().toString());
+        assertThat(retained.build().orElseThrow().task().orElseThrow().worktreeRemovedAt()).isEmpty();
         verify(completions, never()).cleanupWorktree(any());
         assertThat(savedTasks.get(firstTask).worktreeRemovedAt()).isEmpty();
         completions.cleanupWorktree(firstTask);
@@ -369,8 +365,8 @@ class TestContextBuildService
         RepositoryNotebook initial = notebooks.getNotebook(WORKSPACE);
         ActiveContextPreparation active = new ActiveContextPreparation("attempt", "begin", "sha256:" + "b".repeat(64), bound.taskId(), turn.id().toString(),
                 bound.turnKey(), Optional.empty(), Optional.empty(), 0, ImmutableList.of(fingerprint()));
-        notebooks.savePreparation(WORKSPACE, initial, new RepositoryNotebook(1, 0, true, initial.sources(), initial.scopes(), initial.entries(),
-                initial.suppressedKnowledgeIds(), initial.sourceEvidence(), Optional.of(active)));
+        notebooks.savePreparation(WORKSPACE, initial,
+                new RepositoryNotebook(1, 0, true, initial.sources(), initial.scopes(), initial.entries(), initial.sourceEvidence(), Optional.of(active)));
         RepositoryNotebook edited = notebooks.editEntry(WORKSPACE, 0, new EditContextEntry("knowledge:project", "project", "Project overview", "User summary",
                 "Keep this user correction", ImmutableList.of(), ImmutableList.of()));
 
@@ -405,7 +401,7 @@ class TestContextBuildService
                 NOW, 1, 0, 0, 0, false, Optional.empty());
         ContextPreparationResult result = new ContextPreparationResult("attempt", fingerprint(), EMPTY, ImmutableList.of(), ImmutableList.of(empty), "No useful content");
         builds.save(Optional.of(bound), bound.withCapture(new ContextBuild.Capture(ImmutableList.of(empty), ImmutableMap.of(), ImmutableMap.of(), ImmutableMap.of(),
-                Optional.of(new ContextBuild.Result(ImmutableList.of(result))), ImmutableList.of())));
+                Optional.of(new ContextBuild.Result(ImmutableList.of(result))), ImmutableList.of(), ImmutableList.of())));
         finishTurn(TurnState.COMPLETED, false);
 
         service.reconcile(WORKSPACE, bound.taskId());
@@ -477,7 +473,7 @@ class TestContextBuildService
                 baseline, NOW, 1, 0, 0, 0, false, Optional.empty());
         ContextPreparationResult result = new ContextPreparationResult("attempt", fingerprint(), EMPTY, ImmutableList.of(), ImmutableList.of(empty), "No new knowledge");
         builds.save(Optional.of(bound), bound.withCapture(new ContextBuild.Capture(ImmutableList.of(empty), ImmutableMap.of(), ImmutableMap.of(), ImmutableMap.of(),
-                Optional.of(new ContextBuild.Result(ImmutableList.of(result))), ImmutableList.of())));
+                Optional.of(new ContextBuild.Result(ImmutableList.of(result))), ImmutableList.of(), ImmutableList.of())));
         finishTurn(TurnState.COMPLETED, true);
         Path tree = savedTasks.get(taskId).worktree();
         Files.writeString(tree.resolve("README.md"), "Unfinished experiment\n");
@@ -517,9 +513,9 @@ class TestContextBuildService
     private ContextLearningPlan acceptedPlan(List<RegisteredContextSource> selected, List<String> sourceIds,
             ContextBuild.Assignment assignment)
     {
-        ContextLearningPlan.Topic topic = new ContextLearningPlan.Topic(assignment.topicId(), "Project overview", assignment.question(),
+        ContextLearningPlan.Topic topic = new ContextLearningPlan.Topic(assignment.topicId(), assignment.topicTitle(),
                 "project", "sha256:" + "a".repeat(64), assignment.paths(), assignment.repositoryFiles(), sourceIds,
-                ContextLearningPlan.Status.PENDING, assignment.question());
+                ImmutableList.of(ContextLearningPlan.Question.open(assignment.question())));
         return new ContextLearningPlan(assignment.planId(), WORKSPACE, "report", "accept", "sha256:" + "b".repeat(64),
                 notebooks.getNotebook(WORKSPACE).revision(), 0, ImmutableList.of(topic.id()), 7, REPOSITORY, SHA,
                 ImmutableList.of(topic), selected, ContextDocumentInventory.initial(selected), ImmutableList.of(), NOW);
@@ -529,7 +525,7 @@ class TestContextBuildService
     {
         DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
         beans.registerSingleton("contextBuildCoordinator", coordinator);
-        return new ContextBuildService(builds, notebooks, plans, preparation, workspaces, models, credentials, drivers, tasks, taskStore, turns, turnStore,
+        return new ContextBuildService(builds, notebooks, plans, reports, preparation, workspaces, models, credentials, drivers, tasks, taskStore, turns, turnStore,
                 completion, approvals, beans.getBeanProvider(ContextBuildCoordinator.class), git, mapper, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

@@ -90,8 +90,8 @@ class TestContextInputReader
 
         assertThat(before).allSatisfy(input -> assertThat(input.digest()).isPresent());
         assertThat(after).isEqualTo(before);
-        assertThat(capture(baseline, new RepositoryNotebook(1, 99, true, notebook.sources(), notebook.scopes(), notebook.entries(),
-                notebook.suppressedKnowledgeIds(), notebook.sourceEvidence(), Optional.empty()))).isEqualTo(before);
+        assertThat(capture(baseline,
+                new RepositoryNotebook(1, 99, true, notebook.sources(), notebook.scopes(), notebook.entries(), notebook.sourceEvidence(), Optional.empty()))).isEqualTo(before);
         assertThat(before.getFirst().inputs()).doesNotContainKey("git:unrelated").doesNotContainKey("git:.");
     }
 
@@ -175,8 +175,7 @@ class TestContextInputReader
         ContextScope project = new ContextScope("project", "Project", new ContextMatch.Repository(), true, Optional.of(result), Optional.empty());
         ContextEntry note = new ContextEntry("knowledge:project", ContextEntryKind.KNOWLEDGE, "project", "Project", "Summary", "Body", ImmutableList.of(),
                 ImmutableList.of(sources.getFirst().id()), ContextEntryOrigin.GENERATED, true, 1);
-        RepositoryNotebook notebook = new RepositoryNotebook(1, 1, true, ImmutableList.of(), ImmutableList.of(project), ImmutableList.of(note),
-                ImmutableList.of(), sources, Optional.empty());
+        RepositoryNotebook notebook = new RepositoryNotebook(1, 1, true, ImmutableList.of(), ImmutableList.of(project), ImmutableList.of(note), sources, Optional.empty());
         ContextInputFingerprint before = capture(baseline, notebook).getFirst();
 
         assertThat(before.digest()).isPresent();
@@ -412,7 +411,7 @@ class TestContextInputReader
         ContextEntry lesson = new ContextEntry("lesson", ContextEntryKind.MEMORY, COMPONENT.id(), "Lesson", "Summary", "Body", ImmutableList.of(),
                 ImmutableList.of(source.id()), ContextEntryOrigin.USER, true, 1);
         RepositoryNotebook updated = new RepositoryNotebook(1, 1, true, notebook.sources(), notebook.scopes(), ImmutableList.of(lesson),
-                ImmutableList.of(), ImmutableList.of(source), Optional.empty());
+                ImmutableList.of(source), Optional.empty());
 
         assertThat(reader.capture(workspace(), Optional.of(SHA), updated, updated.scopes())).isEqualTo(before);
     }
@@ -491,7 +490,7 @@ class TestContextInputReader
         GitCommandRunner local = emptyGit();
         List<ContextScope> scopes = ImmutableList.<ContextScope>builder().add(ContextScope.project())
                 .addAll(IntStream.range(0, 99).mapToObj(index -> scope("module-" + index + "/component")).collect(toImmutableList())).build();
-        RepositoryNotebook notebook = new RepositoryNotebook(1, 0, true, ImmutableList.of(), scopes, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty());
+        RepositoryNotebook notebook = new RepositoryNotebook(1, 0, true, ImmutableList.of(), scopes, ImmutableList.of(), ImmutableList.of(), Optional.empty());
         List<ContextInputFingerprint> fingerprints = new ContextInputReader(local).capture(workspace(), Optional.of(SHA), notebook, scopes);
 
         assertThat(fingerprints).hasSize(100).anySatisfy(input -> {
@@ -568,7 +567,7 @@ class TestContextInputReader
         List<ContextEntry> entries = sources.isEmpty() ? ImmutableList.of() : ImmutableList.of(new ContextEntry(ContextEntry.knowledgeId(scope.id()),
                 ContextEntryKind.KNOWLEDGE, scope.id(), "Source note", "Summary", "Body", ImmutableList.of(), sources.stream().map(ContextSourceEvidence::id).toList(),
                 ContextEntryOrigin.USER, true, 1));
-        return new RepositoryNotebook(1, 0, true, catalog, ImmutableList.of(ContextScope.project(), scope), entries, ImmutableList.of(), sources, Optional.empty());
+        return new RepositoryNotebook(1, 0, true, catalog, ImmutableList.of(ContextScope.project(), scope), entries, sources, Optional.empty());
     }
 
     private static ContextSourceEvidence source(ContextReference reference)

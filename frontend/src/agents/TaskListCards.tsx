@@ -13,12 +13,12 @@
  */
 
 import React from 'react';
-import { Archive, ArchiveRestore, Check, ChevronRight, Cherry, CodeXml, Eye, LayoutGrid, PanelLeft, Trash2, Wrench } from 'lucide-react';
+import { Archive, ArchiveRestore, BookOpen, Check, ChevronRight, Cherry, CodeXml, Eye, LayoutGrid, PanelLeft, Trash2, Wrench } from 'lucide-react';
 import { Card, CardActions, CardAge, Clickable, IconButton, InGoalBadge, LinkKey, Pill } from '../cards/Card';
 import { relativeTime } from '../relativeTime';
 import { TASK_TYPES, type TaskListItem, type TaskType } from './taskList';
 
-const TYPE_ICONS = { dev: CodeXml, review: Eye, cherry: Cherry, ci: Wrench };
+const TYPE_ICONS = { dev: CodeXml, review: Eye, cherry: Cherry, ci: Wrench, learning: BookOpen };
 
 /** A task type's icon; "all" is the grid the All tab shows. */
 export function TaskTypeIcon({ type, size = 14 }: { type: TaskType | 'all'; size?: number }): React.JSX.Element {

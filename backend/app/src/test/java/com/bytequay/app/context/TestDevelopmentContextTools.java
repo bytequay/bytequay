@@ -132,7 +132,7 @@ class TestDevelopmentContextTools
             TaskContextDraftService.Proposal proposed = call.getArgument(1);
             String id = call.getArgument(2);
             return new TaskContextDraftService.Prepared(WORKSPACE, 0, task.taskWorktree().orElseThrow(),
-                    new RepositoryContextService.TaskDraftProposal(id, proposed.kind(), proposed.scopeId(), proposed.entryId(),
+                    new RepositoryContextService.TaskDraftProposal(id, "task", proposed.kind(), proposed.scopeId(), proposed.entryId(),
                             proposed.entryVersion(), proposed.title(), proposed.summary(), proposed.body(), "a".repeat(40), ImmutableList.of()), 42);
         });
         when(drafts.commit(any())).thenAnswer(call -> {

@@ -13,7 +13,7 @@
  */
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  Bot, ChevronDown, ChevronLeft, ChevronRight, CircleDot, CircleUser, GitBranch, GitPullRequest, Globe, History, House, KeyRound,
+  Bot, ChevronDown, ChevronLeft, ChevronRight, CircleDot, CircleUser, FileText, GitBranch, GitPullRequest, Globe, History, House, KeyRound,
   LayoutDashboard, LayoutGrid, ListChecks, Network, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
   Pin, Sparkles, Sun, Tags, TriangleAlert, Users,
 } from 'lucide-react';
@@ -28,6 +28,7 @@ import {
   type SettingsSection,
   matchesSearch,
 } from './settings/routes';
+import { useContextReview } from './repository-context/reviewCount';
 import { workspaceHasReadableCode, type WorkspaceTab } from './workspaces/model';
 import PinButton from './home/PinButton';
 import { openPinned, usePinnedItems } from './home/pinned';
@@ -54,7 +55,6 @@ const SETTINGS_ICONS: Record<SettingsSection, ReactNode> = {
   github: <CircleUser size={16} strokeWidth={1.7} aria-hidden="true" />,
   'ws-repository': <Tags size={16} strokeWidth={1.7} aria-hidden="true" />,
   'ws-agents': <Bot size={16} strokeWidth={1.7} aria-hidden="true" />,
-  'ws-context': <SquareLibrary size={16} strokeWidth={1.7} aria-hidden="true" />,
   'ws-token': <KeyRound size={16} strokeWidth={1.7} aria-hidden="true" />,
   'ws-advanced': <TriangleAlert size={16} strokeWidth={1.7} aria-hidden="true" />,
 };
@@ -93,6 +93,7 @@ const WORKSPACE_TABS: Array<{ tab: WorkspaceTab; label: string; icon: ReactNode 
   { tab: 'issues', label: 'Issues', icon: <CircleDot size={16} strokeWidth={1.7} aria-hidden="true" /> },
   { tab: 'jira', label: 'Jira', icon: <JiraIcon size={16} /> },
   { tab: 'commits', label: 'Commits', icon: <GitBranch size={16} strokeWidth={1.7} aria-hidden="true" /> },
+  { tab: 'context', label: 'Repository context', icon: <FileText size={16} strokeWidth={1.7} aria-hidden="true" /> },
 ];
 
 export default function AppSidebar({
@@ -135,6 +136,7 @@ export default function AppSidebar({
     if (pickerOpen) pickerMenu.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [pickerOpen]);
   const sidebar = useResizablePane(222, 200, 420);
+  const contextReview = useContextReview(workspace?.id ?? null, workspaceTab)?.total ?? 0;
 
   const historyControls = (
     <div className="app-sidebar__history" role="group" aria-label="View history">
@@ -144,20 +146,21 @@ export default function AppSidebar({
   );
 
   /** Every sidebar row, whichever shape renders it. */
-  const row = ({ key, label, icon, active, disabled, title, onClick }: {
+  const row = ({ key, label, icon, active, disabled, title, badge, onClick }: {
     key: string;
     label: string;
     icon: ReactNode;
     active: boolean;
     disabled?: boolean;
     title?: string;
+    badge?: { count: number; label: string };
     onClick: () => void;
   }) => (
     <button
       key={key}
       type="button"
       className={`app-sidebar__item${active ? ' is-active' : ''}`}
-      aria-label={label}
+      aria-label={badge === undefined ? label : `${label}, ${badge.label}`}
       aria-current={active ? 'page' : undefined}
       title={title ?? label}
       disabled={disabled}
@@ -165,6 +168,7 @@ export default function AppSidebar({
     >
       <span aria-hidden="true">{icon}</span>
       <span className="app-sidebar__label">{label}</span>
+      {badge !== undefined && <span className="app-sidebar__badge" aria-hidden="true">{badge.count}</span>}
     </button>
   );
 
@@ -188,6 +192,7 @@ export default function AppSidebar({
       active: workspaceTab === tab,
       disabled: reason !== null,
       title: reason ?? label,
+      badge: tab === 'context' && contextReview > 0 ? { count: contextReview, label: `${contextReview} to review` } : undefined,
       onClick: () => onWorkspaceTab(tab),
     });
   };

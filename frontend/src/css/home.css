@@ -192,6 +192,9 @@
   white-space: nowrap;
 }
 
+/* Repository context names a destination, not a reference number. */
+.atn-card.is-context .atn-card__key { font-family: inherit; }
+
 .atn-card__repo {
   display: inline-flex;
   align-items: center;

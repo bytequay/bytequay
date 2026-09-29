@@ -47,6 +47,7 @@ providerAvailable,
 providerRemedy,
 remedyCommand
 } from '../settings/model';
+import { TaskContextDrafts } from '../repository-context/ContextCards';
 import { settingsRoute } from '../settings/routes';
 import type {
 AgentApprovalDecision,
@@ -1066,7 +1067,7 @@ export function AgentTaskBody({
   headerAction,
   attentionStatus,
   submissionBlocked = false,
-  onAskAgent, onAskAgentDisabled, localReview, learning, contextActivity, reviewFocus, onOpenReview,
+  onAskAgent, onAskAgentDisabled, localReview, learning, contextActivity, contextDrafts, reviewFocus, onOpenReview,
 }: {
   state: AgentTaskState;
   automation?: React.ReactNode;
@@ -1086,6 +1087,8 @@ export function AgentTaskBody({
   /** Renders the Summary; a development task's reviewer comes with it, so it can sit in the Summary's own strip and timeline. */
   learning?: React.ReactNode | ((onSelectCommit: (sha: string) => void, review?: TaskReviewOptions) => React.ReactNode);
   contextActivity?: React.ReactNode;
+  /** Repository context drafts this task proposed, after its transcript. */
+  contextDrafts?: React.ReactNode;
   reviewFocus?: ReviewCardFocus | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
   models: ModelOptionDto[];
@@ -1378,12 +1381,15 @@ export function AgentTaskBody({
         waiting={waiting} gap={state.gap} pendingMessage={state.pendingMessage} activityChoice={activityChoice} turnChoice={turnChoice}
         previews={previews} agentLabels={agentLabels} pendingApprovals={pendingApprovals ?? []}
         onToggleTurn={onToggleTurn} onToggleActivity={onToggleActivity} onDecide={onDecide} onOpenAgent={onOpenAgent}
-        transcriptFooter={working.length > 0 && (
-          <div className="agt-barrier">
-            {working.length === 1 ? '1 subagent is still working' : `${working.length} subagents are still working`}
-            {' — Send, queued messages, and Complete unlock when every agent and command finishes.'}
-          </div>
-        )}>
+        transcriptFooter={<>
+          {contextDrafts}
+          {working.length > 0 && (
+            <div className="agt-barrier">
+              {working.length === 1 ? '1 subagent is still working' : `${working.length} subagents are still working`}
+              {' — Send, queued messages, and Complete unlock when every agent and command finishes.'}
+            </div>
+          )}
+        </>}>
       {/* Bounded: the status and turn state change a handful of times, streamed text never lands here. */}
       <div className="agt-status" role="status" aria-live="polite">{statusText}</div>
 
@@ -2629,6 +2635,9 @@ export default function AgentTaskScreen({
         ? <DevelopmentContextActivityPanel taskId={taskId} workspaceId={workspaceId} bridge={live() as Required<Pick<AgentBridgePort, 'getAgentTaskRepositoryContext'>>}
           refreshKey={`${state.lifecycleEpoch}:${state.events.filter(event => event.type === 'tool' && event.payload.state === 'COMPLETED'
             && event.payload.summary.startsWith('context-receipt:')).at(-1)?.sequence ?? 0}`} /> : undefined}
+      contextDrafts={state.task?.interactive && state.task.localReviewHead == null
+        ? <TaskContextDrafts taskId={taskId} workspaceId={workspaceId} refreshKey={`${state.lifecycleEpoch}:${state.events.filter(event => event.type === 'tool'
+          && event.payload.state === 'COMPLETED' && event.payload.name.endsWith('repository_context_lookup')).length}`} /> : undefined}
       automation={automationEligible && automationSelection !== null ? <AutomationControl value={automationSelection} providers={automationProviders} disabled />
         : automationEligible ? <span className="agt-meta">Loading automation settings…</span> : undefined}
       historyLoading={historyLoading}

@@ -26,6 +26,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -57,13 +58,13 @@ class TestSqliteContextUsageStore
         ContextUsageEvent offered = event("workspace-a", ContextUsageEvent.Stage.PROVIDED, ContextUsageEvent.Delivery.PREPARED);
         store.record(offered);
         store.record(offered);
-        assertThat(store.activities("workspace-a", "knowledge:root", Optional.empty(), 0)).hasSize(1)
+        assertThat(noteRows("workspace-a", Optional.empty())).hasSize(1)
                 .allMatch(row -> row.delivery() == ContextUsageEvent.Delivery.PREPARED);
 
         store.markUncertain("workspace-a", "offer-1", ContextUsageEvent.Stage.PROVIDED);
         store.confirm("workspace-a", "offer-1", ContextUsageEvent.Stage.PROVIDED);
         store.record(offered);
-        assertThat(store.activities("workspace-a", "knowledge:root", Optional.empty(), 0)).hasSize(1)
+        assertThat(noteRows("workspace-a", Optional.empty())).hasSize(1)
                 .allMatch(row -> row.delivery() == ContextUsageEvent.Delivery.CONFIRMED);
 
         ContextUsageEvent conflicting = new ContextUsageEvent(offered.workspaceId(), offered.taskId(), offered.turnId(), offered.reviewRunId(),
@@ -84,8 +85,8 @@ class TestSqliteContextUsageStore
 
         assertThat(store.trackingSince("workspace-a")).contains(AT);
         assertThat(store.trackingSince("workspace-b")).isEmpty();
-        assertThat(store.activities("workspace-a", "knowledge:root", Optional.of(AT.plusSeconds(1)), 0)).isEmpty();
-        assertThat(store.activities("workspace-a", "knowledge:root", Optional.empty(), 0)).hasSize(1);
+        assertThat(noteRows("workspace-a", Optional.of(AT.plusSeconds(1)))).isEmpty();
+        assertThat(noteRows("workspace-a", Optional.empty())).hasSize(1);
         ArrayList<ContextUsageEvent> rows = new ArrayList<>();
         store.forEach("workspace-a", Optional.empty(), rows::add);
         assertThat(rows.stream().map(ContextUsageEvent::stage).collect(ImmutableList.toImmutableList()))
@@ -136,6 +137,13 @@ class TestSqliteContextUsageStore
         entities.clear();
 
         assertThat(entities.find(AppSettingEntity.class, "outer.transaction.setting").getValue()).isEqualTo("after");
+    }
+
+    private List<ContextUsageEvent> noteRows(String workspaceId, Optional<Instant> since)
+    {
+        List<ContextUsageEvent> rows = new ArrayList<>();
+        store.forEach(workspaceId, since, event -> event.note().filter(note -> note.id().equals("knowledge:root")).ifPresent(note -> rows.add(event)));
+        return rows;
     }
 
     private static ContextUsageEvent event(String workspace, ContextUsageEvent.Stage stage, ContextUsageEvent.Delivery delivery)

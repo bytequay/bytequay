@@ -33,9 +33,11 @@ public record ContextClaim(String text, Basis basis, List<String> sourceIds)
         checkArgument(!sourceIds.isEmpty() || basis == Basis.INFERENCE || basis == Basis.QUESTION, "This claim needs a source");
     }
 
+    /** DOCUMENTED cites documentation; OBSERVED cites code read at the recorded revision. */
     public enum Basis
     {
         DOCUMENTED,
+        OBSERVED,
         RECORDED_DECISION,
         INFERENCE,
         QUESTION,

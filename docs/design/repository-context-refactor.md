@@ -158,9 +158,83 @@ Continue learning**. Existing editing, context-use switches, source inspection,
 and usage details remain reachable without mandatory configuration steps.
 Show completed work, pending questions, limitations, and source versions.
 Found/opened/cited observations do not claim understanding or correctness.
+Section 8 defines how these controls are presented.
 
 Verify draft isolation/conflicts, multiple notes per area, literal pagination,
 exact reads, empty-notebook task startup, deep/non-Maven discovery, bounded
 external sources, restart/continuation, partial results, and no hidden model
 launches. Real-provider quality/cost checks are separate, explicit acceptance
 work; do not run them against watched repositories during implementation tests.
+
+## 8. User interface
+
+The user-supplied Claude Design prototype is the authoritative UI:
+[`Repository Context.dc.html`](https://claude.ai/design/p/707db2cd-ebf1-414d-b09b-5d16df81c7f0?file=Repository+Context.dc.html)
+with its twelve journey screenshots. It supersedes every UI layout
+recommendation in this and earlier Repository Context documents; the sections
+above still define behavior. Where the prototype omits a state, the
+implementation extends its existing patterns rather than the old settings page.
+
+- **Navigation.** Repository context is a workspace sidebar destination below
+  Commits, not a Workspace settings page. An amber count shows pending drafts
+  and source proposals. The page has **Overview** and **Notes** tabs; detail
+  opens in one right-side drawer (note, learning plan, discovery, usage or
+  advanced configuration) over the still-visible list. Esc closes it.
+- **Overview.** One status card states what is happening and the next action,
+  followed by Needs review, Learning plan, recently updated notes, Learning
+  opportunities (merged work and suggested topics not yet in the plan) and,
+  before the first plan, the suggested topics with a sticky selection bar.
+- **Notes.** Approved notes grouped by area, with an area rail, a Knowledge /
+  Lessons filter and a literal filter over title, summary and paths. An area is
+  the note's scope; several notes may share one.
+- **Run marking.** A lightning mark and a run line naming the run and model sit
+  on every action that starts an agent: Start discovery, Discover remaining
+  areas, Learn selected, Continue learning, Learn from this PR and an Explore
+  send. Approve, edit, dismiss and source approval never carry it and say that
+  no agent runs.
+- **Counts.** Questions answered, pages opened and notes approved stay separate;
+  there is no completion percentage. Run limits appear in the selection bar and
+  the learning drawer.
+- **Learning tasks.** Discovery and learning runs appear as a distinct Learning
+  type in Tasks. Selecting one opens its retained activity in Repository context.
+  These are read-only workflow views with Stop for the current run; they never
+  link to the interactive task screen or offer messages, queues, or steering.
+  Generic interactive input endpoints reject workflow-owned tasks.
+
+The prototype's own "proposed" list is implemented as follows:
+
+| Prototype proposal | Implementation |
+| --- | --- |
+| Sidebar count | Pending drafts plus pending source proposals from local notebook and plan reads |
+| Home Needs attention row | A Repository context card in the workspace Home list; it opens the review drawer |
+| Next question preview | The plan response names the question the next run will take |
+| Discover remaining areas | A continuation discovery run; at an unchanged baseline its report keeps the earlier topics and evidence and adds new ones |
+| Live activity line | Recorded source operations retain their completed, failed or limit status; a separate run indicator shows the last activity's age without claiming a finished read is still running |
+| Grouping notes by area | By the note's scope, whose first path prefix names the area |
+| Stopping discovery | Saves nothing; a submitted partial report is shown with the partial banner |
+| Explore & prepare context | A Home composer mode; the sent first message carries the explore instruction, and the transcript shows it as sent. Tasks have no explore flag, so the task header shows no mode chip |
+| Task draft card | Pending drafts whose recorded proposing task is this task, shown after its transcript; duplicate checks are not reported |
+
+The prototype has no remove, reset, scope-editing or per-note activity
+controls, so those are retired: a note is disabled instead of removed, nothing
+suppresses a note's regeneration, areas come only from learning, and usage
+reports each note's current-version finds and opens for every note at once.
+
+Supporting data the prototype assumes and the backend now records:
+
+- A suggested topic lists up to six learning questions; each learning run takes
+  one question. Plan questions are not started, unfinished (progress saved) or
+  answered. Learn selected can add topics to the current plan when they come
+  from the plan's discovery report.
+- A bounded run history keeps each finished run's outcome (answered, no reusable
+  note, source limit reached, stopped, failed or unfinished), operation counts
+  and proposed note IDs, so earlier runs stay inspectable after the next start.
+- Suggested external links keep the page and run that found them. Approval
+  chooses the boundary explicitly: this page only, or the documentation root
+  when the URL is a root. Declining removes the suggestion; neither starts a run.
+- Discovery records module-directory coverage computed by ByteQuay from the
+  paths the run listed or read, and lists what it did not survey.
+- Suggestions stay learnable at their recorded discovery revision after the
+  monitored branch moves; the plan and its runs read that revision.
+- Note versions and draft ages come from recorded approval and proposal times.
+  Notes approved before this change show no date.

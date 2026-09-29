@@ -14,8 +14,6 @@
 package com.bytequay.app.context;
 
 import com.bytequay.app.web.GlobalExceptionHandler;
-import com.bytequay.core.context.ContextMatch;
-import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -82,7 +80,7 @@ class TestRepositoryContextController
     }
 
     @Test
-    void configurationConvertsExplicitMatchesAndKeepsSourceAuthorityInTheService()
+    void configurationKeepsSourceAuthorityInTheService()
             throws Exception
     {
         when(service.configure(eq(WORKSPACE), eq(0L), any())).thenReturn(RepositoryNotebook.empty());
@@ -91,10 +89,6 @@ class TestRepositoryContextController
                         {
                           "expectedRevision":0,"useInReviews":false,"useInDevelopment":false,
                           "sources":[{"id":"iceberg","kind":"DOCUMENTATION_ROOT","url":"https://iceberg.apache.org/docs/latest/","origin":"GENERATED","discoveryEvidenceRef":"fake"}],
-                          "scopes":[
-                            {"id":"project","title":"Project","match":{"kind":"REPOSITORY"},"enabled":true,"discoveryEvidenceRef":"fake"},
-                            {"id":"path:plugin/trino-iceberg/","title":"Iceberg","match":{"kind":"SELECTED","pathPrefixes":["plugin/trino-iceberg/"],"terms":["Iceberg"]},"enabled":true}
-                          ],
                           "sourceEvidence":[{"id":"fake","excerpt":"Unverified supplied evidence"}],"revision":99
                         }
                         """))
@@ -106,10 +100,6 @@ class TestRepositoryContextController
         assertThat(edit.getValue().useInDevelopment()).contains(false);
         assertThat(edit.getValue().sources()).contains(ImmutableList.of(new EditContextConfiguration.Source(
                 "iceberg", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://iceberg.apache.org/docs/latest/")));
-        assertThat(edit.getValue().scopes()).contains(ImmutableList.of(
-                new ContextScope("project", "Project", new ContextMatch.Repository(), true, Optional.empty(), Optional.empty()),
-                new ContextScope("path:plugin/trino-iceberg/", "Iceberg",
-                        new ContextMatch.Selected(ImmutableList.of("plugin/trino-iceberg/"), ImmutableList.of("Iceberg")), true, Optional.empty(), Optional.empty())));
     }
 
     @Test
@@ -130,7 +120,6 @@ class TestRepositoryContextController
     {
         when(service.editEntry(eq(WORKSPACE), eq(4L), any())).thenReturn(RepositoryNotebook.empty());
         when(service.setEntryEnabled(WORKSPACE, 5, ENTRY_ID, false)).thenReturn(RepositoryNotebook.empty());
-        when(service.removeEntry(WORKSPACE, 6, ENTRY_ID)).thenReturn(RepositoryNotebook.empty());
 
         mvc.perform(put(ROOT + "/entries").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"expectedRevision\":4," + ENTRY_FIELDS + ",\"origin\":\"GENERATED\",\"version\":999,\"enabled\":false}"))
@@ -138,14 +127,10 @@ class TestRepositoryContextController
         mvc.perform(put(ROOT + "/entries/enabled").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"expectedRevision\":5,\"entryId\":\"" + ENTRY_ID + "\",\"enabled\":false}"))
                 .andExpect(status().isOk());
-        mvc.perform(delete(ROOT + "/entries").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"expectedRevision\":6,\"entryId\":\"" + ENTRY_ID + "\"}"))
-                .andExpect(status().isOk());
 
         verify(service).editEntry(WORKSPACE, 4, new EditContextEntry(ENTRY_ID, "path:plugin/trino-iceberg/", "Iceberg", "Connector overview",
                 "Read table metadata before planning.", ImmutableList.of(), ImmutableList.of()));
         verify(service).setEntryEnabled(WORKSPACE, 5, ENTRY_ID, false);
-        verify(service).removeEntry(WORKSPACE, 6, ENTRY_ID);
     }
 
     @Test
@@ -175,21 +160,17 @@ class TestRepositoryContextController
     }
 
     @Test
-    void lessonAndResetUseOnlyExplicitUserFields()
+    void lessonUsesOnlyExplicitUserFields()
             throws Exception
     {
         when(service.saveLesson(eq(WORKSPACE), eq(7L), any())).thenReturn(RepositoryNotebook.empty());
-        when(service.resetSuppression(WORKSPACE, 8, ImmutableList.of("project"))).thenReturn(RepositoryNotebook.empty());
 
         mvc.perform(post(ROOT + "/lessons").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"expectedRevision\":7," + LESSON_FIELDS + ",\"excerpt\":\"Invented source text\",\"origin\":\"GENERATED\",\"id\":\"chosen-id\"}"))
                 .andExpect(status().isOk());
-        mvc.perform(post(ROOT + "/reset").contentType(MediaType.APPLICATION_JSON).content("{\"expectedRevision\":8,\"scopeIds\":[\"project\"]}"))
-                .andExpect(status().isOk());
 
         verify(service).saveLesson(WORKSPACE, 7, new SaveContextLesson("project", "Metadata checks", "Check the snapshot", "Validate the current table snapshot.",
                 "review", "run", ImmutableList.of("E1"), Optional.of("message")));
-        verify(service).resetSuppression(WORKSPACE, 8, ImmutableList.of("project"));
     }
 
     @Test
@@ -203,8 +184,6 @@ class TestRepositoryContextController
                 new Mutation(HttpMethod.POST, "/drafts/approve", "\"draftId\":\"draft:iceberg\""),
                 new Mutation(HttpMethod.DELETE, "/drafts", "\"draftId\":\"draft:iceberg\""),
                 new Mutation(HttpMethod.PUT, "/entries/enabled", "\"entryId\":\"knowledge:project\",\"enabled\":false"),
-                new Mutation(HttpMethod.DELETE, "/entries", "\"entryId\":\"knowledge:project\""),
-                new Mutation(HttpMethod.POST, "/reset", "\"scopeIds\":[\"project\"]"),
                 new Mutation(HttpMethod.POST, "/lessons", LESSON_FIELDS))) {
             for (String revision : ImmutableList.of("", "\"expectedRevision\":null,", "\"expectedRevision\":-1,")) {
                 mvc.perform(request(mutation.method(), ROOT + mutation.route()).contentType(MediaType.APPLICATION_JSON)
@@ -216,14 +195,9 @@ class TestRepositoryContextController
     }
 
     @Test
-    void invalidScopeMatchesAndMissingEnabledFlagsAreRejected()
+    void missingEnabledFlagIsRejected()
             throws Exception
     {
-        for (String match : ImmutableList.of("{\"kind\":\"ALL\"}", "{\"kind\":\"SELECTED\"}", "{\"kind\":\"REPOSITORY\",\"terms\":[\"Iceberg\"]}")) {
-            mvc.perform(put(ROOT + "/configuration").contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"expectedRevision\":0,\"scopes\":[{\"id\":\"project\",\"title\":\"Project\",\"match\":" + match + ",\"enabled\":true}]}"))
-                    .andExpect(status().isBadRequest());
-        }
         mvc.perform(put(ROOT + "/entries/enabled").contentType(MediaType.APPLICATION_JSON).content("{\"expectedRevision\":0,\"entryId\":\"knowledge:project\"}"))
                 .andExpect(status().isBadRequest());
         verifyNoInteractions(service);
@@ -235,9 +209,6 @@ class TestRepositoryContextController
     {
         mvc.perform(put(ROOT + "/configuration").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"expectedRevision\":0,\"sources\":[{\"id\":\"docs\",\"kind\":\"DOCUMENTATION_ROOT\"}]}"))
-                .andExpect(status().isBadRequest());
-        mvc.perform(put(ROOT + "/configuration").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"expectedRevision\":0,\"scopes\":[{\"id\":\"project\",\"match\":{\"kind\":\"REPOSITORY\"},\"enabled\":true}]}"))
                 .andExpect(status().isBadRequest());
         mvc.perform(put(ROOT + "/entries").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"expectedRevision\":0,\"id\":\"knowledge:project\",\"claims\":[],\"sourceIds\":[]}"))

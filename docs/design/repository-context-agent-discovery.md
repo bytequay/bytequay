@@ -467,7 +467,7 @@ become necessary, design their privacy and aggregate-retention rule separately.
 
 ### 8.4 Location, API and example
 
-Add **Usage** inside Workspace settings → **Repository context**, with a
+Add **Usage** to the workspace's **Repository context** page, with a
 default last-30-days filter and **All retained** option. Show `trackingSince`
 and the counted period beside every summary. At the top, show eligible
 Development/PR review counts, tasks with context Off, tasks that received or

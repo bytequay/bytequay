@@ -15,16 +15,17 @@
 import { describe, expect, it } from 'vitest';
 import { reviewFixture, runningReviewFixture } from '../pulls/agent-review/fixtures/review';
 import type { AgentTaskActivityDto, CherryPickExecution } from '../types';
+import type { ContextRunDto } from '../repository-context/contracts';
 import { CI_RUN } from './fixtures/ciAutofix';
 import { previewTask } from './fixtures/previewBridge';
 import { viewerInitials } from './TaskListCards';
-import { cherryPickItem, ciFixItem, developmentItem, groupTaskList, reviewItem, type TaskListItem } from './taskList';
+import { cherryPickItem, ciFixItem, developmentItem, groupTaskList, learningItem, reviewItem, type TaskListItem } from './taskList';
 
 function item(key: string, at: string, label: TaskListItem['state']['label'] = 'Idle'): TaskListItem {
   return {
     key, type: 'dev', title: key, at, message: null, links: [], change: null, progress: null,
     state: { label, tone: 'green', spinning: false, reason: null },
-    task: null, review: null, execution: null, run: null,
+    task: null, review: null, execution: null, run: null, contextRun: null,
   };
 }
 
@@ -91,6 +92,17 @@ describe('task list days', () => {
 });
 
 describe('task list items', () => {
+  it('lists discovery and learning as read-only work without an interactive task', () => {
+    const run: ContextRunDto = { sequence: 1, taskId: 'research', mode: 'DISCOVER', requestedAt: '2026-09-29T09:00:00Z', endedAt: null,
+      question: null, pullRequest: null, outcome: 'RUNNING', sourceOperations: 4, documentOpens: 0, noteIds: [], detail: null,
+      activity: [{ at: '2026-09-29T09:01:00Z', text: 'Read pom.xml', tone: 'DONE' }] };
+    expect(learningItem(run)).toMatchObject({ type: 'learning', title: 'Discovery run 1', task: null, contextRun: run,
+      state: { label: 'Running' }, change: 'Running · read-only' });
+    const finished = learningItem({ ...run, mode: 'LEARN', outcome: 'STOPPED', endedAt: '2026-09-29T09:05:00Z' });
+    expect(finished).toMatchObject({ title: 'Learning run 1', task: null, at: '2026-09-29T09:05:00Z', state: { label: 'Finished', spinning: false } });
+    expect(finished.change).toContain('Stopped');
+  });
+
   it('names a development task by its lane, or You, and leaves a pull request to the links', () => {
     const task = { ...previewTask('workspace-1', 'task-1'), laneId: 'claude' };
     const activity: AgentTaskActivityDto = {

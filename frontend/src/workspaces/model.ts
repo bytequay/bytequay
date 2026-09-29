@@ -15,7 +15,7 @@
 import type { WorkspaceDto } from '../types';
 
 export type WorkspaceTab =
-  | 'home' | 'tasks' | 'prs' | 'issues' | 'jira' | 'commits';
+  | 'home' | 'tasks' | 'prs' | 'issues' | 'jira' | 'commits' | 'context';
 
 export function workspaceIsUpdating(workspace: WorkspaceDto): boolean {
   return !workspaceHasReadableCode(workspace);
@@ -103,6 +103,15 @@ export function workspaceReviewTaskRoute(workspaceId: string, reviewId: string):
   return `${workspaceRoute(workspaceId, 'tasks')}/review/${encodeURIComponent(reviewId)}`;
 }
 
+/** Home and a task's draft card open the review drawer on that draft. */
+export function workspaceContextDraftRoute(workspaceId: string, draftId: string): string {
+  return `${workspaceRoute(workspaceId, 'context')}/draft/${encodeURIComponent(draftId)}`;
+}
+
+export function workspaceContextRunRoute(workspaceId: string, taskId: string): string {
+  return `${workspaceRoute(workspaceId, 'context')}/run/${encodeURIComponent(taskId)}`;
+}
+
 export function workspaceLocationFromRoute(hash: string): {
   workspaceId: string;
   tab: WorkspaceTab | null;
@@ -111,8 +120,10 @@ export function workspaceLocationFromRoute(hash: string): {
   agentTaskId: string | null;
   reviewId?: string;
   sourceIssueNumber?: number;
+  contextDraftId?: string;
+  contextRunId?: string;
 } | null {
-  const match = /^#\/workspaces\/([^/?]+)(?:\/(home|tasks|prs|issues|jira|commits)(?:\/(?:agent\/([^/?]+)|(\d+)|review\/([^/?]+)|issue\/(\d+)))?)?(?:\?[^#]*)?$/
+  const match = /^#\/workspaces\/([^/?]+)(?:\/(home|tasks|prs|issues|jira|commits|context)(?:\/(?:agent\/([^/?]+)|(\d+)|review\/([^/?]+)|issue\/(\d+)|draft\/([^/?]+)|run\/([^/?]+)))?)?(?:\?[^#]*)?$/
     .exec(hash);
   if (!match) return null;
   const tab = match[2] as WorkspaceTab | undefined;
@@ -120,6 +131,10 @@ export function workspaceLocationFromRoute(hash: string): {
   const agentTaskId = match[3];
   const reviewId = match[5];
   const sourceIssueNumber = match[6] === undefined ? undefined : Number(match[6]);
+  const contextDraftId = match[7];
+  if (contextDraftId !== undefined && tab !== 'context') return null;
+  const contextRunId = match[8];
+  if (contextRunId !== undefined && tab !== 'context') return null;
   if (sourceIssueNumber !== undefined && (tab !== 'tasks' || !Number.isSafeInteger(sourceIssueNumber) || sourceIssueNumber < 1)) return null;
   const number = match[4] ? Number(match[4]) : null;
   if (number !== null && (number < 1 || tab !== 'prs' && tab !== 'issues')) return null;
@@ -134,6 +149,8 @@ export function workspaceLocationFromRoute(hash: string): {
       agentTaskId: agentTaskId === undefined ? null : decodeURIComponent(agentTaskId),
       ...(reviewId === undefined ? {} : { reviewId: decodeURIComponent(reviewId) }),
       ...(sourceIssueNumber === undefined ? {} : { sourceIssueNumber }),
+      ...(contextDraftId === undefined ? {} : { contextDraftId: decodeURIComponent(contextDraftId) }),
+      ...(contextRunId === undefined ? {} : { contextRunId: decodeURIComponent(contextRunId) }),
     };
   }
   catch {

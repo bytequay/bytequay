@@ -116,6 +116,6 @@ class TestRepositoryContextMatcher
 
     private static RepositoryNotebook notebook(List<ContextScope> scopes, List<ContextEntry> entries)
     {
-        return new RepositoryNotebook(1, 1, true, ImmutableList.of(), scopes, entries, ImmutableList.of(), ImmutableList.of(), Optional.empty());
+        return new RepositoryNotebook(1, 1, true, ImmutableList.of(), scopes, entries, ImmutableList.of(), Optional.empty());
     }
 }

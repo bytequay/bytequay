@@ -241,7 +241,6 @@ public class RepositoryContextPreparation
                 for (String id : result.noteIds()) {
                     GeneratedEntry entry = proposals.get(id);
                     checkArgument(entry.scopeId().equals(scope.id()), "Generated entry belongs to another scope");
-                    checkArgument(!current.suppressedKnowledgeIds().contains(id), "Generated note was removed by the user");
                     checkArgument(current.pendingDrafts().stream().noneMatch(draft -> draft.entry().id().equals(id)),
                             "Knowledge note already has a pending proposal");
                     Optional<ContextEntry> prior = current.entries().stream().filter(note -> note.id().equals(id)).findFirst();
@@ -400,7 +399,6 @@ public class RepositoryContextPreparation
     {
         Set<String> retained = RepositoryContextService.retainedSources(current.sources(), scopes, entries, drafts);
         return new RepositoryNotebook(1, revision, current.useInReviews(), current.useInDevelopment(), current.sources(), scopes, entries, drafts,
-                current.suppressedKnowledgeIds(),
                 evidence.stream().filter(source -> retained.contains(source.id())).collect(toImmutableList()), active);
     }
 

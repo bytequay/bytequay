@@ -81,12 +81,17 @@ class TestContextAgentDiscoveryTools
         when(workspaces.requireReadableRepository(WORKSPACE)).thenReturn(new WorkspaceRepositoryContext(WORKSPACE,
                 Path.of("/tmp/repository"), 1, REPO, OptionalLong.empty(), REPO, "origin", "origin", "main", ImmutableList.of()));
         when(unitOfWork.execute(any())).thenAnswer(call -> ((AgentUnitOfWork.Work<?>) call.getArgument(0)).run());
-        builds.save(Optional.empty(), new ContextBuild(1, "request", "sha256:" + "b".repeat(64), WORKSPACE,
-                TASK.toString(), new RepositoryIdentity("owner", "repository"), 1, REPO, SHA, "branch", "codex",
-                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(), 0, Instant.EPOCH, ContextBuild.Capture.empty(), ContextBuild.Mode.DISCOVER, Optional.empty()));
+        builds.save(Optional.empty(), build(Optional.empty()));
         bridge = new ContextAgentDiscoveryTools(builds, service, tasks, workspaces, baseline, reports, unitOfWork, mapper, clock)
                 .bridge(TASK.toString()).orElseThrow();
+        when(baseline.directory(any(), eq(1L), eq(SHA), eq(""), eq(0))).thenReturn(new ContextBaselineReader.Directory("", SHA, ImmutableList.of(
+                new ContextBaselineReader.TreeEntry("deep", "DIRECTORY", "d".repeat(40)), new ContextBaselineReader.TreeEntry(".github", "DIRECTORY", "e".repeat(40)),
+                new ContextBaselineReader.TreeEntry("README.md", "FILE", "f".repeat(40))), 0, false));
+        when(baseline.directory(any(), eq(1L), eq(SHA), eq("deep"), eq(0))).thenReturn(new ContextBaselineReader.Directory("deep", SHA, ImmutableList.of(
+                new ContextBaselineReader.TreeEntry("deep/trino-iceberg", "DIRECTORY", "1".repeat(40)),
+                new ContextBaselineReader.TreeEntry("deep/trino-hive", "DIRECTORY", "2".repeat(40))), 0, false));
+        when(baseline.directory(any(), eq(1L), eq(SHA), eq("deep/trino-iceberg"), eq(0))).thenReturn(new ContextBaselineReader.Directory("deep/trino-iceberg", SHA,
+                ImmutableList.of(new ContextBaselineReader.TreeEntry("deep/trino-iceberg/pom.xml", "FILE", "3".repeat(40))), 0, false));
         when(baseline.read(any(), eq(1L), eq(SHA), eq("README.md"), eq(1), eq(Optional.empty())))
                 .thenReturn(new ContextBaselineReader.Read(new ContextReference.RepositoryFile(1, REPO, "README.md", SHA),
                         SHA, Instant.EPOCH, 1, 1, 1, "1  Iceberg connector uses snapshots.\n", false));
@@ -118,8 +123,53 @@ class TestContextAgentDiscoveryTools
         assertThat(saved.evidence()).extracting(ContextDiscoveryReport.Evidence::readId).containsExactly(readId);
         assertThat(saved.evidence().getFirst().path()).isEqualTo("README.md");
         assertThat(current().capture().result()).isPresent();
+        assertThat(saved.coverage().areas()).containsExactly(new ContextDiscoveryReport.Area("deep/", 0, 2));
+        assertThat(saved.coverage().unsurveyed()).containsExactly("deep/trino-iceberg/", "deep/trino-hive/");
+        assertThat(current().capture().activity()).extracting(ContextBuild.Activity::text)
+                .containsExactly("Searched file names for “iceberg” · 1 match", "Read README.md", "Saved 1 suggested topic");
         assertThat(read("{\"kind\":\"READ\",\"path\":\"README.md\"}").path("error").path("message").textValue())
                 .contains("already submitted");
+    }
+
+    @Test
+    void countsListedAndReadModuleDirectoriesAsSurveyed()
+            throws Exception
+    {
+        assertThat(read("{\"kind\":\"LIST\",\"path\":\"deep/trino-iceberg\"}").has("error")).isFalse();
+        String readId = read("{\"kind\":\"READ\",\"path\":\"README.md\"}").path("readId").textValue();
+
+        submit(report(readId));
+
+        ContextDiscoveryReport.Coverage coverage = reports.find(WORKSPACE).orElseThrow().coverage();
+        assertThat(coverage.areas()).containsExactly(new ContextDiscoveryReport.Area("deep/", 1, 2));
+        assertThat(coverage.unsurveyed()).containsExactly("deep/trino-hive/");
+        assertThat(current().capture().activity().getFirst().text()).isEqualTo("Listed deep/trino-iceberg/ · 0 directories");
+    }
+
+    @Test
+    void continuationKeepsEarlierTopicsAndEvidenceUnderTheSameReport()
+            throws Exception
+    {
+        String firstRead = read("{\"kind\":\"READ\",\"path\":\"README.md\"}").path("readId").textValue();
+        submit(report(firstRead));
+        ContextDiscoveryReport first = reports.find(WORKSPACE).orElseThrow();
+        builds.save(Optional.of(current()), build(Optional.of(first.id())));
+        bridge = new ContextAgentDiscoveryTools(builds, service, tasks, workspaces, baseline, reports, unitOfWork, mapper, clock)
+                .bridge(TASK.toString()).orElseThrow();
+        assertThat(read("{\"kind\":\"STATUS\"}").path("previousDiscovery").path("coverage").path("unsurveyed").size()).isEqualTo(2);
+        assertThat(read("{\"kind\":\"LIST\",\"path\":\"deep/trino-iceberg\"}").has("error")).isFalse();
+        String secondRead = read("{\"kind\":\"READ\",\"path\":\"README.md\"}").path("readId").textValue();
+
+        assertThat(submit(report(secondRead)).path("topicCount").intValue()).isEqualTo(2);
+
+        ContextDiscoveryReport merged = reports.find(WORKSPACE).orElseThrow();
+        assertThat(merged.id()).isEqualTo(first.id());
+        assertThat(merged.topics()).extracting(ContextDiscoveryReport.Topic::id).containsExactly("topic:1", "topic:2");
+        assertThat(merged.topics().get(1).sourceIds()).containsExactly("source:2");
+        assertThat(merged.sources()).extracting(ContextDiscoveryReport.Source::id).containsExactly("source:1", "source:2");
+        assertThat(merged.evidence()).extracting(ContextDiscoveryReport.Evidence::readId).containsExactly(firstRead, secondRead);
+        assertThat(merged.coverage().areas()).containsExactly(new ContextDiscoveryReport.Area("deep/", 1, 2));
+        assertThat(current().capture().activity().getLast().text()).isEqualTo("Saved 1 more suggested topic");
     }
 
     @Test
@@ -149,6 +199,7 @@ class TestContextAgentDiscoveryTools
         }
         assertThat(read("{\"kind\":\"SEARCH_PATHS\",\"query\":\"iceberg\"}").path("error").path("message").textValue())
                 .contains("limit reached");
+        assertThat(current().capture().activity()).extracting(ContextBuild.Activity::tone).containsOnlyOnce(ContextBuild.Activity.Tone.LIMIT);
         assertThat(submit(report(readId)).path("saved").booleanValue()).isTrue();
         assertThat(reports.find(WORKSPACE).orElseThrow().partial()).isTrue();
     }
@@ -156,12 +207,20 @@ class TestContextAgentDiscoveryTools
     private String report(String readId)
     {
         return """
-                {"report":{"outline":"A connector project.","topics":[{"title":"Iceberg snapshots","question":"How are snapshots read?",
+                {"report":{"outline":"A connector project.","topics":[{"title":"Iceberg snapshots","questions":["How are snapshots read?"],
                 "paths":["deep/trino-iceberg/"],"sourceIds":["source:1"],"evidenceReadIds":["%s"],"why":"Snapshot behavior matters."}],
                 "sources":[{"kind":"REPOSITORY_FILE","location":"README.md","title":"Project overview",
                 "evidenceReadIds":["%s"],"why":"Links to the connector."}],"gaps":[],"remaining":["Inspect delete semantics"],
                 "partial":true}}
                 """.formatted(readId, readId);
+    }
+
+    private static ContextBuild build(Optional<String> continuesReport)
+    {
+        return new ContextBuild(1, "request", "sha256:" + "b".repeat(64), WORKSPACE,
+                TASK.toString(), new RepositoryIdentity("owner", "repository"), 1, REPO, SHA, "branch", "codex",
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), ImmutableList.of(), ImmutableList.of(),
+                ImmutableList.of(), 0, Instant.EPOCH, ContextBuild.Capture.empty(), ContextBuild.Mode.DISCOVER, Optional.empty(), continuesReport);
     }
 
     private ContextBuild current()

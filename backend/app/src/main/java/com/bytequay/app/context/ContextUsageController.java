@@ -34,16 +34,8 @@ public class ContextUsageController
     }
 
     @GetMapping
-    public ContextUsageService.Overview overview(@PathVariable String workspaceId,
-            @RequestParam(defaultValue = "30d") String window, @RequestParam(defaultValue = "0") int page)
+    public ContextUsageService.Overview overview(@PathVariable String workspaceId, @RequestParam(defaultValue = "30d") String window)
     {
-        return usage.overview(workspaceId, window, page);
-    }
-
-    @GetMapping("/activities")
-    public ContextUsageService.Activities activities(@PathVariable String workspaceId, @RequestParam String entryId,
-            @RequestParam(defaultValue = "30d") String window, @RequestParam(defaultValue = "0") int page)
-    {
-        return usage.activities(workspaceId, entryId, window, page);
+        return usage.overview(workspaceId, window);
     }
 }

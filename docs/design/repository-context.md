@@ -2,7 +2,9 @@
 
 The approved [discover, learn, and use refactor](repository-context-refactor.md)
 supersedes automatic note selection, direct generated-note activation,
-one-note-per-scope, and manual-first discovery here. Delivery status is in the
+one-note-per-scope, and manual-first discovery here. It also retires note removal
+with its regeneration suppression and Reset, manual scope editing, and the
+per-note usage activity list; disabling a note replaces removal. Delivery status is in the
 [refactor checkpoints](repository-context-impl-tmp.md#refactor-development-checkpoints).
 Retained detail below governs unchanged source, ownership, snapshot, and receipt boundaries.
 
@@ -84,7 +86,7 @@ tasks and active reviews. It does not give agents notebook write authority.
 
 ### Setting and comparison
 
-**Workspace settings → Repository context → Use repository context in reviews**
+**Repository context → Used by agents → PR reviews**
 is **on by default** in the shipped feature after its acceptance gates pass.
 The discovery extension adds a separate default-on **Use in development**
 switch for accepted development turns. There are no separate
@@ -193,7 +195,7 @@ rewrite shared knowledge as though it had already landed on the default branch.
 
 Learn and Refresh knowledge are the explicit cold-start actions now being
 implemented and verified; the checklist records their remaining gates. Their flow belongs
-in **Workspace settings → Repository context**, independently of whether automatic
+in the workspace's **Repository context** page, independently of whether automatic
 review use is On or Off.
 
 The user selects knowledge scopes, including the existing Project overview
@@ -249,8 +251,9 @@ reconciliation pass.
 This is a restricted research assignment, not a claim that every native tool is
 read-only: the existing review profile permits local scratch/experiment writes.
 It grants no commit, push, GitHub publication, or credential-read authority.
-The task is visible in the ordinary task surface from admission onward, with its
-existing transcript and Stop action. There is no separate build-job engine or
+The task is visible as a Learning item from admission onward. It opens read-only
+activity in Repository context, with Stop for the current run and no interactive
+task route, messages or steering. There is no separate build-job engine or
 background learning scheduler. Opening the app, workspace or settings, startup
 recovery, and source synchronization never start or resume a learning task.
 
@@ -1769,7 +1772,9 @@ must prevent complete coverage, through existing reporting rules.
 
 ### 7.3 Friendly presentation
 
-The first implemented UI is **Workspace settings → Repository context**. It
+The first implemented UI was **Workspace settings → Repository context**; the
+workspace's **Repository context** page in the refactor's
+[section 8](repository-context-refactor.md#8-user-interface) replaced it. It
 contains the default-on Use repository context in reviews switch, Knowledge and
 Saved lessons, matching scopes, and registered documentation sources. The switch
 applies to new runs; turning it off preserves notes and historical run snapshots.

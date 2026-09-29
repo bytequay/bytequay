@@ -45,7 +45,7 @@ class TestContextUsageService
     private static final String SCOPE = "iceberg";
 
     @Test
-    void countsConfirmedUseByCurrentVersionAndShowsMissingDemandSeparately()
+    void countsConfirmedFindsAndOpensByCurrentVersionAndListsEveryNote()
     {
         ContextScope component = new ContextScope(SCOPE, "Iceberg", new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/"), ImmutableList.of()),
                 true, Optional.empty(), Optional.empty());
@@ -54,7 +54,7 @@ class TestContextUsageService
         ContextEntry disabled = new ContextEntry(ContextEntry.knowledgeId(SCOPE), ContextEntryKind.KNOWLEDGE, SCOPE, "Overview", "Summary", "Body",
                 ImmutableList.of(), ImmutableList.of(), ContextEntryOrigin.USER, false, 1);
         RepositoryNotebook notebook = new RepositoryNotebook(1, 2, true, true, ImmutableList.of(),
-                ImmutableList.of(ContextScope.project(), component), ImmutableList.of(disabled, current), ImmutableList.of(), ImmutableList.of(), Optional.empty());
+                ImmutableList.of(ContextScope.project(), component), ImmutableList.of(disabled, current), ImmutableList.of(), Optional.empty());
         RepositoryContextService notebooks = mock(RepositoryContextService.class);
         ContextUsageStore store = mock(ContextUsageStore.class);
         when(notebooks.getNotebook("workspace")).thenReturn(notebook);
@@ -76,24 +76,17 @@ class TestContextUsageService
         }).when(store).forEach(eq("workspace"), any(), any());
 
         ContextUsageService.Overview result = new ContextUsageService(store, notebooks, Clock.fixed(NOW, ZoneOffset.UTC))
-                .overview("workspace", "all", 0);
+                .overview("workspace", "all");
 
         assertThat(result.summary().eligibleDevelopmentTasks()).isEqualTo(2);
-        assertThat(result.summary().tasksProvidedOrOpened()).isEqualTo(1);
-        assertThat(result.summary().searchesWithNoMatchingScope()).isEqualTo(1);
-        assertThat(result.summary().scopesDemandedWhileMissing()).isEqualTo(1);
-        assertThat(result.summary().scopesStillMissingAfterDemand()).isZero();
+        assertThat(result.summary().developmentTasksFoundOrOpened()).isEqualTo(1);
+        assertThat(result.summary().contextOffTasks()).isZero();
         ContextUsageService.EntryRow row = result.entries().stream().filter(entry -> entry.entryId().equals(ENTRY)).findFirst().orElseThrow();
         assertThat(row.currentVersion()).contains(2L);
-        assertThat(row.currentVersionCounts().selectedTasks()).isEqualTo(1);
-        assertThat(row.currentVersionCounts().providedTasks()).isZero();
-        assertThat(row.currentVersionCounts().searchHits()).isEqualTo(1);
-        assertThat(row.allVersionCounts().providedTasks()).isEqualTo(1);
-        assertThat(result.scopeGaps()).singleElement().satisfies(gap -> {
-            assertThat(gap.currentPreparation()).isEqualTo(ContextUsageEvent.Preparation.NOT_PREPARED);
-            assertThat(gap.currentKnowledge()).isEqualTo(ContextUsageService.Knowledge.PRESENT);
-            assertThat(gap.observedPreparationCounts()).containsEntry("EMPTY", 1);
-        });
+        assertThat(row.foundTasks()).isEqualTo(1);
+        assertThat(row.openedTasks()).isZero();
+        assertThat(row.lastConfirmedUseAt()).contains(NOW.minusSeconds(60));
+        assertThat(result.entries()).extracting(ContextUsageService.EntryRow::entryId).containsExactly(ENTRY, ContextEntry.knowledgeId(SCOPE));
     }
 
     private static ContextUsageEvent event(String task, ContextUsageEvent.Stage stage, ContextUsageEvent.Delivery delivery,

@@ -18,11 +18,10 @@ import {
   parseConfigureRepositoryContextRequest,
   parseContextBuildView,
   parseContextDiscoveryReport,
-  parseContextLearningPlan,
-  parseContextUsageActivities,
-  parseContextUsageEntryId,
+  parseContextBaseline,
+  parseContextLearningPlanView,
+  parseContextTimes,
   parseContextUsageOverview,
-  parseContextUsagePage,
   parseContextUsageWindow,
   parseContextDraftActionRequest,
   parseEditContextDraftRequest,
@@ -35,18 +34,18 @@ import {
   parseContinueContextLearningRequest,
   parseDiscardContextLearningPlanRequest,
   parseAllowContextLearningSourceRequest,
+  parseDeclineContextLearningSourceRequest,
   parseContextMergedCandidates,
   parseLearnContextMergedCandidateRequest,
-  type ActiveContextPreparationDto,
   type ContextBuildViewDto,
   type ContextDiscoveryReportDto,
   type ContextLearningPlanDto,
   type ContextMergedCandidateDto,
   type ContextDeliveryDto,
   type ContextHistoryReadDto,
-  type ContextUsageActivitiesDto,
+  type ContextRunDto,
+  type ContextTimesDto,
   type ContextUsageOverviewDto,
-  type ContextPreparationResultDto,
   type ContextSourceDto,
   type RepositoryNotebookDto,
   type ReviewContextSnapshotDto,
@@ -54,28 +53,18 @@ import {
 
 const source: ContextSourceDto = { id: 'docs', kind: 'DOCUMENTATION_ROOT', url: 'https://example.com/docs/', origin: 'USER', discoveryEvidenceRef: null };
 const notebook: RepositoryNotebookDto = {
-  schemaVersion: 1, revision: 7, useInReviews: true, useInDevelopment: true, sources: [source], activePreparation: null,
-  scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, preparation: null, discoveryEvidenceRef: null }],
+  schemaVersion: 1, revision: 7, useInReviews: true, useInDevelopment: true, sources: [source],
+  scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, discoveryEvidenceRef: null }],
   entries: [{ id: 'knowledge:project', kind: 'KNOWLEDGE', scopeId: 'project', title: 'Project', summary: 'Summary', body: 'Keep the condition.',
     claims: [{ text: 'Conditional claim', basis: 'INFERENCE', sourceIds: ['source'] }], sourceIds: ['source'], origin: 'GENERATED', enabled: false, version: 2 }],
-  pendingDrafts: [], suppressedKnowledgeIds: [], sourceEvidence: [{ id: 'source', reference: { kind: 'DOCUMENT', sourceId: 'docs', url: 'https://example.com/docs/page' },
-    provenance: 'Captured page', excerpt: 'Original text', capture: 'BYTEQUAY_READ', retrievedAt: null, contentHash: null, version: null, truncated: true }],
+  pendingDrafts: [], sourceEvidence: [{ id: 'source', reference: { kind: 'DOCUMENT', sourceId: 'docs', url: 'https://example.com/docs/page' },
+    provenance: 'Captured page', capture: 'BYTEQUAY_READ', retrievedAt: null }],
 };
 const usage: ContextUsageOverviewDto = {
-  trackingSince: '2026-09-01T00:00:00Z', window: '30d', coverage: 'RETAINED_TASKS_AND_REVIEWS',
-  summary: { eligibleDevelopmentTasks: 2, eligibleReviewRuns: 1, contextOffTasks: 1, tasksProvidedOrOpened: 2,
-    activeNotesWithoutConfirmedDeliveryOrOpen: 0, scopesDemandedWhileMissing: 1, scopesStillMissingAfterDemand: 1,
-    searchesWithNoMatchingScope: 1, searchesWithScopeButNoNote: 2 },
-  byTaskAndNoteKind: [{ taskKind: 'DEVELOPMENT', noteKind: 'KNOWLEDGE', providedOrOpenedTasks: 1, foundTasks: 1, openedTasks: 1 }],
-  entries: [{ entryId: 'knowledge:project', kind: 'KNOWLEDGE', scopeId: 'project', title: 'Project', currentVersion: 2, currentEnabled: false,
-    currentVersionCounts: { selectedTasks: 2, providedTasks: 1, searchHits: 1, foundTasks: 1, openedTasks: 1, citedReviews: 0 },
-    allVersionCounts: { providedTasks: 2, foundTasks: 1, openedTasks: 1 }, lastConfirmedUseAt: '2026-09-02T00:00:00Z' }],
-  scopeGaps: [{ scopeId: 'iceberg', demandingTasks: 1, observedPreparationCounts: { NOT_PREPARED: 1, EMPTY: 0, FAILED: 0, READY: 0 },
-    currentPreparation: 'NOT_PREPARED', currentKnowledge: 'MISSING' }], hasMoreEntries: false, hasMoreScopeGaps: false,
+  trackingSince: '2026-09-01T00:00:00Z', window: '30d',
+  summary: { eligibleDevelopmentTasks: 2, eligibleReviewRuns: 1, contextOffTasks: 1, developmentTasksFoundOrOpened: 1, reviewRunsFoundOrOpened: 0 },
+  entries: [{ entryId: 'knowledge:project', title: 'Project', currentVersion: 2, foundTasks: 1, openedTasks: 1, lastConfirmedUseAt: '2026-09-02T00:00:00Z' }],
 };
-const activities: ContextUsageActivitiesDto = { entryId: 'knowledge:project', activities: [{ taskId: 'task', reviewRunId: null, turnId: 'turn',
-  taskKind: 'DEVELOPMENT', entryVersion: 2, stage: 'OPENED', delivery: 'CONFIRMED', occurredAt: '2026-09-02T00:00:00Z',
-  receiptRef: 'context-read:1' }], hasMore: false };
 const snapshot: ReviewContextSnapshotDto = {
   id: 'snapshot', enabled: true, notebookRevision: 7, repositoryId: 42, baselineSha: 'a'.repeat(40),
   bootstrap: { text: 'Prepared only', digest: 'sha256:packet', utf8Bytes: 13 },
@@ -106,30 +95,20 @@ describe('repository context contracts', () => {
   it('parses usage without treating an absent, removed or disabled note as confirmed use', () => {
     expect(parseContextUsageOverview(usage, '30d')).toEqual(usage);
     expect(parseContextUsageOverview({ ...usage, trackingSince: null,
-      entries: [{ ...usage.entries[0], currentVersion: null, currentEnabled: null, lastConfirmedUseAt: null }] }, '30d').entries[0].currentVersion).toBeNull();
-    expect(parseContextUsageActivities(activities, activities.entryId)).toEqual(activities);
+      entries: [{ ...usage.entries[0], currentVersion: null, foundTasks: 0, openedTasks: 0, lastConfirmedUseAt: null }] }, '30d').entries[0].currentVersion)
+      .toBeNull();
     expect(parseContextUsageWindow('all')).toBe('all');
-    expect(parseContextUsagePage(2)).toBe(2);
-    expect(parseContextUsageEntryId('lesson:field-ids')).toBe('lesson:field-ids');
   });
 
   it('rejects malformed usage identities, evidence stages and counts', () => {
-    for (const malformed of [{ ...usage, window: 'all' }, { ...usage, trackingSince: undefined }, { ...usage, coverage: 'EVERY_TASK' },
-      { ...usage, summary: { ...usage.summary, searchesWithNoMatchingScope: undefined } },
+    for (const malformed of [{ ...usage, window: 'all' }, { ...usage, trackingSince: undefined },
+      { ...usage, summary: { ...usage.summary, developmentTasksFoundOrOpened: undefined } },
       { ...usage, summary: { ...usage.summary, eligibleReviewRuns: -1 } },
       { ...usage, entries: [{ ...usage.entries[0], currentVersion: 0 }] },
       { ...usage, entries: [{ ...usage.entries[0], currentVersion: null }] },
-      { ...usage, entries: [{ ...usage.entries[0], currentEnabled: undefined }] },
-      { ...usage, scopeGaps: [{ ...usage.scopeGaps[0], currentKnowledge: 'GUESS' }] }])
+      { ...usage, entries: [{ ...usage.entries[0], foundTasks: -1 }] }])
       expect(() => parseContextUsageOverview(malformed, '30d')).toThrow('Malformed repository context');
-    for (const malformed of [{ ...activities, entryId: 'other' },
-      { ...activities, activities: [{ ...activities.activities[0], stage: 'HELPED' }] },
-      { ...activities, activities: [{ ...activities.activities[0], delivery: 'INFERRED' }] },
-      { ...activities, activities: [{ ...activities.activities[0], reviewRunId: undefined }] }])
-      expect(() => parseContextUsageActivities(malformed, activities.entryId)).toThrow('Malformed repository context');
     for (const bad of ['month', null]) expect(() => parseContextUsageWindow(bad)).toThrow();
-    for (const bad of [-1, 0.5]) expect(() => parseContextUsagePage(bad)).toThrow();
-    for (const bad of ['', 'x'.repeat(1201)]) expect(() => parseContextUsageEntryId(bad)).toThrow();
   });
 
   it('retains ownership, disabled notes, conditional claims and incomplete source provenance', () => {
@@ -139,8 +118,7 @@ describe('repository context contracts', () => {
   });
 
   it('keeps pending drafts separate from active entries and validates draft edits', () => {
-    const draft = { id: 'draft:one', entry: { ...notebook.entries[0], enabled: true }, replacesVersion: 2,
-      baselineSha: 'a'.repeat(40), explanation: 'Compared the repository source.' };
+    const draft = { id: 'draft:one', entry: { ...notebook.entries[0], enabled: true }, replacesVersion: 2, baselineSha: 'a'.repeat(40) };
     expect(parseRepositoryNotebook({ ...notebook, pendingDrafts: [draft] }).pendingDrafts).toEqual([draft]);
     expect(() => parseRepositoryNotebook({ ...notebook, pendingDrafts: undefined })).toThrow('pending drafts');
     expect(parseRepositoryNotebook({ ...notebook, pendingDrafts: [{ ...draft, entry: { ...draft.entry, kind: 'MEMORY' } }] }).pendingDrafts[0].entry.kind)
@@ -191,13 +169,9 @@ describe('repository context contracts', () => {
     }
   });
 
-  it('retains merged PR and closed issue receipts in both the run and shared preparation', () => {
+  it('retains merged PR and closed issue receipts in the run', () => {
     const sourceReads = [merged, closed];
     expect(parseReviewContextSnapshot({ ...snapshot, sourceReads })?.sourceReads).toEqual(sourceReads);
-    const preparation: ContextPreparationResultDto = { attemptId: 'history-attempt', inputFingerprint: snapshot.inputFingerprints[0],
-      outcome: 'READY', noteIds: ['knowledge:project'], checkedReads: sourceReads, explanation: 'A conditional lesson with retained history.' };
-    const parsed = parseRepositoryNotebook({ ...notebook, scopes: [{ ...notebook.scopes[0], preparation }] });
-    expect(parsed.scopes[0].preparation?.checkedReads).toEqual(sourceReads);
   });
 
   it('rejects history receipts whose reference, state or retained evidence disagree', () => {
@@ -208,19 +182,6 @@ describe('repository context contracts', () => {
       { ...merged, refreshFailed: 'false' }, { ...merged, sourceUpdatedAt: 12 }, { ...merged, utf8Bytes: -1 },
       { ...merged, evidenceRef: null }, { ...merged, evidenceRef: '' },
     ]) expect(() => parseReviewContextSnapshot({ ...snapshot, sourceReads: [read] })).toThrow('Malformed repository context');
-  });
-
-  it('does not present history or incomplete source reads as an empty preparation', () => {
-    const document = { ...snapshot.sourceReads[1], truncated: false, refreshFailed: false };
-    const preparation: ContextPreparationResultDto = { attemptId: 'empty-attempt', inputFingerprint: { ...snapshot.inputFingerprints[0], digest: 'sha256:observed', gaps: [] },
-      outcome: 'EMPTY', noteIds: [], checkedReads: [document], explanation: 'No useful note from the checked document.' };
-    const saved = (checkedReads: unknown[]) => ({ ...notebook,
-      scopes: [{ ...notebook.scopes[0], preparation: { ...preparation, checkedReads } }] });
-    expect(parseRepositoryNotebook(saved([document])).scopes[0].preparation?.outcome).toBe('EMPTY');
-    for (const read of [merged, closed, { ...snapshot.sourceReads[0], truncated: true },
-      { ...document, truncated: true }, { ...document, refreshFailed: true }]) {
-      expect(() => parseRepositoryNotebook(saved([read]))).toThrow('empty preparation has incomplete or historical source reads');
-    }
   });
 
   it('retains completed brief contributions and exact delivery identities with receipt-derived state', () => {
@@ -311,106 +272,104 @@ describe('repository context contracts', () => {
       .toEqual({ expectedRevision: 7, useInDevelopment: false });
     expect(() => parseConfigureRepositoryContextRequest({ useInReviews: false })).toThrow('expected revision');
     expect(() => parseConfigureRepositoryContextRequest({ expectedRevision: 7, sources: [source] })).toThrow('origin');
+    expect(() => parseConfigureRepositoryContextRequest({ expectedRevision: 7, scopes: [] })).toThrow('unsupported request field');
     expect(() => parseEditRepositoryContextEntryRequest({ expectedRevision: 7, ...notebook.entries[0] })).toThrow('unsupported request field');
   });
 
-  it('retains preparation ownership and negative evidence but never submits execution metadata as user configuration', () => {
-    const input = { scopeId: 'project', inputs: { 'git:README.md': 'ABSENT' }, digest: 'sha256:observed', gaps: [] as string[] };
-    const preparation: ContextPreparationResultDto = { attemptId: 'attempt', inputFingerprint: input, outcome: 'EMPTY', noteIds: [],
-      checkedReads: [snapshot.sourceReads[0]], explanation: 'No useful note from the checked input.' };
-    const activePreparation: ActiveContextPreparationDto = { attemptId: 'current-attempt', requestKey: 'request', requestDigest: 'sha256:request', ownerTaskId: 'task',
-      ownerTurnId: 'turn', ownerTurnKey: 'turn-key', reviewId: 'review', runId: 'run', baseContentRevision: 7, inputs: [input] };
-    const scopes = [{ ...notebook.scopes[0], preparation }];
-    const parsed = parseRepositoryNotebook({ ...notebook, activePreparation, scopes });
-    expect(parsed.activePreparation).toEqual(activePreparation);
-    expect(parsed.scopes[0].preparation).toEqual(preparation);
-    expect(parseConfigureRepositoryContextRequest({ expectedRevision: 7, scopes }).scopes)
-      .toEqual([{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true }]);
-    expect(() => parseRepositoryNotebook({ ...notebook, scopes: [{ ...scopes[0], preparation: { ...preparation, outcome: 'VERIFIED' } }] }))
-      .toThrow('preparation outcome');
-    expect(() => parseRepositoryNotebook({ ...notebook, activePreparation: { ...activePreparation, baseContentRevision: '7' } }))
-      .toThrow('preparation revision');
-    expect(parseRepositoryNotebook({ ...notebook, activePreparation: { ...activePreparation, reviewId: null, runId: null } }).activePreparation?.reviewId).toBeNull();
-    expect(() => parseRepositoryNotebook({ ...notebook, activePreparation: { ...activePreparation, reviewId: null } })).toThrow('must be paired');
-  });
-
   it('retains builder status without manufacturing tasks and validates task ownership', () => {
-    const empty: ContextBuildViewDto = { buildRequestSequence: 0, notebookRevision: 7, canStart: true, build: null };
+    const empty: ContextBuildViewDto = { buildRequestSequence: 0, notebookRevision: 7, canStart: true, runs: [], build: null };
     expect(parseContextBuildView(empty, 'workspace')).toEqual(empty);
-    const build: NonNullable<ContextBuildViewDto['build']> = { mode: 'LEARN', requestKey: 'learn-key', taskId: 'learn-task', baselineSha: 'a'.repeat(40),
-      scopeIds: ['project'], history: [], requestedAt: '2026-09-01T00:00:00Z', task: { id: 'learn-task', workspaceId: 'workspace', state: 'OPEN', version: 0,
-        laneId: 'codex', model: 'test-model', mutationClaim: 'TURN', terminalReason: null, worktreePath: '/tmp/learn-task', worktreeRemovedAt: null },
-      activeTurn: { id: 'learn-turn', state: 'RUNNING', startedAt: null, cancellationRequestedAt: null }, pendingApprovals: 0, results: [], gaps: [] };
-    const view = { ...empty, buildRequestSequence: 1, canStart: false, build };
+    const build: NonNullable<ContextBuildViewDto['build']> = { requestKey: 'learn-key', taskId: 'learn-task',
+      task: { id: 'learn-task', workspaceId: 'workspace', state: 'OPEN', mutationClaim: 'TURN', worktreeRemovedAt: null },
+      activeTurn: { cancellationRequestedAt: null }, pendingApprovals: 0, continuation: false };
+    const run: ContextRunDto = { sequence: 1, taskId: 'learn-task', mode: 'LEARN', requestedAt: '2026-09-01T00:00:00Z', endedAt: null,
+      question: { planId: 'plan-1', topicId: 'topic:1', topicTitle: 'Iceberg connector', index: 0, text: 'How are tables read?' },
+      pullRequest: null, outcome: 'RUNNING', sourceOperations: 3, documentOpens: 1, noteIds: [],
+      activity: [{ at: '2026-09-01T00:00:01Z', text: 'Read README.md', tone: 'DONE' }], detail: null };
+    const view = { ...empty, buildRequestSequence: 1, canStart: false, runs: [run], build };
     expect(parseContextBuildView(view, 'workspace')).toEqual(view);
     expect(parseContextBuildView({ ...view, build: { ...view.build, task: null, activeTurn: null } }, 'workspace').build?.task).toBeNull();
     for (const value of [{ ...view, canStart: 'true' }, { ...view, build: undefined },
       { ...view, build: { ...view.build, task: { ...view.build.task, workspaceId: 'other' } } },
       { ...view, build: { ...view.build, task: { ...view.build.task, id: 'other' } } },
       { ...view, build: { ...view.build, task: { ...view.build.task, state: 'VERIFIED' } } },
-      { ...view, build: { ...view.build, task: { ...view.build.task, worktreePath: undefined } } },
-      { ...view, build: { ...view.build, task: { ...view.build.task, worktreePath: null } } },
-      { ...view, build: { ...view.build, results: null } }, { ...view, build: { ...view.build, mode: 'PREVIEW' } }])
+      { ...view, build: { ...view.build, task: { ...view.build.task, mutationClaim: 7 } } },
+      { ...view, build: { ...view.build, pendingApprovals: -1 } }, { ...view, build: { ...view.build, continuation: 'yes' } },
+      { ...view, runs: [{ ...run, outcome: 'HELPED' }] }, { ...view, runs: [{ ...run, sequence: 0 }] },
+      { ...view, runs: [{ ...run, activity: [{ ...run.activity[0], tone: 'GUESS' }] }] }])
       expect(() => parseContextBuildView(value, 'workspace')).toThrow('Malformed repository context');
   });
 
   it('keeps agent discovery and accepted learning tied to saved identities and source bounds', () => {
-    const report: ContextDiscoveryReportDto = { id: 'discovery-task', workspaceId: 'workspace', repositoryId: 42,
-      repository: { owner: 'trinodb', repo: 'trino' }, baselineSha: 'a'.repeat(40), outline: 'SQL engine with connectors.',
-      topics: [{ id: 'topic:1', title: 'Iceberg connector', question: 'How are tables read?', paths: ['plugin/trino-iceberg/'],
-        sourceIds: ['source:1'], evidenceReadIds: ['read:1'], why: 'README identifies the connector.' }],
-      sources: [{ id: 'source:1', kind: 'DOCUMENTATION_ROOT', location: 'https://trino.io/docs/current/connector/',
-        title: 'Connector docs', evidenceReadIds: ['read:1'], why: 'README links to these docs.' }],
-      evidence: [{ readId: 'read:1', path: 'plugin/trino-iceberg/README.md', blobId: 'b'.repeat(40), startLine: 1, endLine: 2,
-        excerpt: 'Iceberg connector', truncated: false }], gaps: [], remaining: ['Other connectors'], partial: true, createdAt: '2026-09-01T00:00:00Z' };
+    const report: ContextDiscoveryReportDto = { id: 'discovery-task', workspaceId: 'workspace', baselineSha: 'a'.repeat(40),
+      topics: [{ id: 'topic:1', title: 'Iceberg connector', questions: ['How are tables read?', 'How are snapshots committed?'],
+        paths: ['plugin/trino-iceberg/'], sourceIds: ['source:1'], evidenceReadIds: ['read:1'], why: 'README identifies the connector.' }],
+      sources: [{ id: 'source:1', kind: 'DOCUMENTATION_ROOT', location: 'https://trino.io/docs/current/connector/' }],
+      evidence: [{ readId: 'read:1', path: 'plugin/trino-iceberg/README.md', startLine: 1, endLine: 2 }], remaining: ['Other connectors'], partial: true,
+      coverage: { areas: [{ path: 'plugin/', surveyed: 1, total: 40 }], unsurveyed: ['plugin/trino-hive/'], unsurveyedTruncated: false },
+      createdAt: '2026-09-01T00:00:00Z' };
     expect(parseContextDiscoveryReport({ report }, 'workspace')).toEqual(report);
     expect(parseContextDiscoveryReport({ report: null }, 'workspace')).toBeNull();
     for (const invalid of [{ report: { ...report, workspaceId: 'another' } },
       { report: { ...report, topics: [{ ...report.topics[0], sourceIds: ['unproposed'] }] } },
-      { report: { ...report, evidence: [{ ...report.evidence[0], truncated: 'false' }] } }])
+      { report: { ...report, evidence: [{ ...report.evidence[0], endLine: 0 }] } },
+      { report: { ...report, topics: [{ ...report.topics[0], questions: [] }] } },
+      { report: { ...report, topics: [{ ...report.topics[0], questions: Array(7).fill('Why?') }] } }])
       expect(() => parseContextDiscoveryReport(invalid, 'workspace')).toThrow('Malformed repository context');
-    const plan: ContextLearningPlanDto = { id: 'plan-1', workspaceId: 'workspace', reportId: report.id, acceptedRequestKey: 'learn-key',
-      acceptedRequestDigest: 'sha256:' + 'a'.repeat(64), acceptedNotebookRevision: 8, initialBuildSequence: 1,
-      acceptedTopicIds: ['topic:1'], repositoryId: 42, repository: report.repository, baselineSha: report.baselineSha,
-      topics: [{ id: 'topic:1', title: 'Iceberg connector', question: 'How are tables read?', scopeId: 'path:plugin/trino-iceberg/',
-        paths: ['plugin/trino-iceberg/'], repositoryFiles: [], sourceIds: ['source:1'], status: 'PENDING', remainingQuestion: 'How are tables read?' }],
-      documentationSources: [source], documentInventory: { sources: [source], items: [{ sourceId: source.id, resolvedUrl: source.url,
-        relativePage: null, parentUrl: null, depth: 0, status: 'PENDING', readId: null, contentHash: null, detail: '' }],
-        suggestedExpansionUrls: [], truncated: false },
-      gaps: [], acceptedAt: '2026-09-01T00:00:00Z' };
-    expect(parseContextLearningPlan({ plan }, 'workspace')).toEqual(plan);
-    expect(parseContextLearningPlan({ plan: null }, 'workspace')).toBeNull();
-    expect(() => parseContextLearningPlan({ plan: { ...plan, topics: [{ ...plan.topics[0], status: 'GUESS' }] } }, 'workspace'))
-      .toThrow('Malformed repository context');
+    const plan: ContextLearningPlanDto = { id: 'plan-1', workspaceId: 'workspace', reportId: report.id, baselineSha: report.baselineSha,
+      topics: [{ id: 'topic:1', title: 'Iceberg connector', scopeId: 'path:plugin/trino-iceberg/', paths: ['plugin/trino-iceberg/'],
+        repositoryFiles: [], sourceIds: ['source:1'], questions: [{ text: 'How are tables read?', status: 'UNFINISHED', progress: 'Read the split manager.' },
+          { text: 'How are snapshots committed?', status: 'PENDING', progress: '' }] }],
+      documentationSources: [source], documentInventory: { items: [{ sourceId: source.id, resolvedUrl: source.url,
+        relativePage: null, depth: 0, status: 'PENDING', detail: '' }],
+        suggestions: [{ url: 'https://example.org/iceberg/', parentUrl: source.url, topicId: 'topic:1', question: 0, taskId: 'learn-task',
+          foundAt: '2026-09-01T00:00:00Z' }], truncated: false } };
+    const planView = { plan, next: { topicId: 'topic:1', question: 0 } };
+    expect(parseContextLearningPlanView(planView, 'workspace')).toEqual(planView);
+    expect(parseContextLearningPlanView({ plan: null, next: null }, 'workspace')).toEqual({ plan: null, next: null });
+    for (const invalid of [{ plan, next: { topicId: 'topic:1', question: 2 } }, { plan: null, next: planView.next },
+      { plan: { ...plan, topics: [{ ...plan.topics[0], questions: [{ ...plan.topics[0].questions[0], status: 'GUESS' }] }] }, next: null },
+      { plan: { ...plan, topics: [{ ...plan.topics[0], questions: [{ ...plan.topics[0].questions[1], progress: 'Started' }] }] }, next: null },
+      { plan: { ...plan, documentInventory: { ...plan.documentInventory, suggestions: [{ ...plan.documentInventory.suggestions[0], topicId: 'other' }] } },
+        next: null }] as unknown[])
+      expect(() => parseContextLearningPlanView(invalid, 'workspace')).toThrow('Malformed repository context');
     const base = { requestKey: 'key', expectedRevision: 7, expectedBuildSequence: 1 };
-    expect(parseStartContextDiscoveryRequest(base)).toEqual(base);
-    expect(parseStartContextLearningRequest({ ...base, reportId: report.id, topicIds: ['topic:1'] }).topicIds).toEqual(['topic:1']);
+    expect(parseStartContextDiscoveryRequest({ ...base, continuation: true }).continuation).toBe(true);
+    expect(parseStartContextLearningRequest({ ...base, reportId: report.id, topicIds: ['topic:1'], excludedSourceIds: ['source:1'] }).excludedSourceIds)
+      .toEqual(['source:1']);
     expect(parseContinueContextLearningRequest({ ...base, planId: plan.id }).planId).toBe(plan.id);
     expect(parseDiscardContextLearningPlanRequest({ planId: plan.id, expectedRevision: 7, expectedBuildSequence: 1 }).planId).toBe(plan.id);
-    expect(parseAllowContextLearningSourceRequest({ planId: plan.id, sourceId: source.id, expectedRevision: 7, expectedBuildSequence: 1 }).sourceId)
-      .toBe(source.id);
-    const suggestedUrl = 'https://example.org/iceberg/reference.html';
-    expect(parseContextLearningPlan({ plan: { ...plan, documentInventory: { ...plan.documentInventory,
-      suggestedExpansionUrls: [suggestedUrl] } } }, 'workspace')?.documentInventory.suggestedExpansionUrls).toEqual([suggestedUrl]);
-    expect(parseAllowContextLearningSourceRequest({ planId: plan.id, suggestedUrl, expectedRevision: 7, expectedBuildSequence: 1 }).suggestedUrl)
-      .toBe(suggestedUrl);
-    expect(() => parseAllowContextLearningSourceRequest({ planId: plan.id, sourceId: source.id, suggestedUrl,
-      expectedRevision: 7, expectedBuildSequence: 1 })).toThrow('source selection');
-    expect(() => parseAllowContextLearningSourceRequest({ planId: plan.id, expectedRevision: 7, expectedBuildSequence: 1 }))
-      .toThrow('source selection');
-    for (const invalid of [{ ...base, prompt: 'explore' }, { ...base, expectedRevision: -1 }])
+    const allow = { planId: plan.id, suggestedUrl: 'https://example.org/iceberg/', boundary: 'ROOT', expectedRevision: 7, expectedBuildSequence: 1 };
+    expect(parseAllowContextLearningSourceRequest(allow)).toEqual(allow);
+    expect(parseAllowContextLearningSourceRequest({ ...allow, suggestedUrl: 'https://example.org/page.html', boundary: 'PAGE' }).boundary).toBe('PAGE');
+    for (const invalid of [{ ...allow, suggestedUrl: 'https://example.org/page.html' }, { ...allow, boundary: 'SITE' },
+      { ...allow, suggestedUrl: 'http://example.org/iceberg/' }, { ...allow, sourceId: source.id }])
+      expect(() => parseAllowContextLearningSourceRequest(invalid)).toThrow('Malformed repository context');
+    expect(parseDeclineContextLearningSourceRequest({ planId: plan.id, suggestedUrl: allow.suggestedUrl }).suggestedUrl).toBe(allow.suggestedUrl);
+    expect(() => parseDeclineContextLearningSourceRequest({ planId: plan.id, suggestedUrl: allow.suggestedUrl, boundary: 'PAGE' })).toThrow();
+    for (const invalid of [{ ...base, continuation: false, prompt: 'explore' }, { ...base, continuation: false, expectedRevision: -1 }, base])
       expect(() => parseStartContextDiscoveryRequest(invalid)).toThrow('Malformed repository context');
-    expect(() => parseStartContextLearningRequest({ ...base, reportId: report.id, topicIds: [] })).toThrow();
+    expect(() => parseStartContextLearningRequest({ ...base, reportId: report.id, topicIds: [], excludedSourceIds: [] })).toThrow();
+    expect(() => parseStartContextLearningRequest({ ...base, reportId: report.id, topicIds: ['topic:1'] })).toThrow();
     expect(() => parseContinueContextLearningRequest({ ...base, planId: '' })).toThrow();
     expect(() => parseDiscardContextLearningPlanRequest({ planId: plan.id, expectedRevision: 7, expectedBuildSequence: 1,
       deleteNotes: true })).toThrow();
   });
 
+  it('reads baseline and approval times without inventing them', () => {
+    expect(parseContextBaseline(null)).toBeNull();
+    expect(parseContextBaseline({ branch: 'master', sha: 'a'.repeat(40) })).toEqual({ branch: 'master', sha: 'a'.repeat(40) });
+    expect(() => parseContextBaseline({ branch: 'master', sha: 'abc' })).toThrow('baseline commit');
+    const times: ContextTimesDto = { entries: { '2:knowledge:project': { at: '2026-09-01T00:00:00Z', taskId: null } },
+      drafts: { draft: { at: '2026-09-02T00:00:00Z', taskId: 'learn-task' } } };
+    expect(parseContextTimes(times)).toEqual(times);
+    expect(() => parseContextTimes({ entries: {}, drafts: { draft: { taskId: null } } })).toThrow('Malformed repository context');
+  });
+
   it('keeps merged PR selection separate from reading retained candidates', () => {
     const candidate: ContextMergedCandidateDto = { id: 'pr:trinodb/trino#123', repo: 'trinodb/trino', number: 123, title: 'Refresh Iceberg metadata',
-      url: 'https://github.com/trinodb/trino/pull/123', mergedAt: '2026-09-01T00:00:00Z', taskId: 'task-123',
-      taskTitle: 'Refresh metadata', taskResult: null, learningSummary: null, issue: null, review: null, checks: [],
-      gaps: ['Merge does not establish current behavior.'] };
+      mergedAt: '2026-09-01T00:00:00Z', taskTitle: 'Refresh metadata', taskResult: null, issue: { key: '#120', title: 'Stale metadata' },
+      review: { combinedResult: 'Approved' }, checks: [{ conclusion: 'success' }] };
     expect(parseContextMergedCandidates({ candidates: [candidate], gaps: [] }).candidates[0]).toEqual(candidate);
     expect(() => parseContextMergedCandidates({ candidates: [candidate, candidate], gaps: [] })).toThrow('candidate identity');
     const request = { candidateId: candidate.id, requestKey: 'candidate-key', expectedRevision: 7, expectedBuildSequence: 2 };

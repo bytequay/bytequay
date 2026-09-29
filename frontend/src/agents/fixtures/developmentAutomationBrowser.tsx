@@ -222,8 +222,8 @@ async function localReviewExperiments(reloadPrivate = false): Promise<{ name: st
     fetchPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
     refreshPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
     refreshAllPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
-    fetchPrDiffFiles: async () => [],
-    fetchPrDiffCommits: async () => [],
+    fetchPrDiffFiles: async (): Promise<[]> => [],
+    fetchPrDiffCommits: async (): Promise<[]> => [],
     getUserProfile: async (): Promise<null> => null,
     findAgentReview: async (): Promise<null> => null,
   } });

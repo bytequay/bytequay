@@ -2972,6 +2972,7 @@
 :is(.agt-type-tab__icon, .agt-type-chip, .agt-type-tile, .agt-item-card__bar > span).is-review { --type-fg: #0969da; --type-bg: #ddf4ff; }
 :is(.agt-type-tab__icon, .agt-type-chip, .agt-type-tile, .agt-item-card__bar > span).is-cherry { --type-fg: #9a6700; --type-bg: #fff8c5; }
 :is(.agt-type-tab__icon, .agt-type-chip, .agt-type-tile, .agt-item-card__bar > span).is-ci { --type-fg: #cf222e; --type-bg: #ffebe9; }
+:is(.agt-type-tab__icon, .agt-type-chip, .agt-type-tile, .agt-item-card__bar > span).is-learning { --type-fg: #8250df; --type-bg: #fbefff; }
 
 .agt-type-tabs {
   display: flex;
@@ -3576,6 +3577,79 @@ button:is(.agt-type-chip, .agt-type-tile) {
 .agt-start > svg {
   flex: none;
   color: #6e6e76;
+}
+
+.agt-start.is-active {
+  border-color: #54aeff;
+  background: #ddf4ff;
+  color: #0969da;
+}
+
+.agt-start.is-active > svg {
+  color: #0969da;
+}
+
+/* Explore & prepare context: the composer asks a question; its chip leaves the mode. */
+.agt-compose.is-mode {
+  border-color: #54aeff;
+  box-shadow: 0 0 0 3px rgba(84, 174, 255, 0.18);
+}
+
+.agt-compose__mode {
+  padding: 10px 12px 0;
+}
+
+.agt-mode-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 4px 1px 8px;
+  border-radius: 6px;
+  background: #ddf4ff;
+  color: #0969da;
+  font-size: 12px;
+}
+
+.agt-mode-chip > button {
+  display: inline-flex;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.agt-mode-chip > button:hover {
+  background: rgba(9, 105, 218, 0.12);
+}
+
+.agt-mode-chip > button:focus-visible {
+  outline: 2px solid #0969da;
+  outline-offset: 1px;
+}
+
+.agt-mode-chip svg {
+  width: 12px;
+  height: 12px;
+}
+
+.agt-compose-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 0 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #57606a;
+  text-align: left;
+}
+
+.agt-compose-hint__bolt {
+  flex: none;
+  margin-top: 3px;
+  color: #9a6700;
 }
 
 .agt-open-tasks {

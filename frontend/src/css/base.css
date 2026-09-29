@@ -767,6 +767,16 @@ samp {
   background: var(--left-nav-active-bg);
   color: var(--text-1);
 }
+.app-sidebar__badge {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: #fff8c5;
+  color: #9a6700;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+}
 
 .app-sidebar__spacer { flex: 1; }
 
@@ -845,7 +855,8 @@ samp {
 
 .app-sidebar.is-collapsed .app-sidebar__lights,
 .app-sidebar.is-collapsed .app-sidebar__traffic .app-sidebar__spacer,
-.app-sidebar.is-collapsed .app-sidebar__label { display: none; }
+.app-sidebar.is-collapsed .app-sidebar__label,
+.app-sidebar.is-collapsed .app-sidebar__badge { display: none; }
 .app-sidebar.is-collapsed .app-sidebar__ws-head { justify-content: center; padding: 8px 0 10px; }
 .app-sidebar.is-collapsed .app-sidebar__traffic { justify-content: center; padding: 0; }
 .app-sidebar.is-collapsed .app-sidebar__toggle { margin-left: 0; }

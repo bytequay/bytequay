@@ -23,21 +23,26 @@ import com.bytequay.core.context.ContextSourceRead;
 import com.bytequay.core.store.AppSettingsStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** One bounded latest-request binding in existing settings; no second task store or execution lifecycle. */
+/**
+ * One bounded latest-request binding in existing settings, plus summaries of the runs it replaced;
+ * no second task store or execution lifecycle.
+ */
 @Component
 public class ContextBuildStore
 {
     static final String PREFIX = "workspace.repositoryContextBuild.";
+    static final String RUNS_PREFIX = "workspace.repositoryContextRuns.";
+    static final int MAX_RUNS = 30;
     private final AppSettingsStore settings;
     private final AgentTaskStore tasks;
     private final ObjectMapper mapper;
@@ -60,16 +65,7 @@ public class ContextBuildStore
         return settings.get(PREFIX + workspaceId).map(json -> {
             try {
                 checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_NOTEBOOK_BYTES, "Saved context build exceeds 1 MiB");
-                JsonNode node = mapper.readTree(json);
-                checkArgument(node != null && node.isObject(), "Saved context build must be an object");
-                ObjectNode value = (ObjectNode) node;
-                if (!value.has("mode")) {
-                    value.put("mode", ContextBuild.Mode.LEARN.name());
-                }
-                if (!value.has("assignment")) {
-                    value.putNull("assignment");
-                }
-                ContextBuild build = requireNonNull(mapper.treeToValue(value, ContextBuild.class), "Saved build is null");
+                ContextBuild build = requireNonNull(mapper.readValue(json, ContextBuild.class), "Saved build is null");
                 checkArgument(build.workspaceId().equals(workspaceId), "Saved build belongs to another workspace");
                 return build;
             }
@@ -82,6 +78,44 @@ public class ContextBuildStore
     public Optional<ContextBuild> findByTask(String taskId)
     {
         return tasks.find(TaskId.valueOf(taskId)).flatMap(task -> task.workspaceId().flatMap(this::find)).filter(build -> build.taskId().equals(taskId));
+    }
+
+    /** Earlier runs, oldest first. The current build's run is derived from its live task instead. */
+    public List<ContextRun> runs(String workspaceId)
+    {
+        return settings.get(RUNS_PREFIX + workspaceId).map(json -> {
+            try {
+                checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_NOTEBOOK_BYTES, "Saved context runs exceed 1 MiB");
+                List<ContextRun> runs = ImmutableList.copyOf(mapper.readValue(json, ContextRun[].class));
+                checkArgument(runs.size() <= MAX_RUNS, "Too many saved context runs");
+                return runs;
+            }
+            catch (JsonProcessingException | IllegalArgumentException | NullPointerException failure) {
+                throw new ContextStorageException("Saved context runs cannot be read", failure);
+            }
+        }).orElse(ImmutableList.of());
+    }
+
+    /** Keeps the newest runs; each summary's activity is already bounded by its capture. */
+    public void recordRun(String workspaceId, ContextRun run)
+    {
+        WorkspaceOperationLocks.withLock(workspaceId, () -> {
+            List<ContextRun> current = runs(workspaceId);
+            if (current.stream().anyMatch(value -> value.taskId().equals(run.taskId()))) {
+                return null;
+            }
+            List<ContextRun> updated = ImmutableList.<ContextRun>builder().addAll(current).add(run).build();
+            List<ContextRun> kept = updated.subList(Math.max(0, updated.size() - MAX_RUNS), updated.size());
+            try {
+                String json = mapper.writeValueAsString(kept);
+                checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_NOTEBOOK_BYTES, "Context runs exceed 1 MiB");
+                settings.put(RUNS_PREFIX + workspaceId, json);
+                return null;
+            }
+            catch (JsonProcessingException failure) {
+                throw new ContextStorageException("Context runs cannot be saved", failure);
+            }
+        });
     }
 
     public ContextBuild save(Optional<ContextBuild> expected, ContextBuild replacement)

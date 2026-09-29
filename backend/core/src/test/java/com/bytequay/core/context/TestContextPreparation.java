@@ -99,10 +99,10 @@ class TestContextPreparation
                 true, Optional.of(failed), Optional.empty())).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("another scope");
         ActiveContextPreparation active = active(ImmutableList.of(input("missing")), 0);
         assertThatThrownBy(() -> new RepositoryNotebook(1, 0, true, ImmutableList.of(), ImmutableList.of(ContextScope.project()),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.of(active)))
+                ImmutableList.of(), ImmutableList.of(), Optional.of(active)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("scope is missing");
         assertThatThrownBy(() -> new RepositoryNotebook(1, 0, true, ImmutableList.of(), ImmutableList.of(ContextScope.project()),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.of(active(ImmutableList.of(input("project")), 1))))
+                ImmutableList.of(), ImmutableList.of(), Optional.of(active(ImmutableList.of(input("project")), 1))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("newer than notebook");
     }
 
@@ -116,9 +116,9 @@ class TestContextPreparation
         ContextSourceEvidence captured = new ContextSourceEvidence("proof", REFERENCE, "Captured README", "Documentation link",
                 ContextSourceEvidence.Capture.BYTEQUAY_READ, Optional.of(Instant.EPOCH), Optional.of(SHA), Optional.of(SHA), false);
         assertThat(new RepositoryNotebook(1, 0, true, ImmutableList.of(source), ImmutableList.of(ContextScope.project(), scope),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(captured), Optional.empty()).sourceEvidence()).containsExactly(captured);
+                ImmutableList.of(), ImmutableList.of(captured), Optional.empty()).sourceEvidence()).containsExactly(captured);
         assertThatThrownBy(() -> new RepositoryNotebook(1, 0, true, ImmutableList.of(source), ImmutableList.of(ContextScope.project(), scope),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty()))
+                ImmutableList.of(), ImmutableList.of(), Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Discovery evidence is missing");
         ContextSourceEvidence reported = new ContextSourceEvidence("proof", REFERENCE, "Model assertion", "Documentation link",
                 ContextSourceEvidence.Capture.AGENT_REPORTED, Optional.empty(), Optional.empty(), Optional.empty(), false);
@@ -126,7 +126,7 @@ class TestContextPreparation
                 ContextSourceEvidence.Capture.BYTEQUAY_READ, Optional.of(Instant.EPOCH), Optional.of(SHA), Optional.empty(), false);
         for (ContextSourceEvidence invalid : ImmutableList.of(reported, document)) {
             assertThatThrownBy(() -> new RepositoryNotebook(1, 0, true, ImmutableList.of(source), ImmutableList.of(ContextScope.project(), scope),
-                    ImmutableList.of(), ImmutableList.of(), ImmutableList.of(invalid), Optional.empty()))
+                    ImmutableList.of(), ImmutableList.of(invalid), Optional.empty()))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("captured repository file");
         }
     }
@@ -195,6 +195,6 @@ class TestContextPreparation
     private static RepositoryNotebook notebook(ContextPreparationResult result, List<ContextSourceEvidence> sources)
     {
         ContextScope project = new ContextScope("project", "Project", new ContextMatch.Repository(), true, Optional.of(result), Optional.empty());
-        return new RepositoryNotebook(1, 0, true, ImmutableList.of(), ImmutableList.of(project), ImmutableList.of(), ImmutableList.of(), sources, Optional.empty());
+        return new RepositoryNotebook(1, 0, true, ImmutableList.of(), ImmutableList.of(project), ImmutableList.of(), sources, Optional.empty());
     }
 }

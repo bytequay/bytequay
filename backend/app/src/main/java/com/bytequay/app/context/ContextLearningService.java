@@ -84,6 +84,10 @@ public class ContextLearningService
         return plans.find(workspaceId);
     }
 
+    /**
+     * Accepts topics into a new plan or, when they come from the plan's own discovery report, appends them to it.
+     * Either way one run starts on the first accepted topic's first question.
+     */
     public ContextBuildService.View start(String workspaceId, StartRequest request)
     {
         String digest = digest(request);
@@ -91,12 +95,19 @@ public class ContextLearningService
         if (existing.filter(plan -> plan.acceptedRequestKey().equals(request.requestKey())).isPresent()) {
             ContextLearningPlan replay = existing.orElseThrow();
             checkArgument(replay.acceptedRequestDigest().equals(digest), "Learning request key was reused with different topics");
-            return launch(replay, request.requestKey(), request.expectedBuildSequence(), replay.acceptedNotebookRevision(), true);
+            return launch(replay, request.requestKey(), request.expectedBuildSequence(), replay.acceptedNotebookRevision(), true,
+                    Optional.of(new ContextLearningPlan.Target(replay.acceptedTopicIds().getFirst(), 0)));
         }
-        checkArgument(existing.map(plan -> plan.topics().stream().allMatch(topic -> topic.status() == ContextLearningPlan.Status.COMPLETED))
-                        .orElse(true), "Finish the current learning plan before selecting another batch");
         ContextDiscoveryReport report = reports.find(workspaceId).filter(value -> value.id().equals(request.reportId()))
                 .orElseThrow(() -> new IllegalArgumentException("Discovery report changed; inspect the latest suggestions"));
+        boolean extend = existing.filter(plan -> plan.reportId().equals(report.id())).isPresent();
+        checkArgument(extend || existing.map(plan -> plan.next().isEmpty()).orElse(true),
+                "Finish or discard the current learning plan before choosing topics from a newer discovery");
+        existing.filter(ignored -> extend).ifPresent(plan -> {
+            checkArgument(request.topicIds().stream().noneMatch(id -> plan.topics().stream().anyMatch(topic -> topic.id().equals(id))),
+                    "A selected topic is already in the learning plan");
+            checkArgument(plan.topics().size() + request.topicIds().size() <= ContextLearningPlan.MAX_TOPICS, "The learning plan has too many topics");
+        });
         List<ContextDiscoveryReport.Topic> selected = request.topicIds().stream().map(id -> report.topics().stream()
                 .filter(topic -> topic.id().equals(id)).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Selected discovery topic is unavailable: " + id))).toList();
@@ -113,25 +124,41 @@ public class ContextLearningService
                     "Build request sequence changed during acceptance");
             checkArgument(notebooks.getNotebook(workspaceId).equals(notebook), "Notebook changed during learning acceptance");
             checkAcceptedRepository(workspaceId, report);
-            Prepared prepared = prepare(report, selected, notebook);
+            Prepared prepared = prepare(report, selected, notebook, request.excludedSourceIds());
             RepositoryNotebook updated = prepared.scopes().isEmpty() && prepared.sources().isEmpty()
                     ? notebook : notebooks.registerDiscovered(workspaceId, notebook.revision(),
                             prepared.scopes(), prepared.sources(), prepared.evidence());
-            ContextLearningPlan accepted = new ContextLearningPlan(UUID.randomUUID().toString(), workspaceId, report.id(),
-                    request.requestKey(), digest, updated.revision(), request.expectedBuildSequence(), request.topicIds(),
-                    report.repositoryId(), report.repository(), report.baselineSha(), prepared.topics(),
-                    prepared.documentation(), ContextDocumentInventory.initial(prepared.documentation()),
-                    report.gaps(), Instant.now(clock));
+            ContextLearningPlan accepted;
+            if (extend) {
+                ContextLearningPlan current = existing.orElseThrow();
+                ContextDocumentInventory inventory = current.documentInventory();
+                for (RegisteredContextSource source : prepared.documentation()) {
+                    inventory = inventory.add(source);
+                }
+                checkArgument(inventory.sources().size() <= 20, "Learning plan has too many documentation sources");
+                accepted = new ContextLearningPlan(current.id(), workspaceId, report.id(), request.requestKey(), digest, updated.revision(),
+                        request.expectedBuildSequence(), request.topicIds(), current.repositoryId(), current.repository(), current.baselineSha(),
+                        ImmutableList.<ContextLearningPlan.Topic>builder().addAll(current.topics()).addAll(prepared.topics()).build(),
+                        inventory.sources(), inventory, current.gaps(), Instant.now(clock));
+            }
+            else {
+                accepted = new ContextLearningPlan(UUID.randomUUID().toString(), workspaceId, report.id(),
+                        request.requestKey(), digest, updated.revision(), request.expectedBuildSequence(), request.topicIds(),
+                        report.repositoryId(), report.repository(), report.baselineSha(), prepared.topics(),
+                        prepared.documentation(), ContextDocumentInventory.initial(prepared.documentation()),
+                        report.gaps(), Instant.now(clock));
+            }
             return plans.save(existing, accepted);
         }));
-        return launch(plan, request.requestKey(), request.expectedBuildSequence(), plan.acceptedNotebookRevision(), true);
+        return launch(plan, request.requestKey(), request.expectedBuildSequence(), plan.acceptedNotebookRevision(), true,
+                Optional.of(new ContextLearningPlan.Target(request.topicIds().getFirst(), 0)));
     }
 
     public ContextBuildService.View continueLearning(String workspaceId, ContinueRequest request)
     {
         ContextLearningPlan plan = get(workspaceId).filter(value -> value.id().equals(request.planId()))
                 .orElseThrow(() -> new IllegalArgumentException("Learning plan changed; inspect current progress"));
-        return launch(plan, request.requestKey(), request.expectedBuildSequence(), request.expectedRevision(), false);
+        return launch(plan, request.requestKey(), request.expectedBuildSequence(), request.expectedRevision(), false, Optional.empty());
     }
 
     public void discard(String workspaceId, DiscardRequest request)
@@ -152,11 +179,14 @@ public class ContextLearningService
         }));
     }
 
-    /** Explicit source expansion changes only the saved plan; it never starts a model or resets existing link depths. */
+    /**
+     * Approves one exact suggested URL at the boundary the user chose; it never starts a model or resets existing link depths.
+     * The source joins the topic whose run found the link.
+     */
     public ContextLearningPlan allowSource(String workspaceId, SourceRequest request)
     {
         ContextBuildService.View state = builds.get(workspaceId);
-        checkArgument(state.canStart() && state.buildRequestSequence() == request.expectedBuildSequence(), "Finish the current task before expanding sources");
+        checkArgument(state.canStart() && state.buildRequestSequence() == request.expectedBuildSequence(), "Finish the current task before approving sources");
         return WorkspaceOperationLocks.withLock(workspaceId, () -> unitOfWork.execute(() -> {
             RepositoryNotebook notebook = notebooks.getNotebook(workspaceId);
             checkArgument(notebook.revision() == request.expectedRevision(), "Notebook revision changed; inspect registered sources");
@@ -165,61 +195,44 @@ public class ContextLearningService
                     .orElseThrow(() -> new IllegalArgumentException("Learning plan changed"));
             checkArgument(notebook.sources().containsAll(plan.documentationSources()),
                     "Approved documentation source changed; discard the old plan before expanding sources");
-            ContextLearningPlan.Topic current = plan.topics().stream().filter(topic -> topic.status() == ContextLearningPlan.Status.PENDING).findFirst()
-                    .orElseThrow(() -> new IllegalArgumentException("No remaining learning question"));
-            RegisteredContextSource source;
-            if (request.sourceId().isPresent()) {
-                String selectedId = request.sourceId().orElseThrow();
-                source = notebook.sources().stream().filter(value -> value.id().equals(selectedId)).findFirst()
-                        .orElseThrow(() -> new IllegalArgumentException("Choose a registered documentation source"));
+            ContextDocumentInventory.Suggestion suggestion = plan.documentInventory().suggestion(request.suggestedUrl())
+                    .orElseThrow(() -> new IllegalArgumentException("Choose an exact URL suggested by a recorded document read"));
+            String url = suggestion.url();
+            checkArgument(request.boundary() == Boundary.PAGE || url.endsWith("/"), "Only a URL ending in / can be approved as a documentation root");
+            RegisteredContextSource.Kind kind = request.boundary() == Boundary.ROOT
+                    ? RegisteredContextSource.Kind.DOCUMENTATION_ROOT : RegisteredContextSource.Kind.DOCUMENTATION_PAGE;
+            RegisteredContextSource source = notebook.sources().stream().filter(value -> value.url().equals(url) && value.kind() == kind).findFirst()
+                    .orElseGet(() -> new RegisteredContextSource("suggested:" + Hashing.sha256().hashString(kind + " " + url, UTF_8),
+                            kind, url, ContextEntryOrigin.USER, Optional.empty()));
+            checkArgument(notebook.sources().stream().noneMatch(value -> value.id().equals(source.id()) && !value.equals(source)),
+                    "Suggested source identity is already registered differently");
+            ContextLearningPlan.Topic owner = plan.topic(suggestion.topicId());
+            checkArgument(plan.documentationSources().size() < 20 || plan.documentationSources().contains(source),
+                    "Learning plan has too many documentation sources");
+            checkArgument(owner.sourceIds().size() < 20 || owner.sourceIds().contains(source.id()), "Learning topic has too many documentation sources");
+            if (!notebook.sources().contains(source)) {
+                List<EditContextConfiguration.Source> registrations = ImmutableList.<EditContextConfiguration.Source>builder()
+                        .addAll(notebook.sources().stream().map(value -> new EditContextConfiguration.Source(value.id(), value.kind(), value.url())).toList())
+                        .add(new EditContextConfiguration.Source(source.id(), source.kind(), source.url())).build();
+                notebooks.configure(workspaceId, notebook.revision(),
+                        new EditContextConfiguration(Optional.empty(), Optional.empty(), Optional.of(registrations)));
             }
-            else {
-                String url = request.suggestedUrl().orElseThrow();
-                checkArgument(plan.documentInventory().suggestedExpansionUrls().contains(url),
-                        "Choose an exact URL suggested by a recorded document read");
-                RegisteredContextSource.Kind kind = url.endsWith("/")
-                        ? RegisteredContextSource.Kind.DOCUMENTATION_ROOT : RegisteredContextSource.Kind.DOCUMENTATION_PAGE;
-                source = notebook.sources().stream().filter(value -> value.url().equals(url) && value.kind() == kind).findFirst()
-                        .orElseGet(() -> new RegisteredContextSource("suggested:" + Hashing.sha256().hashString(url, UTF_8),
-                                kind, url, ContextEntryOrigin.USER, Optional.empty()));
-                RegisteredContextSource selected = source;
-                checkArgument(notebook.sources().stream().noneMatch(value -> value.id().equals(selected.id()) && !value.equals(selected)),
-                        "Suggested source identity is already registered differently");
-                checkArgument(plan.documentationSources().size() < 20 || plan.documentationSources().contains(source),
-                        "Learning plan has too many documentation sources");
-                checkArgument(plan.documentInventory().items().size() < ContextDocumentInventory.MAX_ITEMS
-                                || plan.documentationSources().contains(source), "Documentation inventory is full");
-                checkArgument(current.sourceIds().size() < 20 || current.sourceIds().contains(source.id()),
-                        "Learning question has too many documentation sources");
-                if (!notebook.sources().contains(source)) {
-                    List<EditContextConfiguration.Source> registrations = ImmutableList.<EditContextConfiguration.Source>builder()
-                            .addAll(notebook.sources().stream().map(value -> new EditContextConfiguration.Source(value.id(), value.kind(), value.url())).toList())
-                            .add(new EditContextConfiguration.Source(source.id(), source.kind(), source.url())).build();
-                    notebooks.configure(workspaceId, notebook.revision(),
-                            new EditContextConfiguration(Optional.empty(), Optional.of(registrations), Optional.empty()));
-                }
-            }
-            Optional<RegisteredContextSource> existing = plan.documentationSources().stream().filter(value -> value.id().equals(source.id())).findFirst();
-            checkArgument(existing.isEmpty() || existing.orElseThrow().equals(source), "This source changed; discard the old plan before accepting a different version");
-            List<RegisteredContextSource> sources = existing.isPresent() ? plan.documentationSources()
-                    : ImmutableList.<RegisteredContextSource>builder().addAll(plan.documentationSources()).add(source).build();
-            List<ContextDocumentInventory.Item> items = existing.isPresent() ? plan.documentInventory().items()
-                    : ImmutableList.<ContextDocumentInventory.Item>builder().addAll(plan.documentInventory().items())
-                            .addAll(ContextDocumentInventory.initial(ImmutableList.of(source)).items()).build();
-            List<ContextLearningPlan.Topic> topics = plan.topics().stream().map(topic -> {
-                if (!topic.id().equals(current.id()) || topic.sourceIds().contains(source.id())) {
-                    return topic;
-                }
-                return new ContextLearningPlan.Topic(topic.id(), topic.title(), topic.question(), topic.scopeId(), topic.scopeMatchDigest(), topic.paths(),
-                        topic.repositoryFiles(), ImmutableList.<String>builder().addAll(topic.sourceIds()).add(source.id()).build(), topic.status(), topic.remainingQuestion());
-            }).toList();
-            List<String> suggestions = request.suggestedUrl().isPresent()
-                    ? plan.documentInventory().withoutSuggestion(request.suggestedUrl().orElseThrow()).suggestedExpansionUrls()
-                    : plan.documentInventory().suggestedExpansionUrls();
-            return plans.save(Optional.of(plan), new ContextLearningPlan(plan.id(), plan.workspaceId(), plan.reportId(), plan.acceptedRequestKey(),
-                    plan.acceptedRequestDigest(), plan.acceptedNotebookRevision(), plan.initialBuildSequence(), plan.acceptedTopicIds(), plan.repositoryId(),
-                    plan.repository(), plan.baselineSha(), topics, sources, new ContextDocumentInventory(sources, items, plan.documentInventory().truncated(), suggestions),
-                    plan.gaps(), plan.acceptedAt()));
+            Optional<RegisteredContextSource> known = plan.documentationSources().stream().filter(value -> value.id().equals(source.id())).findFirst();
+            checkArgument(known.isEmpty() || known.orElseThrow().equals(source), "This source changed; discard the old plan before accepting a different version");
+            ContextDocumentInventory inventory = plan.documentInventory().withoutSuggestion(url).add(source);
+            List<ContextLearningPlan.Topic> topics = plan.topics().stream()
+                    .map(topic -> topic.id().equals(owner.id()) ? topic.withSource(source.id()) : topic).toList();
+            return plans.save(Optional.of(plan), plan.withSources(topics, inventory));
+        }));
+    }
+
+    /** Removes one suggestion without registering anything; learning stays within the approved sources. */
+    public ContextLearningPlan declineSource(String workspaceId, DeclineRequest request)
+    {
+        return WorkspaceOperationLocks.withLock(workspaceId, () -> unitOfWork.execute(() -> {
+            ContextLearningPlan plan = plans.find(workspaceId).filter(value -> value.id().equals(request.planId()))
+                    .orElseThrow(() -> new IllegalArgumentException("Learning plan changed"));
+            return plans.save(Optional.of(plan), plan.withInventory(plan.documentInventory().withoutSuggestion(request.suggestedUrl())));
         }));
     }
 
@@ -252,18 +265,20 @@ public class ContextLearningService
         return plans.save(Optional.of(plan), plan.withInventory(replacement));
     }
 
-    public ContextLearningPlan progress(ContextBuild build, String remainingQuestion, boolean completed, List<String> gaps)
+    public ContextLearningPlan progress(ContextBuild build, String progress, boolean completed, List<String> gaps)
     {
-        ContextLimits.text(remainingQuestion, "remaining question", 2000);
+        ContextLimits.text(progress, "question progress", 2000);
         List<String> additions = ImmutableList.copyOf(gaps);
         checkArgument(additions.size() <= 20, "Too many progress limitations");
         ContextLearningPlan plan = require(build);
-        String topicId = build.assignment().orElseThrow().topicId();
-        ContextLearningPlan.Topic current = topic(plan, topicId);
+        ContextBuild.Assignment assignment = build.assignment().orElseThrow();
+        ContextLearningPlan.Question current = topic(plan, assignment.topicId()).questions().get(assignment.questionIndex());
         checkArgument(current.status() != ContextLearningPlan.Status.COMPLETED || completed,
                 "Completed question cannot be reset by a later tool call");
-        List<ContextLearningPlan.Topic> updated = plan.topics().stream().map(topic ->
-                topic.id().equals(topicId) ? topic.progress(remainingQuestion, completed) : topic).toList();
+        ContextLearningPlan.Question saved = new ContextLearningPlan.Question(current.text(),
+                completed ? ContextLearningPlan.Status.COMPLETED : ContextLearningPlan.Status.UNFINISHED, progress);
+        List<ContextLearningPlan.Topic> updated = plan.topics().stream().map(topic -> topic.id().equals(assignment.topicId())
+                ? topic.withQuestion(assignment.questionIndex(), saved) : topic).toList();
         List<String> limitations = plan.gaps();
         for (String gap : additions) {
             limitations = ContextBuildService.gaps(limitations, gap);
@@ -272,7 +287,7 @@ public class ContextLearningService
     }
 
     private ContextBuildService.View launch(ContextLearningPlan plan, String requestKey, long expectedBuildSequence,
-            long expectedRevision, boolean initial)
+            long expectedRevision, boolean accepted, Optional<ContextLearningPlan.Target> requested)
     {
         Optional<ContextBuild> current = buildStore.find(plan.workspaceId());
         if (current.filter(build -> build.requestKey().equals(requestKey)).isPresent()) {
@@ -282,23 +297,27 @@ public class ContextLearningService
                     "Learning request key was reused with different inputs");
             return builds.get(plan.workspaceId());
         }
-        checkArgument(!initial || expectedBuildSequence == plan.initialBuildSequence(),
-                "Initial learning request sequence changed");
+        checkArgument(!accepted || expectedBuildSequence == plan.acceptedBuildSequence(),
+                "Accepted learning request sequence changed");
         checkArgument(builds.get(plan.workspaceId()).buildRequestSequence() == expectedBuildSequence,
                 "Build request sequence changed; inspect latest learning task");
         RepositoryNotebook notebook = notebooks.getNotebook(plan.workspaceId());
         checkArgument(notebook.revision() == expectedRevision, "Notebook revision changed; inspect current context");
-        ContextLearningPlan.Topic next = plan.topics().stream()
-                .filter(topic -> topic.status() == ContextLearningPlan.Status.PENDING).findFirst().orElse(null);
-        if (next == null) {
+        Optional<ContextLearningPlan.Target> target = requested.or(plan::next);
+        if (target.isEmpty()) {
             return builds.get(plan.workspaceId());
         }
+        ContextLearningPlan.Topic topic = topic(plan, target.orElseThrow().topicId());
+        int index = target.orElseThrow().question();
+        checkArgument(index < topic.questions().size(), "Learning question changed");
+        ContextLearningPlan.Question question = topic.questions().get(index);
+        checkArgument(question.status() != ContextLearningPlan.Status.COMPLETED, "This learning question is already answered");
         List<RegisteredContextSource> selected = plan.documentationSources().stream()
-                .filter(source -> next.sourceIds().contains(source.id())).toList();
-        ContextBuild.Assignment assignment = new ContextBuild.Assignment(plan.id(), next.id(),
-                next.remainingQuestion(), next.paths(), next.repositoryFiles());
+                .filter(source -> topic.sourceIds().contains(source.id())).toList();
+        ContextBuild.Assignment assignment = new ContextBuild.Assignment(plan.id(), topic.id(), topic.title(), index,
+                question.text(), question.progress(), topic.paths(), topic.repositoryFiles());
         return builds.learn(plan.workspaceId(), new ContextBuildService.Request(requestKey, notebook.revision(),
-                expectedBuildSequence, ImmutableList.of(next.scopeId()), ImmutableList.of()),
+                expectedBuildSequence, ImmutableList.of(topic.scopeId()), ImmutableList.of()),
                 plan.baselineSha(), selected, assignment);
     }
 
@@ -307,13 +326,14 @@ public class ContextLearningService
         WorkspaceRepositoryContext workspace = workspaces.requireReadableRepository(workspaceId);
         checkArgument(RepositoryContextReader.repositoryId(workspace) == report.repositoryId()
                         && workspace.monitoredRepository().equals(report.repository()), "Monitored repository changed since discovery");
-        GitCommandRunner.Result resolved = git.run(workspace.repository(), "rev-parse", "--verify",
-                "refs/remotes/" + workspace.sourceRemote() + "/" + workspace.defaultBranch() + "^{commit}");
+        // Learning reads the recorded discovery revision, so a later fetch of the monitored branch does not invalidate suggestions.
+        GitCommandRunner.Result resolved = git.run(workspace.repository(), "rev-parse", "--verify", report.baselineSha() + "^{commit}");
         checkArgument(resolved.successful() && !resolved.truncated() && resolved.output().strip().equals(report.baselineSha()),
-                "Monitored baseline changed since discovery; discover again before accepting topics");
+                "The discovery revision is no longer available locally; discover again before accepting topics");
     }
 
-    private Prepared prepare(ContextDiscoveryReport report, List<ContextDiscoveryReport.Topic> selected, RepositoryNotebook notebook)
+    /** Proposed sources the user unchecked are neither registered nor offered to the topic's runs. */
+    private Prepared prepare(ContextDiscoveryReport report, List<ContextDiscoveryReport.Topic> selected, RepositoryNotebook notebook, List<String> excluded)
     {
         Map<String, ContextDiscoveryReport.Evidence> cited = new LinkedHashMap<>();
         report.evidence().forEach(value -> cited.put(value.readId(), value));
@@ -339,6 +359,9 @@ public class ContextLearningService
                 scopeById.put(scopeId, scope);
             }
             for (String proposedId : candidate.sourceIds()) {
+                if (excluded.contains(proposedId)) {
+                    continue;
+                }
                 ContextDiscoveryReport.Source proposed = requireNonNull(suggestions.get(proposedId), "Discovery source is missing");
                 if (proposed.kind() == ContextDiscoveryReport.Source.Kind.REPOSITORY_FILE) {
                     continue;
@@ -366,7 +389,7 @@ public class ContextLearningService
         List<ContextLearningPlan.Topic> topics = selected.stream().map(candidate -> {
             LinkedHashSet<String> files = new LinkedHashSet<>();
             candidate.evidenceReadIds().stream().map(cited::get).map(ContextDiscoveryReport.Evidence::path).forEach(files::add);
-            candidate.sourceIds().stream().map(suggestions::get).forEach(source -> {
+            candidate.sourceIds().stream().filter(id -> !excluded.contains(id)).map(suggestions::get).forEach(source -> {
                 if (source.kind() == ContextDiscoveryReport.Source.Kind.REPOSITORY_FILE) {
                     files.add(source.location());
                 }
@@ -374,9 +397,9 @@ public class ContextLearningService
             });
             String scopeId = candidate.paths().isEmpty() ? "project" : "path:" + candidate.paths().getFirst();
             List<String> docs = candidate.sourceIds().stream().filter(sourceIds::containsKey).map(sourceIds::get).distinct().toList();
-            return new ContextLearningPlan.Topic(candidate.id(), candidate.title(), candidate.question(), scopeId,
-                    matchDigest(scopeById.get(scopeId).match()), candidate.paths(),
-                    ImmutableList.copyOf(files), docs, ContextLearningPlan.Status.PENDING, candidate.question());
+            return new ContextLearningPlan.Topic(candidate.id(), candidate.title(), scopeId,
+                    matchDigest(scopeById.get(scopeId).match()), candidate.paths(), ImmutableList.copyOf(files), docs,
+                    candidate.questions().stream().map(ContextLearningPlan.Question::open).toList());
         }).toList();
         List<RegisteredContextSource> documentation = sourceIds.values().stream().distinct().map(id -> notebook.sources().stream()
                 .filter(source -> source.id().equals(id)).findFirst()
@@ -403,8 +426,7 @@ public class ContextLearningService
 
     private static ContextLearningPlan.Topic topic(ContextLearningPlan plan, String id)
     {
-        return plan.topics().stream().filter(value -> value.id().equals(id)).findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Learning topic changed"));
+        return plan.topic(id);
     }
 
     private String matchDigest(ContextMatch match)
@@ -427,10 +449,13 @@ public class ContextLearningService
         }
     }
 
-    public record StartRequest(String requestKey, long expectedRevision, long expectedBuildSequence, String reportId, List<String> topicIds)
+    public record StartRequest(String requestKey, long expectedRevision, long expectedBuildSequence, String reportId, List<String> topicIds,
+            List<String> excludedSourceIds)
     {
         public StartRequest
         {
+            excludedSourceIds = ImmutableList.copyOf(excludedSourceIds);
+            ContextLimits.unique(excludedSourceIds, "excludedSourceIds", ContextDiscoveryReport.MAX_SOURCES);
             ContextLimits.text(requestKey, "requestKey", 100);
             checkArgument(expectedRevision >= 0 && expectedBuildSequence >= 0, "Revisions must not be negative");
             ContextLimits.text(reportId, "reportId", 100);
@@ -451,23 +476,29 @@ public class ContextLearningService
         }
     }
 
-    public record SourceRequest(String planId, Optional<String> sourceId, Optional<String> suggestedUrl,
-            long expectedRevision, long expectedBuildSequence)
+    public enum Boundary
     {
-        public SourceRequest(String planId, String sourceId, long expectedRevision, long expectedBuildSequence)
-        {
-            this(planId, Optional.of(sourceId), Optional.empty(), expectedRevision, expectedBuildSequence);
-        }
+        PAGE,
+        ROOT
+    }
 
+    public record SourceRequest(String planId, String suggestedUrl, Boundary boundary, long expectedRevision, long expectedBuildSequence)
+    {
         public SourceRequest
         {
             ContextLimits.text(planId, "planId", 100);
-            requireNonNull(sourceId, "sourceId is null");
-            requireNonNull(suggestedUrl, "suggestedUrl is null");
-            checkArgument(sourceId.isPresent() != suggestedUrl.isPresent(), "Choose exactly one source ID or suggested URL");
-            sourceId.ifPresent(value -> ContextLimits.text(value, "sourceId", 500));
-            suggestedUrl.ifPresent(ContextLimits::documentationUrl);
+            ContextLimits.documentationUrl(suggestedUrl);
+            requireNonNull(boundary, "boundary is null");
             checkArgument(expectedRevision >= 0 && expectedBuildSequence >= 0, "Revisions must not be negative");
+        }
+    }
+
+    public record DeclineRequest(String planId, String suggestedUrl)
+    {
+        public DeclineRequest
+        {
+            ContextLimits.text(planId, "planId", 100);
+            ContextLimits.documentationUrl(suggestedUrl);
         }
     }
 

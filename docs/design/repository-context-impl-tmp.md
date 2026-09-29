@@ -111,6 +111,90 @@ without separate authorization.
   Source identities remain inspectable. No live-provider quality or token-cost
   acceptance run was performed, and source-operation limits are not dollar caps.
 
+## UI refactor checkpoints
+
+The user-supplied Claude Design prototype, recorded in
+[the refactor design, section 8](repository-context-refactor.md#8-user-interface),
+is the source of truth for this UI. Verification uses isolated fixtures only:
+no live learning against watched repositories and no edits to real workspace
+notes.
+
+| Checkpoint | Work and acceptance | Progress |
+| --- | --- | --- |
+| U0 — Design mapping | Prototype, screenshots and current implementation traced; design doc names the prototype as authoritative; data gaps listed | Complete |
+| U1 — Backend data for the design | Multi-question topics and plan questions; plan extension and next question; bounded run history with outcomes and counts; source-suggestion provenance, explicit boundary and decline; ByteQuay-computed discovery coverage and continuation; recorded-revision acceptance; approval/proposal times; observed-in-code claim basis | Complete |
+| U2 — Workspace destination | Sidebar item below Commits with pending count; route; Settings page removed | Complete |
+| U3 — Overview | Header, agent-use popover, More menu, status card states, Needs review, Learning plan, notes summary, opportunities, suggested topics, selection bar, run limits, toasts | Complete |
+| U4 — Notes tab | Area rail, type filter, literal filter, grouped rows, empty states | Complete |
+| U5 — Drawers | Note review (compare, edit, approve, dismiss, disable, pager), learning plan (plan, sources, activity), discovery, usage, advanced configuration | Complete |
+| U6 — Explore and Home | Explore & prepare context composer mode, workspace Home review card, task draft card linking to review | Complete |
+| U7 — Removal and verification | Old settings UI, fixtures and contracts removed; model and browser tests; normal and narrow screenshots; backend and frontend gates | Complete |
+
+### UI refactor log
+
+- U0: prototype `Repository Context.dc.html` (1227 lines), its `support.js` and
+  twelve journey screenshots read in full; current settings page, learning
+  services, stores, tools and controllers traced. The prototype's topics carry
+  several questions, a run history, source provenance, module coverage and
+  dated notes; the backend had one question per topic, only the latest run,
+  bare suggestion URLs, free-text coverage and no timestamps. U1 closes those
+  gaps without changing the persisted notebook shape, so approved notes survive.
+- U1: discovery topics carry one to six questions; plan questions are pending,
+  unfinished or answered, and the plan response names the next question
+  (unfinished first, then breadth-first across topics). Learn selected appends
+  topics from the plan's own report and starts on the first new question.
+  Each run keeps a bounded activity log; the replaced build is summarized into a
+  30-run history with outcome, operation and page-open counts and proposed note
+  IDs. Suggested external links keep their page, topic, question and task;
+  approval takes an explicit page or root boundary and decline removes the
+  suggestion, neither starting a run. Discovery coverage is computed by ByteQuay
+  from listed and read module directories; a continuation keeps the report ID,
+  topics and evidence at the same revision. Suggestions stay learnable at their
+  recorded revision. Proposal and approval times, with the proposing task, are
+  kept beside the notebook. Claims gain an OBSERVED basis for code-read facts.
+  The unshipped build, plan and report stores dropped their read-time shims, so
+  local data saved by the earlier implementation must be cleared once.
+  Focused backend suites: 434 tests passed; Checkstyle clean.
+- U2: Repository context is the workspace tab `context`
+  (`#/workspaces/<id>/context`, and `/context/draft/<id>` to open one draft's
+  review). The sidebar item sits below Commits with an amber count of drafts and
+  source proposals, re-read on change events, focus and tab switches. The
+  Workspace settings section, its page, build and usage panels, fixture and
+  browser test are removed.
+- U3–U5: the page reads the notebook, times, build view, report and plan view
+  on open and starts nothing; baseline, merged candidates, usage and models are
+  secondary reads. The status card follows the prototype's states, and only
+  lightning-marked actions start a run. Drawers: note review with compare,
+  edit, approve, dismiss confirmation, disable and pager; learning plan with
+  plan, sources (explicit page or root boundary, decline) and activity;
+  discovery coverage and activity; usage by period; advanced sources and areas.
+  Drawers take focus, Esc closes them and focus returns after the list behind
+  is no longer inert. The page switches to a narrow layout below 600px.
+- U6: Home's Explore & prepare context chip puts the composer in a mode with its
+  own chip, question placeholder and a lightning run line; sending wraps the
+  question in the existing explore instruction. Home's Needs attention shows a
+  Repository context card first, and a task shows the pending drafts it proposed
+  after its transcript; both open the same review drawer. No agent-service
+  contract changed: the task card reads the recorded proposing task.
+- U7: the settings page, its build and usage panels, fixture and browser test,
+  the `ws-context` section, and the usage-activity, remove and reset bridge
+  contracts are gone. An isolated browser fixture (in-memory bridge, no backend,
+  model or workspace data) drives fourteen journeys, including no run on open,
+  explicit starts, run-free approval and source approval, stale-revision errors,
+  Esc focus return and narrow layout, and captures every state at 1280 and
+  760 px. Gates: backend `mvn verify` (3,510 tests); frontend lint, type check,
+  1,384 tests and `npm run package`.
+- Cleanup after U7, on request: note removal and its regeneration suppression,
+  scope Reset, manual scope editing and the per-note usage activity list are
+  retired end to end (endpoints, service paths, store queries, the notebook
+  field, bridge and contracts). A notebook saved with the old removal list still
+  loads. Usage returns every note's current-version finds and opens without
+  paging, which also fixes notes past the first 20 reading as unused. The build
+  view, report, plan, candidate and notebook parsers keep only fields the page
+  reads; the unreachable EXCLUDED inventory state is gone. Gates: backend
+  `mvn verify` (3,527 tests); frontend lint, type check, 1,385 tests and
+  `npm run package`.
+
 ---
 
 Approved behavior is defined in [Repository Context](repository-context.md). Start the

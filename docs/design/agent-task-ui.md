@@ -1552,7 +1552,7 @@ findings. Byte/read counts are retained-data measurements; unavailable token or
 provider-cache attribution is labeled unavailable. None implies comprehension
 or an improved review judgment.
 
-Workspace settings owns Repository context and the explicit Learn/Refresh
-controls. Learning runs through the existing task transcript, Stop and recovery
-controls. Opening settings, synchronizing comments or restoring the app cannot
-launch learning. This does not add another task UI or background learning job.
+The workspace's Repository context page owns the explicit learning controls.
+Learning items open read-only activity with Stop and the existing recovery
+controls; they offer no interactive task route or steering. Opening settings,
+synchronizing comments or restoring the app cannot launch learning.

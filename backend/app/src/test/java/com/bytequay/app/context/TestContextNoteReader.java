@@ -50,7 +50,7 @@ class TestContextNoteReader
                 ImmutableList.of(new ContextClaim("Conditional claim", ContextClaim.Basis.INFERENCE, ImmutableList.of(observed.id(), reported.id()))),
                 ImmutableList.of(observed.id(), reported.id()), ContextEntryOrigin.USER, true, 7);
         RepositoryNotebook notebook = new RepositoryNotebook(1, 9, false, ImmutableList.of(), ImmutableList.of(ContextScope.project()), ImmutableList.of(entry),
-                ImmutableList.of(), ImmutableList.of(observed, reported), Optional.empty());
+                ImmutableList.of(observed, reported), Optional.empty());
         when(notebooks.getNotebook("workspace")).thenReturn(notebook);
         ContextSelectedEntry selected = new ContextSelectedEntry(entry.id(), 7, entry.title(), Optional.empty(), ImmutableMap.of(), ImmutableList.of("Frozen match"),
                 ContextSelectedEntry.Applicability.MATCHED, ContextSelectedEntry.Inclusion.DEFERRED);
@@ -93,8 +93,7 @@ class TestContextNoteReader
                 ImmutableList.of(), active.sourceIds(), ContextEntryOrigin.GENERATED, true, 1);
         RepositoryNotebook notebook = new RepositoryNotebook(1, 9, true, true, ImmutableList.of(), ImmutableList.of(ContextScope.project()), ImmutableList.of(active),
                 ImmutableList.of(new ContextKnowledgeDraft("update", replacement, Optional.of(7L), "a".repeat(40), "Proposed update"),
-                        new ContextKnowledgeDraft("new", additional, Optional.empty(), "a".repeat(40), "Proposed topic")),
-                ImmutableList.of(), ImmutableList.of(evidence), Optional.empty());
+                        new ContextKnowledgeDraft("new", additional, Optional.empty(), "a".repeat(40), "Proposed topic")), ImmutableList.of(evidence), Optional.empty());
         when(notebooks.getNotebook("workspace")).thenReturn(notebook);
 
         assertThat(reader.readEnabled("workspace", active.id(), 7).orElseThrow().read().text()).contains("Approved contract").doesNotContain("Unapproved");

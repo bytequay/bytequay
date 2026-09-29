@@ -16,19 +16,22 @@ import { completedExecutionItems, taskState } from '../commits/model';
 import type { AttentionLink, AttentionTone } from '../home/attention';
 import { reviewStatus } from '../pulls/agent-review/model';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
+import type { ContextRunDto } from '../repository-context/contracts';
+import { OUTCOME, runOrigin } from '../repository-context/model';
 import { laneLabel } from '../settings/model';
 import type { AgentTaskActivityDto, AgentTaskChangesDto, AgentTaskDto, CherryPickExecution, CiAutofixRunDto, ModelProviderDto } from '../types';
 import { changesLabel, taskArchived } from './AgentTasksView';
 import { taskCardState, taskLastMessage, taskLinks, type TaskCardState } from './attention';
 
 /** Every kind of work the Tasks page lists, each with its own colour and icon. */
-export type TaskType = 'dev' | 'review' | 'cherry' | 'ci';
+export type TaskType = 'dev' | 'review' | 'cherry' | 'ci' | 'learning';
 
 export const TASK_TYPES: Record<TaskType, { label: string; newLabel: string }> = {
   dev: { label: 'Development', newLabel: 'New task' },
   review: { label: 'Review', newLabel: 'Review a pull request' },
   cherry: { label: 'Cherry-pick', newLabel: 'New cherry-pick' },
   ci: { label: 'CI fix', newLabel: 'Fix a failing check' },
+  learning: { label: 'Learning', newLabel: 'Repository context' },
 };
 
 export type TaskListMessage = { who: string; text: string; at: string };
@@ -51,9 +54,23 @@ export type TaskListItem = {
   review: AgentReviewDto | null;
   execution: CherryPickExecution | null;
   run: CiAutofixRunDto | null;
+  contextRun: ContextRunDto | null;
 };
 
-const EMPTY: Pick<TaskListItem, 'task' | 'review' | 'execution' | 'run'> = { task: null, review: null, execution: null, run: null };
+const EMPTY: Pick<TaskListItem, 'task' | 'review' | 'execution' | 'run' | 'contextRun'> = { task: null, review: null, execution: null, run: null, contextRun: null };
+
+export function learningItem(run: ContextRunDto): TaskListItem {
+  const last = run.activity.at(-1);
+  return {
+    ...EMPTY, key: `learning:${run.taskId}`, type: 'learning', title: runOrigin(run),
+    state: run.outcome === 'RUNNING' ? { label: 'Running', tone: 'blue', spinning: true, reason: null }
+      : run.outcome === 'FAILED' ? { label: 'Failed', tone: 'red', spinning: false, reason: run.detail }
+        : { label: 'Finished', tone: 'neutral', spinning: false, reason: null },
+    at: run.endedAt ?? last?.at ?? run.requestedAt,
+    message: last === undefined ? null : { who: run.mode === 'DISCOVER' ? 'Discovery' : 'Learning', text: last.text, at: last.at },
+    links: [], change: `${OUTCOME[run.outcome].label} · read-only`, progress: null, contextRun: run,
+  };
+}
 
 /** Words for an enum value the backend sends, such as a pause reason. */
 function words(value: string): string {

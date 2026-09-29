@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.context;
 
-import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.google.common.collect.ImmutableList;
 
@@ -22,24 +21,17 @@ import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
-/** User-selected preference/catalog changes; absent fields retain their current values. */
+/** User-selected preference and documentation-source changes; absent fields retain their current values. */
 public record EditContextConfiguration(
         Optional<Boolean> useInReviews,
         Optional<Boolean> useInDevelopment,
-        Optional<List<Source>> sources,
-        Optional<List<ContextScope>> scopes)
+        Optional<List<Source>> sources)
 {
-    public EditContextConfiguration(Optional<Boolean> useInReviews, Optional<List<Source>> sources, Optional<List<ContextScope>> scopes)
-    {
-        this(useInReviews, Optional.empty(), sources, scopes);
-    }
-
     public EditContextConfiguration
     {
         requireNonNull(useInReviews, "useInReviews is null");
         requireNonNull(useInDevelopment, "useInDevelopment is null");
         sources = requireNonNull(sources, "sources is null").map(ImmutableList::copyOf);
-        scopes = requireNonNull(scopes, "scopes is null").map(ImmutableList::copyOf);
     }
 
     /** Editable source identity/location; provenance is assigned by the service. */

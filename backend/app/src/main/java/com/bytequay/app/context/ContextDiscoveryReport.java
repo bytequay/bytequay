@@ -23,12 +23,19 @@ import java.util.List;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** One agent-proposed, evidenced discovery result. It is not active repository knowledge. */
+/**
+ * One agent-proposed, evidenced discovery result, possibly extended by continuation runs at the same revision.
+ * It is not active repository knowledge.
+ */
 public record ContextDiscoveryReport(
         String id, String workspaceId, long repositoryId, RepoRef repository, String baselineSha, String outline,
         List<Topic> topics, List<Source> sources, List<Evidence> evidence, List<String> gaps, List<String> remaining,
-        boolean partial, Instant createdAt)
+        boolean partial, Coverage coverage, Instant createdAt)
 {
+    public static final int MAX_TOPICS = 40;
+    public static final int MAX_SOURCES = 40;
+    public static final int MAX_EVIDENCE = 80;
+
     public ContextDiscoveryReport
     {
         ContextLimits.text(id, "discovery id", 100);
@@ -42,9 +49,10 @@ public record ContextDiscoveryReport(
         evidence = ImmutableList.copyOf(evidence);
         gaps = ImmutableList.copyOf(gaps);
         remaining = ImmutableList.copyOf(remaining);
-        ContextLimits.unique(topics.stream().map(Topic::id).toList(), "discovery topics", 20);
-        ContextLimits.unique(sources.stream().map(Source::id).toList(), "discovery sources", 20);
-        ContextLimits.unique(evidence.stream().map(Evidence::readId).toList(), "discovery evidence", 40);
+        ContextLimits.unique(topics.stream().map(Topic::id).toList(), "discovery topics", MAX_TOPICS);
+        ContextLimits.unique(sources.stream().map(Source::id).toList(), "discovery sources", MAX_SOURCES);
+        ContextLimits.unique(evidence.stream().map(Evidence::readId).toList(), "discovery evidence", MAX_EVIDENCE);
+        requireNonNull(coverage, "coverage is null");
         checkArgument(gaps.size() <= 40 && remaining.size() <= 20, "Too many discovery limitations");
         gaps.forEach(value -> ContextLimits.text(value, "discovery gap", 1000));
         remaining.forEach(value -> ContextLimits.text(value, "remaining work", 1000));
@@ -59,13 +67,16 @@ public record ContextDiscoveryReport(
         requireNonNull(createdAt, "createdAt is null");
     }
 
-    public record Topic(String id, String title, String question, List<String> paths, List<String> sourceIds, List<String> evidenceReadIds, String why)
+    public record Topic(String id, String title, List<String> questions, List<String> paths, List<String> sourceIds, List<String> evidenceReadIds, String why)
     {
         public Topic
         {
             checkArgument(id.matches("topic:[1-9][0-9]*"), "Invalid topic ID");
             ContextLimits.text(title, "topic title", 200);
-            ContextLimits.text(question, "learning question", 1000);
+            questions = ImmutableList.copyOf(questions);
+            checkArgument(!questions.isEmpty() && questions.size() <= ContextLearningPlan.Topic.MAX_QUESTIONS, "A topic proposes one to six learning questions");
+            ContextLimits.unique(questions, "learning questions", ContextLearningPlan.Topic.MAX_QUESTIONS);
+            questions.forEach(question -> ContextLimits.text(question, "learning question", 1000));
             ContextLimits.text(why, "topic rationale", 1000);
             paths = ImmutableList.copyOf(paths);
             sourceIds = ImmutableList.copyOf(sourceIds);
@@ -106,6 +117,47 @@ public record ContextDiscoveryReport(
             REPOSITORY_FILE,
             DOCUMENTATION_ROOT,
             DOCUMENTATION_PAGE
+        }
+    }
+
+    /** Module directories ByteQuay saw the report's runs list or read inside. The agent cannot claim coverage. */
+    public record Coverage(List<Area> areas, List<String> unsurveyed, boolean unsurveyedTruncated)
+    {
+        public static final int MAX_AREAS = 40;
+        public static final int MAX_UNSURVEYED = 400;
+
+        public Coverage
+        {
+            areas = ImmutableList.copyOf(areas);
+            unsurveyed = ImmutableList.copyOf(unsurveyed);
+            ContextLimits.unique(areas.stream().map(Area::path).toList(), "coverage areas", MAX_AREAS);
+            ContextLimits.unique(unsurveyed, "unsurveyed directories", MAX_UNSURVEYED);
+            unsurveyed.forEach(ContextLimits::pathPrefix);
+        }
+
+        public static Coverage none()
+        {
+            return new Coverage(ImmutableList.of(), ImmutableList.of(), false);
+        }
+
+        public int total()
+        {
+            return areas.stream().mapToInt(Area::total).sum();
+        }
+
+        public int surveyed()
+        {
+            return areas.stream().mapToInt(Area::surveyed).sum();
+        }
+    }
+
+    /** A top-level directory and how many of its immediate subdirectories were surveyed. */
+    public record Area(String path, int surveyed, int total)
+    {
+        public Area
+        {
+            ContextLimits.pathPrefix(path);
+            checkArgument(total > 0 && surveyed >= 0 && surveyed <= total, "Invalid coverage count");
         }
     }
 

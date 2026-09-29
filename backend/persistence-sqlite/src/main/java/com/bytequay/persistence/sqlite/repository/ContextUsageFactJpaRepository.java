@@ -70,13 +70,6 @@ public interface ContextUsageFactJpaRepository
             + "AND f.entryVersion = :version AND f.stage = :stage")
     List<Fact> selectedNote(String workspaceId, String reviewRunId, String entryId, long version, ContextUsageEvent.Stage stage, Pageable page);
 
-    @Query(FIELDS + " WHERE f.workspaceId = :workspaceId AND f.entryId = :entryId ORDER BY f.occurredAtMillis DESC, f.id DESC")
-    List<Fact> activities(String workspaceId, String entryId, Pageable page);
-
-    @Query(FIELDS + " WHERE f.workspaceId = :workspaceId AND f.entryId = :entryId AND f.occurredAtMillis >= :since "
-            + "ORDER BY f.occurredAtMillis DESC, f.id DESC")
-    List<Fact> activitiesSince(String workspaceId, String entryId, long since, Pageable page);
-
     @Modifying
     @Query("DELETE FROM ContextUsageFactEntity f WHERE f.taskId = :taskId")
     void deleteByTaskId(String taskId);

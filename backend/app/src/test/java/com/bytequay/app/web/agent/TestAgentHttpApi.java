@@ -51,6 +51,7 @@ import com.bytequay.app.agent.DevelopmentPublicationFacts;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.agent.codegraph.FakeCodeGraphService;
 import com.bytequay.app.agent.impl.DeterministicAgentDriver;
+import com.bytequay.app.context.EditContextConfiguration;
 import com.bytequay.app.context.RepositoryContextService;
 import com.bytequay.app.jira.JiraDtos;
 import com.bytequay.app.jira.JiraIssue;
@@ -1134,7 +1135,8 @@ class TestAgentHttpApi
             throws Exception
     {
         // Keep the lifecycle transcript baseline independent of optional provider context.
-        repositoryContext.setUseInDevelopment(workspaceId, repositoryContext.getNotebook(workspaceId).revision(), false);
+        repositoryContext.configure(workspaceId, repositoryContext.getNotebook(workspaceId).revision(),
+                new EditContextConfiguration(Optional.empty(), Optional.of(false), Optional.empty()));
         Map<String, Object> createRequest = new HashMap<>(createTaskBody("codex"));
         createRequest.put("message", "first");
         createRequest.put("idempotencyKey", "request-1");

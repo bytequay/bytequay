@@ -451,7 +451,7 @@ public class ReviewTools
     {
         Map<String, Object> claim = schema(ImmutableMap.of(
                 "text", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000, "description", "At most 2000 UTF-8 bytes."),
-                "basis", ImmutableMap.of("type", "string", "enum", ImmutableList.of("DOCUMENTED", "RECORDED_DECISION", "INFERENCE", "QUESTION")),
+                "basis", ImmutableMap.of("type", "string", "enum", ImmutableList.of("DOCUMENTED", "OBSERVED", "RECORDED_DECISION", "INFERENCE", "QUESTION")),
                 "sourceIds", stringArray(ContextLimits.MAX_SOURCES, 500)), ImmutableList.of("text", "basis", "sourceIds"));
         Map<String, Object> entry = schema(ImmutableMap.of(
                 "id", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1200,

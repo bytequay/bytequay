@@ -44,9 +44,9 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
@@ -67,6 +67,7 @@ import static org.mockito.Mockito.when;
 
 class TestRepositoryContextService
 {
+    private static final String TASK_ID = "33333333-3333-4333-8333-333333333333";
     private static final String WORKSPACE = "workspace";
     private static final String KEY = RepositoryContextService.SETTINGS_PREFIX + WORKSPACE;
     private static final String HEAD = "a".repeat(40);
@@ -75,7 +76,7 @@ class TestRepositoryContextService
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new JavaTimeModule());
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
-    private final RepositoryContextService service = new RepositoryContextService(settings, mapper, workspaces, reviews);
+    private final RepositoryContextService service = new RepositoryContextService(settings, mapper, workspaces, reviews, Clock.systemUTC());
 
     @BeforeEach
     void workspaceExists()
@@ -94,9 +95,9 @@ class TestRepositoryContextService
         assertThat(service.getNotebook(WORKSPACE)).isEqualTo(RepositoryNotebook.empty());
         assertThat(service.getNotebook(WORKSPACE).useInDevelopment()).isTrue();
         assertThat(settings.get(KEY)).isEmpty();
-        RepositoryNotebook saved = service.setUseInReviews(WORKSPACE, 0, false);
+        RepositoryNotebook saved = service.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty()));
         String json = settings.get(KEY).orElseThrow();
-        assertThat(new RepositoryContextService(settings, mapper, workspaces, reviews).getNotebook(WORKSPACE)).isEqualTo(saved);
+        assertThat(new RepositoryContextService(settings, mapper, workspaces, reviews, Clock.systemUTC()).getNotebook(WORKSPACE)).isEqualTo(saved);
         assertThat(saved.useInReviews()).isFalse();
         assertThat(saved.revision()).isEqualTo(1);
         assertThat(settings.get(KEY)).contains(json);
@@ -112,14 +113,26 @@ class TestRepositoryContextService
         settings.put(KEY, mapper.writeValueAsString(old));
         assertThat(service.getNotebook(WORKSPACE).useInDevelopment()).isTrue();
 
-        RepositoryNotebook disabled = service.setUseInDevelopment(WORKSPACE, 0, false);
+        RepositoryNotebook disabled = service.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.empty(), Optional.of(false), Optional.empty()));
         assertThat(disabled.useInDevelopment()).isFalse();
         assertThat(disabled.useInReviews()).isTrue();
-        assertThat(service.setUseInReviews(WORKSPACE, 1, false).useInDevelopment()).isFalse();
+        assertThat(service.configure(WORKSPACE, 1, new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty())).useInDevelopment()).isFalse();
 
         old.putNull("useInDevelopment");
         settings.put(KEY, mapper.writeValueAsString(old));
         assertThatThrownBy(() -> service.getNotebook(WORKSPACE)).isInstanceOf(ContextStorageException.class);
+    }
+
+    @Test
+    void notebookSavedWithARemovalListStillLoadsItsNotes()
+            throws Exception
+    {
+        RepositoryNotebook saved = service.editEntry(WORKSPACE, 0, edit("Kept note"));
+        ObjectNode old = (ObjectNode) mapper.valueToTree(saved);
+        old.putArray("suppressedKnowledgeIds").add("knowledge:project:removed");
+        settings.put(KEY, mapper.writeValueAsString(old));
+
+        assertThat(service.getNotebook(WORKSPACE)).isEqualTo(saved);
     }
 
     @ParameterizedTest
@@ -128,56 +141,32 @@ class TestRepositoryContextService
     {
         settings.put(KEY, corrupt);
         assertThatThrownBy(() -> service.getNotebook(WORKSPACE)).isInstanceOf(ContextStorageException.class);
-        assertThatThrownBy(() -> service.setUseInReviews(WORKSPACE, 0, false)).isInstanceOf(ContextStorageException.class);
+        assertThatThrownBy(() -> service.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty())))
+                .isInstanceOf(ContextStorageException.class);
         assertThat(settings.get(KEY)).contains(corrupt);
     }
 
     @Test
     void configurationIsAtomicAndPreservesUnspecifiedFields()
     {
-        ContextScope iceberg = new ContextScope("path:plugin/iceberg/", "Iceberg",
-                new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/"), ImmutableList.of("iceberg")), true, Optional.empty(), Optional.empty());
         EditContextConfiguration.Source source = new EditContextConfiguration.Source("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://example.com/docs/");
         RepositoryNotebook first = service.configure(WORKSPACE, 0, new EditContextConfiguration(
-                Optional.of(false), Optional.of(ImmutableList.of(source)), Optional.of(ImmutableList.of(ContextScope.project(), iceberg))));
+                Optional.of(false), Optional.empty(), Optional.of(ImmutableList.of(source))));
         assertThat(first.revision()).isEqualTo(1);
         assertThat(first.sources().getFirst().origin()).isEqualTo(USER);
         assertThat(first.useInReviews()).isFalse();
-        RepositoryNotebook second = service.setUseInReviews(WORKSPACE, 1, true);
+        assertThat(first.useInDevelopment()).isTrue();
+        RepositoryNotebook second = service.configure(WORKSPACE, 1, new EditContextConfiguration(Optional.of(true), Optional.empty(), Optional.empty()));
         assertThat(second.sources()).isEqualTo(first.sources());
         assertThat(second.scopes()).isEqualTo(first.scopes());
         assertThat(service.getNotebook(WORKSPACE)).isEqualTo(second);
-        assertThatThrownBy(() -> service.configure(WORKSPACE, 2, new EditContextConfiguration(
-                Optional.empty(), Optional.empty(), Optional.of(ImmutableList.of(ContextScope.project())))))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Disable existing scopes");
-        assertThat(service.getNotebook(WORKSPACE)).isEqualTo(second);
-    }
-
-    @Test
-    void scopeConfigurationPreservesServerPreparationAndOwnershipInsteadOfAcceptingCallerMetadata()
-            throws Exception
-    {
-        RepositoryNotebook initial = seedPreparation(ContextPreparationResult.Outcome.EMPTY);
-        ContextPreparationResult forged = new ContextPreparationResult("forged", initial.scopes().getFirst().preparation().orElseThrow().inputFingerprint(),
-                ContextPreparationResult.Outcome.FAILED, ImmutableList.of(), ImmutableList.of(), "Caller-provided preparation");
-        ContextScope edited = new ContextScope("project", "Edited project title", new ContextMatch.Repository(), false, Optional.of(forged), Optional.empty());
-        RepositoryNotebook updated = service.configure(WORKSPACE, 1,
-                new EditContextConfiguration(Optional.empty(), Optional.empty(), Optional.of(ImmutableList.of(edited))));
-
-        assertThat(updated.revision()).isEqualTo(2);
-        assertThat(updated.scopes().getFirst().title()).isEqualTo("Edited project title");
-        assertThat(updated.scopes().getFirst().enabled()).isFalse();
-        assertThat(updated.scopes().getFirst().preparation()).isEqualTo(initial.scopes().getFirst().preparation());
-        assertThat(updated.activePreparation()).isEqualTo(initial.activePreparation());
-        assertThat(updated.sourceEvidence()).isEqualTo(initial.sourceEvidence());
-        assertThat(service.getNotebook(WORKSPACE)).isEqualTo(updated);
     }
 
     @Test
     void discoveredConfigurationRetainsEvidenceBeforeKnowledgeAndPreservesUserContent()
     {
-        ContextScope project = new ContextScope("project", "My project", new ContextMatch.Repository(), false, Optional.empty(), Optional.empty());
-        service.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.of(ImmutableList.of(project))));
+        ContextScope project = ContextScope.project();
+        service.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty()));
         RepositoryNotebook before = service.editEntry(WORKSPACE, 1, edit("User correction"));
         ContextSourceEvidence module = discoveryEvidence("module", "component/pom.xml", "<project/>");
         ContextSourceEvidence readme = discoveryEvidence("readme", "README.md", "Documentation: https://example.com/docs/");
@@ -192,7 +181,7 @@ class TestRepositoryContextService
         assertThat(saved.scopes()).containsExactly(project, scope);
         assertThat(saved.sources()).containsExactly(source);
         assertThat(saved.sourceEvidence()).containsExactly(module, readme);
-        assertThat(new RepositoryContextService(settings, mapper, workspaces, reviews).getNotebook(WORKSPACE)).isEqualTo(saved);
+        assertThat(new RepositoryContextService(settings, mapper, workspaces, reviews, Clock.systemUTC()).getNotebook(WORKSPACE)).isEqualTo(saved);
         assertThatThrownBy(() -> service.registerDiscovered(WORKSPACE, before.revision(), ImmutableList.of(scope), ImmutableList.of(), ImmutableList.of()))
                 .isInstanceOf(ContextConflictException.class);
         assertThatThrownBy(() -> service.registerDiscovered(WORKSPACE, saved.revision(), ImmutableList.of(scope), ImmutableList.of(), ImmutableList.of()))
@@ -204,36 +193,29 @@ class TestRepositoryContextService
     }
 
     @Test
-    void configurationKeepsOnlyServerEvidenceUntilDefiningFieldsChange()
+    void sourceEvidenceStaysOnlyUntilTheSourceChanges()
     {
         ContextSourceEvidence module = discoveryEvidence("module", "component/pom.xml", "<project/>");
         ContextSourceEvidence readme = discoveryEvidence("readme", "README.md", "Documentation: https://example.com/docs/");
         RepositoryNotebook initial = service.registerDiscovered(WORKSPACE, 0, ImmutableList.of(discoveredScope(module.id())),
                 ImmutableList.of(discoveredSource(readme.id())), ImmutableList.of(module, readme));
-        ContextScope renamed = new ContextScope("path:component/", "User title", discoveredScope(module.id()).match(), false, Optional.empty(), Optional.of("forged"));
         EditContextConfiguration.Source unchanged = new EditContextConfiguration.Source("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://example.com/docs/");
 
-        RepositoryNotebook edited = service.configure(WORKSPACE, initial.revision(), new EditContextConfiguration(Optional.empty(), Optional.of(ImmutableList.of(unchanged)),
-                Optional.of(ImmutableList.of(ContextScope.project(), renamed))));
+        RepositoryNotebook edited = service.configure(WORKSPACE, initial.revision(), new EditContextConfiguration(Optional.empty(), Optional.empty(),
+                Optional.of(ImmutableList.of(unchanged))));
 
-        assertThat(edited.scopes().get(1).discoveryEvidenceRef()).contains(module.id());
-        assertThat(edited.scopes().get(1).enabled()).isFalse();
+        assertThat(edited.scopes()).isEqualTo(initial.scopes());
         assertThat(edited.sources()).isEqualTo(initial.sources());
         assertThat(edited.sourceEvidence()).containsExactly(module, readme);
-        RepositoryNotebook reset = service.resetSuppression(WORKSPACE, edited.revision(), ImmutableList.of("path:component/"));
-        assertThat(reset.scopes().get(1).discoveryEvidenceRef()).contains(module.id());
-        assertThat(reset.sourceEvidence()).containsExactly(module, readme);
 
-        ContextScope changed = new ContextScope(renamed.id(), renamed.title(),
-                new ContextMatch.Selected(ImmutableList.of("component/"), ImmutableList.of("new term")), false, Optional.empty(), Optional.of(module.id()));
         EditContextConfiguration.Source moved = new EditContextConfiguration.Source("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://example.com/new-docs/");
-        RepositoryNotebook cleared = service.configure(WORKSPACE, reset.revision(), new EditContextConfiguration(Optional.empty(), Optional.of(ImmutableList.of(moved)),
-                Optional.of(ImmutableList.of(ContextScope.project(), changed))));
+        RepositoryNotebook cleared = service.configure(WORKSPACE, edited.revision(), new EditContextConfiguration(Optional.empty(), Optional.empty(),
+                Optional.of(ImmutableList.of(moved))));
 
-        assertThat(cleared.scopes().get(1).discoveryEvidenceRef()).isEmpty();
+        assertThat(cleared.scopes().get(1).discoveryEvidenceRef()).contains(module.id());
         assertThat(cleared.sources().getFirst().discoveryEvidenceRef()).isEmpty();
         assertThat(cleared.sources().getFirst().origin()).isEqualTo(USER);
-        assertThat(cleared.sourceEvidence()).isEmpty();
+        assertThat(cleared.sourceEvidence()).containsExactly(module);
     }
 
     @Test
@@ -253,17 +235,6 @@ class TestRepositoryContextService
     }
 
     @Test
-    void manualNewScopeCannotInventDiscoveryEvidence()
-    {
-        ContextScope forged = discoveredScope("invented");
-        RepositoryNotebook saved = service.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.empty(), Optional.empty(),
-                Optional.of(ImmutableList.of(ContextScope.project(), forged))));
-
-        assertThat(saved.scopes().get(1).discoveryEvidenceRef()).isEmpty();
-        assertThat(saved.sourceEvidence()).isEmpty();
-    }
-
-    @Test
     void discoveryChecksCurrentMonitoredRepositoryBeforeSaving()
     {
         for (ContextReference.RepositoryFile reference : ImmutableList.of(
@@ -277,37 +248,11 @@ class TestRepositoryContextService
         }
     }
 
-    @ParameterizedTest
-    @EnumSource(value = ContextPreparationResult.Outcome.class, names = {"READY", "EMPTY"})
-    void resetClearsCompletedMissingKnowledgeAndUnusedEvidenceWithoutRecreatingContent(ContextPreparationResult.Outcome outcome)
-            throws Exception
-    {
-        RepositoryNotebook initial = seedPreparation(outcome);
-        RepositoryNotebook missing = initial;
-        if (outcome == ContextPreparationResult.Outcome.READY) {
-            RepositoryNotebook edited = service.editEntry(WORKSPACE, 1, edit("User correction", "context-read:source"));
-            RepositoryNotebook retained = service.resetSuppression(WORKSPACE, edited.revision(), ImmutableList.of("project"));
-            assertThat(retained).isEqualTo(edited);
-            assertThat(retained.entries().getFirst().origin()).isEqualTo(USER);
-            missing = service.removeEntry(WORKSPACE, retained.revision(), "knowledge:project");
-            assertThat(missing.suppressedKnowledgeIds()).containsExactly("knowledge:project");
-            assertThat(missing.scopes().getFirst().preparation()).isEqualTo(initial.scopes().getFirst().preparation());
-            assertThat(missing.sourceEvidence()).isEqualTo(initial.sourceEvidence());
-        }
-        RepositoryNotebook reset = service.resetSuppression(WORKSPACE, missing.revision(), ImmutableList.of("project"));
-        assertThat(reset.revision()).isEqualTo(missing.revision() + 1);
-        assertThat(reset.scopes().getFirst().preparation()).isEmpty();
-        assertThat(reset.entries()).isEmpty();
-        assertThat(reset.suppressedKnowledgeIds()).isEmpty();
-        assertThat(reset.sourceEvidence()).isEmpty();
-        assertThat(service.getNotebook(WORKSPACE)).isEqualTo(reset);
-    }
-
     @Test
     void staleConcurrentEditorsCannotOverwriteEachOther()
             throws Exception
     {
-        RepositoryContextService other = new RepositoryContextService(settings, mapper, workspaces, reviews);
+        RepositoryContextService other = new RepositoryContextService(settings, mapper, workspaces, reviews, Clock.systemUTC());
         CountDownLatch start = new CountDownLatch(1);
         try (var executor = Executors.newFixedThreadPool(2)) {
             var first = executor.submit(() -> {
@@ -326,7 +271,7 @@ class TestRepositoryContextService
     }
 
     @Test
-    void editingThenRemovingGeneratedKnowledgePreservesSuppression()
+    void editingThenDisablingGeneratedKnowledgeKeepsUserOwnership()
             throws Exception
     {
         seedGenerated();
@@ -335,16 +280,7 @@ class TestRepositoryContextService
         RepositoryNotebook disabled = service.setEntryEnabled(WORKSPACE, 2, "knowledge:project", false);
         assertThat(disabled.entries().getFirst().origin()).isEqualTo(USER);
         assertThat(disabled.entries().getFirst().enabled()).isFalse();
-        RepositoryNotebook removed = service.removeEntry(WORKSPACE, 3, "knowledge:project");
-        assertThat(removed.entries()).isEmpty();
-        assertThat(removed.suppressedKnowledgeIds()).containsExactly("knowledge:project");
-        assertThat(removed.sourceEvidence()).isEmpty();
-        assertThatThrownBy(() -> service.editEntry(WORKSPACE, 4, edit("Resurrected")))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Reset");
-        service.resetSuppression(WORKSPACE, 4, ImmutableList.of("project"));
-        RepositoryNotebook recreated = service.editEntry(WORKSPACE, 5, edit("Explicitly recreated"));
-        assertThat(recreated.entries().getFirst().version()).isGreaterThan(edited.entries().getFirst().version());
-        assertThat(recreated.sourceEvidence()).isEmpty();
+        assertThat(disabled.entries().getFirst().version()).isGreaterThan(edited.entries().getFirst().version());
     }
 
     @Test
@@ -352,7 +288,7 @@ class TestRepositoryContextService
     {
         String id = "draft:task:" + "a".repeat(32) + ":" + "b".repeat(32);
         ContextSourceEvidence source = discoveryEvidence("task-read:1", "README.md", "1  Evidence");
-        RepositoryContextService.TaskDraftProposal proposal = new RepositoryContextService.TaskDraftProposal(id, MEMORY,
+        RepositoryContextService.TaskDraftProposal proposal = new RepositoryContextService.TaskDraftProposal(id, TASK_ID, MEMORY,
                 "project", Optional.empty(), Optional.empty(), "Finding", "Checkpoint invariant", "Keep the older layout",
                 HEAD, ImmutableList.of(source));
         RepositoryNotebook pending = service.proposeTaskDraft(WORKSPACE, 0, proposal);
@@ -366,19 +302,17 @@ class TestRepositoryContextService
         RepositoryNotebook edited = service.editDraft(WORKSPACE, pending.revision(), id, "Edited", "Edited summary", "Edited body",
                 ImmutableList.of());
         assertThat(edited.pendingDrafts().getFirst().entry().kind()).isEqualTo(MEMORY);
+        ContextTimes.Stamp proposed = service.getTimes(WORKSPACE).drafts().get(id);
+        assertThat(proposed.taskId()).contains(TASK_ID);
         RepositoryNotebook approved = service.approveDraft(WORKSPACE, edited.revision(), id);
         assertThat(approved.entries()).singleElement().satisfies(entry -> {
             assertThat(entry.kind()).isEqualTo(MEMORY);
             assertThat(entry.origin()).isEqualTo(USER);
         });
-        String entryId = approved.entries().getFirst().id();
-        RepositoryNotebook removed = service.removeEntry(WORKSPACE, approved.revision(), entryId);
-        assertThat(removed.suppressedKnowledgeIds()).contains(entryId);
-        assertThatThrownBy(() -> service.proposeTaskDraft(WORKSPACE, removed.revision(),
-                new RepositoryContextService.TaskDraftProposal("draft:task:" + "c".repeat(32) + ":" + "b".repeat(32), MEMORY,
-                        "project", Optional.of(entryId), Optional.of(approved.entries().getFirst().version()),
-                        "Finding", "Summary", "Body", HEAD, ImmutableList.of(source))))
-                .isInstanceOf(IllegalArgumentException.class);
+        ContextTimes times = service.getTimes(WORKSPACE);
+        assertThat(times.drafts()).isEmpty();
+        ContextEntry active = approved.entries().getFirst();
+        assertThat(times.entries().get(ContextTimes.key(active.id(), active.version())).taskId()).contains(TASK_ID);
     }
 
     @Test
@@ -388,13 +322,13 @@ class TestRepositoryContextService
         ContextSourceEvidence source = discoveryEvidence("task-read:1", "README.md", "1  Evidence");
         ContextSourceEvidence reported = new ContextSourceEvidence(source.id(), source.reference(), source.provenance(),
                 source.excerpt(), ContextSourceEvidence.Capture.AGENT_REPORTED, source.retrievedAt(), source.contentHash(), source.version(), false);
-        assertThatThrownBy(() -> service.proposeTaskDraft(WORKSPACE, 0, new RepositoryContextService.TaskDraftProposal(id, MEMORY,
+        assertThatThrownBy(() -> service.proposeTaskDraft(WORKSPACE, 0, new RepositoryContextService.TaskDraftProposal(id, TASK_ID, MEMORY,
                 "project", Optional.empty(), Optional.empty(), "Finding", "Summary", "Body", HEAD, ImmutableList.of(reported))))
                 .hasMessageContaining("application-captured");
         ContextSourceEvidence foreign = new ContextSourceEvidence(source.id(),
                 new ContextReference.RepositoryFile(2, RepoRef.of("example", "other"), "README.md", HEAD), source.provenance(),
                 source.excerpt(), source.capture(), source.retrievedAt(), source.contentHash(), source.version(), false);
-        assertThatThrownBy(() -> service.proposeTaskDraft(WORKSPACE, 0, new RepositoryContextService.TaskDraftProposal(id, MEMORY,
+        assertThatThrownBy(() -> service.proposeTaskDraft(WORKSPACE, 0, new RepositoryContextService.TaskDraftProposal(id, TASK_ID, MEMORY,
                 "project", Optional.empty(), Optional.empty(), "Finding", "Summary", "Body", HEAD, ImmutableList.of(foreign))))
                 .hasMessageContaining("outside its committed repository HEAD");
         assertThat(service.getNotebook(WORKSPACE).pendingDrafts()).isEmpty();
@@ -408,7 +342,7 @@ class TestRepositoryContextService
         RepositoryNotebook initial = service.getNotebook(WORKSPACE);
         ContextKnowledgeDraft draft = replacementDraft(initial, "draft:replacement");
         RepositoryNotebook pending = service.savePreparation(WORKSPACE, initial, new RepositoryNotebook(1, 2, true, true,
-                initial.sources(), initial.scopes(), initial.entries(), ImmutableList.of(draft), initial.suppressedKnowledgeIds(),
+                initial.sources(), initial.scopes(), initial.entries(), ImmutableList.of(draft),
                 initial.sourceEvidence(), Optional.empty()));
         assertThat(pending.entries()).isEqualTo(initial.entries());
         assertThat(pending.pendingDrafts()).singleElement().satisfies(value -> assertThat(value.entry().origin()).isEqualTo(GENERATED));
@@ -431,20 +365,17 @@ class TestRepositoryContextService
     }
 
     @Test
-    void disabledOrRemovedActiveNoteCannotBeReplacedByItsPendingDraft()
+    void disabledActiveNoteCannotBeReplacedByItsPendingDraft()
             throws Exception
     {
         seedGenerated();
         RepositoryNotebook initial = service.getNotebook(WORKSPACE);
         ContextKnowledgeDraft draft = replacementDraft(initial, "draft:replacement");
         service.savePreparation(WORKSPACE, initial, new RepositoryNotebook(1, 2, true, true, initial.sources(), initial.scopes(),
-                initial.entries(), ImmutableList.of(draft), initial.suppressedKnowledgeIds(), initial.sourceEvidence(), Optional.empty()));
+                initial.entries(), ImmutableList.of(draft), initial.sourceEvidence(), Optional.empty()));
         RepositoryNotebook disabled = service.setEntryEnabled(WORKSPACE, 2, "knowledge:project", false);
         assertThatThrownBy(() -> service.approveDraft(WORKSPACE, disabled.revision(), draft.id()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("changed since this proposal");
-        RepositoryNotebook removed = service.removeEntry(WORKSPACE, disabled.revision(), "knowledge:project");
-        assertThat(removed.pendingDrafts()).isEmpty();
-        assertThat(removed.suppressedKnowledgeIds()).containsExactly("knowledge:project");
     }
 
     @Test
@@ -458,28 +389,13 @@ class TestRepositoryContextService
         ContextKnowledgeDraft draft = new ContextKnowledgeDraft("draft:new-topic", entry, Optional.empty(), HEAD, "Proposed from documentation");
         RepositoryNotebook empty = service.getNotebook(WORKSPACE);
         RepositoryNotebook pending = service.savePreparation(WORKSPACE, empty, new RepositoryNotebook(1, 1, true, true,
-                empty.sources(), empty.scopes(), empty.entries(), ImmutableList.of(draft), empty.suppressedKnowledgeIds(),
+                empty.sources(), empty.scopes(), empty.entries(), ImmutableList.of(draft),
                 ImmutableList.of(source), Optional.empty()));
         assertThat(pending.sourceEvidence()).containsExactly(source);
         RepositoryNotebook dismissed = service.dismissDraft(WORKSPACE, pending.revision(), draft.id());
         assertThat(dismissed.pendingDrafts()).isEmpty();
         assertThat(dismissed.entries()).isEmpty();
         assertThat(dismissed.sourceEvidence()).isEmpty();
-    }
-
-    @Test
-    void focusedNoteSuppressionDoesNotBlockAnotherTopicAndResetClearsAllTopicMarkers()
-    {
-        RepositoryNotebook first = service.editEntry(WORKSPACE, 0, new EditContextEntry("knowledge:project:iceberg", "project", "Iceberg", "Summary",
-                "Body", ImmutableList.of(), ImmutableList.of()));
-        RepositoryNotebook second = service.editEntry(WORKSPACE, first.revision(), new EditContextEntry("knowledge:project:delta", "project", "Delta", "Summary",
-                "Body", ImmutableList.of(), ImmutableList.of()));
-        RepositoryNotebook removed = service.removeEntry(WORKSPACE, second.revision(), "knowledge:project:iceberg");
-        assertThat(removed.entries()).extracting(ContextEntry::id).containsExactly("knowledge:project:delta");
-        assertThat(removed.suppressedKnowledgeIds()).containsExactly("knowledge:project:iceberg");
-        RepositoryNotebook reset = service.resetSuppression(WORKSPACE, removed.revision(), ImmutableList.of("project"));
-        assertThat(reset.suppressedKnowledgeIds()).isEmpty();
-        assertThat(reset.entries()).extracting(ContextEntry::id).containsExactly("knowledge:project:delta");
     }
 
     @Test
@@ -509,7 +425,7 @@ class TestRepositoryContextService
         assertThat(saved.sourceEvidence().getFirst().version()).isEmpty();
         assertThat(saved.sourceEvidence().getFirst().reference()).isEqualTo(new ContextReference.Review("review", "run", Optional.of("e1"), Optional.empty()));
         when(reviews.findRun("run")).thenReturn(Optional.empty());
-        assertThat(new RepositoryContextService(settings, mapper, workspaces, reviews).getNotebook(WORKSPACE)).isEqualTo(saved);
+        assertThat(new RepositoryContextService(settings, mapper, workspaces, reviews, Clock.systemUTC()).getNotebook(WORKSPACE)).isEqualTo(saved);
         when(reviews.findReview("review")).thenReturn(Optional.of(review("another-workspace")));
         assertThatThrownBy(() -> service.saveLesson(WORKSPACE, 1, lesson("review", "run", "e1")))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("another workspace");
@@ -532,7 +448,7 @@ class TestRepositoryContextService
     @Test
     void removedWorkspaceCannotRecreateNotebookAndDeletionIsIdempotent()
     {
-        service.setUseInReviews(WORKSPACE, 0, false);
+        service.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty()));
         settings.put(ContextBuildStore.PREFIX + WORKSPACE, "retained learning request");
         service.deleteWorkspaceData(WORKSPACE);
         service.deleteWorkspaceData(WORKSPACE);
@@ -546,7 +462,7 @@ class TestRepositoryContextService
     void configurationRejectsUnsafeDocumentationAndInvalidPathRules()
     {
         EditContextConfiguration.Source unsafe = new EditContextConfiguration.Source("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://localhost/docs/");
-        assertThatThrownBy(() -> service.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.empty(), Optional.of(ImmutableList.of(unsafe)), Optional.empty())))
+        assertThatThrownBy(() -> service.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.empty(), Optional.empty(), Optional.of(ImmutableList.of(unsafe)))))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ContextMatch.Selected(ImmutableList.of("plugin/../"), ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ContextMatch.Selected(ImmutableList.of(), ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);
@@ -575,7 +491,7 @@ class TestRepositoryContextService
                 ImmutableList.of(new ContextClaim("Contract", ContextClaim.Basis.DOCUMENTED, ImmutableList.of("source"))), ImmutableList.of("source"), GENERATED, true, 1);
         RepositoryNotebook notebook = new RepositoryNotebook(1, 1, true,
                 ImmutableList.of(new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://example.com/docs/", USER, Optional.empty())),
-                ImmutableList.of(ContextScope.project()), ImmutableList.of(generated), ImmutableList.of(), ImmutableList.of(source), Optional.empty());
+                ImmutableList.of(ContextScope.project()), ImmutableList.of(generated), ImmutableList.of(source), Optional.empty());
         settings.put(KEY, mapper.writeValueAsString(notebook));
     }
 
@@ -604,8 +520,7 @@ class TestRepositoryContextService
         ActiveContextPreparation active = new ActiveContextPreparation("active", "request", "sha256:" + "a".repeat(64),
                 "task", "turn", "turn-key", Optional.of("review"), Optional.of("run"), 1, ImmutableList.of(input));
         RepositoryNotebook notebook = new RepositoryNotebook(1, 1, true, ImmutableList.of(), ImmutableList.of(scope),
-                outcome == ContextPreparationResult.Outcome.READY ? ImmutableList.of(generated) : ImmutableList.of(),
-                ImmutableList.of(), ImmutableList.of(source), Optional.of(active));
+                outcome == ContextPreparationResult.Outcome.READY ? ImmutableList.of(generated) : ImmutableList.of(), ImmutableList.of(source), Optional.of(active));
         settings.put(KEY, mapper.writeValueAsString(notebook));
         return notebook;
     }

@@ -38,7 +38,8 @@ public record ContextBuild(
         long sequence, String requestKey, String requestDigest, String workspaceId, String taskId,
         RepositoryIdentity physicalRepository, long repositoryId, RepoRef repository, String baselineSha, String branch,
         String laneId, AgentTaskDefaults defaults, List<String> scopeIds, List<History> history,
-        List<RegisteredContextSource> documentationSources, long notebookRevision, Instant requestedAt, Capture capture, Mode mode, Optional<Assignment> assignment)
+        List<RegisteredContextSource> documentationSources, long notebookRevision, Instant requestedAt, Capture capture, Mode mode, Optional<Assignment> assignment,
+        Optional<String> continuesReport)
 {
     public ContextBuild
     {
@@ -60,6 +61,8 @@ public record ContextBuild(
         requireNonNull(mode, "mode is null");
         requireNonNull(assignment, "assignment is null");
         checkArgument(mode == Mode.LEARN || assignment.isEmpty(), "Only learning has a topic assignment");
+        requireNonNull(continuesReport, "continuesReport is null");
+        checkArgument(mode == Mode.DISCOVER || continuesReport.isEmpty(), "Only discovery continues a saved report");
         checkArgument(mode == Mode.DISCOVER ? scopeIds.isEmpty() && history.isEmpty() && documentationSources.isEmpty() : !scopeIds.isEmpty(),
                 "Discovery has no configured sources; learning requires selected scopes");
         ContextLimits.unique(history, "history", 10);
@@ -75,16 +78,21 @@ public record ContextBuild(
     public ContextBuild withCapture(Capture replacement)
     {
         return new ContextBuild(sequence, requestKey, requestDigest, workspaceId, taskId, physicalRepository, repositoryId, repository, baselineSha, branch,
-                laneId, defaults, scopeIds, history, documentationSources, notebookRevision, requestedAt, replacement, mode, assignment);
+                laneId, defaults, scopeIds, history, documentationSources, notebookRevision, requestedAt, replacement, mode, assignment, continuesReport);
     }
 
-    public record Assignment(String planId, String topicId, String question, List<String> paths, List<String> repositoryFiles)
+    /** One accepted plan question; progress is the checkpoint an earlier run saved for it, empty when it has not started. */
+    public record Assignment(String planId, String topicId, String topicTitle, int questionIndex, String question, String progress,
+            List<String> paths, List<String> repositoryFiles)
     {
         public Assignment
         {
             ContextLimits.text(planId, "planId", 200);
             ContextLimits.text(topicId, "topicId", 200);
-            ContextLimits.text(question, "learning question", 2000);
+            ContextLimits.text(topicTitle, "topic title", 200);
+            checkArgument(questionIndex >= 0, "Invalid learning question index");
+            ContextLimits.text(question, "learning question", 1000);
+            checkArgument(ContextLimits.bytes(progress) <= 2000, "Saved question progress is too long");
             paths = ImmutableList.copyOf(paths);
             repositoryFiles = ImmutableList.copyOf(repositoryFiles);
             ContextLimits.unique(paths, "learning paths", 20);
@@ -125,10 +133,28 @@ public record ContextBuild(
         }
     }
 
+    /** A short, user-facing line recorded as the run's tools act; the task transcript keeps the full detail. */
+    public record Activity(Instant at, String text, Tone tone)
+    {
+        public Activity
+        {
+            requireNonNull(at, "at is null");
+            ContextLimits.text(text, "activity", 400);
+            requireNonNull(tone, "tone is null");
+        }
+
+        public enum Tone
+        {
+            DONE, FAILED, LIMIT
+        }
+    }
+
     public record Capture(
             List<ContextSourceRead> sourceReads, Map<String, CapturedSource> evidence, Map<String, String> attempts,
-            Map<String, Operation> operations, Optional<Result> result, List<String> gaps)
+            Map<String, Operation> operations, Optional<Result> result, List<String> gaps, List<Activity> activity)
     {
+        public static final int MAX_ACTIVITY = 60;
+
         public Capture
         {
             sourceReads = ImmutableList.copyOf(sourceReads);
@@ -137,6 +163,8 @@ public record ContextBuild(
             operations = ImmutableMap.copyOf(operations);
             requireNonNull(result, "result is null");
             gaps = ImmutableList.copyOf(gaps);
+            activity = ImmutableList.copyOf(activity);
+            checkArgument(activity.size() <= MAX_ACTIVITY, "Too many activity lines");
             ContextLimits.unique(sourceReads.stream().map(ContextSourceRead::id).toList(), "build source receipts", ContextLimits.MAX_SOURCE_READS);
             checkArgument(evidence.size() <= 128 && attempts.size() <= 128 && operations.size() <= 20, "Build capture limit reached");
             attempts.forEach((key, value) -> {
@@ -159,7 +187,17 @@ public record ContextBuild(
 
         public static Capture empty()
         {
-            return new Capture(ImmutableList.of(), ImmutableMap.of(), ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), ImmutableList.of());
+            return new Capture(ImmutableList.of(), ImmutableMap.of(), ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), ImmutableList.of(), ImmutableList.of());
+        }
+
+        /** Keeps the earliest lines once the bound is reached; the transcript still records everything. */
+        public Capture logged(Instant at, String text, Activity.Tone tone)
+        {
+            if (activity.size() >= MAX_ACTIVITY) {
+                return this;
+            }
+            return new Capture(sourceReads, evidence, attempts, operations, result, gaps, ImmutableList.<Activity>builder()
+                    .addAll(activity).add(new Activity(at, ContextText.excerpt(text, 400), tone)).build());
         }
     }
 }

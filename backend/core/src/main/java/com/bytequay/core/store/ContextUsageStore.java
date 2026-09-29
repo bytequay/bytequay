@@ -42,9 +42,4 @@ public interface ContextUsageStore
 
     /** Latest task facts for task-detail delivery labels; a caller requests one extra row to detect truncation. */
     List<ContextUsageEvent> listTask(String workspaceId, String taskId, int limit);
-
-    /** Returns at most 20 matching note events; no notebook text or provider transcript is returned. */
-    List<ContextUsageEvent> activities(String workspaceId, String entryId, Optional<Instant> since, int page);
-
-    boolean hasMoreActivities(String workspaceId, String entryId, Optional<Instant> since, int page);
 }

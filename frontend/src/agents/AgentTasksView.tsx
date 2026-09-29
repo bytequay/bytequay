@@ -24,7 +24,8 @@ import { getCached, setCached } from '../dataCache';
 import Toast from '../Toast';
 import { recordAttentionAction } from '../home/useAttentionVisit';
 import { notifyIssueDevelopmentChanged, type DevelopmentIssue } from '../workspaces/issueDevelopment';
-import { workspaceAgentTaskRoute } from '../workspaces/model';
+import { workspaceAgentTaskRoute, workspaceContextRunRoute } from '../workspaces/model';
+import type { ContextRunDto } from '../repository-context/contracts';
 import { IssueAttachment } from './IssueAttachment';
 import { AutomationControl } from './AutomationControl';
 import { automationForSubmission } from './developmentAutomation';
@@ -42,7 +43,7 @@ import { ImageAttachment } from './ImageAttachment';
 import { ATTENTION_SEED } from '../home/attention';
 import type { TaskAttention } from './attention';
 import { TaskItemCard, TaskItemRow, TaskTypeIcon, viewerInitials, type TaskItemHandlers } from './TaskListCards';
-import { TASK_TYPES, cherryPickItem, ciFixItem, developmentItem, groupTaskList, reviewItem, type TaskListItem, type TaskType } from './taskList';
+import { TASK_TYPES, cherryPickItem, ciFixItem, developmentItem, groupTaskList, learningItem, reviewItem, type TaskListItem, type TaskType } from './taskList';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 
 export type DraftImage = { id: string; name: string; url: string };
@@ -179,8 +180,10 @@ export function taskCreationCatalog(settings: ModelSettingsDto, sourceIssueNumbe
  * Everything creating a task needs: the list, the catalog, the chosen model, the draft, why
  * creation is blocked, and the create call itself — shared by the Tasks page and the Home hero.
  */
-export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpenTask, sourceIssueNumber = null, sourceJira = null, onOpenCreatedTask }: {
+export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpenTask, sourceIssueNumber = null, sourceJira = null, onOpenCreatedTask, wrapMessage }: {
   workspaceId: string;
+  /** Home's Explore mode sends the typed question inside its standing instruction. */
+  wrapMessage?: (text: string) => string;
   sourceJira?: JiraIssue | null;
   /** A launch the caller chose; without one the workspace's Development agent decides. */
   initialLaunch?: TaskLaunch;
@@ -408,7 +411,8 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   }, [bridge]);
 
   const create = useCallback(async () => {
-    const message = draft.trim();
+    const typed = draft.trim();
+    const message = typed === '' || wrapMessage === undefined ? typed : wrapMessage(typed);
     if (busyRef.current || selection === null || taskAutomation === null || blocker !== null || message === '') return;
     busyRef.current = true;
     setOperation('sending');
@@ -485,7 +489,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       busyRef.current = false;
       setOperation(null);
     }
-  }, [applyCatalog, blocker, bridge, clearImages, draft, images, issue, sourceJira, laneId, localOnly, onOpenCreatedTask, onOpenTask, selection, submissions, taskAutomation, workspaceId]);
+  }, [applyCatalog, blocker, bridge, clearImages, draft, images, issue, sourceJira, laneId, localOnly, onOpenCreatedTask, onOpenTask, selection, submissions, taskAutomation, workspaceId, wrapMessage]);
 
   return {
     /** Everything TaskComposer needs, so a screen spreads it instead of re-listing eighteen props. */
@@ -629,15 +633,15 @@ function failureMessage(failure: unknown): string {
 
 const NO_TASK_ATTENTION: TaskAttention = { items: [], tasks: [], activity: {}, refresh: () => {} };
 
-/** How often the Tasks page re-reads reviews, cherry-picks and CI fixes, the pace review tasks always had. */
+/** How often the Tasks page re-reads workflow activity. */
 const WORK_POLL_MS = 5000;
 
-type WorkspaceWork = { reviews: AgentReviewDto[]; executions: CherryPickExecution[]; runs: CiAutofixRunDto[]; failed: string[] };
+type WorkspaceWork = { reviews: AgentReviewDto[]; executions: CherryPickExecution[]; runs: CiAutofixRunDto[]; learning: ContextRunDto[]; failed: string[] };
 
-const NO_WORK: WorkspaceWork = { reviews: [], executions: [], runs: [], failed: [] };
+const NO_WORK: WorkspaceWork = { reviews: [], executions: [], runs: [], learning: [], failed: [] };
 
 /**
- * The workspace's reviews, cherry-picks and CI fixes, re-read while the page is visible. A source
+ * The workspace's workflow runs, re-read while the page is visible. A source
  * that cannot be read keeps its last answer and is named until a read succeeds again.
  */
 function useWorkspaceWork(workspaceId: string, bridge: () => AgentBridgePort): WorkspaceWork {
@@ -653,13 +657,16 @@ function useWorkspaceWork(workspaceId: string, bridge: () => AgentBridgePort): W
         port.listAgentReviews?.(workspaceId) ?? Promise.resolve([]),
         port.listCherryPickExecutions?.(200) ?? Promise.resolve([]),
         port.listCiAutofixRuns?.(100) ?? Promise.resolve([]),
-      ]).then(([reviews, executions, runs]) => {
+        port.getRepositoryContextBuild?.(workspaceId).then(view => view.runs) ?? Promise.resolve([]),
+      ]).then(([reviews, executions, runs, learning]) => {
         if (!active) return;
         setWork((last) => ({
           reviews: reviews.status === 'fulfilled' ? reviews.value : last.reviews,
           executions: executions.status === 'fulfilled' ? executions.value.filter((execution) => execution.workspaceId === workspaceId) : last.executions,
           runs: runs.status === 'fulfilled' ? runs.value.filter((run) => run.workspaceId === workspaceId) : last.runs,
-          failed: [reviews.status === 'rejected' ? 'reviews' : null, executions.status === 'rejected' ? 'cherry-picks' : null, runs.status === 'rejected' ? 'CI fixes' : null]
+          learning: learning.status === 'fulfilled' ? learning.value : last.learning,
+          failed: [reviews.status === 'rejected' ? 'reviews' : null, executions.status === 'rejected' ? 'cherry-picks' : null,
+            runs.status === 'rejected' ? 'CI fixes' : null, learning.status === 'rejected' ? 'learning runs' : null]
             .filter((name): name is string => name !== null),
         }));
       });
@@ -728,10 +735,12 @@ export default function AgentTasksView({
     ...work.reviews.map(reviewItem),
     ...work.executions.map(cherryPickItem),
     ...work.runs.map(ciFixItem),
+    ...work.learning.map(learningItem),
   ], [work]);
   const openItem = useCallback((item: TaskListItem) => {
-    const { review, execution, run } = item;
-    if (review !== null) onOpenReview(review);
+    const { review, execution, run, contextRun } = item;
+    if (contextRun !== null) window.location.hash = workspaceContextRunRoute(workspaceId, contextRun.taskId);
+    else if (review !== null) onOpenReview(review);
     else if (execution !== null) onOpenCherryPick?.(execution);
     else if (run !== null) {
       // A CI fix is followed where it started: the development task, or the cherry-pick that delivered its pull request.
@@ -740,7 +749,7 @@ export default function AgentTasksView({
       else if (delivery !== undefined) onOpenCherryPick?.(delivery);
       else onOpenPullRequest?.(run.pullRequestNumber, run.repository);
     }
-  }, [onOpenCherryPick, onOpenPullRequest, onOpenReview, onOpenTask, work.executions]);
+  }, [onOpenCherryPick, onOpenPullRequest, onOpenReview, onOpenTask, work.executions, workspaceId]);
   const error = creation.error ?? (work.failed.length === 0 ? null : `Could not read ${work.failed.join(', ')}; trying again.`);
   return (
     <AgentTaskList
@@ -801,7 +810,7 @@ export function ComposerDock({ repository, chips, children }: {
 /** The card that creates a task: the first message above its provider, automation and model controls. */
 export function TaskComposer({
   draft, blocker, laneId, providers, models, selection, onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenSettings,
-  images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, automation, issueAttachment,
+  images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, automation, issueAttachment, mode,
 }: {
   draft: string;
   blocker: string | null;
@@ -822,6 +831,8 @@ export function TaskComposer({
   onAttach?: () => void;
   onPasteImages?: () => void;
   onRemoveImage?: (id: string) => void;
+  /** A starting mode the composer is in: its chip, what to ask for, and what sending starts. */
+  mode?: { label: string; placeholder: string; hint: React.ReactNode; onLeave: () => void };
 }): React.JSX.Element {
   const imagesAccepted = !isDeepSeekKeyLane(laneId)
     && acceptsImages(models, selection?.model, providers.find((provider) => provider.id === laneId)?.capabilities ?? null);
@@ -845,8 +856,10 @@ export function TaskComposer({
         </div>
       )}
       {issueAttachment}
-      <div className="agt-compose is-new-task">
+      <div className={`agt-compose is-new-task${mode === undefined ? '' : ' is-mode'}`}>
         <span className="agt-compose__streamer" aria-hidden="true" />
+        {mode !== undefined && <div className="agt-compose__mode"><span className="agt-mode-chip">{mode.label}
+          <button type="button" aria-label={`Leave ${mode.label}`} title="Back to a plain task" onClick={mode.onLeave}><X aria-hidden="true" /></button></span></div>}
         {images.length > 0 && (
           <div className="agt-drafts" aria-label="Images to send">
             {images.map((image) => (
@@ -860,8 +873,8 @@ export function TaskComposer({
         <textarea
           className="agt-compose__input"
           rows={1}
-          aria-label="Describe a task"
-          placeholder="Let's ship..."
+          aria-label={mode === undefined ? 'Describe a task' : 'Ask a question'}
+          placeholder={mode?.placeholder ?? "Let's ship..."}
           value={draft}
           disabled={blocker !== null || (busy && !attaching)}
           onChange={(event) => onDraftChange(event.target.value)}
@@ -911,6 +924,7 @@ export function TaskComposer({
           </button>
         </div>
       </div>
+      {mode !== undefined && <div className="agt-compose-hint">{mode.hint}</div>}
     </div>
   );
 }
@@ -948,7 +962,7 @@ type ToastState = { id: number; text: string; undo?: () => void };
 
 /** The type tabs across the Tasks page, each filtering the whole page. */
 type TypeTab = 'all' | TaskType;
-const TYPE_TABS: TypeTab[] = ['all', 'dev', 'review', 'cherry', 'ci'];
+const TYPE_TABS: TypeTab[] = ['all', 'dev', 'review', 'cherry', 'ci', 'learning'];
 
 function inType(item: TaskListItem, type: TypeTab): boolean {
   return type === 'all' || item.type === type;
@@ -1165,7 +1179,7 @@ export function AgentTaskList({
           </div>
           {active && (
             <button type="button" className="agt-type-new" onClick={startNew}>
-              + {TASK_TYPES[type === 'all' ? 'dev' : type].newLabel}
+              {type !== 'learning' && '+ '}{TASK_TYPES[type === 'all' ? 'dev' : type].newLabel}
             </button>
           )}
         </div>
@@ -1229,7 +1243,7 @@ export function AgentTaskList({
         </div>
 
         {/* Anchored under the list: sending this first message is what creates a task. */}
-        {active && (
+        {active && type !== 'learning' && (
           <ComposerDock repository={repository}>
             <TaskComposer
               automation={automation}

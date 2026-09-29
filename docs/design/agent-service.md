@@ -231,6 +231,11 @@ gets the fixed discovery read/submit tools; learning gets read/prepare/progress.
 Neither profile can publish, edit code or start children. Existing model preflight,
 Stop, runtime recovery and verified worktree cleanup controls apply.
 
+The Tasks list projects these runs as Learning items from the existing context
+run history. They open read-only Repository context activity, never an interactive
+task screen. Generic send and steer endpoints reject noninteractive tasks;
+workflow-owned services retain their existing turn controls.
+
 A run reserves at most 40 source operations and 10 initial document opens before
 access; failures and retries count. Document links stay inside approved roots and
 two link hops, with parent/depth persisted across Continue. Other URLs are proposals

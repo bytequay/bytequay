@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.context;
 
+import com.google.common.collect.ImmutableList;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -42,14 +43,15 @@ public class ContextLearningController
     @GetMapping("/plan")
     public PlanView plan(@PathVariable String workspaceId)
     {
-        return new PlanView(learning.get(workspaceId));
+        return PlanView.of(learning.get(workspaceId));
     }
 
     @PostMapping("/learn")
     public ContextBuildService.View learn(@PathVariable String workspaceId, @RequestBody LearnRequest request)
     {
         return learning.start(workspaceId, new ContextLearningService.StartRequest(
-                request.requestKey(), request.expectedRevision(), request.expectedBuildSequence(), request.reportId(), request.topicIds()));
+                request.requestKey(), request.expectedRevision(), request.expectedBuildSequence(), request.reportId(), request.topicIds(),
+                request.excludedSourceIds().orElse(ImmutableList.of())));
     }
 
     @PostMapping("/continue")
@@ -64,38 +66,59 @@ public class ContextLearningController
     {
         learning.discard(workspaceId, new ContextLearningService.DiscardRequest(
                 request.planId(), request.expectedRevision(), request.expectedBuildSequence()));
-        return new PlanView(Optional.empty());
+        return PlanView.of(Optional.empty());
     }
 
     @PostMapping("/plan/sources")
     public PlanView allowSource(@PathVariable String workspaceId, @RequestBody SourceRequest request)
     {
-        return new PlanView(Optional.of(learning.allowSource(workspaceId, new ContextLearningService.SourceRequest(
-                request.planId(), Optional.ofNullable(request.sourceId()), Optional.ofNullable(request.suggestedUrl()),
-                request.expectedRevision(), request.expectedBuildSequence()))));
+        return PlanView.of(Optional.of(learning.allowSource(workspaceId, new ContextLearningService.SourceRequest(
+                request.planId(), request.suggestedUrl(), request.boundary(), request.expectedRevision(), request.expectedBuildSequence()))));
     }
 
-    public record SourceRequest(String planId, String sourceId, String suggestedUrl, Long expectedRevision, Long expectedBuildSequence)
+    @DeleteMapping("/plan/sources")
+    public PlanView declineSource(@PathVariable String workspaceId, @RequestBody DeclineRequest request)
+    {
+        return PlanView.of(Optional.of(learning.declineSource(workspaceId, new ContextLearningService.DeclineRequest(request.planId(), request.suggestedUrl()))));
+    }
+
+    public record SourceRequest(String planId, String suggestedUrl, ContextLearningService.Boundary boundary, Long expectedRevision, Long expectedBuildSequence)
     {
         public SourceRequest
         {
             checkArgument(expectedRevision != null && expectedRevision >= 0 && expectedBuildSequence != null && expectedBuildSequence >= 0,
                     "Notebook revision and build sequence are required");
-            new ContextLearningService.SourceRequest(planId, Optional.ofNullable(sourceId), Optional.ofNullable(suggestedUrl),
-                    expectedRevision, expectedBuildSequence);
+            new ContextLearningService.SourceRequest(planId, suggestedUrl, boundary, expectedRevision, expectedBuildSequence);
         }
     }
 
-    public record PlanView(Optional<ContextLearningPlan> plan) {}
+    public record DeclineRequest(String planId, String suggestedUrl)
+    {
+        public DeclineRequest
+        {
+            new ContextLearningService.DeclineRequest(planId, suggestedUrl);
+        }
+    }
 
-    public record LearnRequest(String requestKey, Long expectedRevision, Long expectedBuildSequence, String reportId, List<String> topicIds)
+    /** The plan with the question the next Continue learning run would take, so the UI never guesses the order. */
+    public record PlanView(Optional<ContextLearningPlan> plan, Optional<ContextLearningPlan.Target> next)
+    {
+        static PlanView of(Optional<ContextLearningPlan> plan)
+        {
+            return new PlanView(plan, plan.flatMap(ContextLearningPlan::next));
+        }
+    }
+
+    public record LearnRequest(String requestKey, Long expectedRevision, Long expectedBuildSequence, String reportId, List<String> topicIds,
+            Optional<List<String>> excludedSourceIds)
     {
         public LearnRequest
         {
             checkArgument(expectedRevision != null && expectedRevision >= 0 && expectedBuildSequence != null && expectedBuildSequence >= 0,
                     "Notebook revision and build sequence are required");
+            requireNonNull(excludedSourceIds, "excludedSourceIds is null");
             ContextLearningService.StartRequest checked = new ContextLearningService.StartRequest(
-                    requestKey, expectedRevision, expectedBuildSequence, reportId, topicIds);
+                    requestKey, expectedRevision, expectedBuildSequence, reportId, topicIds, excludedSourceIds.orElse(ImmutableList.of()));
             topicIds = checked.topicIds();
         }
     }

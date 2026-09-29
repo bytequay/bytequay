@@ -28,25 +28,12 @@ class TestContextUsageController
     private final MockMvc mvc = standaloneSetup(new ContextUsageController(usage)).build();
 
     @Test
-    void noteIdsWithSlashesStayWholeInTheActivityQuery()
-            throws Exception
-    {
-        mvc.perform(get("/api/workspaces/workspace/repository-context/usage/activities")
-                        .param("entryId", "knowledge:path:plugin/trino-iceberg/")
-                        .param("window", "all")
-                        .param("page", "2"))
-                .andExpect(status().isOk());
-
-        verify(usage).activities("workspace", "knowledge:path:plugin/trino-iceberg/", "all", 2);
-    }
-
-    @Test
     void overviewDefaultsToThirtyDays()
             throws Exception
     {
         mvc.perform(get("/api/workspaces/workspace/repository-context/usage"))
                 .andExpect(status().isOk());
 
-        verify(usage).overview("workspace", "30d", 0);
+        verify(usage).overview("workspace", "30d");
     }
 }

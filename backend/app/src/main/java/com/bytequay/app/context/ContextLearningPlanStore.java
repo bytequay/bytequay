@@ -18,9 +18,7 @@ import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.store.AppSettingsStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Component;
 
 import java.util.Optional;
@@ -50,12 +48,7 @@ public class ContextLearningPlanStore
         return settings.get(PREFIX + workspaceId).map(json -> {
             try {
                 checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_NOTEBOOK_BYTES, "Saved learning plan exceeds 1 MiB");
-                JsonNode stored = mapper.readTree(json);
-                JsonNode inventory = stored.path("documentInventory");
-                if (inventory instanceof ObjectNode object && !object.has("suggestedExpansionUrls")) {
-                    object.putArray("suggestedExpansionUrls");
-                }
-                ContextLearningPlan plan = requireNonNull(mapper.treeToValue(stored, ContextLearningPlan.class), "Saved learning plan is null");
+                ContextLearningPlan plan = requireNonNull(mapper.readValue(json, ContextLearningPlan.class), "Saved learning plan is null");
                 checkArgument(plan.workspaceId().equals(workspaceId), "Saved learning plan belongs to another workspace");
                 return plan;
             }

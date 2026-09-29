@@ -68,7 +68,6 @@ public class ContextNoteReader
         ContextLimits.text(entryId, "entry id", 1200);
         RepositoryNotebook notebook = notebooks.getNotebook(workspaceId);
         return notebook.entries().stream().filter(entry -> entry.id().equals(entryId) && entry.version() == version && entry.enabled())
-                .filter(entry -> !notebook.suppressedKnowledgeIds().contains(entry.id()))
                 .filter(entry -> notebook.scopes().stream().anyMatch(scope -> scope.id().equals(entry.scopeId()) && scope.enabled()))
                 .findFirst().map(entry -> new EnabledRead(notebook.revision(), entry,
                         capture(notebook, entry, ContextSelectedEntry.Applicability.UNVERIFIED, true)));

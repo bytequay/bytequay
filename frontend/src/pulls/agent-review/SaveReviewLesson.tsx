@@ -141,7 +141,7 @@ export default function SaveReviewLesson({ review, run, message }: { review: Age
       {!editing && error !== null && <span role="alert">{error}</span>}
     </span>
     {editing && notebook !== null && <ContextEntryEditor key={editorVersion} title="Save lesson" confirmLabel="Save lesson"
-      busyLabel={drafting ? 'Drafting…' : 'Saving…'} optionalTitle
+      busyLabel={drafting ? 'Drafting…' : 'Saving…'}
       initialValue={editorValue} scopes={notebook.scopes}
       busy={busy} error={error} submitDisabled={reloadNeeded} onChange={draft => { latestDraft.current = draft; }}
       onCancel={() => {

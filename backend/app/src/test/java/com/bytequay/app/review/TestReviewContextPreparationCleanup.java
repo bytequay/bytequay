@@ -93,7 +93,7 @@ class TestReviewContextPreparationCleanup
     void activePreparation()
     {
         when(notebooks.getNotebook(WORKSPACE)).thenReturn(new RepositoryNotebook(1, 0, true, ImmutableList.of(), ImmutableList.of(ContextScope.project()),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.of(ACTIVE)));
+                ImmutableList.of(), ImmutableList.of(), Optional.of(ACTIVE)));
         when(tasks.find(TASK)).thenReturn(Optional.of(task()));
     }
 

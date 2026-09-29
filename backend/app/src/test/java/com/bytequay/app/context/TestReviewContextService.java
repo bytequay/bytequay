@@ -303,8 +303,7 @@ class TestReviewContextService
         ContextPreparationResult empty = new ContextPreparationResult("previous", input, ContextPreparationResult.Outcome.EMPTY,
                 ImmutableList.of(), ImmutableList.of(read), "No useful project summary in checked sources");
         ContextScope project = new ContextScope("project", "Project overview", ContextScope.project().match(), true, Optional.of(empty), Optional.empty());
-        RepositoryNotebook notebook = new RepositoryNotebook(1, 1, true, ImmutableList.of(), ImmutableList.of(project), ImmutableList.of(),
-                ImmutableList.of(), ImmutableList.of(), Optional.empty());
+        RepositoryNotebook notebook = new RepositoryNotebook(1, 1, true, ImmutableList.of(), ImmutableList.of(project), ImmutableList.of(), ImmutableList.of(), Optional.empty());
         ReviewRun original = run();
         when(notebooks.getNotebook("workspace")).thenReturn(notebook);
         RepositoryContextMatcher.ScopeMatch missing = new RepositoryContextMatcher.ScopeMatch(project, ImmutableList.of("Repository-wide scope"),
@@ -393,7 +392,7 @@ class TestReviewContextService
     private static RepositoryNotebook notebook(boolean enabled, List<ContextEntry> entries, List<ContextSourceEvidence> sources)
     {
         ContextScope extra = new ContextScope("extra", "Extra", new ContextMatch.Selected(ImmutableList.of(), ImmutableList.of("extra")), true, Optional.empty(), Optional.empty());
-        return new RepositoryNotebook(1, 4, enabled, ImmutableList.of(), ImmutableList.of(ContextScope.project(), extra), entries, ImmutableList.of(), sources, Optional.empty());
+        return new RepositoryNotebook(1, 4, enabled, ImmutableList.of(), ImmutableList.of(ContextScope.project(), extra), entries, sources, Optional.empty());
     }
 
     private static ReviewRun run()

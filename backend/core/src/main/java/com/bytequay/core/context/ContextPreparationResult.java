@@ -54,7 +54,7 @@ public record ContextPreparationResult(
         }
     }
 
-    public static boolean belongsToScope(String id, String scopeId)
+    private static boolean belongsToScope(String id, String scopeId)
     {
         String lessonPrefix = "lesson:" + scopeId + ":";
         return ContextEntry.belongsToKnowledgeScope(id, scopeId) || (id.startsWith(lessonPrefix) && id.length() > lessonPrefix.length());

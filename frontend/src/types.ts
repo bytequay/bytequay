@@ -22,17 +22,17 @@ import type { LocalReviewThreadDto } from './pulls/local-review/types';
 import type {
   ConfigureRepositoryContextRequest,
   ContextBuildViewDto,
+  ContextBaselineDto,
   ContextDraftActionRequest,
-  ContextUsageActivitiesDto,
   ContextUsageOverviewDto,
   ContextUsageWindow,
   ContextDiscoveryReportDto,
-  ContextLearningPlanDto,
+  ContextLearningPlanViewDto,
+  ContextTimesDto,
+  DeclineContextLearningSourceRequest,
   EditRepositoryContextEntryRequest,
   EditContextDraftRequest,
-  RemoveRepositoryContextEntryRequest,
   RepositoryNotebookDto,
-  ResetRepositoryContextRequest,
   SaveRepositoryContextLessonRequest,
   SetRepositoryContextEntryEnabledRequest,
   StartContextDiscoveryRequest,
@@ -1626,16 +1626,18 @@ export type Bridge = JiraBridge & {
 
   getWorkspaceSettings: (workspaceId: string) => Promise<WorkspaceSettingsDto>;
   getRepositoryContext: (workspaceId: string) => Promise<RepositoryNotebookDto>;
-  getRepositoryContextUsage: (workspaceId: string, window: ContextUsageWindow, page: number) => Promise<ContextUsageOverviewDto>;
-  getRepositoryContextEntryUsage: (workspaceId: string, entryId: string, window: ContextUsageWindow, page: number) => Promise<ContextUsageActivitiesDto>;
+  getRepositoryContextUsage: (workspaceId: string, window: ContextUsageWindow) => Promise<ContextUsageOverviewDto>;
+  getRepositoryContextTimes: (workspaceId: string) => Promise<ContextTimesDto>;
   getRepositoryContextDiscoveryReport: (workspaceId: string) => Promise<ContextDiscoveryReportDto | null>;
-  getRepositoryContextLearningPlan: (workspaceId: string) => Promise<ContextLearningPlanDto | null>;
+  getRepositoryContextLearningPlan: (workspaceId: string) => Promise<ContextLearningPlanViewDto>;
+  getRepositoryContextBaseline: (workspaceId: string) => Promise<ContextBaselineDto | null>;
   getRepositoryContextBuild: (workspaceId: string) => Promise<ContextBuildViewDto>;
   startRepositoryContextDiscovery: (workspaceId: string, request: StartContextDiscoveryRequest) => Promise<ContextBuildViewDto>;
   startRepositoryContextLearning: (workspaceId: string, request: StartContextLearningRequest) => Promise<ContextBuildViewDto>;
   continueRepositoryContextLearning: (workspaceId: string, request: ContinueContextLearningRequest) => Promise<ContextBuildViewDto>;
-  discardRepositoryContextLearningPlan: (workspaceId: string, request: DiscardContextLearningPlanRequest) => Promise<ContextLearningPlanDto | null>;
-  allowRepositoryContextLearningSource: (workspaceId: string, request: AllowContextLearningSourceRequest) => Promise<ContextLearningPlanDto | null>;
+  discardRepositoryContextLearningPlan: (workspaceId: string, request: DiscardContextLearningPlanRequest) => Promise<ContextLearningPlanViewDto>;
+  allowRepositoryContextLearningSource: (workspaceId: string, request: AllowContextLearningSourceRequest) => Promise<ContextLearningPlanViewDto>;
+  declineRepositoryContextLearningSource: (workspaceId: string, request: DeclineContextLearningSourceRequest) => Promise<ContextLearningPlanViewDto>;
   getRepositoryContextMergedCandidates: (workspaceId: string) => Promise<ContextMergedCandidatesDto>;
   learnRepositoryContextMergedCandidate: (workspaceId: string, request: LearnContextMergedCandidateRequest) => Promise<ContextBuildViewDto>;
   stopRepositoryContextBuild: (workspaceId: string, taskId: string) => Promise<ContextBuildViewDto>;
@@ -1649,8 +1651,6 @@ export type Bridge = JiraBridge & {
   approveRepositoryContextDraft: (workspaceId: string, request: ContextDraftActionRequest) => Promise<RepositoryNotebookDto>;
   dismissRepositoryContextDraft: (workspaceId: string, request: ContextDraftActionRequest) => Promise<RepositoryNotebookDto>;
   setRepositoryContextEntryEnabled: (workspaceId: string, request: SetRepositoryContextEntryEnabledRequest) => Promise<RepositoryNotebookDto>;
-  removeRepositoryContextEntry: (workspaceId: string, request: RemoveRepositoryContextEntryRequest) => Promise<RepositoryNotebookDto>;
-  resetRepositoryContext: (workspaceId: string, request: ResetRepositoryContextRequest) => Promise<RepositoryNotebookDto>;
   saveRepositoryContextLesson: (workspaceId: string, request: SaveRepositoryContextLessonRequest) => Promise<RepositoryNotebookDto>;
   setWorkspaceCommitsTarget: (workspaceId: string, branch: string) => Promise<WorkspaceCommitsTargetDto>;
   clearWorkspaceCommitsTarget: (workspaceId: string) => Promise<WorkspaceCommitsTargetDto>;

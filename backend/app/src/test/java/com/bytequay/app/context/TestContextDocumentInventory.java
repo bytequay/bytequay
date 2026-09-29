@@ -14,8 +14,10 @@
 package com.bytequay.app.context;
 
 import com.bytequay.core.context.RegisteredContextSource;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -77,15 +79,12 @@ class TestContextDocumentInventory
     }
 
     @Test
-    void failuresCanBeRetriedButExcludedPagesCannotBeChosen()
+    void failedPagesCanBeChosenAgain()
     {
         ContextDocumentInventory inventory = ContextDocumentInventory.initial(List.of(ROOT));
         ContextDocumentInventory.Item root = inventory.choose(ROOT.id(), Optional.empty());
         inventory = inventory.failed(root, "Timeout");
         assertThat(inventory.choose(ROOT.id(), Optional.empty()).status()).isEqualTo(ContextDocumentInventory.Status.FAILED);
-        inventory = inventory.exclude(inventory.choose(ROOT.id(), Optional.empty()), "No longer relevant");
-        ContextDocumentInventory excluded = inventory;
-        assertThatThrownBy(() -> excluded.choose(ROOT.id(), Optional.empty())).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -108,24 +107,30 @@ class TestContextDocumentInventory
     }
 
     @Test
-    void retainsOnlyBoundedDistinctSuggestionsAcrossPageUpdates()
+    void retainsOnlyBoundedDistinctSuggestionsWithTheReadThatFoundThem()
     {
-        ContextDocumentInventory inventory = ContextDocumentInventory.initial(List.of(ROOT));
+        ContextDocumentInventory inventory = ContextDocumentInventory.initial(ImmutableList.of(ROOT));
         ContextDocumentInventory.Item root = inventory.choose(ROOT.id(), Optional.empty());
-        inventory = inventory.suggest(List.of("https://other.example.com/docs/", "https://other.example.com/docs/", ROOT.url()))
+        inventory = inventory.suggest(ImmutableList.of("https://other.example.com/docs/", "https://other.example.com/docs/", ROOT.url()),
+                        ROOT.url(), "topic:1", 2, "task", Instant.EPOCH)
                 .read(root, "read:root", "hash:root")
-                .offer(ROOT.id(), root.resolvedUrl(), List.of(link("child.html")), false);
-        assertThat(inventory.suggestedExpansionUrls()).containsExactly("https://other.example.com/docs/");
-        assertThat(inventory.withoutSuggestion("https://other.example.com/docs/").suggestedExpansionUrls()).isEmpty();
+                .offer(ROOT.id(), root.resolvedUrl(), ImmutableList.of(link("child.html")), false);
+        assertThat(inventory.suggestions()).containsExactly(new ContextDocumentInventory.Suggestion("https://other.example.com/docs/",
+                ROOT.url(), "topic:1", 2, "task", Instant.EPOCH));
+        assertThat(inventory.withoutSuggestion("https://other.example.com/docs/").suggestions()).isEmpty();
         ContextDocumentInventory recorded = inventory;
         assertThatThrownBy(() -> recorded.withoutSuggestion("https://unobserved.example.com/"))
                 .isInstanceOf(IllegalArgumentException.class);
+        ContextDocumentInventory approved = inventory.add(new RegisteredContextSource("other", DOCUMENTATION_ROOT,
+                "https://other.example.com/docs/", USER, Optional.empty()));
+        assertThat(approved.suggestions()).isEmpty();
+        assertThat(approved.choose("other", Optional.empty()).depth()).isZero();
         List<String> many = new ArrayList<>();
         for (int index = 0; index < ContextDocumentInventory.MAX_SUGGESTIONS + 1; index++) {
             many.add("https://other.example.com/page-" + index);
         }
-        ContextDocumentInventory bounded = inventory.suggest(many);
-        assertThat(bounded.suggestedExpansionUrls()).hasSize(ContextDocumentInventory.MAX_SUGGESTIONS);
+        ContextDocumentInventory bounded = inventory.suggest(many, ROOT.url(), "topic:1", 0, "task", Instant.EPOCH);
+        assertThat(bounded.suggestions()).hasSize(ContextDocumentInventory.MAX_SUGGESTIONS);
         assertThat(bounded.truncated()).isTrue();
     }
 

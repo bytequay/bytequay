@@ -14,7 +14,6 @@
 package com.bytequay.core.context;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Map;
@@ -37,23 +36,20 @@ public record RepositoryNotebook(
         List<ContextScope> scopes,
         List<ContextEntry> entries,
         List<ContextKnowledgeDraft> pendingDrafts,
-        List<String> suppressedKnowledgeIds,
         List<ContextSourceEvidence> sourceEvidence,
         Optional<ActiveContextPreparation> activePreparation)
 {
     public RepositoryNotebook(int schemaVersion, long revision, boolean useInReviews, List<RegisteredContextSource> sources,
-            List<ContextScope> scopes, List<ContextEntry> entries, List<String> suppressedKnowledgeIds,
-            List<ContextSourceEvidence> sourceEvidence, Optional<ActiveContextPreparation> activePreparation)
+            List<ContextScope> scopes, List<ContextEntry> entries, List<ContextSourceEvidence> sourceEvidence, Optional<ActiveContextPreparation> activePreparation)
     {
-        this(schemaVersion, revision, useInReviews, true, sources, scopes, entries, suppressedKnowledgeIds, sourceEvidence, activePreparation);
+        this(schemaVersion, revision, useInReviews, true, sources, scopes, entries, sourceEvidence, activePreparation);
     }
 
     public RepositoryNotebook(int schemaVersion, long revision, boolean useInReviews, boolean useInDevelopment,
-            List<RegisteredContextSource> sources, List<ContextScope> scopes, List<ContextEntry> entries, List<String> suppressedKnowledgeIds,
+            List<RegisteredContextSource> sources, List<ContextScope> scopes, List<ContextEntry> entries,
             List<ContextSourceEvidence> sourceEvidence, Optional<ActiveContextPreparation> activePreparation)
     {
-        this(schemaVersion, revision, useInReviews, useInDevelopment, sources, scopes, entries, ImmutableList.of(), suppressedKnowledgeIds,
-                sourceEvidence, activePreparation);
+        this(schemaVersion, revision, useInReviews, useInDevelopment, sources, scopes, entries, ImmutableList.of(), sourceEvidence, activePreparation);
     }
 
     public RepositoryNotebook
@@ -64,7 +60,6 @@ public record RepositoryNotebook(
         scopes = ImmutableList.copyOf(scopes);
         entries = ImmutableList.copyOf(entries);
         pendingDrafts = ImmutableList.copyOf(pendingDrafts);
-        suppressedKnowledgeIds = ImmutableList.copyOf(suppressedKnowledgeIds);
         sourceEvidence = ImmutableList.copyOf(sourceEvidence);
         requireNonNull(activePreparation, "activePreparation is null");
         ContextLimits.unique(sources.stream().map(RegisteredContextSource::id).toList(), "sources", 100);
@@ -74,7 +69,6 @@ public record RepositoryNotebook(
         ContextLimits.unique(pendingDrafts.stream().map(draft -> draft.entry().id()).toList(), "draft entry ids", ContextLimits.MAX_ENTRIES);
         checkArgument(Stream.concat(entries.stream().map(ContextEntry::id), pendingDrafts.stream().map(draft -> draft.entry().id())).distinct().count()
                 <= ContextLimits.MAX_ENTRIES, "Notebook has too many distinct note identities");
-        ContextLimits.unique(suppressedKnowledgeIds, "suppression", 100);
         ContextLimits.unique(sourceEvidence.stream().map(ContextSourceEvidence::id).toList(), "source evidence", 800);
         Set<String> scopeIds = scopes.stream().map(ContextScope::id).collect(toSet());
         Set<String> evidenceIds = sourceEvidence.stream().map(ContextSourceEvidence::id).collect(toSet());
@@ -83,11 +77,6 @@ public record RepositoryNotebook(
         checkArgument(entries.stream().allMatch(entry -> evidenceIds.containsAll(entry.sourceIds())), "Entry evidence is missing");
         checkArgument(pendingDrafts.stream().allMatch(draft -> scopeIds.contains(draft.entry().scopeId())), "Draft scope is missing");
         checkArgument(pendingDrafts.stream().allMatch(draft -> evidenceIds.containsAll(draft.entry().sourceIds())), "Draft evidence is missing");
-        checkArgument(suppressedKnowledgeIds.stream().allMatch(id -> scopeIds.stream().anyMatch(scope -> ContextPreparationResult.belongsToScope(id, scope))),
-                "Invalid knowledge suppression");
-        Set<String> suppressed = ImmutableSet.copyOf(suppressedKnowledgeIds);
-        checkArgument(entries.stream().noneMatch(entry -> suppressed.contains(entry.id())), "Suppressed entry still exists");
-        checkArgument(pendingDrafts.stream().noneMatch(draft -> suppressed.contains(draft.entry().id())), "Suppressed draft still exists");
         activePreparation.ifPresent(active -> {
             checkArgument(active.baseContentRevision() <= revision, "Preparation revision is newer than notebook content");
             checkArgument(active.inputs().stream().allMatch(input -> scopeIds.contains(input.scopeId())), "Active preparation scope is missing");
@@ -130,6 +119,6 @@ public record RepositoryNotebook(
     public static RepositoryNotebook empty()
     {
         return new RepositoryNotebook(1, 0, true, true, ImmutableList.of(), ImmutableList.of(ContextScope.project()),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty());
+                ImmutableList.of(), ImmutableList.of(), Optional.empty());
     }
 }

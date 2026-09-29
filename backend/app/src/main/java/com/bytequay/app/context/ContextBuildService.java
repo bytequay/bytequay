@@ -44,7 +44,6 @@ import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.context.ContextLimits;
-import com.bytequay.core.context.ContextPreparationResult;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -77,6 +76,7 @@ public class ContextBuildService
     private final ContextBuildStore builds;
     private final RepositoryContextService notebooks;
     private final ContextLearningPlanStore plans;
+    private final ContextDiscoveryReportStore reports;
     private final RepositoryContextPreparation preparation;
     private final WorkspaceRepositoryService workspaces;
     private final ModelSettingsService models;
@@ -95,7 +95,7 @@ public class ContextBuildService
     private final Striped<Lock> locks = Striped.lock(64);
 
     public ContextBuildService(
-            ContextBuildStore builds, RepositoryContextService notebooks, ContextLearningPlanStore plans,
+            ContextBuildStore builds, RepositoryContextService notebooks, ContextLearningPlanStore plans, ContextDiscoveryReportStore reports,
             RepositoryContextPreparation preparation, WorkspaceRepositoryService workspaces,
             ModelSettingsService models, CredentialService credentials, AgentDriverRegistry drivers, AgentTaskService tasks, AgentTaskStore taskStore,
             AgentTurnService turns, AgentTurnStore turnStore, AgentCompletionService completions, AgentApprovalService approvals,
@@ -104,6 +104,7 @@ public class ContextBuildService
         this.builds = requireNonNull(builds, "builds is null");
         this.notebooks = requireNonNull(notebooks, "notebooks is null");
         this.plans = requireNonNull(plans, "plans is null");
+        this.reports = requireNonNull(reports, "reports is null");
         this.preparation = requireNonNull(preparation, "preparation is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.models = requireNonNull(models, "models is null");
@@ -127,32 +128,41 @@ public class ContextBuildService
         return view(workspaceId);
     }
 
-    public View discover(String workspaceId, Request request)
+    /**
+     * A continuation resumes the saved report at its recorded revision so its topics and evidence can be kept;
+     * otherwise discovery surveys the current monitored baseline and replaces the report.
+     */
+    public View discover(String workspaceId, Request request, boolean continuation)
     {
         checkArgument(request.scopeIds().isEmpty() && request.history().isEmpty(), "Discovery does not take configured scopes or history");
-        return start(workspaceId, request, ContextBuild.Mode.DISCOVER, Optional.empty(), Optional.empty(), Optional.empty());
+        Optional<ContextDiscoveryReport> continued = continuation
+                ? Optional.of(reports.find(workspaceId).filter(ContextDiscoveryReport::partial)
+                        .orElseThrow(() -> new IllegalArgumentException("There is no partial discovery to continue")))
+                : Optional.empty();
+        return start(workspaceId, request, ContextBuild.Mode.DISCOVER, continued.map(ContextDiscoveryReport::baselineSha), Optional.empty(), Optional.empty(),
+                continued.map(ContextDiscoveryReport::id));
     }
 
     public View learnHistory(String workspaceId, Request request)
     {
         checkArgument(!request.scopeIds().isEmpty() && !request.history().isEmpty(), "Select scopes and observed merged work");
-        return start(workspaceId, request, ContextBuild.Mode.LEARN, Optional.empty(), Optional.of(ImmutableList.of()), Optional.empty());
+        return start(workspaceId, request, ContextBuild.Mode.LEARN, Optional.empty(), Optional.of(ImmutableList.of()), Optional.empty(), Optional.empty());
     }
 
     public View learn(String workspaceId, Request request, String baselineSha, List<RegisteredContextSource> sources, ContextBuild.Assignment assignment)
     {
         checkArgument(request.scopeIds().size() == 1, "A learning run answers one topic");
         checkArgument(baselineSha.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Invalid learning baseline");
-        return start(workspaceId, request, ContextBuild.Mode.LEARN, Optional.of(baselineSha), Optional.of(sources), Optional.of(assignment));
+        return start(workspaceId, request, ContextBuild.Mode.LEARN, Optional.of(baselineSha), Optional.of(sources), Optional.of(assignment), Optional.empty());
     }
 
     private View start(String workspaceId, Request request, ContextBuild.Mode mode, Optional<String> baselineSha,
-            Optional<List<RegisteredContextSource>> selectedSources, Optional<ContextBuild.Assignment> assignment)
+            Optional<List<RegisteredContextSource>> selectedSources, Optional<ContextBuild.Assignment> assignment, Optional<String> continuesReport)
     {
         Lock lock = locks.get(workspaceId);
         lock.lock();
         try {
-            String digest = digest(ImmutableList.of(mode, request, baselineSha, selectedSources, assignment));
+            String digest = digest(ImmutableList.of(mode, request, baselineSha, selectedSources, assignment, continuesReport));
             Optional<ContextBuild> previous = builds.find(workspaceId);
             if (previous.filter(build -> build.requestKey().equals(request.requestKey())).isPresent()) {
                 checkArgument(previous.orElseThrow().requestDigest().equals(digest), "Request key was reused with different learning inputs");
@@ -183,10 +193,11 @@ public class ContextBuildService
                     WorkflowAgentTasks.repositoryIdentity(workspace.selectedRepository()), RepositoryContextReader.repositoryId(workspace), workspace.monitoredRepository(),
                     resolved.output().strip(), branch, lane.value(), new AgentTaskDefaults(Optional.of(model.model()), model.effort(), AgentPermissionPolicy.AUTO),
                     request.scopeIds(), request.history(), documentation,
-                    notebook.revision(), Instant.now(clock), ContextBuild.Capture.empty(), mode, assignment);
+                    notebook.revision(), Instant.now(clock), ContextBuild.Capture.empty(), mode, assignment, continuesReport);
             WorkspaceOperationLocks.withLock(workspaceId, () -> {
                 checkArgument(notebooks.getNotebook(workspaceId).equals(notebook), "Notebook changed while preparing learning");
                 assignment.ifPresent(accepted -> checkAcceptedPlan(workspaceId, build, accepted));
+                previous.ifPresent(replaced -> builds.recordRun(workspaceId, run(replaced)));
                 return builds.save(previous, build);
             });
             try {
@@ -210,14 +221,15 @@ public class ContextBuildService
     {
         ContextLearningPlan plan = plans.find(workspaceId).filter(value -> value.id().equals(assignment.planId()))
                 .orElseThrow(() -> new IllegalArgumentException("Learning plan changed before the task was started"));
-        ContextLearningPlan.Topic next = plan.topics().stream()
-                .filter(topic -> topic.status() == ContextLearningPlan.Status.PENDING).findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Learning plan has no pending topic"));
+        ContextLearningPlan.Topic topic = plan.topic(assignment.topicId());
+        checkArgument(assignment.questionIndex() < topic.questions().size(), "Learning question changed before the task was started");
+        ContextLearningPlan.Question question = topic.questions().get(assignment.questionIndex());
         List<RegisteredContextSource> selected = plan.documentationSources().stream()
-                .filter(source -> next.sourceIds().contains(source.id())).toList();
-        checkArgument(next.id().equals(assignment.topicId()) && next.scopeId().equals(build.scopeIds().getFirst())
-                        && next.remainingQuestion().equals(assignment.question()) && next.paths().equals(assignment.paths())
-                        && next.repositoryFiles().equals(assignment.repositoryFiles()) && selected.equals(build.documentationSources())
+                .filter(source -> topic.sourceIds().contains(source.id())).toList();
+        checkArgument(question.status() != ContextLearningPlan.Status.COMPLETED && question.text().equals(assignment.question())
+                        && question.progress().equals(assignment.progress()) && topic.title().equals(assignment.topicTitle())
+                        && topic.scopeId().equals(build.scopeIds().getFirst()) && topic.paths().equals(assignment.paths())
+                        && topic.repositoryFiles().equals(assignment.repositoryFiles()) && selected.equals(build.documentationSources())
                         && plan.baselineSha().equals(build.baselineSha()) && plan.repositoryId() == build.repositoryId()
                         && plan.repository().equals(build.repository()),
                 "Accepted learning topic or sources changed before the task was started");
@@ -275,7 +287,8 @@ public class ContextBuildService
                     Map<String, String> attempts = new LinkedHashMap<>(capture.attempts());
                     attempts.put("allocation-failed", "No agent task was retained; retry requires an explicit new request");
                     builds.save(Optional.of(build), build.withCapture(new ContextBuild.Capture(capture.sourceReads(), capture.evidence(), attempts,
-                            capture.operations(), capture.result(), gaps(capture.gaps(), "The task allocation did not finish. No model run was retained."))));
+                            capture.operations(), capture.result(), gaps(capture.gaps(), "The task allocation did not finish. No model run was retained."),
+                            capture.activity())));
                     return null;
                 });
                 return;
@@ -328,7 +341,7 @@ public class ContextBuildService
                 List<String> gaps = gaps(build.capture().gaps(), gap);
                 ContextBuild.Capture capture = build.capture();
                 builds.save(Optional.of(build), build.withCapture(new ContextBuild.Capture(capture.sourceReads(), capture.evidence(), capture.attempts(),
-                        capture.operations(), capture.result(), gaps)));
+                        capture.operations(), capture.result(), gaps, capture.activity())));
             });
             return null;
         });
@@ -340,6 +353,28 @@ public class ContextBuildService
         return current.contains(bounded) || current.size() >= 40 ? current : ImmutableList.<String>builder().addAll(current).add(bounded).build();
     }
 
+    private ContextRun run(ContextBuild build)
+    {
+        Optional<AgentTask> task = taskStore.find(TaskId.valueOf(build.taskId()));
+        return ContextRun.of(build, task, task.flatMap(value -> turns.findTurnByIdempotencyKey(value.id(), build.turnKey())));
+    }
+
+    /** The monitored branch head a new discovery would survey; absent until the repository is readable. A local read only. */
+    public Optional<Baseline> baseline(String workspaceId)
+    {
+        try {
+            WorkspaceRepositoryContext workspace = workspaces.requireReadableRepository(workspaceId);
+            GitCommandRunner.Result resolved = git.run(workspace.repository(), "rev-parse", "--verify",
+                    "refs/remotes/" + workspace.sourceRemote() + "/" + workspace.defaultBranch() + "^{commit}");
+            String sha = resolved.output().strip();
+            return resolved.successful() && !resolved.truncated() && sha.matches("[0-9a-f]{40}|[0-9a-f]{64}")
+                    ? Optional.of(new Baseline(workspace.defaultBranch(), sha)) : Optional.empty();
+        }
+        catch (RuntimeException unavailable) {
+            return Optional.empty();
+        }
+    }
+
     private View view(String workspaceId)
     {
         RepositoryNotebook notebook = notebooks.getNotebook(workspaceId);
@@ -347,12 +382,14 @@ public class ContextBuildService
         Optional<BuildView> build = found.map(value -> {
             Optional<AgentTask> task = taskStore.find(TaskId.valueOf(value.taskId()));
             Optional<AgentTurn> active = task.flatMap(this::activeTurn);
-            return new BuildView(value.requestKey(), value.taskId(), value.baselineSha(), value.scopeIds(), value.history(), value.requestedAt(),
-                    task.map(TaskView::of), active.map(TurnView::of), active.map(turn -> approvals.listPending(turn.id()).size()).orElse(0),
-                    value.capture().result().map(ContextBuild.Result::scopeResults).orElse(ImmutableList.of()), value.capture().gaps(), value.mode());
+            return new BuildView(value.requestKey(), value.taskId(), task.map(TaskView::of), active.map(TurnView::of),
+                    active.map(turn -> approvals.listPending(turn.id()).size()).orElse(0), value.continuesReport().isPresent());
         });
         boolean canStart = found.map(this::canStartAfter).orElse(true);
-        return new View(found.map(ContextBuild::sequence).orElse(0L), notebook.revision(), canStart, build);
+        List<ContextRun> runs = ImmutableList.<ContextRun>builder().addAll(builds.runs(workspaceId).stream()
+                .filter(run -> found.filter(current -> current.taskId().equals(run.taskId())).isEmpty()).toList())
+                .addAll(found.map(this::run).stream().toList()).build();
+        return new View(found.map(ContextBuild::sequence).orElse(0L), notebook.revision(), canStart, build, runs);
     }
 
     private boolean canStartAfter(ContextBuild build)
@@ -380,21 +417,31 @@ public class ContextBuildService
 
     private static String prompt(ContextBuild build)
     {
+        if (build.mode() == ContextBuild.Mode.DISCOVER && build.continuesReport().isPresent()) {
+            return "Continue the saved partial discovery of " + build.repository().fullName() + " at its recorded baseline " + build.baselineSha()
+                    + ". Use repository_context_discovery_read STATUS for the earlier topics, coverage and unsurveyed directories, then survey those areas. "
+                    + "Earlier topics, sources and evidence are kept; submit only new topics and sources, each with one to six focused learning questions "
+                    + "supported by read evidence. Do not read all code or follow external websites. "
+                    + "You have at most 40 source operations in this one turn. Mark the report partial and list remaining work if areas are still unsurveyed. "
+                    + "Submit the discovery report, then end; do not create notes, commit, push or publish.";
+        }
         if (build.mode() == ContextBuild.Mode.DISCOVER) {
             return "Discover repository " + build.repository().fullName() + " at frozen baseline " + build.baselineSha()
                     + ". Use the repository discovery tools to inspect project structure, build files, README and selected documentation. "
                     + "Search across the repository; modules can be deeply nested and need not follow a standard layout. "
-                    + "Propose focused learning questions, their relevant code paths, and source documents supported by read evidence. "
+                    + "Propose learning topics, each with one to six focused learning questions, their relevant code paths, and source documents supported by read evidence. "
                     + "Do not read all code or follow external websites. External documentation links are suggestions for later user approval. "
                     + "You have at most 40 source operations in this one turn. Save a partial report with remaining questions before reaching the limit. "
                     + "Submit the discovery report, then end; do not create notes, commit, push or publish.";
         }
         if (build.assignment().isPresent()) {
-            return "Learn one approved question for " + build.repository().fullName() + " at " + build.baselineSha() + ": "
-                    + build.assignment().orElseThrow().question() + ". Use repository_context_read SELECTION for saved progress and exact source boundaries. "
+            ContextBuild.Assignment assignment = build.assignment().orElseThrow();
+            return "Learn one approved question for " + build.repository().fullName() + " at " + build.baselineSha() + " (topic " + assignment.topicTitle() + "): "
+                    + assignment.question() + (assignment.progress().isEmpty() ? "" : " Saved progress from an earlier run: " + assignment.progress())
+                    + " Use repository_context_read SELECTION for saved progress and exact source boundaries. "
                     + "Inspect existing notes before drafting duplicates. Read only what answers this question, within the approved paths and documentation inventory. "
                     + "At most 40 source operations and 10 documentation opens are allowed this turn, with two link hops from each approved root. "
-                    + "Save useful supported drafts with repository_context_prepare; record completed or remaining work with repository_context_progress. "
+                    + "Save useful supported drafts with repository_context_prepare; record this question as answered or save its progress with repository_context_progress. "
                     + "A partial answer is allowed. Preserve uncertainty and source gaps. Do not claim a whole module or website was learned. "
                     + "Stop after this unit. The user approves further runs and note activation separately.";
         }
@@ -420,26 +467,33 @@ public class ContextBuildService
         }
     }
 
-    public record View(long buildRequestSequence, long notebookRevision, boolean canStart, Optional<BuildView> build) {}
-
-    public record BuildView(String requestKey, String taskId, String baselineSha, List<String> scopeIds, List<ContextBuild.History> history, Instant requestedAt,
-            Optional<TaskView> task, Optional<TurnView> activeTurn, int pendingApprovals, List<ContextPreparationResult> results, List<String> gaps, ContextBuild.Mode mode) {}
-
-    public record TaskView(String id, String workspaceId, String state, long version, String laneId, Optional<String> model,
-            Optional<String> mutationClaim, Optional<String> terminalReason, Optional<Instant> worktreeRemovedAt, String worktreePath)
+    public record View(long buildRequestSequence, long notebookRevision, boolean canStart, Optional<BuildView> build, List<ContextRun> runs)
     {
-        static TaskView of(AgentTask task)
+        public View
         {
-            return new TaskView(task.id().toString(), task.workspaceId().orElseThrow(), task.state().name(), task.version(), task.laneId().value(), task.defaults().model(),
-                    task.worktreeMutationClaim().map(claim -> claim.kind().name()), task.terminalReason(), task.worktreeRemovedAt(), task.worktree().toString());
+            runs = ImmutableList.copyOf(runs);
         }
     }
 
-    public record TurnView(String id, String state, Optional<Instant> startedAt, Optional<Instant> cancellationRequestedAt)
+    public record Baseline(String branch, String sha) {}
+
+    /** What the page needs to follow the bound run and to offer its recovery actions. */
+    public record BuildView(String requestKey, String taskId, Optional<TaskView> task, Optional<TurnView> activeTurn, int pendingApprovals, boolean continuation) {}
+
+    public record TaskView(String id, String workspaceId, String state, Optional<String> mutationClaim, Optional<Instant> worktreeRemovedAt)
+    {
+        static TaskView of(AgentTask task)
+        {
+            return new TaskView(task.id().toString(), task.workspaceId().orElseThrow(), task.state().name(),
+                    task.worktreeMutationClaim().map(claim -> claim.kind().name()), task.worktreeRemovedAt());
+        }
+    }
+
+    public record TurnView(Optional<Instant> cancellationRequestedAt)
     {
         static TurnView of(AgentTurn turn)
         {
-            return new TurnView(turn.id().toString(), turn.state().name(), turn.startedAt(), turn.cancellationRequestedAt());
+            return new TurnView(turn.cancellationRequestedAt());
         }
     }
 }

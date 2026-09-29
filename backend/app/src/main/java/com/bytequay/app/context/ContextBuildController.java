@@ -29,6 +29,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Optional;
+
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -56,11 +58,17 @@ public class ContextBuildController
         return builds.get(workspaceId);
     }
 
+    @GetMapping("/baseline")
+    public Optional<ContextBuildService.Baseline> baseline(@PathVariable String workspaceId)
+    {
+        return builds.baseline(workspaceId);
+    }
+
     @PostMapping("/discover")
     public ContextBuildService.View discover(@PathVariable String workspaceId, @RequestBody DiscoveryRequest request)
     {
         return builds.discover(workspaceId, new ContextBuildService.Request(request.requestKey(), request.expectedRevision(), request.expectedBuildSequence(),
-                ImmutableList.of(), ImmutableList.of()));
+                ImmutableList.of(), ImmutableList.of()), request.continuation().orElse(false));
     }
 
     @PostMapping("/stop")
@@ -105,11 +113,12 @@ public class ContextBuildController
         return builds.get(workspaceId);
     }
 
-    public record DiscoveryRequest(String requestKey, Long expectedRevision, Long expectedBuildSequence)
+    public record DiscoveryRequest(String requestKey, Long expectedRevision, Long expectedBuildSequence, Optional<Boolean> continuation)
     {
         public DiscoveryRequest
         {
             ContextLimits.text(requestKey, "requestKey", 100);
+            requireNonNull(continuation, "continuation is null");
             checkArgument(expectedRevision != null && expectedRevision >= 0 && expectedBuildSequence != null && expectedBuildSequence >= 0,
                     "Both expectedRevision and expectedBuildSequence are required nonnegative integers");
         }

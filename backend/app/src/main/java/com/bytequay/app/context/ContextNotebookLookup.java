@@ -72,7 +72,7 @@ public class ContextNotebookLookup
         Map<String, String> references = notebook.sourceEvidence().stream()
                 .collect(toImmutableMap(source -> source.id(), source -> source.reference().toString()));
         List<ContextEntry> matches = notebook.entries().stream()
-                .filter(entry -> entry.enabled() && scopes.containsKey(entry.scopeId()) && !notebook.suppressedKnowledgeIds().contains(entry.id()))
+                .filter(entry -> entry.enabled() && scopes.containsKey(entry.scopeId()))
                 .filter(entry -> query.paths().isEmpty() || pathMatches(scopes.get(entry.scopeId()), query.paths()))
                 .filter(entry -> query.query().isEmpty() || textMatches(entry, references, query.query()))
                 .toList();

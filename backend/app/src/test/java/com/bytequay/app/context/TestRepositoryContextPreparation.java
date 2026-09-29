@@ -55,6 +55,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -93,7 +94,7 @@ class TestRepositoryContextPreparation
     private final ContextInputReader inputs = mock(ContextInputReader.class);
     private final WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
     private final RepositoryContextService notebooks = new RepositoryContextService(new InMemoryAppSettingsStore(),
-            new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new JavaTimeModule()), workspaceStore, mock(AgentReviewStore.class));
+            new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new JavaTimeModule()), workspaceStore, mock(AgentReviewStore.class), Clock.systemUTC());
     private final RepositoryContextPreparation preparation = new RepositoryContextPreparation(notebooks, inputs, workspaces);
 
     @BeforeEach
@@ -117,7 +118,7 @@ class TestRepositoryContextPreparation
     @Test
     void standaloneLearningOwnsKnowledgeWithoutAReviewEvenWhenUseInReviewsIsOff()
     {
-        notebooks.setUseInReviews("workspace", 0, false);
+        notebooks.configure("workspace", 0, new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty()));
         Execution review = execution("turn", false, SHA);
         Execution owner = new Execution(review.workspaceId(), review.repository(), review.repositoryId(), review.baselineSha(), "learning-task", "learning-turn",
                 "learning-key", Optional.empty(), Optional.empty(), review.sourceReads(), review.evidence());
@@ -185,8 +186,8 @@ class TestRepositoryContextPreparation
     @Test
     void freshDocumentContentInvalidatesReuseButNewReadIdsAndTimesDoNot()
     {
-        notebooks.configure("workspace", 0, new EditContextConfiguration(Optional.empty(), Optional.of(ImmutableList.of(new EditContextConfiguration.Source(
-                "docs", RegisteredContextSource.Kind.DOCUMENTATION_PAGE, "https://example.com/docs/page"))), Optional.empty()));
+        notebooks.configure("workspace", 0, new EditContextConfiguration(Optional.empty(), Optional.empty(), Optional.of(ImmutableList.of(new EditContextConfiguration.Source(
+                "docs", RegisteredContextSource.Kind.DOCUMENTATION_PAGE, "https://example.com/docs/page")))));
         Execution owner = documentExecution("original", "a".repeat(64));
         var admitted = begin(owner);
         preparation.complete(owner, preparation.prepareCompletion(owner, admitted.attempt().orElseThrow().attemptId(), readyReport("context-read:original")));

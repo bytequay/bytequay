@@ -59,6 +59,7 @@ import javax.sql.DataSource;
 
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -152,10 +153,10 @@ class TestRepositoryContextSqlite
 
         RepositoryNotebook saved = context.registerDiscovered(workspaceId, 0, ImmutableList.of(scope), ImmutableList.of(source), ImmutableList.of(proof));
         workspaces.setWatched(workspaceId, false);
-        RepositoryContextService recreated = new RepositoryContextService(settings, mapper, workspaces, reviews);
+        RepositoryContextService recreated = new RepositoryContextService(settings, mapper, workspaces, reviews, Clock.systemUTC());
 
         assertThat(recreated.getNotebook(workspaceId)).isEqualTo(saved);
-        RepositoryNotebook disabled = recreated.setUseInReviews(workspaceId, saved.revision(), false);
+        RepositoryNotebook disabled = recreated.configure(workspaceId, saved.revision(), new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty()));
         assertThat(disabled.entries()).isEmpty();
         assertThat(disabled.sources()).containsExactly(source);
         assertThat(disabled.scopes()).containsExactly(ContextScope.project(), scope);
@@ -165,25 +166,25 @@ class TestRepositoryContextSqlite
     @Test
     void notebookSurvivesServiceRecreationAndUnwatchWithOptimisticEdits()
     {
-        ContextScope scope = new ContextScope("path:plugin/iceberg/", "Iceberg",
-                new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/"), ImmutableList.of("iceberg")), true, Optional.empty(), Optional.empty());
         context.configure(workspaceId, 0, new EditContextConfiguration(
                 Optional.of(false),
+                Optional.empty(),
                 Optional.of(ImmutableList.of(new EditContextConfiguration.Source(
-                        "iceberg-docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://iceberg.apache.org/docs/latest/"))),
-                Optional.of(ImmutableList.of(ContextScope.project(), scope))));
+                        "iceberg-docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://iceberg.apache.org/docs/latest/")))));
         RepositoryNotebook saved = context.editEntry(workspaceId, 1, new EditContextEntry(
-                ContextEntry.knowledgeId(scope.id()), scope.id(), "Connector questions", "Questions to investigate", "Check the snapshot contract.",
+                ContextEntry.knowledgeId("project"), "project", "Connector questions", "Questions to investigate", "Check the snapshot contract.",
                 ImmutableList.of(new ContextClaim("Which snapshot is visible?", ContextClaim.Basis.QUESTION, ImmutableList.of())), ImmutableList.of()));
 
         workspaces.setWatched(workspaceId, false);
-        RepositoryContextService recreated = new RepositoryContextService(settings, mapper, workspaces, reviews);
+        RepositoryContextService recreated = new RepositoryContextService(settings, mapper, workspaces, reviews, Clock.systemUTC());
 
         assertThat(recreated.getNotebook(workspaceId)).isEqualTo(saved);
         assertThat(recreated.getNotebook(workspaceId).useInReviews()).isFalse();
-        assertThatThrownBy(() -> recreated.setUseInReviews(workspaceId, 1, true)).isInstanceOf(ContextConflictException.class);
+        assertThatThrownBy(() -> recreated.configure(workspaceId, 1, new EditContextConfiguration(Optional.of(true), Optional.empty(), Optional.empty())))
+                .isInstanceOf(ContextConflictException.class);
         assertThat(recreated.getNotebook(workspaceId)).isEqualTo(saved);
-        assertThat(recreated.setUseInReviews(workspaceId, saved.revision(), true).entries()).isEqualTo(saved.entries());
+        assertThat(recreated.configure(workspaceId, saved.revision(), new EditContextConfiguration(Optional.of(true), Optional.empty(), Optional.empty())).entries())
+                .isEqualTo(saved.entries());
     }
 
     @Test
@@ -198,9 +199,9 @@ class TestRepositoryContextSqlite
         ContextKnowledgeDraft draft = new ContextKnowledgeDraft("draft:connector", proposed, Optional.empty(), "a".repeat(40), "Read connector documentation");
         RepositoryNotebook empty = context.getNotebook(workspaceId);
         RepositoryNotebook pending = context.savePreparation(workspaceId, empty, new RepositoryNotebook(1, 1, true, true,
-                empty.sources(), empty.scopes(), empty.entries(), ImmutableList.of(draft), empty.suppressedKnowledgeIds(),
+                empty.sources(), empty.scopes(), empty.entries(), ImmutableList.of(draft),
                 ImmutableList.of(source), Optional.empty()));
-        RepositoryContextService recreated = new RepositoryContextService(settings, mapper, workspaces, reviews);
+        RepositoryContextService recreated = new RepositoryContextService(settings, mapper, workspaces, reviews, Clock.systemUTC());
         assertThat(recreated.getNotebook(workspaceId)).isEqualTo(pending);
         assertThat(pending.entries()).isEmpty();
 
@@ -232,12 +233,12 @@ class TestRepositoryContextSqlite
         ActiveContextPreparation active = new ActiveContextPreparation("active-attempt", "request", "sha256:" + "a".repeat(64),
                 "task", "turn", "turn-key", Optional.of("review"), Optional.of("run"), 0, ImmutableList.of(input));
         RepositoryNotebook notebook = new RepositoryNotebook(1, 0, true, ImmutableList.of(documentation), ImmutableList.of(scope), ImmutableList.of(),
-                ImmutableList.of(), ImmutableList.of(evidence), Optional.of(active));
+                ImmutableList.of(evidence), Optional.of(active));
         settings.put(key(), mapper.writeValueAsString(notebook));
 
-        RepositoryContextService recreated = new RepositoryContextService(settings, mapper, workspaces, reviews);
+        RepositoryContextService recreated = new RepositoryContextService(settings, mapper, workspaces, reviews, Clock.systemUTC());
         assertThat(recreated.getNotebook(workspaceId)).isEqualTo(notebook);
-        RepositoryNotebook disabled = recreated.setUseInReviews(workspaceId, 0, false);
+        RepositoryNotebook disabled = recreated.configure(workspaceId, 0, new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty()));
         assertThat(disabled.revision()).isEqualTo(1);
         assertThat(disabled.scopes()).containsExactly(scope);
         assertThat(disabled.sourceEvidence()).containsExactly(evidence);
@@ -256,8 +257,7 @@ class TestRepositoryContextSqlite
         ActiveContextPreparation active = new ActiveContextPreparation("attempt", "request", "sha256:" + "a".repeat(64),
                 "task", "turn", "turn-key", Optional.of(run.reviewId()), Optional.of(run.id()), 0, ImmutableList.of(input));
         RepositoryNotebook empty = context.getNotebook(workspaceId);
-        RepositoryNotebook owned = new RepositoryNotebook(1, 0, true, empty.sources(), empty.scopes(), empty.entries(),
-                empty.suppressedKnowledgeIds(), empty.sourceEvidence(), Optional.of(active));
+        RepositoryNotebook owned = new RepositoryNotebook(1, 0, true, empty.sources(), empty.scopes(), empty.entries(), empty.sourceEvidence(), Optional.of(active));
         ReviewOperation receipt = new ReviewOperation("a".repeat(64), "{\"status\":\"OWNED\"}");
 
         assertThatThrownBy(() -> WorkspaceOperationLocks.withLock(workspaceId, () -> unitOfWork.execute(() -> {
@@ -300,7 +300,7 @@ class TestRepositoryContextSqlite
                     started.countDown();
                     return measureWrite(() -> {
                         callbackEntered.countDown();
-                        context.setUseInReviews(workspaceId, 1, false);
+                        context.configure(workspaceId, 1, new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty()));
                     });
                 });
                 assertThat(started.await(5, SECONDS)).isTrue();
@@ -420,8 +420,7 @@ class TestRepositoryContextSqlite
         ContextEntry entry = new ContextEntry("knowledge:project", KNOWLEDGE, "project", "Synthetic project overview", "Storage fixture", "b".repeat(1519),
                 ImmutableList.of(new ContextClaim("Synthetic documented claim", ContextClaim.Basis.DOCUMENTED, ImmutableList.of(evidence.getFirst().id()))),
                 ImmutableList.of(evidence.getFirst().id()), ContextEntryOrigin.GENERATED, true, 1);
-        return new RepositoryNotebook(1, 1, true, ImmutableList.of(), ImmutableList.of(ContextScope.project()), ImmutableList.of(entry),
-                ImmutableList.of(), evidence, Optional.empty());
+        return new RepositoryNotebook(1, 1, true, ImmutableList.of(), ImmutableList.of(ContextScope.project()), ImmutableList.of(entry), evidence, Optional.empty());
     }
 
     private record WriteTiming(long acquisitionMicros, long callbackMicros, long totalMicros) {}
@@ -433,14 +432,15 @@ class TestRepositoryContextSqlite
         settings.put(key(), corrupt);
 
         assertThatThrownBy(() -> context.getNotebook(workspaceId)).isInstanceOf(ContextStorageException.class);
-        assertThatThrownBy(() -> context.setUseInReviews(workspaceId, 0, false)).isInstanceOf(ContextStorageException.class);
+        assertThatThrownBy(() -> context.configure(workspaceId, 0, new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty())))
+                .isInstanceOf(ContextStorageException.class);
         assertThat(settings.get(key())).contains(corrupt);
     }
 
     @Test
     void explicitDeletionRemovesOnlyTheOwningNotebook()
     {
-        context.setUseInReviews(workspaceId, 0, false);
+        context.configure(workspaceId, 0, new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty()));
         settings.put("workspace.repositoryContext.unrelated", "retained");
 
         context.deleteWorkspaceData(workspaceId);

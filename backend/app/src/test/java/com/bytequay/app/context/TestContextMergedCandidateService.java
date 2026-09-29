@@ -105,7 +105,7 @@ class TestContextMergedCandidateService
         when(tasks.find(TASK_ID)).thenReturn(Optional.of(task));
         when(prs.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(7L));
         when(prs.findById(7L)).thenAnswer(ignored -> Optional.of(row.get()));
-        when(builds.get(WORKSPACE)).thenReturn(new ContextBuildService.View(0, 0, true, Optional.empty()));
+        when(builds.get(WORKSPACE)).thenReturn(new ContextBuildService.View(0, 0, true, Optional.empty(), ImmutableList.of()));
         service = new ContextMergedCandidateService(store, buildStore, prs, details, imports, issues, jira, reviews,
                 tasks, turns, workspaces, notebooks, builds, clock);
     }

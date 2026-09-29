@@ -350,7 +350,7 @@ class TestReviewTools
                 .addAll(IntStream.range(0, 12).mapToObj(index -> new ContextScope("path:module" + index + "/", "Module " + index,
                         new ContextMatch.Selected(ImmutableList.of("module" + index + "/"), ImmutableList.of()), true, Optional.empty(), Optional.empty())).iterator()).build();
         when(selectedDocumentation.notebook(WORKSPACE_ID)).thenReturn(new RepositoryNotebook(1, 9, true, ImmutableList.of(), scopes,
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty()));
+                ImmutableList.of(), ImmutableList.of(), Optional.empty()));
 
         JsonNode first = call("review_get_context", ImmutableMap.of("kind", "assignment")).path("repositoryContext");
         JsonNode second = call("review_get_context", ImmutableMap.of("kind", "assignment", "page", 2)).path("repositoryContext");
@@ -765,7 +765,7 @@ class TestReviewTools
         coldPreparationContext();
         ContextScope disabled = new ContextScope("project", "Project overview", ContextScope.project().match(), false, Optional.empty(), Optional.empty());
         when(selectedDocumentation.notebook(WORKSPACE_ID)).thenReturn(new RepositoryNotebook(1, 1, true, ImmutableList.of(),
-                ImmutableList.of(disabled), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty()));
+                ImmutableList.of(disabled), ImmutableList.of(), ImmutableList.of(), Optional.empty()));
         call("review_save_summary", summary("summary", "Input change"));
         readSource();
         Map<String, Object> report = investigation("initial", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of());
@@ -1134,7 +1134,7 @@ class TestReviewTools
                 IntStream.range(0, 12).mapToObj(_ -> new ContextClaim("\u0001".repeat(2000), ContextClaim.Basis.INFERENCE, ImmutableList.of())).collect(toImmutableList()),
                 ImmutableList.of(), ContextEntryOrigin.USER, true, 7);
         when(notebooks.getNotebook(WORKSPACE_ID)).thenReturn(new RepositoryNotebook(1, 7, true, ImmutableList.of(), ImmutableList.of(ContextScope.project()),
-                ImmutableList.of(large), ImmutableList.of(), ImmutableList.of(), Optional.empty()));
+                ImmutableList.of(large), ImmutableList.of(), Optional.empty()));
         int writes = store.runUpdates;
         JsonNode result = call("review_get_context", noteRequest(7));
         assertThat(result.at("/error/field").asText()).isEqualTo("note");
@@ -1169,7 +1169,7 @@ class TestReviewTools
                 ImmutableList.of(new ContextClaim("Original documented claim", ContextClaim.Basis.DOCUMENTED, ImmutableList.of(source.id()))),
                 ImmutableList.of(source.id()), ContextEntryOrigin.USER, true, version);
         return new RepositoryNotebook(1, version, false, ImmutableList.of(), ImmutableList.of(ContextScope.project()), ImmutableList.of(entry),
-                ImmutableList.of(), ImmutableList.of(source), Optional.empty());
+                ImmutableList.of(source), Optional.empty());
     }
 
     private void preparationContext()
@@ -2394,7 +2394,7 @@ class TestReviewTools
         documentContext(true);
         int writes = store.runUpdates;
         RepositoryNotebook notebook = new RepositoryNotebook(1, 9, false, ImmutableList.of(DOCUMENT_SOURCE), ImmutableList.of(ContextScope.project()),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty());
+                ImmutableList.of(), ImmutableList.of(), Optional.empty());
         when(selectedDocumentation.notebook(WORKSPACE_ID)).thenReturn(notebook);
 
         JsonNode result = call("review_get_context", ImmutableMap.of("kind", "document"));
@@ -2422,7 +2422,7 @@ class TestReviewTools
         List<RegisteredContextSource> sources = IntStream.range(0, 12).mapToObj(index -> new RegisteredContextSource(
                 "docs-" + index, DOCUMENT_SOURCE.kind(), DOCUMENT_SOURCE.url() + "root-" + index + "/", DOCUMENT_SOURCE.origin(), Optional.empty())).collect(toImmutableList());
         RepositoryNotebook notebook = new RepositoryNotebook(1, 9, true, sources, ImmutableList.of(ContextScope.project()),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty());
+                ImmutableList.of(), ImmutableList.of(), Optional.empty());
         when(selectedDocumentation.notebook(WORKSPACE_ID)).thenReturn(notebook);
 
         JsonNode first = call("review_get_context", ImmutableMap.of("kind", "document"));

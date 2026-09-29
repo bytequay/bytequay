@@ -82,7 +82,7 @@ public class TaskContextDraftService
         int capturedBytes = captured.stream().mapToInt(source -> ContextLimits.bytes(source.excerpt())).sum();
         checkArgument(capturedBytes <= 24 * 1024, "Task note captures exceed 24 KiB");
         checkArgument(worktrees.inspect(tree).head().equals(head), "Task HEAD changed while capturing note evidence");
-        RepositoryContextService.TaskDraftProposal draft = new RepositoryContextService.TaskDraftProposal(draftId, proposal.kind(),
+        RepositoryContextService.TaskDraftProposal draft = new RepositoryContextService.TaskDraftProposal(draftId, task.id().toString(), proposal.kind(),
                 proposal.scopeId(), proposal.entryId(), proposal.entryVersion(), proposal.title(), proposal.summary(), proposal.body(), head, captured);
         return new Prepared(workspaceId, revision, tree, draft, capturedBytes);
     }

@@ -29,7 +29,6 @@ import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.bytequay.core.domain.RepoRef;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.common.collect.ImmutableList;
@@ -77,8 +76,7 @@ class TestContextLearningService
     private final AgentUnitOfWork unitOfWork = mock(AgentUnitOfWork.class);
     private final Clock clock = Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC);
     private final AtomicReference<RepositoryNotebook> notebook = new AtomicReference<>(RepositoryNotebook.empty());
-    private final AtomicReference<ContextBuildService.View> view = new AtomicReference<>(
-            new ContextBuildService.View(0, 0, true, Optional.empty()));
+    private final AtomicReference<ContextBuildService.View> view = new AtomicReference<>(view(0));
     private ContextLearningService learning;
 
     @BeforeEach
@@ -87,7 +85,7 @@ class TestContextLearningService
         when(notebooks.getNotebook(WORKSPACE)).thenAnswer(ignored -> notebook.get());
         when(workspaces.requireReadableRepository(WORKSPACE)).thenReturn(new WorkspaceRepositoryContext(
                 WORKSPACE, LOCAL, 1, REPO, OptionalLong.of(1), REPO, "origin", "origin", "main", ImmutableList.of()));
-        when(git.run(LOCAL, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}"))
+        when(git.run(LOCAL, "rev-parse", "--verify", SHA + "^{commit}"))
                 .thenReturn(new GitCommandRunner.Result(0, SHA + "\n", false));
         when(builds.get(WORKSPACE)).thenAnswer(ignored -> view.get());
         when(builds.learn(eq(WORKSPACE), any(), eq(SHA), anyList(), any())).thenAnswer(ignored -> view.get());
@@ -96,35 +94,88 @@ class TestContextLearningService
     }
 
     @Test
-    void acceptsSelectedTopicsOnceAndContinuesFromSavedQuestion()
+    void acceptsSelectedTopicsOnceAndContinuesAcrossTopicsBeforeLaterQuestions()
     {
         reports.save(Optional.empty(), report(ImmutableList.of(
                 topic("topic:1", "Project structure", ImmutableList.of(), ImmutableList.of()),
                 topic("topic:2", "Build requirements", ImmutableList.of(), ImmutableList.of())), ImmutableList.of()));
         ContextLearningService.StartRequest request = new ContextLearningService.StartRequest(
-                "accept", 0, 0, REPORT, ImmutableList.of("topic:1", "topic:2"));
+                "accept", 0, 0, REPORT, ImmutableList.of("topic:1", "topic:2"), ImmutableList.of());
 
         learning.start(WORKSPACE, request);
 
         ContextLearningPlan plan = plans.find(WORKSPACE).orElseThrow();
         assertThat(plan.topics()).extracting(ContextLearningPlan.Topic::scopeId).containsExactly("project", "project");
         assertThat(plan.topics().getFirst().repositoryFiles()).containsExactly("README.md");
+        assertThat(plan.topics().getFirst().questions()).extracting(ContextLearningPlan.Question::status)
+                .containsExactly(ContextLearningPlan.Status.PENDING, ContextLearningPlan.Status.PENDING);
         ArgumentCaptor<ContextBuild.Assignment> first = ArgumentCaptor.forClass(ContextBuild.Assignment.class);
         verify(builds).learn(eq(WORKSPACE), any(), eq(SHA), eq(ImmutableList.of()), first.capture());
         assertThat(first.getValue().topicId()).isEqualTo("topic:1");
-        ContextBuild bound = task(plan, "topic:1", "How is the project structured?");
+        assertThat(first.getValue().questionIndex()).isZero();
+        assertThat(first.getValue().progress()).isEmpty();
+        ContextBuild bound = task(plan, "topic:1", 0);
         buildStore.save(Optional.empty(), bound);
         learning.start(WORKSPACE, request);
         verify(builds, times(1)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), any());
 
-        learning.progress(bound, "Structure inspected; next question is separate.", true, ImmutableList.of("README was partial"));
-        assertThat(plans.find(WORKSPACE).orElseThrow().topics().getFirst().status()).isEqualTo(ContextLearningPlan.Status.COMPLETED);
-        view.set(new ContextBuildService.View(1, 0, true, Optional.empty()));
+        learning.progress(bound, "Structure inspected.", true, ImmutableList.of("README was partial"));
+        ContextLearningPlan answered = plans.find(WORKSPACE).orElseThrow();
+        assertThat(answered.topics().getFirst().questions().getFirst().status()).isEqualTo(ContextLearningPlan.Status.COMPLETED);
+        assertThat(answered.next()).contains(new ContextLearningPlan.Target("topic:2", 0));
+        view.set(view(1));
         learning.continueLearning(WORKSPACE, new ContextLearningService.ContinueRequest("continue", 0, 1, plan.id()));
         ArgumentCaptor<ContextBuild.Assignment> assignments = ArgumentCaptor.forClass(ContextBuild.Assignment.class);
         verify(builds, times(2)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), assignments.capture());
         assertThat(assignments.getAllValues().getLast().topicId()).isEqualTo("topic:2");
         assertThat(plans.find(WORKSPACE).orElseThrow().gaps()).contains("README was partial");
+    }
+
+    @Test
+    void resumesAnUnfinishedQuestionWithItsSavedProgress()
+    {
+        reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Project structure", ImmutableList.of(), ImmutableList.of())), ImmutableList.of()));
+        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1"), ImmutableList.of()));
+        ContextLearningPlan plan = plans.find(WORKSPACE).orElseThrow();
+        ContextBuild bound = task(plan, "topic:1", 0);
+        buildStore.save(Optional.empty(), bound);
+
+        learning.progress(bound, "Modules are listed in the root build; read the test layout next.", false, ImmutableList.of());
+
+        ContextLearningPlan saved = plans.find(WORKSPACE).orElseThrow();
+        assertThat(saved.topics().getFirst().questions().getFirst().status()).isEqualTo(ContextLearningPlan.Status.UNFINISHED);
+        assertThat(saved.next()).contains(new ContextLearningPlan.Target("topic:1", 0));
+        view.set(view(1));
+        learning.continueLearning(WORKSPACE, new ContextLearningService.ContinueRequest("continue", 0, 1, plan.id()));
+        ArgumentCaptor<ContextBuild.Assignment> assignments = ArgumentCaptor.forClass(ContextBuild.Assignment.class);
+        verify(builds, times(2)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), assignments.capture());
+        assertThat(assignments.getAllValues().getLast().questionIndex()).isZero();
+        assertThat(assignments.getAllValues().getLast().progress()).startsWith("Modules are listed");
+    }
+
+    @Test
+    void addsTopicsFromTheSameReportToThePlanAndStartsOnTheFirstNewQuestion()
+    {
+        reports.save(Optional.empty(), report(ImmutableList.of(
+                topic("topic:1", "Project structure", ImmutableList.of(), ImmutableList.of()),
+                topic("topic:2", "Build requirements", ImmutableList.of(), ImmutableList.of())), ImmutableList.of()));
+        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1"), ImmutableList.of()));
+        ContextLearningPlan first = plans.find(WORKSPACE).orElseThrow();
+        buildStore.save(Optional.empty(), task(first, "topic:1", 0));
+        view.set(view(1));
+
+        learning.start(WORKSPACE, new ContextLearningService.StartRequest("add", 0, 1, REPORT, ImmutableList.of("topic:2"), ImmutableList.of()));
+
+        ContextLearningPlan extended = plans.find(WORKSPACE).orElseThrow();
+        assertThat(extended.id()).isEqualTo(first.id());
+        assertThat(extended.topics()).extracting(ContextLearningPlan.Topic::id).containsExactly("topic:1", "topic:2");
+        assertThat(extended.acceptedTopicIds()).containsExactly("topic:2");
+        ArgumentCaptor<ContextBuild.Assignment> assignments = ArgumentCaptor.forClass(ContextBuild.Assignment.class);
+        verify(builds, times(2)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), assignments.capture());
+        assertThat(assignments.getAllValues().getLast().topicId()).isEqualTo("topic:2");
+        assertThatIllegalArgumentException().isThrownBy(() -> learning.start(WORKSPACE,
+                new ContextLearningService.StartRequest("again", 0, 1, REPORT, ImmutableList.of("topic:2"), ImmutableList.of())))
+                .withMessageContaining("already in the learning plan");
     }
 
     @Test
@@ -141,12 +192,12 @@ class TestContextLearningService
             List<ContextSourceEvidence> evidence = call.getArgument(4);
             RepositoryNotebook updated = new RepositoryNotebook(1, 1, true, true, sources,
                     ImmutableList.<ContextScope>builder().add(ContextScope.project()).addAll(scopes).build(),
-                    ImmutableList.of(), ImmutableList.of(), evidence, Optional.empty());
+                    ImmutableList.of(), evidence, Optional.empty());
             notebook.set(updated);
             return updated;
         });
 
-        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1")));
+        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1"), ImmutableList.of()));
 
         ContextLearningPlan plan = plans.find(WORKSPACE).orElseThrow();
         assertThat(plan.topics().getFirst().scopeId()).isEqualTo("path:plugin/iceberg/");
@@ -161,84 +212,62 @@ class TestContextLearningService
     }
 
     @Test
-    void approvingAnotherSourcePreservesDepthAndDoesNotStartAnotherTurn()
+    void leavesUncheckedProposedSourcesUnregisteredAndOutOfTheTopic()
     {
         ContextDiscoveryReport.Source source = new ContextDiscoveryReport.Source("source:1",
-                ContextDiscoveryReport.Source.Kind.DOCUMENTATION_ROOT, "https://example.com/docs/", "Docs",
+                ContextDiscoveryReport.Source.Kind.DOCUMENTATION_ROOT, "https://example.com/docs/", "Iceberg docs",
                 ImmutableList.of("context-read:readme"), "README links to the docs");
-        RegisteredContextSource original = new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT,
-                source.location(), com.bytequay.core.context.ContextEntryOrigin.USER, Optional.empty());
-        RegisteredContextSource expansion = new RegisteredContextSource("extra", RegisteredContextSource.Kind.DOCUMENTATION_ROOT,
-                "https://other.example.org/spec/", com.bytequay.core.context.ContextEntryOrigin.USER, Optional.empty());
-        notebook.set(new RepositoryNotebook(1, 0, true, true, ImmutableList.of(original, expansion), ImmutableList.of(ContextScope.project()),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty()));
-        reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Concepts", ImmutableList.of(), ImmutableList.of("source:1"))),
-                ImmutableList.of(source)));
-        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1")));
-        ContextLearningPlan accepted = plans.find(WORKSPACE).orElseThrow();
-        ContextDocumentInventory initial = accepted.documentInventory();
-        ContextDocumentInventory inventory = initial.read(initial.items().getFirst(), "context-read:root", "hash")
-                .offer("docs", original.url(), ImmutableList.of(new DocumentationHttpReader.Link(original.url() + "child", Optional.of("child"))), false);
-        plans.save(Optional.of(accepted), accepted.withInventory(inventory));
+        reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Iceberg snapshots",
+                ImmutableList.of(), ImmutableList.of("source:1"))), ImmutableList.of(source)));
 
-        ContextLearningPlan expanded = learning.allowSource(WORKSPACE, new ContextLearningService.SourceRequest(accepted.id(), "extra", 0, 0));
+        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1"), ImmutableList.of("source:1")));
 
-        assertThat(expanded.documentInventory().items()).startsWith(inventory.items().toArray(ContextDocumentInventory.Item[]::new));
-        assertThat(expanded.documentInventory().items().getLast().depth()).isZero();
-        ContextDocumentInventory.Item child = expanded.documentInventory().choose("docs", Optional.of("child"));
-        assertThat(child.depth()).isEqualTo(1);
-        ContextDocumentInventory afterChild = expanded.documentInventory().read(child, "context-read:child", "hash-child")
-                .offer("docs", child.resolvedUrl(), ImmutableList.of(new DocumentationHttpReader.Link(original.url() + "grand", Optional.of("grand"))), false);
-        ContextDocumentInventory.Item grand = afterChild.choose("docs", Optional.of("grand"));
-        assertThat(grand.depth()).isEqualTo(2);
-        ContextDocumentInventory afterGrand = afterChild.read(grand, "context-read:grand", "hash-grand")
-                .offer("docs", grand.resolvedUrl(), ImmutableList.of(new DocumentationHttpReader.Link(original.url() + "too-deep", Optional.of("too-deep"))), false);
-        assertThatIllegalArgumentException().isThrownBy(() -> afterGrand.choose("docs", Optional.of("too-deep")));
-        assertThat(afterGrand.choose("extra", Optional.empty()).depth()).isZero();
-        assertThat(expanded.topics().getFirst().sourceIds()).containsExactly("docs", "extra");
-        verify(builds, times(1)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), any());
-        assertThatIllegalArgumentException().isThrownBy(() -> learning.allowSource(WORKSPACE,
-                new ContextLearningService.SourceRequest(accepted.id(), "unregistered", 0, 0))).withMessageContaining("registered");
+        ContextLearningPlan plan = plans.find(WORKSPACE).orElseThrow();
+        assertThat(plan.documentationSources()).isEmpty();
+        assertThat(plan.topics().getFirst().sourceIds()).isEmpty();
+        verify(notebooks, never()).registerDiscovered(eq(WORKSPACE), anyLong(), anyList(), anyList(), anyList());
     }
 
     @Test
-    void approvesOnlyPersistedSuggestedUrlsAndStartsEachExactUrlAtDepthZero()
+    void approvesSuggestedUrlsAtTheChosenBoundaryAndDeclinesWithoutRegistering()
     {
         String rootUrl = "https://other.example.org/spec/";
         String pageUrl = "https://other.example.org/one-page.html";
+        String declinedUrl = "https://third.example.org/guide.html";
         RegisteredContextSource original = new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT,
                 "https://example.com/docs/", com.bytequay.core.context.ContextEntryOrigin.USER, Optional.empty());
         notebook.set(new RepositoryNotebook(1, 0, true, true, ImmutableList.of(original), ImmutableList.of(ContextScope.project()),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty()));
+                ImmutableList.of(), ImmutableList.of(), Optional.empty()));
         ContextDiscoveryReport.Source source = new ContextDiscoveryReport.Source("source:1",
                 ContextDiscoveryReport.Source.Kind.DOCUMENTATION_ROOT, original.url(), "Docs",
                 ImmutableList.of("context-read:readme"), "README links to the docs");
         reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Concepts", ImmutableList.of(), ImmutableList.of("source:1"))),
                 ImmutableList.of(source)));
-        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1")));
+        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1"), ImmutableList.of()));
         ContextLearningPlan accepted = plans.find(WORKSPACE).orElseThrow();
         ContextDocumentInventory initial = accepted.documentInventory();
         ContextDocumentInventory inventory = initial.read(initial.items().getFirst(), "context-read:root", "hash")
                 .offer("docs", original.url(), ImmutableList.of(new DocumentationHttpReader.Link(original.url() + "child", Optional.of("child"))), false)
-                .suggest(ImmutableList.of(rootUrl, pageUrl));
+                .suggest(ImmutableList.of(rootUrl, pageUrl, declinedUrl), original.url(), "topic:1", 0, "task", Instant.EPOCH);
         plans.save(Optional.of(accepted), accepted.withInventory(inventory));
 
         assertThatIllegalArgumentException().isThrownBy(() -> learning.allowSource(WORKSPACE,
-                new ContextLearningService.SourceRequest(accepted.id(), Optional.empty(), Optional.of("https://forged.example.org/"), 0, 0)))
+                new ContextLearningService.SourceRequest(accepted.id(), "https://forged.example.org/", ContextLearningService.Boundary.PAGE, 0, 0)))
                 .withMessageContaining("suggested by a recorded document read");
+        assertThatIllegalArgumentException().isThrownBy(() -> learning.allowSource(WORKSPACE,
+                new ContextLearningService.SourceRequest(accepted.id(), pageUrl, ContextLearningService.Boundary.ROOT, 0, 0)))
+                .withMessageContaining("ending in /");
         assertThat(notebook.get().sources()).containsExactly(original);
-        assertThat(plans.find(WORKSPACE).orElseThrow().documentInventory().suggestedExpansionUrls()).containsExactly(rootUrl, pageUrl);
 
         ContextLearningPlan beforeStaleApproval = plans.find(WORKSPACE).orElseThrow();
         RepositoryNotebook beforeSourceEdit = notebook.get();
         RegisteredContextSource edited = new RegisteredContextSource(original.id(), original.kind(),
                 "https://example.com/changed/", com.bytequay.core.context.ContextEntryOrigin.USER, Optional.empty());
         notebook.set(new RepositoryNotebook(1, 1, true, true, ImmutableList.of(edited), ImmutableList.of(ContextScope.project()),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty()));
+                ImmutableList.of(), ImmutableList.of(), Optional.empty()));
         assertThatIllegalArgumentException().isThrownBy(() -> learning.allowSource(WORKSPACE,
-                new ContextLearningService.SourceRequest(accepted.id(), Optional.empty(), Optional.of(rootUrl), 1, 0)))
+                new ContextLearningService.SourceRequest(accepted.id(), rootUrl, ContextLearningService.Boundary.ROOT, 1, 0)))
                 .withMessageContaining("Approved documentation source changed");
-        assertThat(notebook.get().sources()).containsExactly(edited);
         assertThat(plans.find(WORKSPACE)).contains(beforeStaleApproval);
         verify(notebooks, never()).configure(eq(WORKSPACE), anyLong(), any());
         notebook.set(beforeSourceEdit);
@@ -249,83 +278,84 @@ class TestContextLearningService
                     .map(value -> new RegisteredContextSource(value.id(), value.kind(), value.url(),
                             com.bytequay.core.context.ContextEntryOrigin.USER, Optional.empty())).toList();
             RepositoryNotebook updated = new RepositoryNotebook(1, notebook.get().revision() + 1, true, true, registered,
-                    notebook.get().scopes(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty());
+                    notebook.get().scopes(), ImmutableList.of(), ImmutableList.of(), Optional.empty());
             notebook.set(updated);
             return updated;
         });
         ContextLearningPlan expanded = learning.allowSource(WORKSPACE,
-                new ContextLearningService.SourceRequest(accepted.id(), Optional.empty(), Optional.of(rootUrl), 0, 0));
+                new ContextLearningService.SourceRequest(accepted.id(), rootUrl, ContextLearningService.Boundary.ROOT, 0, 0));
         RegisteredContextSource approvedRoot = expanded.documentationSources().getLast();
         assertThat(approvedRoot.url()).isEqualTo(rootUrl);
         assertThat(approvedRoot.kind()).isEqualTo(RegisteredContextSource.Kind.DOCUMENTATION_ROOT);
-        assertThat(approvedRoot.origin()).isEqualTo(com.bytequay.core.context.ContextEntryOrigin.USER);
         assertThat(expanded.documentInventory().choose(approvedRoot.id(), Optional.empty()).depth()).isZero();
         assertThat(expanded.documentInventory().choose("docs", Optional.of("child")).depth()).isEqualTo(1);
-        assertThat(expanded.documentInventory().suggestedExpansionUrls()).containsExactly(pageUrl);
-        assertThat(notebook.get().revision()).isEqualTo(1);
+        assertThat(expanded.topics().getFirst().sourceIds()).containsExactly(accepted.topics().getFirst().sourceIds().getFirst(), approvedRoot.id());
+        assertThat(expanded.documentInventory().suggestions()).extracting(ContextDocumentInventory.Suggestion::url).containsExactly(pageUrl, declinedUrl);
 
         ContextLearningPlan pageExpanded = learning.allowSource(WORKSPACE,
-                new ContextLearningService.SourceRequest(accepted.id(), Optional.empty(), Optional.of(pageUrl), 1, 0));
+                new ContextLearningService.SourceRequest(accepted.id(), pageUrl, ContextLearningService.Boundary.PAGE, 1, 0));
         RegisteredContextSource approvedPage = pageExpanded.documentationSources().getLast();
-        assertThat(approvedPage.url()).isEqualTo(pageUrl);
         assertThat(approvedPage.kind()).isEqualTo(RegisteredContextSource.Kind.DOCUMENTATION_PAGE);
         assertThat(pageExpanded.documentInventory().choose(approvedPage.id(), Optional.empty()).depth()).isZero();
-        assertThat(pageExpanded.documentInventory().suggestedExpansionUrls()).isEmpty();
+
+        ContextLearningPlan declined = learning.declineSource(WORKSPACE, new ContextLearningService.DeclineRequest(accepted.id(), declinedUrl));
+        assertThat(declined.documentInventory().suggestions()).isEmpty();
+        assertThat(notebook.get().sources()).extracting(RegisteredContextSource::url).doesNotContain(declinedUrl);
         assertThat(notebook.get().revision()).isEqualTo(2);
         verify(builds, times(1)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), any());
     }
 
     @Test
-    void readsSavedPlanBeforeSuggestedUrlFieldExisted()
-            throws Exception
-    {
-        reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Project", ImmutableList.of(), ImmutableList.of())), ImmutableList.of()));
-        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1")));
-        String key = ContextLearningPlanStore.PREFIX + WORKSPACE;
-        ObjectNode stored = (ObjectNode) mapper.readTree(settings.get(key).orElseThrow());
-        ((ObjectNode) stored.path("documentInventory")).remove("suggestedExpansionUrls");
-        settings.put(key, mapper.writeValueAsString(stored));
-
-        assertThat(plans.find(WORKSPACE).orElseThrow().documentInventory().suggestedExpansionUrls()).isEmpty();
-    }
-
-    @Test
-    void refusesChangedMonitoredBaselineBeforeRegisteringAnything()
+    void acceptsTheRecordedDiscoveryRevisionAfterTheBranchMovesButNotAMissingOne()
     {
         reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Project",
                 ImmutableList.of(), ImmutableList.of())), ImmutableList.of()));
         when(git.run(LOCAL, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}"))
                 .thenReturn(new GitCommandRunner.Result(0, "b".repeat(40) + "\n", false));
+        when(git.run(LOCAL, "rev-parse", "--verify", SHA + "^{commit}")).thenReturn(new GitCommandRunner.Result(128, "", false));
 
         assertThatIllegalArgumentException().isThrownBy(() -> learning.start(WORKSPACE,
-                new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1"))))
-                .withMessageContaining("baseline changed");
+                new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1"), ImmutableList.of())))
+                .withMessageContaining("no longer available");
         assertThat(plans.find(WORKSPACE)).isEmpty();
         verify(notebooks, never()).registerDiscovered(eq(WORKSPACE), anyLong(), anyList(), anyList(), anyList());
+
+        when(git.run(LOCAL, "rev-parse", "--verify", SHA + "^{commit}")).thenReturn(new GitCommandRunner.Result(0, SHA + "\n", false));
+        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1"), ImmutableList.of()));
+        assertThat(plans.find(WORKSPACE).orElseThrow().baselineSha()).isEqualTo(SHA);
     }
 
     private ContextDiscoveryReport report(List<ContextDiscoveryReport.Topic> topics, List<ContextDiscoveryReport.Source> sources)
     {
         return new ContextDiscoveryReport(REPORT, WORKSPACE, 1, REPO, SHA, "Project overview", topics, sources,
                 ImmutableList.of(new ContextDiscoveryReport.Evidence("context-read:readme", "README.md", SHA, 1, 1,
-                        "1  Read the project guide.\n", false)), ImmutableList.of(), ImmutableList.of(), false, Instant.EPOCH);
+                        "1  Read the project guide.\n", false)), ImmutableList.of(), ImmutableList.of(), false,
+                ContextDiscoveryReport.Coverage.none(), Instant.EPOCH);
     }
 
     private static ContextDiscoveryReport.Topic topic(String id, String title, List<String> paths, List<String> sources)
     {
         return new ContextDiscoveryReport.Topic(id, title,
-                id.equals("topic:1") && paths.isEmpty() ? "How is the project structured?" : "What does this area require?",
+                ImmutableList.of(id.equals("topic:1") && paths.isEmpty() ? "How is the project structured?" : "What does this area require?",
+                        "Where are its tests?"),
                 paths, sources, ImmutableList.of("context-read:readme"), "Repository guide identifies this area");
     }
 
-    private static ContextBuild task(ContextLearningPlan plan, String topicId, String question)
+    private static ContextBuild task(ContextLearningPlan plan, String topicId, int question)
     {
-        ContextLearningPlan.Topic topic = plan.topics().stream().filter(value -> value.id().equals(topicId)).findFirst().orElseThrow();
+        ContextLearningPlan.Topic topic = plan.topic(topicId);
+        ContextLearningPlan.Question asked = topic.questions().get(question);
         return new ContextBuild(1, "accept", "sha256:" + "b".repeat(64), WORKSPACE,
                 "22222222-2222-4222-8222-222222222222", new RepositoryIdentity("owner", "repository"), 1,
                 REPO, SHA, "branch", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
                 ImmutableList.of(topic.scopeId()), ImmutableList.of(), ImmutableList.of(), 0, Instant.EPOCH,
                 ContextBuild.Capture.empty(), ContextBuild.Mode.LEARN,
-                Optional.of(new ContextBuild.Assignment(plan.id(), topicId, question, topic.paths(), topic.repositoryFiles())));
+                Optional.of(new ContextBuild.Assignment(plan.id(), topicId, topic.title(), question, asked.text(), asked.progress(),
+                        topic.paths(), topic.repositoryFiles())), Optional.empty());
+    }
+
+    private static ContextBuildService.View view(long sequence)
+    {
+        return new ContextBuildService.View(sequence, 0, true, Optional.empty(), ImmutableList.of());
     }
 }

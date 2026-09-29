@@ -170,6 +170,6 @@ class TestContextNotebookLookup
                 "Saved example", "Original snapshot passage", ContextSourceEvidence.Capture.BYTEQUAY_READ,
                 Optional.of(Instant.parse("2026-01-01T00:00:00Z")), Optional.of("hash"), Optional.of("v1"), false);
         return new RepositoryNotebook(1, revision, true, ImmutableList.of(), ImmutableList.<ContextScope>builder().add(ContextScope.project()).addAll(scopes).build(),
-                entries, ImmutableList.of(), ImmutableList.of(source), Optional.empty());
+                entries, ImmutableList.of(source), Optional.empty());
     }
 }

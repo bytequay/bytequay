@@ -94,6 +94,8 @@ export default function App() {
   const [sourceIssueNumber, setSourceIssueNumber] = useState<number | null>(null);
   const [initialAgentTaskId, setInitialAgentTaskId] = useState<string | null>(null);
   const [initialAgentReviewId, setInitialAgentReviewId] = useState<string | null>(null);
+  const [initialContextDraftId, setInitialContextDraftId] = useState<string | null>(null);
+  const [initialContextRunId, setInitialContextRunId] = useState<string | null>(null);
   const [browser, setBrowser] = useState<InAppBrowserState>({ tabs: [], activeTabId: null });
   const [browserError, setBrowserError] = useState<string | null>(null);
   const [newPageOpen, setNewPageOpen] = useState(false);
@@ -238,6 +240,8 @@ export default function App() {
         setSourceIssueNumber(null);
         setInitialAgentTaskId(null);
         setInitialAgentReviewId(null);
+        setInitialContextDraftId(null);
+        setInitialContextRunId(null);
         const pullRequest = pullRequestFromRoute(window.location.hash);
         setInitialPr(pullRequest ?? undefined);
         setPage(pullRequest ? 'pulls' : pageFromRoute(window.location.hash));
@@ -252,6 +256,8 @@ export default function App() {
       setSourceIssueNumber(workspaceLocation.sourceIssueNumber ?? null);
       setInitialAgentTaskId(workspaceLocation.agentTaskId);
       setInitialAgentReviewId(workspaceLocation.reviewId ?? null);
+      setInitialContextDraftId(workspaceLocation.contextDraftId ?? null);
+      setInitialContextRunId(workspaceLocation.contextRunId ?? null);
       if (workspaceRef.current?.id === workspaceLocation.workspaceId) return;
       updateWorkspace(null);
       void window.bridge.getWorkspace(workspaceLocation.workspaceId)
@@ -267,6 +273,8 @@ export default function App() {
             setSourceIssueNumber(null);
             setInitialAgentTaskId(null);
             setInitialAgentReviewId(null);
+            setInitialContextDraftId(null);
+            setInitialContextRunId(null);
             replaceCurrentRoute('#/workspaces');
           }
         });
@@ -527,6 +535,8 @@ export default function App() {
               sourceIssueNumber={sourceIssueNumber}
               initialAgentTaskId={initialAgentTaskId}
               initialAgentReviewId={initialAgentReviewId}
+              initialContextDraftId={initialContextDraftId}
+              initialContextRunId={initialContextRunId}
               browserOpen={browserOpen}
               onSelectPullRequest={selectWorkspacePullRequest}
               onSelectAgentTask={selectAgentTask}

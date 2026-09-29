@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import Toast from '../Toast';
 import { anchorPanel } from '../ReferenceCard';
@@ -61,6 +61,8 @@ type Props = {
   teamScope?: { circleId?: string; memberId?: number };
   /** The Teams backlog can show all cards; both Homes retain the default four. */
   cardLimit?: number;
+  /** A card that is not an attention item, shown first under All: a workspace's Repository context drafts waiting review. */
+  lead?: ReactNode;
 };
 
 /** A card's place in a pinned goal, and the change that flips it. */
@@ -70,7 +72,7 @@ type Anchored = { item: AttentionItem; anchor: DOMRect };
 type ToastState = { id: number; text: string; key: string };
 
 export default function AttentionList({
-  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home', scope, goal, jiraConnected = false, teamScope, cardLimit,
+  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home', scope, goal, jiraConnected = false, teamScope, cardLimit, lead,
 }: Props) {
   const [filter, setFilter] = useState<AttentionFilter>('all');
   const [onlyTeam, setOnlyTeam] = useState(false);
@@ -137,7 +139,10 @@ export default function AttentionList({
     setToast(null);
   }
 
-  const count = cards.length < counts.all ? `${cards.length} of ${counts.all}` : `${counts.all}`;
+  const hasLead = lead !== undefined && lead !== null && !teamOnly;
+  const leading = hasLead && filter === 'all' ? lead : null;
+  const extra = leading === null ? 0 : 1;
+  const count = cards.length < counts.all ? `${cards.length + extra} of ${counts.all + extra}` : `${counts.all + extra}`;
   const startable = (item: AttentionItem) => item.type === 'issue' && item.canStartDevelopment !== false && onStartIssue !== undefined && item.issueState !== 'closed'
     && (item.jira === undefined || item.jira.status.category !== 'done' && item.jira.task === null);
 
@@ -153,14 +158,15 @@ export default function AttentionList({
           {filters.map(id => (
             <button key={id} type="button" role="tab" aria-selected={filter === id}
               className={`atn-filter${filter === id ? ' is-active' : ''}`} onClick={() => setFilter(id)}>
-              {id === 'all' ? 'All' : ATTENTION_SOURCES[id].filter} <span className="atn-filter__count">{counts[id]}</span>
+              {id === 'all' ? 'All' : ATTENTION_SOURCES[id].filter} <span className="atn-filter__count">{counts[id] + (id === 'all' && hasLead ? 1 : 0)}</span>
             </button>
           ))}
         </div>
       </div>
 
-      {cards.length > 0 ? (
+      {cards.length > 0 || leading !== null ? (
         <div className="atn-grid">
+          {leading}
           {cards.map(item => {
             const membership = item.issueState === 'closed' ? null : goal?.(item) ?? null;
             return (

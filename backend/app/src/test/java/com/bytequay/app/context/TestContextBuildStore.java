@@ -39,6 +39,7 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -75,7 +76,8 @@ class TestContextBuildStore
         ContextBuild build = build().withCapture(new ContextBuild.Capture(ImmutableList.of(file, document, history),
                 ImmutableMap.of("file", evidence, "doc", evidence, "pr", evidence), ImmutableMap.of("tree:", "Read root"),
                 ImmutableMap.of("begin", new ContextBuild.Operation("sha256:" + "b".repeat(64), "{\"status\":\"OWNED\"}")),
-                Optional.empty(), ImmutableList.of("One bounded source page was selected")));
+                Optional.empty(), ImmutableList.of("One bounded source page was selected"), ImmutableList.of())
+                .logged(Instant.EPOCH, "Read README.md", ContextBuild.Activity.Tone.DONE));
         store.save(Optional.empty(), build);
 
         ContextBuildStore recreated = new ContextBuildStore(settings, tasks, mapper);
@@ -83,6 +85,29 @@ class TestContextBuildStore
         assertThat(recreated.find("different-workspace")).isEmpty();
         assertThatThrownBy(() -> recreated.save(Optional.empty(), build)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("changed");
         assertThat(recreated.find(WORKSPACE)).contains(build);
+    }
+
+    @Test
+    void keepsTheNewestRunSummariesOnce()
+    {
+        for (int sequence = 1; sequence <= ContextBuildStore.MAX_RUNS + 2; sequence++) {
+            store.recordRun(WORKSPACE, run(sequence));
+        }
+        store.recordRun(WORKSPACE, run(ContextBuildStore.MAX_RUNS + 2));
+
+        List<ContextRun> runs = new ContextBuildStore(settings, tasks, mapper).runs(WORKSPACE);
+        assertThat(runs).hasSize(ContextBuildStore.MAX_RUNS);
+        assertThat(runs.getFirst().sequence()).isEqualTo(3);
+        assertThat(runs.getLast().sequence()).isEqualTo(ContextBuildStore.MAX_RUNS + 2);
+        assertThat(store.runs("different-workspace")).isEmpty();
+    }
+
+    private static ContextRun run(long sequence)
+    {
+        return new ContextRun(sequence, "task-" + sequence, ContextBuild.Mode.LEARN, Instant.EPOCH, Optional.of(Instant.EPOCH),
+                Optional.of(new ContextRun.Question("plan", "topic:1", "Iceberg connector", 0, "How are snapshots committed?")), Optional.empty(),
+                ContextRun.Outcome.ANSWERED, 12, 2, ImmutableList.of("knowledge:project:commit"),
+                ImmutableList.of(new ContextBuild.Activity(Instant.EPOCH, "Question answered", ContextBuild.Activity.Tone.DONE)), Optional.empty());
     }
 
     @Test
@@ -109,6 +134,7 @@ class TestContextBuildStore
     {
         return new ContextBuild(1, "request", "sha256:" + "b".repeat(64), WORKSPACE, TASK.toString(), new RepositoryIdentity("owner", "repository"),
                 1, REPOSITORY, SHA, "bytequay/task", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
-                ImmutableList.of("project"), ImmutableList.of(), ImmutableList.of(), 0, Instant.EPOCH, ContextBuild.Capture.empty(), ContextBuild.Mode.LEARN, Optional.empty());
+                ImmutableList.of("project"), ImmutableList.of(), ImmutableList.of(), 0, Instant.EPOCH, ContextBuild.Capture.empty(), ContextBuild.Mode.LEARN,
+                Optional.empty(), Optional.empty());
     }
 }

@@ -14,8 +14,6 @@
 package com.bytequay.app.context;
 
 import com.bytequay.core.context.ContextClaim;
-import com.bytequay.core.context.ContextMatch;
-import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.google.common.collect.ImmutableList;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -31,7 +29,6 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /** User-owned notebook edits; source capture and generated provenance stay behind the service boundary. */
@@ -52,11 +49,16 @@ public class RepositoryContextController
         return context.getNotebook(workspaceId);
     }
 
+    @GetMapping("/times")
+    public ContextTimes times(@PathVariable String workspaceId)
+    {
+        return context.getTimes(workspaceId);
+    }
+
     @PutMapping("/configuration")
     public RepositoryNotebook configure(@PathVariable String workspaceId, @RequestBody ConfigurationRequest request)
     {
-        EditContextConfiguration edit = new EditContextConfiguration(request.useInReviews(), request.useInDevelopment(), request.sources(),
-                request.scopes().map(scopes -> scopes.stream().map(ScopeRequest::toScope).collect(toImmutableList())));
+        EditContextConfiguration edit = new EditContextConfiguration(request.useInReviews(), request.useInDevelopment(), request.sources());
         return context.configure(workspaceId, request.expectedRevision(), edit);
     }
 
@@ -91,18 +93,6 @@ public class RepositoryContextController
         return context.setEntryEnabled(workspaceId, request.expectedRevision(), request.entryId(), request.enabled());
     }
 
-    @DeleteMapping("/entries")
-    public RepositoryNotebook remove(@PathVariable String workspaceId, @RequestBody RemoveRequest request)
-    {
-        return context.removeEntry(workspaceId, request.expectedRevision(), request.entryId());
-    }
-
-    @PostMapping("/reset")
-    public RepositoryNotebook reset(@PathVariable String workspaceId, @RequestBody ResetRequest request)
-    {
-        return context.resetSuppression(workspaceId, request.expectedRevision(), request.scopeIds());
-    }
-
     @PostMapping("/lessons")
     public RepositoryNotebook saveLesson(@PathVariable String workspaceId, @RequestBody LessonRequest request)
     {
@@ -115,8 +105,7 @@ public class RepositoryContextController
             Long expectedRevision,
             Optional<Boolean> useInReviews,
             Optional<Boolean> useInDevelopment,
-            Optional<List<EditContextConfiguration.Source>> sources,
-            Optional<List<ScopeRequest>> scopes)
+            Optional<List<EditContextConfiguration.Source>> sources)
     {
         public ConfigurationRequest
         {
@@ -124,49 +113,11 @@ public class RepositoryContextController
             requireNonNull(useInReviews, "useInReviews is null");
             requireNonNull(useInDevelopment, "useInDevelopment is null");
             sources = requireNonNull(sources, "sources is null").map(ImmutableList::copyOf);
-            scopes = requireNonNull(scopes, "scopes is null").map(ImmutableList::copyOf);
             sources.ifPresent(values -> values.forEach(source -> {
                 requireNonNull(source.id(), "source id is null");
                 requireNonNull(source.kind(), "source kind is null");
                 requireNonNull(source.url(), "source URL is null");
             }));
-        }
-    }
-
-    public record ScopeRequest(String id, String title, MatchRequest match, Boolean enabled)
-    {
-        public ScopeRequest
-        {
-            requireNonNull(id, "id is null");
-            requireNonNull(title, "title is null");
-            requireNonNull(match, "match is null");
-            requireNonNull(enabled, "enabled is null");
-        }
-
-        ContextScope toScope()
-        {
-            return new ContextScope(id, title, match.toMatch(), enabled, Optional.empty(), Optional.empty());
-        }
-    }
-
-    public record MatchRequest(String kind, Optional<List<String>> pathPrefixes, Optional<List<String>> terms)
-    {
-        public MatchRequest
-        {
-            checkArgument("REPOSITORY".equals(kind) || "SELECTED".equals(kind), "Unknown context match kind");
-            pathPrefixes = requireNonNull(pathPrefixes, "pathPrefixes is null").map(ImmutableList::copyOf);
-            terms = requireNonNull(terms, "terms is null").map(ImmutableList::copyOf);
-        }
-
-        ContextMatch toMatch()
-        {
-            List<String> paths = pathPrefixes.orElse(ImmutableList.of());
-            List<String> selectedTerms = terms.orElse(ImmutableList.of());
-            if (kind.equals("REPOSITORY")) {
-                checkArgument(paths.isEmpty() && selectedTerms.isEmpty(), "Repository match cannot contain path or term rules");
-                return new ContextMatch.Repository();
-            }
-            return new ContextMatch.Selected(paths, selectedTerms);
         }
     }
 
@@ -215,24 +166,6 @@ public class RepositoryContextController
         {
             requireRevision(expectedRevision);
             requireNonNull(draftId, "draftId is null");
-        }
-    }
-
-    public record RemoveRequest(Long expectedRevision, String entryId)
-    {
-        public RemoveRequest
-        {
-            requireRevision(expectedRevision);
-            requireNonNull(entryId, "entryId is null");
-        }
-    }
-
-    public record ResetRequest(Long expectedRevision, List<String> scopeIds)
-    {
-        public ResetRequest
-        {
-            requireRevision(expectedRevision);
-            scopeIds = ImmutableList.copyOf(scopeIds);
         }
     }
 

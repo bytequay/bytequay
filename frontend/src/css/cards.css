@@ -170,6 +170,7 @@
 :is(.card, .card-src).is-issue { --src-fg: #0969da; --src-bg: #ddf4ff; }
 :is(.card, .card-src).is-jira { --src-fg: #8250df; --src-bg: #fbefff; }
 :is(.card, .card-src).is-task { --src-fg: #0e7c86; --src-bg: #d8f3f5; }
+:is(.card, .card-src).is-context { --src-fg: #9a6700; --src-bg: #fff8c5; }
 
 .card-src {
   flex: none;

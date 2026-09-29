@@ -42,7 +42,6 @@ import static java.util.Objects.requireNonNull;
 public class SqliteContextUsageStore
         implements ContextUsageStore
 {
-    private static final int ACTIVITY_PAGE_SIZE = 20;
     private static final String TRACKING_PREFIX = "workspace.contextUsageTrackingSince.";
 
     private final ContextUsageFactJpaRepository facts;
@@ -124,33 +123,6 @@ public class SqliteContextUsageStore
                 .findFirst().flatMap(row -> event(row).note());
     }
 
-    @Override
-    @Transactional(readOnly = true)
-    public List<ContextUsageEvent> activities(String workspaceId, String entryId, Optional<Instant> since, int page)
-    {
-        checkPage(page);
-        requireNonNull(since, "since is null");
-        return activityRows(workspaceId, entryId, since, PageRequest.of(page, ACTIVITY_PAGE_SIZE)).stream()
-                .map(SqliteContextUsageStore::event).collect(toImmutableList());
-    }
-
-    @Override
-    @Transactional(readOnly = true)
-    public boolean hasMoreActivities(String workspaceId, String entryId, Optional<Instant> since, int page)
-    {
-        checkPage(page);
-        requireNonNull(since, "since is null");
-        return !activityRows(workspaceId, entryId, since, PageRequest.of(Math.multiplyExact(page + 1, ACTIVITY_PAGE_SIZE), 1)).isEmpty();
-    }
-
-    private List<Fact> activityRows(String workspaceId, String entryId, Optional<Instant> since, PageRequest page)
-    {
-        String workspace = requireText(workspaceId);
-        String entry = requireText(entryId);
-        return since.map(value -> facts.activitiesSince(workspace, entry, value.toEpochMilli(), page))
-                .orElseGet(() -> facts.activities(workspace, entry, page));
-    }
-
     private static ContextUsageEvent event(Fact row)
     {
         String entryId = row.getEntryId();
@@ -211,10 +183,5 @@ public class SqliteContextUsageStore
     {
         checkArgument(value != null && !value.isBlank(), "Context usage identity is required");
         return value;
-    }
-
-    private static void checkPage(int page)
-    {
-        checkArgument(page >= 0 && page <= 10_000, "Page is out of range");
     }
 }

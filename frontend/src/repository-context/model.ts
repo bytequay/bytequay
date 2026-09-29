@@ -1,0 +1,470 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import { displayModelName, effortLabel, providerAvailable, providerRemedy } from '../settings/model';
+import { relativeTime } from '../relativeTime';
+import type { ModelSettingsDto } from '../types';
+import type {
+  ContextActivityDto, ContextBaselineDto, ContextBuildViewDto, ContextClaimDto, ContextDiscoveryReportDto, ContextEntryDto, ContextKnowledgeDraftDto,
+  ContextLearningPlanDto, ContextLearningPlanViewDto, ContextMergedCandidatesDto, ContextPlanTopicDto, ContextQuestionTarget, ContextRunDto,
+  ContextScopeDto, ContextSourceEvidenceDto, ContextTimesDto, RepositoryNotebookDto,
+} from './contracts';
+
+/** The run limits ByteQuay enforces; they bound work, not tokens or cost. */
+export const LIMITS = { operations: 40, documentOpens: 10, linkHops: 2 };
+/** A finished run older than this is summarized as earlier work rather than as the run that just ended. */
+const RECENT_RUN_MS = 6 * 3_600_000;
+
+export const kindLabel = (kind: ContextEntryDto['kind']) => kind === 'MEMORY' ? 'Lesson' : 'Knowledge';
+export const shortSha = (sha: string) => sha.slice(0, 7);
+export const plural = (count: number, one: string, many = one + 's') => `${count} ${count === 1 ? one : many}`;
+
+export function clock(elapsedMs: number): string {
+  const seconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+export function shortDate(value: string | null | undefined, now = Date.now()): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const today = new Date(now);
+  if (date.toDateString() === today.toDateString()) return 'Today';
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', ...(date.getFullYear() === today.getFullYear() ? {} : { year: 'numeric' }) });
+}
+
+export function timeOfDay(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
+/** "Codex · 5.6 Sol Medium", and why a run cannot start when the Review model is unavailable. */
+export function modelLine(models: ModelSettingsDto | null): { label: string; blocker: string | null } {
+  const agent = models?.agents.find(item => item.type === 'REVIEW');
+  if (models === null || agent === undefined) return { label: 'Review model', blocker: models === null ? null : 'No Review model is configured.' };
+  const effort = agent.effort ? ' ' + effortLabel(agent.effort) : '';
+  const label = `${agent.label} · ${displayModelName(agent.modelLabel)}${effort}`;
+  const provider = models.providers.find(item => item.id === agent.configId);
+  if (provider === undefined) return { label, blocker: 'The Review model provider is unavailable.' };
+  if (!providerAvailable(provider.readiness)) return { label, blocker: providerRemedy(provider.readiness, provider.id).title };
+  if (!provider.models.some(model => model.id === agent.model)) return { label, blocker: 'The configured Review model is unavailable.' };
+  return { label, blocker: null };
+}
+
+/* ── Areas ──────────────────────────────────────────────────────────── */
+
+export type ContextArea = { id: string; label: string; hint: string; paths: string[] };
+
+/** A note's area is its scope; the repository-wide scope reads as Project-wide. */
+export function area(scope: ContextScopeDto | undefined, scopeId: string): ContextArea {
+  if (scope === undefined) return { id: scopeId, label: scopeId, hint: '', paths: [] };
+  if (scope.match.kind === 'REPOSITORY') return { id: scope.id, label: 'Project-wide', hint: '/', paths: ['/'] };
+  return { id: scope.id, label: scope.title, hint: scope.match.pathPrefixes[0] ?? '', paths: scope.match.pathPrefixes };
+}
+
+export function noteArea(notebook: RepositoryNotebookDto, scopeId: string): ContextArea {
+  return area(notebook.scopes.find(scope => scope.id === scopeId), scopeId);
+}
+
+/* ── Runs ───────────────────────────────────────────────────────────── */
+
+export function currentRun(build: ContextBuildViewDto | null): ContextRunDto | null {
+  return build?.runs.find(run => run.outcome === 'RUNNING') ?? null;
+}
+
+export function latestRun(runs: ContextRunDto[], filter: (run: ContextRunDto) => boolean): ContextRunDto | null {
+  return runs.filter(filter).reduce<ContextRunDto | null>((latest, run) => latest === null || run.sequence > latest.sequence ? run : latest, null);
+}
+
+export function runOrigin(run: ContextRunDto): string {
+  if (run.question !== null) return `Learning run ${run.sequence} · ${run.question.topicTitle}`;
+  if (run.pullRequest !== null) return `Learning from merged PR #${run.pullRequest}`;
+  return run.mode === 'DISCOVER' ? `Discovery run ${run.sequence}` : `Learning run ${run.sequence}`;
+}
+
+export const OUTCOME: Record<ContextRunDto['outcome'], { label: string; tone: Tone }> = {
+  RUNNING: { label: 'Running', tone: 'blue' },
+  SUBMITTED: { label: 'Suggestions saved', tone: 'green' },
+  ANSWERED: { label: 'Answered', tone: 'green' },
+  NO_NOTE: { label: 'No reusable note', tone: 'gray' },
+  UNFINISHED: { label: 'Progress saved', tone: 'amber' },
+  LIMIT: { label: 'Source limit reached', tone: 'amber' },
+  STOPPED: { label: 'Stopped by you', tone: 'gray' },
+  FAILED: { label: 'Failed', tone: 'red' },
+};
+
+export type Tone = 'amber' | 'green' | 'gray' | 'blue' | 'red' | 'purple' | 'orange';
+
+/* ── Plan questions ─────────────────────────────────────────────────── */
+
+export type QuestionRow = {
+  topicId: string; index: number; text: string;
+  state: 'PENDING' | 'RUNNING' | 'UNFINISHED' | 'ANSWERED';
+  meta: string; metaTone: 'muted' | 'blue' | 'amber' | 'plain';
+  link: null | { label: 'Open note' | 'Review draft'; kind: 'entry' | 'draft'; id: string };
+};
+
+/** Answered questions link to the note their run proposed, when it still exists as a draft or an approved note. */
+export function questionRow(topic: ContextPlanTopicDto, index: number, runs: ContextRunDto[], running: ContextRunDto | null,
+  notebook: RepositoryNotebookDto): QuestionRow {
+  const question = topic.questions[index];
+  const base: Pick<QuestionRow, 'topicId' | 'index' | 'text' | 'link'> = { topicId: topic.id, index, text: question.text, link: null };
+  if (running?.question?.topicId === topic.id && running.question.index === index) {
+    return { ...base, state: 'RUNNING', meta: 'Running now', metaTone: 'blue' };
+  }
+  if (question.status === 'UNFINISHED') return { ...base, state: 'UNFINISHED', meta: 'Unfinished · progress saved', metaTone: 'amber' };
+  if (question.status === 'PENDING') return { ...base, state: 'PENDING', meta: 'Not started', metaTone: 'muted' };
+  const answered = latestRun(runs, run => run.question?.topicId === topic.id && run.question.index === index
+    && (run.outcome === 'ANSWERED' || run.outcome === 'NO_NOTE'));
+  if (answered === null) return { ...base, state: 'ANSWERED', meta: 'Answered', metaTone: 'plain' };
+  const draft = notebook.pendingDrafts.find(value => answered.noteIds.includes(value.entry.id));
+  if (draft !== undefined) return { ...base, state: 'ANSWERED', meta: 'Answered', metaTone: 'plain', link: { label: 'Review draft', kind: 'draft', id: draft.id } };
+  const entry = notebook.entries.find(value => answered.noteIds.includes(value.id));
+  if (entry !== undefined) return { ...base, state: 'ANSWERED', meta: 'Answered', metaTone: 'plain', link: { label: 'Open note', kind: 'entry', id: entry.id } };
+  return { ...base, state: 'ANSWERED', meta: answered.outcome === 'NO_NOTE' ? 'Answered · no reusable note' : 'Answered · draft dismissed', metaTone: 'plain' };
+}
+
+export type TopicSummary = {
+  topic: ContextPlanTopicDto; rows: QuestionRow[]; answered: number; unfinished: number; running: boolean;
+  approved: number; drafts: number; meta: string;
+};
+
+export function topicSummary(topic: ContextPlanTopicDto, runs: ContextRunDto[], running: ContextRunDto | null, notebook: RepositoryNotebookDto): TopicSummary {
+  const rows = topic.questions.map((_, index) => questionRow(topic, index, runs, running, notebook));
+  const answered = topic.questions.filter(question => question.status === 'COMPLETED').length;
+  const unfinished = rows.filter(row => row.state === 'UNFINISHED').length;
+  const noteIds = new Set(runs.filter(run => run.question?.topicId === topic.id).flatMap(run => run.noteIds));
+  const approved = notebook.entries.filter(entry => noteIds.has(entry.id)).length;
+  const drafts = notebook.pendingDrafts.filter(draft => noteIds.has(draft.entry.id)).length;
+  const meta = `${answered} of ${plural(topic.questions.length, 'question')} answered`
+    + (unfinished ? ` · ${unfinished} unfinished` : '')
+    + (approved || drafts ? ` · notes: ${approved} approved${drafts ? `, ${plural(drafts, 'draft')}` : ''}` : '');
+  return { topic, rows, answered, unfinished, running: rows.some(row => row.state === 'RUNNING'), approved, drafts, meta };
+}
+
+export function planCounts(plan: ContextLearningPlanDto): { answered: number; total: number } {
+  const questions = plan.topics.flatMap(topic => topic.questions);
+  return { answered: questions.filter(question => question.status === 'COMPLETED').length, total: questions.length };
+}
+
+export function nextQuestion(view: ContextLearningPlanViewDto | undefined): null | { target: ContextQuestionTarget; topic: ContextPlanTopicDto; text: string; resumes: boolean } {
+  const plan = view?.plan ?? null;
+  const target = view?.next ?? null;
+  if (plan === null || target === null) return null;
+  const topic = plan.topics.find(value => value.id === target.topicId);
+  const question = topic?.questions[target.question];
+  if (topic === undefined || question === undefined) return null;
+  return { target, topic, text: question.text, resumes: question.status === 'UNFINISHED' };
+}
+
+/* ── Review queue ───────────────────────────────────────────────────── */
+
+export type TaskTitles = Record<string, string>;
+
+/** Where a draft came from: the learning run, merged PR or task recorded as its proposer. */
+export function draftOrigin(draft: ContextKnowledgeDraftDto, times: ContextTimesDto, runs: ContextRunDto[], titles: TaskTitles): string {
+  const taskId = times.drafts[draft.id]?.taskId ?? null;
+  const run = taskId === null ? undefined : runs.find(value => value.taskId === taskId);
+  if (run !== undefined) return runOrigin(run);
+  if (taskId !== null && titles[taskId] !== undefined) return `Task “${titles[taskId]}”`;
+  return draft.id.startsWith('draft:task:') ? 'a development task' : 'earlier learning';
+}
+
+export function entryOrigin(entry: ContextEntryDto, times: ContextTimesDto, runs: ContextRunDto[], titles: TaskTitles): string {
+  const taskId = times.entries[entryTimeKey(entry)]?.taskId ?? null;
+  const run = taskId === null ? undefined : runs.find(value => value.taskId === taskId);
+  if (run !== undefined) return runOrigin(run);
+  if (taskId !== null && titles[taskId] !== undefined) return `Task “${titles[taskId]}”`;
+  return entry.origin === 'USER' ? 'Saved by you' : 'Earlier learning';
+}
+
+export const entryTimeKey = (entry: Pick<ContextEntryDto, 'id' | 'version'>) => `${entry.version}:${entry.id}`;
+
+export type ReviewItem =
+  | { kind: 'draft'; id: string; title: string; label: string; icon: 'doc' | 'lesson' | 'update'; tone: Tone; origin: string; at: string | null }
+  | { kind: 'source'; id: string; title: string; label: string; icon: 'link'; tone: Tone; origin: string; at: string | null };
+
+export function draftLabel(draft: ContextKnowledgeDraftDto, notebook: RepositoryNotebookDto): { label: string; icon: 'doc' | 'lesson' | 'update'; tone: Tone } {
+  if (draft.replacesVersion !== null) return { label: `Update · v${draft.replacesVersion} → v${notebook.revision + 1}`, icon: 'update', tone: 'amber' };
+  return draft.entry.kind === 'MEMORY' ? { label: 'New lesson', icon: 'lesson', tone: 'purple' } : { label: 'New knowledge', icon: 'doc', tone: 'blue' };
+}
+
+export function reviewItems(notebook: RepositoryNotebookDto, plan: ContextLearningPlanDto | null, times: ContextTimesDto, runs: ContextRunDto[],
+  titles: TaskTitles): ReviewItem[] {
+  const drafts: ReviewItem[] = notebook.pendingDrafts.map(draft => ({ kind: 'draft', id: draft.id, title: draft.entry.title, ...draftLabel(draft, notebook),
+    origin: 'from ' + draftOrigin(draft, times, runs, titles), at: times.drafts[draft.id]?.at ?? null }));
+  const sources: ReviewItem[] = (plan?.documentInventory.suggestions ?? []).map(suggestion => {
+    const run = runs.find(value => value.taskId === suggestion.taskId);
+    return { kind: 'source', id: suggestion.url, title: suggestion.url, label: 'Source approval', icon: 'link', tone: 'orange',
+      origin: run === undefined ? 'found by an earlier learning run' : `found in Learning run ${run.sequence}`, at: suggestion.foundAt };
+  });
+  return [...drafts, ...sources];
+}
+
+export function pendingCounts(notebook: RepositoryNotebookDto | null, plan: ContextLearningPlanDto | null): { drafts: number; sources: number; total: number } {
+  const drafts = notebook?.pendingDrafts.length ?? 0;
+  const sources = plan?.documentInventory.suggestions.length ?? 0;
+  return { drafts, sources, total: drafts + sources };
+}
+
+/* ── Status card ────────────────────────────────────────────────────── */
+
+export type StatusAction = 'discover' | 'discover-rest' | 'review' | 'continue' | 'plan' | 'disc-activity' | 'plan-activity' | 'coverage' | 'sources';
+export type StatusCard = {
+  icon: 'search' | 'check' | 'doc' | 'pause' | 'review' | 'alert' | 'spin';
+  tone: 'gray' | 'green' | 'blue' | 'amber' | 'red';
+  headline: string; elapsedSince: string | null; question: string | null; body: string | null;
+  steps: boolean; how: boolean;
+  primary: null | { label: string; bolt: boolean; action: StatusAction };
+  secondary: null | { label: string; bolt: boolean; action: StatusAction };
+  details: null | { label: string; action: StatusAction };
+  stop: boolean;
+  runLine: string | null;
+  feed: ContextActivityDto[]; live: string | null;
+  foot: null | { text: string; link: null | { label: string; action: StatusAction } };
+  sourceApproval: string | null;
+};
+
+export type StatusInput = {
+  repository: string; baseline: ContextBaselineDto | null; model: string;
+  notebook: RepositoryNotebookDto; build: ContextBuildViewDto; report: ContextDiscoveryReportDto | null; planView: ContextLearningPlanViewDto;
+  now: number;
+};
+
+const blank: StatusCard = { icon: 'doc', tone: 'gray', headline: '', elapsedSince: null, question: null, body: null, steps: false, how: false,
+  primary: null, secondary: null, details: null, stop: false, runLine: null, feed: [], live: null, foot: null, sourceApproval: null };
+
+export function coverageFoot(report: ContextDiscoveryReportDto): string {
+  const total = report.coverage.areas.reduce((sum, area) => sum + area.total, 0);
+  const surveyed = report.coverage.areas.reduce((sum, area) => sum + area.surveyed, 0);
+  if (total > 0 && surveyed < total) return `Partial survey: ${total - surveyed} of ${total} module directories weren’t surveyed, so this isn’t a complete map.`;
+  if (report.partial) return 'Partial survey: some areas weren’t surveyed, so this isn’t a complete map.';
+  return total > 0 ? `All ${total} module directories were surveyed.` : 'Discovery finished its survey of the repository layout.';
+}
+
+function lastRunSentence(run: ContextRunDto, question: string): string {
+  switch (run.outcome) {
+    case 'LIMIT': return `reached its source limit before finishing “${question}”. Progress is saved.`;
+    case 'ANSWERED': return `answered “${question}”.`;
+    case 'NO_NOTE': return `answered “${question}” without a reusable note.`;
+    case 'STOPPED': return `was stopped during “${question}”. Progress is saved.`;
+    case 'UNFINISHED': return `saved progress on “${question}”.`;
+    case 'FAILED': return `failed during “${question}”${run.detail ? `: ${run.detail}` : '.'}`;
+    default: return `worked on “${question}”.`;
+  }
+}
+
+/** One status card: what is happening now and the one next action. Only lightning-marked actions start a run. */
+export function statusCard(input: StatusInput): StatusCard {
+  const { notebook, build, report, planView, model, repository, baseline } = input;
+  const plan = planView.plan;
+  const running = currentRun(build);
+  const approved = notebook.entries.filter(entry => entry.enabled).length;
+  const revision = baseline === null ? '' : `${baseline.branch}@${shortSha(report?.baselineSha ?? plan?.baselineSha ?? baseline.sha)}`;
+  if (running !== null) {
+    const last = running.activity.at(-1);
+    const card: StatusCard = { ...blank, icon: 'spin', tone: 'blue', elapsedSince: running.requestedAt, stop: true,
+      feed: running.activity.slice(-4), live: last === undefined ? 'Waiting for the first activity…'
+        : `Run in progress · last recorded activity ${relativeTime(last.at, { now: input.now })}`,
+      runLine: `Started by you · ${model}` };
+    if (running.mode === 'DISCOVER') {
+      const continuing = build.build?.continuation === true;
+      const unsurveyed = report?.coverage.unsurveyed.length ?? 0;
+      return { ...card, headline: continuing ? 'Discovering remaining areas' : 'Discovering topics',
+        body: continuing ? `Surveying the ${plural(unsurveyed, 'directory', 'directories')} the last discovery skipped. New suggestions appear when the run finishes.`
+          : `Surveying ${repository}${revision ? ` at ${revision}` : ''}. Suggestions appear when the run finishes.`,
+        details: { label: 'View activity', action: 'disc-activity' }, runLine: `Started by you · ${model} · read-only`,
+        foot: { text: approved ? `Your ${plural(approved, 'approved note')} stay available — discovery only adds suggestions.`
+          : 'Discovery saves suggestions only. It never writes notes or changes files.', link: null } };
+    }
+    if (running.question !== null) {
+      const topic = plan?.topics.find(value => value.id === running.question?.topicId);
+      const total = topic?.questions.length ?? running.question.index + 1;
+      const resumed = topic?.questions[running.question.index]?.progress ? ' · resumed from saved progress' : '';
+      return { ...card, headline: `Learning · ${running.question.topicTitle}`, question: running.question.text,
+        body: `Run ${running.sequence} · question ${running.question.index + 1} of ${total} in this topic${resumed}`,
+        details: { label: 'View details', action: 'plan-activity' },
+        foot: { text: 'Drafts are saved as they finish. Stopping keeps the plan and every draft.', link: null } };
+    }
+    return { ...card, headline: `Learning from merged PR #${running.pullRequest ?? ''}`, question: 'What’s reusable from this change?',
+      body: 'Reads the PR bundle and the current code. It may propose a note, an update, or nothing.',
+      details: { label: 'View details', action: 'plan-activity' } };
+  }
+  if (report === null && plan === null && approved === 0) {
+    return { ...blank, icon: 'search', headline: `Find what’s worth learning in ${repository}`,
+      body: `An agent surveys the repository${revision ? ` at ${revision}` : ''} — layout, READMEs, build files and docs — and suggests topics. You choose what to learn and approve each note before agents can use it.`,
+      steps: true, how: true, primary: { label: 'Start discovery', bolt: true, action: 'discover' },
+      runLine: `Starts 1 discovery run · ${model} · read-only · you can stop it` };
+  }
+  if (report === null && plan === null) {
+    return { ...blank, icon: 'check', tone: 'green', headline: `${plural(approved, 'note')} available to agents`,
+      body: 'Development and review agents look notes up when they seem relevant — the agent decides what applies. Missing notes never block work.',
+      secondary: { label: 'Find topics to learn', bolt: true, action: 'discover' },
+      runLine: `Starts 1 discovery run · ${model} · your ${plural(approved, 'note')} stay as they are` };
+  }
+  if (plan === null && report !== null) {
+    const topics = report.topics.length;
+    const card: StatusCard = { ...blank, icon: 'doc', tone: 'blue',
+      headline: topics ? `${plural(topics, 'topic')} suggested` : 'No topics suggested',
+      body: topics ? 'Select the topics worth learning. Each lists its questions, code paths and proposed sources — use Inspect to check them before you start.'
+        : 'Discovery didn’t find a topic worth learning in the areas it surveyed.',
+      foot: { text: coverageFoot(report), link: { label: 'See coverage', action: 'coverage' } } };
+    return report.partial ? { ...card, secondary: { label: 'Discover remaining areas', bolt: true, action: 'discover-rest' },
+      runLine: `Discover remaining areas starts 1 discovery run · ${model}` } : card;
+  }
+  const active = plan;
+  const pending = pendingCounts(notebook, active);
+  const next = nextQuestion(planView);
+  const left = planCounts(active).total - planCounts(active).answered;
+  const last = latestRun(build.runs, run => run.question?.planId === active.id);
+  const draftText = pending.drafts ? ` ${plural(pending.drafts, 'draft')} ${pending.drafts === 1 ? 'waits' : 'wait'} for review — agents can’t use drafts until you approve.` : '';
+  let card: StatusCard;
+  const lastQuestion = last?.question?.text ?? '';
+  const recent = last !== null && input.now - Date.parse(last.endedAt ?? last.requestedAt) < RECENT_RUN_MS;
+  if (last !== null && !recent) {
+    card = { ...blank, icon: 'review', tone: 'amber',
+      headline: pending.total ? `${plural(pending.total, 'item')} ${pending.total === 1 ? 'needs' : 'need'} your review` : 'Learning is paused',
+      body: pending.total ? `${plural(pending.drafts, 'draft')}${pending.sources ? ` and ${plural(pending.sources, 'source proposal')}` : ''} from recent work. Approved notes stay in use while updates wait.`
+        : `${plural(left, 'question')} left in the plan.`,
+      foot: { text: `Last run · ${shortDate(last.endedAt ?? last.requestedAt, input.now)} · ${lastRunSentence(last, lastQuestion)}`, link: null } };
+  }
+  else if (last?.outcome === 'STOPPED' || last?.outcome === 'UNFINISHED' || last?.outcome === 'LIMIT') {
+    const headline = last.outcome === 'STOPPED' ? 'Run stopped · progress saved'
+      : last.outcome === 'LIMIT' ? `Run ${last.sequence} reached its source limit` : `Run ${last.sequence} finished · progress saved`;
+    card = { ...blank, icon: 'pause', headline, body: `“${lastQuestion}” is unfinished; Continue picks it up.${draftText}` };
+  }
+  else if (last?.outcome === 'FAILED') {
+    card = { ...blank, icon: 'alert', tone: 'red', headline: `Run ${last.sequence} failed`,
+      body: `${last.detail ? last.detail + ' ' : ''}No drafts or progress were lost.${draftText}` };
+  }
+  else if (last !== null) {
+    const topic = active.topics.find(value => value.id === last.question?.topicId);
+    const open = topic?.questions.filter(question => question.status !== 'COMPLETED').length ?? 0;
+    card = { ...blank, icon: 'check', tone: 'green', headline: `Run ${last.sequence} finished · question answered`,
+      body: (topic ? `${topic.title} ${open ? `still has ${plural(open, 'open question')}` : 'has no open questions'}; ${left} left in the plan.` : '') + draftText };
+  }
+  else {
+    card = { ...blank, icon: 'doc', headline: 'Learning plan saved', body: `${plural(left, 'question')} left in the plan.${draftText}` };
+  }
+  if (pending.drafts) card.primary = { label: pending.drafts === 1 ? 'Review draft' : `Review ${pending.drafts} drafts`, bolt: false, action: 'review' };
+  if (next !== null) {
+    const action = { label: 'Continue learning', bolt: true, action: 'continue' as const };
+    if (pending.drafts) card.secondary = action;
+    else card.primary = action;
+    card.runLine = `Next: ${next.topic.title} · “${next.text}”${next.resumes ? ' · resumes saved progress' : ''} · 1 run · ${model}`;
+  }
+  else if (!pending.drafts) {
+    card = { ...card, icon: 'check', tone: 'green', headline: 'All planned questions answered',
+      body: 'Approved notes are available to agents. Choose more topics under Learning opportunities.' };
+  }
+  card.details = { label: 'Plan details', action: 'plan' };
+  if (pending.sources) card.sourceApproval = active.documentInventory.suggestions[0].url;
+  return card;
+}
+
+/* ── Notes ──────────────────────────────────────────────────────────── */
+
+export type NoteFilter = { kind: 'all' | 'KNOWLEDGE' | 'MEMORY'; area: string; query: string };
+
+/** Literal, case-insensitive filtering over what the list shows; it never ranks notes. */
+export function filterNotes(notebook: RepositoryNotebookDto, filter: NoteFilter): ContextEntryDto[] {
+  const query = filter.query.trim().toLowerCase();
+  return notebook.entries.filter(entry => filter.kind === 'all' || entry.kind === filter.kind)
+    .filter(entry => filter.area === 'all' || entry.scopeId === filter.area)
+    .filter(entry => query === '' || [entry.title, entry.summary, ...noteArea(notebook, entry.scopeId).paths].join(' ').toLowerCase().includes(query));
+}
+
+export function noteGroups(notebook: RepositoryNotebookDto, entries: ContextEntryDto[]): Array<{ area: ContextArea; entries: ContextEntryDto[] }> {
+  const order = [...notebook.scopes.map(scope => scope.id), ...entries.map(entry => entry.scopeId)];
+  return [...new Set(order)].map(id => ({ area: noteArea(notebook, id), entries: entries.filter(entry => entry.scopeId === id) }))
+    .filter(group => group.entries.length > 0);
+}
+
+/* ── Note content ───────────────────────────────────────────────────── */
+
+const DOCUMENT_PATH = /\.(md|mdx|rst|adoc|txt)$|(^|\/)(docs?|documentation)\//i;
+
+export function sourceView(source: ContextSourceEvidenceDto | undefined, id: string): { target: string; kind: string; detail: string; capture: string; agent: boolean } {
+  if (source === undefined) return { target: id, kind: 'Source', detail: 'no longer retained', capture: '', agent: false };
+  const reference = source.reference;
+  const lines = /lines[= ](\d+)-(\d+)/.exec(source.provenance);
+  const capture = source.capture === 'AGENT_REPORTED' ? 'Agent-reported · not captured'
+    : reference.kind === 'PR' || reference.kind === 'ISSUE' || reference.kind === 'TASK' || reference.kind === 'REVIEW' ? 'From work bundle' : 'Read by ByteQuay';
+  const agent = source.capture === 'AGENT_REPORTED';
+  switch (reference.kind) {
+    case 'REPOSITORY_FILE': {
+      const documented = DOCUMENT_PATH.test(reference.path);
+      return { target: reference.path, kind: documented ? 'Repository page' : 'Code',
+        detail: `${lines ? `lines ${lines[1]}–${lines[2]} · ` : ''}at ${shortSha(reference.commit)}`, capture, agent };
+    }
+    case 'DOCUMENT': return { target: reference.url, kind: 'Web page', detail: source.retrievedAt ? `captured ${shortDate(source.retrievedAt)}` : 'captured', capture, agent };
+    case 'PR': return { target: `PR #${reference.number}`, kind: 'Pull request', detail: `${reference.repository.owner}/${reference.repository.repo}`, capture, agent };
+    case 'ISSUE': return { target: `Issue #${reference.number}`, kind: 'Issue', detail: `${reference.repository.owner}/${reference.repository.repo}`, capture, agent };
+    case 'TASK': return { target: 'Task', kind: 'Task', detail: source.provenance, capture, agent };
+    case 'REVIEW': return { target: 'Review', kind: 'Review', detail: source.provenance, capture, agent };
+  }
+}
+
+export const CLAIM_TAG: Record<ContextClaimDto['basis'], { label: string; tone: 'muted' | 'amber' | 'purple' | 'blue' }> = {
+  DOCUMENTED: { label: 'Documented', tone: 'muted' },
+  OBSERVED: { label: 'Observed in code', tone: 'muted' },
+  RECORDED_DECISION: { label: 'Recorded decision', tone: 'muted' },
+  INFERENCE: { label: 'Inference', tone: 'amber' },
+  QUESTION: { label: 'Open question', tone: 'purple' },
+  USER_LESSON: { label: 'Your lesson', tone: 'blue' },
+};
+
+export type DiffLine = { sign: '+' | '−' | ' '; text: string };
+
+/** Compares what agents use today with the proposed update, claim by claim and line by line. */
+export function noteDiff(active: ContextEntryDto, proposed: ContextEntryDto): { lines: DiffLine[]; summary: string } {
+  // Lines compare as the reader sees them: without Markdown heading and list markers.
+  const items = (entry: ContextEntryDto) => [entry.summary,
+    ...entry.body.split('\n').map(line => line.trim().replace(/^#{1,6}\s+/, '').replace(/^[-*+]\s+/, '')).filter(Boolean), ...entry.claims.map(claim => claim.text)];
+  const before = items(active);
+  const after = items(proposed);
+  const table = before.map(() => new Array<number>(after.length + 1).fill(0));
+  table.push(new Array<number>(after.length + 1).fill(0));
+  for (let i = before.length - 1; i >= 0; i--) {
+    for (let j = after.length - 1; j >= 0; j--) {
+      table[i][j] = before[i] === after[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
+    }
+  }
+  const lines: DiffLine[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < before.length || j < after.length) {
+    if (i < before.length && j < after.length && before[i] === after[j]) { lines.push({ sign: ' ', text: after[j] }); i++; j++; }
+    else if (j < after.length && (i === before.length || table[i][j + 1] >= table[i + 1][j])) { lines.push({ sign: '+', text: after[j] }); j++; }
+    else { lines.push({ sign: '−', text: before[i] }); i++; }
+  }
+  const added = lines.filter(line => line.sign === '+').length;
+  const removed = lines.filter(line => line.sign === '−').length;
+  const sources = proposed.sourceIds.filter(id => !active.sourceIds.includes(id)).length;
+  const summary = [`${plural(added, 'line')} added or changed`, `${removed} removed`, ...(sources ? [`${plural(sources, 'source')} added`] : [])].join(' · ');
+  return { lines, summary };
+}
+
+/* ── Opportunities ──────────────────────────────────────────────────── */
+
+/** Merged work already learned from is not offered again while its run is retained. */
+export function openCandidates(candidates: ContextMergedCandidatesDto | null, runs: ContextRunDto[]): ContextMergedCandidatesDto['candidates'] {
+  const learned = new Set(runs.filter(run => run.pullRequest !== null && (run.outcome === 'ANSWERED' || run.outcome === 'NO_NOTE')).map(run => run.pullRequest));
+  return (candidates?.candidates ?? []).filter(candidate => !learned.has(candidate.number));
+}
+
+export function topicsOutsidePlan(report: ContextDiscoveryReportDto | null, plan: ContextLearningPlanDto | null): ContextDiscoveryReportDto['topics'] {
+  if (report === null) return [];
+  const planned = plan === null || plan.reportId !== report.id ? new Set<string>() : new Set(plan.topics.map(topic => topic.id));
+  return report.topics.filter(topic => !planned.has(topic.id));
+}

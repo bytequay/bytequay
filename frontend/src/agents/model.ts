@@ -96,7 +96,7 @@ export type AgentBridgePort = Pick<Bridge,
   | 'writeReviewTerminal'
   | 'resizeReviewTerminal'
   | 'onReviewTerminalEvent'> & Partial<Pick<Bridge, 'getDevelopmentLearning' | 'createDevelopmentLearningComment' | 'getAgentTaskRepositoryContext'
-  | 'listAgentReviews' | 'listCherryPickExecutions' | 'listCiAutofixRuns'>>;
+  | 'listAgentReviews' | 'listCherryPickExecutions' | 'listCiAutofixRuns' | 'getRepositoryContextBuild'>>;
 
 export interface AgentTaskState {
   task: AgentTaskDto | null;

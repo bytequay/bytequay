@@ -138,6 +138,39 @@ class TestPullRequestRefreshService
     }
 
     @Test
+    void repositoryRefreshDoesNotBlockLocalWorkspaceOperations()
+            throws Exception
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        WorkspaceStore workspaces = mock(WorkspaceStore.class);
+        Workspace workspace = workspace("workspace", 1, RepoRef.of("owner", "repo"), 0);
+        when(workspaces.isWatched(workspace.id())).thenReturn(true);
+        when(workspaces.findById(workspace.id())).thenReturn(Optional.of(workspace));
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            entered.countDown();
+            assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
+            return null;
+        }).when(pullRequests).syncRepository(workspace.monitoredRepository());
+
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var refresh = executor.submit(() -> service(pullRequests, workspaces).refreshWorkspace(workspace.id()));
+            try {
+                assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+                Lock lock = WorkspaceOperationLocks.get(workspace.id());
+                assertThat(lock.tryLock(1, TimeUnit.SECONDS)).isTrue();
+                lock.unlock();
+                assertThat(refresh.isDone()).isFalse();
+            }
+            finally {
+                release.countDown();
+            }
+            refresh.get(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
     void toolbarUsesCurrentRoutingInsteadOfItsWorkspaceListSnapshot()
     {
         PullRequestService pullRequests = mock(PullRequestService.class);

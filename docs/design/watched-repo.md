@@ -546,6 +546,11 @@ for watched repositories. Omitted rows remain cached; older monitored and notifi
 summary coverage. Handled reviews with new activity may read reply metadata to preserve their
 needs-review status. Enrichment failures do not discard successfully discovered rows. One process-local lock prevents
 overlapping PR refreshes; there is no refresh queue or persisted in-progress state.
+Workspace refresh captures watched membership and repository routing under the
+workspace lock, then releases it before waiting for the PR refresh lock or GitHub.
+The resulting cache is repository-scoped and touches no workspace files or
+lifecycle records; concurrent deletion or routing changes cannot recreate or
+retarget a workspace. Slow PR synchronization must not block local context saves.
 `PullRequestSnapshotService` owns the local detail and diff snapshot boundary, including the
 remote fetch-and-persist operations used by refresh. `PullRequestSyncJob` owns the periodic timer,
 quiet-hours policy, and iteration over distinct monitored repositories. The scheduled thread calls

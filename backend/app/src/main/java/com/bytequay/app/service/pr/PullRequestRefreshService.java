@@ -34,6 +34,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -149,7 +150,6 @@ public class PullRequestRefreshService
         finally {
             refreshLock.unlock();
         }
-        // Workspace refreshes take their workspace lock before the shared PR refresh lock.
         Set<RepoRef> repositories = new HashSet<>();
         workspaces.findAll().stream()
                 .filter(workspace -> repositories.add(workspace.monitoredRepository()))
@@ -177,14 +177,12 @@ public class PullRequestRefreshService
         refresh(() -> pullRequests.syncRepository(repository));
     }
 
-    /** Rechecks current workspace membership and routing while excluding local workspace deletion. */
+    /** Captures current routing locally; repository-scoped cache refreshes do not own workspace files or lifecycle. */
     public void refreshWorkspace(String workspaceId)
     {
-        WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            if (workspaces.isWatched(workspaceId)) {
-                workspaces.findById(workspaceId).map(Workspace::monitoredRepository).ifPresent(this::refreshRepository);
-            }
-        });
+        Optional<RepoRef> repository = WorkspaceOperationLocks.withLock(workspaceId, () -> workspaces.isWatched(workspaceId)
+                ? workspaces.findById(workspaceId).map(Workspace::monitoredRepository) : Optional.empty());
+        repository.ifPresent(this::refreshRepository);
     }
 
     private void refresh(Runnable action)

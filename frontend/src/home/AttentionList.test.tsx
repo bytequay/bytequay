@@ -199,7 +199,7 @@ describe('AttentionList', () => {
 
     expect(html.match(/class="card-row item-row"/g)).toHaveLength(4);
     // Every watched update is eligible, so a total would count the repositories, not what needs the user.
-    expect(html).toMatch(/Needs attention<\/span><div class="atn-filters"/);
+    expect(html).toMatch(/Needs attention<\/span><button[^>]*aria-pressed="false"[^>]*>Open only<\/button><div class="atn-filters"/);
     expect(html).toMatch(/>PRs<\/button><button[^>]*>Issues<\/button><button[^>]*>Jira<\/button>/);
     // Without Jira connected there is no Jira tab.
     expect(list(items, {}, 'workspace', false)).not.toContain('>Jira</button>');

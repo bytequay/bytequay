@@ -23,6 +23,7 @@ import { teamAttentionMatch } from '../teams/priority';
 import {
   ATTENTION_SOURCES,
   attentionCards,
+  attentionEnded,
   attentionSource,
   handledEntry,
   handledSummary,
@@ -41,6 +42,11 @@ const MENU_WIDTH = 210;
 /** Header plus three options; kept in step with .atn-menu in home.css. */
 const MENU_HEIGHT = 130;
 const FILTERS: AttentionFilter[] = ['all', 'pr', 'issue', 'jira', 'task'];
+const OPEN_ONLY_KEY = 'bytequay.attention.openOnly';
+
+function loadOpenOnly(): boolean {
+  try { return window.localStorage.getItem(OPEN_ONLY_KEY) === 'true'; } catch { return false; }
+}
 
 type Props = {
   candidates: AttentionItem[];
@@ -72,6 +78,7 @@ export default function AttentionList({
 }: Props) {
   const [filter, setFilter] = useState<AttentionFilter>('all');
   const [onlyTeam, setOnlyTeam] = useState(false);
+  const [openOnly, setOpenOnly] = useState(loadOpenOnly);
   const circles = useTeams(viewerLogin).directory?.circles ?? [];
   const [snooze, setSnooze] = useState<Anchored | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -90,7 +97,7 @@ export default function AttentionList({
   // Handled items drop out before the cap, so the next eligible item takes a handled card's place.
   const reminders = useSnoozedAttention(candidates, handled, Math.max(now, Date.now()), scope);
   const live = visibleAttention(reminders, handled, Math.max(now, Date.now()))
-    .filter(item => !pinned.some(pin => pin.key === item.key));
+    .filter(item => !pinned.some(pin => pin.key === item.key) && (!openOnly || attentionEnded(item) === null));
   const filters = FILTERS.filter(id => id !== 'jira' || jiraConnected || live.some(item => attentionSource(item) === 'jira'));
   const cards = attentionCards(live, filters.includes(filter) ? filter : 'all', undefined, { circles, viewerLogin, onlyTeam });
   const sessionEntries = session
@@ -142,6 +149,12 @@ export default function AttentionList({
         {(circles.length > 0 || onlyTeam) && (
           <button type="button" className={`atn-filter${onlyTeam ? ' is-active' : ''}`} aria-pressed={onlyTeam} onClick={() => setOnlyTeam(value => !value)}>Circles</button>
         )}
+        <button type="button" className={`atn-filter${openOnly ? ' is-active' : ''}`} aria-pressed={openOnly} title="Hide merged and closed items"
+          onClick={() => {
+            const next = !openOnly;
+            setOpenOnly(next);
+            try { window.localStorage.setItem(OPEN_ONLY_KEY, String(next)); } catch { /* the toggle still works for this visit */ }
+          }}>Open only</button>
         <div className="atn-filters" role="tablist" aria-label="Filter what needs attention">
           {filters.map(id => (
             <button key={id} type="button" role="tab" aria-selected={filter === id}
@@ -181,7 +194,7 @@ export default function AttentionList({
           })}
         </div>
       ) : (
-        <div className="atn-clear">{onlyTeam ? 'Nothing from your circles needs you right now.' : 'Nothing needs you right now.'}</div>
+        <div className="atn-clear">{onlyTeam ? 'Nothing from your circles needs you right now.' : openOnly ? 'Nothing open needs you right now.' : 'Nothing needs you right now.'}</div>
       )}
 
       {summary !== '' && (

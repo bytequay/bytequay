@@ -27,6 +27,7 @@ import type { PinnedItem } from './pinned';
 import { useAttentionStatus } from './useAttentionVisit';
 import {
   ATTENTION_SOURCES,
+  attentionEnded,
   attentionSource,
   attentionSummary,
   attentionTime,
@@ -159,7 +160,7 @@ export default function AttentionRow({
   return <>
     <div role="listitem" onMouseEnter={event => hover.show(event.currentTarget)} onMouseLeave={() => hover.hide()}>
       <ItemRow label={`${ATTENTION_SOURCES[source].label} ${reference}: ${item.title}`} onOpen={open}
-        icon={<SourceIcon source={source} size={16} tinted />}
+        icon={<SourceIcon source={source} size={16} tinted ended={attentionEnded(item)} />}
         title={item.title}
         marks={<>
           {/* A task's reference names its lane, which the line below already does. */}

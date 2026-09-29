@@ -148,10 +148,16 @@ export function InGoalBadge(): React.JSX.Element {
 }
 
 /** The icon each source is drawn with; tinted, it takes the source's own colour instead of the text's. */
-export function SourceIcon({ source, size = 14, tinted = false }: { source: AttentionSource; size?: number; tinted?: boolean }): React.JSX.Element {
+export function SourceIcon({ source, size = 14, tinted = false, ended = null }: {
+  source: AttentionSource;
+  size?: number;
+  tinted?: boolean;
+  /** Colours a tinted icon for a merged or closed item. */
+  ended?: 'merged' | 'closed' | null;
+}): React.JSX.Element {
   const Icon = source === 'pr' ? GitPullRequest : source === 'issue' ? CircleDot : SquareCheck;
   const icon = source === 'jira' ? <JiraIcon size={size} /> : <Icon size={size} strokeWidth={1.9} aria-hidden="true" />;
-  return tinted ? <span className={`card-src is-${source}`}>{icon}</span> : icon;
+  return tinted ? <span className={`card-src is-${source}${ended === null ? '' : ` is-${ended}`}`}>{icon}</span> : icon;
 }
 
 /** A linked item named by its source's icon and its key. */

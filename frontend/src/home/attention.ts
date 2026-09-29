@@ -266,6 +266,12 @@ function pullRequestState(pr: PullRequestDto): AttentionSummary['tag'] {
   return pr.reviewDecision === 'APPROVED' ? { label: 'Approved', tone: 'green' } : KIND_TAGS.updated;
 }
 
+/** Whether a pull request was merged or closed, or an issue closed; null while it is still open. */
+export function attentionEnded(item: AttentionItem): 'merged' | 'closed' | null {
+  const state = item.pr?.state?.toLowerCase() ?? item.issueState;
+  return state === 'merged' || state === 'closed' ? state : null;
+}
+
 function pullRequestSummary(item: AttentionItem, pr: PullRequestDto, viewerLogin: string | null): AttentionSummary {
   const activity = pr.latestActivity ?? null;
   const tag = item.kind === 'updated' ? pullRequestState(pr) : KIND_TAGS[item.kind];

@@ -171,6 +171,9 @@
 :is(.card, .card-src).is-jira { --src-fg: #8250df; --src-bg: #fbefff; }
 :is(.card, .card-src).is-task { --src-fg: #0e7c86; --src-bg: #d8f3f5; }
 :is(.card, .card-src).is-context { --src-fg: #9a6700; --src-bg: #fff8c5; }
+/* An ended item's icon takes GitHub's state colour over its source's. */
+.card-src.is-merged { --src-fg: #8250df; }
+.card-src.is-closed { --src-fg: #cf222e; }
 
 .card-src {
   flex: none;

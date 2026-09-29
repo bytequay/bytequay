@@ -16,6 +16,7 @@ import type { PullRequestDto, RepositoryIssueSnapshotDto } from '../types';
 import {
   issueAttentionItems,
   attentionCandidates,
+  attentionEnded,
   attentionKind,
   attentionSummary,
   attentionTime,
@@ -240,6 +241,17 @@ describe('snooze targets', () => {
     const monday = new Date(2026, 7, 17, 14, 40).getTime();
 
     expect(new Date(snoozeUntil('monday', monday))).toEqual(new Date(2026, 7, 24, 9, 0, 0, 0));
+  });
+});
+
+describe('attentionEnded', () => {
+  it('names a merged or closed pull request or a closed issue', () => {
+    const [open, merged, closed] = attentionCandidates([pr({ number: 1 }), pr({ number: 2, state: 'MERGED' }), pr({ number: 3, state: 'closed' })]);
+
+    expect(attentionEnded(open)).toBeNull();
+    expect(attentionEnded(merged)).toBe('merged');
+    expect(attentionEnded(closed)).toBe('closed');
+    expect(attentionEnded({ ...open, pr: null, type: 'issue', issueState: 'closed' })).toBe('closed');
   });
 });
 

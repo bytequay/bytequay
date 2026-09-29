@@ -1,4 +1,4 @@
-# Private teams implementation checklist
+# Private circles implementation checklist
 
 This temporary checklist tracks the approved private-circle feature. Membership
 is local to ByteQuay, has no product member cap, and never changes GitHub access
@@ -131,3 +131,32 @@ Verification logs: `/private/tmp/bytequay-home-team-removal-lint.log`,
 `/private/tmp/bytequay-home-team-removal-tsc.log`,
 `/private/tmp/bytequay-home-team-removal-tests.log`, and
 `/private/tmp/bytequay-home-team-removal-package.log`.
+
+## Circles redesign
+
+Source: Claude Design project `58646e95-9ad5-46f5-b9bf-2185d65c1988`,
+`Teams Redesign.dc.html` (prototype 1a and its states).
+
+- [x] Rename user-facing Teams copy to Circles, including Home's filter.
+- [x] Backend: drill-down filters for PRs opened, merges performed, issues
+  closed, comments and shared work; per-person last activity; scope totals
+  with shared work counted once; per-day counts with collected days; partial
+  status from the latest pass; the unverified person named on save.
+- [x] Circle list, header, tabs, filter bar, status popover and refresh banner.
+- [x] Needs you rows with the shared handled state, Undo and snooze menu.
+- [x] Activity grouped by work item with direct/participant verbs and load more.
+- [x] Members table with removal Undo; Insights tiles, per-day strip, by-person table.
+- [x] Person panel with circle menu, metrics, and latest activity.
+- [x] Create/edit dialogs with inline picker, repository scope and save errors.
+- [x] Empty, loading, narrow-window and keyboard behavior; remembered view.
+- [x] Gates: backend `mvn verify` passed 3,535 tests with no failures, errors
+  or skips; frontend lint and TypeScript are clean; 1,389 of 1,390 tests passed
+  in the full run, and the one Chromium suite that failed under load passed
+  alone and with all 28 Chromium suites run one file at a time; desktop
+  packaging passed.
+
+Deliberate deviations: no lock icon on private repositories, because watched
+repositories store no visibility; the Snooze action opens the existing snooze
+menu instead of snoozing until tomorrow directly; a collected-days window runs
+from the first pass's 30-day look-back to the latest pass, so an app closed for
+longer than the look-back is not shown as a gap.

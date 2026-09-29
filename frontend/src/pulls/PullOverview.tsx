@@ -464,6 +464,8 @@ type MetadataPickerOption = {
   selected: boolean;
   disabled?: boolean;
   disabledReason?: string;
+  /** A second line under the name, such as the circles a person is already in. */
+  hint?: string;
 };
 
 export const MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS = 100;
@@ -514,7 +516,7 @@ export function MetadataPicker({
             {option.login
               ? <Avatar login={option.login} avatarUrl={option.avatarUrl} size={20} allowGitHubFallback={false} />
               : <i className="pr-meta__label-dot" style={{ background: option.color }} />}
-            <span>{option.label}</span>
+            <span>{option.label}{option.hint && <span className="pr-people-picker__hint">{option.hint}</span>}</span>
             {option.bot && <span className="pr-bot">Bot</span>}
           </button>
         ))}

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { groupTeamActivity, membersOf } from './activity';
+import { activityVerb, actorRole, contributionSummary, groupTeamActivity, membersOf, workByline, workState } from './activity';
 import { parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamLogin } from './contracts';
 import type { TeamActivityEvent, TeamActivitySnapshot } from './types';
 
@@ -23,11 +23,13 @@ const event: TeamActivityEvent = {
   url: 'https://github.com/owner/repo/pull/42#issuecomment-123', occurredAt: '2026-09-20T12:00:00Z', subjectAuthorId: 3, subjectAuthorLogin: 'bob',
   source: 'REPOSITORY', viewerInteractionMemberIds: [2],
 };
+const statistics = { prsOpened: 0, authoredPrsMerged: 0, mergesPerformed: 0, prsReviewed: 0, issuesOpened: 0, issuesClosed: 0, comments: 1,
+  directInteractions: 1, sharedPullRequests: 1, sharedIssues: 0 };
 const snapshot: TeamActivitySnapshot = {
-  accountLogin: 'viewer', events: [event], people: [{ memberId: 2, login: 'alice', prsOpened: 0, authoredPrsMerged: 0, mergesPerformed: 0, prsReviewed: 0,
-    issuesOpened: 0, issuesClosed: 0, comments: 1, directInteractions: 1, sharedPullRequests: 1, sharedIssues: 0 }],
-  coverage: { partial: true, description: 'Observed activity', observedSince: null, lastRefreshedAt: null, errors: [], memberCount: 1,
-    membersScanned: 0, repositoryCount: 1, repositoriesScanned: 0, hasMoreEvents: false },
+  accountLogin: 'viewer', events: [event], updates: 1, workItems: 1,
+  people: [{ memberId: 2, login: 'alice', statistics, lastActiveAt: '2026-09-20T12:00:00Z' }], totals: statistics,
+  days: [{ date: '2026-09-20', updates: 1, collected: true }, { date: '2026-09-21', updates: 0, collected: false }],
+  coverage: { partial: true, observedSince: null, lastRefreshedAt: null, errors: [], memberCount: 1, membersScanned: 0, repositoryCount: 1, repositoriesScanned: 0 },
 };
 
 describe('Team IPC boundary', () => {
@@ -66,6 +68,9 @@ describe('Team IPC boundary', () => {
     expect(() => parseTeamQuery({ memberId: -2 })).toThrow();
     expect(() => parseTeamActivity({ ...snapshot, events: [{ ...event, url: 'https://github.com.evil.test/repo' }] })).toThrow();
     expect(() => parseTeamActivity({ ...snapshot, events: [{ ...event, occurredAt: 'yesterday' }] })).toThrow();
+    expect(() => parseTeamActivity({ ...snapshot, days: [{ date: 'Sep 20', updates: 1, collected: true }] })).toThrow();
+    expect(() => parseTeamActivity({ ...snapshot, totals: { ...statistics, comments: -1 } })).toThrow();
+    expect(parseTeamQuery({ filter: 'shared' })).toEqual({ filter: 'shared', days: 7, limit: 100 });
     expect(parseTeamQuery()).toEqual({ days: 7, limit: 100 });
     expect(parseTeamActivity(snapshot)).toEqual(snapshot);
   });
@@ -77,5 +82,38 @@ describe('Team activity grouping', () => {
     const groups = groupTeamActivity([event, bob, event]);
     expect(groups).toEqual([[bob, event]]);
     expect(event.actorLogin).toBe('alice');
+  });
+});
+
+describe('Circle activity wording', () => {
+  const names = new Map([[2, 'alice'], [3, 'bob']]);
+  const members = new Set([2, 3]);
+  const as = (patch: Partial<TeamActivityEvent>): TeamActivityEvent => ({ ...event, viewerInteractionMemberIds: [], ...patch });
+
+  it('tells direct interactions with the viewer apart from taking part in the same work', () => {
+    expect(activityVerb(as({ viewerInteractionMemberIds: [2] }), 'viewer', names)).toBe('mentioned you');
+    expect(activityVerb(as({}), 'viewer', names)).toBe('commented');
+    expect(activityVerb(as({ kind: 'PR_REVIEWED', subjectAuthorLogin: 'Viewer', viewerInteractionMemberIds: [2] }), 'viewer', names)).toBe('reviewed your PR');
+    expect(activityVerb(as({ kind: 'PR_REVIEWED' }), 'viewer', names)).toBe('reviewed');
+    expect(activityVerb(as({ kind: 'PR_MERGED', subjectAuthorLogin: 'viewer' }), 'viewer', names)).toBe('merged your PR');
+    expect(activityVerb(as({ kind: 'REVIEW_REQUESTED', viewerInteractionMemberIds: [2] }), 'viewer', names)).toBe('requested your review');
+    expect(activityVerb(as({ actorId: 1, actorLogin: 'viewer', viewerInteractionMemberIds: [3] }), 'viewer', names)).toBe('mentioned bob');
+    expect(activityVerb(as({ actorId: 1, actorLogin: 'viewer', kind: 'PR_REVIEWED', subjectAuthorLogin: 'bob', viewerInteractionMemberIds: [3] }), 'viewer', names))
+      .toBe('reviewed');
+    expect(activityVerb(as({ actorId: 0, kind: 'PR_MERGED' }), 'viewer', names)).toBe('Merged · merger not recorded');
+  });
+
+  it('labels who acted and whose work it is', () => {
+    expect(actorRole(as({}), members, 'viewer')).toBe('member');
+    expect(actorRole(as({ actorId: 9, actorLogin: 'mallory' }), members, 'viewer')).toBe('outsider');
+    expect(actorRole(as({ actorId: 1, actorLogin: 'VIEWER' }), members, 'viewer')).toBe('viewer');
+    expect(actorRole(as({ actorId: 0, kind: 'PR_MERGED' }), members, 'viewer')).toBe('unknown');
+    expect(workByline(as({}), 'viewer')).toBe('by bob');
+    expect(workByline(as({ subjectAuthorLogin: 'viewer' }), 'viewer')).toBe('your PR');
+    expect(workByline(as({ kind: 'ISSUE_COMMENT', subjectAuthorLogin: 'viewer' }), 'viewer')).toBe('your issue');
+    expect(workState([as({}), as({ id: 'merged', kind: 'PR_MERGED' })])).toBe('merged');
+    expect(workState([as({ kind: 'ISSUE_OPENED' })])).toBe('issue');
+    expect(contributionSummary({ ...statistics, prsOpened: 2, prsReviewed: 1, issuesOpened: 1 })).toBe('2 opened · 1 reviewed · 1 issue update');
+    expect(contributionSummary({ ...statistics, comments: 4 })).toBe('');
   });
 });

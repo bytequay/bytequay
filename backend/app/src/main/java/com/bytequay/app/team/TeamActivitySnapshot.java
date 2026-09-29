@@ -17,22 +17,31 @@ import com.bytequay.core.domain.TeamActivityEvent;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
-public record TeamActivitySnapshot(String accountLogin, List<TeamActivityEvent> events, List<PersonStatistics> people, Coverage coverage)
+/** The page of matching events, and counts over every matching event retained in the period. */
+public record TeamActivitySnapshot(String accountLogin, List<TeamActivityEvent> events, int updates, int workItems, List<PersonStatistics> people,
+        Statistics totals, List<Day> days, Coverage coverage)
 {
     public TeamActivitySnapshot
     {
         events = ImmutableList.copyOf(events);
         people = ImmutableList.copyOf(people);
+        days = ImmutableList.copyOf(days);
     }
 
-    public record PersonStatistics(long memberId, String login, long prsOpened, long authoredPrsMerged, long mergesPerformed, long prsReviewed,
-            long issuesOpened, long issuesClosed, long comments, long directInteractions, long sharedPullRequests, long sharedIssues) {}
+    public record Statistics(long prsOpened, long authoredPrsMerged, long mergesPerformed, long prsReviewed, long issuesOpened, long issuesClosed,
+            long comments, long directInteractions, long sharedPullRequests, long sharedIssues) {}
 
-    public record Coverage(boolean partial, String description, Optional<Instant> observedSince, Optional<Instant> lastRefreshedAt, List<String> errors,
-            int memberCount, int membersScanned, int repositoryCount, int repositoriesScanned, boolean hasMoreEvents)
+    public record PersonStatistics(long memberId, String login, Statistics statistics, Optional<Instant> lastActiveAt) {}
+
+    /** Matching updates on one local day; outside the collected window a zero means unknown, not quiet. */
+    public record Day(LocalDate date, long updates, boolean collected) {}
+
+    public record Coverage(boolean partial, Optional<Instant> observedSince, Optional<Instant> lastRefreshedAt, List<String> errors,
+            int memberCount, int membersScanned, int repositoryCount, int repositoriesScanned)
     {
         public Coverage
         {

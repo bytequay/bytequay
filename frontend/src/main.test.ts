@@ -71,9 +71,11 @@ it('authenticates and validates Team IPC, with time for a bounded collection pas
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
   const directory: TeamDirectory = { accountLogin: 'viewer', circles: [] };
+  const totals = { prsOpened: 0, authoredPrsMerged: 0, mergesPerformed: 0, prsReviewed: 0, issuesOpened: 0, issuesClosed: 0, comments: 0,
+    directInteractions: 0, sharedPullRequests: 0, sharedIssues: 0 };
   const activity: TeamActivitySnapshot = {
-    accountLogin: 'viewer', events: [], people: [], coverage: { partial: true, description: 'Observed only', observedSince: null,
-      lastRefreshedAt: null, errors: [], memberCount: 0, membersScanned: 0, repositoryCount: 0, repositoriesScanned: 0, hasMoreEvents: false },
+    accountLogin: 'viewer', events: [], updates: 0, workItems: 0, people: [], totals, days: [{ date: '2026-09-29', updates: 0, collected: false }],
+    coverage: { partial: true, observedSince: null, lastRefreshedAt: null, errors: [], memberCount: 0, membersScanned: 0, repositoryCount: 0, repositoriesScanned: 0 },
   };
   const contributors = [{ id: 42, login: 'alice', avatarUrl: '', bot: false }];
   const fetch = vi.fn(async (url: string | URL) => new Response(JSON.stringify(String(url).includes('/refresh?') ? activity

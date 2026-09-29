@@ -11,235 +11,521 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useRef, useState } from 'react';
-import { LockKeyhole, Pencil, Plus, RefreshCw, Trash2, Users } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Book, Check, ChevronDown, LockKeyhole, Pencil, Plus, RefreshCw, TriangleAlert, UserPlus, Users, X } from 'lucide-react';
 import Avatar from '../Avatar';
 import { ConfirmDialog } from '../ConfirmDialog';
-import { relativeTime } from '../relativeTime';
-import { membersOf } from './activity';
+import Toast from '../Toast';
+import { remoteErrorMessage } from '../pulls/PullOverview';
+import { usePopoverDismiss } from '../pulls/code-tests/Outline';
+import { ago } from '../relativeTime';
+import { ACTIVITY_TYPES, METRICS, membersOf, people, type ActivityType, type Metric } from './activity';
+import CircleActivity, { ACTIVITY_LIMIT_MAX } from './CircleActivity';
+import CircleDialog from './CircleDialog';
+import CircleInsights from './CircleInsights';
+import CircleMembers from './CircleMembers';
 import { parseTeamCreateInput } from './contracts';
-import TeamActivityList from './TeamActivityList';
-import TeamsAttention from './TeamsAttention';
+import NeedsYou, { useLiveAttention, type Notify } from './NeedsYou';
+import PersonPanel from './PersonPanel';
+import { circleNeeds } from './priority';
 import TeamPeoplePicker from './TeamPeoplePicker';
-import type { TeamActivityFilter, TeamCircle, TeamCreateInput, TeamDirectory, TeamMember, TeamMemberInput, TeamPersonStatistics } from './types';
+import type { TeamActivityFilter, TeamCircle, TeamCoverage, TeamCreateInput, TeamDirectory, TeamMember, TeamMemberInput } from './types';
 import { GITHUB_ACCOUNT_CHANGED, updateTeams, useTeams } from './useTeams';
 import { useTeamActivity } from './useTeamActivity';
 import './teams.css';
 
-type Tab = 'attention' | 'activity' | 'people' | 'insights';
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'attention', label: 'Needs you' }, { id: 'activity', label: 'Activity' },
-  { id: 'people', label: 'People' }, { id: 'insights', label: 'Insights' },
-];
+type Tab = 'needs' | 'activity' | 'members' | 'insights';
+const TABS: [Tab, string][] = [['needs', 'Needs you'], ['activity', 'Activity'], ['members', 'Members'], ['insights', 'Insights']];
+type Popover = 'switcher' | 'add' | 'person' | 'coverage' | 'circles' | null;
+type Editing = { circle: TeamCircle | null; name: string } | null;
+type ToastState = { id: number; text: string; undo?: () => void };
+type View = { circleId: string | null; tab: Tab };
+const TEMPLATES = ['Internal engineering', 'Trusted OSS', 'Connector maintainers'];
+const PERIODS = [7, 30, 90];
+const VIEW_KEY = 'bytequay.circles.view.v1';
+
+const scopeShort = (circle: TeamCircle) => circle.repositories.length === 0 ? 'Any repository'
+  : `${circle.repositories[0].split('/')[1]}${circle.repositories.length > 1 ? ` +${circle.repositories.length - 1}` : ''}`;
+
+function savedViews(): Record<string, unknown> {
+  try {
+    const saved: unknown = JSON.parse(window.localStorage.getItem(VIEW_KEY) ?? '{}');
+    return typeof saved === 'object' && saved !== null ? saved as Record<string, unknown> : {};
+  }
+  catch {
+    return {};
+  }
+}
+
+/** The circle and view an account used last; the first visit opens All circles on Needs you. */
+function loadView(account: string): View {
+  const view = savedViews()[account.toLowerCase()];
+  if (typeof view !== 'object' || view === null) return { circleId: null, tab: 'needs' };
+  const { circleId, tab } = view as Record<string, unknown>;
+  return { circleId: typeof circleId === 'string' ? circleId : null, tab: TABS.find(([id]) => id === tab)?.[0] ?? 'needs' };
+}
+
+function saveView(account: string, view: View): void {
+  try { window.localStorage.setItem(VIEW_KEY, JSON.stringify({ ...savedViews(), [account.toLowerCase()]: view })); }
+  catch { /* The remembered view is a convenience; the page works without it. */ }
+}
+
+/** Moves focus through a list of buttons with the arrow keys, as the circle list and the views do. */
+function arrowFocus(event: ReactKeyboardEvent<HTMLElement>, keys: [string, string], select?: (button: HTMLButtonElement) => void): void {
+  if (event.key !== keys[0] && event.key !== keys[1]) return;
+  const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>(':scope > button')];
+  const next = buttons[Math.max(0, Math.min(buttons.length - 1, buttons.indexOf(document.activeElement as HTMLButtonElement) + (event.key === keys[1] ? 1 : -1)))];
+  if (!next) return;
+  event.preventDefault();
+  next.focus();
+  select?.(next);
+}
 
 export default function TeamsPage() {
   const { directory, loading, error: directoryError } = useTeams();
-  const [circleId, setCircleId] = useState('');
-  const [memberId, setMemberId] = useState<number | undefined>();
-  const [tab, setTab] = useState<Tab>('activity');
-  const [days, setDays] = useState(7);
-  const [period, setPeriod] = useState('7');
+  const account = directory?.accountLogin;
+  const viewerLogin = account ?? null;
+  const circles = directory?.circles ?? [];
+  const [view, setView] = useState<View & { account?: string }>({ circleId: null, tab: 'needs' });
+  const [person, setPerson] = useState<number | null>(null);
+  const [period, setPeriod] = useState<number | 'custom'>(30);
+  const [customDays, setCustomDays] = useState(14);
+  const [type, setType] = useState<ActivityType>('all');
+  const [metric, setMetric] = useState<Metric | null>(null);
   const [limit, setLimit] = useState(100);
-  const [filter, setFilter] = useState<TeamActivityFilter>('all');
-  const [addingPeople, setAddingPeople] = useState(false);
+  const [inspect, setInspect] = useState<number | null>(null);
+  const [popover, setPopover] = useState<Popover>(null);
+  const [editing, setEditing] = useState<Editing>(null);
+  const [deleting, setDeleting] = useState<TeamCircle | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [editing, setEditing] = useState<TeamCircle | 'new' | null>(null);
-  const [removing, setRemoving] = useState<TeamCircle | null>(null);
-  const currentAccount = useRef(directory?.accountLogin);
-  currentAccount.current = directory?.accountLogin;
-  const circle = directory?.circles.find(item => item.id === circleId);
-  const circles = circle ? [circle] : directory?.circles ?? [];
-  const members = membersOf(circles);
-  const member = members.find(item => item.githubId === memberId);
-  const selectedMemberId = member?.githubId;
-  const activity = useTeamActivity(directory?.accountLogin, { circleId: circle?.id, memberId: selectedMemberId, days, limit, filter });
-  const events = activity.snapshot?.events ?? [];
+  const [toast, setToast] = useState<ToastState | null>(null);
+  const toastId = useRef(0);
+  const currentAccount = useRef(account);
+  currentAccount.current = account;
+
+  useLayoutEffect(() => {
+    if (account && view.account !== account) setView({ account, ...loadView(account) });
+  }, [account, view.account]);
+  useEffect(() => {
+    if (account && view.account === account) saveView(account, { circleId: view.circleId, tab: view.tab });
+  }, [account, view]);
+
+  const circle = circles.find(item => item.id === view.circleId) ?? null;
+  const tab = view.tab;
+  const scope = circle ? [circle] : circles;
+  const members = membersOf(scope);
+  const everyone = membersOf(circles);
+  const byId = new Map(everyone.map(member => [member.githubId, member]));
+  const logins = new Set(everyone.map(member => member.login.toLowerCase()));
+  const personMember = members.find(member => member.githubId === person) ?? null;
+  const inspected = inspect === null ? null : byId.get(inspect) ?? null;
+  const days = period === 'custom' ? customDays : period;
+  const periodLabel = `Past ${days} ${days === 1 ? 'day' : 'days'}`;
+  const filter: TeamActivityFilter = tab === 'activity' ? metric ?? type : 'all';
+  const activity = useTeamActivity(account, { circleId: circle?.id, memberId: tab === 'members' ? undefined : personMember?.githubId, days, limit, filter });
+  const panelCircle = circle && inspected && circle.members.some(member => member.githubId === inspected.githubId) ? circle : null;
+  const panel = useTeamActivity(inspected ? account : undefined, { circleId: panelCircle?.id, memberId: inspected?.githubId, days, limit: 50 });
+  const attention = useLiveAttention(account);
+  const only = (githubId: number) => (item: TeamCircle) => ({ ...item, members: item.members.filter(member => member.githubId === githubId) });
+  const needs = circleNeeds(attention.live, personMember ? scope.map(only(personMember.githubId)) : scope, viewerLogin);
+  const personNeeds = inspected ? circleNeeds(attention.live, circles.map(only(inspected.githubId)), viewerLogin) : [];
 
   useEffect(() => {
-    const reset = () => { currentAccount.current = undefined; setCircleId(''); setMemberId(undefined); setEditing(null); setRemoving(null); setAddingPeople(false); setError(null); };
+    const reset = () => {
+      currentAccount.current = undefined;
+      setPerson(null); setMetric(null); setType('all'); setInspect(null); setPopover(null); setEditing(null); setDeleting(null); setError(null);
+    };
     window.addEventListener(GITHUB_ACCOUNT_CHANGED, reset);
     return () => window.removeEventListener(GITHUB_ACCOUNT_CHANGED, reset);
   }, []);
 
-  async function mutate(action: () => Promise<TeamDirectory>, done?: (result: TeamDirectory) => void) {
-    if (busy) return;
-    const account = currentAccount.current;
+  function setTab(next: Tab) { setView(current => ({ ...current, tab: next })); setPopover(null); setLimit(100); }
+  function selectCircle(id: string | null) {
+    setView(current => ({ ...current, circleId: id }));
+    setPerson(null); setMetric(null); setType('all'); setLimit(100); setPopover(null); setInspect(null);
+  }
+  function drill(next: Metric, memberId?: number) {
+    setMetric(next); setType('all'); setLimit(100); setPopover(null);
+    if (memberId !== undefined) setPerson(memberId);
+    setView(current => ({ ...current, tab: 'activity' }));
+  }
+  const toggle = (next: Exclude<Popover, null>) => setPopover(current => current === next ? null : next);
+  const notify: Notify = (text, undo) => { toastId.current += 1; setToast({ id: toastId.current, text, undo }); };
+  const openCreate = (name: string) => { setError(null); setPopover(null); setEditing({ circle: null, name }); };
+
+  const keys = useRef({ popover, inspect, dialog: false });
+  keys.current = { popover, inspect, dialog: editing !== null || deleting !== null };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (keys.current.dialog) return;
+      if (event.key === 'Escape') {
+        // Esc closes the top layer: a popover, then the person panel.
+        if (keys.current.popover !== null) setPopover(null);
+        else if (keys.current.inspect !== null) setInspect(null);
+      }
+      else if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && /^[1-4]$/.test(event.key)) {
+        event.preventDefault();
+        setView(current => ({ ...current, tab: TABS[Number(event.key) - 1][0] }));
+        setPopover(null); setLimit(100);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
+  /** Applies a directory change unless the account changed while it ran. */
+  async function mutate(action: () => Promise<TeamDirectory>, failed: (text: string) => void): Promise<TeamDirectory | null> {
+    if (busy) return null;
+    const owner = currentAccount.current;
     setBusy(true); setError(null);
     try {
       const result = await action();
-      if (account !== currentAccount.current || result.accountLogin.toLowerCase() !== account?.toLowerCase()) return;
-      updateTeams(result); done?.(result);
+      if (owner !== currentAccount.current || result.accountLogin.toLowerCase() !== owner?.toLowerCase()) return null;
+      updateTeams(result);
+      return result;
     }
-    catch (failure) { if (account === currentAccount.current) setError(failure instanceof Error ? failure.message : String(failure)); }
+    catch (failure) {
+      if (owner === currentAccount.current) failed(remoteErrorMessage(failure));
+      return null;
+    }
     finally { setBusy(false); }
   }
 
-  function openPerson(id: number) { setMemberId(id); setTab('insights'); setFilter('all'); }
-  function inspect(next: TeamActivityFilter) { setFilter(next); setLimit(100); setTab('activity'); }
-  const people = activity.snapshot?.people ?? [];
+  function saveCircle(value: TeamCreateInput) {
+    let input: TeamCreateInput;
+    try { input = parseTeamCreateInput(value); }
+    catch (failure) { setError(remoteErrorMessage(failure)); return; }
+    const existing = editing?.circle ?? null;
+    const before = circles;
+    void mutate(() => existing ? window.bridge.updateTeam(existing.id, input) : window.bridge.createTeam(input), setError).then(result => {
+      if (result === null) return;
+      setEditing(null);
+      if (existing) { notify(`Saved “${input.name}”`); return; }
+      const added = result.circles.find(item => !before.some(previous => previous.id === item.id));
+      if (added) {
+        selectCircle(added.id);
+        setView(current => ({ ...current, tab: input.members.length > 0 ? 'needs' : 'members' }));
+      }
+      notify(`Created “${input.name}”${input.members.length > 0 ? ` with ${people(input.members.length).toLowerCase()}` : ''}`);
+    });
+  }
 
-  return <div className="teams-page">
-    <header className="teams-heading">
-      <div><div className="teams-eyebrow"><LockKeyhole size={12} /> Only you</div><h1>Teams</h1>
-        <p>Keep the people you trust close to your work.</p></div>
-      <button type="button" className="bq-button bq-button--primary" disabled={directory === null || busy} onClick={() => setEditing('new')}>
-        <Plus size={15} /> New circle
-      </button>
-    </header>
-    {(error || directoryError) && <div className="teams-error" role="alert">{error || directoryError}</div>}
-    {loading && directory === null && <div className="teams-empty" role="status">Loading your circles…</div>}
-    {directory !== null && directory.circles.length === 0 && <div className="teams-welcome">
-      <Users size={32} strokeWidth={1.4} /><h2>Your people, in one place</h2>
-      <p>Create a private circle for your colleagues or trusted open-source collaborators. Choose people from your saved repository contributors.</p>
-      <p>No invitations. No member limit. Your repository access stays the same.</p>
-      <button type="button" className="bq-button bq-button--primary" onClick={() => setEditing('new')}>Create your first circle</button>
-    </div>}
-    {directory !== null && directory.circles.length > 0 && <>
-      <div className="teams-controls">
-        <label>Circle<select aria-label="Circle" value={circle?.id ?? ''} onChange={event => { setCircleId(event.target.value); setMemberId(undefined); setLimit(100); setAddingPeople(false); }}>
-          <option value="">All circles</option>
-          {directory.circles.map(item => <option key={item.id} value={item.id}>{item.name} · {item.members.length}</option>)}
-        </select></label>
-        <label>Person<select aria-label="Person" value={selectedMemberId ?? ''} onChange={event => { setMemberId(event.target.value ? Number(event.target.value) : undefined); setLimit(100); }}>
-          <option value="">Everyone</option>
-          {members.map(item => <option key={item.githubId} value={item.githubId}>{item.login}</option>)}
-        </select></label>
-        {tab !== 'attention' && <label>Period<select aria-label="Period" value={period} onChange={event => {
-          setPeriod(event.target.value); if (event.target.value !== 'custom') setDays(Number(event.target.value));
-        }}><option value="7">Past 7 days</option><option value="30">Past 30 days</option><option value="90">Past 90 days</option><option value="custom">Custom period</option></select></label>}
-        {period === 'custom' && tab !== 'attention' && <label>Past days<input aria-label="Past days" type="number" min={1} max={90} value={days}
-          onChange={event => { const value = Number(event.target.value); if (Number.isInteger(value) && value >= 1 && value <= 90) setDays(value); }} /></label>}
-        <div className="teams-controls-end">
-          {circle && <button type="button" className="bq-button" aria-label={`Edit ${circle.name}`} onClick={() => setEditing(circle)}><Pencil size={13} /> Edit circle</button>}
-          <button type="button" className="bq-button" disabled={activity.refreshing || members.length === 0} onClick={() => { void activity.refresh(); }}>
-            <RefreshCw size={14} className={activity.refreshing ? 'teams-spinning' : undefined} />{activity.refreshing ? 'Refreshing…' : 'Refresh'}
-          </button>
+  function deleteCircle(target: TeamCircle) {
+    void mutate(() => window.bridge.removeTeam(target.id), text => notify(`Couldn’t delete “${target.name}”: ${text}`)).then(result => {
+      if (result === null) return;
+      setDeleting(null);
+      selectCircle(null);
+      notify(`Deleted “${target.name}”`);
+    });
+  }
+
+  function addMember(target: TeamCircle, member: TeamMemberInput) {
+    void mutate(() => window.bridge.addTeamMember(target.id, member), text => notify(`Couldn’t add ${member.login}: ${text}`)).then(result => {
+      if (result !== null) notify(`Added ${member.login} to ${target.name} · they aren’t notified`);
+    });
+  }
+
+  function removeMember(target: TeamCircle, member: TeamMember) {
+    const others = circles.filter(item => item.id !== target.id && item.members.some(person => person.githubId === member.githubId));
+    void mutate(() => window.bridge.removeTeamMember(target.id, member.githubId), text => notify(`Couldn’t remove ${member.login}: ${text}`)).then(result => {
+      // Undo re-adds the stored GitHub ID, which is verified again like any addition.
+      if (result !== null) notify(`Removed ${member.login} from ${target.name}${others.length > 0 ? ` · still in ${others[0].name}` : ''}`,
+        () => addMember(target, { githubId: member.githubId, login: member.login }));
+    });
+  }
+
+  function toggleCircle(target: TeamCircle, add: boolean, member: TeamMember) {
+    void mutate(() => add ? window.bridge.addTeamMember(target.id, { githubId: member.githubId, login: member.login })
+      : window.bridge.removeTeamMember(target.id, member.githubId), text => notify(text)).then(result => {
+      if (result !== null) notify(`${add ? 'Added to' : 'Removed from'} ${target.name}`);
+    });
+  }
+
+  function refresh() {
+    setPopover(null);
+    void activity.refresh().then(() => { if (inspected) void panel.reload(); });
+  }
+
+  const dialogs = <>
+    {editing && <CircleDialog key={editing.circle?.id ?? 'new'} circle={editing.circle} initialName={editing.name} circles={circles} busy={busy} error={error}
+      onSave={saveCircle} onCancel={() => { setEditing(null); setError(null); }} onClearError={() => setError(null)}
+      onDelete={editing.circle ? () => { setDeleting(editing.circle); setEditing(null); } : undefined}
+      onManagePeople={() => { setEditing(null); setTab('members'); setPopover('add'); }} />}
+    {deleting && <ConfirmDialog title={`Delete “${deleting.name}”?`} confirmLabel="Delete circle" destructive busy={busy}
+      onCancel={() => setDeleting(null)} onConfirm={() => deleteCircle(deleting)}>
+      <p>This removes the private circle and its Home priority preference. {deleting.members.length === 0 ? 'Nothing changes on GitHub.'
+        : `Its ${people(deleting.members.length).toLowerCase()} ${deleting.members.length === 1 ? 'stays' : 'stay'} in any other circles, and nothing changes on GitHub.`}</p>
+    </ConfirmDialog>}
+    {toast && <Toast key={toast.id} text={toast.text} onDismiss={() => setToast(null)}
+      onUndo={toast.undo ? () => { toast.undo?.(); setToast(null); } : undefined} />}
+  </>;
+
+  if (directory === null) return <div className="cir-page">
+    {directoryError && !loading ? <div className="cir-empty" role="alert"><h2>Circles are unavailable</h2><p>{directoryError}</p></div> : <LoadingPage />}
+  </div>;
+
+  if (circles.length === 0) return <div className="cir-page">
+    <FirstUse onCreate={openCreate} />
+    {dialogs}
+  </div>;
+
+  const coverage = activity.snapshot?.coverage ?? null;
+  const status = activity.refreshing ? { tone: 'busy', text: 'Refreshing…' } : activity.refreshError ? { tone: 'failed', text: 'Refresh failed' }
+    : { tone: coverage?.partial ? 'partial' : 'ok', text: `${coverage?.partial ? 'Partial · ' : ''}${coverage?.lastRefreshedAt ? `Updated ${ago(coverage.lastRefreshedAt)}` : 'Not collected yet'}` };
+  const title = circle?.name ?? 'All circles';
+  const description = circle ? circle.description
+    : `${everyone.length} ${everyone.length === 1 ? 'person' : 'people'} in ${circles.length} ${circles.length === 1 ? 'circle' : 'circles'} · private to you`;
+  const counts: Partial<Record<Tab, number>> = { needs: needs.length, members: members.length };
+  const emptyScope = personMember?.login ?? (circle ? `people in ${circle.name}` : 'people in your circles');
+
+  return <div className="cir-page">
+    <section className="cir-pane" aria-label="Circles">
+      <div className="cir-pane__head">
+        <span className="cir-pane__title">Circles</span><span className="cir-muted">{circles.length}</span><span className="cir-spacer" />
+        <button type="button" className="cir-iconbtn" aria-label="New circle" title="New circle" onClick={() => openCreate('')}><Plus size={16} strokeWidth={1.9} aria-hidden="true" /></button>
+      </div>
+      <nav className="cir-pane__list" aria-label="Circle list" onKeyDown={event => arrowFocus(event, ['ArrowUp', 'ArrowDown'])}>
+        <button type="button" className={`cir-pane__row${circle === null ? ' is-current' : ''}`} aria-current={circle === null ? 'page' : undefined} onClick={() => selectCircle(null)}>
+          <span className="cir-initial" aria-hidden="true"><Users size={14} /></span>
+          <span className="cir-pane__name">All circles</span><span className="cir-muted">{everyone.length}</span>
+        </button>
+        <span className="cir-pane__rule" aria-hidden="true" />
+        {circles.map(item => <button type="button" key={item.id} title={item.name} className={`cir-pane__row${circle?.id === item.id ? ' is-current' : ''}`}
+          aria-current={circle?.id === item.id ? 'page' : undefined} onClick={() => selectCircle(item.id)}>
+          <span className="cir-initial" aria-hidden="true">{item.name.charAt(0).toUpperCase()}</span>
+          <span className="cir-stack"><span className="cir-pane__name">{item.name}</span><span className="cir-pane__meta">{people(item.members.length)} · {scopeShort(item)}</span></span>
+        </button>)}
+      </nav>
+      <div className="cir-pane__foot"><LockKeyhole size={12} strokeWidth={2} aria-hidden="true" />Private to you · no one is notified</div>
+    </section>
+
+    <main className="cir-main">
+      <div className="cir-work">
+        <header className="bq-page-header">
+          <div className="bq-page-header__main">
+            <div className="cir-anchor cir-switcher">
+              <button type="button" className="cir-switcher__button" aria-haspopup="menu" aria-expanded={popover === 'switcher'} onClick={() => toggle('switcher')}>
+                <Users size={13} aria-hidden="true" />Circles<ChevronDown size={12} strokeWidth={2.2} aria-hidden="true" />
+              </button>
+              {popover === 'switcher' && <Switcher circles={circles} current={circle} everyone={everyone.length} onSelect={selectCircle}
+                onCreate={() => openCreate('')} onClose={() => setPopover(null)} />}
+            </div>
+            <h1 className="bq-page-header__title" title={title}>{title}</h1>
+            {description && <p className="bq-page-header__text">{description}</p>}
+            {circle && <div className="bq-page-header__meta">
+              <button type="button" className="cir-people" onClick={() => setTab('members')}>
+                {members.length > 0 && <span className="cir-avatars">{members.slice(0, 5).map(member =>
+                  <Avatar key={member.githubId} login={member.login} avatarUrl={member.avatarUrl} size={22} />)}</span>}
+                {members.length > 5 && <span className="cir-muted">+{members.length - 5}</span>}
+                <span>{people(members.length)}</span>
+              </button>
+              <span className="cir-scope" title="Repository scope filters activity. It doesn’t watch repositories or change access.">
+                <Book size={13} aria-hidden="true" /><span className="cir-ellipsis">{circle.repositories.length > 0 ? circle.repositories.join(', ') : 'Any repository with recorded activity'}</span>
+              </span>
+            </div>}
+          </div>
+          <div className="bq-page-header__actions cir-anchor">
+            {circle ? <>
+              <button type="button" className="bq-button" aria-haspopup="dialog" aria-expanded={popover === 'add'} onClick={() => {
+                const opening = popover !== 'add';
+                setTab('members');
+                setPopover(opening ? 'add' : null);
+              }}><UserPlus aria-hidden="true" />Add people</button>
+              <button type="button" className="bq-button" onClick={() => { setError(null); setPopover(null); setEditing({ circle, name: circle.name }); }}>
+                <Pencil aria-hidden="true" />Edit
+              </button>
+              {popover === 'add' && <TeamPeoplePicker key={circle.id} circle={circle} circles={circles} busy={busy}
+                onAdd={member => addMember(circle, member)} onClose={() => setPopover(null)} />}
+            </> : <button type="button" className="bq-button" onClick={() => openCreate('')}><Plus aria-hidden="true" />New circle</button>}
+          </div>
+        </header>
+
+        <nav className="bq-page-tabs" role="tablist" aria-label="Circle views"
+          onKeyDown={event => arrowFocus(event, ['ArrowLeft', 'ArrowRight'], button => setTab(TABS[Number(button.dataset.index)][0]))}>
+          {TABS.map(([id, label], index) => <button key={id} type="button" role="tab" data-index={index} aria-selected={tab === id} tabIndex={tab === id ? 0 : -1}
+            title={`⌘${index + 1}`} className="bq-page-tabs__tab" onClick={() => setTab(id)}>
+            {label}{counts[id] !== undefined && <span className="bq-page-tabs__count">{counts[id]}</span>}
+          </button>)}
+        </nav>
+
+        <div className="bq-page-filters">
+          {tab !== 'members' && <div className="cir-anchor">
+            <button type="button" className="cir-select" aria-haspopup="listbox" aria-expanded={popover === 'person'} aria-label="Person" onClick={() => toggle('person')}>
+              {personMember ? <Avatar login={personMember.login} avatarUrl={personMember.avatarUrl} size={16} /> : <Users size={14} aria-hidden="true" />}
+              <span className="cir-ellipsis">{personMember?.login ?? 'Everyone'}</span><ChevronDown size={12} strokeWidth={2.2} aria-hidden="true" />
+            </button>
+            {popover === 'person' && <PersonFilter members={members} selected={personMember} onClose={() => setPopover(null)}
+              onSelect={id => { setPerson(id); setPopover(null); setLimit(100); }} />}
+          </div>}
+          {tab === 'needs' ? <span className="cir-muted">Current backlog · not limited by period</span> : <>
+            <div className="atn-filters" role="group" aria-label="Period">
+              {PERIODS.map(value => <button key={value} type="button" aria-pressed={period === value} title={`Past ${value} days`}
+                className={`atn-filter${period === value ? ' is-active' : ''}`} onClick={() => { setPeriod(value); setLimit(100); }}>{value}d</button>)}
+              <button type="button" aria-pressed={period === 'custom'} title="Custom period, 1–90 days" className={`atn-filter${period === 'custom' ? ' is-active' : ''}`}
+                onClick={() => setPeriod('custom')}>Custom</button>
+            </div>
+            {period === 'custom' && <label className="cir-days">Past<input type="number" min={1} max={90} value={customDays} aria-label="Past days, 1 to 90"
+              onChange={event => { const value = Math.round(Number(event.target.value)); if (value >= 1 && value <= 90) { setCustomDays(value); setLimit(100); } }} />days</label>}
+          </>}
+          {tab === 'activity' && (metric === null
+            ? <div className="atn-filters" role="group" aria-label="Activity type">
+              {ACTIVITY_TYPES.map(([id, label]) => <button key={id} type="button" aria-pressed={type === id} className={`atn-filter${type === id ? ' is-active' : ''}`}
+                onClick={() => { setType(id); setLimit(100); }}>{label}</button>)}
+            </div>
+            : <span className="cir-metric-chip">From Insights: <span className="cir-strong">{METRICS[metric]}</span>
+              <button type="button" aria-label="Clear metric filter" onClick={() => { setMetric(null); setLimit(100); }}><X size={12} strokeWidth={2.2} aria-hidden="true" /></button>
+            </span>)}
+          <span className="cir-spacer" />
+          <div className="cir-anchor cir-status-group">
+            <button type="button" className={`cir-status is-${status.tone}`} aria-haspopup="dialog" aria-expanded={popover === 'coverage'} onClick={() => toggle('coverage')}>
+              <span className="cir-status__dot" aria-hidden="true" />{status.text}
+            </button>
+            <button type="button" className="bq-button cir-refresh" aria-label="Refresh activity" title="Refresh (runs one bounded collection pass)"
+              disabled={activity.refreshing} onClick={refresh}>
+              {activity.refreshing ? <span className="cir-spinner" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
+            </button>
+            {popover === 'coverage' && <CoveragePopover coverage={coverage} refreshError={activity.refreshError} onRefresh={refresh} onClose={() => setPopover(null)} />}
+          </div>
+        </div>
+
+        <div className="cir-body">
+          {activity.refreshError && <div className="cir-banner" role="alert">
+            <TriangleAlert size={15} aria-hidden="true" />
+            <span className="cir-banner__text"><span className="cir-strong">Couldn’t refresh.</span> {activity.refreshError.replace(/\.?$/, '.')} You’re seeing activity recorded {
+              coverage?.lastRefreshedAt ? ago(coverage.lastRefreshedAt) : 'earlier'}.</span>
+            <button type="button" className="bq-button" onClick={refresh}>Try again</button>
+            <button type="button" className="bq-button bq-button--ghost" onClick={() => setPopover('coverage')}>Details</button>
+            <button type="button" className="cir-iconbtn" aria-label="Dismiss" title="Dismiss" onClick={activity.dismissRefreshError}><X size={14} aria-hidden="true" /></button>
+          </div>}
+          {activity.error && <div className="cir-banner" role="alert"><TriangleAlert size={15} aria-hidden="true" /><span className="cir-banner__text">{activity.error}</span></div>}
+          {attention.error && tab === 'needs' && <div className="cir-banner is-quiet" role="status">{attention.error}</div>}
+          {tab === 'needs' ? <NeedsYou needs={needs} circles={circles} allMemberLogins={logins} viewerLogin={viewerLogin} showCircle={circle === null}
+            handled={attention.handled} setHandled={attention.setHandled} notify={notify} onPerson={setInspect} onActivity={() => setTab('activity')} emptyScope={emptyScope} />
+            : activity.snapshot === null ? <LoadingRows />
+              : tab === 'activity' ? <CircleActivity snapshot={activity.snapshot} people={byId} viewerLogin={viewerLogin} days={days}
+                personLogin={personMember?.login ?? null} metricLabel={metric ? METRICS[metric] : null} filtered={personMember !== null || metric !== null || type !== 'all'}
+                canLoadMore={limit < ACTIVITY_LIMIT_MAX} onLoadMore={() => setLimit(value => Math.min(ACTIVITY_LIMIT_MAX, value + 100))}
+                onWiden={() => { setPeriod(90); setLimit(100); }} onClear={() => { setPerson(null); setMetric(null); setType('all'); setLimit(100); }} />
+                : tab === 'members' ? <CircleMembers circle={circle} circles={circles} members={members} statistics={activity.snapshot.people} periodLabel={periodLabel}
+                  inspected={inspect} busy={busy} onInspect={setInspect} onRemove={member => { if (circle) removeMember(circle, member); }} onAddPeople={() => setPopover('add')} />
+                  : <CircleInsights snapshot={activity.snapshot} caption={`${personMember?.login ?? title} · ${periodLabel}`} members={byId}
+                    personId={personMember?.githubId ?? null} onDrill={drill} onPerson={setInspect} />}
         </div>
       </div>
-      <div className="teams-scope">{circle?.repositories.length ? circle.repositories.join(' · ') : 'Available activity across repositories'}
-        <span>{members.length} {members.length === 1 ? 'person' : 'people'}</span></div>
-      {circle?.description && <p className="teams-description">{circle.description}</p>}
-      {member && <div className="teams-person-heading"><Avatar login={member.login} avatarUrl={member.avatarUrl} size={42} />
-        <div><h2>{member.name || member.login}</h2><span>@{member.login}</span></div>
-        <button type="button" className="bq-button" onClick={() => setMemberId(undefined)}>Everyone</button></div>}
-      <nav className="teams-tabs" aria-label="Team views">{TABS.map(item => <button key={item.id} type="button" aria-current={tab === item.id ? 'page' : undefined}
-        onClick={() => setTab(item.id)}>{item.label}</button>)}</nav>
-
-      {tab === 'attention' && <TeamsAttention accountLogin={directory.accountLogin} circleId={circle?.id} memberId={selectedMemberId} />}
-      {tab === 'people' && <>
-        {circle ? <div className="teams-add-person">
-          <button type="button" className="bq-button" aria-expanded={addingPeople} aria-haspopup="listbox" disabled={busy}
-            onClick={() => setAddingPeople(value => !value)}><Plus size={14} /> Add people</button>
-          {addingPeople && <TeamPeoplePicker key={`${directory.accountLogin}:${circle.id}`} selected={circle.members}
-            knownPeople={membersOf(directory.circles)} busy={busy} lockSelected
-            onToggle={person => { void mutate(() => window.bridge.addTeamMember(circle.id, person)); }} />}
-          <p>Search contributors from all your saved repositories. They won’t be notified.</p>
-        </div> : <p className="teams-muted">Choose a circle to add or remove people.</p>}
-        <div className="teams-people">{(member ? [member] : members).map(person => {
-          const stats = people.find(item => item.memberId === person.githubId);
-          return <div className="teams-person" key={person.githubId}>
-            <button type="button" className="teams-person-link" onClick={() => openPerson(person.githubId)}>
-              <Avatar login={person.login} avatarUrl={person.avatarUrl} size={34} />
-              <span><strong>{person.name || person.login}</strong><small>@{person.login}</small></span>
-            </button>
-            <span className="teams-person-count">{stats ? `${stats.authoredPrsMerged} PRs merged · ${stats.prsReviewed} reviewed` : 'No recorded activity'}</span>
-            {circle && <button type="button" className="bq-button" disabled={busy} aria-label={`Remove ${person.login} from ${circle.name}`}
-              onClick={() => { void mutate(() => window.bridge.removeTeamMember(circle.id, person.githubId)); }}><Trash2 size={14} /></button>}
-          </div>;
-        })}</div>
-        {members.length === 0 && <div className="teams-empty">Add your first person to start following their work.</div>}
-      </>}
-      {tab === 'insights' && <>
-        <div className="teams-section-heading"><h2>{member ? 'Contributions' : 'Recorded contributions'}</h2><span>Past {days} days</span></div>
-        <div className="teams-stats">
-          <Stat label="Authored PRs merged" value={total(people, 'authoredPrsMerged')} onClick={() => inspect('authored-merges')} />
-          <Stat label="PRs reviewed by person" value={total(people, 'prsReviewed')} onClick={() => inspect('reviews-performed')} />
-          <Stat label="Issues opened" value={total(people, 'issuesOpened')} onClick={() => inspect('issues-opened')} />
-          <Stat label="Direct interactions with you" value={total(people, 'directInteractions')} onClick={() => inspect('interactions')} />
-        </div>
-        <p className="teams-muted">Counts cover recorded activity. Reviews count once per person and pull request; direct interactions count explicit mentions, requests to review, and reviews of each other’s PRs.</p>
-        <div className="teams-table-scroll"><table className="teams-table"><thead><tr><th>Person</th><th>PRs opened</th><th>Merged as author</th><th>Merges performed</th><th>Reviewed</th><th>Comments</th><th>With you</th></tr></thead>
-          <tbody>{people.map(person => <tr key={person.memberId}><td><button type="button" onClick={() => openPerson(person.memberId)}>{person.login}</button></td>
-            <td>{person.prsOpened}</td><td>{person.authoredPrsMerged}</td><td>{person.mergesPerformed}</td><td>{person.prsReviewed}</td><td>{person.comments}</td><td>{person.directInteractions}</td></tr>)}</tbody></table></div>
-        {member && people[0] && <div className="teams-shared"><h3>Work you both participated in</h3>
-          <p>{people[0].sharedPullRequests} pull requests · {people[0].sharedIssues} issues · {people[0].issuesClosed} issues closed by {member.login}</p>
-          <p className="teams-muted">Shared work does not necessarily mean a direct conversation.</p>
-          <button type="button" className="bq-button" onClick={() => inspect('all')}>View recorded activity</button></div>}
-      </>}
-      {tab === 'activity' && <>
-        <div className="teams-section-heading"><h2>{member ? `${member.login}’s activity` : 'Team updates'}</h2>
-          <select aria-label="Activity type" value={filter} onChange={event => { setFilter(event.target.value as TeamActivityFilter); setLimit(100); }}>
-            <option value="all">All updates</option><option value="merged">Merged PRs</option><option value="reviews">Reviews</option><option value="issues">Issues</option><option value="interactions">With you</option>
-            <option value="authored-merges">Authored PRs merged</option><option value="reviews-performed">Reviews performed</option><option value="issues-opened">Issues opened</option>
-          </select></div>
-        {activity.loading ? <div className="teams-empty" role="status">Loading recorded activity…</div>
-          : <TeamActivityList events={events} members={members} onPerson={openPerson} />}
-        {activity.snapshot?.coverage.hasMoreEvents && <div className="teams-more"><span>Showing the latest {limit} source updates. Statistics include all retained observations in this period.</span>
-          {limit < 500 && <button type="button" className="bq-button" onClick={() => setLimit(value => Math.min(500, value + 100))}>Show more</button>}
-          {limit >= 500 && <span>Narrow the period or select a person to see more detail.</span>}</div>}
-      </>}
-      {activity.error && <div className="teams-error" role="alert">{activity.error}</div>}
-      {activity.snapshot && <details className="teams-coverage"><summary>
-        Observed activity · {activity.snapshot.coverage.lastRefreshedAt ? `Refreshed ${relativeTime(activity.snapshot.coverage.lastRefreshedAt)}` : 'Not refreshed yet'}
-      </summary><p>{activity.snapshot.coverage.description}</p>
-        <p>{activity.snapshot.coverage.membersScanned} of {activity.snapshot.coverage.memberCount} people and {activity.snapshot.coverage.repositoriesScanned} of {activity.snapshot.coverage.repositoryCount} repositories scanned in the latest pass.</p>
-        {activity.snapshot.coverage.observedSince && <p>Observations retained since {new Date(activity.snapshot.coverage.observedSince).toLocaleDateString()}.</p>}
-        {activity.snapshot.coverage.errors.map((message, index) => <p key={index} className="teams-error">{message}</p>)}
-      </details>}
-    </>}
-    {editing !== null && <CircleDialog circle={editing === 'new' ? null : editing} knownPeople={membersOf(directory?.circles ?? [])} busy={busy} error={error} onCancel={() => { setEditing(null); setError(null); }}
-      onSave={value => {
-        try {
-          const input = parseTeamCreateInput(value);
-          const existing = editing === 'new' ? null : editing;
-          void mutate(() => existing ? window.bridge.updateTeam(existing.id, input) : window.bridge.createTeam(input), result => {
-            const added = existing ?? result.circles.find(item => !directory?.circles.some(previous => previous.id === item.id));
-            if (added) setCircleId(added.id);
-            setEditing(null); setTab('people');
-          });
-        }
-        catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); }
-      }} onRemove={editing === 'new' ? undefined : () => { setRemoving(editing); setEditing(null); }} />}
-    {removing && <ConfirmDialog title={`Delete ${removing.name}?`} confirmLabel="Delete circle" destructive busy={busy}
-      onCancel={() => setRemoving(null)} onConfirm={() => { void mutate(() => window.bridge.removeTeam(removing.id), () => { setRemoving(null); setCircleId(''); }); }}>
-      <p>This removes the private circle and its priority preference. People in other circles stay there.</p>
-    </ConfirmDialog>}
+      {inspected && <PersonPanel member={inspected} circles={circles} backLabel={title} needs={personNeeds} snapshot={panel.snapshot} periodLabel={periodLabel}
+        viewerLogin={viewerLogin} circlesOpen={popover === 'circles'} busy={busy}
+        onClose={() => { setInspect(null); setPopover(current => current === 'circles' ? null : current); }}
+        onCircles={open => setPopover(open ? 'circles' : null)} onSelectCircle={selectCircle}
+        onToggleCircle={(target, add) => toggleCircle(target, add, inspected)} onDrill={next => drill(next, inspected.githubId)}
+        onAllActivity={() => { setPerson(inspected.githubId); setMetric(null); setType('all'); setLimit(100); setTab('activity'); }} />}
+    </main>
+    {dialogs}
   </div>;
 }
 
-function total(people: TeamPersonStatistics[], field: keyof Omit<TeamPersonStatistics, 'memberId' | 'login'>): number {
-  return people.reduce((sum, person) => sum + person[field], 0);
-}
-
-function Stat({ label, value, onClick }: { label: string; value: number; onClick: () => void }) {
-  return <button type="button" className="teams-stat" onClick={onClick}><strong>{value}</strong><span>{label}</span></button>;
-}
-
-function CircleDialog({ circle, knownPeople, busy, error, onSave, onCancel, onRemove }: {
-  circle: TeamCircle | null; knownPeople: TeamMember[]; busy: boolean; error: string | null;
-  onSave: (input: TeamCreateInput) => void; onCancel: () => void; onRemove?: () => void;
+function Switcher({ circles, current, everyone, onSelect, onCreate, onClose }: {
+  circles: TeamCircle[];
+  current: TeamCircle | null;
+  everyone: number;
+  onSelect: (id: string | null) => void;
+  onCreate: () => void;
+  onClose: () => void;
 }) {
-  const [name, setName] = useState(circle?.name ?? '');
-  const [description, setDescription] = useState(circle?.description ?? '');
-  const [selectedPeople, setSelectedPeople] = useState<TeamMemberInput[]>([]);
-  const [repositories, setRepositories] = useState(circle?.repositories.join('\n') ?? '');
-  return <ConfirmDialog title={circle ? 'Edit circle' : 'New private circle'} confirmLabel={circle ? 'Save circle' : 'Create circle'} busy={busy}
-    confirmDisabled={!name.trim()} onCancel={onCancel} onConfirm={() => onSave({ name, description, repositories: repositories.split(/[\s,]+/).filter(Boolean), members: selectedPeople })}>
-    <div className="teams-circle-form">
-      <label>Name<input aria-label="Circle name" maxLength={100} value={name} placeholder="Trusted OSS" onChange={event => setName(event.target.value)} /></label>
-      <label>Description <span>(optional)</span><textarea aria-label="Circle description" rows={2} maxLength={2000} value={description}
-        placeholder="People I review and collaborate with" onChange={event => setDescription(event.target.value)} /></label>
-      {!circle && <div className="teams-circle-people"><div className="teams-circle-people-heading">People <span>{selectedPeople.length} selected</span></div>
-        <TeamPeoplePicker selected={selectedPeople} knownPeople={knownPeople} busy={busy}
-          onToggle={candidate => setSelectedPeople(people => people.some(person => person.githubId === candidate.githubId)
-            ? people.filter(person => person.githubId !== candidate.githubId) : [...people, candidate])} />
-        <p>Choose from all your saved repository contributors. You can add more people later.</p></div>}
-      <label>Repositories <span>(optional)</span><textarea aria-label="Circle repositories" rows={3} value={repositories} placeholder="trinodb/trino"
-        onChange={event => setRepositories(event.target.value)} /></label>
-      <p>Leave blank for available activity across repositories, or enter one owner/repository per line. Watch a repository in ByteQuay to collect its internal activity.</p>
-      {error && <div className="teams-error" role="alert">{error}</div>}
-      {onRemove && <button type="button" className="bq-button teams-danger" disabled={busy} onClick={onRemove}><Trash2 size={13} /> Delete circle</button>}
+  const host = usePopoverDismiss(onClose, true);
+  const row = (id: string | null, name: string, count: number) => <button type="button" role="menuitem" key={id ?? 'all'} className="cir-menu__item" onClick={() => onSelect(id)}>
+    <span className="cir-menu__check">{(current?.id ?? null) === id && <Check size={14} strokeWidth={2.2} aria-hidden="true" />}</span>
+    <span className="cir-ellipsis">{name}</span><span className="cir-muted">{count} people</span>
+  </button>;
+  return <div ref={host} className="cir-popover cir-menu cir-switcher__menu" role="menu" aria-label="Circles">
+    {row(null, 'All circles', everyone)}
+    {circles.map(item => row(item.id, item.name, item.members.length))}
+    <span className="cir-menu__rule" aria-hidden="true" />
+    <button type="button" role="menuitem" className="cir-menu__item" onClick={onCreate}><span className="cir-menu__check"><Plus size={14} aria-hidden="true" /></span>New circle</button>
+  </div>;
+}
+
+function PersonFilter({ members, selected, onSelect, onClose }: {
+  members: TeamMember[];
+  selected: TeamMember | null;
+  onSelect: (id: number | null) => void;
+  onClose: () => void;
+}) {
+  const host = usePopoverDismiss(onClose, true);
+  return <div ref={host} className="cir-popover cir-menu cir-person-filter" role="listbox" aria-label="Filter by person">
+    <button type="button" role="option" aria-selected={selected === null} className="cir-menu__item" onClick={() => onSelect(null)}>
+      <span className="cir-menu__check">{selected === null && <Check size={14} strokeWidth={2.2} aria-hidden="true" />}</span>
+      <Users size={16} aria-hidden="true" /><span>Everyone</span><span className="cir-muted">{people(members.length)}</span>
+    </button>
+    {members.map(member => <button type="button" role="option" key={member.githubId} aria-selected={selected?.githubId === member.githubId} className="cir-menu__item"
+      onClick={() => onSelect(member.githubId)}>
+      <span className="cir-menu__check">{selected?.githubId === member.githubId && <Check size={14} strokeWidth={2.2} aria-hidden="true" />}</span>
+      <Avatar login={member.login} avatarUrl={member.avatarUrl} size={20} /><span className="cir-ellipsis">{member.login}</span>
+      <span className="cir-muted cir-ellipsis">{member.name !== member.login ? member.name : ''}</span>
+    </button>)}
+  </div>;
+}
+
+function CoveragePopover({ coverage, refreshError, onRefresh, onClose }: {
+  coverage: TeamCoverage | null;
+  refreshError: string | null;
+  onRefresh: () => void;
+  onClose: () => void;
+}) {
+  const host = usePopoverDismiss(onClose, true);
+  const errors = [...(coverage?.errors ?? []), ...(refreshError ? [refreshError] : [])];
+  return <div ref={host} className="cir-popover cir-coverage" role="dialog" aria-label="Observed activity">
+    <div className="cir-strong">Observed activity</div>
+    {coverage && <p>{coverage.lastRefreshedAt ? `Last refreshed ${ago(coverage.lastRefreshedAt)}.` : 'Not collected yet.'} {coverage.membersScanned} of {coverage.memberCount} people
+      and {coverage.repositoriesScanned} of {coverage.repositoryCount} repositories scanned in the latest pass.</p>}
+    <p>Up to 90 days are kept{coverage?.observedSince ? `, since ${new Date(coverage.observedSince).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : ''}.
+      Private repositories are collected only when watched and accessible to this account.</p>
+    {errors.length > 0 && <div className="cir-coverage__errors">{errors.map((text, index) => <span key={index}>{text}</span>)}</div>}
+    <div className="cir-coverage__actions">
+      <button type="button" className="bq-button bq-button--primary" onClick={onRefresh}>Refresh now</button>
+      <button type="button" className="bq-button" onClick={onClose}>Close</button>
     </div>
-  </ConfirmDialog>;
+  </div>;
+}
+
+function FirstUse({ onCreate }: { onCreate: (name: string) => void }) {
+  return <div className="cir-first">
+    <div className="cir-first__inner">
+      <span className="cir-first__icon" aria-hidden="true"><Users size={20} strokeWidth={1.7} /></span>
+      <h1>Keep the people you review close</h1>
+      <p>A circle is a private list of GitHub people — colleagues or trusted open-source contributors. See what needs your review from them,
+        what they’ve been working on, and how you’ve collaborated.</p>
+      <ul className="cir-facts">
+        {['Only you can see it', 'No invitations or notifications', 'GitHub access stays the same'].map(fact =>
+          <li key={fact}><Check size={13} strokeWidth={2.4} aria-hidden="true" />{fact}</li>)}
+      </ul>
+      <button type="button" className="bq-button bq-button--primary bq-button--large" onClick={() => onCreate('')}><Plus aria-hidden="true" />Create a circle</button>
+      <div className="cir-muted cir-first__or">Or start from a name</div>
+      <div className="cir-templates">{TEMPLATES.map(name => <button type="button" key={name} className="cir-template" onClick={() => onCreate(name)}>{name}</button>)}</div>
+    </div>
+  </div>;
+}
+
+function LoadingRows() {
+  return <div className="cir-skeleton" role="status" aria-label="Loading recorded activity">
+    {[0, 1, 2, 3, 4].map(index => <div key={index} className="cir-skeleton__row"><span className="cir-skeleton__dot" />
+      <span className="cir-stack"><span className="cir-skeleton__line" /><span className="cir-skeleton__line is-short" /></span></div>)}
+  </div>;
+}
+
+function LoadingPage() {
+  return <>
+    <section className="cir-pane" aria-label="Circles">
+      <div className="cir-pane__head"><span className="cir-pane__title">Circles</span></div>
+      <div className="cir-skeleton cir-skeleton--pane" role="status" aria-label="Loading circles">
+        {[0, 1, 2, 3, 4].map(index => <div key={index} className="cir-skeleton__row"><span className="cir-skeleton__tile" />
+          <span className="cir-stack"><span className="cir-skeleton__line" /><span className="cir-skeleton__line is-short" /></span></div>)}
+      </div>
+    </section>
+    <main className="cir-main"><div className="cir-work cir-loading">
+      <span className="cir-skeleton__line is-title" /><span className="cir-skeleton__line is-text" />
+      <div className="cir-loading__note"><span className="cir-spinner" aria-hidden="true" />Loading your circles and recorded activity…</div>
+      <LoadingRows />
+    </div></main>
+  </>;
 }

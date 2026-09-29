@@ -17,7 +17,9 @@ export type TeamDirectory = { accountLogin: string; circles: TeamCircle[] };
 export type TeamCircleInput = { name: string; description: string; repositories: string[] };
 export type TeamMemberInput = Pick<TeamMember, 'githubId' | 'login'>;
 export type TeamCreateInput = TeamCircleInput & { members: TeamMemberInput[] };
-export const TEAM_ACTIVITY_FILTERS = ['all', 'merged', 'reviews', 'issues', 'interactions', 'authored-merges', 'reviews-performed', 'issues-opened'] as const;
+/** Activity's type chips, then the drill-down metrics every count links to. */
+export const TEAM_ACTIVITY_FILTERS = ['all', 'merged', 'reviews', 'issues', 'prs-opened', 'authored-merges', 'merges-performed', 'reviews-performed',
+  'issues-opened', 'issues-closed', 'comments', 'interactions', 'shared'] as const;
 export type TeamActivityFilter = typeof TEAM_ACTIVITY_FILTERS[number];
 export type TeamActivityQuery = { circleId?: string; memberId?: number; days?: number; limit?: number; filter?: TeamActivityFilter };
 export const TEAM_EVENT_KINDS = ['PR_OPENED', 'PR_MERGED', 'PR_REVIEWED', 'PR_COMMENT', 'PR_REVIEW_COMMENT', 'REVIEW_REQUESTED', 'ISSUE_OPENED', 'ISSUE_CLOSED', 'ISSUE_COMMENT'] as const;
@@ -39,9 +41,7 @@ export type TeamActivityEvent = {
   viewerInteractionMemberIds: number[];
 };
 
-export type TeamPersonStatistics = {
-  memberId: number;
-  login: string;
+export type TeamStatistics = {
   prsOpened: number;
   authoredPrsMerged: number;
   mergesPerformed: number;
@@ -54,9 +54,13 @@ export type TeamPersonStatistics = {
   sharedIssues: number;
 };
 
+export type TeamPersonStatistics = { memberId: number; login: string; statistics: TeamStatistics; lastActiveAt: string | null };
+
+/** Matching updates on one local day; outside the collected window a zero means unknown. */
+export type TeamDay = { date: string; updates: number; collected: boolean };
+
 export type TeamCoverage = {
   partial: boolean;
-  description: string;
   observedSince: string | null;
   lastRefreshedAt: string | null;
   errors: string[];
@@ -64,12 +68,16 @@ export type TeamCoverage = {
   membersScanned: number;
   repositoryCount: number;
   repositoriesScanned: number;
-  hasMoreEvents: boolean;
 };
 
 export type TeamActivitySnapshot = {
   accountLogin: string;
   events: TeamActivityEvent[];
+  /** Every matching event and work item in the period, beyond the loaded page. */
+  updates: number;
+  workItems: number;
   people: TeamPersonStatistics[];
+  totals: TeamStatistics;
+  days: TeamDay[];
   coverage: TeamCoverage;
 };

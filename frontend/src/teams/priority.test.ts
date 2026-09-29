@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'vitest';
 import { attentionCards, handledEntry, pullRequestItem, visibleAttention, type AttentionItem } from '../home/attention';
 import { pr } from '../pulls/fixtures/pullRequest';
-import { teamAttentionMatch } from './priority';
+import { circleNeeds, teamAttentionMatch } from './priority';
 import type { TeamCircle } from './types';
 import { taskAttentionItem } from '../agents/attention';
 import { previewTask } from '../agents/fixtures/previewBridge';
@@ -86,5 +86,19 @@ describe('private team priority', () => {
     const handled = { [live[0].key]: handledEntry(live[0], 'ack', null, 'Viewed'), [live[1].key]: handledEntry(live[1], 'snooze', now + 1, 'soon') };
     expect(attentionCards(visibleAttention(live, handled, now), 'all', 4, preference).cards.map(row => row.number)).toEqual([3, 4]);
     expect(attentionCards(visibleAttention(live, handled, now + 1), 'all', 4, preference).cards.map(row => row.number)).toEqual([2, 3, 4]);
+  });
+});
+
+describe('circle Needs you', () => {
+  it('keeps review requests and assigned issues from members, leaving other updates to Activity', () => {
+    const review = item(1);
+    const updated = { ...item(2), kind: 'updated' as const };
+    const recommit = { ...item(3), kind: 'commits' as const };
+    const stranger = item(4, 'bob');
+    const issue: AttentionItem = { ...pullRequestItem(pr({ id: 5, number: 5, author: 'alice' })), type: 'issue', kind: 'assigned', pr: null, repo: 'bytequay/app' };
+    const needs = circleNeeds([review, updated, recommit, stranger, issue], circles, 'jack');
+    expect(needs.map(need => [need.item.number, need.action])).toEqual([[1, 'review'], [3, 'review'], [5, 'assigned']]);
+    expect(needs[0].match.member.login).toBe('Alice');
+    expect(circleNeeds([review], [{ ...circles[0], repositories: ['other/app'] }], 'jack')).toEqual([]);
   });
 });

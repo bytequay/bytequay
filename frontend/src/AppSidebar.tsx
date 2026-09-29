@@ -77,7 +77,7 @@ type NavItem = { page: AppPage; label: string; icon: ReactNode };
 const GLOBAL_NAV_ITEMS: NavItem[] = [
   { page: 'home', label: 'Home', icon: <HomeIcon /> },
   { page: 'workspaces', label: 'Workspaces', icon: <LayoutGrid size={16} strokeWidth={1.7} aria-hidden="true" /> },
-  { page: 'teams', label: 'Teams', icon: <Users size={16} strokeWidth={1.7} aria-hidden="true" /> },
+  { page: 'teams', label: 'Circles', icon: <Users size={16} strokeWidth={1.7} aria-hidden="true" /> },
   { page: 'recent', label: 'Recent', icon: <History size={16} strokeWidth={1.7} aria-hidden="true" /> },
 ];
 

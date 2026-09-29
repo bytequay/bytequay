@@ -12,20 +12,26 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { remoteErrorMessage } from '../pulls/PullOverview';
 import type { TeamActivityQuery, TeamActivitySnapshot } from './types';
 import { GITHUB_ACCOUNT_CHANGED, TEAMS_CHANGED } from './useTeams';
 
-/** Page reads are local; only the user's Refresh action starts a collection pass. */
+/**
+ * Page reads are local; only the user's Refresh action starts a collection pass. A new query keeps the last
+ * data on screen until its own answer arrives, and a failed refresh keeps it too.
+ */
 export function useTeamActivity(accountLogin: string | undefined, { circleId, memberId, days = 7, limit = 100, filter = 'all' }: TeamActivityQuery = {}) {
   const [snapshot, setSnapshot] = useState<TeamActivitySnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const generation = useRef(0);
+  const account = useRef(accountLogin);
   const refreshInFlight = useRef(false);
   const load = useCallback(async (refresh = false) => {
     if (!accountLogin || refresh && refreshInFlight.current) return;
-    if (refresh) { refreshInFlight.current = true; setRefreshing(true); }
+    if (refresh) { refreshInFlight.current = true; setRefreshing(true); setRefreshError(null); }
     const request = ++generation.current;
     try {
       const query = { circleId, memberId, days, limit, filter };
@@ -35,7 +41,9 @@ export function useTeamActivity(accountLogin: string | undefined, { circleId, me
       setSnapshot(result); setError(null);
     }
     catch (failure) {
-      if (request === generation.current) setError(failure instanceof Error ? failure.message : String(failure));
+      // A refresh failure outlives a filter change but never an account change.
+      if (refresh && account.current === accountLogin) setRefreshError(remoteErrorMessage(failure));
+      else if (request === generation.current) setError(remoteErrorMessage(failure));
     }
     finally {
       if (refresh) { refreshInFlight.current = false; setRefreshing(false); }
@@ -44,22 +52,25 @@ export function useTeamActivity(accountLogin: string | undefined, { circleId, me
   }, [accountLogin, circleId, memberId, days, limit, filter]);
 
   useEffect(() => {
-    setSnapshot(null); setError(null); setLoading(Boolean(accountLogin));
+    account.current = accountLogin;
+    setSnapshot(null); setError(null); setRefreshError(null); setLoading(Boolean(accountLogin));
+    const clear = () => { account.current = undefined; generation.current++; setSnapshot(null); setError(null); setRefreshError(null); };
+    window.addEventListener(GITHUB_ACCOUNT_CHANGED, clear);
+    return () => window.removeEventListener(GITHUB_ACCOUNT_CHANGED, clear);
+  }, [accountLogin]);
+
+  useEffect(() => {
     if (accountLogin) void load();
     const reload = () => { if (!refreshInFlight.current) void load(); };
     const invalidate = () => { generation.current++; };
-    const clear = () => { invalidate(); setSnapshot(null); setError(null); };
-    const changed = () => { clear(); reload(); };
     const timer = window.setInterval(reload, 30_000);
-    window.addEventListener(TEAMS_CHANGED, changed);
-    window.addEventListener(GITHUB_ACCOUNT_CHANGED, clear);
+    window.addEventListener(TEAMS_CHANGED, reload);
     return () => {
       invalidate();
       window.clearInterval(timer);
-      window.removeEventListener(TEAMS_CHANGED, changed);
-      window.removeEventListener(GITHUB_ACCOUNT_CHANGED, clear);
+      window.removeEventListener(TEAMS_CHANGED, reload);
     };
   }, [accountLogin, load]);
 
-  return { snapshot, loading, refreshing, error, refresh: () => load(true) };
+  return { snapshot, loading, refreshing, error, refreshError, dismissRefreshError: () => setRefreshError(null), refresh: () => load(true), reload: () => load() };
 }

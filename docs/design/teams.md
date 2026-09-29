@@ -1,41 +1,73 @@
-# Private teams
+# Private circles
 
 ## Product contract
 
-Teams are private circles of GitHub people selected by the signed-in user.
-Membership is local, never requires an invitation, and never changes GitHub
-membership, subscriptions, permissions, or notifications. Saved circles have no
-product member limit. A person may belong to multiple circles but receives one
-attention preference and is collected once.
+Circles are private lists of GitHub people selected by the signed-in user. The
+product calls them circles everywhere, including navigation and Home's filter,
+because "teams" suggests GitHub organization teams with permissions and
+notifications. Membership is local, never requires an invitation, and never
+changes GitHub membership, subscriptions, permissions, or notifications. Saved
+circles have no product member limit. A person may belong to multiple circles
+but receives one attention preference and is collected once.
 
 A circle has a name, description, and optional repository scope. Creation can
-include selected people and saves the circle only after all members resolve.
-Creation and the People tab reuse the repository-assignee picker, searching
-contributors already stored locally across repositories. Typing never searches
-GitHub; selecting and saving people is explicit. The selected numeric GitHub ID
-is verified when resolving the saved login, so stale contributor names cannot
-silently add a different person. An empty scope covers
-available activity; a repository scope matches canonical owner/repository names.
-GitHub numeric user IDs identify members; logins and profile details are display
+include selected people and saves the circle only after all members resolve; a
+person who cannot be verified is named, and nothing is saved. Creation and Add
+people reuse the repository-assignee picker, searching contributors already
+stored locally across repositories. Typing never searches GitHub; selecting
+people is explicit. The selected numeric GitHub ID is verified when resolving
+the saved login, so stale contributor names cannot silently add a different
+person. An empty scope covers available activity; a repository scope matches
+canonical owner/repository names and suggests watched repositories. GitHub
+numeric user IDs identify members; logins and profile details are display
 metadata. Directory and retained observations belong to the connected account.
+
+## Page
+
+The supplied Claude Design prototype (`Teams Redesign.dc.html`, section 1a) is
+the authoritative UI. The page has a circle list (All circles, then each circle
+with its people count and scope), one work surface, and a person panel beside
+the work. Below a 1180px window the list becomes a switcher above the title,
+and the panel overlays the work when less than 1000px would remain beside it.
+
+The header names the circle, its description, people and scope, with Add
+people and Edit (or New circle on All circles). Four views follow: Needs you,
+Activity, Members, and Insights, switched with ⌘1–⌘4. One filter bar holds the
+person filter (not on Members), the period (not on Needs you), Activity's type
+or drill-down metric, and the collection status with Refresh. Esc closes the
+top layer: popover, dialog, then the person panel. The first visit opens All
+circles on Needs you; later visits reopen the last circle and view used with the
+same account.
+
+Removing a person from a circle and acknowledging or snoozing an item offer an
+immediate Undo. Removal is undone by re-adding the stored GitHub ID. The person
+panel's circle menu adds and removes that person across circles directly.
 
 ## Attention
 
+Needs you lists the current circle backlog, not limited by the period: review
+requests (including new commits on a PR the viewer reviews) and issues assigned
+to the viewer whose author or review requester is a member in the selected
+scope. Circle repository scope applies. Rows name the member and relationship
+separately from the latest activity actor, who is labeled when outside every
+circle. Other updates stay in Activity.
+
 Both Home views reuse the existing eligibility, acknowledgment, snooze, pin,
-and source-filter flow. Circle selection happens before the four-card cap in
-the shared card selector. Native notification eligibility is unchanged.
+and source-filter flow, and so does Needs you: handling an item in either place
+clears it in both. Circle selection happens before the four-card cap in the
+shared card selector. Native notification eligibility is unchanged.
 
 The mixed preview shows the newest source updates across all item types. Circle
-membership never replaces a newer item with an older team item. A Team-only
-filter is independent of the source tabs and narrows the same newest-first
-list before the card cap. Acknowledgment, snooze and pins keep their existing
-visibility rules. Cards name the matching circle, member, and relationship
-(PR/issue author or review requester), separately from the latest activity actor.
-Another person's comment on a member's PR does not make that commenter a circle
-member.
-Current attention projections expose author/requester logins, so team matching
-uses saved GitHub logins. A renamed member can be re-added to refresh their
-profile without duplicating their numeric membership identity.
+membership never replaces a newer item with an older circle item. Home's
+Circles filter is independent of the source tabs and narrows the same
+newest-first list before the card cap. Acknowledgment, snooze and pins keep
+their existing visibility rules. Cards name the matching circle, member, and
+relationship (PR/issue author or review requester), separately from the latest
+activity actor. Another person's comment on a member's PR does not make that
+commenter a circle member.
+Current attention projections expose author/requester logins, so circle
+matching uses saved GitHub logins. A renamed member can be re-added to refresh
+their profile without duplicating their numeric membership identity.
 
 Ordinary updates can appear in Home without a personal review or assignment
 request. Circle membership itself never creates an update. Adding or
@@ -45,22 +77,32 @@ update timestamp as a proven review-request timestamp.
 
 ## Activity and insights
 
-The Teams sidebar entrance opens a local-first page with circle management,
-member selection, activity, people, and insights. Team activity is shown here;
-Home's activity sidebar contains GitHub and following activity.
+The Circles sidebar entrance opens the page. Circle activity is shown only
+here; Home's activity sidebar contains GitHub and following activity.
 All events retain source identity, actor identity, repository/item identity, and
-event time before grouping or display limits. Statistics use retained facts,
-not the visible page. Contributions and direct interactions with the viewer
-remain separate from merely participating in the same work.
-Statistic links apply their exact event filter before the display limit, while
-the totals continue to cover all retained observations in the selected period.
+event time before grouping or display limits. Activity shows one row per work
+item headed by its latest update, with earlier updates expandable and each
+linking to its source. Verbs separate direct interactions ("mentioned you",
+"reviewed your PR") from participation, and actors outside every circle or
+unidentified by the source are labeled as such.
+
+Statistics use retained facts, not the visible page. Contributions and direct
+interactions with the viewer remain separate from merely participating in the
+same work. Every count is a link: its exact event filter (PRs opened, authored
+PRs merged, merges performed, PRs reviewed, issues opened, issues closed,
+comments, direct interactions, or shared work) applies before the display
+limit, together with the person and period. Scope totals sum people, except
+shared work, which counts each item once. Insights also shows recorded updates
+per day and marks days outside the collected window, before the first pass's
+look-back or after the latest pass, as not collected rather than quiet.
 
 Collection reuses GitHub credentials, rate-limit handling, and quiet hours.
 Bounded batches rotate through people and repository sources. Public user
 events supplement accessible repository activity; they cannot prove complete
-private, historical, or real-time coverage. The UI exposes collection coverage,
-last refresh, source failures, and observed-history limits. Reads serve SQLite;
-an explicit Refresh requests a bounded collection pass. A member count is not
+private, historical, or real-time coverage. The status reads Partial when the
+latest pass skipped people, repositories, or sources, and its popover names
+them. Reads serve SQLite; an explicit Refresh requests a bounded collection
+pass, and a failed refresh keeps the data already shown. A member count is not
 used to conceal a collection limit.
 Private repository activity requires a watched repository that the connected
 GitHub account can access. Repository scope restricts matching; it does not
@@ -68,18 +110,18 @@ subscribe to or watch a repository. A refresh advances the shared collection
 batch, independent of the selected person or circle.
 
 Retained observations cover up to 90 days. Person and circle views support a
-selected period and link to the underlying source work. Counts distinguish
-authored PRs merged, merges performed, reviews, issue activity, and direct
-interactions. Explicit mentions, review requests between the viewer and a member,
-and reviews of each other's PRs count as direct interactions. No productivity
-score or inferred trust score is computed.
+selected period and link to the underlying source work. Explicit mentions,
+review requests between the viewer and a member, and reviews of each other's
+PRs count as direct interactions. People are listed alphabetically; no ranking,
+productivity score, or inferred trust score is computed.
 
 ## Implementation boundaries
 
 Membership uses the existing application-settings storage boundary. Activity
 values/storage ports belong to core, Hibernate entities/adapters to
-persistence-sqlite, and collection, projections, and HTTP to app. The frontend
-uses the existing typed Electron bridge, React, and plain CSS. No new library,
-Maven module, agent execution path, or GitHub publisher is introduced.
+persistence-sqlite, and collection, projections, and HTTP to app. The backend
+API and stored keys keep their original `teams` names. The frontend uses the
+existing typed Electron bridge, React, and plain CSS. No new library, Maven
+module, agent execution path, or GitHub publisher is introduced.
 
 Progress and verification are recorded in [the temporary checklist](team-impl-tmp.md).

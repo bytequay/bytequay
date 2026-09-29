@@ -21,8 +21,9 @@ it('manages private circles and inspects recorded activity in Chromium', async (
     global: 'TeamsBrowserTests',
     styles: true,
     charset: true,
-    width: 1300,
+    width: 1500,
     height: 900,
+    timeoutMs: 60_000,
     body: `
       const results = await window.webContents.executeJavaScript('TeamsBrowserTests.run()');
       const screenshots = process.env.BYTEQUAY_TEAMS_SCREENSHOTS;
@@ -30,16 +31,17 @@ it('manages private circles and inspects recorded activity in Chromium', async (
         const { mkdir, writeFile } = require('node:fs/promises');
         const { join } = require('node:path');
         await mkdir(screenshots, { recursive: true });
-        for (const width of [1300, 760]) {
+        for (const width of [1500, 1100]) {
           window.setContentSize(width, 900);
-          for (const view of ['activity', 'insights', 'dialog', 'create', 'people']) {
+          for (const view of ['needs', 'activity', 'members', 'insights', 'person', 'create', 'edit', 'empty', 'remove']) {
             await window.webContents.executeJavaScript('TeamsBrowserTests.showPreview(' + JSON.stringify(view) + ')');
-            await writeFile(join(screenshots, 'bytequay-teams-' + view + '-' + width + '.png'), (await window.webContents.capturePage()).toPNG());
+            await new Promise(resolve => setTimeout(resolve, 150));
+            await writeFile(join(screenshots, 'bytequay-circles-' + view + '-' + width + '.png'), (await window.webContents.capturePage()).toPNG());
           }
         }
       }
     `,
   });
-  expect(results).toHaveLength(7);
+  expect(results).toHaveLength(11);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-}, 30_000);
+}, 90_000);

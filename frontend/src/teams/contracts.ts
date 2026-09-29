@@ -14,7 +14,10 @@
 import type { RepositoryMetadataDto } from '../types';
 import { parseList } from '../goals/contracts';
 import { object, oneOf, optionalText, text } from '../pulls/wireParse';
-import { TEAM_ACTIVITY_FILTERS, TEAM_EVENT_KINDS, type TeamActivityQuery, type TeamActivitySnapshot, type TeamCircleInput, type TeamCreateInput, type TeamDirectory, type TeamMemberInput } from './types';
+import {
+  TEAM_ACTIVITY_FILTERS, TEAM_EVENT_KINDS, type TeamActivityQuery, type TeamActivitySnapshot, type TeamCircleInput, type TeamCreateInput, type TeamDirectory,
+  type TeamMemberInput, type TeamStatistics,
+} from './types';
 
 function integer(value: unknown, field: string, min = 0, max = Number.MAX_SAFE_INTEGER): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < min || value > max) throw new Error(`Invalid ${field}`);
@@ -102,10 +105,18 @@ function time(value: unknown, field: string): string {
   return result;
 }
 
+const STATISTICS = ['prsOpened', 'authoredPrsMerged', 'mergesPerformed', 'prsReviewed', 'issuesOpened', 'issuesClosed', 'comments',
+  'directInteractions', 'sharedPullRequests', 'sharedIssues'] as const satisfies readonly (keyof TeamStatistics)[];
+
+function statistics(value: unknown): TeamStatistics {
+  const counts = object(value, 'statistics');
+  return Object.fromEntries(STATISTICS.map(field => [field, integer(counts[field], field)])) as TeamStatistics;
+}
+
 export function parseTeamActivity(value: unknown): TeamActivitySnapshot {
   const snapshot = object(value, 'team activity');
   const coverage = object(snapshot.coverage, 'coverage');
-  if (typeof coverage.partial !== 'boolean' || typeof coverage.hasMoreEvents !== 'boolean') throw new Error('Invalid team coverage');
+  if (typeof coverage.partial !== 'boolean') throw new Error('Invalid team coverage');
   return {
     accountLogin: text(snapshot.accountLogin, 'account login'),
     events: parseList(snapshot.events, value => {
@@ -123,25 +134,29 @@ export function parseTeamActivity(value: unknown): TeamActivitySnapshot {
         viewerInteractionMemberIds: parseList(event.viewerInteractionMemberIds, teamMemberId, 'interaction members'),
       };
     }, 'events'),
+    updates: integer(snapshot.updates, 'update count'),
+    workItems: integer(snapshot.workItems, 'work item count'),
     people: parseList(snapshot.people, value => {
       const person = object(value, 'person statistics');
       return {
-        memberId: teamMemberId(person.memberId), login: text(person.login, 'login'),
-        prsOpened: integer(person.prsOpened, 'PR count'), authoredPrsMerged: integer(person.authoredPrsMerged, 'merged PR count'),
-        mergesPerformed: integer(person.mergesPerformed, 'merge count'), prsReviewed: integer(person.prsReviewed, 'review count'),
-        issuesOpened: integer(person.issuesOpened, 'issue count'), issuesClosed: integer(person.issuesClosed, 'closed issue count'),
-        comments: integer(person.comments, 'comment count'), directInteractions: integer(person.directInteractions, 'interaction count'),
-        sharedPullRequests: integer(person.sharedPullRequests, 'shared PR count'), sharedIssues: integer(person.sharedIssues, 'shared issue count'),
+        memberId: teamMemberId(person.memberId), login: text(person.login, 'login'), statistics: statistics(person.statistics),
+        lastActiveAt: person.lastActiveAt == null ? null : time(person.lastActiveAt, 'last activity'),
       };
     }, 'people'),
+    totals: statistics(snapshot.totals),
+    days: parseList(snapshot.days, value => {
+      const day = object(value, 'day');
+      const date = text(day.date, 'day');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || typeof day.collected !== 'boolean') throw new Error('Invalid day');
+      return { date, updates: integer(day.updates, 'daily updates'), collected: day.collected };
+    }, 'days'),
     coverage: {
-      partial: coverage.partial, description: text(coverage.description, 'coverage description'),
+      partial: coverage.partial,
       observedSince: coverage.observedSince == null ? null : time(coverage.observedSince, 'observation start'),
       lastRefreshedAt: coverage.lastRefreshedAt == null ? null : time(coverage.lastRefreshedAt, 'last refresh'),
       errors: parseList(coverage.errors, value => text(value, 'collection error'), 'errors'),
       memberCount: integer(coverage.memberCount, 'member count'), membersScanned: integer(coverage.membersScanned, 'members scanned'),
       repositoryCount: integer(coverage.repositoryCount, 'repository count'), repositoriesScanned: integer(coverage.repositoriesScanned, 'repositories scanned'),
-      hasMoreEvents: coverage.hasMoreEvents,
     },
   };
 }

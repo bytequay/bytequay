@@ -12,48 +12,53 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import { MetadataPicker } from '../pulls/PullOverview';
+import { MetadataPicker, remoteErrorMessage } from '../pulls/PullOverview';
+import { usePopoverDismiss } from '../pulls/code-tests/Outline';
 import type { RepositoryMetadataDto } from '../types';
-import type { TeamMember, TeamMemberInput } from './types';
+import type { TeamCircle, TeamMemberInput } from './types';
 
-export default function TeamPeoplePicker({ selected, knownPeople, busy, onToggle, lockSelected = false }: {
-  selected: TeamMemberInput[];
-  knownPeople: TeamMember[];
+/** Add people: the assignee picker over contributors cached from every watched repository; a pick adds at once. */
+export default function TeamPeoplePicker({ circle, circles, busy, onAdd, onClose }: {
+  circle: TeamCircle;
+  circles: TeamCircle[];
   busy: boolean;
-  onToggle: (member: TeamMemberInput) => void;
-  lockSelected?: boolean;
+  onAdd: (member: TeamMemberInput) => void;
+  onClose: () => void;
 }) {
+  const host = usePopoverDismiss(onClose, true);
   const [contributors, setContributors] = useState<RepositoryMetadataDto['contributors']>([]);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [retry, setRetry] = useState(0);
   useEffect(() => {
     let current = true;
-    setLoading(true); setError(null);
-    window.bridge.fetchTeamContributors().then(value => { if (current) setContributors(value); })
-      .catch(failure => { if (current) setError(failure instanceof Error ? failure.message : String(failure)); })
+    Promise.resolve().then(() => window.bridge.fetchTeamContributors()).then(value => { if (current) setContributors(value); })
+      .catch((failure: unknown) => { if (current) setError(remoteErrorMessage(failure)); })
       .finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
-  }, [retry]);
+  }, []);
   const normalized = query.trim().replace(/^@/, '').toLowerCase();
-  const selectedIds = new Set(selected.map(person => person.githubId));
-  const names = new Map(knownPeople.map(person => [person.githubId, person.name]));
+  const names = new Map(circles.flatMap(item => item.members.map(member => [member.githubId, member.name] as const)));
   const options = contributors.map(person => {
     const name = names.get(person.id);
-    const selected = selectedIds.has(person.id);
-    return { key: String(person.id), login: person.login, avatarUrl: person.avatarUrl, bot: person.bot,
-      label: name ? `${name} · @${person.login}` : `@${person.login}`, selected,
-      disabled: lockSelected && selected, disabledReason: lockSelected && selected ? 'Already in this circle' : undefined };
-  }).filter(person => person.label.toLowerCase().includes(normalized));
-  return <div className="teams-people-picker">
-    <MetadataPicker ariaLabel="contributors" placeholder="Search repository contributors…" query={query} setQuery={setQuery}
-      options={options} loading={loading} updating={busy} loadingText="Loading saved contributors…"
-      emptyText={query.trim() ? 'No matching contributors' : 'No saved contributors yet. Sync a watched repository to load its people.'}
+    const selected = circle.members.some(member => member.githubId === person.id);
+    const others = circles.filter(item => item.id !== circle.id && item.members.some(member => member.githubId === person.id)).map(item => item.name);
+    return {
+      key: String(person.id), login: person.login, avatarUrl: person.avatarUrl, bot: person.bot,
+      label: name && name !== person.login ? `${name} · @${person.login}` : `@${person.login}`, selected, disabled: selected,
+      disabledReason: selected ? 'Already in this circle' : undefined,
+      hint: selected ? 'Already in this circle' : others.length > 0 ? `In ${others[0]}${others.length > 1 ? ` +${others.length - 1}` : ''}` : undefined,
+    };
+  }).filter(person => person.label.toLowerCase().includes(normalized)).sort((left, right) => left.login.localeCompare(right.login));
+  return <div ref={host} className="cir-popover cir-add" role="dialog" aria-label="Add people">
+    <MetadataPicker ariaLabel="contributors" placeholder="Search cached contributors…" query={query} setQuery={setQuery}
+      options={options} loading={loading} updating={busy} loadingText="Loading cached contributors…"
+      emptyText={error ?? (contributors.length === 0 ? 'No contributors cached yet. Watch a repository and let it sync to load its people.'
+        : `No cached contributor matches “${query}”. Only people from your watched repositories are searchable.`)}
       onToggle={option => {
-        const person = contributors.find(person => person.id === Number(option.key));
-        if (person) onToggle({ githubId: person.id, login: person.login });
+        const person = contributors.find(candidate => candidate.id === Number(option.key));
+        if (person) onAdd({ githubId: person.id, login: person.login });
       }} />
-    {error && <div className="teams-error" role="alert">{error} <button type="button" className="bq-button" onClick={() => setRetry(value => value + 1)}>Retry</button></div>}
+    <div className="cir-popover__foot">Contributors from all your watched repositories. Selecting adds them right away; they aren’t notified.</div>
   </div>;
 }

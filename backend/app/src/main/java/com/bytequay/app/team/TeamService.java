@@ -133,7 +133,8 @@ public class TeamService
     {
         UserIdentity identity = github.fetchUserIdentity(owner.credential().token(), Optional.of(selected.login()));
         if (identity.id() != selected.githubId()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "This contributor's GitHub identity changed. Refresh repository contributors and select the person again.");
+            // The login leads the message so the dialog can mark which selected person to remove.
+            throw new ResponseStatusException(HttpStatus.CONFLICT, selected.login() + " couldn't be verified: the cached contributor no longer matches their GitHub account");
         }
         return new TeamMember(
                 identity.id(), identity.login(), identity.name().filter(value -> !value.isBlank()).orElse(identity.login()), identity.avatarUrl().orElse(""));

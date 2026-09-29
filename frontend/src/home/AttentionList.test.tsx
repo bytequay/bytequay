@@ -57,22 +57,16 @@ function list(candidates: AttentionItem[], handled: Handled = {}, variant: 'home
 describe('AttentionList', () => {
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-  it('shows a private-team reason and keeps Team-only independent from the source tabs', () => {
+  it('shows a private-circle reason and keeps the Circles filter independent from the source tabs', () => {
     vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{
       id: 'trusted', name: 'Maintainers', description: '', repositories: ['trinodb/trino'], members: [{ githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }],
     }] }, loading: false, error: null });
     const items = [issueItem(7), prItem(1)];
     const html = list(items);
-    expect(html).toContain('aria-pressed="false">Team only</button>');
+    expect(html).toContain('aria-pressed="false">Circles</button>');
     expect(html).toContain('title="Your private circle: Maintainers">Maintainers</span>');
     expect(html).toContain('>PRs <');
     expect(html).toContain('>Issues <');
-    const scoped = renderToStaticMarkup(<AttentionList candidates={items} handled={{}} viewerLogin="viewer" teamScope={{ circleId: 'trusted', memberId: 1 }}
-      onHandledChange={() => {}} onOpen={() => {}} />);
-    expect(scoped).toContain('Change 1');
-    expect(scoped).not.toContain('Issue 7');
-    expect(scoped).not.toContain('Team only</button>');
-    expect(scoped).toContain('>Issues <span class="atn-filter__count">0</');
   });
 
   it('never brings pinned or snoozed team items back through preference', () => {
@@ -110,17 +104,6 @@ describe('AttentionList', () => {
     })]);
     expect(html).toContain('Review requested by <strong>@bob</strong>');
     expect(html).not.toContain('PR author: <strong>@bob');
-  });
-
-  it('lets the Teams page show the complete matching backlog while Home stays capped', () => {
-    vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{
-      id: 'trusted', name: 'Maintainers', description: '', repositories: [], members: [{ githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }],
-    }] }, loading: false, error: null });
-    const items = [1, 2, 3, 4, 5, 6].map(number => prItem(number));
-    const html = renderToStaticMarkup(<AttentionList candidates={items} handled={{}} viewerLogin="viewer" teamScope={{}}
-      cardLimit={Number.POSITIVE_INFINITY} onHandledChange={() => {}} onOpen={() => {}} />);
-    expect(html.match(/class="card atn-card /g)).toHaveLength(6);
-    expect(list(items).match(/class="card atn-card /g)).toHaveLength(4);
   });
 
   it('keeps resolved reminders readable without offering to start development again', () => {

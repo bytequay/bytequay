@@ -517,8 +517,8 @@ full PR details per row. Local workflow events and subscription bookkeeping are 
 GitHub's PR update timestamp is newer than the known timeline action, the row says `Updated`
 without attributing it to a person. Cards initially sort by their newest source update or event timestamp;
 attention reason only breaks equal-time ties. The four-card limit is applied after handling and source
-filtering, with newest updates first across all sources. Private [teams](teams.md) affect eligibility
-only when the user selects Team only; they never silently displace newer updates. The row's
+filtering, with newest updates first across all sources. Private [circles](teams.md) affect eligibility
+only when the user selects the Circles filter; they never silently displace newer updates. The row's
 age uses this same source timestamp. Local activity
 timestamps continue to drive monitoring and acknowledgment, independently of the displayed age.
 

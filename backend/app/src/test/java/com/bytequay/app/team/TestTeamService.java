@@ -116,10 +116,10 @@ class TestTeamService
         var selected = ImmutableList.of(new TeamMemberInput(42, "bob"), new TeamMemberInput(43, "cara"));
 
         assertThatThrownBy(() -> service.create("Friends", "Work", ImmutableList.of(), selected))
-                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("GitHub identity changed");
+                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("cara couldn't be verified");
         assertThat(service.directory()).isEqualTo(saved);
         assertThatThrownBy(() -> service.addMember(saved.circles().getFirst().id(), new TeamMemberInput(43, "cara")))
-                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("GitHub identity changed");
+                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("cara couldn't be verified");
         assertThat(service.directory()).isEqualTo(saved);
     }
 

@@ -19,6 +19,7 @@ import com.bytequay.app.scheduler.TeamActivitySyncJob;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.settings.AppSettingsService;
+import com.bytequay.app.team.TeamActivitySnapshot.Statistics;
 import com.bytequay.core.domain.TeamActivityEvent;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.store.AppSettingsStore;
@@ -37,6 +38,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -63,14 +65,17 @@ class TestTeamActivityService
     @Test
     void statisticsSeparateAuthorshipMergingReviewsAndDirectVersusSharedWork()
     {
-        List<TeamActivityEvent> events = ImmutableList.of(
+        Fixture fixture = fixture();
+        when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(
+                new TeamCircle("all", "All", "", ImmutableList.of(), ImmutableList.of(ALICE, BOB)))));
+        when(fixture.store().findSince(anyLong(), any())).thenReturn(ImmutableList.of(
                 event("opened", "PR_OPENED", 2, 2, 7, "owner/repo", ImmutableList.of()),
                 event("merged", "PR_MERGED", 3, 2, 7, "owner/repo", ImmutableList.of()),
                 event("review1", "PR_REVIEWED", 2, 1, 8, "owner/repo", ImmutableList.of(2L)),
                 event("review2", "PR_REVIEWED", 2, 1, 8, "owner/repo", ImmutableList.of(2L)),
-                event("comment", "PR_COMMENT", 1, 2, 7, "owner/repo", ImmutableList.of()));
-        List<TeamActivitySnapshot.PersonStatistics> statistics = TeamActivityService.statistics(ImmutableList.of(ALICE, BOB), events, 1);
-        assertThat(statistics.getFirst()).satisfies(person -> {
+                event("comment", "PR_COMMENT", 1, 2, 7, "owner/repo", ImmutableList.of())));
+        TeamActivitySnapshot snapshot = fixture.service().snapshot(Optional.empty(), Optional.empty(), 7, 100, "all");
+        assertThat(snapshot.people().getFirst().statistics()).satisfies(person -> {
             assertThat(person.prsOpened()).isEqualTo(1);
             assertThat(person.authoredPrsMerged()).isEqualTo(1);
             assertThat(person.mergesPerformed()).isZero();
@@ -78,8 +83,12 @@ class TestTeamActivityService
             assertThat(person.directInteractions()).isEqualTo(2);
             assertThat(person.sharedPullRequests()).isEqualTo(2);
         });
-        assertThat(statistics.get(1).mergesPerformed()).isEqualTo(1);
-        assertThat(statistics.get(1).authoredPrsMerged()).isZero();
+        assertThat(snapshot.people().get(1).statistics().mergesPerformed()).isEqualTo(1);
+        assertThat(snapshot.people().get(1).statistics().authoredPrsMerged()).isZero();
+        assertThat(snapshot.people().get(1).statistics().sharedPullRequests()).isEqualTo(1);
+        // Both people share #7, so the scope counts it once.
+        assertThat(snapshot.totals()).isEqualTo(new Statistics(1, 1, 1, 1, 0, 0, 0, 2, 2, 0));
+        assertThat(snapshot.people().getFirst().lastActiveAt()).isPresent();
     }
 
     @Test
@@ -96,8 +105,10 @@ class TestTeamActivityService
                 event("other-circle-merger", "PR_MERGED", 3, 2, 9, "other/repo", ImmutableList.of())));
         TeamActivitySnapshot snapshot = fixture.service().snapshot(Optional.empty(), Optional.empty(), 7, 1, "all");
         assertThat(snapshot.events()).hasSize(1);
-        assertThat(snapshot.people().getFirst().prsOpened()).isEqualTo(2);
-        assertThat(snapshot.coverage().hasMoreEvents()).isTrue();
+        // Bob's merge in his wider scope is his update; alice's own PR there is outside hers.
+        assertThat(snapshot.updates()).isEqualTo(3);
+        assertThat(snapshot.workItems()).isEqualTo(3);
+        assertThat(snapshot.people().getFirst().statistics().prsOpened()).isEqualTo(2);
         assertThat(snapshot.coverage().partial()).isTrue();
         verify(fixture.store()).findSince(eq(1L), any());
         assertThat(fixture.service().snapshot(Optional.empty(), Optional.empty(), 7, 100, "authored-merges").events()).isEmpty();
@@ -131,35 +142,68 @@ class TestTeamActivityService
                 "https://github.com/owner/repo/pull/7", Instant.now().minusSeconds(3600), Optional.of(2L), Optional.of("alice"), "REPOSITORY", ImmutableList.of());
         when(fixture.store().findSince(anyLong(), any())).thenReturn(ImmutableList.of(
                 authoredMerge,
+                event("opened-pr", "PR_OPENED", 2, 2, 12, "owner/repo", ImmutableList.of()),
                 event("performed-merge", "PR_MERGED", 2, 3, 8, "owner/repo", ImmutableList.of()),
                 event("performed-review", "PR_REVIEWED", 2, 1, 9, "owner/repo", ImmutableList.of()),
                 event("received-review", "PR_REVIEWED", 3, 2, 7, "owner/repo", ImmutableList.of()),
                 event("opened-issue", "ISSUE_OPENED", 2, 2, 10, "owner/repo", ImmutableList.of()),
                 event("closed-issue", "ISSUE_CLOSED", 2, 2, 11, "owner/repo", ImmutableList.of()),
+                event("own-comment", "ISSUE_COMMENT", 2, 3, 13, "owner/repo", ImmutableList.of()),
                 event("other-interaction", "PR_COMMENT", 1, 2, 7, "owner/repo", ImmutableList.of(3L)),
                 event("direct-interaction", "PR_COMMENT", 1, 3, 8, "owner/repo", ImmutableList.of(2L))));
 
         TeamActivitySnapshot all = fixture.service().snapshot(Optional.empty(), Optional.of(2L), 7, 1, "all");
         assertThat(all.events()).doesNotContain(authoredMerge);
-        assertThat(all.coverage().hasMoreEvents()).isTrue();
-        Map<String, String> metricFacts = ImmutableMap.of("authored-merges", "authored", "reviews-performed", "performed-review",
-                "issues-opened", "opened-issue", "interactions", "direct-interaction");
-        metricFacts.forEach((filter, id) -> {
-            TeamActivitySnapshot filtered = fixture.service().snapshot(Optional.empty(), Optional.of(2L), 7, 1, filter);
-            assertThat(filtered.events()).extracting(TeamActivityEvent::id).containsExactly(id);
-            assertThat(filtered.coverage().hasMoreEvents()).isFalse();
+        assertThat(all.updates()).isGreaterThan(all.events().size());
+        Map<String, List<String>> metricFacts = ImmutableMap.<String, List<String>>builder()
+                .put("prs-opened", ImmutableList.of("opened-pr"))
+                .put("authored-merges", ImmutableList.of("authored"))
+                .put("merges-performed", ImmutableList.of("performed-merge"))
+                .put("reviews-performed", ImmutableList.of("performed-review"))
+                .put("issues-opened", ImmutableList.of("opened-issue"))
+                .put("issues-closed", ImmutableList.of("closed-issue"))
+                .put("comments", ImmutableList.of("own-comment"))
+                .put("interactions", ImmutableList.of("direct-interaction"))
+                // The viewer reviewed or commented on #7, #8 and #9; everything alice did there is shared work.
+                .put("shared", ImmutableList.of("authored", "performed-merge", "performed-review", "received-review", "other-interaction", "direct-interaction"))
+                .buildOrThrow();
+        metricFacts.forEach((filter, ids) -> {
+            TeamActivitySnapshot filtered = fixture.service().snapshot(Optional.empty(), Optional.of(2L), 7, 100, filter);
+            assertThat(filtered.events()).extracting(TeamActivityEvent::id).containsExactlyInAnyOrderElementsOf(ids);
+            assertThat(filtered.updates()).isEqualTo(ids.size());
             assertThat(filtered.people()).isEqualTo(all.people());
         });
-        assertThat(all.people().getFirst()).satisfies(person -> {
-            assertThat(person.authoredPrsMerged()).isEqualTo(1);
-            assertThat(person.mergesPerformed()).isEqualTo(1);
-            assertThat(person.prsReviewed()).isEqualTo(1);
-            assertThat(person.issuesOpened()).isEqualTo(1);
-            assertThat(person.issuesClosed()).isEqualTo(1);
-            assertThat(person.directInteractions()).isEqualTo(1);
-        });
-        ImmutableMap.of("merged", 2, "reviews", 2, "issues", 2).forEach((filter, count) ->
+        assertThat(all.people().getFirst().statistics()).isEqualTo(new Statistics(1, 1, 1, 1, 1, 1, 1, 1, 3, 0));
+        ImmutableMap.of("merged", 2, "reviews", 2, "issues", 3).forEach((filter, count) ->
                 assertThat(fixture.service().snapshot(Optional.empty(), Optional.of(2L), 7, 100, filter).events()).hasSize(count));
+    }
+
+    @Test
+    void daysOutsideTheCollectedWindowAreUnknownRatherThanQuiet()
+    {
+        Fixture fixture = fixture();
+        when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(
+                new TeamCircle("all", "All", "", ImmutableList.of(), ImmutableList.of(ALICE)))));
+        when(fixture.store().findSince(anyLong(), any())).thenReturn(ImmutableList.of(event("today", "PR_OPENED", 2, 2, 7, "owner/repo", ImmutableList.of())));
+        assertThat(fixture.service().snapshot(Optional.empty(), Optional.empty(), 7, 100, "all").days())
+                .hasSize(7).allSatisfy(day -> assertThat(day.collected()).isFalse());
+
+        when(fixture.github().publicEvents(anyString(), anyString(), any())).thenReturn(new Observation(ImmutableList.of(), ImmutableList.of(), false));
+        fixture.service().collect();
+        TeamActivitySnapshot collected = fixture.service().snapshot(Optional.empty(), Optional.empty(), 90, 100, "all");
+        assertThat(collected.days()).hasSize(90);
+        assertThat(collected.days().getLast()).satisfies(day -> {
+            assertThat(day.date()).isEqualTo(LocalDate.now());
+            assertThat(day.updates()).isEqualTo(1);
+            assertThat(day.collected()).isTrue();
+        });
+        // The first pass looks back 30 days; anything older was never observed.
+        assertThat(collected.days().get(90 - 31).collected()).isTrue();
+        assertThat(collected.days().get(90 - 32).collected()).isFalse();
+        assertThat(collected.coverage()).satisfies(coverage -> {
+            assertThat(coverage.partial()).isFalse();
+            assertThat(coverage.membersScanned()).isEqualTo(1);
+        });
     }
 
     @Test
@@ -176,7 +220,8 @@ class TestTeamActivityService
     void accountSwitchDuringCollectionRefusesObservationAndCoverageWrites()
     {
         Fixture fixture = fixture();
-        when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(new TeamCircle("all", "All", "", ImmutableList.of(), ImmutableList.of(ALICE)))));
+        when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(
+                new TeamCircle("all", "All", "", ImmutableList.of(), ImmutableList.of(ALICE)))));
         when(fixture.github().publicEvents(anyString(), anyString(), any())).thenAnswer(invocation -> {
             when(fixture.credentials().resolveGitHubCredential()).thenReturn(new GitHubCredential("other", new UserProfile("other", "", "", "", 0, 0, 0, "", "", "", "")));
             return new Observation(ImmutableList.of(event("one", "PR_OPENED", 2, 2, 7, "owner/repo", ImmutableList.of())), ImmutableList.of(), false);

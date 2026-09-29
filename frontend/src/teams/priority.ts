@@ -38,3 +38,15 @@ export function teamAttentionMatch(item: AttentionItem, circles: TeamCircle[], v
   }
   return null;
 }
+
+export type CircleNeed = { item: AttentionItem; match: TeamAttentionMatch; action: 'review' | 'assigned' };
+
+/** Needs you: review requests (new commits since a review included) and assigned issues from circle people; other updates stay in Activity. */
+export function circleNeeds(items: AttentionItem[], circles: TeamCircle[], viewerLogin: string | null): CircleNeed[] {
+  return items.flatMap(item => {
+    const action = item.type === 'issue' ? item.kind === 'assigned' ? 'assigned' : null
+      : item.type === 'pr' && (item.kind === 'review' || item.kind === 'commits') ? 'review' : null;
+    const match = action === null ? null : teamAttentionMatch(item, circles, viewerLogin);
+    return action === null || match === null ? [] : [{ item, match, action }];
+  });
+}

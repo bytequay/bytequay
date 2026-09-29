@@ -57,10 +57,6 @@ type Props = {
   goal?: (item: AttentionItem) => GoalToggle | null;
   /** Whether Jira is connected; without it there is no Jira tab unless a Jira card is listed anyway. */
   jiraConnected?: boolean;
-  /** Teams opens this same list scoped to its private circle or person. */
-  teamScope?: { circleId?: string; memberId?: number };
-  /** The Teams backlog can show all cards; both Homes retain the default four. */
-  cardLimit?: number;
   /** A card that is not an attention item, shown first under All: a workspace's Repository context drafts waiting review. */
   lead?: ReactNode;
 };
@@ -72,14 +68,11 @@ type Anchored = { item: AttentionItem; anchor: DOMRect };
 type ToastState = { id: number; text: string; key: string };
 
 export default function AttentionList({
-  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home', scope, goal, jiraConnected = false, teamScope, cardLimit, lead,
+  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home', scope, goal, jiraConnected = false, lead,
 }: Props) {
   const [filter, setFilter] = useState<AttentionFilter>('all');
   const [onlyTeam, setOnlyTeam] = useState(false);
-  const teams = useTeams(viewerLogin);
-  const circles = (teams.directory?.circles ?? []).filter(circle => teamScope?.circleId === undefined || circle.id === teamScope.circleId)
-    .map(circle => teamScope?.memberId === undefined ? circle : { ...circle, members: circle.members.filter(member => member.githubId === teamScope.memberId) });
-  const teamOnly = teamScope !== undefined || onlyTeam;
+  const circles = useTeams(viewerLogin).directory?.circles ?? [];
   const [snooze, setSnooze] = useState<Anchored | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [session, setSession] = useState<string[]>([]);
@@ -99,8 +92,7 @@ export default function AttentionList({
   const live = visibleAttention(reminders, handled, Math.max(now, Date.now()))
     .filter(item => !pinned.some(pin => pin.key === item.key));
   const filters = FILTERS.filter(id => id !== 'jira' || jiraConnected || live.some(item => attentionSource(item) === 'jira'));
-  const { cards, counts } = attentionCards(live, filters.includes(filter) ? filter : 'all', cardLimit,
-    { circles, viewerLogin, onlyTeam: teamOnly });
+  const { cards, counts } = attentionCards(live, filters.includes(filter) ? filter : 'all', undefined, { circles, viewerLogin, onlyTeam });
   const sessionEntries = session
     .map(key => handled[key])
     .filter((entry): entry is HandledEntry => entry !== undefined);
@@ -139,7 +131,7 @@ export default function AttentionList({
     setToast(null);
   }
 
-  const hasLead = lead !== undefined && lead !== null && !teamOnly;
+  const hasLead = lead !== undefined && lead !== null && !onlyTeam;
   const leading = hasLead && filter === 'all' ? lead : null;
   const extra = leading === null ? 0 : 1;
   const count = cards.length < counts.all ? `${cards.length + extra} of ${counts.all + extra}` : `${counts.all + extra}`;
@@ -151,8 +143,8 @@ export default function AttentionList({
       <div className="atn-head">
         <span className="atn-head__label">Needs attention</span>
         <span className="atn-count">{count}</span>
-        {teamScope === undefined && (circles.length > 0 || onlyTeam) && (
-          <button type="button" className={`atn-filter${onlyTeam ? ' is-active' : ''}`} aria-pressed={onlyTeam} onClick={() => setOnlyTeam(value => !value)}>Team only</button>
+        {(circles.length > 0 || onlyTeam) && (
+          <button type="button" className={`atn-filter${onlyTeam ? ' is-active' : ''}`} aria-pressed={onlyTeam} onClick={() => setOnlyTeam(value => !value)}>Circles</button>
         )}
         <div className="atn-filters" role="tablist" aria-label="Filter what needs attention">
           {filters.map(id => (
@@ -192,7 +184,7 @@ export default function AttentionList({
           })}
         </div>
       ) : (
-        <div className="atn-clear">{teamOnly ? 'No team items need you right now.' : 'Nothing needs you right now.'}</div>
+        <div className="atn-clear">{onlyTeam ? 'Nothing from your circles needs you right now.' : 'Nothing needs you right now.'}</div>
       )}
 
       {summary !== '' && (

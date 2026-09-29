@@ -23,6 +23,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -48,6 +49,8 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class GitHubTeamActivityClient
 {
+    /** How far back one pass reads: GitHub keeps 30 days of public events, and repository reads ask for the same window. */
+    public static final Duration LOOK_BACK = Duration.ofDays(30);
     private static final Pattern REPOSITORY = Pattern.compile("[A-Za-z0-9_-]{1,100}/[A-Za-z0-9_.-]{1,100}");
     private static final Pattern LOGIN = Pattern.compile("[A-Za-z0-9-]+(?:\\[bot\\])?");
     private final RestClient client;
@@ -161,7 +164,7 @@ public class GitHubTeamActivityClient
         JsonNode result = requireBody(translating(() -> get(client, token, uri -> {
             uri.path(path).queryParam("per_page", 100).queryParam("page", page);
             if (!mode.isEmpty()) {
-                uri.queryParam("sort", "updated").queryParam("direction", "desc").queryParam("since", Instant.now().minusSeconds(30L * 86400));
+                uri.queryParam("sort", "updated").queryParam("direction", "desc").queryParam("since", Instant.now().minus(LOOK_BACK));
             }
             if (mode.equals("issues")) {
                 uri.queryParam("state", "all");

@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.context;
 
+import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextMatch;
 import com.bytequay.core.context.ContextReference;
@@ -39,8 +41,8 @@ import static org.mockito.Mockito.when;
 class TestContextNotebookLookup
 {
     private final RepositoryContextService notebooks = mock(RepositoryContextService.class);
-    private final ContextNotebookLookup lookup = new ContextNotebookLookup(notebooks, new RepositoryContextMatcher(), new ContextNoteReader(notebooks),
-            new ObjectMapper().findAndRegisterModules());
+    private final ContextNotebookLookup lookup = new ContextNotebookLookup(notebooks, new RepositoryContextMatcher(), new ContextNoteReader(notebooks,
+            new ContextSourceChecker(new GitCommandRunner(), mock(WorkspaceRepositoryService.class))), new ObjectMapper().findAndRegisterModules());
 
     @Test
     void literalSearchCoversBodyAndReferenceButExcludesDisabledNotesAndScopes()
@@ -128,12 +130,12 @@ class TestContextNotebookLookup
         when(notebooks.getNotebook("workspace")).thenReturn(notebook(2, ImmutableList.of(iceberg), ImmutableList.of(enabled)),
                 notebook(3, ImmutableList.of(iceberg), ImmutableList.of(changed)), notebook(4, ImmutableList.of(iceberg), ImmutableList.of(disabled)));
 
-        ContextNotebookLookup.Read opened = lookup.readEnabled("workspace", enabled.id(), 2).orElseThrow();
+        ContextNotebookLookup.Read opened = lookup.readEnabled("workspace", enabled.id(), 2, Optional.empty()).orElseThrow();
         assertThat(opened.entry()).isEqualTo(enabled);
         assertThat(opened.capture().text()).contains("UNVERIFIED", "Snapshot isolation");
         assertThat(opened.capture().evidence()).containsKey(opened.capture().sourceEvidenceRefs().get("source"));
-        assertThat(lookup.readEnabled("workspace", enabled.id(), 2)).isEmpty();
-        assertThat(lookup.readEnabled("workspace", enabled.id(), 2)).isEmpty();
+        assertThat(lookup.readEnabled("workspace", enabled.id(), 2, Optional.empty())).isEmpty();
+        assertThat(lookup.readEnabled("workspace", enabled.id(), 2, Optional.empty())).isEmpty();
     }
 
     @Test

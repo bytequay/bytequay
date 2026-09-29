@@ -71,6 +71,10 @@ import static org.mockito.Mockito.when;
 class TestDevelopmentContextTools
 {
     private static final String WORKSPACE = "workspace";
+    private static final String HEAD = "c".repeat(40);
+    private static final ContextSourceCheck CHANGED_SOURCE = new ContextSourceCheck(Optional.of(HEAD), ImmutableList.of(new ContextSourceCheck.Source(
+            "context-source:ci", "REPOSITORY_FILE", Optional.of("ci.yml"), Optional.of("3-3"), Optional.empty(), Optional.of("a".repeat(40)),
+            ContextSourceCheck.Status.CHANGED)), ImmutableList.of());
     private final TaskId taskId = TaskId.random();
     private final TurnId turnId = TurnId.random();
     private AgentTask task;
@@ -80,6 +84,7 @@ class TestDevelopmentContextTools
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
     private final ContextNotebookLookup lookup = mock(ContextNotebookLookup.class);
     private final TaskContextDraftService drafts = mock(TaskContextDraftService.class);
+    private final ContextSourceChecker checker = mock(ContextSourceChecker.class);
     private final ContextUsageRecorder usage = mock(ContextUsageRecorder.class);
     private final DevelopmentContextUsageObserver observer = mock(DevelopmentContextUsageObserver.class);
     private final AgentUnitOfWork unitOfWork = new AgentUnitOfWork()
@@ -92,7 +97,7 @@ class TestDevelopmentContextTools
     };
     private final MemoryReceipts receipts = new MemoryReceipts();
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module());
-    private final DevelopmentContextTools service = new DevelopmentContextTools(tasks, turns, reviews, lookup, drafts,
+    private final DevelopmentContextTools service = new DevelopmentContextTools(tasks, turns, reviews, lookup, drafts, checker,
             receipts, usage, observer, unitOfWork, mapper, Clock.systemUTC());
 
     @BeforeEach
@@ -107,6 +112,7 @@ class TestDevelopmentContextTools
         when(tasks.find(taskId)).thenAnswer(ignored -> Optional.of(task));
         when(turns.findActive(taskId)).thenAnswer(ignored -> Optional.of(turn));
         when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.empty());
+        when(checker.head(worktree.canonicalWorktree())).thenReturn(Optional.of(HEAD));
     }
 
     @Test
@@ -202,12 +208,12 @@ class TestDevelopmentContextTools
         String ref = mapper.readTree(result).path("searchRef").asText();
         String readRequest = "{\"action\":\"READ\",\"searchRef\":\"" + ref
                 + "\",\"entryId\":\"knowledge:project\",\"entryVersion\":3}";
-        when(lookup.readEnabled(WORKSPACE, "knowledge:project", 3)).thenReturn(Optional.of(new Read(7, entry(),
-                new ContextNoteReader.Read("Saved exact note", ImmutableMap.of(), ImmutableMap.of()))));
+        when(lookup.readEnabled(WORKSPACE, "knowledge:project", 3, Optional.of(HEAD))).thenReturn(Optional.of(new Read(7, entry(),
+                new ContextNoteReader.Read("Saved exact note", ImmutableMap.of(), ImmutableMap.of()), CHANGED_SOURCE)));
         String read = service.call(taskId.toString(), readRequest);
         assertThat(read).contains("Saved exact note").contains("AVAILABLE");
         assertThat(receipts.listTurn(taskId.toString(), turnId.toString())).hasSize(2);
-        when(lookup.readEnabled(WORKSPACE, "knowledge:project", 3)).thenReturn(Optional.empty());
+        when(lookup.readEnabled(WORKSPACE, "knowledge:project", 3, Optional.of(HEAD))).thenReturn(Optional.empty());
         assertThat(service.call(taskId.toString(), readRequest)).isEqualTo(read);
         assertThatThrownBy(() -> service.call(taskId.toString(), readRequest.replace("\"entryVersion\":3", "\"entryVersion\":4")))
                 .hasMessageContaining("not in that");
@@ -245,13 +251,14 @@ class TestDevelopmentContextTools
     void exactReadNeedsNoPriorListOrSearch()
     {
         turn = turn.markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("provider-turn"), Optional.empty());
-        when(lookup.readEnabled(WORKSPACE, "knowledge:project", 3)).thenReturn(Optional.of(new Read(7, entry(),
-                new ContextNoteReader.Read("Saved exact note", ImmutableMap.of(), ImmutableMap.of()))));
+        when(lookup.readEnabled(WORKSPACE, "knowledge:project", 3, Optional.of(HEAD))).thenReturn(Optional.of(new Read(7, entry(),
+                new ContextNoteReader.Read("Saved exact note", ImmutableMap.of(), ImmutableMap.of()), CHANGED_SOURCE)));
         String request = "{\"action\":\"READ\",\"entryId\":\"knowledge:project\",\"entryVersion\":3}";
         String result = service.call(taskId.toString(), request);
-        assertThat(result).contains("Saved exact note", "AVAILABLE");
+        assertThat(result).contains("Saved exact note", "AVAILABLE", "\"applicability\":\"VERSION_MISMATCH\"", "\"commit\":\"" + HEAD + "\"",
+                "\"path\":\"ci.yml\"", "\"status\":\"CHANGED\"", "uncommitted edits are not compared");
         assertThat(receipts.listTurn(taskId.toString(), turnId.toString())).hasSize(1);
-        when(lookup.readEnabled(WORKSPACE, "knowledge:project", 3)).thenReturn(Optional.empty());
+        when(lookup.readEnabled(WORKSPACE, "knowledge:project", 3, Optional.of(HEAD))).thenReturn(Optional.empty());
         assertThat(service.call(taskId.toString(), request)).isEqualTo(result);
         assertThat(service.call(taskId.toString(), request.replace("\"entryVersion\":3", "\"entryVersion\":4")))
                 .contains("VERSION_UNAVAILABLE");

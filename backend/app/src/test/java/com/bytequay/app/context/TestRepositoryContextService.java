@@ -13,7 +13,9 @@
  */
 package com.bytequay.app.context;
 
+import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
+import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.context.ActiveContextPreparation;
 import com.bytequay.core.context.ContextClaim;
 import com.bytequay.core.context.ContextEntry;
@@ -221,7 +223,8 @@ class TestRepositoryContextService
                 ContextEntry.knowledgeId(shared.id()), shared.id(), "Shared storage behavior", "Connector storage contracts", "Approved shared knowledge",
                 ImmutableList.of(), ImmutableList.of(sharedSource.id())));
         assertThat(saved.entries()).containsAll(before.entries());
-        ContextNotebookLookup lookup = new ContextNotebookLookup(service, new RepositoryContextMatcher(), new ContextNoteReader(service), mapper);
+        ContextNotebookLookup lookup = new ContextNotebookLookup(service, new RepositoryContextMatcher(), new ContextNoteReader(service,
+                new ContextSourceChecker(new GitCommandRunner(), mock(WorkspaceRepositoryService.class))), mapper);
         ContextNotebookLookup.SearchResult found = lookup.search(WORKSPACE, new ContextNotebookLookup.SearchQuery("",
                 ImmutableList.of("plugin/trino-delta-lake/src/main/java/DeltaLakeMetadata.java")));
         assertThat(found.hits()).extracting(ContextNotebookLookup.Hit::entryId).containsExactly(ContextEntry.knowledgeId(shared.id()));

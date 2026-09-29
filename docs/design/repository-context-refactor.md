@@ -2,7 +2,9 @@
 
 Status: implemented and verified by automated tests. Live-provider quality and
 cost acceptance remain separate. Delivery and verification belong in
-[the temporary development checkpoints](repository-context-impl-tmp.md#refactor-development-checkpoints).
+[the temporary development checkpoints](repository-context-impl-tmp.md#refactor-development-checkpoints);
+the [source check at read](#source-check-at-read) has
+[its own checklist](repository-context-impl-tmp.md#check-note-sources-at-read).
 This contract supersedes earlier automatic note selection, direct generated-note
 activation, one-note-per-scope, and manual-first discovery flows in
 [Repository Context](repository-context.md) and
@@ -192,6 +194,57 @@ proposing duplicates. No matching search hit does not prove a new note is needed
 no task is required to produce a lesson. Larger research opportunities become
 suggested topics, not automatic jobs.
 
+### Source check at read
+
+The monitored branch keeps moving, so neither a baseline nor a head SHA tells
+whether a note still describes the code. A note is out of date only when the
+lines it cites change. Each exact read therefore compares the note's
+repository-file sources with one commit that belongs to the reader:
+
+| Reader | Compared commit |
+| --- | --- |
+| Development task | The task worktree's committed HEAD; uncommitted edits are not compared |
+| Review | The run's frozen reviewed head |
+| Learning run | The run's frozen baseline |
+
+A source cites a line range of one file, and ByteQuay saved those lines when
+it read them. The source is **UNCHANGED** when its path at that commit is a
+regular file with the recorded blob, or when the cited lines still appear in
+that file as consecutive lines in the same order, wherever they now are.
+It is **CHANGED** when the file exists but the cited lines do not, and
+**ABSENT** when the path is missing or not a regular file. Matching is exact,
+so reformatting counts as a change; indentation carries meaning in files such as
+YAML and Python. Documents, history, agent-reported excerpts, files from another
+repository, sources without a recorded blob and failed lookups are
+**UNCHECKED**, as is an excerpt cut short by the capture limit when its file's
+blob differs. The note is `MATCHED` when it has sources and all are UNCHANGED,
+`VERSION_MISMATCH` when any is CHANGED or ABSENT, and `UNVERIFIED` otherwise.
+The read returns the compared commit and each source's path, cited lines,
+recorded commit and status. When the cited lines moved and occur once, the
+read also returns their current lines. The note text marks claims that cite a
+CHANGED or ABSENT source. The result is retained with the read's existing
+receipt, so an exact retry returns what the agent first saw.
+
+The check is one bounded local `git ls-tree` over the note's cited paths, at most
+eight, plus one bounded blob read for each file whose blob differs, within the
+existing local Git time bound and 2 MiB file bound. It never fetches, stores no
+freshness state and starts no background work. A failed check leaves the note
+`UNVERIFIED` with the reason as a limitation; it never fails the read. List and
+search stay literal and unchecked, so their hits remain `UNVERIFIED`. The Notes
+page does not run this check.
+
+`MATCHED` means the cited lines are unchanged, not that a claim is proved; a
+claim can depend on lines it did not cite. Renamed files report ABSENT. The
+check reports that cited lines differ, not which revision is newer, so a note
+learned from newer code than the reader's commit is also `VERSION_MISMATCH`.
+A mismatch neither disables the note nor blocks its use. The agent re-reads the
+changed sources at its commit and trusts that code over the note. When that
+code establishes the current behavior, or shows the note still holds, the agent
+may propose an update of the exact version through the existing draft flow,
+which cites the lines at its own commit. Which side is newer is the drafting
+agent's judgment, which a development task can check with Git; the user
+approves every update as usual.
+
 ## 6. Explore and merged work
 
 **Explore & prepare context** reuses the workspace question/development task.
@@ -220,10 +273,11 @@ Found/opened/cited observations do not claim understanding or correctness.
 Section 8 defines how these controls are presented.
 
 Verify draft isolation/conflicts, multiple notes per area, literal pagination,
-exact reads, empty-notebook task startup, deep/non-Maven discovery, bounded
-external sources, restart/continuation, partial results, and no hidden model
-launches. Real-provider quality/cost checks are separate, explicit acceptance
-work; do not run them against watched repositories during implementation tests.
+exact reads and their source checks, empty-notebook task startup, deep/non-Maven
+discovery, bounded external sources, restart/continuation, partial results, and
+no hidden model launches. Real-provider quality/cost checks are separate,
+explicit acceptance work; do not run them against watched repositories during
+implementation tests.
 
 ## 8. User interface
 

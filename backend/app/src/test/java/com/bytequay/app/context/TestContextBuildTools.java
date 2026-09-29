@@ -33,6 +33,8 @@ import com.bytequay.app.context.RepositoryContextPreparation.Status;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.context.ContextEntry;
+import com.bytequay.core.context.ContextEntryKind;
 import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.ContextInputFingerprint;
 import com.bytequay.core.context.ContextLimits;
@@ -644,6 +646,22 @@ class TestContextBuildTools
     private ContextBuild current()
     {
         return store.find(WORKSPACE).orElseThrow();
+    }
+
+    @Test
+    void noteReadComparesCitedLinesWithTheRunBaseline()
+            throws Exception
+    {
+        ContextEntry note = new ContextEntry("knowledge:project", ContextEntryKind.KNOWLEDGE, "project", "Build commands", "Summary", "Body",
+                ImmutableList.of(), ImmutableList.of(), ContextEntryOrigin.USER, true, 3);
+        when(lookup.readEnabled(WORKSPACE, note.id(), 3, Optional.of(SHA))).thenReturn(Optional.of(new ContextNotebookLookup.Read(7, note,
+                new ContextNoteReader.Read("Saved note", ImmutableMap.of(), ImmutableMap.of()),
+                new ContextSourceCheck(Optional.of(SHA), ImmutableList.of(), ImmutableList.of()))));
+
+        JsonNode read = read("{\"kind\":\"NOTE\",\"entryId\":\"knowledge:project\",\"entryVersion\":3}");
+
+        assertThat(read.at("/sourceCheck/commit").textValue()).isEqualTo(SHA);
+        assertThat(read.at("/capture/text").textValue()).isEqualTo("Saved note");
     }
 
     private JsonNode read(String args)

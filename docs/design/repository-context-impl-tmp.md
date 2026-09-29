@@ -1,5 +1,37 @@
 # Repository Context implementation checklist
 
+## Check note sources at read
+
+The [source check at read](repository-context-refactor.md#source-check-at-read)
+is implemented.
+
+- [x] Compare an exact read's repository-file sources with the reader's commit:
+  the development task's committed HEAD, the review's frozen head or the
+  learning run's baseline. Use one bounded local `git ls-tree`, then read only
+  files whose blob differs and look for the cited lines in order; no fetch,
+  stored freshness state or background work.
+- [x] Return `MATCHED`, `VERSION_MISMATCH` or `UNVERIFIED` with `sourceCheck`,
+  including current lines for moved passages. Mark claims that cite changed or
+  absent sources, and retain the result with the existing read receipt for
+  exact retries.
+- [x] Keep list and search unchecked. Report a failed check as a limitation
+  without failing the read.
+- [x] Tell readers to re-read changed sources and trust current code.
+- [x] Verify unchanged, moved, changed, deleted, truncated, non-repository and
+  failed checks, and unrelated edits in a cited file, in the development, review
+  and learning reads. Also verify exact retries and the backend build gate.
+
+Verification used the working tree over `f38d54470` with only this change.
+Full JVM 25 `mvn verify` passed 3,639 tests with no failures, errors or skips,
+and Checkstyle reported no violations. Git-backed regressions cover a passage
+that moved after unrelated edits, a changed cited line, a deleted file, an
+unchanged file, a passage that occurs twice, a saved excerpt ending in a
+partial line, documents, agent-reported and other-repository sources, an
+unknown commit and a missing commit. Read-path tests cover the development
+task's committed HEAD, the review's frozen head and the learning run's
+baseline. No frontend file changed, and no live model run or saved-note
+change was used.
+
 ## Let the agent choose source line ranges
 
 - [x] Honor explicit inclusive startLine/endLine ranges without a 200-line cap;

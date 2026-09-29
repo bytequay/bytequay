@@ -272,7 +272,8 @@ public class ReviewTools
                                 + " unique full 40/64-hex commit IDs in this repository), "
                                 + "document (omit sourceId for registered source list pages; otherwise sourceId, optional relativePage, captureId, page, refresh), "
                                 + "history (required sourceKind PR or ISSUE and number; selected merged PR or closed non-PR issue), "
-                                + "note (entryId and entryVersion read that exact version; searchRef optionally binds a retained hit), "
+                                + "note (entryId and entryVersion read that exact version; searchRef optionally binds a retained hit; "
+                                + "sourceCheck compares its cited lines with the reviewed head), "
                                 + "note_list (operationKey, optional page and notebookRevision; enabled note summaries), "
                                 + "note_search (query and/or paths, operationKey, optional page and notebookRevision; literal filtering, no relevance ranking), "
                                 + "source (path, startLine, endLine, revision: head/base/previous/baseline), command_output, investigation, findings "
@@ -1760,7 +1761,7 @@ public class ReviewTools
         activeNoteDiscovery(call);
         Optional<ContextNotebookLookup.Read> read;
         try {
-            read = outsideReviewLock(call, () -> notebookLookup.readEnabled(call.review().workspaceId(), entryId, version));
+            read = outsideReviewLock(call, () -> notebookLookup.readEnabled(call.review().workspaceId(), entryId, version, Optional.of(call.run().headSha())));
         }
         catch (ContextNotFoundException | ContextStorageException failure) {
             throw new ReviewInvalidRequestException("note: the current notebook is unavailable; no note was retained");
@@ -1780,10 +1781,13 @@ public class ReviewTools
                         .put("note", "The searched version changed, was disabled or was removed before capture. Search again; no replacement was read.");
             }
             ContextNotebookLookup.Read capture = read.orElseThrow();
-            ObjectNode result = noteIdentity(selected).put("status", "AVAILABLE").put("text", capture.capture().text())
+            String applicability = capture.sourceCheck().applicability().name();
+            ObjectNode result = noteIdentity(selected).put("applicability", applicability).put("status", "AVAILABLE").put("text", capture.capture().text())
                     .put("title", capture.entry().title()).put("evidenceRef", key).put("notebookRevision", capture.notebookRevision())
                     .put("kind", capture.entry().kind().name()).put("scopeId", capture.entry().scopeId())
-                    .put("note", "Exact newly discovered note; applicability and claims are unverified. Check its original sources against the reviewed code.");
+                    .put("note", "Exact newly discovered note. sourceCheck compares its cited lines with the reviewed head; claims remain unverified. "
+                            + "Re-read CHANGED or ABSENT sources before relying on claims that cite them.");
+            result.set("sourceCheck", objectMapper.valueToTree(capture.sourceCheck()));
             if (!searchRef.isEmpty()) {
                 result.put("searchRef", searchRef);
             }
@@ -1802,7 +1806,7 @@ public class ReviewTools
                 }
             }
             ReviewEvidence note = new ReviewEvidence(key, "Repository note " + entryId + " v" + version,
-                    "Exact agent-selected note at notebook revision " + capture.notebookRevision() + "; applicability=UNVERIFIED",
+                    "Exact agent-selected note at notebook revision " + capture.notebookRevision() + "; applicability=" + applicability,
                     capture.capture().text(), "Untrusted note; source versions and claims need independent review.");
             current = current.withEvidence(key, note, now()).withOperation(key, new ReviewOperation(digest, encoded), now());
             long retainedBytes = current.operations().entrySet().stream().filter(item -> item.getKey().startsWith(NOTE_OPERATION_PREFIX))

@@ -113,11 +113,15 @@ public class ContextNotebookLookup
         throw new IllegalStateException("Notebook page calculation failed");
     }
 
-    /** Captures only an enabled, unsuppressed exact version; callers retain the response before returning it. */
-    public Optional<Read> readEnabled(String workspaceId, String entryId, long version)
+    /**
+     * Captures only an enabled, unsuppressed exact version; callers retain the response before returning it.
+     *
+     * @param commit the reader's commit to compare the note's cited lines with
+     */
+    public Optional<Read> readEnabled(String workspaceId, String entryId, long version, Optional<String> commit)
     {
-        return notes.readEnabled(workspaceId, entryId, version)
-                .map(capture -> new Read(capture.notebookRevision(), capture.entry(), capture.read()));
+        return notes.readEnabled(workspaceId, entryId, version, commit)
+                .map(capture -> new Read(capture.notebookRevision(), capture.entry(), capture.read(), capture.sourceCheck()));
     }
 
     private static boolean pathMatches(ContextScope scope, List<String> paths)
@@ -215,5 +219,5 @@ public class ContextNotebookLookup
 
     public record ScopeState(String scopeId, String preparation, boolean missingKnowledge) {}
 
-    public record Read(long notebookRevision, ContextEntry entry, ContextNoteReader.Read capture) {}
+    public record Read(long notebookRevision, ContextEntry entry, ContextNoteReader.Read capture, ContextSourceCheck sourceCheck) {}
 }

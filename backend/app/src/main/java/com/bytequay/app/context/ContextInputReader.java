@@ -348,7 +348,8 @@ public class ContextInputReader
         }
     }
 
-    private static Map<String, String> parse(String output)
+    /** Maps each path in NUL-terminated {@code ls-tree -z} output to its "mode type object" identity. */
+    static Map<String, String> parse(String output)
     {
         Map<String, String> objects = new LinkedHashMap<>();
         checkArgument(output.isEmpty() || output.endsWith("\0"), "Git inventory is not NUL-terminated");

@@ -193,18 +193,19 @@ development reads use the same response bound and a 512 KiB per-turn retained
 text/evidence cap. The entry body itself is already limited to 8 KiB.
 
 The read returns `entryId`, `entryVersion`, observed `notebookRevision`,
-`text`, `sourceEvidenceRefs`, `applicability`, `limitations` and an opaque
-`evidenceRef`. A development read also includes saved source references,
-versions and excerpts as whole bounded pieces within its 64 KiB response;
-omitted source excerpts are counted. The review tool continues to expose those
-retained sources through its existing evidence selector. For development,
-applicability starts `UNVERIFIED` because the
-worktree may have uncommitted changes. Newly discovered review notes also
-start `UNVERIFIED`; originally selected review notes retain their captured
-frozen-head source comparison.
-`MATCHED` means source identity matched the reviewed code, never that a claim
-was proved. Source excerpts are untrusted reference data. No search/read tool
-can edit a note, start learning, fetch a whole site or write to GitHub.
+`text`, `sourceEvidenceRefs`, `applicability`, `sourceCheck`, `limitations`
+and an opaque `evidenceRef`. A development read also includes saved source
+references, versions and excerpts as whole bounded pieces within its 64 KiB
+response; omitted source excerpts are counted. The review tool continues to
+expose those retained sources through its existing evidence selector.
+`applicability` and `sourceCheck` come from the
+[source check at read](repository-context-refactor.md#source-check-at-read):
+a development read compares the task's committed HEAD and a newly discovered
+review note the frozen reviewed head. Originally selected review notes retain
+their captured frozen-head source comparison. `MATCHED` means the cited lines
+were unchanged at that commit, never that a claim was proved. Source excerpts are
+untrusted reference data. No search/read tool can edit a note, start learning,
+fetch a whole site or write to GitHub.
 
 ~~~json
 {
@@ -212,13 +213,23 @@ can edit a note, start learning, fetch a whole site or write to GitHub.
   "entryId": "knowledge:path:plugin/trino-iceberg/",
   "entryVersion": 3,
   "notebookRevision": 14,
-  "applicability": "UNVERIFIED",
+  "applicability": "VERSION_MISMATCH",
+  "sourceCheck": {
+    "commit": "illustrative-task-head",
+    "sources": [
+      {"ref":"context-source:opaque-id","path":"docs/src/main/sphinx/connector/iceberg.md","lines":"40-52","recordedCommit":"illustrative-commit","status":"CHANGED"},
+      {"ref":"context-source:opaque-id-2","path":"plugin/trino-iceberg/pom.xml","lines":"12-18","currentLines":"14-20","recordedCommit":"illustrative-commit","status":"UNCHANGED"}
+    ]
+  },
   "evidenceRef": "context-note:opaque-id",
-  "text": "Saved note text with claim and source references.",
-  "sourceEvidenceRefs": {"source-connector-doc": "context-source:opaque-id"},
-  "sources": [{"ref":"context-source:opaque-id","kind":"REPOSITORY_FILE","version":"illustrative-commit","excerpt":"Saved source passage."}],
+  "text": "Saved note text with claim and source references; claims citing changed files are marked.",
+  "sourceEvidenceRefs": {"source-connector-doc": "context-source:opaque-id", "source-connector-pom": "context-source:opaque-id-2"},
+  "sources": [
+    {"ref":"context-source:opaque-id","kind":"REPOSITORY_FILE","version":"illustrative-commit","excerpt":"Saved source passage."},
+    {"ref":"context-source:opaque-id-2","kind":"REPOSITORY_FILE","version":"illustrative-commit","excerpt":"Saved manifest passage."}
+  ],
   "omittedSources": 0,
-  "limitations": ["Check the source version against this worktree or reviewed head."]
+  "limitations": ["Uncommitted worktree edits are not compared."]
 }
 ~~~
 

@@ -43,6 +43,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.bytequay.app.context.ContextText.excerpt;
 import static com.bytequay.core.context.ContextLimits.bytes;
@@ -51,9 +52,11 @@ import static com.bytequay.core.context.ContextUsageEvent.Stage.ELIGIBLE;
 import static com.bytequay.core.context.ContextUsageEvent.Stage.SCOPE_DEMAND;
 import static com.bytequay.core.context.ReviewContextSnapshot.MAXIMUM_INPUT_BYTES;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
+import static java.util.stream.Collectors.joining;
 
 /** Captures review preparation locally. A saved packet is not a provider delivery receipt. */
 @Service
@@ -226,16 +229,32 @@ public class ReviewContextService
         return result;
     }
 
-    static String renderEntry(ContextEntry entry, Map<String, String> refs, Applicability applicability)
+    static String renderEntry(ContextEntry entry, Map<String, String> refs, Applicability applicability, Optional<ContextSourceCheck> check)
     {
+        Set<String> stale = check.stream().flatMap(found -> found.sources().stream()).filter(ContextSourceCheck.Source::stale)
+                .map(ContextSourceCheck.Source::ref).collect(toImmutableSet());
         StringBuilder text = new StringBuilder("\nNote ").append(entry.id()).append(" v").append(entry.version()).append(": ").append(entry.title())
                 .append("\nApplicability: ").append(applicability).append(" (source/input identity only; claims and effective dependencies remain UNVERIFIED)")
                 .append("; kind: ").append(entry.kind()).append("; origin: ").append(entry.origin())
                 .append('\n').append(entry.summary()).append('\n').append(entry.body()).append('\n');
-        entry.claims().forEach(claim -> text.append("Claim [").append(claim.basis()).append("]: ").append(claim.text())
-                .append("; evidence: ").append(claim.sourceIds().stream().map(refs::get).toList()).append('\n'));
+        entry.claims().forEach(claim -> {
+            List<String> evidence = claim.sourceIds().stream().map(refs::get).toList();
+            text.append("Claim [").append(claim.basis()).append("]: ").append(claim.text()).append("; evidence: ").append(evidence)
+                    .append(evidence.stream().anyMatch(stale::contains) ? "; cites a changed source" : "").append('\n');
+        });
         text.append("Source references: ").append(refs.values()).append('\n');
+        check.ifPresent(found -> text.append(renderCheck(found)));
         return text.toString();
+    }
+
+    private static String renderCheck(ContextSourceCheck check)
+    {
+        String sources = check.sources().stream()
+                .map(source -> source.ref() + " " + source.path().map(path -> path + source.lines().map(lines -> " lines " + lines).orElse("")).orElse(source.kind())
+                        + ": " + source.status() + source.currentLines().map(lines -> " (now lines " + lines + ")").orElse(""))
+                .collect(joining("; "));
+        return check.commit().map(commit -> "Cited lines compared with " + commit + ": ").orElse("Cited lines were not compared: ") + sources + '\n'
+                + (check.gaps().isEmpty() ? "" : "Source check gaps: " + String.join(" ", check.gaps()) + '\n');
     }
 
     static String evidenceRef(String sourceId)

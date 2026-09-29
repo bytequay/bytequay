@@ -30,6 +30,7 @@ import com.bytequay.app.context.ContextHistoryReader;
 import com.bytequay.app.context.ContextNotFoundException;
 import com.bytequay.app.context.ContextNoteReader;
 import com.bytequay.app.context.ContextNotebookLookup;
+import com.bytequay.app.context.ContextSourceChecker;
 import com.bytequay.app.context.ContextStorageException;
 import com.bytequay.app.context.ContextUsageRecorder;
 import com.bytequay.app.context.RepositoryContextMatcher;
@@ -253,8 +254,8 @@ class TestReviewTools
             return new ReviewToolAssignment.Binding(current, current.currentStep(), Optional.empty());
         });
         tools = new ReviewTools(store, pullRequests, selectedPullRequests, selectedPullRequestDiffs, selectedCommitPullRequests, selectedDocumentation, baselineSources,
-                historySources, new ContextNoteReader(notebooks),
-                new ContextNotebookLookup(notebooks, new RepositoryContextMatcher(), new ContextNoteReader(notebooks), objectMapper),
+                historySources, new ContextNoteReader(notebooks, new ContextSourceChecker(git, workspaces)),
+                new ContextNotebookLookup(notebooks, new RepositoryContextMatcher(), new ContextNoteReader(notebooks, new ContextSourceChecker(git, workspaces)), objectMapper),
                 usageStore, usage,
                 repositories, issues, issueRefresh, events, workspaces, git, objectMapper,
                 locks, assignments, preparation, new AgentUnitOfWork()
@@ -922,6 +923,8 @@ class TestReviewTools
         JsonNode opened = call("review_get_context", read);
         assertThat(opened.path("status").asText()).isEqualTo("AVAILABLE");
         assertThat(opened.path("text").asText()).contains("Later knowledge", "UNVERIFIED");
+        assertThat(opened.at("/sourceCheck/commit").asText()).isEqualTo(HEAD_SHA);
+        assertThat(opened.path("applicability").asText()).isEqualTo("UNVERIFIED");
         assertThat(opened.path("searchRef").asText()).isEqualTo(search.path("searchRef").asText());
         assertThat(store.findRun(RUN_ID).orElseThrow().evidence()).containsKey(opened.path("evidenceRef").asText());
         ArgumentCaptor<ContextUsageEvent> usageEvents = ArgumentCaptor.forClass(ContextUsageEvent.class);

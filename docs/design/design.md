@@ -82,7 +82,8 @@ historical checkpoint evidence and explicitly deferred future work.
   is posted only by the user.
 - [Repository context: discover, learn, and use](repository-context-refactor.md)
   is the approved refactor: explicit agent discovery, bounded incremental learning,
-  user-approved context notes, and agent-owned literal lookup. Its section 8
+  user-approved context notes, and agent-owned literal lookup whose exact reads
+  check each cited passage against the reader's commit. Its section 8
   names the supplied Claude Design prototype as the authoritative UI. The existing
   [checklist](repository-context-impl-tmp.md#refactor-development-checkpoints)
   tracks delivery separately from the earlier implementation, with its own

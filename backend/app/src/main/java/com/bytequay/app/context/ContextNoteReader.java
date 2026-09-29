@@ -30,15 +30,17 @@ import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
-/** Reads an originally selected note version without consulting current matching or applicability. */
+/** Reads exact note versions. A frozen selection keeps its captured applicability; an enabled read checks cited lines at the reader's commit. */
 @Component
 public class ContextNoteReader
 {
     private final RepositoryContextService notebooks;
+    private final ContextSourceChecker checker;
 
-    public ContextNoteReader(RepositoryContextService notebooks)
+    public ContextNoteReader(RepositoryContextService notebooks, ContextSourceChecker checker)
     {
         this.notebooks = requireNonNull(notebooks, "notebooks is null");
+        this.checker = requireNonNull(checker, "checker is null");
     }
 
     /**
@@ -59,32 +61,52 @@ public class ContextNoteReader
         if (matching.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(capture(notebook, matching.orElseThrow(), selected.applicability(), false));
+        ContextEntry entry = matching.orElseThrow();
+        return Optional.of(capture(sources(notebook), entry, refs(entry, false), selected.applicability(), Optional.empty()));
     }
 
-    /** Reads today's enabled exact version; no selected-run snapshot or older version is substituted. */
-    public Optional<EnabledRead> readEnabled(String workspaceId, String entryId, long version)
+    /**
+     * Reads today's enabled exact version; no selected-run snapshot or older version is substituted.
+     *
+     * @param commit the reader's commit to compare cited lines with; empty leaves every source unchecked
+     */
+    public Optional<EnabledRead> readEnabled(String workspaceId, String entryId, long version, Optional<String> commit)
     {
         ContextLimits.text(entryId, "entry id", 1200);
+        requireNonNull(commit, "commit is null");
         RepositoryNotebook notebook = notebooks.getNotebook(workspaceId);
         return notebook.entries().stream().filter(entry -> entry.id().equals(entryId) && entry.version() == version && entry.enabled())
                 .filter(entry -> notebook.scopes().stream().anyMatch(scope -> scope.id().equals(entry.scopeId()) && scope.enabled()))
-                .findFirst().map(entry -> new EnabledRead(notebook.revision(), entry,
-                        capture(notebook, entry, ContextSelectedEntry.Applicability.UNVERIFIED, true)));
+                .findFirst().map(entry -> {
+                    Map<String, ContextSourceEvidence> sources = sources(notebook);
+                    Map<String, String> refs = refs(entry, true);
+                    ContextSourceCheck check = checker.check(workspaceId, commit,
+                            refs.entrySet().stream().collect(toImmutableMap(Map.Entry::getValue, item -> sources.get(item.getKey()))));
+                    return new EnabledRead(notebook.revision(), entry, capture(sources, entry, refs, check.applicability(), Optional.of(check)), check);
+                });
     }
 
-    private static Read capture(RepositoryNotebook notebook, ContextEntry entry, ContextSelectedEntry.Applicability applicability, boolean dynamic)
+    private static Map<String, ContextSourceEvidence> sources(RepositoryNotebook notebook)
     {
-        Map<String, ContextSourceEvidence> sources = notebook.sourceEvidence().stream().collect(toImmutableMap(ContextSourceEvidence::id, source -> source));
-        Map<String, String> refs = entry.sourceIds().stream().collect(toImmutableMap(id -> id, id -> dynamic
+        return notebook.sourceEvidence().stream().collect(toImmutableMap(ContextSourceEvidence::id, source -> source));
+    }
+
+    private static Map<String, String> refs(ContextEntry entry, boolean dynamic)
+    {
+        return entry.sourceIds().stream().collect(toImmutableMap(id -> id, id -> dynamic
                 ? "context-source:" + Hashing.sha256().hashString(entry.id() + "\n" + entry.version() + "\n" + id, UTF_8)
                 : ReviewContextService.evidenceRef(id)));
-        ImmutableMap.Builder<String, ReviewEvidence> captured = ImmutableMap.builder();
-        refs.forEach((sourceId, ref) -> captured.put(ref, ReviewContextService.capture(sources.get(sourceId), ref)));
-        return new Read(ReviewContextService.renderEntry(entry, refs, applicability), refs, captured.buildOrThrow());
     }
 
-    public record EnabledRead(long notebookRevision, ContextEntry entry, Read read) {}
+    private static Read capture(Map<String, ContextSourceEvidence> sources, ContextEntry entry, Map<String, String> refs,
+            ContextSelectedEntry.Applicability applicability, Optional<ContextSourceCheck> check)
+    {
+        ImmutableMap.Builder<String, ReviewEvidence> captured = ImmutableMap.builder();
+        refs.forEach((sourceId, ref) -> captured.put(ref, ReviewContextService.capture(sources.get(sourceId), ref)));
+        return new Read(ReviewContextService.renderEntry(entry, refs, applicability, check), refs, captured.buildOrThrow());
+    }
+
+    public record EnabledRead(long notebookRevision, ContextEntry entry, Read read, ContextSourceCheck sourceCheck) {}
 
     public record Read(String text, Map<String, String> sourceEvidenceRefs, Map<String, ReviewEvidence> evidence)
     {

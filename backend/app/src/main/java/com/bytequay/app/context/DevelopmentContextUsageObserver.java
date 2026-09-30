@@ -202,20 +202,26 @@ public class DevelopmentContextUsageObserver
                 catch (RuntimeException failure) {
                     log.debug("Could not confirm development context delivery for task {}: {}", taskId, failure.toString());
                 }
-                if (item.payload() instanceof AgentEventPayload.Lifecycle lifecycle && SETTLING.contains(lifecycle.phase())) {
+                if (settles(item)) {
                     if (subscriptions.remove(taskId, subscription)) {
                         watched.remove(taskId);
                         subscription.cancel();
-                        if (tasks.find(taskId).filter(task -> task.state() == TaskState.OPEN).isPresent()
-                                && turns.findActive(taskId).filter(turn -> item.turnId().map(id -> !id.equals(turn.id())).orElse(true)).isPresent()) {
-                            watch(taskId);
-                        }
                     }
                 }
                 else if (subscriptions.get(taskId) == subscription) {
                     subscription.request(1);
                 }
             });
+        }
+
+        /**
+         * Watching ends with the active turn. A replay can pass an earlier turn's completion while a later turn runs;
+         * the stream then continues into the later turn.
+         */
+        private boolean settles(AgentEventEnvelope item)
+        {
+            return item.payload() instanceof AgentEventPayload.Lifecycle lifecycle && SETTLING.contains(lifecycle.phase())
+                    && item.turnId().filter(turn -> turns.findActive(taskId).filter(active -> !active.id().equals(turn)).isPresent()).isEmpty();
         }
 
         @Override

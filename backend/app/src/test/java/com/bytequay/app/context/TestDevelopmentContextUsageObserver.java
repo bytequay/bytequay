@@ -17,8 +17,11 @@ import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentEventSource;
+import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
@@ -33,15 +36,24 @@ import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
 import com.bytequay.core.context.ContextUsageEvent;
 import com.bytequay.core.context.DevelopmentContextReceipt;
 import com.bytequay.core.context.DevelopmentContextReceiptStore;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
+import java.util.concurrent.Flow;
 
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -93,6 +105,54 @@ class TestDevelopmentContextUsageObserver
 
         observer.confirm(event("mcp__bytequay__repository_context_lookup", ActivityState.COMPLETED, reference, turnId));
         verify(usage).confirm("workspace", reference, ContextUsageEvent.Stage.OPENED);
+    }
+
+    @Test
+    void keepsObservingWhenAnEarlierTurnsCompletionReplays()
+    {
+        TurnId next = TurnId.random();
+        String reference = "context-note:" + UUID.randomUUID();
+        when(tasks.find(taskId)).thenReturn(Optional.of(task()));
+        when(turns.findActive(taskId)).thenReturn(Optional.of(AgentTurn.accepted(next, taskId, "next",
+                new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of()), Instant.EPOCH)));
+        when(receipts.findReference(taskId.toString(), next.toString(), reference)).thenReturn(Optional.of(receipt(reference, DevelopmentContextReceipt.Kind.READ)));
+        List<AgentEventEnvelope> history = ImmutableList.of(
+                envelope(1, turnId, new AgentEventPayload.Lifecycle(AgentEventPayload.LifecyclePhase.TURN_COMPLETED, "Done")),
+                envelope(2, next, new AgentEventPayload.ToolActivity("mcp__bytequay__repository_context_lookup", ActivityState.COMPLETED,
+                        "context-receipt:" + reference, Optional.empty())));
+        when(events.readHistory(taskId, OptionalLong.empty(), OptionalLong.empty())).thenReturn(new AgentHistoryPage(history, OptionalLong.empty(), OptionalLong.empty(), 2));
+        when(events.subscribe(eq(taskId), anyLong())).thenAnswer(call -> replay(history, call.getArgument(1)));
+
+        observer.watch(taskId);
+
+        verify(usage, timeout(5_000)).confirm("workspace", reference, ContextUsageEvent.Stage.OPENED);
+        verify(events, times(1)).subscribe(eq(taskId), anyLong());
+    }
+
+    /** Replays the events after {@code after} on request, then stays open like a live stream. */
+    private static Flow.Publisher<AgentEventEnvelope> replay(List<AgentEventEnvelope> history, long after)
+    {
+        return subscriber -> subscriber.onSubscribe(new Flow.Subscription()
+        {
+            private int next = (int) Math.min(history.size(), after);
+
+            @Override
+            public synchronized void request(long count)
+            {
+                for (long sent = 0; sent < count && next < history.size(); sent++) {
+                    subscriber.onNext(history.get(next++));
+                }
+            }
+
+            @Override
+            public void cancel() {}
+        });
+    }
+
+    private AgentEventEnvelope envelope(long sequence, TurnId turn, AgentEventPayload payload)
+    {
+        return new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), sequence, taskId, Optional.of(turn), AgentEventSource.root(),
+                Instant.EPOCH, payload);
     }
 
     private AgentTask task()

@@ -87,6 +87,9 @@ final class ReviewPrompts
             save up to five true nit candidates as findings titled "Nit: ..." without severity and assess them \
             SUPPORTED; otherwise reject the nit candidates as held back, citing each nit's own evidence. Never pad.
 
+            When repository context is enabled, grade each saved note you read with review_grade_note after \
+            checking it against the code.
+
             Seal validation with review_finish for the assigned investigationStep. Assess every candidate using \
             outcome, conclusion, evidenceRefs and counterevidence. SUPPORTED names the saved findingId and exact \
             findingRevision; REJECTED explains the disproof. NEEDS_EVIDENCE includes request.question (the missing \
@@ -183,6 +186,11 @@ final class ReviewPrompts
             claims against the reviewed code, source versions, dependencies and counterevidence. Search adjacent \
             areas when the change crosses boundaries. If a note is stale, contradicted or missing, investigate \
             the sources needed for this task and record the limitation. Missing knowledge must not block review.
+
+            After checking a note you received or read, grade it with review_grade_note: HELPED, NOT_RELEVANT, or \
+            WRONG with the exact quoted statement and the baseline lines that contradict it. When a note read returns \
+            openReports, re-check each quoted statement at the monitored baseline and answer HOLDS with the lines \
+            that support it when it still holds. Code the pull request changes is not evidence against a note.
 
             When current evidence supports useful reusable knowledge, optionally use repository_context_prepare \
             BEGIN and SUBMIT for an existing scope, using baseline/document readId values from review_get_context. \

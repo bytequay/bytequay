@@ -2205,8 +2205,8 @@ Behavior: the [save rules](repository-context-refactor.md#1-one-saved-object-a-c
 - [x] Check cited lines at the saver's base and reject updates and reports from
   a base older than the note's sources.
 - [ ] Record Helped, Not relevant, Wrong and Holds grades and the user's Wrong
-  report in a task-owned table; return open reports with exact reads; leave
-  reported notes out of new review packets; show grade lines and Needs you.
+  report in a task-owned table; return open reports with exact reads; show
+  grade lines and Needs you.
 - [ ] Mark contested notes, record settlements, and add Investigate as a
   one-question learning run with four outcomes and a root cause.
 - [ ] Verify each step with the backend and desktop build gates.

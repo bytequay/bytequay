@@ -48,15 +48,15 @@ re-reads before trying again.
 
 Saved notes, updates, and agents' Wrong reports and Holds answers cite code at
 the saver's **base**: a learning run's baseline, a development task's
-merge-base with the monitored branch, or a review's PR base. ByteQuay captures
-cited repository lines at the saver's commit and rejects them unless they also
-appear, as consecutive lines in the same order, in the same file at that base.
-A task therefore cannot save knowledge about its own unmerged changes or call a
-note wrong because of them; that knowledge arrives through
-[merged work](#6-explore-and-merged-work) once it merges. ByteQuay also rejects
-an update, Wrong report or Holds answer when a repository source of the target
-note was recorded at a commit that descends from the saver's base, because the
-note describes newer code.
+merge-base with the monitored branch, or a review's captured monitored
+baseline. ByteQuay captures cited repository lines at the saver's commit and
+rejects them unless they also appear, as consecutive lines in the same order,
+in the same file at that base. A task therefore cannot save knowledge about its
+own unmerged changes or call a note wrong because of them; that knowledge
+arrives through [merged work](#6-explore-and-merged-work) once it merges.
+ByteQuay also rejects an update, Wrong report or Holds answer when a repository
+source of the target note was recorded at a commit that descends from the
+saver's base, because the note describes newer code.
 
 Agents never change a note the user wrote or edited, or a disabled one. A
 disabled note does not stop an agent from saving a similar new note. Every
@@ -298,21 +298,20 @@ task, not the note, so another task finding the same note helpful is no
 conflict. Helped concerns the note as a whole and never answers a Wrong, which
 concerns one quoted statement; grades are not tallied against each other.
 
-A development task that grades an agent-written note Wrong saves the
-correction in the same call, which may simply drop the statement, and the
-correction becomes the active version. Any other Wrong is an open report on
-that version: one from a review, which cannot save notes; one on a note the
-user wrote; or one the user makes with **Wrong**, with an optional reason,
-wherever a task or review lists the notes it received or opened. While a report
-is open, automatic development offers and new review packets leave the note
-out; search still finds it, and an exact read returns up to three open reports
-with their reason, quote, cited lines and reporter. A task or review that opens
-a reported note re-checks the quoted statement at its base, then saves the
+A development task that grades an agent-written note Wrong saves the correction
+in the same call, which may simply drop the statement, and the correction
+becomes the active version. Any other Wrong is an open report on that version:
+one from a review, which cannot save notes; one on a note the user wrote; or
+one the user makes with **Wrong**, with an optional reason, wherever a task or
+review lists the notes it received or opened. Tasks and reviews receive no note
+bodies automatically, so while a report is open, an exact read of that version
+returns up to three open reports with their reason, quote, cited lines and
+reporter; list and search still find the note. A task or review that opens a
+reported note re-checks the quoted statement at its base, then saves the
 correction where it may change the note, or answers **Holds** with one to three
-cited line ranges that support the statement. A report on a note the user
-wrote also goes to **Needs you** at once: agents cannot change it, and its
-author can judge it. Any new version closes the open reports on the version it
-replaces.
+cited line ranges that support the statement. A report on a note the user wrote
+also goes to **Needs you** at once: agents cannot change it, and its author can
+judge it. Any new version closes the open reports on the version it replaces.
 
 Each correction and settlement records the statement it settled: the
 correction's new text, a settling save's rewritten statement, or the disputed
@@ -320,12 +319,12 @@ statement the user kept or restored. Agents disagree, and the note becomes
 **contested**, when a task answers an open report with Holds, or when another
 task's correction quotes a settled statement of the current version while none
 of that version's cited repository lines changed at the reporter's base. When
-they changed, the code moved on and the correction is an ordinary fix. A contested note stays active
-but out of automatic offers and packets, and an exact read shows its current
-and previous text with each side's quote, reason and cited lines. It stays
-contested through further agent corrections until a settling save or the
-user's **Keep** (the current text), **Restore** (the previous text), **Edit** or
-**Disable**. Needs you lists it, and leaving it there is safe.
+they changed, the code moved on and the correction is an ordinary fix. A
+contested note stays active, and an exact read shows its current and previous
+text with each side's quote, reason and cited lines. It stays contested through
+further agent corrections until a settling save or the user's **Keep** (the
+current text), **Restore** (the previous text), **Edit** or **Disable**. Needs
+you lists it, and leaving it there is safe.
 
 **Investigate** starts one learning run whose single question is the dispute.
 Its input is both texts, every report and answer with its evidence, and the

@@ -24,6 +24,7 @@ import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.context.ContextBaselineReader;
 import com.bytequay.app.context.ContextBuildTools;
 import com.bytequay.app.context.ContextConflictException;
+import com.bytequay.app.context.ContextGradeService;
 import com.bytequay.app.context.ContextHistoryReader;
 import com.bytequay.app.context.ContextNotFoundException;
 import com.bytequay.app.context.ContextNoteReader;
@@ -55,6 +56,7 @@ import com.bytequay.core.context.ContextContribution;
 import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextEntryKind;
+import com.bytequay.core.context.ContextGrade;
 import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextPreparationResult;
@@ -170,7 +172,7 @@ public class ReviewTools
     private static final int SELECTED_NOTES_PAGE = 10;
     private static final int MAX_NOTE_RESPONSE_BYTES = 64 * 1024;
     private static final int MAX_RETAINED_NOTE_BYTES = 1024 * 1024;
-    private static final String NOTE_OPERATION_PREFIX = "context-note:";
+    private static final String NOTE_OPERATION_PREFIX = ContextGradeService.NOTE_READ_PREFIX;
     private static final String SEARCH_OPERATION_PREFIX = "context-search:";
     private static final int MAX_NOTE_SEARCHES = 20;
     private static final int MAX_NOTE_SEARCH_BYTES = 320 * 1024;
@@ -186,6 +188,7 @@ public class ReviewTools
     private final ContextHistoryReader historySources;
     private final ContextNoteReader noteSources;
     private final ContextNotebookLookup notebookLookup;
+    private final ContextGradeService grades;
     private final ContextUsageStore usageStore;
     private final ContextUsageRecorder usage;
     private final RepoService repositories;
@@ -212,6 +215,7 @@ public class ReviewTools
             ContextHistoryReader historySources,
             ContextNoteReader noteSources,
             ContextNotebookLookup notebookLookup,
+            ContextGradeService grades,
             ContextUsageStore usageStore,
             ContextUsageRecorder usage,
             RepoService repositories,
@@ -237,6 +241,7 @@ public class ReviewTools
         this.historySources = requireNonNull(historySources, "historySources is null");
         this.noteSources = requireNonNull(noteSources, "noteSources is null");
         this.notebookLookup = requireNonNull(notebookLookup, "notebookLookup is null");
+        this.grades = requireNonNull(grades, "grades is null");
         this.usageStore = requireNonNull(usageStore, "usageStore is null");
         this.usage = requireNonNull(usage, "usage is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
@@ -433,6 +438,26 @@ public class ReviewTools
                                 "validations", ImmutableMap.of("type", "array", "items", validationSchema())),
                                 ImmutableList.of("operationKey", "complete", "omissions", "validations")),
                         arguments -> call(reviewId, turnId, arguments, this::finish)),
+                new ReviewTool("review_grade_note",
+                        "Grade an exact note version this review received or opened, after checking it against the code, with a one-line reason: "
+                                + "HELPED when it informed the review, NOT_RELEVANT when it did not apply, WRONG when the monitored baseline contradicts it. "
+                                + "WRONG quotes the contradicted statement exactly and cites one to three baseline line ranges that show it; reviews cannot "
+                                + "change notes, so a WRONG stays an open report. When a note read returns openReports, re-check each quoted statement at "
+                                + "the baseline and answer HOLDS, quoting it and citing the baseline lines that support it, when it still holds. "
+                                + "Code the pull request changes is not evidence against a note.",
+                        schema(ImmutableMap.<String, Object>builder()
+                                .put("entryId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1200))
+                                .put("entryVersion", ImmutableMap.of("type", "integer", "minimum", 1))
+                                .put("grade", ImmutableMap.of("type", "string", "enum", ImmutableList.of("HELPED", "NOT_RELEVANT", "WRONG", "HOLDS")))
+                                .put("reason", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", ContextGrade.MAX_REASON_BYTES))
+                                .put("quote", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", ContextGrade.MAX_QUOTE_BYTES))
+                                .put("sources", ImmutableMap.of("type", "array", "minItems", 1, "maxItems", ContextGrade.MAX_CITATIONS,
+                                        "items", schema(ImmutableMap.of(
+                                                "path", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1000),
+                                                "startLine", ImmutableMap.of("type", "integer", "minimum", 1),
+                                                "endLine", ImmutableMap.of("type", "integer", "minimum", 1)), ImmutableList.of("path", "startLine"))))
+                                .buildOrThrow(), ImmutableList.of("entryId", "entryVersion", "grade", "reason")),
+                        arguments -> call(reviewId, turnId, arguments, this::gradeNote)),
                 // A later run may enable context; the stable definition survives native thread resume.
                 // preparationExecution checks this turn's assignment and captured context before any operation.
                 preparationTool(reviewId, turnId));
@@ -1761,8 +1786,10 @@ public class ReviewTools
         }
         activeNoteDiscovery(call);
         Optional<ContextNotebookLookup.Read> read;
+        JsonNode reports;
         try {
             read = outsideReviewLock(call, () -> notebookLookup.readEnabled(call.review().workspaceId(), entryId, version, Optional.of(call.run().headSha())));
+            reports = outsideReviewLock(call, () -> openReports(call, entryId, version));
         }
         catch (ContextNotFoundException | ContextStorageException failure) {
             throw new ReviewInvalidRequestException("note: the current notebook is unavailable; no note was retained");
@@ -1789,6 +1816,7 @@ public class ReviewTools
                     .put("note", "Exact newly discovered note. sourceCheck compares its cited lines with the reviewed head; claims remain unverified. "
                             + "Re-read CHANGED or ABSENT sources before relying on claims that cite them.");
             result.set("sourceCheck", objectMapper.valueToTree(capture.sourceCheck()));
+            result.set("openReports", reports);
             if (!searchRef.isEmpty()) {
                 result.put("searchRef", searchRef);
             }
@@ -1822,6 +1850,106 @@ public class ReviewTools
                     Optional.of(ContextUsageEvent.Note.from(capture.entry())), Optional.empty()));
             return result;
         }));
+    }
+
+    /**
+     * What a reader of this exact version must re-check; empty when the version is no longer current. A captured note stays
+     * readable when the current notebook or its reports cannot be read.
+     */
+    private JsonNode openReports(Call call, String entryId, long version)
+    {
+        List<ContextGrade> reports;
+        try {
+            reports = grades.reportsFor(call.review().workspaceId(), entryId, version);
+        }
+        catch (RuntimeException unavailable) {
+            reports = ImmutableList.of();
+        }
+        return objectMapper.valueToTree(reports.stream().map(report -> ImmutableMap.of(
+                "grader", report.grader().name(), "reason", report.reason(), "quote", report.quote().orElse(""),
+                "citedLines", report.citations().stream().map(citation -> citation.path() + ":" + citation.startLine() + "-" + citation.endLine()).toList(),
+                "reportedAt", report.gradedAt().toString())).toList());
+    }
+
+    /**
+     * Saves this review's grade of a note version its run received or opened. A Wrong or Holds cites lines read at the
+     * run's monitored baseline, so code the pull request changes cannot count against a note.
+     */
+    private JsonNode gradeNote(Call call)
+    {
+        if (!call.run().active() || call.step().isEmpty()
+                || !ImmutableList.of(INVESTIGATE, COLLECT_EVIDENCE, VALIDATE).contains(call.step().orElseThrow().kind())) {
+            throw new ReviewInvalidRequestException("grade: only an active review assignment can grade notes");
+        }
+        ReviewContextSnapshot snapshot = call.run().context().filter(ReviewContextSnapshot::enabled)
+                .orElseThrow(() -> new ReviewInvalidRequestException("grade: repository context was not enabled for this run"));
+        ObjectNode arguments = call.arguments();
+        arguments.fieldNames().forEachRemaining(field -> {
+            if (!ImmutableList.of("entryId", "entryVersion", "grade", "reason", "quote", "sources").contains(field)) {
+                throw new ReviewInvalidRequestException(field + ": not a grade field");
+            }
+        });
+        String entryId = text(arguments, "entryId", 1200, true);
+        JsonNode versionNode = arguments.get("entryVersion");
+        if (versionNode == null || !versionNode.isIntegralNumber() || !versionNode.canConvertToLong() || versionNode.longValue() < 1) {
+            throw new ReviewInvalidRequestException("entryVersion: required positive integer");
+        }
+        long version = versionNode.longValue();
+        ContextGrade.Grade grade;
+        try {
+            grade = ContextGrade.Grade.valueOf(text(arguments, "grade", 20, true));
+        }
+        catch (IllegalArgumentException unknown) {
+            throw new ReviewInvalidRequestException("grade: use HELPED, NOT_RELEVANT, WRONG or HOLDS");
+        }
+        String reason = text(arguments, "reason", ContextGrade.MAX_REASON_BYTES, true);
+        boolean statement = grade == ContextGrade.Grade.WRONG || grade == ContextGrade.Grade.HOLDS;
+        if (statement != arguments.has("quote") || statement != arguments.has("sources")) {
+            throw new ReviewInvalidRequestException("quote: WRONG and HOLDS need quote and sources; HELPED and NOT_RELEVANT take neither");
+        }
+        if (!grades.receivedByReview(call.run(), entryId, version)) {
+            throw new ReviewInvalidRequestException("entryVersion: grade only a note version this review received or opened");
+        }
+        Optional<String> quote = statement ? Optional.of(text(arguments, "quote", ContextGrade.MAX_QUOTE_BYTES, true)) : Optional.empty();
+        String baseline = snapshot.baselineSha().orElseThrow(() -> new ReviewInvalidRequestException("grade: no monitored baseline was captured for this run"));
+        try {
+            ContextGrade saved = outsideReviewLock(call, () -> grades.gradeByReview(call.review().workspaceId(), call.review().taskId(), call.run().id(), baseline,
+                    entryId, version, grade, reason, quote, statement ? baselineCitations(call, arguments.get("sources")) : ImmutableList.of()));
+            boolean open = saved.grade() == ContextGrade.Grade.WRONG;
+            return objectMapper.createObjectNode().put("status", "SAVED").put("grade", saved.grade().name()).put("entryId", entryId).put("entryVersion", version)
+                    .put("openReport", open).put("note", open ? "The report stays open until the note changes; development tasks and the user see it." : "Grade saved.");
+        }
+        catch (IllegalArgumentException | ContextNotFoundException | ContextStorageException failure) {
+            throw new ReviewInvalidRequestException("grade: " + bounded(Optional.ofNullable(failure.getMessage()).orElse("not saved"), 500));
+        }
+    }
+
+    private List<ContextGrade.Citation> baselineCitations(Call call, JsonNode sources)
+    {
+        if (sources == null || !sources.isArray() || sources.isEmpty() || sources.size() > ContextGrade.MAX_CITATIONS) {
+            throw new ReviewInvalidRequestException("sources: cite one to three baseline line ranges");
+        }
+        WorkspaceRepositoryContext workspace = workspaces.requireReadableRepository(call.review().workspaceId());
+        ImmutableList.Builder<ContextGrade.Citation> citations = ImmutableList.builder();
+        for (JsonNode source : sources) {
+            if (!source.isObject() || !source.path("path").isTextual() || !source.path("startLine").canConvertToInt() || source.path("startLine").asInt() < 1) {
+                throw new ReviewInvalidRequestException("sources: each range needs path and a positive startLine");
+            }
+            String path = source.path("path").asText();
+            Optional<Integer> end = source.has("endLine") ? Optional.of(source.path("endLine").asInt()) : Optional.empty();
+            ContextBaselineReader.Read read;
+            try {
+                read = baselineSources.read(workspace, call.run(), path, source.path("startLine").asInt(), end);
+            }
+            catch (IllegalArgumentException failure) {
+                throw new ReviewInvalidRequestException("sources: " + bounded(Optional.ofNullable(failure.getMessage()).orElse("source unavailable"), 500));
+            }
+            if (read.excerpt().isBlank()) {
+                throw new ReviewInvalidRequestException("sources: " + path + " has no text at those baseline lines");
+            }
+            citations.add(new ContextGrade.Citation(path, read.startLine(), read.endLine(), read.reference().commit(), read.excerpt()));
+        }
+        return citations.build();
     }
 
     private ObjectNode noteIdentity(ContextSelectedEntry entry)

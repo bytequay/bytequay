@@ -403,21 +403,13 @@ public class DevelopmentContextTools
         if (repeated.isPresent()) {
             return encode(GradeResponse.of(repeated.orElseThrow()));
         }
-        checkArgument(current.filter(entry -> entry.version() == version && entry.enabled()).isPresent(),
-                "The note changed since you read it; READ the current version before disputing a statement");
-        checkArgument(ContextLimits.bytes(quote) <= ContextGrade.MAX_QUOTE_BYTES, "quote exceeds %s UTF-8 bytes", ContextGrade.MAX_QUOTE_BYTES);
-        checkArgument(noteText(graded).contains(quote), "The quote is not in that note version; quote its statement exactly");
+        gradeService.requireStatement(workspaceId, notebook, entryId, version, grade, quote);
         List<TaskContextDraftService.Source> windows = windows(input.path("sources"));
         JsonNode correction = input.path("correction");
         boolean corrects = grade == ContextGrade.Grade.WRONG && graded.origin() == ContextEntryOrigin.GENERATED;
         checkArgument(corrects == correction.isObject(), corrects
                 ? "A WRONG on an agent-written note saves its correction: pass correction with title, summary, body and the statement that replaces the quote"
                 : "Only a WRONG on an agent-written note takes a correction; agents never change a note the user wrote");
-        if (grade == ContextGrade.Grade.HOLDS) {
-            checkArgument(gradeService.reportsFor(workspaceId, graded).stream()
-                            .anyMatch(report -> report.quote().map(reported -> reported.contains(quote) || quote.contains(reported)).orElse(true)),
-                    "HOLDS answers an open report on this version; quote the reported statement");
-        }
         String operationId = "task:" + digest(taskId + "\n" + turn.id() + "\n" + entryId + "\n" + version).substring(0, 32)
                 + ":" + digest(input.toString()).substring(0, 32);
         if (corrects) {
@@ -498,13 +490,6 @@ public class DevelopmentContextTools
             citations.add(new ContextGrade.Citation(file.path(), start, end, file.commit(), source.excerpt()));
         }
         return citations.build();
-    }
-
-    private static String noteText(ContextEntry entry)
-    {
-        StringBuilder text = new StringBuilder(entry.title()).append('\n').append(entry.summary()).append('\n').append(entry.body());
-        entry.claims().forEach(claim -> text.append('\n').append(claim.text()));
-        return text.toString();
     }
 
     private static ContextGrade.Grade gradeValue(String value)

@@ -21,11 +21,13 @@ import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.context.ContextBaselineReader;
+import com.bytequay.app.context.ContextGradeService;
 import com.bytequay.app.context.ContextHistoryReader;
 import com.bytequay.app.context.ContextNotFoundException;
 import com.bytequay.app.context.ContextNoteReader;
@@ -33,6 +35,7 @@ import com.bytequay.app.context.ContextNotebookLookup;
 import com.bytequay.app.context.ContextSourceChecker;
 import com.bytequay.app.context.ContextStorageException;
 import com.bytequay.app.context.ContextUsageRecorder;
+import com.bytequay.app.context.InMemoryContextGradeStore;
 import com.bytequay.app.context.RepositoryContextMatcher;
 import com.bytequay.app.context.RepositoryContextPreparation;
 import com.bytequay.app.context.RepositoryContextPreparation.Admission;
@@ -63,6 +66,7 @@ import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextEntryKind;
 import com.bytequay.core.context.ContextEntryOrigin;
+import com.bytequay.core.context.ContextGrade;
 import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextInputFingerprint;
 import com.bytequay.core.context.ContextLimits;
@@ -75,6 +79,7 @@ import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.ContextSelectedEntry;
 import com.bytequay.core.context.ContextSourceEvidence;
 import com.bytequay.core.context.ContextUsageEvent;
+import com.bytequay.core.context.DevelopmentContextReceiptStore;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.bytequay.core.context.ReviewContextSnapshot;
@@ -153,6 +158,7 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -208,6 +214,8 @@ class TestReviewTools
     private ContextBaselineReader baselineSources;
     private ContextHistoryReader historySources;
     private RepositoryContextService notebooks;
+    private final InMemoryContextGradeStore gradeStore = new InMemoryContextGradeStore();
+    private ContextGradeService grades;
     private ReviewToolAssignment assignments;
     private TurnId capturedTurn;
     private WorkspaceIssueService issues;
@@ -253,9 +261,12 @@ class TestReviewTools
             ReviewRun current = store.listRuns(REVIEW_ID).getLast();
             return new ReviewToolAssignment.Binding(current, current.currentStep(), Optional.empty());
         });
+        grades = new ContextGradeService(gradeStore, notebooks, mock(DevelopmentContextReceiptStore.class), mock(AgentTaskStore.class), store,
+                mock(ContextSourceChecker.class), objectMapper, Clock.fixed(NOW, ZoneOffset.UTC));
         tools = new ReviewTools(store, pullRequests, selectedPullRequests, selectedPullRequestDiffs, selectedCommitPullRequests, selectedDocumentation, baselineSources,
                 historySources, new ContextNoteReader(notebooks, new ContextSourceChecker(git, workspaces)),
                 new ContextNotebookLookup(notebooks, new RepositoryContextMatcher(), new ContextNoteReader(notebooks, new ContextSourceChecker(git, workspaces)), objectMapper),
+                grades,
                 usageStore, usage,
                 repositories, issues, issueRefresh, events, workspaces, git, objectMapper,
                 locks, assignments, preparation, new AgentUnitOfWork()
@@ -957,6 +968,39 @@ class TestReviewTools
         clearInvocations(notebooks);
         assertThat(call("review_get_context", noteRequest(8))).isEqualTo(opened);
         verifyNoInteractions(notebooks);
+    }
+
+    @Test
+    void reviewGradesOnlyNotesItReadAndCitesTheMonitoredBaseline()
+    {
+        noteContext(ImmutableList.of(), ImmutableMap.of());
+        when(notebooks.getNotebook(WORKSPACE_ID)).thenReturn(noteNotebook(7, "Always refresh the snapshot"));
+        Map<String, Object> helped = ImmutableMap.of("entryId", "knowledge:project", "entryVersion", 7, "grade", "HELPED", "reason", "Used it");
+        assertThat(call("review_grade_note", helped).at("/error/message").asText()).contains("received or opened");
+        ContextUsageEvent.Note note = new ContextUsageEvent.Note("knowledge:project", 7, ContextEntryKind.KNOWLEDGE, "project", "Selected note");
+        gradeStore.save(new ContextGrade(WORKSPACE_ID, "development-task", Optional.empty(), ContextUsageEvent.TaskKind.DEVELOPMENT, ContextGrade.Grader.USER,
+                ContextGrade.Grade.WRONG, note, "Looks stale", Optional.empty(), ImmutableList.of(), Optional.empty(), NOW));
+
+        JsonNode opened = call("review_get_context", noteRequest(7));
+        assertThat(opened.path("status").asText()).isEqualTo("AVAILABLE");
+        assertThat(opened.at("/openReports/0/reason").asText()).isEqualTo("Looks stale");
+        assertThat(call("review_grade_note", helped).path("status").asText()).isEqualTo("SAVED");
+        assertThat(call("review_grade_note", ImmutableMap.of("entryId", "knowledge:project", "entryVersion", 7, "grade", "WRONG", "reason", "No lines"))
+                .at("/error/message").asText()).contains("need quote and sources");
+
+        ContextBaselineReader.Read read = new ContextBaselineReader.Read(new ContextReference.RepositoryFile(1, RepoRef.of("acme", "widgets"), "Snapshot.java", BASE_SHA),
+                "e".repeat(40), NOW, 3, 4, 40, "3  skip();\n4  return;\n", false);
+        when(baselineSources.read(eq(workspaceRepository()), any(), eq("Snapshot.java"), eq(3), eq(Optional.of(4)))).thenReturn(read);
+        JsonNode wrong = call("review_grade_note", ImmutableMap.of("entryId", "knowledge:project", "entryVersion", 7, "grade", "WRONG",
+                "reason", "The baseline skips the refresh", "quote", "Always refresh the snapshot",
+                "sources", ImmutableList.of(ImmutableMap.of("path", "Snapshot.java", "startLine", 3, "endLine", 4))));
+        assertThat(wrong.path("openReport").asBoolean()).isTrue();
+        assertThatThrownBy(() -> grades.report(WORKSPACE_ID, TASK_ID, "knowledge:project", 8, "Never read")).hasMessageContaining("this review received or opened");
+        assertThat(grades.report(WORKSPACE_ID, TASK_ID, "knowledge:project", 7, "The reviewer was right").reviewRunId()).contains(RUN_ID);
+        ContextGrade reviewed = gradeStore.find(TASK_ID, ContextGrade.Grader.AGENT, "knowledge:project", 7).orElseThrow();
+        assertThat(reviewed.grade()).isEqualTo(ContextGrade.Grade.WRONG);
+        assertThat(reviewed.reviewRunId()).contains(RUN_ID);
+        assertThat(reviewed.citations()).extracting(ContextGrade.Citation::commit, ContextGrade.Citation::startLine).containsExactly(tuple(BASE_SHA, 3));
     }
 
     @Test
@@ -1760,6 +1804,7 @@ class TestReviewTools
                 "review_reply",
                 "review_withdraw_finding",
                 "review_finish",
+                "review_grade_note",
                 "repository_context_prepare");
         try (InputStream resource = ReviewPrompts.class.getResourceAsStream("/agent-skills/bytequay-review.md")) {
             assertThat(resource).isNotNull();

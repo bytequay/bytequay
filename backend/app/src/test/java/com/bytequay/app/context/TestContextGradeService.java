@@ -32,6 +32,7 @@ import com.bytequay.core.context.ContextUsageEvent;
 import com.bytequay.core.context.DevelopmentContextReceipt;
 import com.bytequay.core.context.DevelopmentContextReceiptStore;
 import com.bytequay.core.context.RepositoryNotebook;
+import com.bytequay.core.review.AgentReviewStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.google.common.collect.ImmutableList;
@@ -60,7 +61,8 @@ class TestContextGradeService
     private final RepositoryContextService notebooks = mock(RepositoryContextService.class);
     private final DevelopmentContextReceiptStore receipts = mock(DevelopmentContextReceiptStore.class);
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);
-    private final ContextGradeService service = new ContextGradeService(grades, notebooks, receipts, tasks, new ObjectMapper().registerModule(new Jdk8Module()),
+    private final ContextGradeService service = new ContextGradeService(grades, notebooks, receipts, tasks, mock(AgentReviewStore.class), mock(ContextSourceChecker.class),
+            new ObjectMapper().registerModule(new Jdk8Module()),
             Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC));
 
     @Test

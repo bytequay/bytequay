@@ -38,7 +38,6 @@ import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextEntryKind;
 import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.ContextGrade;
-import com.bytequay.core.context.ContextGradeStore;
 import com.bytequay.core.context.ContextReference;
 import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.ContextSourceEvidence;
@@ -66,7 +65,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -109,8 +107,8 @@ class TestDevelopmentContextTools
     private final MemoryReceipts receipts = new MemoryReceipts();
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new JavaTimeModule());
     private final RepositoryContextService notebooks = mock(RepositoryContextService.class);
-    private final MemoryGrades grades = new MemoryGrades();
-    private final ContextGradeService gradeService = new ContextGradeService(grades, notebooks, receipts, tasks, mapper, Clock.systemUTC());
+    private final InMemoryContextGradeStore grades = new InMemoryContextGradeStore();
+    private final ContextGradeService gradeService = new ContextGradeService(grades, notebooks, receipts, tasks, reviews, checker, mapper, Clock.systemUTC());
     private final DevelopmentContextTools service = new DevelopmentContextTools(tasks, turns, reviews, lookup, notebooks, grades, gradeService, drafts, checker,
             receipts, usage, observer, unitOfWork, mapper, Clock.systemUTC());
 
@@ -402,57 +400,6 @@ class TestDevelopmentContextTools
     {
         return new ContextEntry("knowledge:project", ContextEntryKind.KNOWLEDGE, "project", "Project", "Snapshot isolation",
                 "Avoid stale snapshots", ImmutableList.of(), ImmutableList.of(), ContextEntryOrigin.USER, true, 3);
-    }
-
-    private static final class MemoryGrades
-            implements ContextGradeStore
-    {
-        private final Map<String, ContextGrade> saved = new LinkedHashMap<>();
-
-        @Override
-        public void save(ContextGrade grade)
-        {
-            String key = key(grade.taskId(), grade.grader(), grade.note().id(), grade.note().version());
-            saved.remove(key);
-            saved.put(key, grade);
-        }
-
-        @Override
-        public Optional<ContextGrade> find(String taskId, ContextGrade.Grader grader, String entryId, long version)
-        {
-            return Optional.ofNullable(saved.get(key(taskId, grader, entryId, version)));
-        }
-
-        @Override
-        public List<ContextGrade> listVersion(String workspaceId, String entryId, long version, int limit)
-        {
-            return ImmutableList.copyOf(saved.values()).reverse().stream().filter(grade -> grade.note().id().equals(entryId) && grade.note().version() == version)
-                    .limit(limit).collect(ImmutableList.toImmutableList());
-        }
-
-        @Override
-        public List<ContextGrade> listGrades(String workspaceId, Set<ContextGrade.Grade> kinds, int limit)
-        {
-            return ImmutableList.copyOf(saved.values()).reverse().stream().filter(grade -> kinds.contains(grade.grade())).limit(limit)
-                    .collect(ImmutableList.toImmutableList());
-        }
-
-        @Override
-        public List<Count> count(String workspaceId, Instant since)
-        {
-            return ImmutableList.of();
-        }
-
-        @Override
-        public void deleteTask(String taskId)
-        {
-            saved.values().removeIf(grade -> grade.taskId().equals(taskId));
-        }
-
-        private static String key(String taskId, ContextGrade.Grader grader, String entryId, long version)
-        {
-            return taskId + ":" + grader + ":" + version + ":" + entryId;
-        }
     }
 
     private static final class MemoryReceipts

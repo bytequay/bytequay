@@ -867,8 +867,7 @@ class TestPermissionBroker
         assertThat(settings.at("/sandbox/autoAllowBashIfSandboxed").asBoolean()).isTrue();
         assertThat(settings.at("/sandbox/failIfUnavailable").asBoolean()).isTrue();
         assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isTrue();
-        assertThat(settings.at("/permissions/ask"))
-                .isEqualTo(objectMapper.valueToTree(ImmutableList.of("Bash(dangerouslyDisableSandbox:true)")));
+        assertThat(settings.at("/permissions/ask").isMissingNode()).isTrue();
         assertThat(settings.at("/sandbox/network/allowedDomains"))
                 .isEqualTo(objectMapper.valueToTree(ImmutableList.of("*")));
         assertThat(settings.at("/sandbox/network/allowLocalBinding").asBoolean()).isTrue();
@@ -1054,8 +1053,7 @@ class TestPermissionBroker
         assertThat(settings.at("/sandbox/enabled").asBoolean()).isTrue();
         assertThat(settings.at("/sandbox/autoAllowBashIfSandboxed").asBoolean()).isFalse();
         assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isTrue();
-        assertThat(settings.at("/permissions/ask"))
-                .isEqualTo(objectMapper.valueToTree(ImmutableList.of("Bash(dangerouslyDisableSandbox:true)")));
+        assertThat(settings.at("/permissions/ask").isMissingNode()).isTrue();
         assertThat(settings.at("/sandbox/network/allowedDomains"))
                 .isEqualTo(objectMapper.valueToTree(ImmutableList.of("*")));
         assertThat(settings.at("/sandbox/network/allowLocalBinding").asBoolean()).isTrue();
@@ -1206,7 +1204,7 @@ class TestPermissionBroker
                 JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile().orElseThrow()));
                 assertThat(settings.at("/sandbox/filesystem/allowWrite"))
                         .isEqualTo(objectMapper.valueToTree(ImmutableList.of("/var/tmp")));
-                assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
+                assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isEqualTo(access == SessionAccess.FULL);
                 assertThat(settings.at("/permissions/ask").isMissingNode()).isTrue();
             }
         }
@@ -1262,17 +1260,11 @@ class TestPermissionBroker
                             JsonNode settings = objectMapper.readTree(json);
                             assertThat(settings.path("autoMemoryEnabled")).isEqualTo(objectMapper.valueToTree(false));
                             assertThat(json).doesNotContain("provider-secret", "github-secret");
-                            boolean canRetryOutsideSandbox = access == SessionAccess.FULL && !reviewSession
+                            boolean canRetryOutsideSandbox = access == SessionAccess.FULL
                                     && policy != AgentPermissionPolicy.CHERRY_PICK;
                             assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean())
                                     .isEqualTo(canRetryOutsideSandbox);
-                            if (canRetryOutsideSandbox) {
-                                assertThat(settings.at("/permissions/ask"))
-                                        .isEqualTo(objectMapper.valueToTree(ImmutableList.of("Bash(dangerouslyDisableSandbox:true)")));
-                            }
-                            else {
-                                assertThat(settings.at("/permissions/ask").isMissingNode()).isTrue();
-                            }
+                            assertThat(settings.at("/permissions/ask").isMissingNode()).isTrue();
                             boolean ciBuildNetwork = policy == AgentPermissionPolicy.CI_AUTOFIX && access == SessionAccess.FULL;
                             assertThat(settings.at("/sandbox/network/allowLocalBinding").asBoolean())
                                     .isEqualTo((policy == AgentPermissionPolicy.AUTO && access == SessionAccess.FULL) || ciBuildNetwork);

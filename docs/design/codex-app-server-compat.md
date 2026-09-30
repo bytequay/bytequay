@@ -80,10 +80,10 @@ clean, empty result for the requested canonical cwd. This proves the isolated
 profiles can be selected; it does not prove that a model can create children.
 
 The ordinary task profile uses `approvalPolicy: "on-request"` and
-`approvalsReviewer: "user"` so native approval requests reach ByteQuay.
+`approvalsReviewer: "auto_review"` so eligible approval requests receive native review first.
 The live probe verifies those values in effective config and session flags.
 Typed automatic-review notifications remain in the reference schema as
-compatibility fixtures; the product profile disables the native reviewer.
+compatibility fixtures; the product profile enables the native reviewer.
 These offline checks prove protocol/configuration compatibility, not a model's
 approval decisions.
 Text-only helpers continue to disable both web search and interactive approvals.

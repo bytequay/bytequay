@@ -111,8 +111,6 @@ final class CodexLaunchProfile
         requireNonNull(codeGraph, "codeGraph is null");
         requireNonNull(deepSeek, "deepSeek is null");
         boolean ci = !ciWritableRoots.isEmpty();
-        // Private review must reach ByteQuay's remote-write guard before an escalation executes.
-        boolean nativeAutoReview = !textOnly && !review;
         boolean reviewChildren = review && childProfile != ChildProfile.NONE;
         checkArgument(!allowGitHubCommands || (!textOnly && !ci && !review), "Restricted Codex profiles cannot use attended network scope");
         checkArgument(!review || (!textOnly && !ci), "Restricted Codex profiles cannot run private review");
@@ -157,10 +155,10 @@ final class CodexLaunchProfile
                 "-c",
                 "approval_policy=" + tomlString(textOnly ? "never" : "on-request"),
                 "-c",
-                "approvals_reviewer=" + tomlString(nativeAutoReview ? "auto_review" : "user"));
+                "approvals_reviewer=\"auto_review\"");
         DISABLED_FEATURES.forEach(feature -> arguments.add("--disable", feature));
         arguments.add(reviewChildren ? "--enable" : "--disable", "hooks");
-        arguments.add(nativeAutoReview ? "--enable" : "--disable", "guardian_approval");
+        arguments.add(textOnly ? "--disable" : "--enable", "guardian_approval");
         if (ci) {
             arguments.add(
                     "-c", "sandbox_workspace_write.writable_roots=" + quotedList(ciWritableRoots),
@@ -267,7 +265,7 @@ final class CodexLaunchProfile
         requireNonNull(childProfile, "childProfile is null");
         ImmutableMap.Builder<String, Boolean> features = ImmutableMap.builder();
         features.put("skip_host_skill_discovery", true);
-        features.put("guardian_approval", !textOnly && !review);
+        features.put("guardian_approval", !textOnly);
         DISABLED_FEATURES.forEach(feature -> features.put(feature, false));
         features.put("hooks", review && childProfile != ChildProfile.NONE);
         if (textOnly) {

@@ -183,14 +183,14 @@ def main():
                   "model_providers.fixture.base_url": base + "/v1", "model_providers.fixture.wire_api": "responses",
                   "model_providers.fixture.requires_openai_auth": False, "model_providers.fixture.supports_websockets": False,
                   "model_providers.fixture.request_max_retries": 0, "approval_policy": "on-request",
-                  "approvals_reviewer": "user", "sandbox_mode": "workspace-write", "mcp_servers.bytequay.url": base + "/mcp",
+                  "approvals_reviewer": "auto_review", "sandbox_mode": "workspace-write", "mcp_servers.bytequay.url": base + "/mcp",
                   "mcp_servers.bytequay.default_tools_approval_mode": "approve", "web_search": "disabled",
                   "shell_environment_policy.inherit": "none"}
         for key, value in config.items():
             arguments.extend(["-c", key + "=" + json.dumps(value)])
         probe.write_json(output / "launch.json", {"arguments": arguments, "environment": environment})
         initial = {"cwd": str(output / "workspace"), "model": "fixture-model", "modelProvider": "fixture",
-                   "approvalPolicy": "on-request", "approvalsReviewer": "user", "sandbox": "workspace-write",
+                   "approvalPolicy": "on-request", "approvalsReviewer": "auto_review", "sandbox": "workspace-write",
                    "ephemeral": False, "config": {"features": {"hooks": False, "multi_agent_v2": True, "multi_agent": False}},
                    "dynamicTools": [{"type": "function", "name": TOOL, "description": "Save a fixture finding",
                                      "inputSchema": {"type": "object", "properties": {"finding": {"type": "string"}}}}]}

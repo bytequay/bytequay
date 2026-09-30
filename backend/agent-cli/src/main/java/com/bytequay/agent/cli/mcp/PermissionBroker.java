@@ -1298,7 +1298,7 @@ public final class PermissionBroker
                 deny.add("Bash(git " + command + ")", "Bash(git " + command + ":*)");
             }
         }
-        boolean allowUnsandboxedRetry = access == SessionAccess.FULL && !reviewSession
+        boolean allowUnsandboxedRetry = access == SessionAccess.FULL
                 && (permissionPolicy == AgentPermissionPolicy.AUTO || permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX);
         ImmutableList.Builder<String> allowWrite = ImmutableList.builder();
         allowWrite.addAll(BuildCacheRoots.writableRoots(environment).stream().map(Path::toString).collect(toImmutableList()));
@@ -1312,7 +1312,7 @@ public final class PermissionBroker
         sandbox.put("enabled", true)
                 .put("failIfUnavailable", true)
                 .put("autoAllowBashIfSandboxed", !gitHubCommands && !reviewSession && permissionPolicy != AgentPermissionPolicy.CHERRY_PICK)
-                // An explicit ask rule below sends every unsandboxed retry to ByteQuay, even in Auto mode.
+                // Native Auto mode reviews retries first; unresolved requests use the permission callback.
                 .put("allowUnsandboxedCommands", allowUnsandboxedRetry)
                 .put("excludedCommands", ImmutableList.of())
                 .put("filesystem", ImmutableMap.of(
@@ -1340,9 +1340,6 @@ public final class PermissionBroker
                 : ImmutableMap.of("allowedDomains", ImmutableList.of()));
         ImmutableMap.Builder<String, Object> permissions = ImmutableMap.<String, Object>builder()
                 .put("deny", deny.build());
-        if (allowUnsandboxedRetry) {
-            permissions.put("ask", ImmutableList.of("Bash(dangerouslyDisableSandbox:true)"));
-        }
         ImmutableMap.Builder<String, Object> settings = ImmutableMap.<String, Object>builder()
                 .put("autoMemoryEnabled", false)
                 .put("permissions", permissions.buildOrThrow())

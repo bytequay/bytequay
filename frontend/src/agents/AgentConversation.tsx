@@ -84,7 +84,7 @@ export function serviceTierName(models: ModelOptionDto[], model: string | null, 
 
 /** Backend policy names are enum values, not prose, and not provider wire strings. */
 function permissionLabel(policy: string): string {
-  return policy === 'AUTO' ? 'Auto' : policy;
+  return policy === 'AUTO' ? 'Approve for me' : policy;
 }
 
 /** "Aug 16", or "Aug 23, 2026" with the year, as the design dates a finished agent. */

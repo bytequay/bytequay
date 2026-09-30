@@ -991,7 +991,7 @@ public final class CodexCliDriver
                         worktree.toString(),
                         modelProfile.id(),
                         approvalPolicy,
-                        approvalsReviewer(),
+                        "auto_review",
                         config,
                         sandbox,
                         developerInstructions);
@@ -1001,7 +1001,7 @@ public final class CodexCliDriver
                         worktree.toString(),
                         modelProfile.id(),
                         approvalPolicy,
-                        approvalsReviewer(),
+                        "auto_review",
                         config,
                         sandbox,
                         developerInstructions,
@@ -1055,7 +1055,7 @@ public final class CodexCliDriver
             Optional<String> effort = command.effort().or(context::effort);
             CodexProtocol.TurnStartParams params = new CodexProtocol.TurnStartParams(
                     reference.providerValue(), input, Optional.of(modelProfile.id()), effort,
-                    command.serviceTier().orElse("default"), approvalPolicy(), approvalsReviewer(),
+                    command.serviceTier().orElse("default"), approvalPolicy(), "auto_review",
                     worktree.toString(), sandboxPolicy(worktree));
             rememberAppServerVersion();
             CodexProtocol.TurnStartResponse response;
@@ -1082,11 +1082,6 @@ public final class CodexCliDriver
         private String approvalPolicy()
         {
             return context.restricted() ? "never" : "on-request";
-        }
-
-        private String approvalsReviewer()
-        {
-            return context.textOnly() || permissionScope.review() ? "user" : "auto_review";
         }
 
         private Map<String, Object> sandboxPolicy(Path worktree)

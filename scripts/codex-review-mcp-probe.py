@@ -105,7 +105,7 @@ def check(codex, approved, previous=None):
     config = {"model_provider": "fixture", "model": "fixture-model", "model_providers.fixture.name": "Local fixture",
               "model_providers.fixture.base_url": base + "/v1", "model_providers.fixture.wire_api": "responses",
               "model_providers.fixture.requires_openai_auth": False, "model_providers.fixture.supports_websockets": False,
-              "model_providers.fixture.request_max_retries": 0, "approval_policy": "on-request", "approvals_reviewer": "user",
+              "model_providers.fixture.request_max_retries": 0, "approval_policy": "on-request", "approvals_reviewer": "auto_review",
               "sandbox_mode": "workspace-write", "mcp_servers.bytequay.url": base + "/mcp"}
     if approved:
         config["mcp_servers.bytequay.default_tools_approval_mode"] = "approve"
@@ -116,7 +116,7 @@ def check(codex, approved, previous=None):
     try:
         with probe.AppServer(arguments, environment, output, label) as app:
             params = {"cwd": str(output / "workspace"), "model": "fixture-model",
-                      "approvalPolicy": "on-request", "approvalsReviewer": "user", "sandbox": "workspace-write"}
+                      "approvalPolicy": "on-request", "approvalsReviewer": "auto_review", "sandbox": "workspace-write"}
             if previous:
                 params["threadId"] = previous[1]
             started = app.request("thread/resume" if previous else "thread/start", params, "start")

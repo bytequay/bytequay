@@ -200,7 +200,7 @@ class TestCodexLaunchProfile
                 "/usr/local/bin/codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), true, ImmutableList.of(), false, false);
 
         assertThat(arguments).containsSequence("-c", "web_search=\"disabled\"");
-        assertThat(arguments).containsSequence("-c", "approvals_reviewer=\"user\"");
+        assertThat(arguments).containsSequence("-c", "approvals_reviewer=\"auto_review\"");
         assertThat(arguments).containsSequence("--disable", "guardian_approval");
         assertThat(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, true))
                 .containsEntry("guardian_approval", false);
@@ -317,8 +317,8 @@ class TestCodexLaunchProfile
     {
         List<String> arguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE,
                 Optional.empty(), false, ImmutableList.of(), false, true);
-        assertThat(arguments).containsSequence("-c", "approvals_reviewer=\"user\"");
-        assertThat(arguments).containsSequence("--disable", "guardian_approval");
+        assertThat(arguments).containsSequence("-c", "approvals_reviewer=\"auto_review\"");
+        assertThat(arguments).containsSequence("--enable", "guardian_approval");
         assertThat(arguments).contains("shell_environment_policy.inherit=\"core\"",
                 "shell_environment_policy.ignore_default_excludes=false");
         assertThat(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly())
@@ -330,7 +330,7 @@ class TestCodexLaunchProfile
                 .containsEntry("shell_environment_policy", CodexLaunchProfile.expectedShellEnvironmentPolicy())
                 .containsEntry("features", CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false, true));
         assertThat(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false, true))
-                .containsEntry("guardian_approval", false);
+                .containsEntry("guardian_approval", true);
     }
 
     private static void assertCommonIsolation(List<String> arguments)

@@ -3469,9 +3469,9 @@ verification boundaries.
 `AgentCommandPolicy` owns provider-independent development and private-review
 instructions and restrictions in `agent-spi`. Codex supplies the instructions
 to the agent and uses its sandbox with `on-request` approvals. Full
-Codex-backed turns outside private review, including CI, use native automatic
-review before any provider request reaches ByteQuay. Private-review command
-escalations go to ByteQuay so its review guard can refuse prohibited commands.
+Codex-backed turns, including private review and CI, use native automatic
+review before any provider request reaches ByteQuay. Remaining private-review
+requests pass ByteQuay's review guard before any unresolved user approval.
 Claude supplies the instructions to its native permission mode and MCP
 permission callback. Both adapters translate the shared scope to provider
 settings. Interactive development permissions use
@@ -3608,8 +3608,7 @@ The connection and task sequence is:
 4. Call `thread/start` with canonical `cwd`, the selected default model,
    the compatibility-tested wire value for on-request approval
    (`approvalPolicy: "on-request"` in the v0.151 reference schema),
-   `approvalsReviewer: "auto_review"` for full turns outside private review in
-   both Codex-backed lanes (`"user"` for private review), the generated
+   `approvalsReviewer: "auto_review"` in both Codex-backed lanes, the generated
    per-thread config override, and
    legacy `sandbox: "workspace-write"`. No `environments` are selected: the
    process default is rooted at the process working directory, which is this
@@ -3804,7 +3803,7 @@ selected writable roots and approval boundary. The
 App Server control process still needs provider traffic; ByteQuay supplies the
 selected provider configuration but does not claim that the command sandbox
 enforces a destination allowlist for that control traffic. Full worktree turns
-outside private review in both Codex-backed lanes, including CI, use
+in both Codex-backed lanes, including private review and CI, use
 `on-request` approval with reviewer `auto_review` at process, thread, and turn
 scope. Codex's native
 reviewer handles eligible escalations first. An approval
@@ -3815,9 +3814,9 @@ unresolved requests become user approval cards. ByteQuay shows the command,
 file change, or requested
 structured permissions and sends only the decision for that request. A structured
 permissions approval grants exactly the requested object for the current turn;
-it does not create a persistent task-wide permission. Private review uses
-reviewer `user` and disables `guardian_approval`, so command escalations reach
-ByteQuay's remote-write guard before any user card. Text-only and read-only
+it does not create a persistent task-wide permission. Private review uses the same native automatic reviewer with its managed
+review scope. Any remaining command approval request reaches ByteQuay's
+remote-write guard before an unresolved user card. Text-only and read-only
 turns retain `never`, read-only sandbox, and no command network.
 
 The shared development command policy requires direct explicit authorization
@@ -3827,7 +3826,7 @@ owns authenticated GitHub operations through its broker. Commands that are
 already allowed inside the worktree and permitted cache roots do not request
 approval; the sandbox does not enforce application-level GitHub rules on such
 commands. Unsupported or malformed provider requests fail closed.
-Full turns outside private review in both Codex-backed lanes, including CI,
+Full turns in both Codex-backed lanes, including private review and CI,
 enable `guardian_approval` with Codex's built-in reviewer policy; experimental
 `guardianv2` and `guardian_ext` remain disabled.
 Native review notifications are redacted activity events, not ByteQuay approval
@@ -4237,13 +4236,14 @@ Git/`gh` command denies and usual Git credential-path read denies are removed
 only for eligible development sessions; review and unattended profiles keep
 their restrictions.
 
-Full development and CI turns keep ordinary commands sandboxed but set
-`allowUnsandboxedCommands=true` for a command that cannot run within the
-sandbox. `permissions.ask` includes `Bash(dangerouslyDisableSandbox:true)`, so
-every requested unsandboxed retry prompts through ByteQuay in either mode.
+Full development, private review, and CI turns keep ordinary commands sandboxed
+but set `allowUnsandboxedCommands=true` for a command that cannot run within the
+sandbox. No generated `permissions.ask` rule forces these retries to the user:
+native Auto mode reviews them first, ByteQuay decides remaining callbacks from
+its fixed scope rules, and only unresolved requests become approval cards.
 Approval runs that entire command outside Claude's filesystem sandbox; it can
 reach host files, including credentials, and is not limited to the path that
-caused the original failure. Review, cherry-pick, and restricted turns keep
+caused the original failure. Cherry-pick and restricted turns keep
 `allowUnsandboxedCommands=false`. Without an approved retry, the sandbox permits only the
 worktree and `TMPDIR`, which no build can populate a dependency cache from, so
 `filesystem.allowWrite` names the validated `~/.m2`, `~/.gradle`, and
@@ -4350,7 +4350,7 @@ permission policies, and attachment media types.
 | Incremental command output | Native `item/commandExecution/outputDelta` when emitted; missing deltas and a null terminal aggregate produce no invented log | Not guaranteed for Bash; terminal tool results are authoritative |
 | Hook lifecycle | Not advertised in the first-release strict profile; `hooks/list` must be empty | Available with `--include-hook-events` |
 | Nested agent activity | V1 `collabAgentToolCall` spawn edges and V2 `subAgentActivity` paths | CLI 2.1.219+ Agent invocation ownership, forwarded `parent_tool_use_id`, and native task terminal events; execution IDs do not represent resumable sessions |
-| Interactive approvals | Native auto-review for full turns outside private review; private-review escalations reach ByteQuay's command guard; remaining App Server requests reach ByteQuay | ByteQuay MCP permission-prompt tool |
+| Interactive approvals | Native auto-review for full turns; remaining App Server requests pass ByteQuay rules before unresolved approval cards | ByteQuay MCP permission-prompt tool |
 | CI repairs | `CI_AUTOFIX`, `on-request` approval with scoped local Git writes and native review for both Codex-backed lanes | `CI_AUTOFIX`, unattended policy and task sandbox |
 | Image input | Local uploads become model-gated `localImage {path}` inputs; URL `image` is deferred | Capability-gated; hidden when the current CLI/model cannot accept it |
 | Text attachments | Validated task-owned file paths in text input; logs are not inlined | Exact read-only paths inside the task runtime directory |
@@ -4994,9 +4994,9 @@ proved:
    CodeGraph bridge enables exactly its one fixed optional structural tool;
 13. Claude new/resumed invocation fixtures carry each turn's effective model,
    effort, strict MCP config, empty inherited setting sources, and generated
-   sandbox settings; all policies use CLI `auto` mode, with full development and
-   CI unsandboxed retries forced through a
-   ByteQuay approval card while other profiles refuse them, and the allocation-free
+   sandbox settings; all policies use CLI `auto` mode, with full development,
+   private review, and CI unsandboxed retries reviewed natively before ByteQuay
+   scope rules and unresolved user cards, while restricted profiles refuse them, and the allocation-free
    readiness probe rejects a CLI without Auto mode while verifying the
    exact executable and authentication contract; and
 14. the release explicitly accepts App Server's documented experimental

@@ -236,7 +236,7 @@ final class CodexIsolationGuard
         boolean ci = !ciWritableRoots.isEmpty();
         requireTextValue(config, "web_search", textOnly || ci ? "disabled" : "live");
         requireTextValue(config, "approval_policy", textOnly ? "never" : "on-request");
-        requireTextValue(config, "approvals_reviewer", textOnly || review ? "user" : "auto_review");
+        requireTextValue(config, "approvals_reviewer", "auto_review");
         if (deepSeek.isPresent()) {
             requireTextValue(config, "cli_auth_credentials_store", "ephemeral");
             JsonNode forcedLogin = config.path("forced_login_method");

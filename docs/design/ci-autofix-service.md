@@ -210,7 +210,7 @@ a build script can read accessible host files and make network requests. Only th
 may update the authorized PR description, push, or rerun GitHub Actions.
 
 Codex repairs use the same watch, fix, validate, push, rerun, and completion
-loop. The adapter uses `on-request` approval policy, reviewer `user`, disabled
+loop. The adapter uses `on-request` approval policy, reviewer `auto_review`, disabled
 web search and child agents, and enabled command network
 access for build dependencies. Its writable roots contain the linked task
 worktree, the shared validated Maven, Gradle, and npm cache roots, and the

@@ -366,9 +366,11 @@ starting its turn. A safe explicit resume after a known pre-send failure reuses
 that message identity and adds a new delivery-attempt event instead of
 duplicating the user's text.
 
-For Codex and DeepSeek, **Auto** maps to App Server's generated on-request
+For Codex and DeepSeek, **Approve for me** (stored as `AUTO`) maps to App Server's generated on-request
 approval value (`approvalPolicy: "on-request"` in the v0.151 reference schema)
-and reviewer `user`. The workspace-write sandbox is rooted at the generated
+and reviewer `auto_review`. Native review runs first; ByteQuay applies its fixed
+rules to remaining requests and shows a user card only when they are unresolved.
+The workspace-write sandbox is rooted at the generated
 task worktree and retains ordinary `/tmp` and `$TMPDIR` allowances. The
 validated Maven, Gradle, and npm cache roots and linked-worktree Git metadata
 roots permit routine builds and local commits; the cache content is shared
@@ -376,7 +378,7 @@ with later local builds. Full worktree turns allow command network access for
 dependency downloads. Provider prompts that reach ByteQuay appear as approval
 cards; native denials remain in force. GitHub writes require direct explicit
 user authorization, and persistent or blanket future grants remain prohibited.
-**Auto** does not guarantee that every test command will be approved. Normal
+**Approve for me** does not guarantee that every test command will be approved. Normal
 tasks also enable Codex's native web tool. `thread/start` receives
 the legacy `sandbox: "workspace-write"` field; `turn/start` receives the
 structured `sandboxPolicy` for the effective turn. A subagent inherits the

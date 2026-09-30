@@ -469,7 +469,7 @@ class TestCodexCliDriver
         assertThat(supervisor.server().sandboxes()).containsExactly("read-only");
         JsonNode thread = supervisor.server().threadRequests().getFirst();
         assertThat(thread.path("developerInstructions").asText()).doesNotContain("update_plan");
-        assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("user");
+        assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
         assertThat(thread.path("config").path("web_search").asText()).isEqualTo("disabled");
         assertThat(thread.path("config").has("auto_review")).isFalse();
         assertThat(thread.path("ephemeral").asBoolean()).isTrue();
@@ -484,7 +484,7 @@ class TestCodexCliDriver
         RunningTurn turn = session.start(command("read only"));
         JsonNode request = supervisor.server().turnRequests().getFirst();
         assertThat(request.path("approvalPolicy").asText()).isEqualTo("never");
-        assertThat(request.path("approvalsReviewer").asText()).isEqualTo("user");
+        assertThat(request.path("approvalsReviewer").asText()).isEqualTo("auto_review");
         assertThat(request.path("sandboxPolicy").path("type").asText()).isEqualTo("readOnly");
         assertThat(request.path("sandboxPolicy").has("writableRoots")).isFalse();
         assertThat(request.path("sandboxPolicy").path("networkAccess").asBoolean()).isFalse();
@@ -2823,12 +2823,12 @@ class TestCodexCliDriver
                 JsonNode thread = server.threadRequests().getFirst();
                 assertThat(thread.path("developerInstructions").asText())
                         .startsWith(AgentCommandPolicy.reviewInstructions()).contains("native update_plan").endsWith(review.instruction());
-                assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("user");
+                assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
                 assertThat(thread.path("config").has("auto_review")).isFalse();
                 assertThat(supervisor.serverArgv().getLast())
                         .noneMatch(argument -> argument.startsWith("auto_review.policy="));
-                assertThat(supervisor.serverArgv().getLast()).containsSequence("--disable", "guardian_approval");
-                assertThat(thread.path("config").path("features").path("guardian_approval").asBoolean()).isFalse();
+                assertThat(supervisor.serverArgv().getLast()).containsSequence("--enable", "guardian_approval");
+                assertThat(thread.path("config").path("features").path("guardian_approval").asBoolean()).isTrue();
                 assertThat(supervisor.serverArgv().getLast()).contains("mcp_servers.bytequay.default_tools_approval_mode=\"approve\"");
                 assertThat(thread.path("config").path("features").path("multi_agent_v2").asBoolean()).isFalse();
                 assertThat(thread.path("config").path("features").path("hooks").asBoolean()).isFalse();
@@ -2853,7 +2853,7 @@ class TestCodexCliDriver
                 ObjectNode wrongScope = (ObjectNode) objectMapper.readTree(admittedConfig);
                 ObjectNode wrongFeatures = objectMapper.valueToTree(
                         CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false, true));
-                wrongFeatures.put("guardian_approval", true);
+                wrongFeatures.put("guardian_approval", false);
                 wrongScope.set("features", wrongFeatures);
                 supervisor.configBody = wrongScope.toString();
                 assertThatThrownBy(() -> session.start(command("private review")))
@@ -2862,7 +2862,7 @@ class TestCodexCliDriver
                 assertThat(server.turnRequests()).isEmpty();
                 supervisor.configBody = admittedConfig;
                 session.start(command("private review"));
-                assertThat(server.turnRequests().getFirst().path("approvalsReviewer").asText()).isEqualTo("user");
+                assertThat(server.turnRequests().getFirst().path("approvalsReviewer").asText()).isEqualTo("auto_review");
                 assertThat(server.turnRequests().getFirst().path("sandboxPolicy").path("type").asText()).isEqualTo("workspaceWrite");
                 assertThat(server.turnRequests().getFirst().path("sandboxPolicy").path("writableRoots"))
                         .isEqualTo(objectMapper.valueToTree(writableRoots));
@@ -2997,7 +2997,7 @@ class TestCodexCliDriver
                         {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                         """)).body().orElseThrow();
                 assertThat(listed.at("/result/tools").findValuesAsText("name")).containsExactlyElementsOf(names);
-                assertThat(supervisor.servers().getLast().threadRequests().getFirst().path("approvalsReviewer").asText()).isEqualTo("user");
+                assertThat(supervisor.servers().getLast().threadRequests().getFirst().path("approvalsReviewer").asText()).isEqualTo("auto_review");
                 reference = Optional.of(session.reference());
             }
         }

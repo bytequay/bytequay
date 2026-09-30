@@ -1443,7 +1443,7 @@ describe('agent task detail', () => {
     const markup = body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open', turns: { [firstTurn]: ran } });
 
     // The snapshot the turn recorded, not the defaults: a later change must not rewrite history.
-    expect(markup).toContain('5.6 Terra medium \u00b7 Auto');
+    expect(markup).toContain('5.6 Terra medium \u00b7 Approve for me');
     expect(body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open' })).not.toContain('5.6 Terra medium');
   });
 

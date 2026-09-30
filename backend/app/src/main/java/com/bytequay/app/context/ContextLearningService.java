@@ -45,8 +45,10 @@ import java.util.function.BiFunction;
 import java.util.function.UnaryOperator;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Comparator.comparing;
+import static java.util.Comparator.comparingInt;
 import static java.util.Objects.requireNonNull;
 
 /** Accepts one discovery proposal and runs one saved learning question per explicit task. */
@@ -237,6 +239,50 @@ public class ContextLearningService
             ContextLearningPlan.Question question = openQuestion(workspaceId, plan, topic, request.question());
             return topic.withQuestion(request.question(), question.closed(ContextLearningPlan.Status.DROPPED, question.progress(), "Dropped by you"));
         });
+    }
+
+    /**
+     * Files a question a development task or review needed answered, with the paths it concerns and an optional lead: the page
+     * or lines that answered it. The question joins the topic whose note target covers every path, the narrowest when several
+     * do; without one it becomes a plan gap for the next discovery. No agent runs.
+     */
+    public Asked ask(String workspaceId, Ask ask)
+    {
+        return WorkspaceOperationLocks.withLock(workspaceId, () -> unitOfWork.execute(() -> {
+            ContextLearningPlan plan = get(workspaceId).orElseThrow(() -> new IllegalArgumentException(
+                    "This repository has no learning plan to file questions in; keep the finding in this work"));
+            Optional<ContextLearningPlan.Topic> covering = plan.topics().stream().filter(topic -> depth(topic, ask.paths()) >= 0)
+                    .max(comparingInt(topic -> depth(topic, ask.paths())));
+            if (covering.isEmpty()) {
+                checkArgument(plan.gaps().size() < ContextBuildService.MAX_GAPS, "The learning plan holds no more gaps; keep the finding in this work");
+                String gap = (ask.origin() == ContextLearningPlan.Origin.REVIEW ? "A review" : "A task") + " asked: " + ask.question().strip()
+                        + " (" + String.join(", ", ask.paths()) + ")" + ask.lead().map(lead -> " Lead: " + lead).orElse("");
+                plans.save(Optional.of(plan), plan.withProgress(plan.topics(), ContextBuildService.gaps(plan.gaps(), gap)));
+                return new Asked("GAP", Optional.empty(), "No plan topic covers these paths; the next discovery sees the question as a gap.");
+            }
+            ContextLearningPlan.Topic topic = covering.orElseThrow();
+            if (topic.asks(ask.question())) {
+                return new Asked("ALREADY_ASKED", Optional.of(topic.title()), "The plan already asks this question.");
+            }
+            checkArgument(topic.questions().size() < ContextLearningPlan.Topic.MAX_QUESTIONS, "The plan topic %s already has %s questions",
+                    topic.title(), ContextLearningPlan.Topic.MAX_QUESTIONS);
+            List<ContextLearningPlan.Question> questions = ImmutableList.<ContextLearningPlan.Question>builder().addAll(topic.questions())
+                    .add(ContextLearningPlan.Question.added(ask.question().strip(), ask.origin(), ask.lead().orElse(""))).build();
+            plans.save(Optional.of(plan), plan.withProgress(plan.topics().stream()
+                    .map(value -> value.id().equals(topic.id()) ? value.withQuestions(questions) : value).toList(), plan.gaps()));
+            return new Asked("ADDED", Optional.of(topic.title()), "The next learning batch checks the lead against the code and saves the note.");
+        }));
+    }
+
+    /**
+     * How narrowly a topic's note target covers every path: the length of the shortest best-matching note path, 0 for the
+     * whole repository, and -1 when a path is outside it or the topic has no explicit note target.
+     */
+    private static int depth(ContextLearningPlan.Topic topic, List<String> paths)
+    {
+        return topic.notePaths().map(notePaths -> notePaths.isEmpty() ? 0 : paths.stream()
+                .mapToInt(path -> notePaths.stream().filter(prefix -> (path + "/").startsWith(prefix)).mapToInt(String::length).max().orElse(-1))
+                .min().orElse(-1)).orElse(-1);
     }
 
     /** Adds a question asking what the topic should cover next and starts one run for it alone. */
@@ -776,6 +822,24 @@ public class ContextLearningService
             ContextLimits.text(topicId, "topicId", 100);
         }
     }
+
+    /** A question a task or review files for learning; paths are repository files or directories. */
+    public record Ask(String question, List<String> paths, Optional<String> lead, ContextLearningPlan.Origin origin)
+    {
+        public Ask
+        {
+            ContextLimits.text(question, "question", 1000);
+            paths = paths.stream().map(path -> path.endsWith("/") ? path.substring(0, path.length() - 1) : path).collect(toImmutableList());
+            checkArgument(!paths.isEmpty(), "Name the repository paths the question concerns");
+            ContextLimits.unique(paths, "paths", 8);
+            paths.forEach(path -> ContextLimits.pathPrefix(path + "/"));
+            requireNonNull(lead, "lead is null");
+            lead.ifPresent(value -> ContextLimits.text(value, "lead", ContextLearningPlan.Question.MAX_NOTE_BYTES));
+            checkArgument(origin == ContextLearningPlan.Origin.TASK || origin == ContextLearningPlan.Origin.REVIEW, "Only tasks and reviews ask questions");
+        }
+    }
+
+    public record Asked(String status, Optional<String> topic, String note) {}
 
     public record DiscardRequest(String planId, long expectedRevision, long expectedBuildSequence)
     {

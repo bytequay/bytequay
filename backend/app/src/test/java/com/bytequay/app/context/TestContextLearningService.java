@@ -300,6 +300,54 @@ class TestContextLearningService
     }
 
     @Test
+    void tasksAndReviewsFileQuestionsInTheNarrowestTopicThatCoversTheirPaths()
+    {
+        List<String> reads = ImmutableList.of("plugin/iceberg/", "plugin/delta/");
+        reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Project structure", ImmutableList.of(), ImmutableList.of()),
+                topic("topic:2", "Iceberg file selection", reads, Optional.of(ImmutableList.of("plugin/iceberg/")), ImmutableList.of()),
+                topic("topic:3", "Delta transaction log", reads, Optional.of(ImmutableList.of("plugin/delta/")), ImmutableList.of())), ImmutableList.of()));
+        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1", "topic:2", "topic:3"),
+                ImmutableList.of()));
+
+        String lead = "https://iceberg.apache.org/spec/";
+        assertThat(learning.ask(WORKSPACE, new ContextLearningService.Ask(" How are snapshots expired? ", ImmutableList.of("plugin/iceberg/src/Expire.java"),
+                Optional.of(lead), ContextLearningPlan.Origin.TASK)))
+                .extracting(ContextLearningService.Asked::status, ContextLearningService.Asked::topic)
+                .containsExactly("ADDED", Optional.of("Iceberg file selection"));
+        assertThat(plans.find(WORKSPACE).orElseThrow().topic("topic:2").questions().getLast()).isEqualTo(new ContextLearningPlan.Question(
+                "How are snapshots expired?", ContextLearningPlan.Status.PENDING, "", ContextLearningPlan.Origin.TASK, lead));
+        assertThat(learning.ask(WORKSPACE, new ContextLearningService.Ask("how are snapshots expired?", ImmutableList.of("plugin/iceberg/"),
+                Optional.empty(), ContextLearningPlan.Origin.REVIEW)).status()).isEqualTo("ALREADY_ASKED");
+
+        assertThat(learning.ask(WORKSPACE, new ContextLearningService.Ask("Which connectors share the metastore cache?", reads, Optional.empty(),
+                ContextLearningPlan.Origin.REVIEW)))
+                .extracting(ContextLearningService.Asked::status, ContextLearningService.Asked::topic)
+                .containsExactly("ADDED", Optional.of("Project structure"));
+        assertThat(plans.find(WORKSPACE).orElseThrow().topic("topic:1").questions().getLast().origin()).isEqualTo(ContextLearningPlan.Origin.REVIEW);
+        assertThat(plans.find(WORKSPACE).orElseThrow().topic("topic:3").questions()).hasSize(2);
+        verify(builds, times(1)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), any());
+    }
+
+    @Test
+    void aQuestionNoTopicCoversBecomesAPlanGapAndNeedsAPlan()
+    {
+        ContextLearningService.Ask ask = new ContextLearningService.Ask("How does the planner order joins?", ImmutableList.of("core/planner/"),
+                Optional.of("core/planner/JoinOrder.java:40-80"), ContextLearningPlan.Origin.REVIEW);
+        assertThatIllegalArgumentException().isThrownBy(() -> learning.ask(WORKSPACE, ask)).withMessageContaining("no learning plan");
+        reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:2", "Iceberg file selection", ImmutableList.of("plugin/iceberg/"),
+                ImmutableList.of())), ImmutableList.of()));
+        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:2"), ImmutableList.of()));
+
+        assertThat(learning.ask(WORKSPACE, ask).status()).isEqualTo("GAP");
+        assertThat(plans.find(WORKSPACE).orElseThrow().gaps())
+                .contains("A review asked: How does the planner order joins? (core/planner) Lead: core/planner/JoinOrder.java:40-80");
+        assertThatIllegalArgumentException().isThrownBy(() -> new ContextLearningService.Ask("Why?", ImmutableList.of("../etc"), Optional.empty(),
+                ContextLearningPlan.Origin.TASK));
+        assertThatIllegalArgumentException().isThrownBy(() -> new ContextLearningService.Ask("Why?", ImmutableList.of("plugin/"), Optional.empty(),
+                ContextLearningPlan.Origin.USER));
+    }
+
+    @Test
     void resumesAnUnfinishedQuestionWithItsSavedProgress()
     {
         reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Project structure", ImmutableList.of(), ImmutableList.of())), ImmutableList.of()));

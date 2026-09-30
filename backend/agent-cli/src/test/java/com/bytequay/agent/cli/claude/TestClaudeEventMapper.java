@@ -231,6 +231,20 @@ class TestClaudeEventMapper
         assertThat(completed.output()).contains("[REDACTED] output");
         assertThat(ImmutableList.of(started, progress, completed)).noneMatch(ProviderAgentEvent.Command::background);
 
+        ProviderAgentEvent.Tool fetch = only("""
+                {"type":"assistant","message":{"role":"assistant","content":[
+                {"type":"tool_use","id":"fetch-1","name":"WebFetch",
+                "input":{"url":"https://github.com/delta-io/delta/blob/master/PROTOCOL.md","prompt":"Find the checkpoint rules"}}]},
+                "parent_tool_use_id":null,"session_id":"session-1","uuid":"assistant-fetch"}
+                """, ProviderAgentEvent.Tool.class);
+        assertThat(fetch.summary()).isEqualTo("https://github.com/delta-io/delta/blob/master/PROTOCOL.md");
+        ProviderAgentEvent.Tool web = only("""
+                {"type":"assistant","message":{"role":"assistant","content":[
+                {"type":"tool_use","id":"search-1","name":"WebSearch","input":{"query":"delta checkpoint protocol"}}]},
+                "parent_tool_use_id":null,"session_id":"session-1","uuid":"assistant-search"}
+                """, ProviderAgentEvent.Tool.class);
+        assertThat(web.summary()).isEqualTo("delta checkpoint protocol");
+
         ProviderAgentEvent.Tool hook = only("""
                 {"type":"system","subtype":"hook_response","hook_id":"hook-1",
                 "hook_name":"PostToolUse:Bash","hook_event":"PostToolUse","output":"done",

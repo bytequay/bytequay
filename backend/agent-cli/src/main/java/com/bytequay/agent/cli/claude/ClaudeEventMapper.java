@@ -266,8 +266,8 @@ final class ClaudeEventMapper
             if (block instanceof ClaudeProtocol.ToolResultBlock result) {
                 ToolCall call = tools.get(result.toolUseId());
                 if (call == null) {
-                    call = new ToolCall("tool", new ClaudeProtocol.ToolInput(
-                            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
+                    call = new ToolCall("tool", new ClaudeProtocol.ToolInput(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
                             message.parentToolUseId());
                 }
                 activeTools.remove(result.toolUseId());
@@ -436,8 +436,18 @@ final class ClaudeEventMapper
                 eventId,
                 call.name(),
                 ProviderAgentEvent.ActivityState.STARTED,
-                bounded(call.input().description().orElse(call.name())),
+                bounded(webTarget(call).or(() -> call.input().description()).orElse(call.name())),
                 source(call.parentToolUseId(), Optional.of(toolUseId)));
+    }
+
+    /** Web steps name the page they fetched or the query they searched. */
+    private static Optional<String> webTarget(ToolCall call)
+    {
+        return switch (call.name()) {
+            case "WebFetch" -> call.input().url();
+            case "WebSearch" -> call.input().query();
+            default -> Optional.empty();
+        };
     }
 
     private ProviderAgentEvent completedTool(

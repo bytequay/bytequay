@@ -302,7 +302,7 @@ final class CodexEventMapper
                             redactor.redact(plan.text()),
                             source));
             case CodexProtocol.WebSearchItem search -> ImmutableList.of(builtIn(
-                    "Web search", search.query(), eventId, started, source));
+                    "Web search", webStep(search), eventId, started, source));
             case CodexProtocol.ImageViewItem view -> ImmutableList.of(builtIn(
                     "Image view", displayPath(view.path()), eventId, started, source));
             case CodexProtocol.ContextCompactionItem ignored -> ImmutableList.of(builtIn(
@@ -389,6 +389,16 @@ final class CodexEventMapper
                 redactor.redact(summary),
                 source,
                 Optional.empty());
+    }
+
+    /** The page a web step opened or searched, not only its query. */
+    private static String webStep(CodexProtocol.WebSearchItem search)
+    {
+        return search.action().flatMap(action -> action.url().map(url -> switch (action.type()) {
+            case "openPage" -> "Opened " + url;
+            case "findInPage" -> action.pattern().map(pattern -> "Searched " + url + " for \u201c" + pattern + "\u201d").orElse("Searched " + url);
+            default -> url;
+        })).orElse(search.query());
     }
 
     /** A worktree-relative path when the image is inside the worktree, otherwise just its file name. */

@@ -1050,11 +1050,12 @@ public final class PermissionBroker
                 ImmutableMap.of("type", "object", "properties", ImmutableMap.of(), "additionalProperties", false))));
         context.notebook().ifPresent(ignored -> tools.add(new ToolDefinition(
                 RepositoryContextBridge.TOOL_NAME,
-                "List or search saved notes, read an exact version, or propose a note from committed task file ranges for user approval.",
+                "List or search saved notes, read an exact version, save a note from committed task file ranges, grade a note you checked, "
+                        + "or ask a question for the learning plan.",
                 ImmutableMap.of(
                         "type", "object",
                         "properties", ImmutableMap.<String, Object>builder()
-                                .put("action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("LIST", "SEARCH", "READ", "PROPOSE")))
+                                .put("action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("LIST", "SEARCH", "READ", "PROPOSE", "GRADE", "ASK")))
                                 .put("query", ImmutableMap.of("type", "string", "maxLength", 200))
                                 .put("paths", ImmutableMap.of("type", "array", "items", ImmutableMap.of("type", "string"), "maxItems", 20))
                                 .put("page", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", 100))
@@ -1074,6 +1075,19 @@ public final class PermissionBroker
                                                 "startLine", ImmutableMap.of("type", "integer", "minimum", 1),
                                                 "endLine", ImmutableMap.of("type", "integer", "minimum", 1)),
                                                 "required", ImmutableList.of("path", "startLine"), "additionalProperties", false)))
+                                .put("grade", ImmutableMap.of("type", "string", "enum", ImmutableList.of("HELPED", "NOT_RELEVANT", "WRONG", "HOLDS")))
+                                .put("reason", ImmutableMap.of("type", "string", "maxLength", 300))
+                                .put("quote", ImmutableMap.of("type", "string", "maxLength", 500))
+                                .put("correction", ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                                                "title", ImmutableMap.of("type", "string", "maxLength", 200),
+                                                "summary", ImmutableMap.of("type", "string", "maxLength", 1000),
+                                                "body", ImmutableMap.of("type", "string"),
+                                                "statement", ImmutableMap.of("type", "string", "maxLength", 500),
+                                                "rootCause", ImmutableMap.of("type", "string", "maxLength", 300)),
+                                        "required", ImmutableList.of("title", "summary", "body", "statement"), "additionalProperties", false))
+                                .put("question", ImmutableMap.of("type", "string", "maxLength", 1000))
+                                .put("lead", ImmutableMap.of("type", "string", "maxLength", 1000,
+                                        "description", "ASK: the page address or file lines that answered the question."))
                                 .buildOrThrow(),
                         "required", ImmutableList.of("action"),
                         "additionalProperties", false))));

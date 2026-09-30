@@ -383,7 +383,9 @@ final class ClaudeProtocol
             Optional<String> prompt,
             @JsonProperty("subagent_type") Optional<String> subagentType,
             @JsonProperty("run_in_background") Optional<Boolean> runInBackground,
-            Optional<JsonNode> todos)
+            Optional<JsonNode> todos,
+            Optional<String> url,
+            Optional<String> query)
     {
         ToolInput
         {
@@ -394,6 +396,8 @@ final class ClaudeProtocol
             requireNonNull(subagentType, "subagentType is null");
             requireNonNull(runInBackground, "runInBackground is null");
             requireNonNull(todos, "todos is null");
+            requireNonNull(url, "url is null");
+            requireNonNull(query, "query is null");
         }
     }
 

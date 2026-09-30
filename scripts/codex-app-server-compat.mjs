@@ -228,7 +228,10 @@ const referenceRecordBindings = [
   ], [component("id"), component("text")]),
   recordBinding("WebSearchItem", "decode", [
     schemaSource("v2", "ThreadItem", "type", "webSearch"),
-  ], [component("id"), component("query")]),
+  ], [component("id"), component("query"), component("action")]),
+  recordBinding("WebSearchAction", "decode", [
+    mergedSchemaSource("v2", "WebSearchAction", "type"),
+  ], [component("type"), component("url"), component("pattern")]),
   recordBinding("ImageViewItem", "decode", [
     schemaSource("v2", "ThreadItem", "type", "imageView"),
   ], [component("id"), component("path")]),

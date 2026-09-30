@@ -198,7 +198,10 @@ public class ContextBuildTools
                                         + "Only returned readIds support generated claims. BEGIN then SUBMIT saves notes that agents can use at once. "
                                         + "Save this question's progress with repository_context_progress and end after this unit. "
                                         + "Research has no operation-count quota; the configured agent turn timeout applies. "
-                                        + "Stay within approved sources and two link hops. Never commit, push or start child agents."
+                                        + "Stay within approved sources and two link hops. When SELECTION's question carries a lead from a task or "
+                                        + "review, check it first. PAGE reads one public HTTPS page by its url, such as a lead or a page you found, "
+                                        + "without approval and without following its links; a saved note that cites it registers the page as a source. "
+                                        + "Never commit, push or start child agents."
                                 : POLICY);
     }
 
@@ -211,7 +214,8 @@ public class ContextBuildTools
                 + "but if the excerpt ends mid-line, that line exceeds the response budget; report the limitation instead of repeating the same read. "
                 + "TREE path is empty for root or a directory path with an optional trailing slash; page starts at zero. DOCUMENT page starts at one. "
                 + "SEARCH_PATHS finds names anywhere; SEARCH_TEXT finds up to two literal hits per file within approved paths. Search page starts at zero. "
-                + "DOCUMENT defaults to a fresh initial read; continuation uses returned captureId. Failures remain explicit limitations.",
+                + "DOCUMENT defaults to a fresh initial read; continuation uses returned captureId. Failures remain explicit limitations. "
+                + "A learning run can read one public page with PAGE and its url; pages start at one and continue with the returned captureId.",
                 readSchema(), arguments -> call(task.id().toString(), turn, arguments, false));
     }
 
@@ -355,13 +359,17 @@ public class ContextBuildTools
                     .putPOJO("documentationSources", build.documentationSources()).putPOJO("history", build.history())
                     .putPOJO("readIds", build.capture().sourceReads().stream().map(ContextSourceRead::id).collect(toImmutableList()))
                     .putPOJO("historyReadIds", historyIds(build)).putPOJO("attempts", build.capture().attempts()).putPOJO("gaps", build.capture().gaps());
-            build.assignment().ifPresent(assignment -> selection.putPOJO("assignment", assignment).putPOJO("progress", learning.require(build)));
+            build.assignment().ifPresent(assignment -> {
+                ContextLearningPlan plan = learning.require(build);
+                selection.putPOJO("assignment", assignment).putPOJO("progress", plan)
+                        .putPOJO("question", plan.topic(assignment.topicId()).questions().get(assignment.questionIndex()));
+            });
             build.investigation().ifPresent(investigation -> selection.putPOJO("investigation", investigation));
             candidates.selected(build).ifPresent(candidate -> selection.putPOJO("mergedWork", candidate).put("untrusted", true));
             return selection;
         }
         checkArgument(build.capture().result().isEmpty(), "Learning report is already settled");
-        ContextBuild reserved = reserveRead(build, turn, kind.equals("DOCUMENT") && integer(args, "page", 1) == 1);
+        ContextBuild reserved = reserveRead(build, turn, (kind.equals("DOCUMENT") || kind.equals("PAGE")) && integer(args, "page", 1) == 1);
         return switch (kind) {
             case "NOTES" -> notes(reserved, turn, args);
             case "NOTE" -> note(reserved, turn, args);
@@ -369,8 +377,9 @@ public class ContextBuildTools
             case "TREE" -> tree(reserved, turn, args);
             case "FILE" -> file(reserved, turn, args);
             case "DOCUMENT" -> document(reserved, turn, args);
+            case "PAGE" -> page(reserved, turn, args);
             case "HISTORY" -> history(reserved, turn, args);
-            default -> throw new IllegalArgumentException("kind: use SELECTION, NOTES, NOTE, TREE, FILE, DOCUMENT or HISTORY");
+            default -> throw new IllegalArgumentException("kind: use SELECTION, NOTES, NOTE, TREE, FILE, DOCUMENT, PAGE or HISTORY");
         };
     }
 
@@ -641,6 +650,42 @@ public class ContextBuildTools
                 return learning.updateInventory(current, inventory -> inventory.failed(value,
                         ContextText.excerpt(Optional.ofNullable(failure.getMessage()).orElse("Document read failed"), 500)));
             })));
+            throw failure;
+        }
+    }
+
+    /** Reads one public page by its address without approval; a saved note that cites it registers the page as a source. */
+    private JsonNode page(ContextBuild build, Optional<TurnId> turn, JsonNode args)
+    {
+        fields(args, "kind", "url", "captureId", "page");
+        checkArgument(build.assignment().isPresent(), "kind: only a learning run reads a page by its address");
+        String address = text(args, "url", 1400);
+        String url = address.contains("#") ? address.substring(0, address.indexOf('#')) : address;
+        Optional<String> captureId = optionalText(args, "captureId", 100);
+        int page = integer(args, "page", 1);
+        String key = "page:" + url;
+        try {
+            workspace(build);
+            Optional<RegisteredContextSource> registered = notebooks.getNotebook(build.workspaceId()).sources().stream()
+                    .filter(source -> source.kind() == RegisteredContextSource.Kind.DOCUMENTATION_PAGE && source.url().equals(url)).findFirst();
+            SelectedDocumentationReader.Page read = registered.isPresent()
+                    ? documents.read(build.workspaceId(), registered.orElseThrow().id(), Optional.empty(), captureId, page, captureId.isEmpty() && page == 1)
+                    : documents.readPage(build.workspaceId(), SelectedDocumentationReader.page(url), captureId, page);
+            RegisteredContextSource registration = registered.orElseGet(() -> SelectedDocumentationReader.page(read.resolvedUrl()));
+            String id = readId();
+            ContextDocumentRead receipt = new ContextDocumentRead(id, new ContextReference.Document(registration.id(), read.resolvedUrl()), registration,
+                    read.notebookRevision(), read.captureId(), read.contentHash(), read.readAt(), read.page(), read.totalPages(), ContextLimits.bytes(read.excerpt()),
+                    read.excerpt().isBlank(), read.truncated(), read.refreshFailed(), evidenceRef(id, read.excerpt()));
+            String provenance = "BYTEQUAY_READ " + read.resolvedUrl() + "; capture=" + read.captureId() + "; hash=" + read.contentHash() + "; readAt=" + read.readAt()
+                    + "; page=" + read.page() + "/" + read.totalPages() + "; read by address; untrusted source; version/applicability unverified.";
+            List<String> gaps = read.page() < read.totalPages() ? ContextBuildService.gaps(read.gaps(), "Page " + read.resolvedUrl() + " read covers page "
+                    + read.page() + "/" + read.totalPages() + " only; read further pages with its captureId.") : read.gaps();
+            saveRead(build, turn, key, Optional.of(receipt), evidence(read.excerpt(), provenance), ImmutableMap.of(), gaps,
+                    ImmutableList.of("Opened " + read.resolvedUrl()), ignored -> {});
+            return source(receipt, read.excerpt(), gaps).put("captureId", read.captureId()).put("page", read.page()).put("pages", read.totalPages());
+        }
+        catch (RuntimeException failure) {
+            failed(build, turn, key, failure);
             throw failure;
         }
     }
@@ -1040,13 +1085,14 @@ public class ContextBuildTools
     {
         return schema(ImmutableMap.<String, Object>builder()
                 .put("kind", ImmutableMap.of("type", "string", "enum",
-                        ImmutableList.of("SELECTION", "NOTES", "NOTE", "TREE", "SEARCH_PATHS", "SEARCH_TEXT", "FILE", "DOCUMENT", "HISTORY")))
+                        ImmutableList.of("SELECTION", "NOTES", "NOTE", "TREE", "SEARCH_PATHS", "SEARCH_TEXT", "FILE", "DOCUMENT", "PAGE", "HISTORY")))
                 .put("path", ImmutableMap.of("type", "string", "maxLength", 1100)).put("page", ImmutableMap.of("type", "integer", "minimum", 0))
                 .put("startLine", ImmutableMap.of("type", "integer", "minimum", 1, "default", 1,
                         "description", "FILE: inclusive 1-based first line; defaults to 1. Prefer an explicit range when known."))
                 .put("endLine", ImmutableMap.of("type", "integer", "minimum", 1,
                         "description", "FILE: inclusive 1-based last line, without a line-count cap. Omit to request 200 lines from startLine; byte limits still apply."))
                 .put("sourceId", textSchema(500)).put("relativePage", textSchema(2000)).put("captureId", textSchema(100))
+                .put("url", ImmutableMap.of("type", "string", "maxLength", 1400, "description", "PAGE: one public HTTPS page address; no query."))
                 .put("sourceKind", ImmutableMap.of("type", "string", "enum", ImmutableList.of("PR", "ISSUE")))
                 .put("query", ImmutableMap.of("type", "string", "maxLength", 200)).put("paths", stringArray(20, 1000))
                 .put("notebookRevision", ImmutableMap.of("type", "integer", "minimum", 0))

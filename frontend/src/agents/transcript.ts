@@ -600,6 +600,9 @@ function joinClauses(parts: string[]): string {
 
 type ActivityCounts = { reads: number; searches: number; listings: number; commands: number; edits: number; web: number; tools: number };
 
+/** Codex reports every web step as a Web search; Claude names its web tools. */
+const WEB_TOOLS = new Set(['Web search', 'WebSearch', 'WebFetch']);
+
 function activityCounts(members: ActivityMember[]): ActivityCounts {
   const readPaths = new Set<string>();
   const editPaths = new Set<string>();
@@ -609,7 +612,7 @@ function activityCounts(members: ActivityMember[]): ActivityCounts {
       editPaths.add(member.path);
     }
     else if (member.kind === 'tool') {
-      if (member.name === 'Web search') counts.web++;
+      if (WEB_TOOLS.has(member.name)) counts.web++;
       else counts.tools++;
     }
     else {

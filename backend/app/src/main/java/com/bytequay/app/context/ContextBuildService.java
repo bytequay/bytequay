@@ -360,10 +360,12 @@ public class ContextBuildService
         });
     }
 
+    static final int MAX_GAPS = 40;
+
     static List<String> gaps(List<String> current, String gap)
     {
         String bounded = ContextText.excerpt(gap, 1000);
-        return current.contains(bounded) || current.size() >= 40 ? current : ImmutableList.<String>builder().addAll(current).add(bounded).build();
+        return current.contains(bounded) || current.size() >= MAX_GAPS ? current : ImmutableList.<String>builder().addAll(current).add(bounded).build();
     }
 
     private ContextRun run(ContextBuild build)
@@ -470,7 +472,8 @@ public class ContextBuildService
                     + "repository_context_progress: the reason, the readIds that show it and one to three questions that replace it. Add up to three "
                     + "follow-up questions for what this topic should also answer."
                     + " Use repository_context_read SELECTION for saved progress and exact source boundaries. "
-                    + "Inspect existing notes before saving duplicates. Read only what answers this question, within the approved paths and documentation inventory. "
+                    + "Inspect existing notes before saving duplicates. Read only what answers this question: the approved paths, the documentation inventory, "
+                    + "and single public pages by their address with PAGE. When the question came from a task or review with a lead, check the lead first. "
                     + ContextBuildTools.TARGET_GUIDANCE
                     + "Research has no operation-count quota; the configured agent turn timeout applies. "
                     + "Stay within two link hops from each approved root. "

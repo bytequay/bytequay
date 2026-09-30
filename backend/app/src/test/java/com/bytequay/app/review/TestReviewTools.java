@@ -30,6 +30,8 @@ import com.bytequay.app.context.ContextBaselineReader;
 import com.bytequay.app.context.ContextDisputes;
 import com.bytequay.app.context.ContextGradeService;
 import com.bytequay.app.context.ContextHistoryReader;
+import com.bytequay.app.context.ContextLearningPlan;
+import com.bytequay.app.context.ContextLearningService;
 import com.bytequay.app.context.ContextNotFoundException;
 import com.bytequay.app.context.ContextNoteReader;
 import com.bytequay.app.context.ContextNotebookLookup;
@@ -125,6 +127,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -225,6 +228,7 @@ class TestReviewTools
     private RepositoryContextPreparation preparation;
     private ContextUsageStore usageStore;
     private ContextUsageRecorder usage;
+    private ContextLearningService learning;
     private ReviewLocks locks;
     private boolean inTransaction;
 
@@ -264,13 +268,22 @@ class TestReviewTools
         });
         grades = new ContextGradeService(gradeStore, notebooks, mock(DevelopmentContextReceiptStore.class), mock(AgentTaskStore.class), store,
                 mock(ContextSourceChecker.class), objectMapper, Clock.fixed(NOW, ZoneOffset.UTC));
+        learning = mock(ContextLearningService.class);
+        ContextLearningService plan = learning;
         tools = new ReviewTools(store, pullRequests, selectedPullRequests, selectedPullRequestDiffs, selectedCommitPullRequests, selectedDocumentation, baselineSources,
                 historySources, new ContextNoteReader(notebooks, new ContextSourceChecker(git, workspaces)),
                 new ContextNotebookLookup(notebooks, new RepositoryContextMatcher(), new ContextNoteReader(notebooks, new ContextSourceChecker(git, workspaces)), objectMapper),
                 grades,
                 usageStore, usage,
                 repositories, issues, issueRefresh, events, workspaces, git, objectMapper,
-                locks, assignments, preparation, new AgentUnitOfWork()
+                locks, assignments, preparation, new ObjectProvider<>()
+                {
+                    @Override
+                    public ContextLearningService getObject()
+                    {
+                        return plan;
+                    }
+                }, new AgentUnitOfWork()
                 {
                     @Override
                     public <T> T execute(Work<T> work)
@@ -969,6 +982,26 @@ class TestReviewTools
         clearInvocations(notebooks);
         assertThat(call("review_get_context", noteRequest(8))).isEqualTo(opened);
         verifyNoInteractions(notebooks);
+    }
+
+    @Test
+    void reviewFilesAQuestionForTheLearningPlanWithoutStartingARun()
+    {
+        noteContext(ImmutableList.of(), ImmutableMap.of());
+        String lead = "https://trino.io/docs/current/optimizer/cost-based-optimizations.html";
+        ContextLearningService.Ask ask = new ContextLearningService.Ask("How does the planner order joins?", ImmutableList.of("core/planner"),
+                Optional.of(lead), ContextLearningPlan.Origin.REVIEW);
+        when(learning.ask(WORKSPACE_ID, ask)).thenReturn(new ContextLearningService.Asked("GAP", Optional.empty(), "No plan topic covers these paths."));
+
+        JsonNode asked = call("review_ask_question", ImmutableMap.of("question", "How does the planner order joins?", "paths", ImmutableList.of("core/planner"),
+                "lead", lead));
+        assertThat(asked.path("status").asText()).isEqualTo("GAP");
+        verify(learning).ask(WORKSPACE_ID, ask);
+        assertThat(call("review_ask_question", ImmutableMap.of("question", "Why?", "paths", ImmutableList.of("core/"), "prompt", "Start a run"))
+                .at("/error/message").asText()).contains("not a question field");
+        when(learning.ask(eq(WORKSPACE_ID), any())).thenThrow(new IllegalArgumentException("This repository has no learning plan to file questions in"));
+        assertThat(call("review_ask_question", ImmutableMap.of("question", "Why?", "paths", ImmutableList.of("core/")))
+                .at("/error/message").asText()).contains("no learning plan");
     }
 
     @Test
@@ -1817,6 +1850,7 @@ class TestReviewTools
                 "review_withdraw_finding",
                 "review_finish",
                 "review_grade_note",
+                "review_ask_question",
                 "repository_context_prepare");
         try (InputStream resource = ReviewPrompts.class.getResourceAsStream("/agent-skills/bytequay-review.md")) {
             assertThat(resource).isNotNull();

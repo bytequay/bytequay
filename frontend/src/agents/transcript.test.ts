@@ -249,6 +249,11 @@ describe('projecting the transcript', () => {
       { kind: 'file', id: 'e', path: 'A.java', change: 'MODIFIED', diff: null, added: 0, removed: 0 },
       { kind: 'file', id: 'f', path: 'B.java', change: 'ADDED', diff: null, added: 0, removed: 0 },
     ])).toBe('Read 2 files, ran 2 commands, and edited 2 files');
+    expect(activitySummary([
+      { kind: 'tool', id: 'g', name: 'Web search', state: 'COMPLETED', summary: 'Opened https://example.com/spec', durationMs: null },
+      { kind: 'tool', id: 'h', name: 'WebFetch', state: 'COMPLETED', summary: 'https://example.com/spec', durationMs: null },
+      { kind: 'tool', id: 'i', name: 'mcp__bytequay__repository_context_lookup', state: 'COMPLETED', summary: 'LIST', durationMs: null },
+    ])).toBe('Searched the web 2 times and used 1 tool');
   });
 
   it('replaces the plan in place when a newer plan arrives', () => {

@@ -261,7 +261,7 @@ class TestContextBuildService
         order.verify(tasks).create(any(CreateAgentTaskCommand.class));
         order.verify(coordinator).watch(bound);
         order.verify(turns).start(start.capture());
-        assertThat(start.getValue().message()).contains("Project overview", "approved paths and documentation inventory");
+        assertThat(start.getValue().message()).contains("Project overview", "the approved paths, the documentation inventory", "check the lead first");
         verifyNoInteractions(reviews);
     }
 

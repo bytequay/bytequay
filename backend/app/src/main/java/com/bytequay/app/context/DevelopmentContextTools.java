@@ -49,6 +49,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hashing;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
@@ -105,7 +106,10 @@ public class DevelopmentContextTools
             + "When READ returns a dispute, agents disagree about its statement: check both texts against your base and trust the code. "
             + "If your work needs a disputed agent-written note, you may settle it with WRONG and a correction whose rootCause says in "
             + "at most 300 bytes why the sides disagreed. "
-            + "Cite only code the monitored branch already has; a note learned from newer code than your base is not wrong.";
+            + "Cite only code the monitored branch already has; a note learned from newer code than your base is not wrong. "
+            + "When this work had to find something on the web or explore at length that later tasks will need too, ASK it: the question, "
+            + "the repository paths it concerns and an optional lead, the page address or file lines that answered it. It joins the learning "
+            + "plan, and a later learning run checks it against the code and saves the note. Asking never starts a run.";
 
     private final AgentTaskStore tasks;
     private final AgentTurnStore turns;
@@ -119,6 +123,7 @@ public class DevelopmentContextTools
     private final DevelopmentContextReceiptStore receipts;
     private final ContextUsageRecorder usage;
     private final DevelopmentContextUsageObserver observer;
+    private final ObjectProvider<ContextLearningService> learning;
     private final AgentUnitOfWork unitOfWork;
     private final ObjectMapper mapper;
     private final Clock clock;
@@ -126,7 +131,8 @@ public class DevelopmentContextTools
     public DevelopmentContextTools(AgentTaskStore tasks, AgentTurnStore turns, AgentReviewStore reviews,
             ContextNotebookLookup lookup, RepositoryContextService notebooks, ContextGradeStore grades, ContextGradeService gradeService,
             TaskContextDraftService drafts, ContextSourceChecker checker, DevelopmentContextReceiptStore receipts,
-            ContextUsageRecorder usage, DevelopmentContextUsageObserver observer, AgentUnitOfWork unitOfWork, ObjectMapper mapper, Clock clock)
+            ContextUsageRecorder usage, DevelopmentContextUsageObserver observer, ObjectProvider<ContextLearningService> learning,
+            AgentUnitOfWork unitOfWork, ObjectMapper mapper, Clock clock)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
@@ -140,6 +146,7 @@ public class DevelopmentContextTools
         this.receipts = requireNonNull(receipts, "receipts is null");
         this.usage = requireNonNull(usage, "usage is null");
         this.observer = requireNonNull(observer, "observer is null");
+        this.learning = requireNonNull(learning, "learning is null");
         this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -209,6 +216,7 @@ public class DevelopmentContextTools
             case "READ" -> read(task, turn, input);
             case "PROPOSE" -> propose(task, turn, input);
             case "GRADE" -> grade(task, turn, input);
+            case "ASK" -> ask(task, input);
             default -> throw new IllegalArgumentException("Unknown context action");
         };
     }
@@ -324,6 +332,15 @@ public class DevelopmentContextTools
             return null;
         });
         return output;
+    }
+
+    /** Files a question for the learning plan; the plan ignores a question its topic already asks. */
+    private String ask(AgentTask task, JsonNode input)
+    {
+        checkArgument((input.size() == 3 || input.size() == 4) && allowed(input, "action", "question", "paths", "lead"),
+                "ASK needs question and paths, with an optional lead");
+        return encode(learning.getObject().ask(task.workspaceId().orElseThrow(), new ContextLearningService.Ask(text(input, "question"),
+                paths(input.path("paths")), input.has("lead") ? Optional.of(text(input, "lead")) : Optional.empty(), ContextLearningPlan.Origin.TASK)));
     }
 
     private String propose(AgentTask task, AgentTurn turn, JsonNode input)

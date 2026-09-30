@@ -1248,6 +1248,51 @@
           "required": true,
           "nullable": false,
           "sample": "value"
+        },
+        {
+          "javaName": "action",
+          "wireName": "action",
+          "required": false,
+          "nullable": true,
+          "sample": {
+            "type": "search"
+          }
+        }
+      ]
+    },
+    {
+      "javaType": "WebSearchAction",
+      "mode": "decode",
+      "sources": [
+        "v2#WebSearchAction[all variants]"
+      ],
+      "components": [
+        {
+          "javaName": "type",
+          "wireName": "type",
+          "required": true,
+          "nullable": false,
+          "sample": "other",
+          "samples": [
+            "findInPage",
+            "openPage",
+            "other",
+            "search"
+          ]
+        },
+        {
+          "javaName": "url",
+          "wireName": "url",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
+        },
+        {
+          "javaName": "pattern",
+          "wireName": "pattern",
+          "required": false,
+          "nullable": true,
+          "sample": "value"
         }
       ]
     },

@@ -591,13 +591,28 @@ final class CodexProtocol
         }
     }
 
-    record WebSearchItem(String id, String query)
+    record WebSearchItem(String id, String query, Optional<WebSearchAction> action)
             implements ThreadItem
     {
         WebSearchItem
         {
             checkIdentifier(id, "id");
             requireNonNull(query, "query is null");
+            requireNonNull(action, "action is null");
+        }
+    }
+
+    /**
+     * What a web step did: search, openPage or findInPage, each filling only its own fields, so one record with
+     * optional fields decodes every variant, known or not.
+     */
+    record WebSearchAction(String type, Optional<String> url, Optional<String> pattern)
+    {
+        WebSearchAction
+        {
+            checkIdentifier(type, "type");
+            requireNonNull(url, "url is null");
+            requireNonNull(pattern, "pattern is null");
         }
     }
 

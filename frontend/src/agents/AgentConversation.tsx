@@ -172,6 +172,8 @@ const ACTION_ICONS: Record<CommandAction['kind'], LucideIcon> = {
 
 const TOOL_ICONS: Record<string, LucideIcon> = {
   'Web search': Globe,
+  WebSearch: Globe,
+  WebFetch: Globe,
   'Image view': Image,
   'Context compaction': ChevronsDownUp,
   'Automatic approval': ShieldCheck,

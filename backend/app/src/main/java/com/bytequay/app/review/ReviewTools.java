@@ -26,6 +26,8 @@ import com.bytequay.app.context.ContextBuildTools;
 import com.bytequay.app.context.ContextConflictException;
 import com.bytequay.app.context.ContextGradeService;
 import com.bytequay.app.context.ContextHistoryReader;
+import com.bytequay.app.context.ContextLearningPlan;
+import com.bytequay.app.context.ContextLearningService;
 import com.bytequay.app.context.ContextNotFoundException;
 import com.bytequay.app.context.ContextNoteReader;
 import com.bytequay.app.context.ContextNotebookLookup;
@@ -104,6 +106,7 @@ import com.google.common.base.Stopwatch;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hashing;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
@@ -202,6 +205,7 @@ public class ReviewTools
     private final ReviewLocks locks;
     private final ReviewToolAssignment assignments;
     private final RepositoryContextPreparation preparation;
+    private final ObjectProvider<ContextLearningService> learning;
     private final AgentUnitOfWork unitOfWork;
 
     public ReviewTools(
@@ -228,6 +232,7 @@ public class ReviewTools
             ReviewLocks locks,
             ReviewToolAssignment assignments,
             RepositoryContextPreparation preparation,
+            ObjectProvider<ContextLearningService> learning,
             AgentUnitOfWork unitOfWork,
             Clock clock)
     {
@@ -255,6 +260,7 @@ public class ReviewTools
         this.locks = requireNonNull(locks, "locks is null");
         this.assignments = requireNonNull(assignments, "assignments is null");
         this.preparation = requireNonNull(preparation, "preparation is null");
+        this.learning = requireNonNull(learning, "learning is null");
         this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
     }
 
@@ -458,6 +464,16 @@ public class ReviewTools
                                                 "endLine", ImmutableMap.of("type", "integer", "minimum", 1)), ImmutableList.of("path", "startLine"))))
                                 .buildOrThrow(), ImmutableList.of("entryId", "entryVersion", "grade", "reason")),
                         arguments -> call(reviewId, turnId, arguments, this::gradeNote)),
+                new ReviewTool("review_ask_question",
+                        "File a question this review had to answer on the web or by exploring at length, when later work will need the answer "
+                                + "too: the question, the repository paths it concerns and an optional lead, the page address or baseline lines that "
+                                + "answered it. It joins the learning plan topic that covers those paths, or the plan's gaps; a later learning run "
+                                + "checks it against the code and saves the note. Asking never starts a run.",
+                        schema(ImmutableMap.of(
+                                "question", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1000),
+                                "paths", stringArray(8, 1000),
+                                "lead", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1000)), ImmutableList.of("question", "paths")),
+                        arguments -> call(reviewId, turnId, arguments, this::askQuestion)),
                 // A later run may enable context; the stable definition survives native thread resume.
                 // preparationExecution checks this turn's assignment and captured context before any operation.
                 preparationTool(reviewId, turnId));
@@ -513,7 +529,7 @@ public class ReviewTools
                         + "checkedSourceIds, sourceIds and claim sources must use returned readId values, never raw evidence refs or invented source records. "
                         + "Check saved notes first. READY produces focused drafts: kind KNOWLEDGE uses knowledge:<scopeId>[:topic]; "
                         + "kind MEMORY records a supported lesson under lesson:<scopeId>:<stable-topic>. noteIds names those entries. "
-                        + "Drafts need user approval before other tasks can use them; existing approved versions remain active. "
+                        + "Saved notes are available to other tasks at once and replace the version they update. "
                         + "EMPTY/FAILED use empty noteIds and no entry. checkedSourceIds allows up to " + ContextLimits.MAX_SOURCE_READS + " readIds; "
                         + "each entry/claim sourceIds allows up to " + ContextLimits.MAX_SOURCES + " readIds. "
                         + "entry sources must be checkedSourceIds, and claim sources must belong to the entry. " + ContextBuildTools.NOTE_TEXT_GUIDANCE
@@ -1940,6 +1956,32 @@ public class ReviewTools
         }
         catch (IllegalArgumentException | ContextNotFoundException | ContextStorageException failure) {
             throw new ReviewInvalidRequestException("grade: " + bounded(Optional.ofNullable(failure.getMessage()).orElse("not saved"), 500));
+        }
+    }
+
+    private JsonNode askQuestion(Call call)
+    {
+        if (!call.run().active() || call.step().isEmpty()
+                || !ImmutableList.of(INVESTIGATE, COLLECT_EVIDENCE, VALIDATE).contains(call.step().orElseThrow().kind())) {
+            throw new ReviewInvalidRequestException("ask: only an active review assignment can file questions");
+        }
+        call.run().context().filter(ReviewContextSnapshot::enabled)
+                .orElseThrow(() -> new ReviewInvalidRequestException("ask: repository context was not enabled for this run"));
+        ObjectNode arguments = call.arguments();
+        arguments.fieldNames().forEachRemaining(field -> {
+            if (!ImmutableList.of("question", "paths", "lead").contains(field)) {
+                throw new ReviewInvalidRequestException(field + ": not a question field");
+            }
+        });
+        String question = text(arguments, "question", 1000, true);
+        List<String> paths = strings(arguments, "paths", 8, 1000);
+        Optional<String> lead = arguments.has("lead") ? Optional.of(text(arguments, "lead", 1000, true)) : Optional.empty();
+        try {
+            return objectMapper.valueToTree(outsideReviewLock(call, () -> learning.getObject().ask(call.review().workspaceId(),
+                    new ContextLearningService.Ask(question, paths, lead, ContextLearningPlan.Origin.REVIEW))));
+        }
+        catch (IllegalArgumentException | ContextStorageException failure) {
+            throw new ReviewInvalidRequestException("ask: " + bounded(Optional.ofNullable(failure.getMessage()).orElse("not filed"), 500));
         }
     }
 

@@ -380,6 +380,21 @@ class TestCodexEventMapper
         assertThat(search.name()).isEqualTo("Web search");
         assertThat(search.summary()).isEqualTo("trino release notes");
         assertThat(search.state()).isEqualTo(ProviderAgentEvent.ActivityState.COMPLETED);
+        // A web step names the page it opened or searched, not only its query.
+        assertThat(only("""
+                {"method":"item/completed","params":{"item":{"type":"webSearch","id":"search-2","query":"",
+                "action":{"type":"openPage","url":"https://github.com/delta-io/delta/blob/master/PROTOCOL.md"}},"threadId":"thread-1","turnId":"turn-1"}}
+                """, ProviderAgentEvent.Tool.class).summary()).isEqualTo("Opened https://github.com/delta-io/delta/blob/master/PROTOCOL.md");
+        assertThat(only("""
+                {"method":"item/completed","params":{"item":{"type":"webSearch","id":"search-3","query":"",
+                "action":{"type":"findInPage","url":"https://github.com/delta-io/delta/blob/master/PROTOCOL.md","pattern":"checkpoint"}},
+                "threadId":"thread-1","turnId":"turn-1"}}
+                """, ProviderAgentEvent.Tool.class).summary())
+                .isEqualTo("Searched https://github.com/delta-io/delta/blob/master/PROTOCOL.md for \u201ccheckpoint\u201d");
+        assertThat(only("""
+                {"method":"item/completed","params":{"item":{"type":"webSearch","id":"search-4","query":"delta protocol",
+                "action":{"type":"search","query":"delta protocol","queries":["delta protocol"]}},"threadId":"thread-1","turnId":"turn-1"}}
+                """, ProviderAgentEvent.Tool.class).summary()).isEqualTo("delta protocol");
 
         ProviderAgentEvent.Tool view = (ProviderAgentEvent.Tool) worktreeMapper.map(codec.decodeNotification("""
                 {"method":"item/started","params":{"item":{"type":"imageView","id":"view-1",

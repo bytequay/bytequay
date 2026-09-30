@@ -13,12 +13,14 @@
  */
 package com.bytequay.app.context;
 
+import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.google.common.base.Ticker;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
+import com.google.common.hash.Hashing;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -33,6 +35,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
 /** Selected documentation captures; only the caller's returned excerpts enter retained review evidence. */
@@ -85,16 +88,45 @@ public class SelectedDocumentationReader
      */
     public Page read(String workspaceId, String sourceId, Optional<String> relativePage, Optional<String> captureId, int page, boolean refresh)
     {
+        RepositoryNotebook notebook = notebook(workspaceId);
+        RegisteredContextSource source = notebook.sources().stream().filter(item -> item.id().equals(sourceId)).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Unknown registered documentation source"));
+        return read(new Key(workspaceId, source, DocumentationHttpReader.resolve(source, relativePage).toString(), true), notebook.revision(),
+                relativePage, captureId, page, refresh);
+    }
+
+    /**
+     * Reads one public page a learning run named by its address, fresh on its first page. Nothing registers the page; a saved
+     * note that cites it does. The same HTTPS, public-address and redirect checks apply, and none of its links is followed.
+     */
+    public Page readPage(String workspaceId, RegisteredContextSource source, Optional<String> captureId, int page)
+    {
+        checkArgument(source.kind() == RegisteredContextSource.Kind.DOCUMENTATION_PAGE, "Only an exact page can be read by its address");
+        return read(new Key(workspaceId, source, DocumentationHttpReader.resolve(source, Optional.empty()).toString(), false),
+                notebook(workspaceId).revision(), Optional.empty(), captureId, page, captureId.isEmpty() && page == 1);
+    }
+
+    /** The page source a learning run's read by address becomes when a saved note cites it; its id follows from the address. */
+    public static RegisteredContextSource page(String url)
+    {
+        return new RegisteredContextSource("page:" + Hashing.sha256().hashString(url, UTF_8).toString().substring(0, 16),
+                RegisteredContextSource.Kind.DOCUMENTATION_PAGE, url, ContextEntryOrigin.GENERATED, Optional.empty());
+    }
+
+    /** Whether a learning run read this page by its address rather than through a registered source. */
+    public static boolean readByAddress(RegisteredContextSource source)
+    {
+        return source.equals(page(source.url()));
+    }
+
+    private Page read(Key key, long notebookRevision, Optional<String> relativePage, Optional<String> captureId, int page, boolean refresh)
+    {
         requireNonNull(relativePage, "relativePage is null");
         requireNonNull(captureId, "captureId is null");
         checkArgument(page > 0, "page must be positive");
         checkArgument(page == 1 || captureId.isPresent(), "Later document pages require captureId from the first read");
         checkArgument(!refresh || (page == 1 && captureId.isEmpty()), "Refresh requires page one without captureId");
         captureId.ifPresent(id -> checkArgument(id.matches("[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}"), "Invalid document captureId"));
-        RepositoryNotebook notebook = notebook(workspaceId);
-        RegisteredContextSource source = notebook.sources().stream().filter(item -> item.id().equals(sourceId)).findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("Unknown registered documentation source"));
-        Key key = new Key(workspaceId, source, DocumentationHttpReader.resolve(source, relativePage).toString());
         Captured cached = captures.getIfPresent(key);
         boolean cacheHit = cached != null;
         boolean refreshFailed = false;
@@ -142,7 +174,7 @@ public class SelectedDocumentationReader
         if (refreshFailed) {
             gaps.add("The requested refresh failed; this is the original cached observation, not a newly retrieved document.");
         }
-        return new Page(source, notebook.revision(), read.resolvedUrl(), captured.id(), read.contentHash(), read.readAt(), page, pages.size(),
+        return new Page(key.source(), notebookRevision, read.resolvedUrl(), captured.id(), read.contentHash(), read.readAt(), page, pages.size(),
                 pages.get(page - 1), read.truncated(), cacheHit, refreshFailed, gaps.build(), read.links(), read.suggestedExpansionUrls(),
                 read.linksTruncated());
     }
@@ -156,7 +188,7 @@ public class SelectedDocumentationReader
 
     private void requireCurrentSource(Key key)
     {
-        if (!notebook(key.workspaceId()).sources().contains(key.source())) {
+        if (key.registered() && !notebook(key.workspaceId()).sources().contains(key.source())) {
             throw restart();
         }
     }
@@ -206,7 +238,8 @@ public class SelectedDocumentationReader
         }
     }
 
-    private record Key(String workspaceId, RegisteredContextSource source, String url) {}
+    /** A registered source must still be configured when its capture returns; a page read by its address has no registration. */
+    private record Key(String workspaceId, RegisteredContextSource source, String url, boolean registered) {}
 
     private record Captured(String id, DocumentationHttpReader.Read read) {}
 }

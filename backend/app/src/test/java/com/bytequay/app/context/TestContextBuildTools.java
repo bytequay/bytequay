@@ -33,6 +33,7 @@ import com.bytequay.app.context.RepositoryContextPreparation.Status;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextEntryKind;
 import com.bytequay.core.context.ContextEntryOrigin;
@@ -397,6 +398,43 @@ class TestContextBuildTools
         assertThat(read("{\"kind\":\"DOCUMENT\",\"sourceId\":\"docs-root\",\"relativePage\":\"unobserved.html\"}")
                 .path("error").path("message").textValue()).contains("not in the approved inventory");
         verifyNoInteractions(documents);
+    }
+
+    @Test
+    void aLearningRunSeesItsQuestionsLeadAndReadsOnePublicPageByItsAddress()
+            throws Exception
+    {
+        store.save(Optional.of(current()), assigned(ImmutableList.of()));
+        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, history, preparation,
+                unitOfWork, mapper, learning, lookup, candidates, CLOCK).bridge(TASK.toString()).orElseThrow();
+        String lead = "https://github.com/delta-io/delta/blob/master/PROTOCOL.md";
+        ContextLearningPlan plan = new ContextLearningPlan("plan-1", WORKSPACE, "report-1", "request", "sha256:" + "b".repeat(64),
+                0, 1, ImmutableList.of("topic:1"), 1, REPO, SHA,
+                ImmutableList.of(new ContextLearningPlan.Topic("topic:1", "Iceberg metadata", "project",
+                        "sha256:" + "c".repeat(64), ImmutableList.of("plugin/trino-iceberg/"), Optional.of(ImmutableList.of()), ImmutableList.of("pom.xml"),
+                        ImmutableList.of(), ImmutableList.of(ContextLearningPlan.Question.added("How does Iceberg read metadata?", ContextLearningPlan.Origin.TASK, lead)))),
+                ImmutableList.of(), ContextDocumentInventory.initial(ImmutableList.of()), ImmutableList.of(), Instant.EPOCH, Optional.empty());
+        when(learning.require(any())).thenReturn(plan);
+        JsonNode selection = read("{\"kind\":\"SELECTION\"}");
+        assertThat(selection.path("question").path("origin").textValue()).isEqualTo("TASK");
+        assertThat(selection.path("question").path("note").textValue()).isEqualTo(lead);
+
+        RegisteredContextSource page = SelectedDocumentationReader.page(lead);
+        String captureId = UUID.randomUUID().toString();
+        when(documents.readPage(WORKSPACE, page, Optional.empty(), 1)).thenReturn(new SelectedDocumentationReader.Page(page, 0, lead, captureId,
+                "b".repeat(64), Instant.EPOCH, 1, 1, "Actions in a commit are applied in order.", false, false, false, ImmutableList.of()));
+        JsonNode result = read("{\"kind\":\"PAGE\",\"url\":\"" + lead + "#actions\"}");
+        assertThat(result.has("error")).isFalse();
+        assertThat(result.path("captureId").textValue()).isEqualTo(captureId);
+        assertThat(result.has("links")).isFalse();
+        assertThat(current().capture().sourceReads()).singleElement().isInstanceOfSatisfying(ContextDocumentRead.class, receipt -> {
+            assertThat(receipt.registration()).isEqualTo(page);
+            assertThat(SelectedDocumentationReader.readByAddress(receipt.registration())).isTrue();
+        });
+        assertThat(current().capture().activity().getLast().text()).isEqualTo("Opened " + lead);
+        assertThat(read("{\"kind\":\"PAGE\",\"url\":\"https://example.com/search?q=delta\"}").path("error").path("message").textValue())
+                .contains("query");
+        verify(documents).readPage(WORKSPACE, page, Optional.empty(), 1);
     }
 
     @Test

@@ -55,6 +55,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -109,8 +110,16 @@ class TestDevelopmentContextTools
     private final RepositoryContextService notebooks = mock(RepositoryContextService.class);
     private final InMemoryContextGradeStore grades = new InMemoryContextGradeStore();
     private final ContextGradeService gradeService = new ContextGradeService(grades, notebooks, receipts, tasks, reviews, checker, mapper, Clock.systemUTC());
+    private final ContextLearningService learning = mock(ContextLearningService.class);
     private final DevelopmentContextTools service = new DevelopmentContextTools(tasks, turns, reviews, lookup, notebooks, grades, gradeService, drafts, checker,
-            receipts, usage, observer, unitOfWork, mapper, Clock.systemUTC());
+            receipts, usage, observer, new ObjectProvider<>()
+            {
+                @Override
+                public ContextLearningService getObject()
+                {
+                    return learning;
+                }
+            }, unitOfWork, mapper, Clock.systemUTC());
 
     @BeforeEach
     void ownedTurn()
@@ -176,6 +185,24 @@ class TestDevelopmentContextTools
                 .hasMessageContaining("different proposal");
         assertThatThrownBy(() -> service.call(taskId.toString(), request.replace("plugin/trino-delta-lake/", "../")))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void asksAQuestionForTheLearningPlanWithoutStartingARun()
+    {
+        turn = turn.markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("provider-turn"), Optional.empty());
+        ContextLearningService.Ask ask = new ContextLearningService.Ask("How are snapshots expired?", ImmutableList.of("plugin/iceberg/"),
+                Optional.of("https://iceberg.apache.org/spec/"), ContextLearningPlan.Origin.TASK);
+        when(learning.ask(WORKSPACE, ask)).thenReturn(new ContextLearningService.Asked("ADDED", Optional.of("Iceberg"), "Filed."));
+
+        assertThat(service.call(taskId.toString(), """
+                {"action":"ASK","question":"How are snapshots expired?","paths":["plugin/iceberg/"],"lead":"https://iceberg.apache.org/spec/"}
+                """)).contains("\"status\":\"ADDED\"", "Iceberg");
+        verify(learning).ask(WORKSPACE, ask);
+        assertThatThrownBy(() -> service.call(taskId.toString(), """
+                {"action":"ASK","question":"Why?","paths":["plugin/iceberg/"],"prompt":"Start a run"}
+                """)).hasMessageContaining("ASK needs question and paths");
+        assertThat(service.resolve(taskId.toString()).orElseThrow().instruction()).contains("ASK it", "Asking never starts a run");
     }
 
     @Test

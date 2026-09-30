@@ -2202,9 +2202,9 @@ and [the user interface](repository-context-refactor.md#8-user-interface).
 - [x] Record each question's origin and state; let runs correct questions and add
   follow-ups; let the user add, edit and drop questions and Go deeper; allow 30
   questions per topic.
-- [ ] Let tasks and reviews file questions with a lead; let learning runs read
+- [x] Let tasks and reviews file questions with a lead; let learning runs read
   one public page and cite it; show the pages web steps opened in transcripts.
-- [ ] Verify each step with the backend and desktop build gates.
+- [x] Verify each step with the backend and desktop build gates.
 
 Batches passed JVM 25 `mvn verify` with 3,667 tests and no Checkstyle
 violations; frontend lint, TypeScript, all 1,421 tests and macOS packaging
@@ -2223,6 +2223,16 @@ no run has started, a drop refused for the running question, Go deeper adding
 one question and running it alone, plans saved before origins, and the plan rows,
 counts and status card for corrected and dropped questions. No live model run
 was used.
+
+Learning from work passed JVM 25 `mvn verify` with 3,678 tests and no
+Checkstyle violations; frontend lint, TypeScript, all 1,423 tests and macOS
+packaging passed. Regressions cover a task's and a review's question joining the
+narrowest topic that covers its paths, a repeat left out, a question no topic
+covers becoming a gap, a repository without a plan refusing it, SELECTION showing
+the question's lead, a page read by its address without registration, that page
+registered when a saved note cites it, and Codex and Claude web steps naming the
+page they opened. The development tool's schema now lists GRADE and ASK. No live
+model run was used.
 
 ## Save notes without approval
 

@@ -435,7 +435,8 @@ function AdvancedDrawer({ data, actions, busy, onClose }: { data: ContextData; a
         {notebook.sources.length === 0 && <div className="rcp-adv-row"><span className="rcp-adv-row__kind">No documentation source is saved.</span></div>}
         {notebook.sources.map(source => <div className="rcp-adv-row" key={source.id}>
           <span className="rcp-adv-row__main rcp-mono">{source.url}</span>
-          <span className="rcp-adv-row__kind">{source.kind === 'DOCUMENTATION_ROOT' ? `Root · ${DOCUMENT_LINK_HOPS} link hops` : 'Page'}</span>
+          <span className="rcp-adv-row__kind">{source.kind === 'DOCUMENTATION_ROOT' ? `Root · ${DOCUMENT_LINK_HOPS} link hops`
+            : source.origin === 'GENERATED' && source.id.startsWith('page:') ? 'Page · a learning run’s note cites it' : 'Page'}</span>
           <button type="button" className="rcp-link" disabled={busy} onClick={() => save(sources.filter(value => value.id !== source.id), 'Source removed · captured evidence is kept')}>Remove</button>
         </div>)}
       </div>

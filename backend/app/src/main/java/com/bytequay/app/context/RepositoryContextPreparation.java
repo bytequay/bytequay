@@ -31,6 +31,7 @@ import com.bytequay.core.context.ContextRepositoryRead;
 import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.ContextSourceEvidence;
 import com.bytequay.core.context.ContextSourceRead;
+import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.review.AgentReview;
@@ -262,8 +263,16 @@ public class RepositoryContextPreparation
                 }
             }
         }
+        // A page a learning run read by its address becomes a registered source once a saved note cites it.
+        Set<String> cited = results.values().stream().filter(result -> result.outcome() == READY).flatMap(result -> result.noteIds().stream())
+                .flatMap(id -> entries.get(id).sourceIds().stream()).collect(ImmutableSet.toImmutableSet());
+        List<RegisteredContextSource> sources = ImmutableList.<RegisteredContextSource>builder().addAll(current.sources())
+                .addAll(execution.sourceReads().stream().filter(ContextDocumentRead.class::isInstance).map(ContextDocumentRead.class::cast)
+                        .filter(read -> cited.contains(read.id())).map(ContextDocumentRead::registration)
+                        .filter(page -> current.sources().stream().noneMatch(source -> source.id().equals(page.id()))).distinct().iterator())
+                .build();
         List<ContextScope> provisionalScopes = withResults(current.scopes(), results);
-        RepositoryNotebook prospective = copy(current, revision, provisionalScopes, ImmutableList.copyOf(entries.values()),
+        RepositoryNotebook prospective = copy(current, sources, revision, provisionalScopes, ImmutableList.copyOf(entries.values()),
                 ImmutableList.copyOf(replaced.values()), ImmutableList.copyOf(evidence.values()), Optional.empty());
         WorkspaceRepositoryContext workspace = workspace(execution);
         List<ContextScope> selected = provisionalScopes.stream().filter(scope -> expected.contains(scope.id())).collect(toImmutableList());
@@ -275,7 +284,7 @@ public class RepositoryContextPreparation
             results.put(captured.scopeId(), new ContextPreparationResult(result.attemptId(), captured, result.outcome(),
                     result.noteIds(), result.checkedReads(), result.explanation()));
         }
-        RepositoryNotebook replacement = copy(current, revision, withResults(current.scopes(), results),
+        RepositoryNotebook replacement = copy(current, sources, revision, withResults(current.scopes(), results),
                 prospective.entries(), prospective.replaced(), prospective.sourceEvidence(), Optional.empty());
         List<ContextPreparationResult> accepted = ImmutableList.copyOf(results.values());
         return new Completion(current, replacement, new Receipt(active.attemptId(), revision, accepted, packet(replacement, accepted)));
@@ -399,8 +408,14 @@ public class RepositoryContextPreparation
     private static RepositoryNotebook copy(RepositoryNotebook current, long revision, List<ContextScope> scopes, List<ContextEntry> entries,
             List<ContextEntry> replaced, List<ContextSourceEvidence> evidence, Optional<ActiveContextPreparation> active)
     {
-        Set<String> retained = RepositoryContextService.retainedSources(current.sources(), scopes, entries, replaced);
-        return new RepositoryNotebook(1, revision, current.useInReviews(), current.useInDevelopment(), current.sources(), scopes, entries, replaced,
+        return copy(current, current.sources(), revision, scopes, entries, replaced, evidence, active);
+    }
+
+    private static RepositoryNotebook copy(RepositoryNotebook current, List<RegisteredContextSource> sources, long revision, List<ContextScope> scopes,
+            List<ContextEntry> entries, List<ContextEntry> replaced, List<ContextSourceEvidence> evidence, Optional<ActiveContextPreparation> active)
+    {
+        Set<String> retained = RepositoryContextService.retainedSources(sources, scopes, entries, replaced);
+        return new RepositoryNotebook(1, revision, current.useInReviews(), current.useInDevelopment(), sources, scopes, entries, replaced,
                 evidence.stream().filter(source -> retained.contains(source.id())).collect(toImmutableList()), active);
     }
 
@@ -422,7 +437,8 @@ public class RepositoryContextPreparation
                         history.contentHash(), history.readAt(), history.utf8Bytes(), history.truncated(), history.refreshFailed(), history.gaps(), retainedRef);
             }
             case ContextDocumentRead document -> {
-                checkArgument(notebook.sources().contains(document.registration()), "Captured document registration changed");
+                checkArgument(notebook.sources().contains(document.registration()) || SelectedDocumentationReader.readByAddress(document.registration()),
+                        "Captured document registration changed");
                 yield new ContextDocumentRead(document.id(), document.reference(), document.registration(), document.notebookRevision(), document.captureId(),
                         document.contentHash(), document.readAt(), document.page(), document.totalPages(), document.utf8Bytes(), document.blank(),
                         document.truncated(), document.refreshFailed(), retainedRef);

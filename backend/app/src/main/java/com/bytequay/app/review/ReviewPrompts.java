@@ -88,7 +88,8 @@ final class ReviewPrompts
             SUPPORTED; otherwise reject the nit candidates as held back, citing each nit's own evidence. Never pad.
 
             When repository context is enabled, grade each saved note you read with review_grade_note after \
-            checking it against the code.
+            checking it against the code, and file with review_ask_question what you had to look up on the web \
+            or explore at length that later work will need too.
 
             Seal validation with review_finish for the assigned investigationStep. Assess every candidate using \
             outcome, conclusion, evidenceRefs and counterevidence. SUPPORTED names the saved findingId and exact \
@@ -195,9 +196,13 @@ final class ReviewPrompts
             When current evidence supports useful reusable knowledge, optionally use repository_context_prepare \
             BEGIN and SUBMIT for an existing scope, using baseline/document readId values from review_get_context. \
             Read relevant history before BEGIN and pass historyReadIds. A closed issue or merged PR is evidence \
-            to assess, not proof of correctness. Submit focused drafts; user approval is required before other \
-            tasks can use them. Do not overwrite user-owned notes. Unavailable sources or joined preparation \
-            are limitations; continue the review without inventing results or starting another learning task.
+            to assess, not proof of correctness. Submit focused notes; other tasks can use them at once, so save \
+            only what the cited sources support. Do not overwrite user-owned notes. Unavailable sources or joined \
+            preparation are limitations; continue the review without inventing results or starting another learning task.
+
+            When this review had to find something on the web or explore at length that later work will need too, \
+            file it with review_ask_question: the question, the repository paths it concerns and the page address or \
+            baseline lines that answered it. A later learning run checks it and saves the note; asking never starts a run.
 
             Seal each investigation report with contextBrief, contextPreparationRefs, contextLimitations and \
             contextEvidenceRefs. Summarize applicable contracts and conditions, cite actual retained evidence \

@@ -249,6 +249,24 @@ class TestSelectedDocumentationReader
     }
 
     @Test
+    void aPageReadByItsAddressNeedsNoRegistrationAndContinuesFromItsCapture()
+    {
+        RegisteredContextSource page = SelectedDocumentationReader.page("https://iceberg.apache.org/spec/");
+        String text = "a".repeat(SelectedDocumentationReader.PAGE_BYTES + 1);
+        when(http.read(page, Optional.empty())).thenReturn(new DocumentationHttpReader.Read(page.url(), text, Hashing.sha256().hashString(text, UTF_8).toString(),
+                READ_AT, false, ImmutableList.of()));
+
+        SelectedDocumentationReader.Page first = reader.readPage(WORKSPACE, page, Optional.empty(), 1);
+        assertThat(first.source()).isEqualTo(page);
+        assertThat(first.totalPages()).isEqualTo(2);
+        assertThat(reader.readPage(WORKSPACE, page, Optional.of(first.captureId()), 2).excerpt()).isEqualTo("a");
+        assertThat(SelectedDocumentationReader.readByAddress(page)).isTrue();
+        assertThat(SelectedDocumentationReader.readByAddress(SOURCE)).isFalse();
+        assertThatThrownBy(() -> reader.readPage(WORKSPACE, SOURCE, Optional.empty(), 1)).isInstanceOf(IllegalArgumentException.class);
+        verify(http).read(page, Optional.empty());
+    }
+
+    @Test
     void cacheHasBoundedCapacity()
     {
         when(http.read(any(), any())).thenReturn(capture("Bounded capture"));

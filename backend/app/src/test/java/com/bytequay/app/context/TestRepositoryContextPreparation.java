@@ -192,6 +192,27 @@ class TestRepositoryContextPreparation
         assertThat(begin(changed).status()).isEqualTo(OWNED);
     }
 
+    @Test
+    void aPageReadByItsAddressBecomesARegisteredSourceWhenANoteCitesIt()
+    {
+        RegisteredContextSource page = SelectedDocumentationReader.page("https://github.com/delta-io/delta/blob/master/PROTOCOL.md");
+        ContextDocumentRead cited = new ContextDocumentRead("context-read:page", new ContextReference.Document(page.id(), page.url()), page, 0,
+                UUID.randomUUID().toString(), "a".repeat(64), Instant.EPOCH, 1, 1, 6, false, false, false, Optional.of("E1"));
+        Execution owner = new Execution("workspace", REPOSITORY.fullName(), 1, SHA, "learning-task", "page", "learn-key", Optional.empty(), Optional.empty(),
+                ImmutableList.of(cited), ImmutableMap.of("E1", new RepositoryContextPreparation.CapturedSource("Page read by its address", "source")));
+        var admitted = begin(owner);
+
+        preparation.complete(owner, preparation.prepareCompletion(owner, admitted.attempt().orElseThrow().attemptId(), readyReport(cited.id())));
+
+        RepositoryNotebook saved = notebooks.getNotebook("workspace");
+        assertThat(saved.sources()).containsExactly(page);
+        assertThat(saved.entries()).singleElement().satisfies(entry -> assertThat(entry.sourceIds()).containsExactly(cited.id()));
+        Execution again = new Execution("workspace", REPOSITORY.fullName(), 1, SHA, "learning-task", "page-again", "learn-key", Optional.empty(),
+                Optional.empty(), ImmutableList.of(cited), owner.evidence());
+        assertThat(begin(again).status()).isEqualTo(REUSED);
+        assertThat(notebooks.getNotebook("workspace").sources()).containsExactly(page);
+    }
+
     private Execution documentExecution(String suffix, String hash)
     {
         RegisteredContextSource registration = notebooks.getNotebook("workspace").sources().getFirst();

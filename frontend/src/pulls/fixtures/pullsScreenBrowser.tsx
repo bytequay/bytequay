@@ -642,7 +642,9 @@ export async function runListSearch(): Promise<string> {
     await settle();
   };
   try {
-    flushSync(() => root.render(<PullsScreen />));
+    const render = () => flushSync(() => root.render(<PullsScreen
+      repositoryScope={{ workspaceId: 'workspace', repository: 'owner/repo' }} />));
+    render();
     await until(() => titles().length > 0);
     assert(titles().join('|') === 'Requested of bob', `Review must open on the requested pull request, not ${titles().join('|')}`);
     const reads = listReads;
@@ -673,8 +675,11 @@ export async function runListSearch(): Promise<string> {
     broadcast(); await until(() => titles().includes('Newly discovered'));
     assert(titles().includes('Newly discovered'), 'A newly discovered PR must enter the current list without reopening it');
     const afterDiscovery = listReads;
-    broadcast(); await settle();
-    assert(listReads === afterDiscovery, 'Unchanged attention snapshots must not repeatedly reload the list');
+    for (let tick = 0; tick < 3; tick++) {
+      render();
+      broadcast(); await settle();
+      assert(listReads === afterDiscovery, 'Unchanged attention snapshots must not reload after a parent renders the same workspace');
+    }
     return 'Search filters loaded rows locally, and newly discovered PRs enter the visible list';
   }
   finally {
@@ -684,7 +689,7 @@ export async function runListSearch(): Promise<string> {
   }
 }
 
-/** Refreshes reload only the first list page; the open pull request may come from a later page or a link. */
+/** Refreshes must retain loaded rows as well as a selected pull request opened from a page or link. */
 export async function runSelectionStability(): Promise<string> {
   const detailFor = (number: number, title: string, updatedAt: string): PullRequestDetailDto => ({
     id: number, repo: 'owner/repo', number, title, htmlUrl: null, state: 'open', draft: false,
@@ -697,7 +702,8 @@ export async function runSelectionStability(): Promise<string> {
   const newest = detailFor(3, 'Newest after sync', '2026-09-14T06:00:00Z');
   const first = detailFor(1, 'First on page zero', '2026-09-14T01:00:00Z');
   const older = detailFor(2, 'Older from page one', '2026-09-10T00:00:00Z');
-  const details = [newest, first, older];
+  const sibling = detailFor(4, 'Unselected from page one', '2026-09-09T00:00:00Z');
+  const details = [newest, first, older, sibling];
   const originalBridge = window.bridge;
   const host = document.createElement('div');
   host.style.cssText = 'width: 1400px; height: 900px; display: flex';
@@ -716,7 +722,7 @@ export async function runSelectionStability(): Promise<string> {
       getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
         following: 0, bio: null, location: null, company: null, email: null }),
       fetchPrs: async (_workspaceId, page) => ({
-        pullRequests: (page === 0 ? pageZero : [older]).map(detail => remotePullRequest(detail, 'bob')),
+        pullRequests: (page === 0 ? pageZero : [older, sibling]).map(detail => remotePullRequest(detail, 'bob')),
         page, pageSize: 50, totalPullRequests: 3, openPullRequests: 3, hasMore: page === 0 && !link,
       }),
       onPullRequestsSynced: listener => { synced.push(listener); return () => {}; },
@@ -754,12 +760,21 @@ export async function runSelectionStability(): Promise<string> {
       await until(() => open() === older.title);
     }
     assert(open() === older.title, `${link ? 'A linked' : 'A scrolled-to'} pull request must open, not ${open()}`);
+    const siblingRow = [...host.querySelectorAll('.pull-card')].find(element => element.textContent?.includes(sibling.title));
+    const removed: Node[] = [];
+    const observer = new MutationObserver(records => records.forEach(record => removed.push(...record.removedNodes)));
+    const list = host.querySelector('.pulls-list__rows');
+    assert(list !== null, 'The list must remain mounted beside the detail pane');
+    observer.observe(list, { childList: true });
     navigations.length = 0;
     host.querySelector<HTMLButtonElement>('[aria-label="Refresh pull request"]')?.click();
     pageZero = [newest, first];
     synced.forEach(listener => listener());
     await until(() => host.querySelector('.pulls-list')?.textContent?.includes(newest.title) === true);
     await settle();
+    observer.disconnect();
+    if (!link) assert(siblingRow !== undefined && siblingRow.isConnected && !removed.includes(siblingRow),
+      'Sync must keep unselected rows from later pages mounted throughout the refresh');
     assert(open() === older.title && navigations.length === 0,
       `Refresh and sync must keep ${older.title} open, not ${open()} (navigated to ${navigations.join(', ')})`);
   };

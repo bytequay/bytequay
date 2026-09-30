@@ -324,6 +324,8 @@ export default function PullsScreen({
   reviewWorkspace?: { onBack: () => void; headerAction?: ReactNode };
 }) {
   const singlePullRequest = onClose !== undefined || reviewWorkspace !== undefined;
+  const scopedWorkspaceId = repositoryScope?.workspaceId;
+  const scopedRepository = repositoryScope?.repository;
   const overlay = onClose !== undefined;
   const reviewPane = useTaskPane();
   const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -417,11 +419,11 @@ export default function PullsScreen({
   const listRequest = useRef(0);
   const manualDetailRefreshRequest = useRef(0);
   const toastId = useRef(0);
-  const listContext = useRef({ workspaceId: repositoryScope?.workspaceId });
+  const listContext = useRef({ workspaceId: scopedWorkspaceId, page });
   const browserWasOpen = useRef(browserOpen);
   const monitorRequests = useRef(new Set<number>());
   viewerLoginRef.current = viewerLogin;
-  listContext.current = { workspaceId: repositoryScope?.workspaceId };
+  listContext.current = { workspaceId: scopedWorkspaceId, page };
 
   useEffect(() => {
     if (!overlay) return;
@@ -468,35 +470,41 @@ export default function PullsScreen({
       : null);
   }, []);
 
+  const readList = useCallback(async (): Promise<PullRequestPageDto> => {
+    const { workspaceId, page } = listContext.current;
+    // Replace the loaded range together so refreshes never remove and reload the lower rows.
+    const pages = await Promise.all(Array.from({ length: page + 1 }, (_, index) => window.bridge.fetchPrs(workspaceId, index, PAGE_SIZE)));
+    return { ...pages[pages.length - 1], pullRequests: [...new Map(pages.flatMap(result => result.pullRequests).map(pr => [pr.id, pr])).values()] };
+  }, []);
+
   useEffect(() => {
     if (singlePullRequest) return;
     return window.bridge.onPullRequestsSynced(() => {
-      const current = listContext.current;
       const request = ++listRequest.current;
-      void window.bridge.fetchPrs(current.workspaceId, 0, PAGE_SIZE)
+      void readList()
         .then(result => { if (request === listRequest.current) applyPage(result); })
         .catch(() => {});
     });
-  }, [applyPage, singlePullRequest]);
+  }, [applyPage, readList, singlePullRequest]);
 
   useEffect(() => {
     let knownIds: Set<number> | null = null;
     const updateAttention = (event: Event) => {
-      const rows = (event as CustomEvent<PullRequestDto[]>).detail.filter(pr => repositoryScope === undefined
-        || pr.repo.toLowerCase() === repositoryScope.repository.toLowerCase());
+      const rows = (event as CustomEvent<PullRequestDto[]>).detail.filter(pr => scopedRepository === undefined
+        || pr.repo.toLowerCase() === scopedRepository.toLowerCase());
       const updates = new Map(rows.map(pr => [pr.id, pr]));
       const discovered = knownIds === null || rows.some(pr => !knownIds?.has(pr.id));
       knownIds = new Set(updates.keys());
       setPrs(current => current.map(pr => updates.get(pr.id) ?? pr));
       if (singlePullRequest || !discovered) return;
       const request = ++listRequest.current;
-      void window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE)
+      void readList()
         .then(result => { if (request === listRequest.current) applyPage(result); })
         .catch(() => {});
     };
     window.addEventListener('bytequay:pr-attention-updated', updateAttention);
     return () => window.removeEventListener('bytequay:pr-attention-updated', updateAttention);
-  }, [applyPage, repositoryScope, singlePullRequest]);
+  }, [applyPage, readList, scopedRepository, scopedWorkspaceId, singlePullRequest]);
 
   const refreshList = useCallback(async () => {
     const workspaceId = repositoryScope?.workspaceId;
@@ -509,7 +517,7 @@ export default function PullsScreen({
       const current = listContext.current;
       if (current.workspaceId !== workspaceId) return;
       request = ++listRequest.current;
-      const result = await window.bridge.fetchPrs(current.workspaceId, 0, PAGE_SIZE);
+      const result = await readList();
       if (request === listRequest.current) applyPage(result);
     }
     catch (e) {
@@ -527,7 +535,7 @@ export default function PullsScreen({
     finally {
       setSyncing(false);
     }
-  }, [applyPage, repositoryScope?.workspaceId]);
+  }, [applyPage, readList, repositoryScope?.workspaceId]);
 
   useEffect(() => {
     if (singlePullRequest) return;
@@ -763,7 +771,6 @@ export default function PullsScreen({
     setPendingReviewComments([]);
   }, [selectedPrNumber, selectedPrRepo]);
 
-  const scopedWorkspaceId = repositoryScope?.workspaceId;
   const requestedReviewId = selectedPrRepo?.toLowerCase() === initialPr?.repo.toLowerCase() && selectedPrNumber === initialPr?.number
     ? initialReviewId : undefined;
   const reviewKey = selectedPrRepo === undefined || selectedPrNumber === undefined
@@ -859,7 +866,7 @@ export default function PullsScreen({
     const selectedKey = `${selectedPr.repo.toLowerCase()}#${selectedPr.number}`;
     if (selectedPullRequest.current?.key !== selectedKey) return;
     const request = ++manualDetailRefreshRequest.current;
-    const listVersion = listRequest.current;
+    let listVersion = listRequest.current;
     const requestMutationVersion = detailMutationVersion.current;
     await refreshDetail();
     if (request !== manualDetailRefreshRequest.current
@@ -867,7 +874,8 @@ export default function PullsScreen({
     refreshChanges();
     if (singlePullRequest || listVersion !== listRequest.current) return;
     try {
-      const result = await window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE);
+      listVersion = ++listRequest.current;
+      const result = await readList();
       if (request === manualDetailRefreshRequest.current
           && selectedPullRequest.current?.key === selectedKey
           && listVersion === listRequest.current
@@ -878,7 +886,7 @@ export default function PullsScreen({
           && selectedPullRequest.current?.key === selectedKey
           && listVersion === listRequest.current) setError(remoteErrorMessage(failure));
     }
-  }, [applyPage, detailLoading, singlePullRequest, refreshChanges, refreshDetail, repositoryScope?.workspaceId, selectedPr]);
+  }, [applyPage, readList, detailLoading, singlePullRequest, refreshChanges, refreshDetail, selectedPr]);
 
   const applyPostedDetail = useCallback((value: PullRequestDetailDto, kind: 'discussion' | 'review') => {
     const current = selectedPullRequest.current;

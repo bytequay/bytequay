@@ -141,8 +141,8 @@ export function visibleSelectedId(rows: PullRow[], selected: number | null) {
 }
 
 /**
- * A refresh reloads only the first page, and the open pull request may have
- * come from a later one. Dropping it would move the reviewer to another pull request.
+ * A linked or reordered pull request may be outside the refreshed pages.
+ * Dropping it would move the reviewer to another pull request.
  */
 export function keepSelectedPullRequest(page: PullRequestDto[], selected: PullRequestDto | null) {
   return selected === null || page.some(pr => pr.id === selected.id) ? page : [...page, selected];

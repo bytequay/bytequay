@@ -356,6 +356,17 @@ public class RepositoryContextService
         });
     }
 
+    /** Saves a note's current text and owner again as a new version, which closes its open reports; the text is unchanged. */
+    public RepositoryNotebook keepEntry(String workspaceId, long expectedRevision, String entryId)
+    {
+        return mutate(workspaceId, expectedRevision, current -> {
+            ContextEntry entry = requireEntry(current, entryId);
+            ContextEntry kept = new ContextEntry(entry.id(), entry.kind(), entry.scopeId(), entry.title(), entry.summary(), entry.body(),
+                    entry.claims(), entry.sourceIds(), entry.origin(), entry.enabled(), Math.addExact(current.revision(), 1));
+            return content(current, current.useInReviews(), current.sources(), current.scopes(), replaceEntry(current, kept, true), current.sourceEvidence());
+        });
+    }
+
     /**
      * Disables the enabled notes one run's task added that nobody changed since: their current version was saved by
      * that task and has no replaced version. Updates the run made to existing notes stay; each can be restored.

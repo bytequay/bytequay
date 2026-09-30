@@ -75,7 +75,7 @@ class TestContextUsageService
             return null;
         }).when(store).forEach(eq("workspace"), any(), any());
 
-        ContextUsageService.Overview result = new ContextUsageService(store, notebooks, Clock.fixed(NOW, ZoneOffset.UTC))
+        ContextUsageService.Overview result = new ContextUsageService(store, notebooks, mock(ContextGradeService.class), Clock.fixed(NOW, ZoneOffset.UTC))
                 .overview("workspace", "all");
 
         assertThat(result.summary().eligibleDevelopmentTasks()).isEqualTo(2);

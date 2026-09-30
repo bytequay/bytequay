@@ -59,7 +59,8 @@ class TestRepositoryContextController
 
     private final RepositoryContextService service = mock(RepositoryContextService.class);
     private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
-    private final MockMvc mvc = standaloneSetup(new RepositoryContextController(service))
+    private final ContextGradeService grades = mock(ContextGradeService.class);
+    private final MockMvc mvc = standaloneSetup(new RepositoryContextController(service, grades))
             .setMessageConverters(new MappingJackson2HttpMessageConverter(mapper))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
@@ -151,6 +152,28 @@ class TestRepositoryContextController
     }
 
     @Test
+    void reportsTakeOnlyTheUsersReasonAndKeepNeedsTheShownRevision()
+            throws Exception
+    {
+        when(grades.reportedNotes(WORKSPACE)).thenReturn(ImmutableList.of());
+        when(service.keepEntry(WORKSPACE, 4, ENTRY_ID)).thenReturn(RepositoryNotebook.empty());
+
+        mvc.perform(get(ROOT + "/reports")).andExpect(status().isOk());
+        mvc.perform(post(ROOT + "/reports").contentType(MediaType.APPLICATION_JSON).content("{\"taskId\":\"task-1\",\"entryId\":\"" + ENTRY_ID
+                        + "\",\"entryVersion\":3,\"reason\":\"Wrong path\",\"grade\":\"HELPED\",\"grader\":\"AGENT\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(post(ROOT + "/reports").contentType(MediaType.APPLICATION_JSON).content("{\"taskId\":\"task-1\",\"entryId\":\"" + ENTRY_ID
+                        + "\",\"reason\":\"No version\"}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post(ROOT + "/entries/keep").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedRevision\":4,\"entryId\":\"" + ENTRY_ID + "\"}"))
+                .andExpect(status().isOk());
+
+        verify(grades).report(WORKSPACE, "task-1", ENTRY_ID, 3, "Wrong path");
+        verify(service).keepEntry(WORKSPACE, 4, ENTRY_ID);
+    }
+
+    @Test
     void lessonUsesOnlyExplicitUserFields()
             throws Exception
     {
@@ -173,6 +196,7 @@ class TestRepositoryContextController
                 new Mutation(HttpMethod.PUT, "/entries", ENTRY_FIELDS),
                 new Mutation(HttpMethod.POST, "/entries/restore", "\"entryId\":\"knowledge:project\""),
                 new Mutation(HttpMethod.POST, "/runs/disable-notes", "\"taskId\":\"task-1\""),
+                new Mutation(HttpMethod.POST, "/entries/keep", "\"entryId\":\"knowledge:project\""),
                 new Mutation(HttpMethod.PUT, "/entries/enabled", "\"entryId\":\"knowledge:project\",\"enabled\":false"),
                 new Mutation(HttpMethod.POST, "/lessons", LESSON_FIELDS))) {
             for (String revision : ImmutableList.of("", "\"expectedRevision\":null,", "\"expectedRevision\":-1,")) {

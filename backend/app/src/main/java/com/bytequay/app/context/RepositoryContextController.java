@@ -36,10 +36,12 @@ import static java.util.Objects.requireNonNull;
 public class RepositoryContextController
 {
     private final RepositoryContextService context;
+    private final ContextGradeService grades;
 
-    public RepositoryContextController(RepositoryContextService context)
+    public RepositoryContextController(RepositoryContextService context, ContextGradeService grades)
     {
         this.context = requireNonNull(context, "context is null");
+        this.grades = requireNonNull(grades, "grades is null");
     }
 
     @GetMapping
@@ -72,6 +74,25 @@ public class RepositoryContextController
     public RepositoryNotebook restore(@PathVariable String workspaceId, @RequestBody RestoreRequest request)
     {
         return context.restoreEntry(workspaceId, request.expectedRevision(), request.entryId());
+    }
+
+    @PostMapping("/entries/keep")
+    public RepositoryNotebook keep(@PathVariable String workspaceId, @RequestBody RestoreRequest request)
+    {
+        return context.keepEntry(workspaceId, request.expectedRevision(), request.entryId());
+    }
+
+    @GetMapping("/reports")
+    public List<ContextGradeService.ReportedNote> reports(@PathVariable String workspaceId)
+    {
+        return grades.reportedNotes(workspaceId);
+    }
+
+    @PostMapping("/reports")
+    public List<ContextGradeService.ReportedNote> report(@PathVariable String workspaceId, @RequestBody ReportRequest request)
+    {
+        grades.report(workspaceId, request.taskId(), request.entryId(), request.entryVersion(), request.reason());
+        return grades.reportedNotes(workspaceId);
     }
 
     @PostMapping("/runs/disable-notes")
@@ -146,6 +167,17 @@ public class RepositoryContextController
         {
             requireRevision(expectedRevision);
             requireNonNull(entryId, "entryId is null");
+        }
+    }
+
+    public record ReportRequest(String taskId, String entryId, Long entryVersion, String reason)
+    {
+        public ReportRequest
+        {
+            requireNonNull(taskId, "taskId is null");
+            requireNonNull(entryId, "entryId is null");
+            checkArgument(entryVersion != null && entryVersion > 0, "entryVersion is required and must be positive");
+            requireNonNull(reason, "reason is null");
         }
     }
 

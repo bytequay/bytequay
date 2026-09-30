@@ -32,6 +32,7 @@ import com.bytequay.persistence.sqlite.repository.AgentQueuedInputJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AgentTaskJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AgentTurnJpaRepository;
 import com.bytequay.persistence.sqlite.repository.BranchRebaseJpaRepository;
+import com.bytequay.persistence.sqlite.repository.ContextGradeJpaRepository;
 import com.bytequay.persistence.sqlite.repository.ContextUsageFactJpaRepository;
 import com.bytequay.persistence.sqlite.repository.DevelopmentContextReceiptJpaRepository;
 import com.bytequay.persistence.sqlite.repository.LocalReviewThreadJpaRepository;
@@ -76,6 +77,7 @@ public class SqliteAgentTaskStore
     private final LocalReviewThreadJpaRepository reviewThreads;
     private final ContextUsageFactJpaRepository usage;
     private final DevelopmentContextReceiptJpaRepository contextReceipts;
+    private final ContextGradeJpaRepository contextGrades;
     private final EntityManager entities;
 
     public SqliteAgentTaskStore(
@@ -92,6 +94,7 @@ public class SqliteAgentTaskStore
             LocalReviewThreadJpaRepository reviewThreads,
             ContextUsageFactJpaRepository usage,
             DevelopmentContextReceiptJpaRepository contextReceipts,
+            ContextGradeJpaRepository contextGrades,
             EntityManager entities)
     {
         this.repository = requireNonNull(repository, "repository is null");
@@ -107,6 +110,7 @@ public class SqliteAgentTaskStore
         this.reviewThreads = requireNonNull(reviewThreads, "reviewThreads is null");
         this.usage = requireNonNull(usage, "usage is null");
         this.contextReceipts = requireNonNull(contextReceipts, "contextReceipts is null");
+        this.contextGrades = requireNonNull(contextGrades, "contextGrades is null");
         this.entities = requireNonNull(entities, "entities is null");
     }
 
@@ -253,6 +257,7 @@ public class SqliteAgentTaskStore
         reviewThreads.deleteByTaskId(id);
         usage.deleteByTaskId(id);
         contextReceipts.deleteByTaskId(id);
+        contextGrades.deleteByTaskId(id);
         // A development task's local runs go with it; an Agent review's runs outlive its task, like the review's other records.
         entities.createNativeQuery("DELETE FROM local_run_output WHERE run_id IN (SELECT id FROM local_run WHERE task_id = :taskId)"
                         + " AND NOT EXISTS (SELECT 1 FROM agent_review WHERE task_id = :taskId)")

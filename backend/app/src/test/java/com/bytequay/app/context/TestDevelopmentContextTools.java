@@ -37,11 +37,20 @@ import com.bytequay.app.context.ContextNotebookLookup.SearchResult;
 import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextEntryKind;
 import com.bytequay.core.context.ContextEntryOrigin;
+import com.bytequay.core.context.ContextGrade;
+import com.bytequay.core.context.ContextGradeStore;
+import com.bytequay.core.context.ContextReference;
+import com.bytequay.core.context.ContextScope;
+import com.bytequay.core.context.ContextSourceEvidence;
+import com.bytequay.core.context.ContextUsageEvent;
 import com.bytequay.core.context.DevelopmentContextReceipt;
 import com.bytequay.core.context.DevelopmentContextReceiptStore;
+import com.bytequay.core.context.RepositoryNotebook;
+import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.review.AgentReviewStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hashing;
@@ -57,9 +66,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -96,8 +107,11 @@ class TestDevelopmentContextTools
         }
     };
     private final MemoryReceipts receipts = new MemoryReceipts();
-    private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module());
-    private final DevelopmentContextTools service = new DevelopmentContextTools(tasks, turns, reviews, lookup, drafts, checker,
+    private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new JavaTimeModule());
+    private final RepositoryContextService notebooks = mock(RepositoryContextService.class);
+    private final MemoryGrades grades = new MemoryGrades();
+    private final ContextGradeService gradeService = new ContextGradeService(grades, notebooks, receipts, tasks, mapper, Clock.systemUTC());
+    private final DevelopmentContextTools service = new DevelopmentContextTools(tasks, turns, reviews, lookup, notebooks, grades, gradeService, drafts, checker,
             receipts, usage, observer, unitOfWork, mapper, Clock.systemUTC());
 
     @BeforeEach
@@ -266,6 +280,77 @@ class TestDevelopmentContextTools
     }
 
     @Test
+    void gradesNeedAReadVersionAndReportsOnUserNotesStayOpenForLaterReaders()
+    {
+        turn = turn.markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("provider-turn"), Optional.empty());
+        when(notebooks.getNotebook(WORKSPACE)).thenReturn(notebook(entry()));
+        String helped = "{\"action\":\"GRADE\",\"entryId\":\"knowledge:project\",\"entryVersion\":3,\"grade\":\"HELPED\",\"reason\":\"Explained the check\"}";
+        assertThatThrownBy(() -> service.call(taskId.toString(), helped)).hasMessageContaining("received or opened");
+
+        opened("knowledge:project", 3);
+        assertThat(service.call(taskId.toString(), helped)).contains("\"status\":\"SAVED\"", "\"grade\":\"HELPED\"");
+        assertThat(grades.find(taskId.toString(), ContextGrade.Grader.AGENT, "knowledge:project", 3).map(ContextGrade::grade)).contains(ContextGrade.Grade.HELPED);
+
+        String wrong = "{\"action\":\"GRADE\",\"entryId\":\"knowledge:project\",\"entryVersion\":3,\"grade\":\"WRONG\",\"reason\":\"The code refreshes it\","
+                + "\"quote\":\"Avoid stale snapshots\",\"sources\":[{\"path\":\"Snapshot.java\",\"startLine\":12,\"endLine\":14}]}";
+        assertThatThrownBy(() -> service.call(taskId.toString(), wrong.replace("}]}", "}],\"correction\":{\"title\":\"T\",\"summary\":\"S\",\"body\":\"B\",\"statement\":\"B\"}}")))
+                .hasMessageContaining("never change a note the user wrote");
+        assertThatThrownBy(() -> service.call(taskId.toString(), wrong.replace("Avoid stale snapshots", "Invented statement")))
+                .hasMessageContaining("quote its statement exactly");
+        when(drafts.capture(eq(task), any(), eq(Optional.of("knowledge:project")))).thenReturn(captured());
+        assertThat(service.call(taskId.toString(), wrong)).contains("\"grade\":\"WRONG\"", "\"openReport\":true");
+        assertThat(gradeService.openReports(WORKSPACE, notebook(entry()))).singleElement().satisfies(report -> {
+            assertThat(report.quote()).contains("Avoid stale snapshots");
+            assertThat(report.citations()).extracting(ContextGrade.Citation::path, ContextGrade.Citation::startLine, ContextGrade.Citation::endLine)
+                    .containsExactly(tuple("Snapshot.java", 12, 14));
+        });
+
+        when(lookup.readEnabled(WORKSPACE, "knowledge:project", 3, Optional.of(HEAD))).thenReturn(Optional.of(new Read(7, entry(),
+                new ContextNoteReader.Read("Saved exact note", ImmutableMap.of(), ImmutableMap.of()), CHANGED_SOURCE)));
+        assertThat(service.call(taskId.toString(), "{\"action\":\"READ\",\"entryId\":\"knowledge:project\",\"entryVersion\":3}"))
+                .contains("\"openReports\"", "Avoid stale snapshots", "Snapshot.java:12-14", "re-check each quoted statement");
+    }
+
+    @Test
+    void agentNotesAreCorrectedWithTheirReportAndHoldsAnswersOpenReports()
+    {
+        turn = turn.markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("provider-turn"), Optional.empty());
+        ContextEntry generated = new ContextEntry("knowledge:project", ContextEntryKind.KNOWLEDGE, "project", "Project", "Snapshot isolation",
+                "Avoid stale snapshots", ImmutableList.of(), ImmutableList.of("task-read:1"), ContextEntryOrigin.GENERATED, true, 3);
+        when(notebooks.getNotebook(WORKSPACE)).thenReturn(notebook(generated));
+        opened("knowledge:project", 3);
+        when(drafts.capture(eq(task), any(), eq(Optional.of("knowledge:project")))).thenReturn(captured());
+        String holds = "{\"action\":\"GRADE\",\"entryId\":\"knowledge:project\",\"entryVersion\":3,\"grade\":\"HOLDS\",\"reason\":\"Still true\","
+                + "\"quote\":\"Avoid stale snapshots\",\"sources\":[{\"path\":\"Snapshot.java\",\"startLine\":12,\"endLine\":14}]}";
+        assertThatThrownBy(() -> service.call(taskId.toString(), holds)).hasMessageContaining("answers an open report");
+        grades.save(new ContextGrade(WORKSPACE, "review-task", Optional.empty(), ContextUsageEvent.TaskKind.DEVELOPMENT, ContextGrade.Grader.USER,
+                ContextGrade.Grade.WRONG, ContextUsageEvent.Note.from(generated), "Looks wrong", Optional.empty(), ImmutableList.of(), Optional.empty(), Instant.EPOCH));
+        assertThat(service.call(taskId.toString(), holds)).contains("\"grade\":\"HOLDS\"", "\"openReport\":false");
+
+        String wrong = holds.replace("HOLDS", "WRONG").replace("Still true", "The code refreshes it");
+        assertThatThrownBy(() -> service.call(taskId.toString(), wrong)).hasMessageContaining("saves its correction");
+        String corrected = wrong.replace("}]}", "}],\"correction\":{\"title\":\"Project\",\"summary\":\"Snapshot isolation\","
+                + "\"body\":\"Refresh the snapshot before reading\",\"statement\":\"Refresh the snapshot before reading\"}}");
+        assertThatThrownBy(() -> service.call(taskId.toString(), corrected.replace("\"statement\":\"Refresh", "\"statement\":\"Reload")))
+                .hasMessageContaining("must contain the statement");
+        when(drafts.prepare(eq(task), any(), any())).thenAnswer(call -> {
+            TaskContextDraftService.Proposal proposal = call.getArgument(1);
+            assertThat(proposal.entryId()).contains("knowledge:project");
+            assertThat(proposal.entryVersion()).contains(3L);
+            return new TaskContextDraftService.Prepared(WORKSPACE, 7, task.taskWorktree().orElseThrow(), new RepositoryContextService.TaskNote(call.getArgument(2),
+                    taskId.toString(), proposal.kind(), proposal.scopeId(), proposal.entryId(), proposal.entryVersion(), proposal.title(), proposal.summary(),
+                    proposal.body(), HEAD, captured().evidence()), 30);
+        });
+        when(drafts.commit(any())).thenReturn(new TaskContextDraftService.Result("knowledge:project", 9, 9, HEAD, ImmutableList.of("task-read:1"), 30, "ACTIVE"));
+        String result = service.call(taskId.toString(), corrected);
+        assertThat(result).contains("\"correctionVersion\":9", "\"openReport\":false");
+        assertThat(grades.find(taskId.toString(), ContextGrade.Grader.AGENT, "knowledge:project", 3).flatMap(ContextGrade::correction))
+                .contains(new ContextGrade.Correction(9, "Refresh the snapshot before reading"));
+        assertThat(service.call(taskId.toString(), corrected)).isEqualTo(result);
+        verify(drafts).commit(any());
+    }
+
+    @Test
     void offOrReviewOwnershipCannotUseTheDevelopmentTool()
     {
         turn = AgentTurn.accepted(turnId, taskId, "turn", settings(false), Instant.EPOCH);
@@ -287,10 +372,87 @@ class TestDevelopmentContextTools
                 Duration.ofMinutes(5), ImmutableList.of()).withRepositoryContext(enabled);
     }
 
+    private void opened(String entryId, long version)
+    {
+        String payload = "{\"status\":\"AVAILABLE\",\"entryId\":\"" + entryId + "\",\"entryVersion\":" + version + "}";
+        receipts.insert(new DevelopmentContextReceipt(taskId.toString(), turnId.toString(), "read:" + entryId + ":" + version, "context-note:" + version,
+                DevelopmentContextReceipt.Kind.READ, "digest", payload, "digest", Instant.EPOCH));
+    }
+
+    private TaskContextDraftService.Captured captured()
+    {
+        return new TaskContextDraftService.Captured(WORKSPACE, task.taskWorktree().orElseThrow(), notebook(entry()), HEAD, "b".repeat(40),
+                ImmutableList.of(cited()), 40);
+    }
+
+    private static ContextSourceEvidence cited()
+    {
+        return new ContextSourceEvidence("task-read:1", new ContextReference.RepositoryFile(1, RepoRef.of("example", "project"), "Snapshot.java", HEAD),
+                "Committed task HEAD", "12  refresh();\n13  read();\n14  close();\n", ContextSourceEvidence.Capture.BYTEQUAY_READ, Optional.of(Instant.EPOCH),
+                Optional.of("d".repeat(40)), Optional.of(HEAD), false);
+    }
+
+    private RepositoryNotebook notebook(ContextEntry entry)
+    {
+        return new RepositoryNotebook(1, 7, true, ImmutableList.of(), ImmutableList.of(ContextScope.project()), ImmutableList.of(entry),
+                entry.sourceIds().isEmpty() ? ImmutableList.of() : ImmutableList.of(cited()), Optional.empty());
+    }
+
     private static ContextEntry entry()
     {
         return new ContextEntry("knowledge:project", ContextEntryKind.KNOWLEDGE, "project", "Project", "Snapshot isolation",
                 "Avoid stale snapshots", ImmutableList.of(), ImmutableList.of(), ContextEntryOrigin.USER, true, 3);
+    }
+
+    private static final class MemoryGrades
+            implements ContextGradeStore
+    {
+        private final Map<String, ContextGrade> saved = new LinkedHashMap<>();
+
+        @Override
+        public void save(ContextGrade grade)
+        {
+            String key = key(grade.taskId(), grade.grader(), grade.note().id(), grade.note().version());
+            saved.remove(key);
+            saved.put(key, grade);
+        }
+
+        @Override
+        public Optional<ContextGrade> find(String taskId, ContextGrade.Grader grader, String entryId, long version)
+        {
+            return Optional.ofNullable(saved.get(key(taskId, grader, entryId, version)));
+        }
+
+        @Override
+        public List<ContextGrade> listVersion(String workspaceId, String entryId, long version, int limit)
+        {
+            return ImmutableList.copyOf(saved.values()).reverse().stream().filter(grade -> grade.note().id().equals(entryId) && grade.note().version() == version)
+                    .limit(limit).collect(ImmutableList.toImmutableList());
+        }
+
+        @Override
+        public List<ContextGrade> listGrades(String workspaceId, Set<ContextGrade.Grade> kinds, int limit)
+        {
+            return ImmutableList.copyOf(saved.values()).reverse().stream().filter(grade -> kinds.contains(grade.grade())).limit(limit)
+                    .collect(ImmutableList.toImmutableList());
+        }
+
+        @Override
+        public List<Count> count(String workspaceId, Instant since)
+        {
+            return ImmutableList.of();
+        }
+
+        @Override
+        public void deleteTask(String taskId)
+        {
+            saved.values().removeIf(grade -> grade.taskId().equals(taskId));
+        }
+
+        private static String key(String taskId, ContextGrade.Grader grader, String entryId, long version)
+        {
+            return taskId + ":" + grader + ":" + version + ":" + entryId;
+        }
     }
 
     private static final class MemoryReceipts

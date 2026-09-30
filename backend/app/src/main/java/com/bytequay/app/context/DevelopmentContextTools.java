@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.store.AgentTaskStore;
@@ -28,11 +29,18 @@ import com.bytequay.app.context.ContextNotebookLookup.Hit;
 import com.bytequay.app.context.ContextNotebookLookup.ScopeState;
 import com.bytequay.app.context.ContextNotebookLookup.SearchQuery;
 import com.bytequay.app.context.ContextNotebookLookup.SearchResult;
+import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextEntryKind;
+import com.bytequay.core.context.ContextEntryOrigin;
+import com.bytequay.core.context.ContextGrade;
+import com.bytequay.core.context.ContextGradeStore;
 import com.bytequay.core.context.ContextLimits;
+import com.bytequay.core.context.ContextReference;
+import com.bytequay.core.context.ContextSourceEvidence;
 import com.bytequay.core.context.ContextUsageEvent;
 import com.bytequay.core.context.DevelopmentContextReceipt;
 import com.bytequay.core.context.DevelopmentContextReceiptStore;
+import com.bytequay.core.context.RepositoryNotebook;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewEvidence;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -88,12 +96,21 @@ public class DevelopmentContextTools
             + "that support it; pass entryId and entryVersion to update a note that current code shows is out of date. "
             + "Keep commit SHAs, run numbers and dates out of note text. "
             + "The app captures those Git sources and saves the note; other tasks can use it at once, so save only what the cited lines support. "
-            + "Saving is optional and never publishes anything.";
+            + "Saving is optional and never publishes anything. "
+            + "After checking a note you received or opened against the code, GRADE its exact entryId and entryVersion with a one-line reason: "
+            + "HELPED when it informed your work, NOT_RELEVANT when it did not apply, WRONG when code at your base contradicts it. "
+            + "WRONG quotes the contradicted statement exactly and cites one to three line ranges that show it; for an agent-written note also pass "
+            + "correction with title, summary, body and the statement that replaces the quote. When READ returns openReports, re-check each quoted "
+            + "statement: correct it with WRONG, or answer HOLDS quoting the reported statement and citing the lines that support it. "
+            + "Cite only code the monitored branch already has; a note learned from newer code than your base is not wrong.";
 
     private final AgentTaskStore tasks;
     private final AgentTurnStore turns;
     private final AgentReviewStore reviews;
     private final ContextNotebookLookup lookup;
+    private final RepositoryContextService notebooks;
+    private final ContextGradeStore grades;
+    private final ContextGradeService gradeService;
     private final TaskContextDraftService drafts;
     private final ContextSourceChecker checker;
     private final DevelopmentContextReceiptStore receipts;
@@ -104,13 +121,17 @@ public class DevelopmentContextTools
     private final Clock clock;
 
     public DevelopmentContextTools(AgentTaskStore tasks, AgentTurnStore turns, AgentReviewStore reviews,
-            ContextNotebookLookup lookup, TaskContextDraftService drafts, ContextSourceChecker checker, DevelopmentContextReceiptStore receipts,
+            ContextNotebookLookup lookup, RepositoryContextService notebooks, ContextGradeStore grades, ContextGradeService gradeService,
+            TaskContextDraftService drafts, ContextSourceChecker checker, DevelopmentContextReceiptStore receipts,
             ContextUsageRecorder usage, DevelopmentContextUsageObserver observer, AgentUnitOfWork unitOfWork, ObjectMapper mapper, Clock clock)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.lookup = requireNonNull(lookup, "lookup is null");
+        this.notebooks = requireNonNull(notebooks, "notebooks is null");
+        this.grades = requireNonNull(grades, "grades is null");
+        this.gradeService = requireNonNull(gradeService, "gradeService is null");
         this.drafts = requireNonNull(drafts, "drafts is null");
         this.checker = requireNonNull(checker, "checker is null");
         this.receipts = requireNonNull(receipts, "receipts is null");
@@ -184,6 +205,7 @@ public class DevelopmentContextTools
             case "LIST", "SEARCH" -> search(task, turn, input, action);
             case "READ" -> read(task, turn, input);
             case "PROPOSE" -> propose(task, turn, input);
+            case "GRADE" -> grade(task, turn, input);
             default -> throw new IllegalArgumentException("Unknown context action");
         };
     }
@@ -271,19 +293,19 @@ public class DevelopmentContextTools
                     "message", "The saved note changed or was disabled; search again."));
         }
         ContextNotebookLookup.Read found = captured.orElseThrow();
+        List<OpenReport> reports = gradeService.reportsFor(task.workspaceId().orElseThrow(), found.entry()).stream().map(OpenReport::from).collect(ImmutableList.toImmutableList());
         String evidenceRef = "context-note:" + UUID.randomUUID();
         String applicability = found.sourceCheck().applicability().name();
         List<ReviewEvidence> sources = new ArrayList<>(found.capture().evidence().values());
         ReadResponse response = new ReadResponse("AVAILABLE", id, version, found.notebookRevision(), applicability, found.sourceCheck(), evidenceRef,
-                ContextUsageEvent.Note.from(found.entry()), found.capture().text(), found.capture().sourceEvidenceRefs(), sources, 0,
-                ImmutableList.of("sourceCheck compares cited lines with this task's committed HEAD; uncommitted edits are not compared. "
-                        + "Claims remain unverified reference material."));
+                ContextUsageEvent.Note.from(found.entry()), found.capture().text(), found.capture().sourceEvidenceRefs(), sources, 0, reports,
+                readLimitations(reports));
         String output = encode(response);
         while (ContextLimits.bytes(output) > READ_RESPONSE_BYTES && !sources.isEmpty()) {
             sources.removeLast();
             response = new ReadResponse(response.status(), id, version, found.notebookRevision(), applicability, found.sourceCheck(), evidenceRef,
                     response.note(), found.capture().text(), found.capture().sourceEvidenceRefs(), sources,
-                    found.capture().evidence().size() - sources.size(), response.limitations());
+                    found.capture().evidence().size() - sources.size(), reports, response.limitations());
             output = encode(response);
         }
         checkArgument(ContextLimits.bytes(output) <= READ_RESPONSE_BYTES, "Context read response exceeds 64 KiB");
@@ -311,18 +333,7 @@ public class DevelopmentContextTools
         Optional<String> entryId = input.has("entryId") ? Optional.of(text(input, "entryId")) : Optional.empty();
         Optional<Long> entryVersion = input.has("entryVersion") ? Optional.of(positiveLong(input.path("entryVersion"), "entryVersion")) : Optional.empty();
         checkArgument(entryId.isPresent() == entryVersion.isPresent(), "entryId and entryVersion must be supplied together");
-        JsonNode sources = input.path("sources");
-        checkArgument(sources.isArray() && sources.size() >= 1 && sources.size() <= 3,
-                "PROPOSE needs one to three committed file ranges");
-        List<TaskContextDraftService.Source> windows = new ArrayList<>();
-        sources.forEach(source -> {
-            checkArgument(source.isObject() && allowed(source, "path", "startLine", "endLine")
-                    && source.has("path") && source.has("startLine"), "Invalid source range");
-            Optional<Integer> end = source.has("endLine")
-                    ? Optional.of(toIntExact(positiveLong(source.path("endLine"), "endLine"))) : Optional.empty();
-            windows.add(new TaskContextDraftService.Source(text(source, "path"),
-                    toIntExact(positiveLong(source.path("startLine"), "startLine")), end));
-        });
+        List<TaskContextDraftService.Source> windows = windows(input.path("sources"));
         TaskContextDraftService.Proposal proposal = new TaskContextDraftService.Proposal(kind, scopeId, entryId, entryVersion,
                 text(input, "title"), text(input, "summary"), text(input, "body"), windows);
         String requestDigest = digest(encode(proposal));
@@ -344,18 +355,166 @@ public class DevelopmentContextTools
         checkArgument(priorBytes + prepared.capturedBytes() <= PROPOSAL_CAPTURE_BYTES_PER_TURN,
                 "This turn reached its task-note capture budget");
         return unitOfWork.execute(() -> {
-            AgentTask currentTask = tasks.find(task.id()).orElseThrow(() -> new IllegalArgumentException("Task no longer exists"));
-            AgentTurn currentTurn = turns.findActive(task.id()).orElseThrow(() -> new IllegalArgumentException("No active turn"));
-            checkArgument(eligible(currentTask, currentTurn) && currentTurn.state() == TurnState.RUNNING
-                    && currentTurn.id().equals(turn.id()) && currentTurn.providerTurnReference().isPresent()
-                    && currentTurn.settings().orElseThrow().useRepositoryContext()
-                    && currentTask.taskWorktree().orElseThrow().equals(prepared.tree()),
-                    "Context proposal requires the running development turn");
+            requireRunning(task, turn, prepared.tree());
             TaskContextDraftService.Result result = drafts.commit(prepared);
             String output = encode(result);
             save(receipt(task, turn, operationKey, operationId, DevelopmentContextReceipt.Kind.PROPOSE, requestDigest, output));
             return output;
         });
+    }
+
+    /**
+     * Saves this task's grade of an exact note version it received or opened. A Wrong on an agent-written note saves the
+     * correction in the same transaction; any other Wrong stays an open report until the note changes.
+     */
+    private String grade(AgentTask task, AgentTurn turn, JsonNode input)
+    {
+        checkArgument(input.size() >= 5 && input.size() <= 8
+                        && allowed(input, "action", "entryId", "entryVersion", "grade", "reason", "quote", "sources", "correction"),
+                "GRADE needs entryId, entryVersion, grade and reason; WRONG and HOLDS also need quote and sources");
+        String workspaceId = task.workspaceId().orElseThrow();
+        String taskId = task.id().toString();
+        String entryId = text(input, "entryId");
+        long version = positiveLong(input.path("entryVersion"), "entryVersion");
+        ContextGrade.Grade grade = gradeValue(text(input, "grade"));
+        String reason = text(input, "reason");
+        checkArgument(ContextLimits.bytes(reason) <= ContextGrade.MAX_REASON_BYTES, "reason exceeds %s UTF-8 bytes", ContextGrade.MAX_REASON_BYTES);
+        boolean statement = grade == ContextGrade.Grade.WRONG || grade == ContextGrade.Grade.HOLDS;
+        checkArgument(statement == input.has("quote") && statement == input.has("sources"),
+                "WRONG and HOLDS need quote and sources; HELPED and NOT_RELEVANT take neither");
+        checkArgument(gradeService.received(taskId, entryId, version), "Grade only a note version this task received or opened");
+        RepositoryNotebook notebook = notebooks.getNotebook(workspaceId);
+        Optional<ContextEntry> current = notebook.entries().stream().filter(entry -> entry.id().equals(entryId)).findFirst();
+        ContextEntry graded = current.filter(entry -> entry.version() == version)
+                .or(() -> notebook.replaced().stream().filter(entry -> entry.id().equals(entryId) && entry.version() == version).findFirst())
+                .orElseThrow(() -> new IllegalArgumentException("That note version is no longer kept; grade the version you read now"));
+        ContextUsageEvent.Note note = ContextUsageEvent.Note.from(graded);
+        if (!statement) {
+            ContextGrade saved = new ContextGrade(workspaceId, taskId, Optional.empty(), ContextUsageEvent.TaskKind.DEVELOPMENT, ContextGrade.Grader.AGENT,
+                    grade, note, reason, Optional.empty(), ImmutableList.of(), Optional.empty(), Instant.now(clock));
+            return unitOfWork.execute(() -> {
+                grades.save(saved);
+                return encode(GradeResponse.of(saved));
+            });
+        }
+        String quote = text(input, "quote");
+        Optional<ContextGrade> repeated = grades.find(taskId, ContextGrade.Grader.AGENT, entryId, version)
+                .filter(value -> value.grade() == grade && value.reason().equals(reason) && value.quote().equals(Optional.of(quote)));
+        if (repeated.isPresent()) {
+            return encode(GradeResponse.of(repeated.orElseThrow()));
+        }
+        checkArgument(current.filter(entry -> entry.version() == version && entry.enabled()).isPresent(),
+                "The note changed since you read it; READ the current version before disputing a statement");
+        checkArgument(ContextLimits.bytes(quote) <= ContextGrade.MAX_QUOTE_BYTES, "quote exceeds %s UTF-8 bytes", ContextGrade.MAX_QUOTE_BYTES);
+        checkArgument(noteText(graded).contains(quote), "The quote is not in that note version; quote its statement exactly");
+        List<TaskContextDraftService.Source> windows = windows(input.path("sources"));
+        JsonNode correction = input.path("correction");
+        boolean corrects = grade == ContextGrade.Grade.WRONG && graded.origin() == ContextEntryOrigin.GENERATED;
+        checkArgument(corrects == correction.isObject(), corrects
+                ? "A WRONG on an agent-written note saves its correction: pass correction with title, summary, body and the statement that replaces the quote"
+                : "Only a WRONG on an agent-written note takes a correction; agents never change a note the user wrote");
+        if (grade == ContextGrade.Grade.HOLDS) {
+            checkArgument(gradeService.reportsFor(workspaceId, graded).stream()
+                            .anyMatch(report -> report.quote().map(reported -> reported.contains(quote) || quote.contains(reported)).orElse(true)),
+                    "HOLDS answers an open report on this version; quote the reported statement");
+        }
+        String operationId = "task:" + digest(taskId + "\n" + turn.id() + "\n" + entryId + "\n" + version).substring(0, 32)
+                + ":" + digest(input.toString()).substring(0, 32);
+        if (corrects) {
+            checkArgument(correction.size() == 4 && allowed(correction, "title", "summary", "body", "statement"),
+                    "correction needs title, summary, body and statement");
+            String replacement = text(correction, "statement");
+            TaskContextDraftService.Proposal proposal = new TaskContextDraftService.Proposal(graded.kind(), graded.scopeId(), Optional.of(entryId),
+                    Optional.of(version), text(correction, "title"), text(correction, "summary"), text(correction, "body"), windows);
+            checkArgument((proposal.title() + "\n" + proposal.summary() + "\n" + proposal.body()).contains(replacement),
+                    "The corrected note must contain the statement that replaces the quote");
+            TaskContextDraftService.Prepared prepared = drafts.prepare(task, proposal, operationId);
+            List<ContextGrade.Citation> citations = citations(prepared.note().evidence(), windows);
+            return unitOfWork.execute(() -> {
+                requireRunning(task, turn, prepared.tree());
+                TaskContextDraftService.Result result = drafts.commit(prepared);
+                ContextGrade saved = new ContextGrade(workspaceId, taskId, Optional.empty(), ContextUsageEvent.TaskKind.DEVELOPMENT, ContextGrade.Grader.AGENT,
+                        grade, note, reason, Optional.of(quote), citations, Optional.of(new ContextGrade.Correction(result.entryVersion(), replacement)),
+                        Instant.now(clock));
+                grades.save(saved);
+                return encode(GradeResponse.of(saved));
+            });
+        }
+        TaskContextDraftService.Captured captured = drafts.capture(task, windows, Optional.of(entryId));
+        ContextGrade saved = new ContextGrade(workspaceId, taskId, Optional.empty(), ContextUsageEvent.TaskKind.DEVELOPMENT, ContextGrade.Grader.AGENT,
+                grade, note, reason, Optional.of(quote), citations(captured.evidence(), windows), Optional.empty(), Instant.now(clock));
+        return unitOfWork.execute(() -> {
+            requireRunning(task, turn, captured.tree());
+            grades.save(saved);
+            return encode(GradeResponse.of(saved));
+        });
+    }
+
+    private void requireRunning(AgentTask task, AgentTurn turn, TaskWorktree tree)
+    {
+        AgentTask currentTask = tasks.find(task.id()).orElseThrow(() -> new IllegalArgumentException("Task no longer exists"));
+        AgentTurn currentTurn = turns.findActive(task.id()).orElseThrow(() -> new IllegalArgumentException("No active turn"));
+        checkArgument(eligible(currentTask, currentTurn) && currentTurn.state() == TurnState.RUNNING
+                && currentTurn.id().equals(turn.id()) && currentTurn.providerTurnReference().isPresent()
+                && currentTurn.settings().orElseThrow().useRepositoryContext()
+                && currentTask.taskWorktree().orElseThrow().equals(tree),
+                "Saving context requires the running development turn");
+    }
+
+    private static List<String> readLimitations(List<OpenReport> reports)
+    {
+        String base = "sourceCheck compares cited lines with this task's committed HEAD; uncommitted edits are not compared. "
+                + "Claims remain unverified reference material.";
+        return reports.isEmpty() ? ImmutableList.of(base) : ImmutableList.of(base, "This version has open reports: re-check each quoted statement at your base, "
+                + "then GRADE WRONG with the lines that contradict it or HOLDS with the lines that support it.");
+    }
+
+    private static List<TaskContextDraftService.Source> windows(JsonNode sources)
+    {
+        checkArgument(sources.isArray() && sources.size() >= 1 && sources.size() <= ContextGrade.MAX_CITATIONS,
+                "sources needs one to three committed file ranges");
+        List<TaskContextDraftService.Source> windows = new ArrayList<>();
+        sources.forEach(source -> {
+            checkArgument(source.isObject() && allowed(source, "path", "startLine", "endLine")
+                    && source.has("path") && source.has("startLine"), "Invalid source range");
+            Optional<Integer> end = source.has("endLine")
+                    ? Optional.of(toIntExact(positiveLong(source.path("endLine"), "endLine"))) : Optional.empty();
+            windows.add(new TaskContextDraftService.Source(text(source, "path"),
+                    toIntExact(positiveLong(source.path("startLine"), "startLine")), end));
+        });
+        return ImmutableList.copyOf(windows);
+    }
+
+    private static List<ContextGrade.Citation> citations(List<ContextSourceEvidence> evidence, List<TaskContextDraftService.Source> windows)
+    {
+        ImmutableList.Builder<ContextGrade.Citation> citations = ImmutableList.builder();
+        for (int index = 0; index < evidence.size(); index++) {
+            ContextSourceEvidence source = evidence.get(index);
+            ContextReference.RepositoryFile file = (ContextReference.RepositoryFile) source.reference();
+            TaskContextDraftService.Source window = windows.get(index);
+            Optional<ContextSourceChecker.Excerpt> excerpt = ContextSourceChecker.excerpt(source.excerpt());
+            int start = excerpt.map(ContextSourceChecker.Excerpt::start).orElse(window.startLine());
+            int end = excerpt.map(value -> value.start() + value.lines().size() - 1).orElse(window.endLine().orElse(window.startLine()));
+            citations.add(new ContextGrade.Citation(file.path(), start, end, file.commit(), source.excerpt()));
+        }
+        return citations.build();
+    }
+
+    private static String noteText(ContextEntry entry)
+    {
+        StringBuilder text = new StringBuilder(entry.title()).append('\n').append(entry.summary()).append('\n').append(entry.body());
+        entry.claims().forEach(claim -> text.append('\n').append(claim.text()));
+        return text.toString();
+    }
+
+    private static ContextGrade.Grade gradeValue(String value)
+    {
+        try {
+            return ContextGrade.Grade.valueOf(value);
+        }
+        catch (IllegalArgumentException unknown) {
+            throw new IllegalArgumentException("grade must be HELPED, NOT_RELEVANT, WRONG or HOLDS", unknown);
+        }
     }
 
     private static long positiveLong(JsonNode node, String field)
@@ -567,5 +726,27 @@ public class DevelopmentContextTools
 
     private record ReadResponse(String status, String entryId, long entryVersion, long notebookRevision, String applicability, ContextSourceCheck sourceCheck,
             String evidenceRef, ContextUsageEvent.Note note, String text, Map<String, String> sourceEvidenceRefs, List<ReviewEvidence> sources, int omittedSources,
-            List<String> limitations) {}
+            List<OpenReport> openReports, List<String> limitations) {}
+
+    /** What a reader must re-check; the cited excerpts stay in the report store, not in every read. */
+    private record OpenReport(String grader, String reason, Optional<String> quote, List<String> citedLines, Instant reportedAt)
+    {
+        static OpenReport from(ContextGrade grade)
+        {
+            return new OpenReport(grade.grader().name(), grade.reason(), grade.quote(),
+                    grade.citations().stream().map(citation -> citation.path() + ":" + citation.startLine() + "-" + citation.endLine()).collect(ImmutableList.toImmutableList()),
+                    grade.gradedAt());
+        }
+    }
+
+    private record GradeResponse(String status, String grade, String entryId, long entryVersion, Optional<Long> correctionVersion, boolean openReport, String note)
+    {
+        static GradeResponse of(ContextGrade grade)
+        {
+            boolean open = grade.grade() == ContextGrade.Grade.WRONG && grade.correction().isEmpty();
+            return new GradeResponse("SAVED", grade.grade().name(), grade.note().id(), grade.note().version(), grade.correction().map(ContextGrade.Correction::version),
+                    open, grade.correction().isPresent() ? "The corrected version is active; the graded version stays restorable."
+                            : open ? "The report stays open until the note changes; agents that open this version see it." : "Grade saved.");
+        }
+    }
 }

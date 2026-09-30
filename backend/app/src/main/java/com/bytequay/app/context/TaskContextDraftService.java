@@ -61,12 +61,25 @@ public class TaskContextDraftService
     /** Performs Git reads before the notebook/receipt write transaction. Agent text is never used as source evidence. */
     public Prepared prepare(AgentTask task, Proposal proposal, String operationId)
     {
-        requireNonNull(task, "task is null");
         requireNonNull(proposal, "proposal is null");
+        Captured captured = capture(task, proposal.sources(), proposal.entryId());
+        RepositoryContextService.TaskNote note = new RepositoryContextService.TaskNote(operationId, task.id().toString(), proposal.kind(),
+                proposal.scopeId(), proposal.entryId(), proposal.entryVersion(), proposal.title(), proposal.summary(), proposal.body(),
+                captured.head(), captured.evidence());
+        return new Prepared(captured.workspaceId(), captured.notebook().revision(), captured.tree(), note, captured.capturedBytes());
+    }
+
+    /**
+     * Captures cited committed lines at the task HEAD and checks them at the task's base on the monitored branch. When they
+     * support a change to an existing note, that note must not come from newer code than the base. Git reads only; no writes.
+     */
+    public Captured capture(AgentTask task, List<Source> sources, Optional<String> changedEntryId)
+    {
+        requireNonNull(task, "task is null");
         String workspaceId = task.workspaceId().orElseThrow();
         TaskWorktree tree = task.taskWorktree().orElseThrow();
         checkArgument(task.id().equals(tree.taskId()) && workspaceId.equals(tree.workspaceId()), "Task worktree ownership changed");
-        checkArgument(proposal.sources().size() >= 1 && proposal.sources().size() <= 3, "Propose one to three source windows");
+        checkArgument(sources.size() >= 1 && sources.size() <= 3, "Cite one to three source windows");
         WorkspaceRepositoryContext routing = workspaces.requireLocalRepository(workspaceId);
         checkArgument(task.repository().equals(tree.physicalRepository())
                 && task.repository().equals(WorkflowAgentTasks.repositoryIdentity(routing.selectedRepository())),
@@ -77,7 +90,7 @@ public class TaskContextDraftService
                 routing.selectedRepositoryId(), routing.selectedRepository(), OptionalLong.empty(),
                 routing.selectedRepository(), routing.targetRemote(), routing.targetRemote(), routing.defaultBranch(), routing.extraRemotes());
         long repositoryId = RepositoryContextReader.repositoryId(snapshot);
-        List<ContextSourceEvidence> captured = proposal.sources().stream().map(source -> {
+        List<ContextSourceEvidence> captured = sources.stream().map(source -> {
             ContextBaselineReader.Read read = reader.read(snapshot, repositoryId, head, source.path(), source.startLine(), source.endLine());
             checkArgument(!read.excerpt().isBlank(), "A proposed source window is empty");
             return new ContextSourceEvidence("task-read:" + UUID.randomUUID(), read.reference(),
@@ -90,15 +103,13 @@ public class TaskContextDraftService
         String base = checker.base(workspaceId, head)
                 .orElseThrow(() -> new IllegalArgumentException("The monitored branch is not available locally, so cited lines cannot be checked against it"));
         checker.requireAtBase(workspaceId, base, captured.stream().collect(toImmutableMap(ContextSourceEvidence::id, source -> source)));
-        proposal.entryId().ifPresent(id -> {
+        changedEntryId.ifPresent(id -> {
             Set<String> cited = notebook.entries().stream().filter(entry -> entry.id().equals(id)).flatMap(entry -> entry.sourceIds().stream()).collect(toSet());
             checkArgument(!checker.newerThan(workspaceId, base, notebook.sourceEvidence().stream().filter(source -> cited.contains(source.id())).toList()),
                     "This note was saved from code newer than this task's base; don't update it from older code");
         });
         checkArgument(worktrees.inspect(tree).head().equals(head), "Task HEAD changed while capturing note evidence");
-        RepositoryContextService.TaskNote note = new RepositoryContextService.TaskNote(operationId, task.id().toString(), proposal.kind(),
-                proposal.scopeId(), proposal.entryId(), proposal.entryVersion(), proposal.title(), proposal.summary(), proposal.body(), head, captured);
-        return new Prepared(workspaceId, notebook.revision(), tree, note, capturedBytes);
+        return new Captured(workspaceId, tree, notebook, head, base, captured, capturedBytes);
     }
 
     /** Saves the note as the active version. A changed HEAD or notebook revision requires a new proposal. */
@@ -145,6 +156,16 @@ public class TaskContextDraftService
 
     public record Prepared(String workspaceId, long expectedRevision, TaskWorktree tree,
             RepositoryContextService.TaskNote note, int capturedBytes) {}
+
+    /** Lines captured at {@code head} and found at {@code base} on the monitored branch. */
+    public record Captured(String workspaceId, TaskWorktree tree, RepositoryNotebook notebook, String head, String base,
+            List<ContextSourceEvidence> evidence, int capturedBytes)
+    {
+        public Captured
+        {
+            evidence = ImmutableList.copyOf(evidence);
+        }
+    }
 
     /** What the agent sees after saving; other tasks can find the saved version at once. */
     public record Result(String entryId, long entryVersion, long notebookRevision, String committedHead,

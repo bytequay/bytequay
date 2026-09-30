@@ -408,6 +408,20 @@ class TestRepositoryContextService
     }
 
     @Test
+    void keepSavesTheSameTextAndOwnerAsANewVersion()
+            throws Exception
+    {
+        seedGenerated();
+        RepositoryNotebook kept = service.keepEntry(WORKSPACE, 1, "knowledge:project");
+        assertThat(kept.entries()).singleElement().satisfies(entry -> {
+            assertThat(entry.body()).isEqualTo("Generated body");
+            assertThat(entry.origin()).isEqualTo(GENERATED);
+            assertThat(entry.version()).isEqualTo(kept.revision());
+        });
+        assertThat(kept.replaced()).isEmpty();
+    }
+
+    @Test
     void disablingARunsNotesSkipsNotesChangedSinceAndOtherTasksNotes()
     {
         ContextSourceEvidence source = discoveryEvidence("task-read:1", "README.md", "1  Evidence");

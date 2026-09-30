@@ -42,12 +42,14 @@ public class ContextUsageService
 {
     private final ContextUsageStore store;
     private final RepositoryContextService notebooks;
+    private final ContextGradeService grades;
     private final Clock clock;
 
-    public ContextUsageService(ContextUsageStore store, RepositoryContextService notebooks, Clock clock)
+    public ContextUsageService(ContextUsageStore store, RepositoryContextService notebooks, ContextGradeService grades, Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
         this.notebooks = requireNonNull(notebooks, "notebooks is null");
+        this.grades = requireNonNull(grades, "grades is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -59,7 +61,8 @@ public class ContextUsageService
         Aggregation aggregation = new Aggregation();
         store.forEach(workspaceId, since, aggregation::accept);
         notebook.entries().forEach(entry -> aggregation.entries.computeIfAbsent(entry.id(), id -> new EntryUsage(entry.id(), entry.title())));
-        List<EntryRow> entries = aggregation.entries.values().stream().map(value -> value.row(notebook))
+        Map<String, ContextGradeService.Counts> counts = grades.counts(workspaceId, since.orElse(Instant.EPOCH));
+        List<EntryRow> entries = aggregation.entries.values().stream().map(value -> value.row(notebook, counts))
                 .sorted(Comparator.comparing((EntryRow row) -> row.currentVersion().isEmpty()).thenComparing(EntryRow::title, String.CASE_INSENSITIVE_ORDER)
                         .thenComparing(EntryRow::entryId))
                 .collect(toImmutableList());
@@ -92,8 +95,9 @@ public class ContextUsageService
     public record Summary(int eligibleDevelopmentTasks, int eligibleReviewRuns, int contextOffTasks, int developmentTasksFoundOrOpened,
             int reviewRunsFoundOrOpened) {}
 
-    /** Found and opened count the note's current version; a removed note has no current version. */
-    public record EntryRow(String entryId, String title, Optional<Long> currentVersion, int foundTasks, int openedTasks, Optional<Instant> lastConfirmedUseAt) {}
+    /** Found and opened count the note's current version; grades count tasks across its versions; a removed note has no current version. */
+    public record EntryRow(String entryId, String title, Optional<Long> currentVersion, int foundTasks, int openedTasks, Optional<Instant> lastConfirmedUseAt,
+            long helpedTasks, long notRelevantTasks, long wrongTasks) {}
 
     private static final class Aggregation
     {
@@ -159,13 +163,15 @@ public class ContextUsageService
             }
         }
 
-        private EntryRow row(RepositoryNotebook notebook)
+        private EntryRow row(RepositoryNotebook notebook, Map<String, ContextGradeService.Counts> counts)
         {
+            ContextGradeService.Counts graded = counts.getOrDefault(id, new ContextGradeService.Counts(0, 0, 0));
             Optional<ContextEntry> current = notebook.entries().stream().filter(entry -> entry.id().equals(id)).findFirst();
             Optional<Long> version = current.map(ContextEntry::version);
             int foundTasks = version.map(value -> found.getOrDefault(value, ImmutableSet.of()).size()).orElse(0);
             int openedTasks = version.map(value -> opened.getOrDefault(value, ImmutableSet.of()).size()).orElse(0);
-            return new EntryRow(id, current.map(ContextEntry::title).orElse(title), version, foundTasks, openedTasks, lastUse);
+            return new EntryRow(id, current.map(ContextEntry::title).orElse(title), version, foundTasks, openedTasks, lastUse,
+                    graded.helped(), graded.notRelevant(), graded.wrong());
         }
     }
 }

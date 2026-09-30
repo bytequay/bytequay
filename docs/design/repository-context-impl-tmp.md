@@ -2191,6 +2191,21 @@ Required checks below describe the current increment, not full feature acceptanc
   work includes human judgment, misleading/stale/irrelevant-note cases,
   resolved-issue history and sustained resource measurements.
 
+## Batches, living questions and learning from work
+
+Behavior: [questions and batches](repository-context-refactor.md#questions-and-batches),
+[learning from work](repository-context-refactor.md#5-use-during-development-and-review)
+and [the user interface](repository-context-refactor.md#8-user-interface).
+
+- [ ] Run a batch from one Learn selected or Continue learning click: one run per
+  question open at the click, ended by Stop, a failure or another run.
+- [ ] Record each question's origin and state; let runs correct questions and add
+  follow-ups; let the user add, edit and drop questions and Go deeper; allow 30
+  questions per topic.
+- [ ] Let tasks and reviews file questions with a lead; let learning runs read
+  one public page and cite it; show the pages web steps opened in transcripts.
+- [ ] Verify each step with the backend and desktop build gates.
+
 ## Save notes without approval
 
 Behavior: the [save rules](repository-context-refactor.md#1-one-saved-object-a-context-note),

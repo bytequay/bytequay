@@ -1,10 +1,13 @@
 # Repository context: discover, learn, and use
 
-Status: implemented and verified by automated tests, except two parts of
+Status: implemented and verified by automated tests, except
+[questions and batches](#questions-and-batches), learning from work in
+[section 5](#5-use-during-development-and-review), and two parts of
 [Investigate](#grades-and-reports): investigating a note the user wrote, and
-saving what a narrowed note leaves out as separate notes. Both are approved and
-not yet implemented and have
-[their own checklist](repository-context-impl-tmp.md#save-notes-without-approval).
+saving what a narrowed note leaves out as separate notes. All are approved and
+not yet implemented; see
+[batches and questions](repository-context-impl-tmp.md#batches-living-questions-and-learning-from-work)
+and [notes without approval](repository-context-impl-tmp.md#save-notes-without-approval).
 Live-provider quality and cost acceptance remain separate. Delivery and verification belong in
 [the temporary development checkpoints](repository-context-impl-tmp.md#refactor-development-checkpoints);
 the [source check at read](#source-check-at-read) has
@@ -98,9 +101,10 @@ semantic index, vector database, crawler, or background learning scheduler.
    sources. Associations need evidence, such as matching connector identity and
    documentation links; filenames alone are not a formal module/document binding.
 5. The user selects topics and clicks **Learn selected**, accepting source
-   boundaries and run limits. Defaults avoid manual path/rule entry. Existing
-   notes remain available. Existing workspaces follow the same missing-discovery
-   rule; reopening shows saved results rather than rerunning.
+   boundaries and run limits, which starts a batch over the plan's open
+   questions. Defaults avoid manual path/rule entry. Existing notes remain
+   available. Existing workspaces follow the same missing-discovery rule;
+   reopening shows saved results rather than rerunning.
 
 Discovery can itself be partial. Save the remaining inventory position and show
 what was not surveyed. Never claim a partial list is the complete project map.
@@ -155,12 +159,19 @@ gets a concrete bounded inventory of processed, pending, failed, and excluded
 material. Reading an index does not mean reading its linked pages. Coverage
 describes sources processed, not complete understanding.
 
+A learning run may also read one public page by its address, a question's lead
+or a page the run found, without approval: ByteQuay fetches it over HTTPS,
+refuses private and local addresses, and follows none of its links. A note that
+cites such a page registers it as a page source, which the user sees among the
+registered sources.
+
 After each small unit, retain the plan, source identities/read evidence,
 saved notes, the unfinished question, and next source or question.
 Continue within the approved run while work and authorized capacity remain.
 At a limit, stop starting more work and show the notes the run saved and
-**Continue learning**. Continue authorizes another bounded run from the
-checkpoint; no other action grants more spending.
+**Continue learning**. Continue authorizes a batch from the checkpoint: one
+bounded run per open question, counted before the click. No other action grants
+more spending.
 
 Resume with relevant saved notes and progress, not the complete old conversation
 or every note. Recheck changed sources as necessary. Do not promise zero
@@ -199,6 +210,44 @@ learning or automatic delivery of the whole notebook to an agent.
 Saved notes are usable immediately while other topics remain unfinished. A
 stopped run may have saved useful notes without finishing a topic.
 
+### Questions and batches
+
+Discovery writes each topic's starting questions from its survey: one to six,
+more for a larger component. They orient a reader: the contracts and invariants
+the code relies on, the risky paths, and the tests that guard them. A plan
+topic holds up to 30 questions, and its list grows as learning finds more.
+
+Each question records where it came from (discovery, a learning run, a
+development task, a review or the user) and its state: open, unfinished
+(progress saved), answered, corrected or dropped. A topic is done when none of
+its questions is open or unfinished; there is no fixed count.
+
+A learning run first checks its question's assumption against the code. It then
+answers and saves notes, saves progress for a later run, or corrects the
+question: the assumption does not hold, or the question is too broad. A
+correction cites the lines that show why and replaces the question with one to
+three questions, which also covers splitting it. A run may add up to three
+follow-up questions to the same topic, each with the lines that raised it. It
+never saves notes outside its topic's note target.
+
+The user can add a question to a topic, edit an open one or drop one; a
+question a run is working on changes only after that run ends. **Go deeper**
+adds a question asking what the topic should cover next and starts it, so the
+run answers with follow-up questions and any notes its reading supports.
+Questions that runs, tasks or reviews add appear in the plan at once, marked
+with their origin; the user drops the ones not worth learning. None of them
+starts a run on its own.
+
+**Learn selected** and **Continue learning** start a batch. One click runs each
+question that is open or unfinished at that moment, one run per question in the
+plan's order, at most 30 per batch; the run line shows how many runs the click
+starts. The next run starts when the previous one ends and its worktree is
+cleaned up. A run that reaches a limit or saves progress leaves its question
+unfinished for a later batch, and the batch moves on. Stop ends the current run
+and the rest of the batch; a failed run ends it too, and so does another run
+the user starts between batch runs. Questions added during a batch wait for the
+next click.
+
 ## 5. Use during development and review
 
 Keep the existing development and investigation/validation workflows. Enabled
@@ -227,6 +276,17 @@ Useful supported work can save a new note or an update. Check existing notes
 before saving duplicates. No matching search hit does not prove a new note is
 needed; no task is required to produce a lesson. Larger research opportunities
 become suggested topics, not automatic jobs.
+
+Work that had to look something up is where notes help most. A development task
+or review that needed a web page or a long exploration to learn something
+reusable files it with **Ask**: the question, the paths it concerns and an
+optional lead, the page address or lines that answered it. The question joins
+the plan topic whose note target covers those paths; without a matching topic
+it becomes a plan gap for the next discovery, and without a plan it is refused.
+The next learning batch reads the lead, checks it against the code and saves
+the note with the passage it rests on, so later agents read the passage instead
+of searching the web again. Task transcripts show the page each web step opened
+or searched, not only its query.
 
 ### Source check at read
 
@@ -403,7 +463,8 @@ Verify save and base checks, Restore, grades, open reports, contested notes and
 investigations, multiple notes per area, literal pagination, exact reads and
 their source checks, empty-notebook task startup, deep/non-Maven discovery,
 bounded external sources, restart/continuation, partial results, and no hidden
-model launches. Real-provider quality/cost checks are separate, explicit
+model launches, batches, question corrections and follow-ups, filed questions
+and single-page reads. Real-provider quality/cost checks are separate, explicit
 acceptance work; do not run them against watched repositories during
 implementation tests.
 
@@ -435,9 +496,14 @@ implementation extends its existing patterns rather than the old settings page.
   line and marks a contested note.
 - **Run marking.** A lightning mark and a run line naming the run and model sit
   on every action that starts an agent: Start discovery, Discover remaining
-  areas, Learn selected, Continue learning, Learn from this PR, Investigate and
-  an Explore send. Edit, restore, keep, disable and source approval never carry
+  areas, Learn selected, Continue learning, Learn from this PR, Investigate, Go
+  deeper and an Explore send; a batch's run line says how many runs it starts.
+  Edit, restore, keep, disable, question edits and source approval never carry
   it and say that no agent runs.
+- **Learning plan.** Each question shows its state and, when it did not come
+  from discovery, its origin; a corrected question shows why and a filed one its
+  lead. A topic offers adding a question, editing or dropping an open one, and
+  Go deeper. A running batch shows which of its questions it is on.
 - **Counts.** Questions answered, pages opened and notes saved stay separate;
   there is no completion percentage. Run limits appear in the selection bar and
   the learning drawer.
@@ -468,10 +534,11 @@ reports each note's current-version finds and opens for every note at once.
 
 Supporting data the prototype assumes and the backend now records:
 
-- A suggested topic lists up to six learning questions; each learning run takes
-  one question. Plan questions are not started, unfinished (progress saved) or
-  answered. Learn selected can add topics to the current plan when they come
-  from the plan's discovery report.
+- A suggested topic lists up to six starting questions and a plan topic holds up
+  to 30; each learning run takes one question. Plan questions are open,
+  unfinished (progress saved), answered, corrected or dropped, and keep their
+  origin. Learn selected can add topics to the current plan when they come from
+  the plan's discovery report.
 - A bounded run history keeps each finished run's outcome (answered, no reusable
   note, source limit reached, stopped, failed or unfinished), operation counts
   and saved note IDs and versions, so earlier runs stay inspectable after the

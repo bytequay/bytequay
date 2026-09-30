@@ -30,9 +30,13 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -44,6 +48,7 @@ public class SelectedDocumentationReader
 {
     public static final int PAGE_BYTES = 16 * 1024;
     private static final int MAX_CAPTURES = 16;
+    private static final Pattern LINE_ANCHOR = Pattern.compile("L(\\d{1,7})(-L\\d{1,7})?");
     private static final Duration RETENTION = Duration.ofMinutes(10);
 
     private final RepositoryContextService notebooks;
@@ -92,18 +97,20 @@ public class SelectedDocumentationReader
         RegisteredContextSource source = notebook.sources().stream().filter(item -> item.id().equals(sourceId)).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Unknown registered documentation source"));
         return read(new Key(workspaceId, source, DocumentationHttpReader.resolve(source, relativePage).toString(), true), notebook.revision(),
-                relativePage, captureId, page, refresh);
+                relativePage, captureId, page, refresh, Optional.empty());
     }
 
     /**
-     * Reads one public page a learning run named by its address, fresh on its first page. Nothing registers the page; a saved
-     * note that cites it does. The same HTTPS, public-address and redirect checks apply, and none of its links is followed.
+     * Reads one public page a learning run named by its address, fresh on its first page; a registered page is read the same way.
+     * A saved note that cites an unregistered page registers it. The same HTTPS, public-address and redirect checks apply, and
+     * none of its links is followed. The first read opens at the page holding the address's #section when the text has it.
      */
-    public Page readPage(String workspaceId, RegisteredContextSource source, Optional<String> captureId, int page)
+    public Page readPage(String workspaceId, RegisteredContextSource source, Optional<String> captureId, int page, Optional<String> section)
     {
         checkArgument(source.kind() == RegisteredContextSource.Kind.DOCUMENTATION_PAGE, "Only an exact page can be read by its address");
-        return read(new Key(workspaceId, source, DocumentationHttpReader.resolve(source, Optional.empty()).toString(), false),
-                notebook(workspaceId).revision(), Optional.empty(), captureId, page, captureId.isEmpty() && page == 1);
+        RepositoryNotebook notebook = notebook(workspaceId);
+        return read(new Key(workspaceId, source, DocumentationHttpReader.resolve(source, Optional.empty()).toString(), notebook.sources().contains(source)),
+                notebook.revision(), Optional.empty(), captureId, page, captureId.isEmpty() && page == 1, section);
     }
 
     /** The page source a learning run's read by address becomes when a saved note cites it; its id follows from the address. */
@@ -119,7 +126,8 @@ public class SelectedDocumentationReader
         return source.equals(page(source.url()));
     }
 
-    private Page read(Key key, long notebookRevision, Optional<String> relativePage, Optional<String> captureId, int page, boolean refresh)
+    private Page read(Key key, long notebookRevision, Optional<String> relativePage, Optional<String> captureId, int page, boolean refresh,
+            Optional<String> section)
     {
         requireNonNull(relativePage, "relativePage is null");
         requireNonNull(captureId, "captureId is null");
@@ -174,9 +182,51 @@ public class SelectedDocumentationReader
         if (refreshFailed) {
             gaps.add("The requested refresh failed; this is the original cached observation, not a newly retrieved document.");
         }
-        return new Page(key.source(), notebookRevision, read.resolvedUrl(), captured.id(), read.contentHash(), read.readAt(), page, pages.size(),
-                pages.get(page - 1), read.truncated(), cacheHit, refreshFailed, gaps.build(), read.links(), read.suggestedExpansionUrls(),
+        int shown = page;
+        if (section.isPresent() && captureId.isEmpty() && page == 1) {
+            OptionalInt start = sectionStart(read, section.orElseThrow());
+            if (start.isPresent()) {
+                shown = pageAt(pages, start.getAsInt());
+                gaps.add("Opened at #" + section.orElseThrow() + " on page " + shown + " of " + pages.size() + "; earlier pages hold what comes before it.");
+            }
+            else {
+                gaps.add("No anchor, heading or line of the captured text matches #" + section.orElseThrow()
+                        + (read.truncated() ? "; it may lie beyond what was captured" : "") + "; this is the first page.");
+            }
+        }
+        return new Page(key.source(), notebookRevision, read.resolvedUrl(), captured.id(), read.contentHash(), read.readAt(), shown, pages.size(),
+                pages.get(shown - 1), read.truncated(), cacheHit, refreshFailed, gaps.build(), read.links(), read.suggestedExpansionUrls(),
                 read.linksTruncated());
+    }
+
+    /** Where a link's #section starts: an element id or Markdown heading anchor, or a GitHub line anchor such as L120 or L120-L140. */
+    private static OptionalInt sectionStart(DocumentationHttpReader.Read read, String section)
+    {
+        Matcher line = LINE_ANCHOR.matcher(section);
+        if (line.matches()) {
+            int start = 0;
+            for (int number = Integer.parseInt(line.group(1)); number > 1; number--) {
+                start = read.text().indexOf('\n', start) + 1;
+                if (start == 0) {
+                    return OptionalInt.empty();
+                }
+            }
+            return OptionalInt.of(start);
+        }
+        Integer start = read.sections().getOrDefault(section, read.sections().get(section.toLowerCase(Locale.ROOT)));
+        return start == null ? OptionalInt.empty() : OptionalInt.of(start);
+    }
+
+    private static int pageAt(List<String> pages, int offset)
+    {
+        int end = 0;
+        for (int index = 0; index < pages.size(); index++) {
+            end += pages.get(index).length();
+            if (offset < end) {
+                return index + 1;
+            }
+        }
+        return pages.size();
     }
 
     private Captured capture(Key key, Optional<String> relativePage)

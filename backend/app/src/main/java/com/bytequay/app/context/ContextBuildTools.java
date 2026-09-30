@@ -204,8 +204,10 @@ public class ContextBuildTools
                                         + "Save this question's progress with repository_context_progress and end after this unit. "
                                         + "Research has no operation-count quota; the configured agent turn timeout applies. "
                                         + "Stay within approved sources and two link hops. When SELECTION's question carries a lead from a task or "
-                                        + "review, check it first. PAGE reads one public HTTPS page by its url, such as a lead or a page you found, "
-                                        + "without approval and without following its links; a saved note that cites it registers the page as a source. "
+                                        + "review, check it first. PAGE reads one public HTTPS page by its url, such as a lead, a page you found, or a "
+                                        + "specification, protocol or reference document that code, comments or documentation link, without approval and "
+                                        + "without following its links; a saved note that cites it registers the page as a source. A url's #section opens "
+                                        + "the page holding that section or line, and a GitHub file link (github.com/.../blob/...) reads as the file's text. "
                                         + "Never commit, push or start child agents."
                                 : POLICY);
     }
@@ -220,7 +222,8 @@ public class ContextBuildTools
                 + "TREE path is empty for root or a directory path with an optional trailing slash; page starts at zero. DOCUMENT page starts at one. "
                 + "SEARCH_PATHS finds names anywhere; SEARCH_TEXT finds up to two literal hits per file within approved paths. Search page starts at zero. "
                 + "DOCUMENT defaults to a fresh initial read; continuation uses returned captureId. Failures remain explicit limitations. "
-                + "A learning run can read one public page with PAGE and its url; pages start at one and continue with the returned captureId.",
+                + "A learning run can read one public page with PAGE and its url; pages start at one and continue with the returned captureId. "
+                + "Keep a link's #section: the first read opens at the page holding that section or line.",
                 readSchema(), arguments -> call(task.id().toString(), turn, arguments, false));
     }
 
@@ -669,7 +672,9 @@ public class ContextBuildTools
         fields(args, "kind", "url", "captureId", "page");
         checkArgument(build.assignment().isPresent(), "kind: only a learning run reads a page by its address");
         String address = text(args, "url", 1400);
-        String url = address.contains("#") ? address.substring(0, address.indexOf('#')) : address;
+        int hash = address.indexOf('#');
+        String url = hash < 0 ? address : address.substring(0, hash);
+        Optional<String> section = hash < 0 ? Optional.empty() : Optional.of(address.substring(hash + 1)).filter(value -> !value.isBlank() && value.length() <= 200);
         Optional<String> captureId = optionalText(args, "captureId", 100);
         int page = integer(args, "page", 1);
         String key = "page:" + url;
@@ -677,9 +682,8 @@ public class ContextBuildTools
             workspace(build);
             Optional<RegisteredContextSource> registered = notebooks.getNotebook(build.workspaceId()).sources().stream()
                     .filter(source -> source.kind() == RegisteredContextSource.Kind.DOCUMENTATION_PAGE && source.url().equals(url)).findFirst();
-            SelectedDocumentationReader.Page read = registered.isPresent()
-                    ? documents.read(build.workspaceId(), registered.orElseThrow().id(), Optional.empty(), captureId, page, captureId.isEmpty() && page == 1)
-                    : documents.readPage(build.workspaceId(), SelectedDocumentationReader.page(url), captureId, page);
+            SelectedDocumentationReader.Page read = documents.readPage(build.workspaceId(), registered.orElseGet(() -> SelectedDocumentationReader.page(url)),
+                    captureId, page, section);
             RegisteredContextSource registration = registered.orElseGet(() -> SelectedDocumentationReader.page(read.resolvedUrl()));
             String id = readId();
             ContextDocumentRead receipt = new ContextDocumentRead(id, new ContextReference.Document(registration.id(), read.resolvedUrl()), registration,
@@ -690,7 +694,7 @@ public class ContextBuildTools
             List<String> gaps = read.page() < read.totalPages() ? ContextBuildService.gaps(read.gaps(), "Page " + read.resolvedUrl() + " read covers page "
                     + read.page() + "/" + read.totalPages() + " only; read further pages with its captureId.") : read.gaps();
             saveRead(build, turn, key, Optional.of(receipt), evidence(read.excerpt(), provenance), ImmutableMap.of(), gaps,
-                    ImmutableList.of("Opened " + read.resolvedUrl()),
+                    ImmutableList.of("Opened " + read.resolvedUrl() + section.map(value -> "#" + value).orElse("")),
                     ignored -> pages.record(build.workspaceId(), new ContextPageCaptures.Page(read.resolvedUrl(), read.contentHash(), read.readAt())));
             return source(receipt, read.excerpt(), gaps).put("captureId", read.captureId()).put("page", read.page()).put("pages", read.totalPages());
         }

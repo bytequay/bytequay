@@ -279,14 +279,49 @@ class TestDocumentationHttpReader
     void boundsExtractedUtf8TextWithoutSplittingSurrogatePairs()
             throws Exception
     {
-        when(client.executeOpen(isNull(), any(), isNull())).thenReturn(response("text/html", "<p>" + "😀".repeat(40_000) + "</p>"));
+        when(client.executeOpen(isNull(), any(), isNull())).thenReturn(response("text/html", "<p>" + "😀".repeat(80_000) + "</p>"));
 
         DocumentationHttpReader.Read result = reader.read(PAGE, Optional.empty());
 
-        assertThat(ContextLimits.bytes(result.text())).isLessThanOrEqualTo(128 * 1024);
-        assertThat(result.text()).isEqualTo("😀".repeat(32_768));
+        assertThat(ContextLimits.bytes(result.text())).isLessThanOrEqualTo(256 * 1024);
+        assertThat(result.text()).isEqualTo("😀".repeat(65_536));
         assertThat(result.truncated()).isTrue();
-        assertThat(result.gaps()).anyMatch(gap -> gap.contains("128 KiB"));
+        assertThat(result.gaps()).anyMatch(gap -> gap.contains("256 KiB"));
+    }
+
+    @Test
+    void readsAGitHubFilePageAsItsRawTextAndKeepsItsGitHubAddress()
+            throws Exception
+    {
+        RegisteredContextSource protocol = SelectedDocumentationReader.page("https://github.com/delta-io/delta/blob/master/PROTOCOL.md");
+        String markdown = "# Delta Transaction Log Protocol\n\nIntro\n\n## Add File and Remove File\n\nPaths are URI encoded.\n\n```\n# not a heading\n```\n"
+                + "## Add File and Remove File\n\nA repeat.\n";
+        when(client.executeOpen(isNull(), any(), isNull())).thenReturn(response("text/plain; charset=utf-8", markdown));
+
+        DocumentationHttpReader.Read result = reader.read(protocol, Optional.empty());
+
+        ArgumentCaptor<ClassicHttpRequest> request = ArgumentCaptor.forClass(ClassicHttpRequest.class);
+        verify(client).executeOpen(isNull(), request.capture(), isNull());
+        assertThat(request.getValue().getUri()).isEqualTo(URI.create("https://raw.githubusercontent.com/delta-io/delta/master/PROTOCOL.md"));
+        assertThat(result.resolvedUrl()).isEqualTo(protocol.url());
+        assertThat(result.text()).isEqualTo(markdown);
+        assertThat(result.sections()).containsEntry("add-file-and-remove-file", markdown.indexOf("## Add File"))
+                .containsEntry("add-file-and-remove-file-1", markdown.lastIndexOf("## Add File"))
+                .containsKey("delta-transaction-log-protocol");
+        assertThat(DocumentationHttpReader.fetched(URI.create("https://github.com/delta-io/delta"))).isEqualTo(URI.create("https://github.com/delta-io/delta"));
+        assertThat(DocumentationHttpReader.fetched(URI.create("https://docs.example.com/a/b/blob/c/d"))).isEqualTo(URI.create("https://docs.example.com/a/b/blob/c/d"));
+    }
+
+    @Test
+    void anElementIdMarksWhereItsSectionStartsRatherThanAContentsEntry()
+            throws Exception
+    {
+        when(client.executeOpen(isNull(), any(), isNull())).thenReturn(response("text/html",
+                "<nav><a href=\"#partitioning\">Partitioning</a></nav><h2 id=\"partitioning\">Partitioning</h2><p>Partition specs</p>"));
+
+        DocumentationHttpReader.Read result = reader.read(PAGE, Optional.empty());
+
+        assertThat(result.text().substring(result.sections().get("partitioning"))).isEqualTo("Partitioning\nPartition specs");
     }
 
     @Test

@@ -423,7 +423,7 @@ class TestContextBuildTools
 
         RegisteredContextSource page = SelectedDocumentationReader.page(lead);
         String captureId = UUID.randomUUID().toString();
-        when(documents.readPage(WORKSPACE, page, Optional.empty(), 1)).thenReturn(new SelectedDocumentationReader.Page(page, 0, lead, captureId,
+        when(documents.readPage(WORKSPACE, page, Optional.empty(), 1, Optional.of("actions"))).thenReturn(new SelectedDocumentationReader.Page(page, 0, lead, captureId,
                 "b".repeat(64), Instant.EPOCH, 1, 1, "Actions in a commit are applied in order.", false, false, false, ImmutableList.of()));
         JsonNode result = read("{\"kind\":\"PAGE\",\"url\":\"" + lead + "#actions\"}");
         assertThat(result.has("error")).isFalse();
@@ -433,11 +433,11 @@ class TestContextBuildTools
             assertThat(receipt.registration()).isEqualTo(page);
             assertThat(SelectedDocumentationReader.readByAddress(receipt.registration())).isTrue();
         });
-        assertThat(current().capture().activity().getLast().text()).isEqualTo("Opened " + lead);
+        assertThat(current().capture().activity().getLast().text()).isEqualTo("Opened " + lead + "#actions");
         verify(pages).record(WORKSPACE, new ContextPageCaptures.Page(lead, "b".repeat(64), Instant.EPOCH));
         assertThat(read("{\"kind\":\"PAGE\",\"url\":\"https://example.com/search?q=delta\"}").path("error").path("message").textValue())
                 .contains("query");
-        verify(documents).readPage(WORKSPACE, page, Optional.empty(), 1);
+        verify(documents).readPage(WORKSPACE, page, Optional.empty(), 1, Optional.of("actions"));
     }
 
     @Test

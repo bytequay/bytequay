@@ -18,6 +18,7 @@ import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.google.common.base.Ticker;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -95,7 +96,7 @@ class TestSelectedDocumentationReader
         DocumentationHttpReader.Link link = new DocumentationHttpReader.Link(SOURCE.url() + "next.html", Optional.of("next.html"));
         when(http.read(SOURCE, RELATIVE_PAGE)).thenReturn(new DocumentationHttpReader.Read(
                 SOURCE.url() + RELATIVE_PAGE.orElseThrow(), text, Hashing.sha256().hashString(text, UTF_8).toString(), READ_AT, false,
-                List.of(), List.of(link), List.of("https://other.example.com/"), true));
+                List.of(), List.of(link), List.of("https://other.example.com/"), true, ImmutableMap.of()));
 
         SelectedDocumentationReader.Page first = first(false);
         SelectedDocumentationReader.Page second = read(first.captureId(), 2);
@@ -256,13 +257,13 @@ class TestSelectedDocumentationReader
         when(http.read(page, Optional.empty())).thenReturn(new DocumentationHttpReader.Read(page.url(), text, Hashing.sha256().hashString(text, UTF_8).toString(),
                 READ_AT, false, ImmutableList.of()));
 
-        SelectedDocumentationReader.Page first = reader.readPage(WORKSPACE, page, Optional.empty(), 1);
+        SelectedDocumentationReader.Page first = reader.readPage(WORKSPACE, page, Optional.empty(), 1, Optional.empty());
         assertThat(first.source()).isEqualTo(page);
         assertThat(first.totalPages()).isEqualTo(2);
-        assertThat(reader.readPage(WORKSPACE, page, Optional.of(first.captureId()), 2).excerpt()).isEqualTo("a");
+        assertThat(reader.readPage(WORKSPACE, page, Optional.of(first.captureId()), 2, Optional.empty()).excerpt()).isEqualTo("a");
         assertThat(SelectedDocumentationReader.readByAddress(page)).isTrue();
         assertThat(SelectedDocumentationReader.readByAddress(SOURCE)).isFalse();
-        assertThatThrownBy(() -> reader.readPage(WORKSPACE, SOURCE, Optional.empty(), 1)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> reader.readPage(WORKSPACE, SOURCE, Optional.empty(), 1, Optional.empty())).isInstanceOf(IllegalArgumentException.class);
         verify(http).read(page, Optional.empty());
     }
 
@@ -286,6 +287,29 @@ class TestSelectedDocumentationReader
     private SelectedDocumentationReader.Page read(String captureId, int page)
     {
         return reader.read(WORKSPACE, SOURCE.id(), RELATIVE_PAGE, Optional.of(captureId), page, false);
+    }
+
+    @Test
+    void aLinksSectionOrLineOpensThePageHoldingItAndContinuesFromThere()
+    {
+        RegisteredContextSource page = SelectedDocumentationReader.page("https://iceberg.apache.org/spec/");
+        String contents = "Partitioning\n" + "a".repeat(SelectedDocumentationReader.PAGE_BYTES);
+        String text = contents + "\nPartitioning\nPartition specs describe how\n" + "b".repeat(SelectedDocumentationReader.PAGE_BYTES);
+        int heading = contents.length() + 1;
+        when(http.read(page, Optional.empty())).thenReturn(new DocumentationHttpReader.Read(page.url(), text, Hashing.sha256().hashString(text, UTF_8).toString(),
+                READ_AT, false, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), false, ImmutableMap.of("partitioning", heading)));
+
+        SelectedDocumentationReader.Page section = reader.readPage(WORKSPACE, page, Optional.empty(), 1, Optional.of("partitioning"));
+        assertThat(section.page()).isEqualTo(2);
+        assertThat(section.totalPages()).isEqualTo(3);
+        assertThat(section.excerpt()).contains("Partition specs describe how");
+        assertThat(section.gaps()).contains("Opened at #partitioning on page 2 of 3; earlier pages hold what comes before it.");
+        assertThat(reader.readPage(WORKSPACE, page, Optional.of(section.captureId()), 3, Optional.empty()).excerpt()).endsWith("b");
+
+        assertThat(reader.readPage(WORKSPACE, page, Optional.empty(), 1, Optional.of("L3")).page()).isEqualTo(2);
+        SelectedDocumentationReader.Page missing = reader.readPage(WORKSPACE, page, Optional.empty(), 1, Optional.of("appendix-z"));
+        assertThat(missing.page()).isEqualTo(1);
+        assertThat(missing.gaps()).contains("No anchor, heading or line of the captured text matches #appendix-z; this is the first page.");
     }
 
     private static DocumentationHttpReader.Read capture(String text)

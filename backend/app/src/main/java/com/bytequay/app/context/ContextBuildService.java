@@ -538,6 +538,9 @@ public class ContextBuildService
                     + " Use repository_context_read SELECTION for saved progress and exact source boundaries. "
                     + "Inspect existing notes before saving duplicates. Read only what answers this question: the approved paths, the documentation inventory, "
                     + "and single public pages by their address with PAGE. When the question came from a task or review with a lead, check the lead first. "
+                    + "Code, comments and documentation often link the specification, protocol or reference documentation the code implements, such as "
+                    + "a table format's specification. When such a link bears on the question, read the linked section carefully with PAGE, keeping its "
+                    + "#section, and cite it where the code follows or departs from it. "
                     + ContextBuildTools.TARGET_GUIDANCE
                     + "Research has no operation-count quota; the configured agent turn timeout applies. "
                     + "Stay within two link hops from each approved root. "

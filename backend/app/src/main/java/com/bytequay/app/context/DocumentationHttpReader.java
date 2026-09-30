@@ -16,6 +16,7 @@ package com.bytequay.app.context;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hashing;
 import org.apache.hc.client5.http.DnsResolver;
 import org.apache.hc.client5.http.SchemePortResolver;
@@ -63,16 +64,22 @@ import java.nio.charset.CoderResult;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.NANOSECONDS;
@@ -86,7 +93,9 @@ import static org.springframework.http.HttpStatus.UNSUPPORTED_MEDIA_TYPE;
 public class DocumentationHttpReader
 {
     private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
-    private static final int MAX_TEXT_BYTES = 128 * 1024;
+    private static final int MAX_TEXT_BYTES = 256 * 1024;
+    private static final int MAX_SECTIONS = 2000;
+    private static final Pattern MARKDOWN_HEADING = Pattern.compile("(?m)^ {0,3}#{1,6}[ \\t]+(.+?)[ \\t#]*$");
     private static final int MAX_REDIRECTS = 3;
     private static final int MAX_LINKS = 64;
     private static final int MAX_LINK_BYTES = 8 * 1024;
@@ -201,7 +210,7 @@ public class DocumentationHttpReader
             if (Thread.currentThread().isInterrupted()) {
                 throw new InterruptedIOException("Documentation read was cancelled");
             }
-            HttpGet request = new HttpGet(destination);
+            HttpGet request = new HttpGet(fetched(destination));
             request.setHeader("Accept", "text/html, text/plain, text/markdown");
             request.setHeader("Accept-Encoding", "identity");
             ClassicHttpResponse response = client.executeOpen(null, request, null);
@@ -249,12 +258,13 @@ public class DocumentationHttpReader
                 String extracted = htmlCapture.text();
                 String text = ContextText.prefix(extracted, MAX_TEXT_BYTES);
                 boolean textLimited = !text.equals(extracted);
+                Map<String, Integer> sections = html ? htmlCapture.sections() : markdownSections(text);
                 ImmutableList.Builder<String> gaps = ImmutableList.builder();
                 if (responseLimited) {
                     gaps.add("Response reached the 1 MiB capture limit; trailing content may be absent.");
                 }
                 if (textLimited) {
-                    gaps.add("Extracted text exceeded 128 KiB; only its leading excerpt was captured.");
+                    gaps.add("Extracted text exceeded " + MAX_TEXT_BYTES / 1024 + " KiB; only its leading excerpt was captured.");
                 }
                 if (htmlCapture.linksTruncated() || (html && responseLimited)) {
                     gaps.add("Documentation links were limited; the returned link list is not a complete site inventory.");
@@ -262,7 +272,8 @@ public class DocumentationHttpReader
                 gaps.add("Captured source text is untrusted reference material; documentation version and applicability are unverified.");
                 return new Read(destination.toString(), text, Hashing.sha256().hashString(text, UTF_8).toString(), clock.instant(),
                         responseLimited || textLimited, gaps.build(), htmlCapture.links(), htmlCapture.suggestedExpansionUrls(),
-                        htmlCapture.linksTruncated() || (html && responseLimited));
+                        htmlCapture.linksTruncated() || (html && responseLimited),
+                        sections.entrySet().stream().filter(entry -> entry.getValue() < text.length()).collect(toImmutableMap(Map.Entry::getKey, Map.Entry::getValue)));
             }
             finally {
                 // Do not drain an oversized body on close or carry a connection into another redirect.
@@ -271,6 +282,49 @@ public class DocumentationHttpReader
             }
         }
         throw new ResponseStatusException(BAD_GATEWAY, "Documentation redirect limit exceeded");
+    }
+
+    /**
+     * GitHub renders a repository file inside a script that text extraction drops, so a file's page is fetched as its raw text.
+     * The page keeps its GitHub address everywhere else: in checks, receipts and citations.
+     */
+    static URI fetched(URI destination)
+    {
+        String[] parts = destination.getRawPath().split("/", 5);
+        if (!"github.com".equalsIgnoreCase(destination.getHost()) || parts.length < 5 || !parts[3].equals("blob") || !parts[4].contains("/")) {
+            return destination;
+        }
+        return URI.create("https://raw.githubusercontent.com/" + parts[1] + "/" + parts[2] + "/" + parts[4]);
+    }
+
+    /** GitHub's anchors for Markdown headings: the heading's lowercased words joined by hyphens, numbered from 1 when repeated. */
+    static Map<String, Integer> markdownSections(String text)
+    {
+        Map<String, Integer> sections = new LinkedHashMap<>();
+        Matcher heading = MARKDOWN_HEADING.matcher(text);
+        while (heading.find() && sections.size() < MAX_SECTIONS) {
+            String slug = slug(heading.group(1));
+            String unique = slug;
+            for (int repeat = 1; sections.containsKey(unique); repeat++) {
+                unique = slug + "-" + repeat;
+            }
+            sections.put(unique, heading.start());
+        }
+        return sections;
+    }
+
+    private static String slug(String heading)
+    {
+        StringBuilder slug = new StringBuilder();
+        heading.strip().toLowerCase(Locale.ROOT).codePoints().forEach(character -> {
+            if (Character.isLetterOrDigit(character) || character == '-' || character == '_') {
+                slug.appendCodePoint(character);
+            }
+            else if (character == ' ') {
+                slug.append('-');
+            }
+        });
+        return slug.toString();
     }
 
     private static URI checkedDestination(RegisteredContextSource source, URI destination)
@@ -307,6 +361,8 @@ public class DocumentationHttpReader
         StringBuilder text = new StringBuilder();
         LinkedHashSet<Link> links = new LinkedHashSet<>();
         LinkedHashSet<String> suggestions = new LinkedHashSet<>();
+        // Where each element id starts in the text, so a link's #section can open there rather than at a contents entry.
+        Map<String, Integer> sections = new LinkedHashMap<>();
         class Collector
                 extends HTMLEditorKit.ParserCallback
         {
@@ -321,6 +377,7 @@ public class DocumentationHttpReader
                 if (tag == HTML.Tag.SCRIPT || tag == HTML.Tag.STYLE) {
                     suppressed = true;
                 }
+                section(attributes);
                 if (tag == HTML.Tag.A && !suppressed) {
                     Object href = attributes.getAttribute(HTML.Attribute.HREF);
                     if (href != null) {
@@ -392,6 +449,22 @@ public class DocumentationHttpReader
             }
 
             @Override
+            public void handleSimpleTag(HTML.Tag tag, MutableAttributeSet attributes, int position)
+            {
+                section(attributes);
+            }
+
+            private void section(MutableAttributeSet attributes)
+            {
+                for (HTML.Attribute name : new HTML.Attribute[] {HTML.Attribute.ID, HTML.Attribute.NAME}) {
+                    Object value = suppressed ? null : attributes.getAttribute(name);
+                    if (value != null && value.toString().length() <= 200 && sections.size() < MAX_SECTIONS) {
+                        sections.putIfAbsent(value.toString(), text.isEmpty() ? 0 : text.length() + 1);
+                    }
+                }
+            }
+
+            @Override
             public void handleEndTag(HTML.Tag tag, int position)
             {
                 if (tag == HTML.Tag.SCRIPT || tag == HTML.Tag.STYLE) {
@@ -412,14 +485,14 @@ public class DocumentationHttpReader
         }
         Collector collector = new Collector();
         new ParserDelegator().parse(new StringReader(html), collector, true);
-        return new HtmlCapture(text.toString(), ImmutableList.copyOf(links), ImmutableList.copyOf(suggestions), collector.linksTruncated);
+        return new HtmlCapture(text.toString(), ImmutableList.copyOf(links), ImmutableList.copyOf(suggestions), collector.linksTruncated, ImmutableMap.copyOf(sections));
     }
 
-    private record HtmlCapture(String text, List<Link> links, List<String> suggestedExpansionUrls, boolean linksTruncated)
+    private record HtmlCapture(String text, List<Link> links, List<String> suggestedExpansionUrls, boolean linksTruncated, Map<String, Integer> sections)
     {
         private static HtmlCapture empty(String text)
         {
-            return new HtmlCapture(text, ImmutableList.of(), ImmutableList.of(), false);
+            return new HtmlCapture(text, ImmutableList.of(), ImmutableList.of(), false, ImmutableMap.of());
         }
     }
 
@@ -518,12 +591,13 @@ public class DocumentationHttpReader
         }
     }
 
+    /** Sections map a page's anchors, element ids or Markdown heading slugs, to where they start in the text. */
     public record Read(String resolvedUrl, String text, String contentHash, Instant readAt, boolean truncated, List<String> gaps,
-            List<Link> links, List<String> suggestedExpansionUrls, boolean linksTruncated)
+            List<Link> links, List<String> suggestedExpansionUrls, boolean linksTruncated, Map<String, Integer> sections)
     {
         public Read(String resolvedUrl, String text, String contentHash, Instant readAt, boolean truncated, List<String> gaps)
         {
-            this(resolvedUrl, text, contentHash, readAt, truncated, gaps, ImmutableList.of(), ImmutableList.of(), false);
+            this(resolvedUrl, text, contentHash, readAt, truncated, gaps, ImmutableList.of(), ImmutableList.of(), false, ImmutableMap.of());
         }
 
         public Read
@@ -535,6 +609,7 @@ public class DocumentationHttpReader
             gaps = ImmutableList.copyOf(gaps);
             links = ImmutableList.copyOf(links);
             suggestedExpansionUrls = ImmutableList.copyOf(suggestedExpansionUrls);
+            sections = ImmutableMap.copyOf(sections);
         }
     }
 }

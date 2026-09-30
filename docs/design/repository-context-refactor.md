@@ -162,6 +162,17 @@ refuses private and local addresses, and follows none of its links. A note that
 cites such a page registers it as a page source, which the user sees among the
 registered sources.
 
+Code, comments and documentation often link the specification, protocol or
+reference documentation the code implements, such as a table format's
+specification. Learning runs read the linked section when it bears on their
+question and cite where the code follows or departs from it. A link's #section
+opens the page holding that section: an element id, a Markdown heading anchor,
+or a GitHub line anchor such as L120. A GitHub file link is read as the file's
+raw text, since GitHub renders the file inside a script that text extraction
+drops; the page keeps its GitHub address in receipts and citations. A captured
+page keeps up to 256 KiB of text, enough for a specification such as Delta
+Lake's protocol.
+
 After each small unit, retain the plan, source identities/read evidence,
 saved notes, the unfinished question, and next source or question.
 Continue within the approved run while work and authorized capacity remain.

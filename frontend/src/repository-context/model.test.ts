@@ -17,7 +17,7 @@ import type {
   ContextScopeDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto,
 } from './contracts';
 import {
-  batchLine, batchNext, batchOrder, batchPath, batchRemaining, batchRuns, disputeSides, lastInBatch, filterNotes, gradeLine, grader, latestReport, runOrigin, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pageChangedAt, pendingCounts, planCounts, previousVersion, webLookupLine,
+  batchLine, batchNext, batchOrder, batchRemaining, batchRuns, disputeSides, spotTitle, filterNotes, gradeLine, grader, latestReport, runOrigin, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pageChangedAt, pendingCounts, planCounts, previousVersion, webLookupLine,
   questionRow, reportsNeedingYou, reviewItems, runNotesToDisable, scopeForTopic, settledLine, statusCard, topicSummary, type StatusInput,
 } from './model';
 
@@ -85,7 +85,7 @@ describe('repository context status card', () => {
     const card = statusCard(input({ report, build: build([limited]), planView: { plan, next: { topicId: 'topic:iceberg', question: 1 } } }));
     expect(card.headline).toBe('Run 2 reached its source limit');
     expect(card.primary).toEqual({ label: 'Continue learning', bolt: true, action: 'continue' });
-    expect(card.runLine).toContain('resumes saved progress');
+    expect(card.body).toMatch(/is unfinished; Continue picks it up\.$/);
   });
 
   it('names the notes a run saved and offers to disable only the ones it added that nobody changed, without a run', () => {
@@ -147,9 +147,7 @@ describe('repository context status card', () => {
       ran: [{ topicId: 'topic:iceberg', question: 0 }, { topicId: 'topic:iceberg', question: 1 }], total: 2, alone: false } };
     const card = statusCard(input({ report, build: build([run(3, 'RUNNING', 1, '2026-09-29T11:59:00Z')]), planView: { plan: batched, next: null } }));
     expect(card.body).toContain('run 2 of 2 in this batch');
-    expect(card.batch).toBe('Nothing else is queued in this batch; questions this run adds run next.');
-    expect(batchLine(3, null, null, 'Codex · 5.6')).toBe('3 runs, one per open question, then any questions the runs add, up to 30 · Codex · 5.6 · Stop ends the batch');
-    expect(batchLine(3, 'Iceberg · “A?”', '“C?”', 'Codex')).toContain('starting with Iceberg · “A?” and ending with “C?”, then any questions the runs add');
+    expect(batchLine(3, 'Codex · 5.6')).toBe('3 runs, one per open question, plus any the runs add (up to 30) · Codex · 5.6 · Stop ends the batch');
   });
 
   it('keeps completed and failed source operations separate from the running agent', () => {
@@ -191,10 +189,12 @@ describe('repository context notes', () => {
 
   it('links an answered question to the note its run saved and counts the topic’s saved notes', () => {
     const answered = [run(1, 'ANSWERED', 0, '2026-09-29T11:00:00Z', [entry.id])];
-    expect(questionRow(plan.topics[0], 0, answered, null, { ...notebook, entries: [entry] })).toMatchObject({ meta: 'Answered', noteId: entry.id });
-    expect(questionRow(plan.topics[0], 0, answered, null, notebook)).toMatchObject({ meta: 'Answered', noteId: null });
-    expect(questionRow(plan.topics[0], 1, answered, null, notebook).meta).toBe('Unfinished · progress saved');
-    expect(topicSummary(plan.topics[0], answered, null, { ...notebook, entries: [entry] }).meta).toBe('1 of 2 questions answered · 1 unfinished · 1 note saved');
+    expect(questionRow(plan.topics[0], 0, answered, null, { ...notebook, entries: [entry] })).toMatchObject({ state: 'ANSWERED', meta: '', noteId: entry.id });
+    expect(questionRow(plan.topics[0], 0, answered, null, notebook)).toMatchObject({ state: 'ANSWERED', meta: '', noteId: null });
+    expect(questionRow(plan.topics[0], 1, answered, null, notebook).meta).toBe('Unfinished');
+    expect(topicSummary(plan.topics[0], answered, null, { ...notebook, entries: [entry] }).stats).toEqual([
+      { icon: 'check', value: '1/2', label: '1 of 2 questions answered' }, { icon: 'pause', value: 1, label: '1 unfinished · progress saved' },
+      { icon: 'doc', value: 1, label: '1 note saved' }]);
   });
 
   it('keeps corrected and dropped questions visible without counting them', () => {
@@ -203,9 +203,9 @@ describe('repository context notes', () => {
       { text: 'When is the cache cleared?', status: 'PENDING' as const, progress: '', origin: 'LEARNING' as const, note: 'Replaces “Is refresh per query?”' },
       { text: 'How are releases cut?', status: 'DROPPED' as const, progress: '', origin: 'USER' as const, note: 'Dropped by you' }] };
     expect(questionRow(grown, 2, [], null, notebook)).toMatchObject({ state: 'CORRECTED', meta: 'Corrected', origin: null });
-    expect(questionRow(grown, 3, [], null, notebook)).toMatchObject({ state: 'PENDING', origin: 'from a learning run', note: 'Replaces “Is refresh per query?”' });
-    expect(questionRow(grown, 4, [], null, notebook)).toMatchObject({ state: 'DROPPED', origin: 'added by you' });
-    expect(topicSummary(grown, [], null, notebook).meta).toBe('1 of 3 questions answered · 1 unfinished');
+    expect(questionRow(grown, 3, [], null, notebook)).toMatchObject({ state: 'PENDING', meta: '', origin: 'LEARNING', note: 'Replaces “Is refresh per query?”' });
+    expect(questionRow(grown, 4, [], null, notebook)).toMatchObject({ state: 'DROPPED', origin: 'USER' });
+    expect(topicSummary(grown, [], null, notebook).stats.map(stat => stat.value)).toEqual(['1/3', 1]);
     expect(planCounts({ ...plan, topics: [grown] })).toEqual({ answered: 1, total: 3 });
     expect(batchRuns({ ...plan, topics: [grown] })).toBe(2);
     const corrected = { ...plan, topics: [grown] };
@@ -246,16 +246,18 @@ describe('repository context notes', () => {
     const batched: ContextLearningPlanDto = { ...plan, topics: [topic],
       batch: { key: 'learn-key', queue: [{ topicId: 'topic:iceberg', question: 1 }], ran: [{ topicId: 'topic:iceberg', question: 0 }], total: 2, alone: false } };
     expect(batchRemaining(batched)).toEqual([{ topicId: 'topic:iceberg', question: 1 }, { topicId: 'topic:iceberg', question: 2 }, { topicId: 'topic:iceberg', question: 3 }]);
-    expect(batchPath(batched)).toBe('Up next: “How are commits retried?”, then 2 more questions, ending with “How are releases cut?”. Questions added while it runs join the end.');
     const order = batchOrder(batched);
-    expect([1, 2, 3].map(index => questionRow(topic, index, [], null, notebook, order).meta))
-      .toEqual(['Up next in this batch', '#2 in this batch', 'Last in this batch · #3']);
-    expect(questionRow(topic, 2, [], null, notebook).meta).toBe('Not started');
-    expect(topicSummary(topic, [], null, notebook, order).meta).toBe('1 of 4 questions answered · 1 unfinished · 3 in this batch');
+    expect([1, 2, 3].map(index => questionRow(topic, index, [], null, notebook, order).spot))
+      .toEqual([{ position: 1, count: 3 }, { position: 2, count: 3 }, { position: 3, count: 3 }]);
+    expect([1, 2, 3].map(position => spotTitle({ position, count: 3 }))).toEqual(['Runs next in this batch', 'Runs #2 in this batch', 'Runs last in this batch, #3']);
+    expect(questionRow(topic, 2, [], null, notebook).spot).toBeNull();
+    expect([...batchOrder({ ...batched, batch: null }, true).keys()]).toEqual(['topic:iceberg:1', 'topic:iceberg:2', 'topic:iceberg:3']);
+    expect(batchOrder({ ...batched, batch: null }).size).toBe(0);
+    expect(topicSummary(topic, [], null, notebook, order).stats.map(stat => stat.label))
+      .toEqual(['1 of 4 questions answered', '1 unfinished · progress saved', '3 questions queued in this batch']);
     const alone: ContextLearningPlanDto = { ...batched, batch: { key: 'deeper', queue: [], ran: [{ topicId: 'topic:iceberg', question: 3 }], total: 1, alone: true } };
     expect(batchRemaining(alone)).toEqual([]);
-    expect(batchPath(alone)).toBe('This batch runs only this question.');
-    expect(lastInBatch(batched)).toBe('“How are releases cut?”');
+
   });
 
   it('compares web lookups per task with notes on and off', () => {

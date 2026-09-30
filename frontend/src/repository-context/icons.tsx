@@ -27,11 +27,18 @@ const PATHS = {
   close: ['M6 6l12 12M18 6 6 18'],
   down: ['m6 9 6 6 6-6'],
   next: ['m9 6 6 6-6 6'],
+  spark: ['M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z'],
+  user: ['M5 20c1.4-3.4 3.9-5 7-5s5.6 1.6 7 5'],
+  code: ['m8 8-4 4 4 4', 'm16 8 4 4-4 4'],
+  flag: ['M6 21V4', 'M6 4h11l-2 4 2 4H6'],
+  off: ['M5.6 5.6l12.8 12.8'],
 } as const;
 
 const CIRCLES: Partial<Record<keyof typeof PATHS, { cx: number; cy: number; r: number }>> = {
   alert: { cx: 12, cy: 12, r: 9 },
   search: { cx: 11, cy: 11, r: 6.5 },
+  user: { cx: 12, cy: 8, r: 3.5 },
+  off: { cx: 12, cy: 12, r: 9 },
 };
 
 const WEIGHT: Partial<Record<keyof typeof PATHS, number>> = { check: 2.2, pause: 2.2, alert: 2, bolt: 2, close: 2, down: 2.2, next: 2 };

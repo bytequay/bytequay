@@ -18,11 +18,11 @@ import { relativeTime } from '../relativeTime';
 import { settingsRoute } from '../settings/routes';
 import type { AgentRuntimeStopImpactDto } from '../types';
 import type { ContextDiscoveryReportDto, ContextPlanTopicDto } from './contracts';
-import { Chevron, Icon, Spinner } from './icons';
+import { Chevron, Icon, Spinner, type IconName } from './icons';
 import {
-  BATCH_RUNS, batchLine, batchOrder, batchRuns, clock, currentRun, entryTimeKey, grader, kindLabel, latestReport, needsTopicReselection, nextQuestion, openCandidates, planCounts, plural, previousVersion,
+  BATCH_RUNS, batchLine, batchOrder, batchRuns, ORIGIN_LABEL, spotTitle, clock, currentRun, entryTimeKey, grader, kindLabel, latestReport, needsTopicReselection, nextQuestion, openCandidates, planCounts, plural, previousVersion,
   reportsNeedingYou, reviewItems, shortDate, shortSha, scopeForTopic, statusCard, topicSummary, topicsOutsidePlan, DOCUMENT_LINK_HOPS, type QuestionRow,
-  type StatusAction,
+  type Stat, type StatusAction,
 } from './model';
 import type { ContextActions, ContextData } from './RepositoryContextPage';
 
@@ -101,7 +101,6 @@ function StatusCardView({ data, actions, busy, pending }: { data: ContextData; a
           && <span className="rcp-status__elapsed">{clock(data.now - Date.parse(card.elapsedSince))}</span>}</div>
         {card.question !== null && <div className="rcp-status__question">“{card.question}”</div>}
         {card.body !== null && <div className="rcp-status__text">{card.body}</div>}
-        {card.batch !== null && <div className="rcp-status__batch">{card.batch}</div>}
         {(card.feed.length > 0 || card.live !== null) && <div className="rcp-feed">
           {card.feed.map((line, index) => <div className={`rcp-feed__line rcp-tone--${line.tone === 'FAILED' ? 'red' : line.tone === 'LIMIT' ? 'amber' : 'green'}`} key={index}>
             <span className="rcp-feed__mark">{line.tone === 'FAILED' ? '✕' : line.tone === 'LIMIT' ? '■' : '✓'}</span><span className="rcp-feed__text">{line.text}</span></div>)}
@@ -225,15 +224,23 @@ export function NoteApplicability({ paths }: { paths: string[] | null }) {
 /** Edit and Drop change a question no run is working on; neither starts a run. */
 export type QuestionChanges = { edit: (row: QuestionRow) => void; drop: (row: QuestionRow) => void };
 
+const ORIGIN_ICON: Record<NonNullable<QuestionRow['origin']>, IconName> = { DISCOVERY: 'doc', LEARNING: 'spark', TASK: 'code', REVIEW: 'review', USER: 'user' };
+const STATE_TITLE: Record<QuestionRow['state'], string> = { PENDING: 'Not started', RUNNING: 'Running now', UNFINISHED: 'Unfinished · progress saved',
+  ANSWERED: 'Answered', CORRECTED: 'Corrected', DROPPED: 'Dropped' };
+
 export function QuestionLine({ row, onOpen, changes = null }: { row: QuestionRow; onOpen: (noteId: string) => void; changes?: QuestionChanges | null }) {
   const glyph = row.state === 'RUNNING' ? <Spinner size={11} /> : row.state === 'ANSWERED' ? '✓' : row.state === 'UNFINISHED' ? '◐'
     : row.state === 'CORRECTED' ? '↺' : row.state === 'DROPPED' ? '–' : '○';
-  const sub = [row.origin, row.note].filter(Boolean).join(' · ');
+  const closed = row.state === 'DROPPED' || row.state === 'CORRECTED';
+  // Provenance and reasons stay on hover so rows read as questions.
+  const origin = row.origin === null ? null : [ORIGIN_LABEL[row.origin], closed ? '' : row.note].filter(Boolean).join('\n');
   return <>
-    <span className={`rcp-q__glyph${row.state === 'ANSWERED' ? ' is-done' : row.state === 'UNFINISHED' ? ' is-partial' : ''}`} aria-hidden="true">{glyph}</span>
-    <span className={`rcp-q__text${row.state === 'DROPPED' || row.state === 'CORRECTED' ? ' is-closed' : ''}`}>{row.text}
-      {sub && <span className="rcp-q__sub">{sub}</span>}</span>
-    <span className={`rcp-q__meta is-${row.metaTone}`}>{row.meta}</span>
+    <span className={`rcp-q__glyph${row.state === 'ANSWERED' ? ' is-done' : row.state === 'UNFINISHED' ? ' is-partial' : ''}`} title={STATE_TITLE[row.state]}>{glyph}</span>
+    <span className={`rcp-q__text${closed ? ' is-closed' : ''}`}>{row.text}
+      {origin !== null && <span className="rcp-q__origin" title={origin} aria-label={origin} role="img"><Icon name={ORIGIN_ICON[row.origin]} size={12} /></span>}</span>
+    {row.spot !== null && !closed && row.state !== 'RUNNING' && <span className={`rcp-q__order${row.spot.position === 1 ? ' is-next' : ''}`} title={spotTitle(row.spot)}
+      aria-label={spotTitle(row.spot)} role="img">{row.spot.position === row.spot.count && row.spot.count > 1 && <Icon name="flag" size={10} />}{row.spot.position}</span>}
+    {row.meta && <span className={`rcp-q__meta is-${row.metaTone}`} title={closed && row.note ? row.note : undefined}>{row.meta}</span>}
     {row.noteId !== null && <button type="button" className="rcp-link" onClick={() => onOpen(row.noteId)}>Open note</button>}
     {changes !== null && row.state === 'PENDING' && <button type="button" className="rcp-link" aria-label={`Edit “${row.text}”`}
       onClick={() => changes.edit(row)}>Edit</button>}
@@ -282,17 +289,24 @@ function TopicQuestions({ data, actions, busy, topic, rows, openNote }: {
   </>;
 }
 
+/** Counts as icons and numbers, each with its sentence on hover. */
+function Stats({ stats }: { stats: Stat[] }) {
+  return <span className="rcp-stats">{stats.map(stat => <span key={stat.icon} className={`rcp-stat is-${stat.icon}`} title={stat.label}
+    aria-label={stat.label} role="img"><Icon name={stat.icon} size={12} />{stat.value}</span>)}</span>;
+}
+
 function PlanSection({ data, actions, busy }: { data: ContextData; actions: ContextActions; busy: boolean }) {
   const plan = data.planView.plan;
   const running = currentRun(data.build);
   const next = nextQuestion(data.planView);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const counts = planCounts(plan);
-  const order = batchOrder(plan);
+  const order = batchOrder(plan, running === null && next !== null);
   const openNote = (id: string) => actions.openDrawer({ kind: 'note', id });
   return <section aria-label="Learning plan">
     <div className="rcp-section-head"><span className="rcp-label">LEARNING PLAN</span>
-      <span className="rcp-section-meta">{counts.answered} of {plural(counts.total, 'question')} answered · {counts.total - counts.answered} open</span>
+      <Stats stats={[{ icon: 'check', value: `${counts.answered}/${counts.total}`,
+        label: `${counts.answered} of ${plural(counts.total, 'question')} answered · ${counts.total - counts.answered} open` }]} />
       <span className="rcp-spacer" /><button type="button" className="rcp-link" onClick={() => actions.openDrawer({ kind: 'plan', tab: 'plan' })}>Sources and activity</button></div>
     <div className="rcp-list">
       {plan.topics.map(topic => {
@@ -304,8 +318,8 @@ function PlanSection({ data, actions, busy }: { data: ContextData; actions: Cont
             <Chevron open={expanded} className="rcp-topic__chev" />
             <span className="rcp-topic__main"><span className="rcp-topic__line"><span className="rcp-topic__title">{topic.title}</span>
               {summary.running && <span className="rcp-running"><Spinner size={8} />Running</span>}</span>
-              <span className="rcp-topic__meta">{summary.meta}</span></span>
-            <span className="rcp-dots" role="img" aria-label={summary.meta}>
+              <span className="rcp-topic__meta"><Stats stats={summary.stats} /></span></span>
+            <span className="rcp-dots" aria-hidden="true">
               {summary.rows.filter(row => row.state !== 'CORRECTED' && row.state !== 'DROPPED').slice(0, 12).map(row => <span key={row.index}
                 className={`rcp-dot${row.state === 'ANSWERED' ? ' is-done' : row.state === 'RUNNING' ? ' is-running' : row.state === 'UNFINISHED' ? ' is-partial' : ''}`} />)}</span>
           </button>
@@ -324,15 +338,18 @@ function PlanSection({ data, actions, busy }: { data: ContextData; actions: Cont
 function NotesSummary({ data, actions, busy }: { data: ContextData; actions: ContextActions; busy: boolean }) {
   const { notebook, times } = data;
   const entries = notebook.entries;
-  const available = entries.filter(entry => entry.enabled).length;
   const knowledge = entries.filter(entry => entry.kind === 'KNOWLEDGE').length;
+  const disabled = entries.filter(entry => !entry.enabled).length;
+  const stats: Stat[] = [{ icon: 'doc', value: knowledge, label: plural(knowledge, 'knowledge note') },
+    { icon: 'lesson', value: entries.length - knowledge, label: plural(entries.length - knowledge, 'lesson') },
+    { icon: 'off', value: disabled, label: `${disabled} disabled · not available to agents` }];
   const recent = [...entries].sort((left, right) => (times.entries[entryTimeKey(right)]?.at ?? '').localeCompare(times.entries[entryTimeKey(left)]?.at ?? '')).slice(0, 3);
   const viewAll = `View all ${plural(entries.length, 'note')}`;
   const restore = (entryId: string): void => void actions.mutate(revision => window.bridge.restoreRepositoryContextEntry(data.workspaceId, { expectedRevision: revision, entryId }),
     'Previous version restored · agents see it on their next lookup · no agent run');
   return <section aria-label="Notes">
     <div className="rcp-section-head"><span className="rcp-label">NOTES · {entries.length}</span>
-      <span className="rcp-section-meta">{available} available to agents · {knowledge} knowledge · {plural(entries.length - knowledge, 'lesson')}</span>
+      <Stats stats={stats.filter(stat => stat.value !== 0)} />
       <span className="rcp-spacer" />
       {entries.length > 0 && <button type="button" className="rcp-link" onClick={() => actions.openTab('notes')}>{viewAll} →</button>}</div>
     {entries.length === 0 ? <div className="rcp-empty">No notes yet. Notes that learning runs and development tasks save appear here, available to development and review agents.</div>
@@ -492,7 +509,7 @@ function SuggestedTopics({ data, actions, busy, report, topics }: { data: Contex
         <div className="rcp-bar__line"><Icon name="bolt" size={12} className="rcp-bolt" />
           <span>{needsReselection ? 'Discard the earlier plan and reselect topics; saved notes are kept'
             : newerDiscovery ? 'Finish or discard the current plan to learn from this newer discovery'
-            : data.model.blocker ?? `${plan === null ? 'Saves a learning plan, then runs' : 'Adds them to your plan, then runs'} ${batchLine(batchRuns(plan, questions), null, null, data.model.label)}`}</span>
+            : data.model.blocker ?? `${plan === null ? 'Saves a learning plan, then runs' : 'Adds them to your plan, then runs'} ${batchLine(batchRuns(plan, questions), data.model.label)}`}</span>
           <span className="rcp-sep">·</span>
           <button type="button" className="rcp-link" aria-expanded={limitsOpen} onClick={() => setLimitsOpen(value => !value)}>How runs work</button></div>
       </div>

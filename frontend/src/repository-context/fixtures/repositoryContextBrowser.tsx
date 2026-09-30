@@ -603,9 +603,9 @@ const scenarios: Array<[string, () => Promise<void>]> = [
   ['one Continue learning click runs every open question, starting with the saved next one', async () => {
     await render('review');
     assert(text().includes('Run 4 reached its source limit'), 'Saved historical limit outcomes remain truthful');
-    assert(text().includes('6 runs, one per open question, starting with Iceberg connector · “How are delete files applied during reads?” (resumes saved progress) '
-      + 'and ending with “Which conflicts does a commit retry treat as safe?”, then any questions the runs add, up to 30')
-      && text().includes('Stop ends the batch'), 'The run line counts the batch and names its first and last question');
+    assert(text().includes('6 runs, one per open question, plus any the runs add (up to 30)') && text().includes('Stop ends the batch'), 'The run line counts the batch');
+    assert(document.querySelector('.rcp-q__order.is-next[aria-label="Runs next in this batch"]') !== null
+      && document.querySelector('.rcp-q__order[aria-label="Runs last in this batch, #6"]') !== null, 'The plan previews what one click runs and where it ends');
     await click('Continue learning');
     assert(state.calls.starts.length === 1 && state.calls.starts[0].kind === 'continue', 'Continue sends one request');
   }],
@@ -621,23 +621,27 @@ const scenarios: Array<[string, () => Promise<void>]> = [
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value);
       input.dispatchEvent(new Event('input', { bubbles: true }));
     };
-    assert(text(topic()).includes('Corrected') && text(topic()).includes('Only metadata commits retry'), 'A corrected question stays visible with its reason');
-    assert(text(topic()).includes(`from a learning run · Replaces “${CORRECTED}”`), 'A follow-up says where it came from');
-    assert(text(topic()).includes('2 of 4 questions answered'), 'The corrected question no longer counts');
+    const origin = (label: string) => [...topic().querySelectorAll('.rcp-q__origin')].some(icon => icon.getAttribute('aria-label') === label);
+    assert(topic().querySelector('.rcp-q__meta[title^="Only metadata commits retry"]') !== null && !text(topic()).includes('Only metadata commits retry'),
+      'A corrected question keeps its reason on hover');
+    assert(origin(`From a learning run\nReplaces “${CORRECTED}”`) && !text(topic()).includes('Replaces'), 'A follow-up says where it came from on hover');
+    assert(!text(topic()).includes('Not started'), 'Rows leave unstarted questions to their glyph');
+    assert(topic().querySelector('.rcp-stat[aria-label="2 of 4 questions answered"]')?.textContent === '2/4' && !text(topic()).includes('questions answered'),
+      'The corrected question no longer counts, and the count is an icon and a number');
     assert(![...topic().querySelectorAll('button')].some(button => button.getAttribute('aria-label') === 'Edit “How are delete files applied during reads?”'),
       'A started question cannot be edited');
     type(topic().querySelector('input[aria-label="Add a question to Iceberg connector"]'), '  How are orphan files removed?  ');
     await settle();
     await click('Add question', topic());
     assert((state.calls.questions[0] as { text: string }).text === 'How are orphan files removed?', 'Add sends the trimmed question');
-    assert(text(topic()).includes('How are orphan files removed?added by you'), 'The added question appears at once');
+    assert(text(topic()).includes('How are orphan files removed?') && origin('Added by you'), 'The added question appears at once');
     await click('Edit “How are orphan files removed?”', topic());
     type(topic().querySelector('input[aria-label="Question"]'), 'How are orphan and expired files removed?');
     await settle();
     await click('Save', topic());
     assert((state.calls.questions[1] as { question: number }).question === 5 && text(topic()).includes('How are orphan and expired files removed?'), 'Edit rewrites that question');
     await click('Drop “How are orphan and expired files removed?”', topic());
-    assert(text(topic()).includes('added by you · Dropped by you'), 'A dropped question stays visible');
+    assert(topic().querySelector('.rcp-q__meta[title="Dropped by you"]') !== null, 'A dropped question stays visible');
     assert(state.calls.starts.length === 0, 'Changing questions starts no run');
     await click('Go deeper', topic());
     assert(state.calls.starts.map(start => start.kind).join() === 'deeper'
@@ -646,9 +650,8 @@ const scenarios: Array<[string, () => Promise<void>]> = [
   ['a running learning question shows its question and can be stopped', async () => {
     await render('learning');
     assert(text().includes('Learning · Iceberg connector') && text().includes('“How are delete files applied during reads?”'), 'The card names the running question');
-    assert(text().includes('run 1 of 6 in this batch') && text().includes('Up next: “In what order do optimizer rules run?”, then 4 more questions, '
-      + 'ending with “Which conflicts does a commit retry treat as safe?”.'), 'The card says where the batch goes next and where it ends');
-    assert(text().includes('Last in this batch · #5'), 'The plan marks the question the batch ends with');
+    assert(text().includes('run 1 of 6 in this batch'), 'The card counts the batch');
+    assert(document.querySelector('.rcp-q__order[aria-label="Runs last in this batch, #5"]') !== null, 'The plan marks the question the batch ends with');
     await click('View details');
     await click('Plan', drawer());
     await click('How runs work', drawer());

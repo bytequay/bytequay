@@ -240,9 +240,9 @@ question that is open or unfinished at that moment, one run per question in the
 plan's order, then the questions runs and the user add while it runs, at most 30
 runs per click. It never runs a question twice, so a question it leaves
 unfinished waits for a later click. The run line shows how many runs the click
-starts and names the first and last question; while the batch runs, the page
-shows the question up next and the one the batch ends with, and marks each
-queued question's place in the plan. Go deeper runs only its own question. The next run starts when the previous one ends and its worktree is
+starts. Each queued question carries its place in the batch as a number, the
+last one with a flag, and before a click the plan previews what one click
+would run. Go deeper runs only its own question. The next run starts when the previous one ends and its worktree is
 cleaned up; meanwhile the page names the question that starts next and keeps
 checking, so the gap does not look like a stop. A run that reaches a limit or
 saves progress leaves its question unfinished for a later batch, and the batch
@@ -516,13 +516,14 @@ implementation extends its existing patterns rather than the old settings page.
   deeper and an Explore send; a batch's run line says how many runs it starts.
   Edit, restore, keep, disable, question edits and source approval never carry
   it and say that no agent runs.
-- **Learning plan.** Each question shows its state and, when it did not come
-  from discovery, its origin; a corrected question shows why and a filed one its
-  lead. A topic offers adding a question, editing or dropping an open one, and
+- **Learning plan.** Each question shows its state as a glyph and, when it did
+  not come from discovery, its origin as an icon; why a question was corrected
+  or dropped, and a filed question's lead, show on hover. A topic offers adding a question, editing or dropping an open one, and
   Go deeper. A running batch shows which of its questions it is on.
 - **Counts.** Questions answered, pages opened and notes saved stay separate;
-  there is no completion percentage. Run limits appear in the selection bar and
-  the learning drawer.
+  there is no completion percentage. The plan, each topic and Notes show their
+  counts as an icon and a number, with the sentence on hover. Run limits appear
+  in the selection bar and the learning drawer.
 - **Learning tasks.** Discovery and learning runs appear as a distinct Learning
   type in Tasks. Selecting one opens its retained activity in Repository context.
   These are read-only workflow views with Stop for the current run; they never

@@ -14,6 +14,7 @@
 import { displayModelName, effortLabel, providerAvailable, providerRemedy } from '../settings/model';
 import { ago, relativeTime } from '../relativeTime';
 import type { ModelSettingsDto } from '../types';
+import type { IconName } from './icons';
 import type {
   ContextActivityDto, ContextBaselineDto, ContextPlanQuestionDto, ContextWebLookupsDto, ContextBuildViewDto, ContextClaimDto, ContextDiscoveryReportDto, ContextEntryDto, ContextGradeDto,
   ContextLearningPlanDto, ContextLearningPlanViewDto, ContextMergedCandidatesDto, ContextPlanTopicDto, ContextQuestionTarget, ContextReportedNoteDto, ContextRunDto,
@@ -125,14 +126,17 @@ export type Tone = 'amber' | 'green' | 'gray' | 'blue' | 'red' | 'purple' | 'ora
 export type QuestionRow = {
   topicId: string; index: number; text: string;
   state: 'PENDING' | 'RUNNING' | 'UNFINISHED' | 'ANSWERED' | 'CORRECTED' | 'DROPPED';
+  /** A short state label, empty when the row's glyph says it. */
   meta: string; metaTone: 'muted' | 'blue' | 'amber' | 'plain';
   noteId: string | null;
-  /** Where the question came from, when not discovery, and why it exists or ended. */
-  origin: string | null; note: string;
+  /** Where the question came from, when not discovery, and why it exists or ended; the row shows both on hover. */
+  origin: ContextPlanQuestionDto['origin'] | null; note: string;
+  /** Its place in the running batch, or in the batch one click would start. */
+  spot: BatchSpot | null;
 };
 
-const ORIGIN: Record<ContextPlanQuestionDto['origin'], string | null> = {
-  DISCOVERY: null, LEARNING: 'from a learning run', TASK: 'from a task', REVIEW: 'from a review', USER: 'added by you',
+export const ORIGIN_LABEL: Record<ContextPlanQuestionDto['origin'], string> = {
+  DISCOVERY: 'From discovery', LEARNING: 'From a learning run', TASK: 'From a task', REVIEW: 'From a review', USER: 'Added by you',
 };
 
 /** Questions a batch still runs. */
@@ -171,23 +175,18 @@ export function batchRemaining(plan: ContextLearningPlanDto): ContextQuestionTar
 
 export type BatchSpot = { position: number; count: number };
 
-/** Each question the saved batch has yet to run, keyed topic:index, with its place in the order. */
-export function batchOrder(plan: ContextLearningPlanDto | null): Map<string, BatchSpot> {
-  const remaining = plan === null ? [] : batchRemaining(plan);
+/**
+ * Each question the saved batch has yet to run, keyed topic:index, with its place in the order; without a batch and with
+ * preview, the questions one click would run.
+ */
+export function batchOrder(plan: ContextLearningPlanDto | null, preview = false): Map<string, BatchSpot> {
+  const remaining = plan === null ? [] : plan.batch !== null ? batchRemaining(plan) : preview ? openTargets(plan).slice(0, BATCH_RUNS) : [];
   return new Map(remaining.map((target, index) => [`${target.topicId}:${target.question}`, { position: index + 1, count: remaining.length }]));
 }
 
-/** Where the saved batch goes after its current run, or after the run it is starting, and where it ends; null without a batch. */
-export function batchPath(plan: ContextLearningPlanDto | null, starting = false): string | null {
-  if (plan === null || plan.batch === null) return null;
-  const remaining = batchRemaining(plan).slice(starting ? 1 : 0);
-  if (remaining.length === 0) {
-    return plan.batch.alone ? 'This batch runs only this question.' : 'Nothing else is queued in this batch; questions this run adds run next.';
-  }
-  const next = `Up next: “${questionText(plan, remaining[0])}”`;
-  const joins = plan.batch.alone ? '' : ' Questions added while it runs join the end.';
-  return remaining.length === 1 ? `${next}, then the batch ends.${joins}`
-    : `${next}, then ${plural(remaining.length - 1, 'more question')}, ending with “${questionText(plan, remaining[remaining.length - 1])}”.${joins}`;
+/** How a batch badge reads on hover. */
+export function spotTitle(spot: BatchSpot): string {
+  return spot.position === 1 ? 'Runs next in this batch' : spot.position === spot.count ? `Runs last in this batch, #${spot.position}` : `Runs #${spot.position} in this batch`;
 }
 
 /** Questions that count toward a topic: corrected ones were replaced and dropped ones are no longer asked. */
@@ -197,28 +196,26 @@ const counted = (question: ContextPlanQuestionDto): boolean => question.status !
 export function questionRow(topic: ContextPlanTopicDto, index: number, runs: ContextRunDto[], running: ContextRunDto | null,
   notebook: RepositoryNotebookDto, order: Map<string, BatchSpot> = new Map()): QuestionRow {
   const question = topic.questions[index];
-  const base: Pick<QuestionRow, 'topicId' | 'index' | 'text' | 'noteId' | 'origin' | 'note'> = { topicId: topic.id, index, text: question.text, noteId: null,
-    origin: ORIGIN[question.origin], note: question.note };
+  const base: Pick<QuestionRow, 'topicId' | 'index' | 'text' | 'noteId' | 'origin' | 'note' | 'spot'> = { topicId: topic.id, index, text: question.text,
+    noteId: null, origin: question.origin === 'DISCOVERY' ? null : question.origin, note: question.note, spot: order.get(`${topic.id}:${index}`) ?? null };
   if (running?.question?.topicId === topic.id && running.question.index === index) {
     return { ...base, state: 'RUNNING', meta: 'Running now', metaTone: 'blue' };
   }
   if (question.status === 'CORRECTED') return { ...base, state: 'CORRECTED', meta: 'Corrected', metaTone: 'muted' };
   if (question.status === 'DROPPED') return { ...base, state: 'DROPPED', meta: 'Dropped', metaTone: 'muted' };
-  const spot = order.get(`${topic.id}:${index}`);
-  if (spot !== undefined && (question.status === 'PENDING' || question.status === 'UNFINISHED')) {
-    const meta = spot.position === 1 ? 'Up next in this batch' : spot.position === spot.count ? `Last in this batch · #${spot.position}` : `#${spot.position} in this batch`;
-    return { ...base, state: question.status, meta, metaTone: 'blue' };
-  }
-  if (question.status === 'UNFINISHED') return { ...base, state: 'UNFINISHED', meta: 'Unfinished · progress saved', metaTone: 'amber' };
-  if (question.status === 'PENDING') return { ...base, state: 'PENDING', meta: 'Not started', metaTone: 'muted' };
+  if (question.status === 'UNFINISHED') return { ...base, state: 'UNFINISHED', meta: 'Unfinished', metaTone: 'amber' };
+  if (question.status === 'PENDING') return { ...base, state: 'PENDING', meta: '', metaTone: 'muted' };
   const answered = latestRun(runs, run => run.question?.topicId === topic.id && run.question.index === index
     && (run.outcome === 'ANSWERED' || run.outcome === 'NO_NOTE'));
-  if (answered === null) return { ...base, state: 'ANSWERED', meta: 'Answered', metaTone: 'plain' };
+  if (answered === null) return { ...base, state: 'ANSWERED', meta: '', metaTone: 'plain' };
   const entry = notebook.entries.find(value => answered.noteIds.includes(value.id));
-  return { ...base, state: 'ANSWERED', meta: answered.outcome === 'NO_NOTE' ? 'Answered · no reusable note' : 'Answered', metaTone: 'plain', noteId: entry?.id ?? null };
+  return { ...base, state: 'ANSWERED', meta: answered.outcome === 'NO_NOTE' ? 'No reusable note' : '', metaTone: 'muted', noteId: entry?.id ?? null };
 }
 
-export type TopicSummary = { topic: ContextPlanTopicDto; rows: QuestionRow[]; answered: number; unfinished: number; running: boolean; meta: string };
+/** A count shown as an icon and a number; its sentence is the tooltip and what screen readers read. */
+export type Stat = { icon: IconName; value: number | string; label: string };
+
+export type TopicSummary = { topic: ContextPlanTopicDto; rows: QuestionRow[]; running: boolean; stats: Stat[] };
 
 export function topicSummary(topic: ContextPlanTopicDto, runs: ContextRunDto[], running: ContextRunDto | null, notebook: RepositoryNotebookDto,
   order: Map<string, BatchSpot> = new Map()): TopicSummary {
@@ -229,9 +226,11 @@ export function topicSummary(topic: ContextPlanTopicDto, runs: ContextRunDto[], 
   const noteIds = new Set(runs.filter(run => run.question?.topicId === topic.id).flatMap(run => run.noteIds));
   const notes = notebook.entries.filter(entry => noteIds.has(entry.id)).length;
   const queued = topic.questions.filter((_, index) => order.has(`${topic.id}:${index}`)).length;
-  const meta = `${answered} of ${plural(total, 'question')} answered`
-    + (unfinished ? ` · ${unfinished} unfinished` : '') + (notes ? ` · ${plural(notes, 'note')} saved` : '') + (queued ? ` · ${queued} in this batch` : '');
-  return { topic, rows, answered, unfinished, running: rows.some(row => row.state === 'RUNNING'), meta };
+  const stats: Stat[] = [{ icon: 'check', value: `${answered}/${total}`, label: `${answered} of ${plural(total, 'question')} answered` },
+    { icon: 'pause', value: unfinished, label: `${unfinished} unfinished · progress saved` },
+    { icon: 'doc', value: notes, label: `${plural(notes, 'note')} saved` },
+    { icon: 'bolt', value: queued, label: `${plural(queued, 'question')} queued in this batch` }];
+  return { topic, rows, running: rows.some(row => row.state === 'RUNNING'), stats: stats.filter(stat => stat.value !== 0) };
 }
 
 /** One click runs each open question in turn, at most this many. */
@@ -244,15 +243,8 @@ export function batchRuns(plan: ContextLearningPlanDto | null, adding = 0): numb
 }
 
 /** The run line of a batch-starting action. */
-export function batchLine(runs: number, first: string | null, last: string | null, model: string): string {
-  const span = first === null ? '' : last === null ? `, starting with ${first}` : `, starting with ${first} and ending with ${last}`;
-  return `${plural(runs, 'run')}, one per open question${span}, then any questions the runs add, up to ${BATCH_RUNS} · ${model} · Stop ends the batch`;
-}
-
-/** The last question a click would run within its 30 runs, when it differs from the first. */
-export function lastInBatch(plan: ContextLearningPlanDto): string | null {
-  const order = openTargets(plan).slice(0, BATCH_RUNS);
-  return order.length > 1 ? `“${questionText(plan, order[order.length - 1])}”` : null;
+export function batchLine(runs: number, model: string): string {
+  return `${plural(runs, 'run')}, one per open question, plus any the runs add (up to ${BATCH_RUNS}) · ${model} · Stop ends the batch`;
 }
 
 /**
@@ -391,8 +383,6 @@ export type StatusCard = {
   icon: 'search' | 'check' | 'doc' | 'pause' | 'review' | 'alert' | 'spin';
   tone: 'gray' | 'green' | 'blue' | 'amber' | 'red';
   headline: string; elapsedSince: string | null; question: string | null; body: string | null;
-  /** Where a running batch goes next and where it ends. */
-  batch: string | null;
   steps: boolean; how: boolean;
   primary: null | { label: string; bolt: boolean; action: StatusAction };
   secondary: null | { label: string; bolt: boolean; action: StatusAction };
@@ -412,7 +402,7 @@ export type StatusInput = {
   planView: ContextLearningPlanViewDto; now: number;
 };
 
-const blank: StatusCard = { icon: 'doc', tone: 'gray', headline: '', elapsedSince: null, question: null, body: null, batch: null, steps: false, how: false,
+const blank: StatusCard = { icon: 'doc', tone: 'gray', headline: '', elapsedSince: null, question: null, body: null, steps: false, how: false,
   primary: null, secondary: null, details: null, stop: false, runLine: null, feed: [], live: null, foot: null, sourceApproval: null, disable: null };
 
 export function coverageFoot(report: ContextDiscoveryReportDto): string {
@@ -431,7 +421,7 @@ function lastRunSentence(run: ContextRunDto, question: string): string {
     case 'NO_NOTE': return `answered “${question}” without a reusable note.`;
     case 'STOPPED': return `was stopped during “${question}”. Progress is saved.`;
     case 'UNFINISHED': return `saved progress on “${question}”.`;
-    case 'FAILED': return `failed during “${question}”${run.detail ? `: ${run.detail}` : '.'}`;
+    case 'FAILED': return `failed during “${question}”.`;
     default: return `worked on “${question}”.`;
   }
 }
@@ -467,7 +457,6 @@ export function statusCard(input: StatusInput): StatusCard {
       return { ...card, headline: `Learning · ${running.question.topicTitle}`, question: running.question.text,
         body: `Run ${running.sequence} · question ${running.question.index + 1} of ${total} in this topic${resumed}`
           + (batch === null ? '' : ` · run ${batch.ran.length} of ${batch.ran.length + batchRemaining(plan).length} in this batch`),
-        batch: batchPath(plan),
         details: { label: 'View details', action: 'plan-activity' },
         foot: { text: 'Notes are saved as they finish. Stopping keeps the plan and every saved note.', link: null } };
     }
@@ -484,8 +473,7 @@ export function statusCard(input: StatusInput): StatusCard {
   const upcoming = batchNext(plan, build);
   if (upcoming !== null) {
     return { ...blank, icon: 'spin', tone: 'blue', headline: 'Starting the next question', question: upcoming.question,
-      body: `${upcoming.topic} · run ${upcoming.run} of ${upcoming.total} in this batch. It starts once the last run’s worktree is cleaned up.`,
-      batch: batchPath(plan, true),
+      body: `${upcoming.topic} · run ${upcoming.run} of ${upcoming.total} in this batch · starts in a moment`,
       runLine: `Started by you · ${model} · Stop is available once it starts` };
   }
   if (report === null && plan === null && available === 0) {
@@ -546,7 +534,7 @@ export function statusCard(input: StatusInput): StatusCard {
   }
   else if (last?.outcome === 'FAILED') {
     card = { ...blank, icon: 'alert', tone: 'red', headline: `Run ${last.sequence} failed`,
-      body: `${last.detail ? last.detail + ' ' : ''}Progress and saved notes are kept.` };
+      body: 'Progress and saved notes are kept. Plan details shows what happened.' };
   }
   else if (last !== null) {
     const topic = active.topics.find(value => value.id === last.question?.topicId);
@@ -559,7 +547,7 @@ export function statusCard(input: StatusInput): StatusCard {
   }
   if (next !== null) {
     card.primary = { label: 'Continue learning', bolt: true, action: 'continue' };
-    card.runLine = batchLine(batchRuns(active), `${next.topic.title} · “${next.text}”${next.resumes ? ' (resumes saved progress)' : ''}`, lastInBatch(active), model);
+    card.runLine = batchLine(batchRuns(active), model);
   }
   else {
     card = { ...card, icon: 'check', tone: 'green', headline: 'All planned questions answered',

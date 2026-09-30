@@ -180,8 +180,9 @@ public class ContextBuildTools
                 new ReviewTool("repository_context_progress", "Save the current approved learning question's checkpoint regularly and after saving notes. "
                         + "completed=true means this question is answered; otherwise progress states what was established and precisely what the next run "
                         + "should investigate. When the question's assumption does not hold or the question is too broad, pass correction with the "
-                        + "reason, the readIds that show it and one to three questions that replace it, instead of bending an answer to fit. Pass up to "
-                        + "three followUps, each with the readIds that raised it, for questions this topic should also answer. This never starts another run.",
+                        + "reason, one to three readIds that show it and one to three questions that replace it, instead of bending an answer to fit. "
+                        + "Pass up to three followUps, each with one to three readIds that raised it, for questions this topic should also answer. "
+                        + "This never starts another run.",
                         schema(ImmutableMap.of("progress", textSchema(2000), "completed", ImmutableMap.of("type", "boolean"),
                                 "gaps", stringArray(20, 1000),
                                 "correction", schema(ImmutableMap.of("reason", textSchema(600), "sourceIds", stringArray(3, 100),
@@ -1079,7 +1080,9 @@ public class ContextBuildTools
     private static List<String> strings(JsonNode args, String key, int maximumItems, int maximumBytes)
     {
         JsonNode values = args.get(key);
-        checkArgument(values != null && values.isArray() && values.size() <= maximumItems, "%s: required bounded array", key);
+        checkArgument(values != null && values.isArray(), "%s: required array", key);
+        // The limit is in the message: an agent that cites one read too many can only fix what it is told.
+        checkArgument(values.size() <= maximumItems, "%s: at most %s items, got %s", key, maximumItems, values.size());
         ImmutableList.Builder<String> result = ImmutableList.builder();
         values.forEach(value -> result.add(string(value, key, maximumBytes, false)));
         List<String> list = result.build();

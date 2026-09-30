@@ -477,6 +477,8 @@ class TestContextBuildTools
                 + "\"sourceIds\":[\"" + readId + "\"],\"questions\":[\"Which file defines the build?\"]},\"followUps\":[{\"question\":\"Where are the tests?\","
                 + "\"sourceIds\":[\"" + readId + "\"]}]}";
         assertThat(progress(correction.replace(readId, "context-read:unknown")).path("error").path("message").textValue()).contains("not a read of this run");
+        String overCited = correction.replace("\"sourceIds\":[\"" + readId + "\"],\"questions\"", "\"sourceIds\":[\"a\",\"b\",\"c\",\"d\"],\"questions\"");
+        assertThat(progress(overCited).path("error").path("message").textValue()).isEqualTo("sourceIds: at most 3 items, got 4");
         assertThat(progress(correction).has("error")).isFalse();
         verify(learning).progress(any(), eq("The manifest lists no module."), eq(false), eq(ImmutableList.of()),
                 eq(Optional.of(new ContextLearningService.Correction("There is no module list. Cited: pom.xml:1-1", ImmutableList.of("Which file defines the build?")))),

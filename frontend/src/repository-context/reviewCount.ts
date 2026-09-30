@@ -12,13 +12,14 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import { pendingCounts } from './model';
+import type { ContextReportedNoteDto } from './contracts';
+import { latestReport, pendingCounts, reportsNeedingYou } from './model';
 
 /** Every page that changes notes tells the sidebar count and Home to re-read them. */
 export const CONTEXT_CHANGED = 'bytequay:repository-context-changed';
 
-/** What waits for the user in Repository context, from local notebook and plan reads only. */
-export type ContextReview = { sources: number; total: number; latestAt: string | null; useInDevelopment: boolean };
+/** What waits for the user in Repository context, from local notebook, plan and report reads only. */
+export type ContextReview = { sources: number; reports: number; total: number; latestAt: string | null; useInDevelopment: boolean };
 
 /** Re-read on a change, on window focus, or when {@code refresh} changes; null until the first read lands. */
 export function useContextReview(workspaceId: string | null, refresh: unknown): ContextReview | null {
@@ -28,11 +29,15 @@ export function useContextReview(workspaceId: string | null, refresh: unknown): 
     let live = true;
     // A failed read, even a synchronous one, leaves the last summary; the count never breaks the page it sits on.
     const load = (): void => void Promise.resolve().then(() => Promise.all([window.bridge.getRepositoryContext(workspaceId),
-      window.bridge.getRepositoryContextLearningPlan(workspaceId)]))
-      .then(([notebook, view]) => {
+      window.bridge.getRepositoryContextLearningPlan(workspaceId),
+      // A failed report read still leaves the source proposals counted.
+      Promise.resolve().then(() => window.bridge.getRepositoryContextReports(workspaceId)).catch((): ContextReportedNoteDto[] => [])]))
+      .then(([notebook, view, reports]) => {
         if (!live) return;
-        const stamps = (view.plan?.documentInventory.suggestions ?? []).map(suggestion => suggestion.foundAt);
-        setRead({ workspaceId, review: { ...pendingCounts(view.plan), latestAt: stamps.sort().at(-1) ?? null, useInDevelopment: notebook.useInDevelopment } });
+        const mine = reportsNeedingYou(notebook, reports);
+        const stamps = [...(view.plan?.documentInventory.suggestions ?? []).map(suggestion => suggestion.foundAt),
+          ...mine.map(report => latestReport(report)?.gradedAt).filter(at => at !== undefined)];
+        setRead({ workspaceId, review: { ...pendingCounts(view.plan, mine), latestAt: stamps.sort().at(-1) ?? null, useInDevelopment: notebook.useInDevelopment } });
       })
       .catch(() => {});
     const onChange = (event: Event) => { if (!(event instanceof CustomEvent) || event.detail === workspaceId) load(); };

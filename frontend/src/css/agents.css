@@ -3974,6 +3974,11 @@ button:is(.agt-type-chip, .agt-type-tile) {
 .agt-context-card__entries li { display: flex; flex-wrap: wrap; gap: 0 5px; }
 .agt-context-card__entries small { flex-basis: 100%; }
 .agt-context-card__hint { margin: 6px 0; }
+.agt-context__wrong { margin-left: auto; }
+.agt-context__wrong:focus-visible { outline: 2px solid var(--control-strong); outline-offset: 2px; }
+.agt-context__report { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
+.agt-context__report .bq-input { flex: 1; min-width: 160px; }
+.agt-context__report [role=alert] { color: #cf222e; }
 
 [data-review-card]:focus,
 [data-local-review-thread]:focus,

@@ -27,10 +27,13 @@ import type {
   ContextUsageWindow,
   ContextDiscoveryReportDto,
   ContextLearningPlanViewDto,
+  ContextReportedNoteDto,
   ContextTimesDto,
   DeclineContextLearningSourceRequest,
   DisableRepositoryContextRunNotesRequest,
   EditRepositoryContextEntryRequest,
+  KeepRepositoryContextEntryRequest,
+  ReportRepositoryContextNoteRequest,
   RepositoryNotebookDto,
   RestoreRepositoryContextEntryRequest,
   SaveRepositoryContextLessonRequest,
@@ -1653,6 +1656,9 @@ export type Bridge = JiraBridge & {
   editRepositoryContextEntry: (workspaceId: string, request: EditRepositoryContextEntryRequest) => Promise<RepositoryNotebookDto>;
   setRepositoryContextEntryEnabled: (workspaceId: string, request: SetRepositoryContextEntryEnabledRequest) => Promise<RepositoryNotebookDto>;
   restoreRepositoryContextEntry: (workspaceId: string, request: RestoreRepositoryContextEntryRequest) => Promise<RepositoryNotebookDto>;
+  keepRepositoryContextEntry: (workspaceId: string, request: KeepRepositoryContextEntryRequest) => Promise<RepositoryNotebookDto>;
+  getRepositoryContextReports: (workspaceId: string) => Promise<ContextReportedNoteDto[]>;
+  reportRepositoryContextNote: (workspaceId: string, request: ReportRepositoryContextNoteRequest) => Promise<ContextReportedNoteDto[]>;
   disableRepositoryContextRunNotes: (workspaceId: string, request: DisableRepositoryContextRunNotesRequest) => Promise<RepositoryNotebookDto>;
   saveRepositoryContextLesson: (workspaceId: string, request: SaveRepositoryContextLessonRequest) => Promise<RepositoryNotebookDto>;
   setWorkspaceCommitsTarget: (workspaceId: string, branch: string) => Promise<WorkspaceCommitsTargetDto>;

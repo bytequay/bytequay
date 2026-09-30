@@ -2204,7 +2204,7 @@ Behavior: the [save rules](repository-context-refactor.md#1-one-saved-object-a-c
   notes from this run; list the notes a task saved.
 - [x] Check cited lines at the saver's base and reject updates and reports from
   a base older than the note's sources.
-- [ ] Record Helped, Not relevant, Wrong and Holds grades and the user's Wrong
+- [x] Record Helped, Not relevant, Wrong and Holds grades and the user's Wrong
   report in a task-owned table; return open reports with exact reads; show
   grade lines and Needs you.
 - [ ] Mark contested notes, record settlements, and add Investigate as a
@@ -2221,3 +2221,15 @@ undo, evidence pruning, disabling only a run's untouched additions, loading
 notebooks and times saved with approval drafts, lines missing from the task's
 merge-base, and updates from a base older than the note. No live model run was
 used.
+
+Grades and reports landed as development grading, review grading and the user
+interface. JVM 25 `mvn verify` passed 3,653 tests with no failures, errors or
+skips, and Checkstyle reported no violations. Frontend lint, TypeScript, all
+1,417 tests across 136 files, and macOS packaging passed. Regressions cover
+grading only versions a task or review received or opened, quotes checked
+against the graded version, a correction saved with its Wrong, Holds only
+against an open report, reports closed by any newer version, review citations
+at the captured monitored baseline, open reports on exact reads, user reports
+from task and review activity, Keep, grade counts per distinct task, grades
+deleted with their task, and the Needs you rows, grade lines and the task
+panel's Wrong action. No live model run was used.

@@ -22,15 +22,16 @@ import '../css/repository-context.css';
 
 const open = (workspaceId: string) => { window.location.hash = workspaceRoute(workspaceId, 'context'); };
 
-/** Home's Needs attention row for source proposals; it opens the Overview, where Needs you lists them. */
+/** Home's Needs attention row for source proposals and reports on notes the user wrote; it opens the Overview, where Needs you lists them. */
 export function ContextReviewRow({ workspaceId, review }: { workspaceId: string; review: ContextReview }) {
-  const title = `${plural(review.sources, 'source')} to review`;
+  const title = `${[review.sources ? plural(review.sources, 'source') : '', review.reports ? plural(review.reports, 'reported note') : ''].filter(Boolean).join(' · ')} to review`;
+  const why = review.reports ? 'Agents can’t change a note you wrote; you decide whether it holds' : 'Learning reads a proposed source only after you allow it';
   return <div role="listitem">
     <ItemRow className="is-context" label={`Repository context: ${title}`} onOpen={() => open(workspaceId)}
       icon={<span className="card-src is-context"><FileText size={16} strokeWidth={1.9} aria-hidden="true" /></span>}
       title={title}
       marks={<Pill outline>Needs review</Pill>}
-      meta={<><span>Repository context</span><span className="item-row__sep">·</span><span className="item-row__muted">Learning reads a proposed source only after you allow it</span></>}
+      meta={<><span>Repository context</span><span className="item-row__sep">·</span><span className="item-row__muted">{why}</span></>}
       age={review.latestAt === null ? null : <CardAge at={review.latestAt} />} />
   </div>;
 }

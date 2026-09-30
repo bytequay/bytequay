@@ -17,15 +17,15 @@ import Toast from '../Toast';
 import { settingsRoute } from '../settings/routes';
 import type { ModelSettingsDto, WorkspaceDto } from '../types';
 import type {
-  ContextBaselineDto, ContextBuildViewDto, ContextDiscoveryReportDto, ContextLearningPlanViewDto, ContextMergedCandidatesDto, ContextRunDto, ContextTimesDto,
-  ContextUsageOverviewDto, ContinueContextLearningRequest, LearnContextMergedCandidateRequest, RepositoryNotebookDto, StartContextDiscoveryRequest,
+  ContextBaselineDto, ContextBuildViewDto, ContextDiscoveryReportDto, ContextLearningPlanViewDto, ContextMergedCandidatesDto, ContextReportedNoteDto, ContextRunDto,
+  ContextTimesDto, ContextUsageOverviewDto, ContinueContextLearningRequest, LearnContextMergedCandidateRequest, RepositoryNotebookDto, StartContextDiscoveryRequest,
   StartContextLearningRequest,
 } from './contracts';
 import { ContextDrawers, type Drawer } from './ContextDrawers';
 import ContextNotes from './ContextNotes';
 import ContextOverview from './ContextOverview';
 import { Icon } from './icons';
-import { currentRun, modelLine, needsTopicReselection, pendingCounts, plural, shortSha, type TaskTitles } from './model';
+import { currentRun, modelLine, needsTopicReselection, pendingCounts, plural, reportsNeedingYou, shortSha, type TaskTitles } from './model';
 import { CONTEXT_CHANGED } from './reviewCount';
 import '../css/repository-context.css';
 
@@ -54,7 +54,7 @@ export type ContextData = {
   workspaceId: string; repository: string;
   notebook: RepositoryNotebookDto; times: ContextTimesDto; build: ContextBuildViewDto; report: ContextDiscoveryReportDto | null;
   planView: ContextLearningPlanViewDto; candidates: ContextMergedCandidatesDto | null; baseline: ContextBaselineDto | null;
-  usage: ContextUsageOverviewDto | null; model: { label: string; blocker: string | null }; titles: TaskTitles; now: number;
+  usage: ContextUsageOverviewDto | null; reports: ContextReportedNoteDto[]; model: { label: string; blocker: string | null }; titles: TaskTitles; now: number;
 };
 
 /** The workspace's Repository context page. Opening it only reads saved state; every agent run starts from an explicit action. */
@@ -69,6 +69,7 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
   const [candidates, setCandidates] = useState<ContextMergedCandidatesDto | null>(null);
   const [baseline, setBaseline] = useState<ContextBaselineDto | null>(null);
   const [usage, setUsage] = useState<ContextUsageOverviewDto | null>(null);
+  const [reports, setReports] = useState<ContextReportedNoteDto[]>([]);
   const [models, setModels] = useState<ModelSettingsDto | null>(null);
   const [titles, setTitles] = useState<TaskTitles>({});
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -104,6 +105,7 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
     void window.bridge.getRepositoryContextBaseline(workspaceId).then(value => { if (mounted.current) setBaseline(value); }).catch(() => {});
     void window.bridge.getRepositoryContextMergedCandidates(workspaceId).then(value => { if (mounted.current) setCandidates(value); }).catch(() => {});
     void window.bridge.getRepositoryContextUsage(workspaceId, '30d').then(value => { if (mounted.current) setUsage(value); }).catch(() => {});
+    void Promise.resolve().then(() => window.bridge.getRepositoryContextReports(workspaceId)).then(value => { if (mounted.current) setReports(value); }).catch(() => {});
   }, [workspaceId]);
 
   useEffect(() => {
@@ -113,16 +115,17 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
     return () => { mounted.current = false; };
   }, [loadAll, workspaceId]);
 
-  // Note origins name the task that saved them; titles are read only for tasks the run history does not cover.
+  // Note origins and reports name the task behind them; titles are read only for tasks the run history does not cover.
   useEffect(() => {
     const known = new Set(build?.runs.map(run => run.taskId) ?? []);
-    const wanted = Object.values(times.entries).flatMap(stamp => stamp.taskId === null ? [] : [stamp.taskId])
+    const wanted = [...Object.values(times.entries).flatMap(stamp => stamp.taskId === null ? [] : [stamp.taskId]),
+      ...reports.flatMap(report => report.grades.filter(grade => grade.grader === 'AGENT').map(grade => grade.taskId))]
       .filter(id => !known.has(id) && titles[id] === undefined);
     for (const taskId of new Set(wanted)) {
       void window.bridge.getAgentTask(taskId, workspaceId).then(task => { if (mounted.current) setTitles(value => ({ ...value, [taskId]: task.title })); })
         .catch(() => { if (mounted.current) setTitles(value => ({ ...value, [taskId]: '' })); });
     }
-  }, [build, times, titles, workspaceId]);
+  }, [build, reports, times, titles, workspaceId]);
 
   const running = currentRun(build);
   const active = running !== null || build?.build?.task?.state === 'OPEN';
@@ -220,8 +223,8 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
   }
 
   const model = modelLine(models);
-  const data: ContextData = { workspaceId, repository, notebook, times, build, report, planView, candidates, baseline, usage, model, titles, now };
-  const counts = pendingCounts(planView.plan);
+  const data: ContextData = { workspaceId, repository, notebook, times, build, report, planView, candidates, baseline, usage, reports, model, titles, now };
+  const counts = pendingCounts(planView.plan, reportsNeedingYou(notebook, reports));
   const available = notebook.entries.filter(entry => entry.enabled).length;
   const revision = baseline === null ? null : `${baseline.branch}@${shortSha(planView.plan?.baselineSha ?? report?.baselineSha ?? baseline.sha)}`;
   const useLabel = notebook.useInDevelopment && notebook.useInReviews ? 'Used by agents'

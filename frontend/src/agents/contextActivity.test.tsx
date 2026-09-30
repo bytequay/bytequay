@@ -51,4 +51,18 @@ describe('development repository note activity', () => {
     expect(renderToStaticMarkup(<ActivityCard card={{ ...pointer, entries: [{ ...pointer.entries[0], included: true }] }} />))
       .toContain('Full note text provided');
   });
+
+  it('offers Wrong only on note versions the task received in full or opened', () => {
+    const entry = { id: 'lesson:one', version: 3, kind: 'MEMORY', scopeId: 'project', title: 'Cache checks', matchReasons: [] as string[], included: true };
+    const card = (kind: 'OFFER' | 'SEARCH' | 'READ', included = true) => parseDevelopmentContextActivity({ cards: [{
+      reference: `context-${kind}:one`, turnId: 'turn', kind, createdAt: '2026-09-24T00:00:00Z', notebookRevision: 7, delivery: 'CONFIRMED', bytes: 20,
+      query: '', paths: [], entries: [{ ...entry, included }], omittedCount: 0, scopeStates: [], warnings: [] }], hasMore: false, usageTruncated: false }).cards[0];
+    const reporter = { taskId: 'task-dev', workspaceId: 'workspace' };
+    const wrong = (html: string) => html.includes('aria-label="Report Cache checks v3 as wrong"');
+    expect(wrong(renderToStaticMarkup(<ActivityCard card={card('READ')} reporter={reporter} />))).toBe(true);
+    expect(wrong(renderToStaticMarkup(<ActivityCard card={card('OFFER')} reporter={reporter} />))).toBe(true);
+    expect(wrong(renderToStaticMarkup(<ActivityCard card={card('OFFER', false)} reporter={reporter} />))).toBe(false);
+    expect(wrong(renderToStaticMarkup(<ActivityCard card={card('SEARCH')} reporter={reporter} />))).toBe(false);
+    expect(wrong(renderToStaticMarkup(<ActivityCard card={card('READ')} />))).toBe(false);
+  });
 });

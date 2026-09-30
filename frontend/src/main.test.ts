@@ -312,6 +312,7 @@ it('routes notebook actions through authenticated workspace-scoped endpoints wit
       title: 'Project', summary: 'Summary', body: 'Corrected text', claims: [], sourceIds: [] } },
     { action: 'enabled', path: '/entries/enabled', method: 'PUT', request: { expectedRevision: 7, entryId: 'knowledge:project', enabled: false } },
     { action: 'restore', path: '/entries/restore', method: 'POST', request: { expectedRevision: 7, entryId: 'knowledge:project' } },
+    { action: 'keep', path: '/entries/keep', method: 'POST', request: { expectedRevision: 7, entryId: 'knowledge:project' } },
     { action: 'run-notes:disable', path: '/runs/disable-notes', method: 'POST', request: { expectedRevision: 7, taskId: 'learn-task' } },
     { action: 'lesson', path: '/lessons', method: 'POST', request: { expectedRevision: 7, scopeId: 'project',
       title: 'Lesson', summary: 'Summary', body: 'Conditional lesson', reviewId: 'review', runId: 'old-run', evidenceRefs: ['E2'], messageId: 'old-message' } },
@@ -321,7 +322,27 @@ it('routes notebook actions through authenticated workspace-scoped endpoints wit
     expect(fetch).toHaveBeenLastCalledWith(base + path, expect.objectContaining({ method, body: JSON.stringify(request),
       headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
   }
-  expect(fetch).toHaveBeenCalledTimes(8);
+  expect(fetch).toHaveBeenCalledTimes(9);
+});
+
+it('reads open reports and sends the user’s report of an exact version, showing the backend’s refusal', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const fetch = vi.fn(async () => new Response(JSON.stringify([])));
+  vi.stubGlobal('fetch', fetch);
+  const base = 'http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context/reports';
+  await expect(desktop.handlers.get('repository-context:reports')?.({}, 'workspace/one')).resolves.toEqual([]);
+  expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  const request = { taskId: 'task/one', entryId: 'knowledge:project', entryVersion: 3, reason: 'Wrong path' };
+  await expect(desktop.handlers.get('repository-context:report')?.({}, 'workspace/one', request)).resolves.toEqual([]);
+  expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ method: 'POST', body: JSON.stringify(request),
+    headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  expect(() => desktop.handlers.get('repository-context:report')?.({}, 'workspace/one', { ...request, grade: 'HELPED' })).toThrow('unsupported request field');
+  expect(fetch).toHaveBeenCalledTimes(2);
+  fetch.mockImplementation(async () => new Response(JSON.stringify({ message: 'Report only a note version this task received or opened' }), { status: 400 }));
+  await expect(desktop.handlers.get('repository-context:report')?.({}, 'workspace/one', request)).rejects.toThrow('Report only a note version this task received or opened');
+  fetch.mockImplementation(async () => new Response(JSON.stringify([{ entryId: 'knowledge:project', entryVersion: 3, title: 'Project', userWritten: 'yes', grades: [] }])));
+  await expect(desktop.handlers.get('repository-context:reports')?.({}, 'workspace/one')).rejects.toThrow('Malformed repository context');
 });
 
 it('rejects forged notebook mutation fields before sending and surfaces stale revisions without an automatic retry', async () => {

@@ -13,14 +13,16 @@
  */
 import { useState } from 'react';
 import MarkdownBody from '../pulls/MarkdownBody';
-import { relativeTime } from '../relativeTime';
-import type { ContextEntryDto, RepositoryNotebookDto } from './contracts';
+import { ago, relativeTime } from '../relativeTime';
+import type { ContextEntryDto, ContextGradeDto, ContextReportedNoteDto, RepositoryNotebookDto } from './contracts';
 import { Coded } from './ContextOverview';
 import { Icon } from './icons';
-import { CLAIM_TAG, entryOrigin, entryTimeKey, kindLabel, noteArea, noteDiff, previousVersion, shortDate, sourceView } from './model';
+import { CLAIM_TAG, entryOrigin, entryTimeKey, gradeLine, grader, kindLabel, noteArea, noteDiff, openReports, previousVersion, shortDate, sourceView, type TaskTitles } from './model';
 import type { ContextActions, ContextData } from './RepositoryContextPage';
 
 type Edit = { title: string; summary: string; body: string };
+
+const GRADE: Record<ContextGradeDto['grade'], string> = { HELPED: 'Helped', NOT_RELEVANT: 'Not relevant', WRONG: 'Wrong', HOLDS: 'Holds' };
 
 const bytes = (value: string) => new TextEncoder().encode(value).length;
 const invalid = (edit: Edit) => edit.title.trim() === '' || bytes(edit.title) > 200 || edit.summary.trim() === '' || bytes(edit.summary) > 1000
@@ -72,7 +74,9 @@ export default function ContextNoteDrawer({ data, actions, busy, id, onClose }: 
   const save = (edit: Edit) => act(revision => window.bridge.editRepositoryContextEntry(workspaceId, { expectedRevision: revision, id: entry.id, scopeId: entry.scopeId,
     title: edit.title.trim(), summary: edit.summary, body: edit.body, claims: entry.claims, sourceIds: entry.sourceIds }),
   `Saved as v${nextVersion} · agents see it on their next lookup`, () => setEditing(null));
-  const usage = data.usage?.entries.find(row => row.entryId === entry.id && row.currentVersion === entry.version);
+  const keep = () => act(revision => window.bridge.keepRepositoryContextEntry(workspaceId, { expectedRevision: revision, entryId: entry.id }),
+    `Kept as v${nextVersion} · reports closed · no agent run`, () => setView('current'));
+  const reported = openReports(notebook, data.reports).find(value => value.entryId === entry.id);
   const diff = previous !== undefined && view === 'changes' ? noteDiff(previous, entry) : null;
   const sources = shown.sourceIds.map(sourceId => ({ id: sourceId, ...sourceView(notebook.sourceEvidence.find(value => value.id === sourceId), sourceId) }));
   const refs = (sourceIds: string[]) => sourceIds.map(sourceId => shown.sourceIds.indexOf(sourceId) + 1).filter(n => n > 0);
@@ -95,6 +99,7 @@ export default function ContextNoteDrawer({ data, actions, busy, id, onClose }: 
     </div>
     <div className="rcp-drawer__body">
       {editing === null ? <>
+        {reported !== undefined && <Reports reported={reported} titles={data.titles} now={data.now} nextVersion={nextVersion} />}
         {origin.startsWith('Learning from merged PR') && <div className="rcp-caveat">Learned from merged work. A merged PR records a decision, not proof that every claim holds.</div>}
         {diff !== null ? <>
           <div className="rcp-diff-summary">{diff.summary}</div>
@@ -112,11 +117,8 @@ export default function ContextNoteDrawer({ data, actions, busy, id, onClose }: 
           </div>)}
         </div>
         <div className="rcp-drawer-label">USAGE · LAST 30 DAYS</div>
-        <div className="rcp-usage-line">{usage !== undefined && (usage.foundTasks || usage.openedTasks)
-          ? `Found by ${usage.foundTasks} ${usage.foundTasks === 1 ? 'task' : 'tasks'} · opened by ${usage.openedTasks}`
-            + (usage.lastConfirmedUseAt ? ` · last opened ${shortDate(usage.lastConfirmedUseAt, data.now)}` : '')
-          : 'Not found or opened by any task yet'}</div>
-        <div className="rcp-usage-note">Counts record lookups in retained tasks — not whether the note applied or changed a result.{' '}
+        <div className="rcp-usage-line">{gradeLine(data.usage, entry, data.now)}</div>
+        <div className="rcp-usage-note">Helped, not relevant and wrong count what grading tasks said about the note; a task that didn’t grade it counts in none of them.{' '}
           <button type="button" className="rcp-link" onClick={() => actions.openDrawer({ kind: 'usage' })}>All usage</button></div>
       </> : <>
         <label className="rcp-field">Title<input value={editing.title} onChange={event => setEditing({ ...editing, title: event.target.value })} /></label>
@@ -136,11 +138,41 @@ export default function ContextNoteDrawer({ data, actions, busy, id, onClose }: 
         <button type="button" className="rcp-btn" disabled={busy} onClick={toggle}>{entry.enabled ? 'Disable' : 'Enable'}</button>
         <span className="rcp-spacer" />
         {previous !== undefined && <button type="button" className="rcp-btn rcp-btn--secondary" disabled={busy} onClick={restore}>Restore previous version</button>}
+        {reported !== undefined && <button type="button" className="rcp-btn rcp-btn--secondary" disabled={busy} onClick={keep}>Keep</button>}
         <button type="button" className="rcp-btn rcp-btn--secondary" disabled={busy}
           onClick={() => setEditing({ title: entry.title, summary: entry.summary, body: entry.body })}>Edit</button>
       </div>}
     </div>
   </>;
+}
+
+/** Open Wrong reports on the current version, each quoted statement over the lines cited against it, then what later grades of that version said. */
+function Reports({ reported, titles, now, nextVersion }: { reported: ContextReportedNoteDto; titles: TaskTitles; now: number; nextVersion: number }) {
+  const wrong = reported.grades.filter(grade => grade.grade === 'WRONG');
+  // Grades come newest first, so the ones listed before the oldest report came after it.
+  const later = reported.grades.slice(0, Math.max(0, reported.grades.findLastIndex(grade => grade.grade === 'WRONG'))).filter(grade => grade.grade !== 'WRONG');
+  const key = (grade: ContextGradeDto) => `${grade.grader}:${grade.taskId}:${grade.reviewRunId ?? ''}:${grade.gradedAt}`;
+  return <section className="rcp-reports" aria-label="Reports">
+    <div className="rcp-drawer-label">REPORTS ON V{reported.entryVersion} · {wrong.length}</div>
+    <div className="rcp-sources">
+      {wrong.map(grade => <div className="rcp-source" key={key(grade)}>
+        <div className="rcp-source__main">
+          <div className="rcp-report-quote">{grade.quote === null ? <span className="rcp-source__sub">No statement quoted</span> : <>“<Coded text={grade.quote} />”</>}</div>
+          {grade.citations.map(citation => <div key={`${citation.path}:${citation.startLine}`}>
+            <span className="rcp-source__target">{citation.path}:{citation.startLine}–{citation.endLine}</span>
+            <pre className="rcp-excerpt">{citation.excerpt}</pre>
+          </div>)}
+          {grade.reason !== '' && <span className="rcp-source__sub">{grade.reason}</span>}
+          <span className="rcp-source__sub">Reported by {grader(grade, titles)} · {ago(grade.gradedAt, now)}</span>
+        </div>
+      </div>)}
+    </div>
+    {later.map(grade => <div className="rcp-why" key={key(grade)}><span className="rcp-why__mark">•</span>
+      <span>{GRADE[grade.grade]}{grade.quote !== null && <> “<Coded text={grade.quote} />”</>} · {grade.reason} · by {grader(grade, titles)} · {ago(grade.gradedAt, now)}</span></div>)}
+    <div className="rcp-usage-note">{reported.userWritten ? 'Agents can’t change a note you wrote.' : 'Agents that open this note see open reports.'} Keep saves
+      this text again as v{nextVersion}, which closes {wrong.length === 1 ? 'the report' : 'the reports'}; Edit and Disable close {wrong.length === 1 ? 'it' : 'them'} too.
+      No agent runs.</div>
+  </section>;
 }
 
 function Availability({ entry, savedAt, now }: { entry: ContextEntryDto; savedAt: string | undefined; now: number }) {

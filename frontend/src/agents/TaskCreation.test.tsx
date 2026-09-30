@@ -118,7 +118,7 @@ describe.each(['Home', 'Tasks'])('first-message feedback on %s', (surface) => {
 });
 
 describe('Explore & prepare context on Home', () => {
-  const review = { sources: 2, total: 2, latestAt: '2026-09-01T00:00:00Z', useInDevelopment: true };
+  const review = { sources: 2, reports: 0, total: 2, latestAt: '2026-09-01T00:00:00Z', useInDevelopment: true };
   const render = (overrides: Partial<React.ComponentProps<typeof AgentHomeView>>) => renderToStaticMarkup(
     <AgentHomeView {...props} draft="" images={[]} repository="bytequay/bytequay" onShowAll={() => {}} onExplore={() => {}} {...overrides} />);
 
@@ -133,8 +133,12 @@ describe('Explore & prepare context on Home', () => {
     expect(render({})).not.toContain('agt-mode-chip');
   });
 
-  it('puts waiting Repository context source proposals first in Needs attention', () => {
+  it('puts waiting Repository context source proposals and reports on notes the user wrote first in Needs attention', () => {
     expect(render({ contextReview: review })).toContain('2 sources to review');
     expect(render({ contextReview: { ...review, sources: 0, total: 0 } })).not.toContain('to review');
+    const reported = render({ contextReview: { ...review, reports: 1, total: 3 } });
+    expect(reported).toContain('2 sources · 1 reported note to review');
+    expect(reported).toContain('Agents can’t change a note you wrote');
+    expect(render({ contextReview: { ...review, sources: 0, reports: 2, total: 2 } })).toContain('>2 reported notes to review<');
   });
 });

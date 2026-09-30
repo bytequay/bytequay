@@ -12,19 +12,9 @@
  * limitations under the License.
  */
 import { useState } from 'react';
-import type { ContextEntryDto } from './contracts';
 import { Icon } from './icons';
-import { entryTimeKey, filterNotes, kindLabel, noteArea, noteGroups, plural, shortDate, type NoteFilter } from './model';
+import { entryTimeKey, filterNotes, gradeLine, kindLabel, noteArea, noteGroups, plural, shortDate, type NoteFilter } from './model';
 import type { ContextData } from './RepositoryContextPage';
-
-/** Usage counts record lookups by retained tasks; they never claim a note applied or helped. */
-export function usageLabel(data: ContextData, entry: ContextEntryDto): string {
-  const row = data.usage?.entries.find(value => value.entryId === entry.id);
-  if (row === undefined || row.currentVersion !== entry.version) return 'Not looked up yet';
-  const found = row.foundTasks;
-  const opened = row.openedTasks;
-  return found || opened ? `Found by ${plural(found, 'task')} · opened by ${opened}` : 'Not looked up yet';
-}
 
 export default function ContextNotes({ data, area, onArea, onOpen }: { data: ContextData; area: string; onArea: (area: string) => void; onOpen: (entryId: string) => void }) {
   const { notebook, times } = data;
@@ -76,7 +66,7 @@ export default function ContextNotes({ data, area, onArea, onOpen }: { data: Con
                   {!entry.enabled && <span className="rcp-chip rcp-tone--gray">Disabled</span>}</span>
                 <span className="rcp-note__summary">{entry.summary.replaceAll('`', '')}</span>
                 <span className="rcp-note__meta"><span className="rcp-note__path">{noteArea(notebook, entry.scopeId).paths.join(' · ')}</span>
-                  <span>v{entry.version}{stamp ? ` · ${shortDate(stamp.at, data.now)}` : ''}</span><span>{usageLabel(data, entry)}</span></span>
+                  <span>v{entry.version}{stamp ? ` · ${shortDate(stamp.at, data.now)}` : ''}</span><span>{gradeLine(data.usage, entry, data.now)}</span></span>
               </span>
               <span className={`rcp-kind${lesson ? ' is-lesson' : ''}`}>{kindLabel(entry.kind)}</span>
             </button>;

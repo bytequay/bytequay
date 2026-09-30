@@ -12,12 +12,12 @@
  * limitations under the License.
  */
 import { displayModelName, effortLabel, providerAvailable, providerRemedy } from '../settings/model';
-import { relativeTime } from '../relativeTime';
+import { ago, relativeTime } from '../relativeTime';
 import type { ModelSettingsDto } from '../types';
 import type {
-  ContextActivityDto, ContextBaselineDto, ContextBuildViewDto, ContextClaimDto, ContextDiscoveryReportDto, ContextEntryDto,
-  ContextLearningPlanDto, ContextLearningPlanViewDto, ContextMergedCandidatesDto, ContextPlanTopicDto, ContextQuestionTarget, ContextRunDto,
-  ContextScopeDto, ContextSourceEvidenceDto, ContextTimesDto, RepositoryNotebookDto,
+  ContextActivityDto, ContextBaselineDto, ContextBuildViewDto, ContextClaimDto, ContextDiscoveryReportDto, ContextEntryDto, ContextGradeDto,
+  ContextLearningPlanDto, ContextLearningPlanViewDto, ContextMergedCandidatesDto, ContextPlanTopicDto, ContextQuestionTarget, ContextReportedNoteDto, ContextRunDto,
+  ContextScopeDto, ContextSourceEvidenceDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto,
 } from './contracts';
 
 export const DOCUMENT_LINK_HOPS = 2;
@@ -210,9 +210,39 @@ export function reviewItems(plan: ContextLearningPlanDto | null, runs: ContextRu
   });
 }
 
-export function pendingCounts(plan: ContextLearningPlanDto | null): { sources: number; total: number } {
+/** Reports still open against the notebook as last read: a newer version of the note, or disabling it, closes them. */
+export function openReports(notebook: RepositoryNotebookDto, reports: ContextReportedNoteDto[]): ContextReportedNoteDto[] {
+  return reports.filter(report => notebook.entries.some(entry => entry.id === report.entryId && entry.version === report.entryVersion && entry.enabled));
+}
+
+/** Needs you: agents cannot change a note the user wrote, so its open reports wait for the user. */
+export function reportsNeedingYou(notebook: RepositoryNotebookDto, reports: ContextReportedNoteDto[]): ContextReportedNoteDto[] {
+  return openReports(notebook, reports).filter(report => report.userWritten);
+}
+
+/** The newest open Wrong report on a note; grades come newest first. */
+export const latestReport = (report: ContextReportedNoteDto): ContextGradeDto | undefined => report.grades.find(grade => grade.grade === 'WRONG');
+
+/** Who graded: the user, a task or review named by its title, or one whose title isn't known. */
+export function grader(grade: ContextGradeDto, titles: TaskTitles): string {
+  if (grade.grader === 'USER') return 'you';
+  const kind = grade.taskKind === 'PR_REVIEW' ? 'review' : 'task';
+  return titles[grade.taskId] ? `${kind} “${titles[grade.taskId]}”` : `a ${kind}`;
+}
+
+/** A note's reach and grades in the usage window; the grades are what grading tasks said, not a verdict. Empty until usage is read. */
+export function gradeLine(usage: ContextUsageOverviewDto | null, entry: Pick<ContextEntryDto, 'id' | 'version'>, now: number): string {
+  if (usage === null) return '';
+  const row = usage.entries.find(value => value.entryId === entry.id && value.currentVersion === entry.version);
+  if (row === undefined || row.openedTasks === 0) return 'not opened';
+  return `opened in ${plural(row.openedTasks, 'task')} · helped ${row.helpedTasks} · not relevant ${row.notRelevantTasks} · wrong ${row.wrongTasks}`
+    + (row.lastConfirmedUseAt === null ? '' : ` · last opened ${ago(row.lastConfirmedUseAt, now)}`);
+}
+
+/** What the sidebar count, Home and the page header show: source proposals and reports on notes the user wrote. */
+export function pendingCounts(plan: ContextLearningPlanDto | null, reports: ContextReportedNoteDto[] = []): { sources: number; reports: number; total: number } {
   const sources = plan?.documentInventory.suggestions.length ?? 0;
-  return { sources, total: sources };
+  return { sources, reports: reports.length, total: sources + reports.length };
 }
 
 /* ── Status card ────────────────────────────────────────────────────── */

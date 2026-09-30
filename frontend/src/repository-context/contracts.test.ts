@@ -20,11 +20,13 @@ import {
   parseContextDiscoveryReport,
   parseContextBaseline,
   parseContextLearningPlanView,
+  parseContextReportedNotes,
   parseContextTimes,
   parseContextUsageOverview,
   parseContextUsageWindow,
   parseDisableRepositoryContextRunNotesRequest,
   parseEditRepositoryContextEntryRequest,
+  parseReportRepositoryContextNoteRequest,
   parseRepositoryNotebook,
   parseRestoreRepositoryContextEntryRequest,
   parseReviewContextSnapshot,
@@ -42,7 +44,9 @@ import {
   type ContextLearningPlanDto,
   type ContextMergedCandidateDto,
   type ContextDeliveryDto,
+  type ContextGradeDto,
   type ContextHistoryReadDto,
+  type ContextReportedNoteDto,
   type ContextRunDto,
   type ContextTimesDto,
   type ContextUsageOverviewDto,
@@ -63,8 +67,16 @@ const notebook: RepositoryNotebookDto = {
 const usage: ContextUsageOverviewDto = {
   trackingSince: '2026-09-01T00:00:00Z', window: '30d',
   summary: { eligibleDevelopmentTasks: 2, eligibleReviewRuns: 1, contextOffTasks: 1, developmentTasksFoundOrOpened: 1, reviewRunsFoundOrOpened: 0 },
-  entries: [{ entryId: 'knowledge:project', title: 'Project', currentVersion: 2, foundTasks: 1, openedTasks: 1, lastConfirmedUseAt: '2026-09-02T00:00:00Z' }],
+  entries: [{ entryId: 'knowledge:project', title: 'Project', currentVersion: 2, foundTasks: 1, openedTasks: 1, lastConfirmedUseAt: '2026-09-02T00:00:00Z',
+    helpedTasks: 3, notRelevantTasks: 1, wrongTasks: 1 }],
 };
+const wrong: ContextGradeDto = { workspaceId: 'workspace', taskId: 'task-dev', reviewRunId: null, taskKind: 'DEVELOPMENT', grader: 'AGENT', grade: 'WRONG',
+  note: { id: 'knowledge:project', version: 2, kind: 'KNOWLEDGE', scopeId: 'project', title: 'Project' }, reason: 'The cache is per query.',
+  quote: 'Keep the condition.', citations: [{ path: 'src/Cache.java', startLine: 12, endLine: 13, commit: 'a'.repeat(40), excerpt: '12  refresh();\n13  read();\n' }],
+  correction: null, gradedAt: '2026-09-29T10:00:00Z' };
+const userReport: ContextGradeDto = { ...wrong, taskId: 'task-other', grader: 'USER', reason: '', quote: null, citations: [], gradedAt: '2026-09-29T11:00:00Z' };
+const holds: ContextGradeDto = { ...wrong, taskId: 'review-task', reviewRunId: 'run-1', taskKind: 'PR_REVIEW', grade: 'HOLDS', gradedAt: '2026-09-29T12:00:00Z' };
+const reported: ContextReportedNoteDto = { entryId: 'knowledge:project', entryVersion: 2, title: 'Project', userWritten: true, grades: [holds, userReport, wrong] };
 const snapshot: ReviewContextSnapshotDto = {
   id: 'snapshot', enabled: true, notebookRevision: 7, repositoryId: 42, baselineSha: 'a'.repeat(40),
   bootstrap: { text: 'Prepared only', digest: 'sha256:packet', utf8Bytes: 13 },
@@ -106,9 +118,41 @@ describe('repository context contracts', () => {
       { ...usage, summary: { ...usage.summary, eligibleReviewRuns: -1 } },
       { ...usage, entries: [{ ...usage.entries[0], currentVersion: 0 }] },
       { ...usage, entries: [{ ...usage.entries[0], currentVersion: null }] },
-      { ...usage, entries: [{ ...usage.entries[0], foundTasks: -1 }] }])
+      { ...usage, entries: [{ ...usage.entries[0], foundTasks: -1 }] },
+      { ...usage, entries: [{ ...usage.entries[0], helpedTasks: undefined }] },
+      { ...usage, entries: [{ ...usage.entries[0], wrongTasks: 1.5 }] }])
       expect(() => parseContextUsageOverview(malformed, '30d')).toThrow('Malformed repository context');
     for (const bad of ['month', null]) expect(() => parseContextUsageWindow(bad)).toThrow();
+  });
+
+  it('keeps graded counts of a removed note, since grades count every version', () => {
+    const removed: ContextUsageOverviewDto['entries'][number] = { ...usage.entries[0], currentVersion: null, foundTasks: 0, openedTasks: 0, lastConfirmedUseAt: null };
+    expect(parseContextUsageOverview({ ...usage, entries: [removed] }, '30d').entries[0]).toEqual(removed);
+  });
+
+  it('parses reported notes with user reports, review answers and cited lines exactly', () => {
+    expect(parseContextReportedNotes([reported], 'workspace')).toEqual([reported]);
+    expect(parseContextReportedNotes([], 'workspace')).toEqual([]);
+    const corrected = { ...wrong, correction: { version: 3, statement: 'The cache is per transaction.' } };
+    expect(parseContextReportedNotes([{ ...reported, grades: [corrected] }], 'workspace')[0].grades[0].correction).toEqual(corrected.correction);
+  });
+
+  it('rejects reports whose grades belong to another workspace or version, or carry unknown grades', () => {
+    for (const grades of [[{ ...wrong, workspaceId: 'other' }], [{ ...wrong, note: { ...wrong.note, version: 1 } }], [{ ...wrong, note: { ...wrong.note, id: 'other' } }],
+      [{ ...wrong, grade: 'CONFIRMED' }], [{ ...wrong, grader: 'SYSTEM' }], [{ ...wrong, quote: 7 }], [{ ...wrong, gradedAt: undefined }],
+      [{ ...wrong, citations: [{ ...wrong.citations[0], endLine: 11 }] }], [{ ...wrong, citations: [{ ...wrong.citations[0], excerpt: undefined }] }],
+      [{ ...wrong, correction: { version: 0, statement: 'x' } }], 'none'])
+      expect(() => parseContextReportedNotes([{ ...reported, grades }], 'workspace')).toThrow('Malformed repository context');
+    for (const value of [null, {}, [{ ...reported, userWritten: 'yes' }], [{ ...reported, entryVersion: 0 }]])
+      expect(() => parseContextReportedNotes(value, 'workspace')).toThrow('Malformed repository context');
+  });
+
+  it('sends a report with the exact task and note version and an optional reason', () => {
+    const request = { taskId: 'task-dev', entryId: 'knowledge:project', entryVersion: 2, reason: '' };
+    expect(parseReportRepositoryContextNoteRequest(request)).toEqual(request);
+    for (const invalid of [{ ...request, entryVersion: 0 }, { ...request, taskId: ' ' }, { ...request, reason: null }, { ...request, grade: 'HELPED' },
+      { ...request, quote: 'Keep the condition.' }])
+      expect(() => parseReportRepositoryContextNoteRequest(invalid)).toThrow('Malformed repository context');
   });
 
   it('retains ownership, disabled notes, conditional claims and incomplete source provenance', () => {

@@ -49,8 +49,8 @@ export function relativeTime(
 }
 
 /** The same elapsed time as a phrase: "3d ago", "just now", or "" when there is no timestamp. */
-export function ago(value: string | number | null | undefined): string {
-  const elapsed = relativeTime(value, { suffix: false });
+export function ago(value: string | number | null | undefined, now = Date.now()): string {
+  const elapsed = relativeTime(value, { suffix: false, now });
   if (elapsed === '') return '';
   return elapsed === 'now' ? 'just now' : `${elapsed} ago`;
 }

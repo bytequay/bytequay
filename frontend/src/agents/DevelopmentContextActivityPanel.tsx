@@ -12,11 +12,14 @@
  * limitations under the License.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { remoteErrorMessage } from '../pulls/PullOverview';
+import { CONTEXT_CHANGED } from '../repository-context/reviewCount';
 import type { Bridge, DevelopmentContextActivityDto } from '../types';
 
 type ActivityBridge = Pick<Bridge, 'getAgentTaskRepositoryContext'>;
 type Card = DevelopmentContextActivityDto['cards'][number];
+type Reporter = { taskId: string; workspaceId: string };
 
 function label(card: Card): string {
   if (card.kind === 'OFFER') {
@@ -42,7 +45,37 @@ function delivery(card: Card): string {
   return 'Delivery unknown';
 }
 
-export function ActivityCard({ card }: { card: Card }) {
+/** The user's Wrong on a note version this task received in full or opened; the reason is optional. */
+function ReportWrong({ reporter, entry }: { reporter: Reporter; entry: Card['entries'][number] }) {
+  const [form, setForm] = useState<{ reason: string; busy: boolean; error: string | null } | null>(null);
+  const [done, setDone] = useState(false);
+  if (done) return <small role="status">Reported. Agents that open this note see the report.</small>;
+  if (form === null) {
+    return <button type="button" className="agt-link agt-context__wrong" aria-label={`Report ${entry.title || entry.id} v${entry.version} as wrong`}
+      onClick={() => setForm({ reason: '', busy: false, error: null })}>Wrong</button>;
+  }
+  const submit = (event: FormEvent): void => {
+    event.preventDefault();
+    setForm({ ...form, busy: true, error: null });
+    void Promise.resolve().then(() => window.bridge.reportRepositoryContextNote(reporter.workspaceId,
+      { taskId: reporter.taskId, entryId: entry.id, entryVersion: entry.version, reason: form.reason.trim() }))
+      .then(() => {
+        setDone(true);
+        window.dispatchEvent(new CustomEvent(CONTEXT_CHANGED, { detail: reporter.workspaceId }));
+      })
+      .catch(cause => setForm({ ...form, busy: false, error: remoteErrorMessage(cause) }));
+  };
+  return <form className="agt-context__report" onSubmit={submit}>
+    <input className="bq-input" value={form.reason} maxLength={300} placeholder="What’s wrong? (optional)" aria-label="Why the note is wrong (optional)"
+      disabled={form.busy} onChange={event => setForm({ ...form, reason: event.target.value })} />
+    <button type="submit" className="bq-button" disabled={form.busy}>Report</button>
+    <button type="button" className="bq-button bq-button--ghost" disabled={form.busy} onClick={() => setForm(null)}>Cancel</button>
+    {form.error !== null && <small role="alert">{form.error}</small>}
+  </form>;
+}
+
+/** With a reporter, each note version the task received in full or opened offers Wrong; search hits and pointers were never read. */
+export function ActivityCard({ card, reporter }: { card: Card; reporter?: Reporter }) {
   return <li className="agt-context-card">
     <div className="agt-context-card__heading">
       <strong>{label(card)}</strong>
@@ -55,6 +88,7 @@ export function ActivityCard({ card }: { card: Card }) {
     {card.entries.length > 0 ? <ul className="agt-context-card__entries">
       {card.entries.map(entry => <li key={`${entry.id}:${entry.version}`}>
         <strong>{entry.title || entry.id}</strong> <span>v{entry.version} · {entry.kind.toLowerCase()}</span>
+        {reporter !== undefined && (card.kind === 'READ' || (card.kind === 'OFFER' && entry.included)) && <ReportWrong reporter={reporter} entry={entry} />}
         {entry.matchReasons.length > 0 && <small>Matched: {entry.matchReasons.join('; ')}</small>}
         {card.kind === 'OFFER' && !entry.included && <small>Exact-read pointer; full note not included</small>}
       </li>)}
@@ -91,7 +125,8 @@ export default function DevelopmentContextActivityPanel({ taskId, workspaceId, r
       {error !== null && <p role="alert">{error} <button type="button" onClick={() => setRetry(value => value + 1)}>Retry</button></p>}
       {activity !== null && <>
         {activity.cards.length === 0 && <p>No repository note activity has been saved for this task.</p>}
-        {activity.cards.length > 0 && <ol className="agt-context__cards">{activity.cards.map(card => <ActivityCard card={card} key={card.reference} />)}</ol>}
+        {activity.cards.length > 0 && <ol className="agt-context__cards">{activity.cards.map(card =>
+          <ActivityCard card={card} reporter={{ taskId, workspaceId }} key={card.reference} />)}</ol>}
         {activity.hasMore && <p>Showing the latest 100 activities.</p>}
         {activity.usageTruncated && <p>Some delivery states may be unknown because this view reads only the latest usage facts.</p>}
       </>}

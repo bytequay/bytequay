@@ -1,8 +1,8 @@
 # Repository context: discover, learn, and use
 
-Status: implemented and verified by automated tests, except
-[grades and reports](#grades-and-reports), which are approved and not yet
-implemented and have
+Status: implemented and verified by automated tests, except contested notes,
+settlements and Investigate under [grades and reports](#grades-and-reports),
+which are approved and not yet implemented and have
 [their own checklist](repository-context-impl-tmp.md#save-notes-without-approval).
 Live-provider quality and cost acceptance remain separate. Delivery and verification belong in
 [the temporary development checkpoints](repository-context-impl-tmp.md#refactor-development-checkpoints);

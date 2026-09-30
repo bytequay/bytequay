@@ -13,12 +13,12 @@
  */
 import { describe, expect, it } from 'vitest';
 import type {
-  ContextBuildViewDto, ContextDiscoveryReportDto, ContextEntryDto, ContextLearningPlanDto, ContextMergedCandidateDto, ContextRunDto, ContextScopeDto,
-  ContextTimesDto, RepositoryNotebookDto,
+  ContextBuildViewDto, ContextDiscoveryReportDto, ContextEntryDto, ContextGradeDto, ContextLearningPlanDto, ContextMergedCandidateDto, ContextReportedNoteDto, ContextRunDto,
+  ContextScopeDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto,
 } from './contracts';
 import {
-  filterNotes, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, pendingCounts, previousVersion, questionRow, reviewItems, runNotesToDisable, scopeForTopic,
-  statusCard, topicSummary, type StatusInput,
+  filterNotes, gradeLine, grader, latestReport, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pendingCounts, previousVersion, questionRow,
+  reportsNeedingYou, reviewItems, runNotesToDisable, scopeForTopic, statusCard, topicSummary, type StatusInput,
 } from './model';
 
 const NOW = Date.parse('2026-09-29T12:00:00Z');
@@ -48,6 +48,10 @@ const input = (patch: Partial<StatusInput>): StatusInput => ({ repository: 'trin
   notebook, times: { entries: {} }, build: build([]), report: null, planView: { plan: null, next: null }, now: NOW, ...patch });
 const source = { url: 'https://iceberg.apache.org/docs/latest/', parentUrl: 'https://trino.io/docs/', topicId: 'topic:iceberg', question: 1, taskId: 'task-2',
   foundAt: '2026-09-20T11:00:00Z' };
+const wrong: ContextGradeDto = { workspaceId: 'w', taskId: 'task-dev', reviewRunId: null, taskKind: 'DEVELOPMENT', grader: 'AGENT', grade: 'WRONG',
+  note: { id: entry.id, version: 3, kind: 'KNOWLEDGE', scopeId: 'iceberg', title: entry.title }, reason: 'Refresh is per transaction.', quote: 'Refresh is per query',
+  citations: [{ path: 'IcebergMetadata.java', startLine: 40, endLine: 41, commit: 'a'.repeat(40), excerpt: '40  load();\n41  cache();\n' }], correction: null,
+  gradedAt: '2026-09-29T10:00:00Z' };
 
 describe('repository context status card', () => {
   it('starts discovery only from an explicit lightning action on a new repository', () => {
@@ -115,8 +119,8 @@ describe('repository context status card', () => {
     const waiting = statusCard(input({ report, build: build([run(2, 'LIMIT', 1, '2026-09-20T11:00:00Z')]), planView: { ...view, plan: proposed } }));
     expect(waiting.headline).toBe('1 source proposal needs your review');
     expect(waiting.sourceApproval).toBe(source.url);
-    expect(pendingCounts(proposed)).toEqual({ sources: 1, total: 1 });
-    expect(pendingCounts(null)).toEqual({ sources: 0, total: 0 });
+    expect(pendingCounts(proposed)).toEqual({ sources: 1, reports: 0, total: 1 });
+    expect(pendingCounts(null)).toEqual({ sources: 0, reports: 0, total: 0 });
     expect(reviewItems(proposed, [run(2, 'LIMIT', 1, '2026-09-20T11:00:00Z')])).toEqual([{ url: source.url, origin: 'found in Learning run 2', at: source.foundAt }]);
   });
 
@@ -192,6 +196,45 @@ describe('repository context notes', () => {
     expect(filterNotes(book, { kind: 'all', area: 'all', query: 'TRINO-ICEBERG' }).map(value => value.id)).toEqual([entry.id]);
     expect(filterNotes(book, { kind: 'MEMORY', area: 'all', query: '' }).map(value => value.id)).toEqual(['lesson:1']);
     expect(filterNotes(book, { kind: 'all', area: 'project', query: '' }).map(value => value.id)).toEqual(['lesson:1']);
+  });
+
+  it('sends only open reports on notes the user wrote to Needs you', () => {
+    const report = (entryId: string, entryVersion: number, userWritten: boolean): ContextReportedNoteDto => ({ entryId, entryVersion, title: entryId, userWritten,
+      grades: [{ ...wrong, note: { ...wrong.note, id: entryId, version: entryVersion } }] });
+    const lesson = { ...entry, id: 'lesson:mine', origin: 'USER' as const, version: 4 };
+    const disabled = { ...entry, id: 'lesson:off', origin: 'USER' as const, enabled: false };
+    const book = { ...notebook, entries: [entry, lesson, disabled] };
+    const reports = [report(entry.id, 3, false), report(lesson.id, 4, true), report(lesson.id, 3, true), report(disabled.id, 3, true), report('lesson:gone', 1, true)];
+    expect(openReports(book, reports).map(value => `${value.entryId}@${value.entryVersion}`)).toEqual([`${entry.id}@3`, 'lesson:mine@4']);
+    const mine = reportsNeedingYou(book, reports);
+    expect(mine.map(value => value.entryId)).toEqual(['lesson:mine']);
+    expect(pendingCounts({ ...plan, documentInventory: { ...plan.documentInventory, suggestions: [source] } }, mine)).toEqual({ sources: 1, reports: 1, total: 2 });
+    expect(reportsNeedingYou({ ...book, entries: [entry, { ...lesson, version: 5 }] }, reports)).toEqual([]);
+  });
+
+  it('names the newest report and its reporter without claiming a title it doesn’t know', () => {
+    const answered = { ...wrong, grade: 'HOLDS' as const, taskId: 'task-later', gradedAt: '2026-09-29T11:30:00Z' };
+    const byUser = { ...wrong, grader: 'USER' as const, reason: '', quote: null as string | null, citations: [] as ContextGradeDto['citations'], gradedAt: '2026-09-29T11:00:00Z' };
+    const note: ContextReportedNoteDto = { entryId: entry.id, entryVersion: 3, title: entry.title, userWritten: true, grades: [answered, byUser, wrong] };
+    expect(latestReport(note)).toBe(byUser);
+    expect(latestReport({ ...note, grades: [answered] })).toBeUndefined();
+    expect(grader(byUser, { 'task-dev': 'Fix refresh' })).toBe('you');
+    expect(grader(wrong, { 'task-dev': 'Fix refresh' })).toBe('task “Fix refresh”');
+    expect(grader(wrong, { 'task-dev': '' })).toBe('a task');
+    expect(grader({ ...wrong, taskKind: 'PR_REVIEW', reviewRunId: 'run' }, {})).toBe('a review');
+  });
+
+  it('writes the grade line from the usage window and says not opened for an unopened version', () => {
+    const row = { entryId: entry.id, title: entry.title, currentVersion: 3, foundTasks: 14, openedTasks: 12, lastConfirmedUseAt: '2026-09-27T12:00:00Z',
+      helpedTasks: 7, notRelevantTasks: 3, wrongTasks: 1 };
+    const usage: ContextUsageOverviewDto = { trackingSince: null, window: '30d',
+      summary: { eligibleDevelopmentTasks: 0, eligibleReviewRuns: 0, contextOffTasks: 0, developmentTasksFoundOrOpened: 0, reviewRunsFoundOrOpened: 0 }, entries: [row] };
+    expect(gradeLine(usage, entry, NOW)).toBe('opened in 12 tasks · helped 7 · not relevant 3 · wrong 1 · last opened 2d ago');
+    expect(gradeLine({ ...usage, entries: [{ ...row, openedTasks: 1, lastConfirmedUseAt: null }] }, entry, NOW)).toBe('opened in 1 task · helped 7 · not relevant 3 · wrong 1');
+    expect(gradeLine({ ...usage, entries: [{ ...row, lastConfirmedUseAt: '2026-09-29T11:59:40Z' }] }, entry, NOW)).toMatch(/ · last opened just now$/);
+    expect(gradeLine({ ...usage, entries: [{ ...row, openedTasks: 0 }] }, entry, NOW)).toBe('not opened');
+    expect(gradeLine(usage, { ...entry, version: 4 }, NOW)).toBe('not opened');
+    expect(gradeLine(null, entry, NOW)).toBe('');
   });
 
   it('stops offering merged work once a run has learned from it', () => {

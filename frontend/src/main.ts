@@ -56,12 +56,14 @@ import {
   parseContextBuildView,
   parseContextDiscoveryReport,
   parseContextLearningPlanView,
+  parseContextReportedNotes,
   parseContextTimes,
   parseContextUsageOverview,
   parseContextUsageWindow,
   parseDeclineContextLearningSourceRequest,
   parseDisableRepositoryContextRunNotesRequest,
   parseEditRepositoryContextEntryRequest,
+  parseReportRepositoryContextNoteRequest,
   parseRepositoryNotebook,
   parseRestoreRepositoryContextEntryRequest,
   parseSaveRepositoryContextLessonRequest,
@@ -1413,6 +1415,15 @@ function registerIpc(): void {
   ipcMain.handle('repository-context:restore', (_event, workspaceId: string, request: unknown) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/entries/restore`,
       jsonInit('POST', parseRestoreRepositoryContextEntryRequest(request), agentHeaders())).then(parseRepositoryNotebook));
+  ipcMain.handle('repository-context:keep', (_event, workspaceId: string, request: unknown) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/entries/keep`,
+      jsonInit('POST', parseRestoreRepositoryContextEntryRequest(request), agentHeaders())).then(parseRepositoryNotebook));
+  ipcMain.handle('repository-context:reports', (_event, workspaceId: string) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/reports`, { headers: agentHeaders() })
+      .then(value => parseContextReportedNotes(value, workspaceId)));
+  ipcMain.handle('repository-context:report', (_event, workspaceId: string, request: unknown) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/reports`,
+      jsonInit('POST', parseReportRepositoryContextNoteRequest(request), agentHeaders())).then(value => parseContextReportedNotes(value, workspaceId)));
   ipcMain.handle('repository-context:run-notes:disable', (_event, workspaceId: string, request: unknown) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/runs/disable-notes`,
       jsonInit('POST', parseDisableRepositoryContextRunNotesRequest(request), agentHeaders())).then(parseRepositoryNotebook));

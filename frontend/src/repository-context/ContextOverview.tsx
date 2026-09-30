@@ -20,8 +20,9 @@ import type { AgentRuntimeStopImpactDto } from '../types';
 import type { ContextDiscoveryReportDto } from './contracts';
 import { Chevron, Icon, Spinner } from './icons';
 import {
-  clock, currentRun, entryTimeKey, kindLabel, needsTopicReselection, nextQuestion, openCandidates, planCounts, plural, previousVersion, reviewItems, shortDate,
-  shortSha, scopeForTopic, statusCard, topicSummary, topicsOutsidePlan, DOCUMENT_LINK_HOPS, type QuestionRow, type StatusAction,
+  clock, currentRun, entryTimeKey, grader, kindLabel, latestReport, needsTopicReselection, nextQuestion, openCandidates, planCounts, plural, previousVersion,
+  reportsNeedingYou, reviewItems, shortDate, shortSha, scopeForTopic, statusCard, topicSummary, topicsOutsidePlan, DOCUMENT_LINK_HOPS, type QuestionRow,
+  type StatusAction,
 } from './model';
 import type { ContextActions, ContextData } from './RepositoryContextPage';
 
@@ -181,9 +182,10 @@ function StatusCardView({ data, actions, busy, pending }: { data: ContextData; a
 
 function ReviewSection({ data, actions }: { data: ContextData; actions: ContextActions }) {
   const items = reviewItems(data.planView.plan, data.build.runs);
-  if (items.length === 0) return null;
+  const reported = reportsNeedingYou(data.notebook, data.reports);
+  if (items.length === 0 && reported.length === 0) return null;
   return <section aria-label="Needs you">
-    <div className="rcp-section-head"><span className="rcp-label">NEEDS YOU · {items.length}</span></div>
+    <div className="rcp-section-head"><span className="rcp-label">NEEDS YOU · {items.length + reported.length}</span></div>
     <div className="rcp-list">
       {items.map(item => <button type="button" key={item.url} className="rcp-review rcp-tone--orange" onClick={() => actions.openDrawer({ kind: 'plan', tab: 'sources' })}>
         <span className="rcp-review__icon"><Icon name="link" /></span>
@@ -193,6 +195,17 @@ function ReviewSection({ data, actions }: { data: ContextData; actions: ContextA
         <span className="rcp-age">{relativeTime(item.at, { suffix: false, now: data.now })}</span>
         <Icon name="next" size={14} className="rcp-go" />
       </button>)}
+      {reported.map(note => {
+        const report = latestReport(note);
+        return <button type="button" key={note.entryId} className="rcp-review rcp-tone--amber" onClick={() => actions.openDrawer({ kind: 'note', id: note.entryId })}>
+          <span className="rcp-review__icon"><Icon name="alert" /></span>
+          <span className="rcp-review__main"><span className="rcp-review__title">{note.title}</span>
+            <span className="rcp-review__meta"><span className="rcp-review__kind">Reported wrong</span><span className="rcp-sep">·</span>
+              <span className="rcp-review__origin">by {report === undefined ? 'a task' : grader(report, data.titles)}</span></span></span>
+          <span className="rcp-age">{relativeTime(report?.gradedAt, { suffix: false, now: data.now })}</span>
+          <Icon name="next" size={14} className="rcp-go" />
+        </button>;
+      })}
     </div>
   </section>;
 }

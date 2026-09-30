@@ -120,13 +120,24 @@ export type ContextBuildViewDto = {
   };
 };
 export type ContextUsageWindow = '30d' | 'all';
-/** Found and opened count each note's current version; a removed note has no current version. */
+/** Found and opened count each note's current version; graded counts distinct tasks across its versions; a removed note has no current version. */
 export type ContextUsageOverviewDto = {
   trackingSince: string | null; window: ContextUsageWindow;
   summary: { eligibleDevelopmentTasks: number; eligibleReviewRuns: number; contextOffTasks: number; developmentTasksFoundOrOpened: number;
     reviewRunsFoundOrOpened: number };
-  entries: Array<{ entryId: string; title: string; currentVersion: number | null; foundTasks: number; openedTasks: number; lastConfirmedUseAt: string | null }>;
+  entries: Array<{ entryId: string; title: string; currentVersion: number | null; foundTasks: number; openedTasks: number; lastConfirmedUseAt: string | null;
+    helpedTasks: number; notRelevantTasks: number; wrongTasks: number }>;
 };
+/** One task's grade of an exact note version, or the user's Wrong report of it; a user report quotes and cites nothing. */
+export type ContextGradeDto = {
+  workspaceId: string; taskId: string; reviewRunId: string | null; taskKind: 'DEVELOPMENT' | 'PR_REVIEW'; grader: 'AGENT' | 'USER';
+  grade: 'HELPED' | 'NOT_RELEVANT' | 'WRONG' | 'HOLDS';
+  note: { id: string; version: number; kind: ContextEntryDto['kind']; scopeId: string; title: string };
+  reason: string; quote: string | null; citations: Array<{ path: string; startLine: number; endLine: number; commit: string; excerpt: string }>;
+  correction: { version: number; statement: string } | null; gradedAt: string;
+};
+/** A note whose current version has an open Wrong report, with every grade of that version, newest first. */
+export type ContextReportedNoteDto = { entryId: string; entryVersion: number; title: string; userWritten: boolean; grades: ContextGradeDto[] };
 export type ContextContributionDto = {
   investigationStep: number; text: string; evidenceRefs: string[]; preparationRefs: string[]; limitations: string[];
 };
@@ -155,6 +166,10 @@ export type EditRepositoryContextEntryRequest = {
 };
 export type SetRepositoryContextEntryEnabledRequest = { expectedRevision: number; entryId: string; enabled: boolean };
 export type RestoreRepositoryContextEntryRequest = { expectedRevision: number; entryId: string };
+/** Keep saves the note's current text and owner again as a new version, which closes its open reports. */
+export type KeepRepositoryContextEntryRequest = RestoreRepositoryContextEntryRequest;
+/** The user's Wrong on a note version the task received or opened; the reason is optional. */
+export type ReportRepositoryContextNoteRequest = { taskId: string; entryId: string; entryVersion: number; reason: string };
 /** Disables the notes the run's task added that nobody changed since. */
 export type DisableRepositoryContextRunNotesRequest = { expectedRevision: number; taskId: string };
 export type SaveRepositoryContextLessonRequest = {
@@ -577,10 +592,42 @@ export function parseContextUsageOverview(value: unknown, window: ContextUsageWi
       const currentVersion = row.currentVersion === null ? null : count(row.currentVersion, 'current version', 1);
       const result = { entryId: text(row.entryId, 'usage entry id'), title: text(row.title, 'usage title'), currentVersion,
         foundTasks: count(row.foundTasks, 'found tasks'), openedTasks: count(row.openedTasks, 'opened tasks'),
-        lastConfirmedUseAt: nullableText(row.lastConfirmedUseAt, 'last confirmed use') };
+        lastConfirmedUseAt: nullableText(row.lastConfirmedUseAt, 'last confirmed use'), helpedTasks: count(row.helpedTasks, 'helped tasks'),
+        notRelevantTasks: count(row.notRelevantTasks, 'not relevant tasks'), wrongTasks: count(row.wrongTasks, 'wrong tasks') };
       if (currentVersion === null && (result.foundTasks > 0 || result.openedTasks > 0)) malformed('counts for a removed note');
       return result;
     }) };
+}
+function grade(value: unknown): ContextGradeDto {
+  const item = object(value, 'grade');
+  const note = object(item.note, 'graded note');
+  const correction = item.correction == null ? null : object(item.correction, 'grade correction');
+  return { workspaceId: text(item.workspaceId, 'grade workspace'), taskId: text(item.taskId, 'grading task'),
+    reviewRunId: optionalText(item.reviewRunId, 'grading review run'), taskKind: oneOf(item.taskKind, ['DEVELOPMENT', 'PR_REVIEW'], 'grading task kind'),
+    grader: oneOf(item.grader, ['AGENT', 'USER'], 'grader'), grade: oneOf(item.grade, ['HELPED', 'NOT_RELEVANT', 'WRONG', 'HOLDS'], 'grade'),
+    note: { id: text(note.id, 'graded note id'), version: count(note.version, 'graded note version', 1), kind: oneOf(note.kind, ['KNOWLEDGE', 'MEMORY'], 'graded note kind'),
+      scopeId: text(note.scopeId, 'graded note scope'), title: text(note.title, 'graded note title') },
+    reason: text(item.reason, 'grade reason'), quote: optionalText(item.quote, 'grade quote'),
+    citations: array(item.citations, 'grade citations', value => {
+      const citation = object(value, 'grade citation');
+      const result = { path: text(citation.path, 'cited path'), startLine: count(citation.startLine, 'cited start line', 1),
+        endLine: count(citation.endLine, 'cited end line', 1), commit: text(citation.commit, 'cited commit'), excerpt: text(citation.excerpt, 'cited excerpt') };
+      if (result.endLine < result.startLine) malformed('cited line range');
+      return result;
+    }),
+    correction: correction === null ? null : { version: count(correction.version, 'correction version', 1), statement: text(correction.statement, 'corrected statement') },
+    gradedAt: text(item.gradedAt, 'grade time') };
+}
+/** Every grade must be of the workspace and the exact version it is listed under. */
+export function parseContextReportedNotes(value: unknown, workspaceId: string): ContextReportedNoteDto[] {
+  return array(value, 'reported notes', raw => {
+    const item = object(raw, 'reported note');
+    const result: ContextReportedNoteDto = { entryId: text(item.entryId, 'reported note id'), entryVersion: count(item.entryVersion, 'reported note version', 1),
+      title: text(item.title, 'reported note title'), userWritten: flag(item.userWritten, 'reported note author'), grades: array(item.grades, 'reported note grades', grade) };
+    if (result.grades.some(value => value.workspaceId !== workspaceId || value.note.id !== result.entryId || value.note.version !== result.entryVersion))
+      malformed('reported note grades');
+    return result;
+  });
 }
 export function parseConfigureRepositoryContextRequest(value: unknown): ConfigureRepositoryContextRequest {
   const item = request(value, ['expectedRevision', 'useInReviews', 'useInDevelopment', 'sources']);
@@ -606,6 +653,11 @@ export function parseSetRepositoryContextEntryEnabledRequest(value: unknown): Se
 export function parseRestoreRepositoryContextEntryRequest(value: unknown): RestoreRepositoryContextEntryRequest {
   const item = request(value, ['expectedRevision', 'entryId']);
   return { expectedRevision: count(item.expectedRevision, 'expected revision'), entryId: nonblank(item.entryId, 'restored entry id') };
+}
+export function parseReportRepositoryContextNoteRequest(value: unknown): ReportRepositoryContextNoteRequest {
+  const item = request(value, ['taskId', 'entryId', 'entryVersion', 'reason']);
+  return { taskId: nonblank(item.taskId, 'reporting task'), entryId: nonblank(item.entryId, 'reported entry id'),
+    entryVersion: count(item.entryVersion, 'reported entry version', 1), reason: text(item.reason, 'report reason') };
 }
 export function parseDisableRepositoryContextRunNotesRequest(value: unknown): DisableRepositoryContextRunNotesRequest {
   const item = request(value, ['expectedRevision', 'taskId']);

@@ -16,16 +16,18 @@ import { createRoot, type Root } from 'react-dom/client';
 import AppSidebar from '../../AppSidebar';
 import { AgentHomeView } from '../../agents/AgentHome';
 import AgentTasksView from '../../agents/AgentTasksView';
+import DevelopmentContextActivityPanel from '../../agents/DevelopmentContextActivityPanel';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
-import type { AgentTaskDto, Bridge, WorkspaceDto } from '../../types';
+import type { AgentTaskDto, Bridge, DevelopmentContextActivityDto, WorkspaceDto } from '../../types';
 import { workspaceLocationFromRoute } from '../../workspaces/model';
 import type {
-  ContextBuildViewDto, ContextDiscoveryReportDto, ContextEntryDto, ContextLearningPlanDto, ContextLearningPlanViewDto,
-  ContextMergedCandidatesDto, ContextRunDto, ContextSourceDto, ContextTimesDto, ContextUsageOverviewDto, ContextUsageWindow, RepositoryNotebookDto,
+  ContextBuildViewDto, ContextDiscoveryReportDto, ContextEntryDto, ContextGradeDto, ContextLearningPlanDto, ContextLearningPlanViewDto,
+  ContextMergedCandidatesDto, ContextReportedNoteDto, ContextRunDto, ContextSourceDto, ContextTimesDto, ContextUsageOverviewDto, ContextUsageWindow,
+  RepositoryNotebookDto, ReportRepositoryContextNoteRequest,
 } from '../contracts';
 import { TaskContextNotes } from '../ContextCards';
 import RepositoryContextPage from '../RepositoryContextPage';
-import { useContextReview } from '../reviewCount';
+import { CONTEXT_CHANGED, useContextReview } from '../reviewCount';
 import '../../index.css';
 
 /* Everything here is an in-memory stand-in for the backend: no model runs, no repository or workspace notes are touched. */
@@ -96,6 +98,28 @@ function notebook(full: boolean): RepositoryNotebookDto {
         provenance: 'Captured page', capture: 'BYTEQUAY_READ', retrievedAt: ago(40) }],
   };
 }
+
+const TASK_TITLES: Record<string, string> = { 'task-dev-7': 'Fix flaky Iceberg commit test', 'task-dev-8': 'Prune nested Iceberg fields' };
+const QUOTE = 'Inspect the parent struct before selecting a leaf field ID.';
+
+function grade(entry: ContextEntryDto, patch: Partial<ContextGradeDto>): ContextGradeDto {
+  return { workspaceId: 'ws-1', taskId: 'task-dev-7', reviewRunId: null, taskKind: 'DEVELOPMENT', grader: 'AGENT', grade: 'WRONG',
+    note: { id: entry.id, version: entry.version, kind: entry.kind, scopeId: entry.scopeId, title: entry.title },
+    reason: 'Field IDs are unique across the whole schema, so the parent struct never decides which field is meant.', quote: QUOTE,
+    citations: [{ path: 'plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergUtil.java', startLine: 212, endLine: 214, commit: SHA,
+      excerpt: '212  // Field IDs are unique across the whole schema\n213  NestedField field = schema.findField(fieldId);\n214  return field.type();\n' }],
+    correction: null, gradedAt: ago(40), ...patch };
+}
+
+// The lesson the user wrote waits in Needs you; the user's own report on an agent-written note waits for agents.
+const reports = (): ContextReportedNoteDto[] => [
+  { entryId: lesson.id, entryVersion: lesson.version, title: lesson.title, userWritten: true, grades: [
+    grade(lesson, { grade: 'HOLDS', taskId: 'task-dev-8', reason: 'Duplicate leaf names resolve by parent in the projection code.', gradedAt: ago(10) }),
+    grade(lesson, {}),
+    grade(lesson, { grade: 'HELPED', taskId: 'task-dev-6', reason: 'Explained duplicate leaf names.', quote: null, citations: [], gradedAt: ago(60 * 30) })] },
+  { entryId: commits.id, entryVersion: commits.version, title: commits.title, userWritten: false, grades: [
+    grade(commits, { grader: 'USER', reason: '', quote: null, citations: [], gradedAt: ago(15) })] },
+];
 
 const times = (full: boolean): ContextTimesDto => full ? {
   entries: { [`4:${refresh.id}`]: { at: ago(60 * 26), taskId: 'task-run-2' }, [`11:${refresh.id}`]: { at: ago(21), taskId: 'task-run-4' },
@@ -173,9 +197,9 @@ type Scene = 'fresh' | 'discovering' | 'suggested' | 'review' | 'learning';
 
 type State = {
   notebook: RepositoryNotebookDto; times: ContextTimesDto; build: ContextBuildViewDto; report: ContextDiscoveryReportDto | null;
-  planView: ContextLearningPlanViewDto; candidates: ContextMergedCandidatesDto; staleOnce: boolean;
+  planView: ContextLearningPlanViewDto; candidates: ContextMergedCandidatesDto; reports: ContextReportedNoteDto[]; staleOnce: boolean;
   calls: { starts: Array<{ kind: string; request: unknown }>; restores: string[]; disables: string[]; allows: unknown[]; declines: unknown[];
-    configures: unknown[]; stops: string[] };
+    configures: unknown[]; stops: string[]; keeps: string[]; reports: ReportRepositoryContextNoteRequest[] };
 };
 
 function scene(name: Scene): State {
@@ -193,8 +217,8 @@ function scene(name: Scene): State {
     candidates: { candidates: full ? [{ id: 'pr:trinodb/trino#27315', repo: 'trinodb/trino', number: 27315, title: 'Retry Iceberg commits on conflicting snapshots',
       mergedAt: ago(60 * 5), taskTitle: 'Fix flaky Iceberg commit test', taskResult: 'Tests pass', issue: { key: '#27290', title: 'Concurrent commits lose files' },
       review: { combinedResult: 'Approved after 2 rounds' }, checks: [{ conclusion: 'success' }, { conclusion: 'success' }] }] : [] },
-    staleOnce: false,
-    calls: { starts: [], restores: [], disables: [], allows: [], declines: [], configures: [], stops: [] },
+    reports: full ? reports() : [], staleOnce: false,
+    calls: { starts: [], restores: [], disables: [], allows: [], declines: [], configures: [], stops: [], keeps: [], reports: [] },
   };
 }
 
@@ -203,8 +227,18 @@ function usage(window: ContextUsageWindow): ContextUsageOverviewDto {
     summary: { eligibleDevelopmentTasks: window === '30d' ? 14 : 31, eligibleReviewRuns: window === '30d' ? 9 : 22, contextOffTasks: 2,
       developmentTasksFoundOrOpened: 8, reviewRunsFoundOrOpened: 5 },
     entries: [refresh, layout, lesson, spi].map((entry, index) => ({ entryId: entry.id, title: entry.title, currentVersion: entry.version,
-      foundTasks: 9 - index * 2, openedTasks: 6 - index * 2, lastConfirmedUseAt: ago(60 * (index + 2)) })) };
+      foundTasks: 9 - index * 2, openedTasks: 6 - index * 2, lastConfirmedUseAt: ago(60 * (index + 2)),
+      helpedTasks: 4 - index, notRelevantTasks: index, wrongTasks: entry === lesson ? 1 : 0 })) };
 }
+
+/** The development task's context activity: it opened the refresh note and only found the SPI note in a search. */
+const taskActivity = (): DevelopmentContextActivityDto => ({ hasMore: false, usageTruncated: false, cards: [
+  { reference: 'context-read:1', turnId: 'turn-1', kind: 'READ', createdAt: ago(30), notebookRevision: 12, delivery: 'CONFIRMED', bytes: 900, query: '', paths: [],
+    entries: [{ id: refresh.id, version: refresh.version, kind: 'KNOWLEDGE', scopeId: refresh.scopeId, title: refresh.title, matchReasons: [], included: true }],
+    omittedCount: 0, scopeStates: [], warnings: [] },
+  { reference: 'context-search:1', turnId: 'turn-1', kind: 'SEARCH', createdAt: ago(31), notebookRevision: 12, delivery: 'CONFIRMED', bytes: 400, query: 'SPI',
+    paths: [], entries: [{ id: spi.id, version: spi.version, kind: 'KNOWLEDGE', scopeId: spi.scopeId, title: spi.title, matchReasons: ['Search text'], included: true }],
+    omittedCount: 0, scopeStates: [], warnings: [] }] });
 
 let state = scene('fresh');
 
@@ -238,8 +272,21 @@ function install() {
     getRepositoryContextBaseline: async () => ({ branch: 'master', sha: SHA }),
     getRepositoryContextMergedCandidates: async () => clone(state.candidates),
     getRepositoryContextUsage: async (_workspaceId, window) => usage(window),
+    getRepositoryContextReports: async () => clone(state.reports),
+    reportRepositoryContextNote: async (_workspaceId, request) => {
+      // The first report is refused the way the backend refuses a version the task never received.
+      if (state.calls.reports.push(clone(request)) === 1) {
+        throw new Error('Error invoking remote method \'repository-context:report\': Error: Report only a note version this task received or opened');
+      }
+      return clone(state.reports);
+    },
+    keepRepositoryContextEntry: async (_workspaceId, request) => mutate(request.expectedRevision, current => {
+      state.calls.keeps.push(request.entryId);
+      current.entries = current.entries.map(value => value.id === request.entryId ? { ...value, version: current.revision + 1 } : value);
+      state.reports = state.reports.filter(value => value.entryId !== request.entryId);
+    }),
     getModelSettings: () => createPreviewBridge('ws-1').getModelSettings(),
-    getAgentTask: async taskId => ({ id: taskId, workspaceId: 'ws-1', title: taskId === 'task-dev-7' ? 'Fix flaky Iceberg commit test' : 'Task' }) as unknown as AgentTaskDto,
+    getAgentTask: async taskId => ({ id: taskId, workspaceId: 'ws-1', title: TASK_TITLES[taskId] ?? 'Task' }) as unknown as AgentTaskDto,
     startRepositoryContextDiscovery: async (_workspaceId, request) => start('discover', request, 'DISCOVER'),
     startRepositoryContextLearning: async (_workspaceId, request) => start('learn', request, 'LEARN'),
     continueRepositoryContextLearning: async (_workspaceId, request) => start('continue', request, 'LEARN'),
@@ -450,8 +497,8 @@ const scenarios: Array<[string, () => Promise<void>]> = [
   }],
   ['a finished run names its saved notes and disables the ones it added only after confirming, without a run', async () => {
     await render('review');
-    const sidebar = document.querySelector('[aria-label^="Repository context, "]');
-    assert(sidebar?.getAttribute('aria-label') === 'Repository context, 1 to review', 'The sidebar counts source proposals only');
+    await waitFor(() => document.querySelector('[aria-label^="Repository context, "]')?.getAttribute('aria-label') === 'Repository context, 2 to review',
+      'The sidebar counts the source proposal and the report on a note you wrote, not the report on an agent-written note');
     assert(!/draft/i.test(text()), 'Nothing on the Overview mentions drafts');
     assert(text(document.querySelector('.rcp-status')).includes('Run 4 saved 2 notes.'), 'The status card names the notes the last run saved');
     await click('Disable notes from this run');
@@ -559,7 +606,8 @@ const scenarios: Array<[string, () => Promise<void>]> = [
   }],
   ['Home offers the waiting source review and a task’s saved notes open Repository context', async () => {
     await renderHome();
-    assert(text(document.querySelector('.item-row.is-context')).includes('1 source to review'), 'Home counts source proposals');
+    await waitFor(() => text(document.querySelector('.item-row.is-context')).includes('1 source · 1 reported note to review'),
+      'Home counts source proposals and reports on notes you wrote');
     assert(text().includes('Sending starts a task with Codex · 5.6 Terra High.'), 'Explore mode names the run it starts');
     await renderTaskNotes();
     const card = document.querySelector<HTMLElement>('.rcx-note');
@@ -569,6 +617,72 @@ const scenarios: Array<[string, () => Promise<void>]> = [
     assert(window.location.hash === '#/workspaces/ws-1/context', `The card opens Repository context (${window.location.hash})`);
     assert(state.calls.starts.length === 0, 'Nothing here starts a run');
     window.location.hash = '';
+  }],
+  ['a report on a note you wrote waits in Needs you, shows its evidence, and Keep closes it without a run', async () => {
+    await render('review');
+    await waitFor(() => document.querySelector('.rcp-review.rcp-tone--amber') !== null, 'The reported note appears in Needs you');
+    assert(text(document.querySelector('[aria-label="Needs you"] .rcp-label')) === 'NEEDS YOU · 2', 'Needs you counts the source and the reported note');
+    assert(text(document.querySelector('.rcp-head')).includes('2 to review'), 'The header counts both');
+    const row = reviewRow(lesson.title);
+    await waitFor(() => text(row).includes('Reported wrong') && text(row).includes('by task “Fix flaky Iceberg commit test”'), 'The row names the reporting task');
+    assert(![...document.querySelectorAll('.rcp-review__title')].some(title => title.textContent === commits.title), 'A report on an agent-written note waits for agents');
+    await review(lesson.title);
+    const panel = drawer();
+    assert(text(panel).includes('REPORTS ON V3 · 1') && text(panel).includes(`“${QUOTE}”`), 'The drawer quotes the reported statement');
+    assert(text(panel).includes('IcebergUtil.java:212–214') && panel.querySelector('.rcp-excerpt')?.textContent?.includes('213  NestedField field = schema.findField(fieldId);'),
+      'The cited lines show beside the quote');
+    assert(text(panel).includes('Reported by task “Fix flaky Iceberg commit test”') && text(panel).includes('Field IDs are unique across the whole schema'),
+      'The report shows its reason and reporter');
+    assert(text(panel).includes(`Holds “${QUOTE}” · Duplicate leaf names resolve by parent`) && text(panel).includes('by task “Prune nested Iceberg fields”')
+      && !text(panel).includes('Explained duplicate leaf names'), 'Grades after the report show as short lines; earlier ones do not');
+    assert(text(panel).includes('opened in 2 tasks · helped 2 · not relevant 2 · wrong 1 · last opened 4h ago'), 'The drawer shows the grade line');
+    assert(text(panel).includes('No agent runs.') && control('Keep', panel).querySelector('svg') === null, 'Keep says no agent runs and carries no lightning mark');
+    await click('Keep', panel);
+    assert(state.calls.keeps.join() === lesson.id && state.calls.starts.length === 0, 'Keep sends one request and starts no run');
+    await waitFor(() => text(document.body).includes(`Kept as v13 · reports closed · no agent run`), 'The confirmation says no agent ran');
+    assert(!text(drawer()).includes('REPORTS ON') && text(drawer()).includes('not opened'), 'The new version has no open report and no opens yet');
+    await click('Close', drawer());
+    await waitFor(() => !document.querySelector('[aria-label="Needs you"]')?.textContent?.includes(lesson.title), 'The note leaves Needs you');
+    await waitFor(() => document.querySelector('[aria-label^="Repository context, "]')?.getAttribute('aria-label') === 'Repository context, 1 to review',
+      'The sidebar count follows');
+  }],
+  ['notes show grade lines, and your report on an agent-written note shows in its drawer', async () => {
+    await render('review');
+    await click(commits.title);
+    await waitFor(() => text(drawer()).includes('REPORTS ON V10 · 1'), 'The agent-written note shows its open report');
+    assert(text(drawer()).includes('No statement quoted') && text(drawer()).includes('Reported by you'), 'A user report quotes nothing and names you');
+    assert(text(drawer()).includes('Agents that open this note see open reports') && control('Keep', drawer()) !== null, 'Keep is offered on any reported note');
+    await click('Close', drawer());
+    await click('Notes8');
+    const row = (title: string) => [...document.querySelectorAll('.rcp-note')].find(note => note.querySelector('.rcp-note__title')?.textContent === title);
+    assert(text(row(refresh.title)).includes('opened in 6 tasks · helped 4 · not relevant 0 · wrong 0 · last opened 2h ago'), 'A row shows its grade line');
+    assert(text(row(spi.title)).includes('not opened') && !text(row(spi.title)).includes('helped'), 'An unopened note says so');
+  }],
+  ['Wrong on a note the task opened reports that exact version, shows a refusal inline, and never offers search hits', async () => {
+    await renderTaskActivity();
+    const changes: unknown[] = [];
+    const onChange = (event: Event) => changes.push(event instanceof CustomEvent ? event.detail : null);
+    window.addEventListener(CONTEXT_CHANGED, onChange);
+    try {
+      assert(document.querySelectorAll('.agt-context__wrong').length === 1, 'Only the opened note offers Wrong');
+      await click(`Report ${refresh.title} v${refresh.version} as wrong`);
+      const input = document.querySelector<HTMLInputElement>('.agt-context__report input');
+      assert(input !== null && input.maxLength === 300, 'The optional reason is one bounded line');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, '  Refresh happens per query now  ');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await click('Report');
+      await waitFor(() => text(document.querySelector('.agt-context__report [role=alert]')) === 'Report only a note version this task received or opened',
+        'A refusal shows inline without the IPC prefix');
+      await click('Report');
+      await waitFor(() => text().includes('Reported. Agents that open this note see the report.'), 'The report is confirmed');
+      const sent = state.calls.reports.at(-1);
+      assert(sent?.taskId === 'task-dev-7' && sent.entryId === refresh.id && sent.entryVersion === refresh.version && sent.reason === 'Refresh happens per query now',
+        'The report names the task and the exact version with the trimmed reason');
+      assert(changes.join() === 'ws-1' && state.calls.starts.length === 0, 'Reporting refreshes the Repository context count once and starts no run');
+    }
+    finally {
+      window.removeEventListener(CONTEXT_CHANGED, onChange);
+    }
   }],
   ['the page column and selection bar stay centered in a wide window', async () => {
     const page = await render('suggested');
@@ -628,11 +742,26 @@ async function renderTaskNotes(): Promise<void> {
   await waitFor(() => document.querySelector('.rcx-note') !== null, 'The task note card appears');
 }
 
+/** A development task's opened context activity panel. */
+async function renderTaskActivity(): Promise<void> {
+  await render('review');
+  flushSync(() => root?.render(<>
+    <AppSidebar page="workspaces" browserRailVisible={false} onToggleBrowserRail={() => {}} onNavigate={() => {}} canGoBack={false} canGoForward={false}
+      onBack={() => {}} onForward={() => {}} workspace={workspace} workspaceTab="tasks" onWorkspaceTab={() => {}} />
+    <main className="app-content"><div style={{ maxWidth: 760, margin: '32px auto', padding: '0 24px' }}>
+      <DevelopmentContextActivityPanel taskId="task-dev-7" workspaceId="ws-1" refreshKey="0" bridge={{ getAgentTaskRepositoryContext: async () => taskActivity() }} />
+    </div></main>
+  </>));
+  document.querySelector<HTMLElement>('.agt-context summary')?.click();
+  await waitFor(() => document.querySelector('.agt-context-card') !== null, 'The activity loads once the panel opens');
+}
+
 /** Renders one named state for a screenshot, e.g. `review:note`. */
 export async function show(mode: string) {
   install();
   if (mode === 'home') { await renderHome(); return; }
   if (mode === 'task') { await renderTaskNotes(); return; }
+  if (mode === 'task-report') { await renderTaskActivity(); await click(`Report ${refresh.title} v${refresh.version} as wrong`); return; }
   const [base, extra] = mode.split(':') as [Scene, string | undefined];
   await render(base, extra === 'run' ? 'task-run-5' : null);
   switch (extra) {
@@ -647,6 +776,7 @@ export async function show(mode: string) {
     }
     case 'select': await check('Iceberg connector'); await click('Inspect Iceberg connector'); break;
     case 'note': await click(refresh.title); break;
+    case 'reported': await waitFor(() => document.querySelector('.rcp-review.rcp-tone--amber') !== null, 'The report appears'); await review(lesson.title); break;
     case 'changes': await click(refresh.title); await click('Changes', drawer()); break;
     case 'disable': await click('Disable notes from this run'); break;
     case 'plan': await click('Plan details'); break;

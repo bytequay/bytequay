@@ -19,7 +19,8 @@ import type { ModelSettingsDto, WorkspaceDto } from '../types';
 import type {
   ContextBaselineDto, ContextBuildViewDto, ContextDiscoveryReportDto, ContextDisputesDto, ContextLearningPlanViewDto, ContextMergedCandidatesDto, ContextReportedNoteDto,
   ContextRunDto,
-  ContextTimesDto, ContextUsageOverviewDto, ContinueContextLearningRequest, InvestigateRepositoryContextNoteRequest, LearnContextMergedCandidateRequest,
+  ContextTimesDto, ContextUsageOverviewDto, ContinueContextLearningRequest, GoDeeperContextLearningRequest, InvestigateRepositoryContextNoteRequest,
+  LearnContextMergedCandidateRequest,
   RepositoryNotebookDto, StartContextDiscoveryRequest,
   StartContextLearningRequest,
 } from './contracts';
@@ -39,7 +40,8 @@ export type PendingStart =
   | { kind: 'learn'; request: StartContextLearningRequest }
   | { kind: 'continue'; request: ContinueContextLearningRequest }
   | { kind: 'candidate'; request: LearnContextMergedCandidateRequest }
-  | { kind: 'investigate'; request: InvestigateRepositoryContextNoteRequest };
+  | { kind: 'investigate'; request: InvestigateRepositoryContextNoteRequest }
+  | { kind: 'deeper'; request: GoDeeperContextLearningRequest };
 
 const pendingKey = (workspaceId: string) => `repository-context-start:${workspaceId}`;
 
@@ -194,7 +196,8 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
       : next.kind === 'learn' ? await window.bridge.startRepositoryContextLearning(workspaceId, next.request)
         : next.kind === 'continue' ? await window.bridge.continueRepositoryContextLearning(workspaceId, next.request)
           : next.kind === 'candidate' ? await window.bridge.learnRepositoryContextMergedCandidate(workspaceId, next.request)
-            : await window.bridge.investigateRepositoryContextNote(workspaceId, next.request);
+            : next.kind === 'deeper' ? await window.bridge.goDeeperRepositoryContextTopic(workspaceId, next.request)
+              : await window.bridge.investigateRepositoryContextNote(workspaceId, next.request);
     if (!mounted.current) return;
     setBuild(accepted);
     setDrawer(null);
@@ -251,6 +254,14 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
     say(message);
     announce();
   });
+  // Question changes never start a run; the next batch picks them up.
+  const changePlan = (operation: (planId: string) => Promise<ContextLearningPlanViewDto>, message: string) => perform(async () => {
+    if (planView.plan === null) return;
+    const saved = await operation(planView.plan.id);
+    if (!mounted.current) return;
+    setPlanView(saved);
+    say(message);
+  });
   const actions = {
     perform, mutate, say, announce, setNotebook, setPlanView, setBuild, reload: loadAll,
     discover: (continuation: boolean): void => void start({ kind: 'discover', request: { ...fence(), continuation } }),
@@ -260,6 +271,13 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
     continueLearning: () => { if (planView.plan !== null) void start({ kind: 'continue', request: { ...fence(), planId: planView.plan.id } }); },
     learnCandidate: (candidateId: string): void => void start({ kind: 'candidate', request: { ...fence(), candidateId } }),
     investigate: (entryId: string): void => void start({ kind: 'investigate', request: { ...fence(), entryId } }),
+    goDeeper: (topicId: string) => { if (planView.plan !== null) void start({ kind: 'deeper', request: { ...fence(), planId: planView.plan.id, topicId } }); },
+    addQuestion: (topicId: string, text: string): void => void changePlan(planId => window.bridge.addRepositoryContextQuestion(workspaceId, { planId, topicId, text }),
+      'Question added · the next batch runs it · no agent run'),
+    editQuestion: (topicId: string, question: number, text: string): void => void changePlan(planId => window.bridge.editRepositoryContextQuestion(workspaceId,
+      { planId, topicId, question, text }), 'Question saved · no agent run'),
+    dropQuestion: (topicId: string, question: number): void => void changePlan(planId => window.bridge.dropRepositoryContextQuestion(workspaceId,
+      { planId, topicId, question }), 'Question dropped · no batch runs it · no agent run'),
     stop: (run: ContextRunDto) => perform(async () => {
       setBuild(await window.bridge.stopRepositoryContextBuild(workspaceId, run.taskId));
       say(run.mode === 'DISCOVER' ? 'Discovery stopped · notes unchanged' : run.pullRequest !== null ? 'Run stopped · candidate kept'
@@ -349,6 +367,10 @@ export type ContextActions = {
   continueLearning: () => void;
   learnCandidate: (candidateId: string) => void;
   investigate: (entryId: string) => void;
+  goDeeper: (topicId: string) => void;
+  addQuestion: (topicId: string, text: string) => void;
+  editQuestion: (topicId: string, question: number, text: string) => void;
+  dropQuestion: (topicId: string, question: number) => void;
   stop: (run: ContextRunDto) => Promise<void>;
   openDrawer: (drawer: Drawer) => void;
   openTab: (tab: 'overview' | 'notes', area?: string) => void;
@@ -359,6 +381,7 @@ function finishMessage(run: ContextRunDto): string {
   switch (run.outcome) {
     case 'SETTLED': return `Investigation ${run.sequence} ${run.investigation?.outcome ? SETTLED_BY[run.investigation.outcome] : 'settled the dispute'} · no further run`;
     case 'ANSWERED': return `Run ${run.sequence} finished · ${plural(run.noteIds.length, 'note')} saved`;
+    case 'CORRECTED': return `Run ${run.sequence} corrected its question · the questions that replace it join the plan`;
     case 'NO_NOTE': return `Run ${run.sequence} finished · no reusable note`;
     case 'LIMIT': return `Run ${run.sequence} reached its source limit · progress saved`;
     case 'UNFINISHED': return `Run ${run.sequence} finished · progress saved`;

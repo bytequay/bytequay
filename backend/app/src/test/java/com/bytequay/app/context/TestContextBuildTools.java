@@ -413,7 +413,7 @@ class TestContextBuildTools
                         ImmutableList.of(ContextLearningPlan.Question.open("How does Iceberg read metadata?")))), ImmutableList.of(),
                 ContextDocumentInventory.initial(ImmutableList.of()), ImmutableList.of(), Instant.EPOCH, Optional.empty());
         when(learning.require(any())).thenReturn(plan);
-        when(learning.progress(any(), anyString(), anyBoolean(), anyList())).thenReturn(plan);
+        when(learning.progress(any(), anyString(), anyBoolean(), anyList(), any(), anyList())).thenReturn(plan);
         when(baseline.read(any(), eq(1L), eq(SHA), eq("pom.xml"), eq(1), eq(Optional.empty())))
                 .thenReturn(new ContextBaselineReader.Read(new ContextReference.RepositoryFile(1, REPO, "pom.xml", SHA), SHA, Instant.EPOCH, 1, 1, 1, "modules", false));
 
@@ -429,7 +429,19 @@ class TestContextBuildTools
         assertThat(current().capture().result()).isPresent();
         assertThat(current().capture().activity()).extracting(ContextBuild.Activity::text)
                 .containsExactly("Progress saved · the next run resumes this question", "Read pom.xml", "Question answered");
-        verify(learning).progress(any(), eq("Answered from the manifest reader."), eq(true), eq(ImmutableList.of()));
+        verify(learning).progress(any(), eq("Answered from the manifest reader."), eq(true), eq(ImmutableList.of()), eq(Optional.empty()), eq(ImmutableList.of()));
+
+        String readId = current().capture().sourceReads().getFirst().id();
+        String correction = "{\"progress\":\"The manifest lists no module.\",\"completed\":false,\"gaps\":[],\"correction\":{\"reason\":\"There is no module list.\","
+                + "\"sourceIds\":[\"" + readId + "\"],\"questions\":[\"Which file defines the build?\"]},\"followUps\":[{\"question\":\"Where are the tests?\","
+                + "\"sourceIds\":[\"" + readId + "\"]}]}";
+        assertThat(progress(correction.replace(readId, "context-read:unknown")).path("error").path("message").textValue()).contains("not a read of this run");
+        assertThat(progress(correction).has("error")).isFalse();
+        verify(learning).progress(any(), eq("The manifest lists no module."), eq(false), eq(ImmutableList.of()),
+                eq(Optional.of(new ContextLearningService.Correction("There is no module list. Cited: pom.xml:1-1", ImmutableList.of("Which file defines the build?")))),
+                eq(ImmutableList.of(new ContextLearningService.FollowUp("Where are the tests?", "Raised by a learning run · cited pom.xml:1-1"))));
+        assertThat(current().capture().attempts()).containsEntry(ContextRun.PROGRESS, ContextRun.CORRECTED);
+        assertThat(current().capture().activity().getLast().text()).isEqualTo("Question corrected · replaced by 1 · 1 follow-up question");
     }
 
     @Test

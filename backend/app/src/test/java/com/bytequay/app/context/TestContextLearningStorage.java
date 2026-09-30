@@ -63,11 +63,18 @@ class TestContextLearningStorage
         ObjectNode plan = mapper.valueToTree(plan(Optional.empty()));
         ((ObjectNode) report.path("topics").get(0)).remove("notePaths");
         ((ObjectNode) plan.path("topics").get(0)).remove("notePaths");
+        ObjectNode question = (ObjectNode) plan.path("topics").get(0).path("questions").get(0);
+        question.remove("origin");
+        question.remove("note");
+        plan.remove("batch");
         settings.put(ContextDiscoveryReportStore.PREFIX + WORKSPACE, report.toString());
         settings.put(ContextLearningPlanStore.PREFIX + WORKSPACE, plan.toString());
 
         ContextDiscoveryReport savedReport = reports.find(WORKSPACE).orElseThrow();
         ContextLearningPlan savedPlan = plans.find(WORKSPACE).orElseThrow();
+        assertThat(savedPlan.topics().getFirst().questions().getFirst().origin()).isEqualTo(ContextLearningPlan.Origin.DISCOVERY);
+        assertThat(savedPlan.topics().getFirst().questions().getFirst().note()).isEmpty();
+        assertThat(savedPlan.batch()).isEmpty();
 
         assertThat(savedReport.topics().getFirst().notePaths()).isEmpty();
         assertThat(savedReport.topics().getFirst().paths()).isEqualTo(READ_PATHS);
@@ -109,7 +116,7 @@ class TestContextLearningStorage
     {
         ContextLearningPlan.Topic topic = new ContextLearningPlan.Topic("topic:1", "Iceberg", "iceberg", "sha256:" + "b".repeat(64), READ_PATHS,
                 notePaths, ImmutableList.of("README.md"), ImmutableList.of(), ImmutableList.of(new ContextLearningPlan.Question(
-                        "How are files selected?", ContextLearningPlan.Status.UNFINISHED, "Read the metadata entry point.")));
+                        "How are files selected?", ContextLearningPlan.Status.UNFINISHED, "Read the metadata entry point.", ContextLearningPlan.Origin.DISCOVERY, "")));
         return new ContextLearningPlan("plan", WORKSPACE, "report", "accept", "sha256:" + "c".repeat(64), 0, 0, ImmutableList.of("topic:1"),
                 1, RepoRef.of("owner", "repository"), SHA, ImmutableList.of(topic), ImmutableList.of(), ContextDocumentInventory.initial(ImmutableList.of()),
                 ImmutableList.of(), Instant.EPOCH, Optional.empty());

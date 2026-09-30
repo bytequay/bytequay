@@ -1,8 +1,8 @@
 # Repository context: discover, learn, and use
 
-Status: implemented and verified by automated tests, except
-[questions and batches](#questions-and-batches), learning from work in
-[section 5](#5-use-during-development-and-review), and two parts of
+Status: implemented and verified by automated tests, except learning from
+work in [section 5](#5-use-during-development-and-review) with the single public
+page reads in [section 4](#4-bounded-incremental-learning), and two parts of
 [Investigate](#grades-and-reports): investigating a note the user wrote, and
 saving what a narrowed note leaves out as separate notes. All are approved and
 not yet implemented; see

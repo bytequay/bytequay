@@ -50,6 +50,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -210,6 +211,92 @@ class TestContextLearningService
         learning.continueBatch(WORKSPACE);
         verify(builds, times(2)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), any());
         assertThat(plans.find(WORKSPACE).orElseThrow().batch()).isEmpty();
+    }
+
+    @Test
+    void aRunCorrectsItsQuestionAndAddsFollowUpsThatTheTopicDoesNotAlreadyAsk()
+    {
+        reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Project structure", ImmutableList.of(), ImmutableList.of())), ImmutableList.of()));
+        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1"), ImmutableList.of()));
+        ContextLearningPlan plan = plans.find(WORKSPACE).orElseThrow();
+        ContextBuild bound = task(plan, "topic:1", 0);
+
+        learning.progress(bound, "The project has no module list.", false, ImmutableList.of(),
+                Optional.of(new ContextLearningService.Correction("There is one module. Cited: pom.xml:1-9", ImmutableList.of("Which build file defines the module?"))),
+                ImmutableList.of(new ContextLearningService.FollowUp("Where are the integration tests?", "Raised by a learning run · cited pom.xml:3-4"),
+                        new ContextLearningService.FollowUp("which build file defines the module? ", "A repeat")));
+
+        List<ContextLearningPlan.Question> questions = plans.find(WORKSPACE).orElseThrow().topic("topic:1").questions();
+        assertThat(questions).extracting(ContextLearningPlan.Question::text, ContextLearningPlan.Question::status, ContextLearningPlan.Question::origin)
+                .containsExactly(
+                        tuple("How is the project structured?", ContextLearningPlan.Status.CORRECTED, ContextLearningPlan.Origin.DISCOVERY),
+                        tuple("Where are its tests?", ContextLearningPlan.Status.PENDING, ContextLearningPlan.Origin.DISCOVERY),
+                        tuple("Which build file defines the module?", ContextLearningPlan.Status.PENDING, ContextLearningPlan.Origin.LEARNING),
+                        tuple("Where are the integration tests?", ContextLearningPlan.Status.PENDING, ContextLearningPlan.Origin.LEARNING));
+        assertThat(questions.get(0).note()).isEqualTo("There is one module. Cited: pom.xml:1-9");
+        assertThat(questions.get(2).note()).isEqualTo("Replaces \u201cHow is the project structured?\u201d");
+        assertThat(questions.get(3).note()).contains("cited pom.xml:3-4");
+        assertThat(plans.find(WORKSPACE).orElseThrow().open()).containsExactly(new ContextLearningPlan.Target("topic:1", 1),
+                new ContextLearningPlan.Target("topic:1", 2), new ContextLearningPlan.Target("topic:1", 3));
+        assertThatIllegalArgumentException().isThrownBy(() -> learning.progress(bound, "Again", true, ImmutableList.of()))
+                .withMessageContaining("closed while the run worked");
+    }
+
+    @Test
+    void usersAddEditAndDropQuestionsButNotTheOneARunIsWorkingOn()
+    {
+        reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Project structure", ImmutableList.of(), ImmutableList.of())), ImmutableList.of()));
+        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1"), ImmutableList.of()));
+        ContextLearningPlan plan = plans.find(WORKSPACE).orElseThrow();
+        buildStore.save(Optional.empty(), task(plan, "topic:1", 0));
+        view.set(new ContextBuildService.View(1, 0, false, Optional.empty(), ImmutableList.of()));
+
+        learning.addQuestion(WORKSPACE, new ContextLearningService.QuestionRequest(plan.id(), "topic:1", " How are releases cut? "));
+        assertThatIllegalArgumentException().isThrownBy(() -> learning.addQuestion(WORKSPACE,
+                new ContextLearningService.QuestionRequest(plan.id(), "topic:1", "how are releases cut?"))).withMessageContaining("already has that question");
+        learning.editQuestion(WORKSPACE, new ContextLearningService.QuestionEdit(plan.id(), "topic:1", 1, "Which directories hold the tests?"));
+        learning.dropQuestion(WORKSPACE, new ContextLearningService.QuestionDrop(plan.id(), "topic:1", 2));
+        assertThatIllegalArgumentException().isThrownBy(() -> learning.dropQuestion(WORKSPACE,
+                new ContextLearningService.QuestionDrop(plan.id(), "topic:1", 0))).withMessageContaining("stop it first");
+        assertThatIllegalArgumentException().isThrownBy(() -> learning.editQuestion(WORKSPACE,
+                new ContextLearningService.QuestionEdit(plan.id(), "topic:1", 2, "Too late"))).withMessageContaining("already answered, corrected or dropped");
+
+        List<ContextLearningPlan.Question> questions = plans.find(WORKSPACE).orElseThrow().topic("topic:1").questions();
+        assertThat(questions).extracting(ContextLearningPlan.Question::text, ContextLearningPlan.Question::status, ContextLearningPlan.Question::origin)
+                .containsExactly(
+                        tuple("How is the project structured?", ContextLearningPlan.Status.PENDING, ContextLearningPlan.Origin.DISCOVERY),
+                        tuple("Which directories hold the tests?", ContextLearningPlan.Status.PENDING, ContextLearningPlan.Origin.DISCOVERY),
+                        tuple("How are releases cut?", ContextLearningPlan.Status.DROPPED, ContextLearningPlan.Origin.USER));
+        assertThat(questions.get(2).note()).isEqualTo("Dropped by you");
+        verify(builds, times(1)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), any());
+    }
+
+    @Test
+    void goDeeperAddsOneQuestionAndRunsItAlone()
+    {
+        reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Project structure", ImmutableList.of(), ImmutableList.of())), ImmutableList.of()));
+        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1"), ImmutableList.of()));
+        ContextLearningPlan plan = plans.find(WORKSPACE).orElseThrow();
+        ContextBuild first = task(plan, "topic:1", 0);
+        buildStore.save(Optional.empty(), first);
+        view.set(finished(1, first, ContextRun.Outcome.ANSWERED));
+
+        learning.goDeeper(WORKSPACE, new ContextLearningService.DeeperRequest("deeper", 0, 1, plan.id(), "topic:1"));
+
+        ContextLearningPlan deeper = plans.find(WORKSPACE).orElseThrow();
+        ContextLearningPlan.Question added = deeper.topic("topic:1").questions().get(2);
+        assertThat(added.text()).startsWith("What else should someone working on Project structure know");
+        assertThat(added.origin()).isEqualTo(ContextLearningPlan.Origin.USER);
+        assertThat(added.note()).isEqualTo("Go deeper");
+        assertThat(deeper.batch()).contains(new ContextLearningPlan.Batch("deeper", ImmutableList.of(), 1, 1));
+        ArgumentCaptor<ContextBuild.Assignment> assignments = ArgumentCaptor.forClass(ContextBuild.Assignment.class);
+        verify(builds, times(2)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), assignments.capture());
+        assertThat(assignments.getValue().questionIndex()).isEqualTo(2);
+
+        buildStore.save(Optional.of(first), task(deeper, "topic:1", 2, "deeper", "55555555-5555-4555-8555-555555555555"));
+        learning.goDeeper(WORKSPACE, new ContextLearningService.DeeperRequest("deeper", 0, 1, plan.id(), "topic:1"));
+        assertThat(plans.find(WORKSPACE).orElseThrow().topic("topic:1").questions()).hasSize(3);
+        verify(builds, times(2)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), any());
     }
 
     @Test

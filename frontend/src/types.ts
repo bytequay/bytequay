@@ -25,6 +25,10 @@ import type {
   ContextBaselineDto,
   ContextUsageOverviewDto,
   ContextUsageWindow,
+  GoDeeperContextLearningRequest,
+  EditContextLearningQuestionRequest,
+  DropContextLearningQuestionRequest,
+  AddContextLearningQuestionRequest,
   ContextDiscoveryReportDto,
   ContextDisputesDto,
   ContextLearningPlanViewDto,
@@ -1645,6 +1649,10 @@ export type Bridge = JiraBridge & {
   startRepositoryContextLearning: (workspaceId: string, request: StartContextLearningRequest) => Promise<ContextBuildViewDto>;
   continueRepositoryContextLearning: (workspaceId: string, request: ContinueContextLearningRequest) => Promise<ContextBuildViewDto>;
   discardRepositoryContextLearningPlan: (workspaceId: string, request: DiscardContextLearningPlanRequest) => Promise<ContextLearningPlanViewDto>;
+  addRepositoryContextQuestion: (workspaceId: string, request: AddContextLearningQuestionRequest) => Promise<ContextLearningPlanViewDto>;
+  editRepositoryContextQuestion: (workspaceId: string, request: EditContextLearningQuestionRequest) => Promise<ContextLearningPlanViewDto>;
+  dropRepositoryContextQuestion: (workspaceId: string, request: DropContextLearningQuestionRequest) => Promise<ContextLearningPlanViewDto>;
+  goDeeperRepositoryContextTopic: (workspaceId: string, request: GoDeeperContextLearningRequest) => Promise<ContextBuildViewDto>;
   allowRepositoryContextLearningSource: (workspaceId: string, request: AllowContextLearningSourceRequest) => Promise<ContextLearningPlanViewDto>;
   declineRepositoryContextLearningSource: (workspaceId: string, request: DeclineContextLearningSourceRequest) => Promise<ContextLearningPlanViewDto>;
   getRepositoryContextMergedCandidates: (workspaceId: string) => Promise<ContextMergedCandidatesDto>;

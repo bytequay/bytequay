@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -80,6 +81,71 @@ public class ContextLearningController
     public PlanView declineSource(@PathVariable String workspaceId, @RequestBody DeclineRequest request)
     {
         return PlanView.of(Optional.of(learning.declineSource(workspaceId, new ContextLearningService.DeclineRequest(request.planId(), request.suggestedUrl()))));
+    }
+
+    @PostMapping("/plan/questions")
+    public PlanView addQuestion(@PathVariable String workspaceId, @RequestBody QuestionRequest request)
+    {
+        return PlanView.of(Optional.of(learning.addQuestion(workspaceId, new ContextLearningService.QuestionRequest(request.planId(), request.topicId(), request.text()))));
+    }
+
+    @PutMapping("/plan/questions")
+    public PlanView editQuestion(@PathVariable String workspaceId, @RequestBody QuestionEdit request)
+    {
+        return PlanView.of(Optional.of(learning.editQuestion(workspaceId,
+                new ContextLearningService.QuestionEdit(request.planId(), request.topicId(), request.question(), request.text()))));
+    }
+
+    @PostMapping("/plan/questions/drop")
+    public PlanView dropQuestion(@PathVariable String workspaceId, @RequestBody QuestionDrop request)
+    {
+        return PlanView.of(Optional.of(learning.dropQuestion(workspaceId, new ContextLearningService.QuestionDrop(request.planId(), request.topicId(), request.question()))));
+    }
+
+    @PostMapping("/plan/deeper")
+    public ContextBuildService.View goDeeper(@PathVariable String workspaceId, @RequestBody DeeperRequest request)
+    {
+        return learning.goDeeper(workspaceId, new ContextLearningService.DeeperRequest(request.requestKey(), request.expectedRevision(),
+                request.expectedBuildSequence(), request.planId(), request.topicId()));
+    }
+
+    public record QuestionRequest(String planId, String topicId, String text)
+    {
+        public QuestionRequest
+        {
+            new ContextLearningService.QuestionRequest(requireNonNull(planId, "planId is null"), requireNonNull(topicId, "topicId is null"),
+                    requireNonNull(text, "text is null"));
+        }
+    }
+
+    public record QuestionEdit(String planId, String topicId, Integer question, String text)
+    {
+        public QuestionEdit
+        {
+            checkArgument(question != null && question >= 0, "question is required");
+            new ContextLearningService.QuestionEdit(requireNonNull(planId, "planId is null"), requireNonNull(topicId, "topicId is null"), question,
+                    requireNonNull(text, "text is null"));
+        }
+    }
+
+    public record QuestionDrop(String planId, String topicId, Integer question)
+    {
+        public QuestionDrop
+        {
+            checkArgument(question != null && question >= 0, "question is required");
+            new ContextLearningService.QuestionDrop(requireNonNull(planId, "planId is null"), requireNonNull(topicId, "topicId is null"), question);
+        }
+    }
+
+    public record DeeperRequest(String requestKey, Long expectedRevision, Long expectedBuildSequence, String planId, String topicId)
+    {
+        public DeeperRequest
+        {
+            checkArgument(expectedRevision != null && expectedRevision >= 0 && expectedBuildSequence != null && expectedBuildSequence >= 0,
+                    "Notebook revision and build sequence are required");
+            new ContextLearningService.DeeperRequest(requireNonNull(requestKey, "requestKey is null"), expectedRevision, expectedBuildSequence,
+                    requireNonNull(planId, "planId is null"), requireNonNull(topicId, "topicId is null"));
+        }
     }
 
     public record SourceRequest(String planId, String suggestedUrl, ContextLearningService.Boundary boundary, Long expectedRevision, Long expectedBuildSequence)

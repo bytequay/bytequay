@@ -2199,7 +2199,7 @@ and [the user interface](repository-context-refactor.md#8-user-interface).
 
 - [x] Run a batch from one Learn selected or Continue learning click: one run per
   question open at the click, ended by Stop, a failure or another run.
-- [ ] Record each question's origin and state; let runs correct questions and add
+- [x] Record each question's origin and state; let runs correct questions and add
   follow-ups; let the user add, edit and drop questions and Go deeper; allow 30
   questions per topic.
 - [ ] Let tasks and reviews file questions with a lead; let learning runs read
@@ -2213,6 +2213,16 @@ question starting only after the previous run ends, Stop and another run ending
 the batch, answered questions skipped, a refused click leaving the plan
 unchanged, plans saved before batches, and the run lines that count the runs.
 No live model run was used.
+
+Living questions passed JVM 25 `mvn verify` with 3,671 tests and no Checkstyle
+violations; frontend lint, TypeScript, all 1,423 tests and macOS packaging
+passed. Regressions cover a correction that closes its question with the cited
+reason and adds its replacements, follow-ups the topic already asks skipped,
+progress refused on a question closed mid-run, user edits limited to questions
+no run has started, a drop refused for the running question, Go deeper adding
+one question and running it alone, plans saved before origins, and the plan rows,
+counts and status card for corrected and dropped questions. No live model run
+was used.
 
 ## Save notes without approval
 

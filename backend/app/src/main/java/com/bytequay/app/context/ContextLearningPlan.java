@@ -162,11 +162,23 @@ public record ContextLearningPlan(
         }
     }
 
+    /** Open questions are PENDING or UNFINISHED; the others are closed. */
     public enum Status
     {
         PENDING,
         UNFINISHED,
-        COMPLETED
+        COMPLETED,
+        CORRECTED,
+        DROPPED
+    }
+
+    public enum Origin
+    {
+        DISCOVERY,
+        LEARNING,
+        TASK,
+        REVIEW,
+        USER
     }
 
     public record Target(String topicId, int question)
@@ -178,27 +190,60 @@ public record ContextLearningPlan(
         }
     }
 
-    /** One answer unit; progress is the agent's checkpoint of what was established and what remains. */
-    public record Question(String text, Status status, String progress)
+    /**
+     * One answer unit. Progress is the agent's checkpoint of what was established and what remains; the note says why a
+     * question was added, with its lead or cited lines, or why it was corrected or dropped.
+     */
+    public record Question(String text, Status status, String progress, Origin origin, String note)
     {
+        public static final int MAX_NOTE_BYTES = 1000;
+
         public Question
         {
             ContextLimits.text(text, "learning question", 1000);
             requireNonNull(status, "question status is null");
             checkArgument(ContextLimits.bytes(progress) <= 2000, "Question progress exceeds 2000 UTF-8 bytes");
             checkArgument(status != Status.PENDING || progress.isEmpty(), "A question that has not started has no progress");
+            requireNonNull(origin, "question origin is null");
+            checkArgument(ContextLimits.bytes(note) <= MAX_NOTE_BYTES, "A question's note exceeds %s UTF-8 bytes", MAX_NOTE_BYTES);
+            checkArgument(status != Status.CORRECTED || !note.isBlank(), "A corrected question says why");
         }
 
         public static Question open(String text)
         {
-            return new Question(text, Status.PENDING, "");
+            return new Question(text, Status.PENDING, "", Origin.DISCOVERY, "");
+        }
+
+        public static Question added(String text, Origin origin, String note)
+        {
+            return new Question(text, Status.PENDING, "", origin, ContextText.excerpt(note, MAX_NOTE_BYTES));
+        }
+
+        public boolean open()
+        {
+            return status == Status.PENDING || status == Status.UNFINISHED;
+        }
+
+        public Question withProgress(Status replacement, String checkpoint)
+        {
+            return new Question(text, replacement, checkpoint, origin, note);
+        }
+
+        public Question closed(Status replacement, String checkpoint, String why)
+        {
+            return new Question(text, replacement, checkpoint, origin, ContextText.excerpt(why, MAX_NOTE_BYTES));
+        }
+
+        public Question withText(String replacement)
+        {
+            return new Question(replacement, status, progress, origin, note);
         }
     }
 
     public record Topic(String id, String title, String scopeId, String scopeMatchDigest, List<String> paths, Optional<List<String>> notePaths, List<String> repositoryFiles,
             List<String> sourceIds, List<Question> questions)
     {
-        public static final int MAX_QUESTIONS = 6;
+        public static final int MAX_QUESTIONS = 30;
 
         public Topic
         {
@@ -220,14 +265,25 @@ public record ContextLearningPlan(
             ContextLimits.unique(repositoryFiles, "topic source files", 40);
             repositoryFiles.forEach(path -> ContextLimits.pathPrefix(path + "/"));
             ContextLimits.unique(sourceIds, "topic documentation sources", 20);
-            checkArgument(!questions.isEmpty() && questions.size() <= MAX_QUESTIONS, "A topic has one to six learning questions");
+            checkArgument(!questions.isEmpty() && questions.size() <= MAX_QUESTIONS, "A topic has one to %s learning questions", MAX_QUESTIONS);
         }
 
         public Topic withQuestion(int index, Question replacement)
         {
             List<Question> updated = new ArrayList<>(questions);
             updated.set(index, replacement);
-            return new Topic(id, title, scopeId, scopeMatchDigest, paths, notePaths, repositoryFiles, sourceIds, updated);
+            return withQuestions(updated);
+        }
+
+        public Topic withQuestions(List<Question> replacement)
+        {
+            return new Topic(id, title, scopeId, scopeMatchDigest, paths, notePaths, repositoryFiles, sourceIds, replacement);
+        }
+
+        /** Whether the topic already asks this question, ignoring case and surrounding space. */
+        public boolean asks(String text)
+        {
+            return questions.stream().anyMatch(question -> question.text().strip().equalsIgnoreCase(text.strip()));
         }
 
         public Topic withSource(String sourceId)

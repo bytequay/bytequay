@@ -404,10 +404,22 @@ it('routes explicit learning and recovery through the authenticated purpose-boun
   await expect(desktop.handlers.get('repository-context:build:plan:source')?.({}, 'workspace/one', suggested)).resolves.toEqual({ plan: null, next: null });
   expect(fetch).toHaveBeenLastCalledWith(base + '/plan/sources', expect.objectContaining({ method: 'POST', body: JSON.stringify(suggested),
     headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  const question = { planId: 'plan-1', topicId: 'topic:1', text: 'How are releases cut?' };
+  const questionCases: Array<[string, string, string, object]> = [['add', '/plan/questions', 'POST', question],
+    ['edit', '/plan/questions', 'PUT', { planId: 'plan-1', topicId: 'topic:1', question: 1, text: 'Which tests?' }],
+    ['drop', '/plan/questions/drop', 'POST', { planId: 'plan-1', topicId: 'topic:1', question: 1 }]];
+  for (const [name, path, method, request] of questionCases) {
+    await expect(desktop.handlers.get(`repository-context:build:plan:questions:${name}`)?.({}, 'workspace/one', request)).resolves.toEqual({ plan: null, next: null });
+    expect(fetch).toHaveBeenLastCalledWith(base + path, expect.objectContaining({ method, body: JSON.stringify(request) }));
+  }
   const decline = { planId: 'plan-1', suggestedUrl: suggested.suggestedUrl };
   await expect(desktop.handlers.get('repository-context:build:plan:decline')?.({}, 'workspace/one', decline)).resolves.toEqual({ plan: null, next: null });
   expect(fetch).toHaveBeenLastCalledWith(base + '/plan/sources', expect.objectContaining({ method: 'DELETE', body: JSON.stringify(decline),
     headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  fetch.mockImplementation(async () => new Response(JSON.stringify(view)));
+  const deeper = { requestKey: 'deeper-key', expectedRevision: 7, expectedBuildSequence: 3, planId: 'plan-1', topicId: 'topic:1' };
+  await expect(desktop.handlers.get('repository-context:build:plan:deeper')?.({}, 'workspace/one', deeper)).resolves.toEqual(view);
+  expect(fetch).toHaveBeenLastCalledWith(base + '/plan/deeper', expect.objectContaining({ method: 'POST', body: JSON.stringify(deeper) }));
   const impact: AgentRuntimeStopImpactDto = { taskId: 'task/one', generation: 'generation', activeTurnId: null, liveProcess: true };
   fetch.mockImplementation(async () => new Response(JSON.stringify(impact)));
   await expect(desktop.handlers.get('repository-context:build:stop-impact')?.({}, 'workspace/one', 'task/one')).resolves.toEqual(impact);

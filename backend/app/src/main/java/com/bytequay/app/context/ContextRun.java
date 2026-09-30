@@ -40,6 +40,7 @@ public record ContextRun(
     public static final String PROGRESS = "question-progress";
     public static final String COMPLETED = "COMPLETED";
     public static final String UNFINISHED = "UNFINISHED";
+    public static final String CORRECTED = "CORRECTED";
     /** Capture attempt key under which an investigation records the outcome that settled its dispute. */
     public static final String SETTLED = "investigation-settled";
 
@@ -102,6 +103,9 @@ public record ContextRun(
             return Outcome.STOPPED;
         }
         String progress = build.capture().attempts().getOrDefault(PROGRESS, "");
+        if (progress.equals(CORRECTED)) {
+            return Outcome.CORRECTED;
+        }
         boolean settled = build.assignment().isPresent() ? progress.equals(COMPLETED) : build.capture().result().isPresent();
         if (settled) {
             return build.mode() == ContextBuild.Mode.DISCOVER ? Outcome.SUBMITTED
@@ -143,6 +147,7 @@ public record ContextRun(
         SUBMITTED,
         SETTLED,
         ANSWERED,
+        CORRECTED,
         NO_NOTE,
         UNFINISHED,
         LIMIT,

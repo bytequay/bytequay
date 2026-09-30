@@ -60,6 +60,13 @@ public class ContextLearningPlanStore
                     if (topic instanceof ObjectNode object && !object.has("notePaths")) {
                         object.putNull("notePaths");
                     }
+                    // Questions saved before they recorded an origin all came from discovery.
+                    topic.path("questions").forEach(question -> {
+                        if (question instanceof ObjectNode saved && !saved.has("origin")) {
+                            saved.put("origin", ContextLearningPlan.Origin.DISCOVERY.name());
+                            saved.put("note", "");
+                        }
+                    });
                 });
                 ContextLearningPlan plan = mapper.treeToValue(value, ContextLearningPlan.class);
                 checkArgument(plan.workspaceId().equals(workspaceId), "Saved learning plan belongs to another workspace");

@@ -141,6 +141,14 @@ class TestContextRun
         assertThat(unsettled.investigation().orElseThrow().outcome()).isEmpty();
     }
 
+    @Test
+    void aRunThatCorrectedItsQuestionSaysSo()
+    {
+        ContextRun run = ContextRun.of(learning(ImmutableMap.of(ContextRun.PROGRESS, ContextRun.CORRECTED), Optional.of(new ContextBuild.Result(ImmutableList.of()))),
+                task(), finished(false));
+        assertThat(run.outcome()).isEqualTo(ContextRun.Outcome.CORRECTED);
+    }
+
     private static ContextBuild investigating(ContextBuild.Investigation investigation, Map<String, String> attempts, Optional<ContextBuild.Result> result)
     {
         return new ContextBuild(4, "investigate", "sha256:" + "b".repeat(64), "workspace", TASK.toString(),

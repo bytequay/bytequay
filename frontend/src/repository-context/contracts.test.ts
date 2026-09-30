@@ -36,6 +36,10 @@ import {
   parseStartContextLearningRequest,
   parseContinueContextLearningRequest,
   parseDiscardContextLearningPlanRequest,
+  parseAddContextLearningQuestionRequest,
+  parseEditContextLearningQuestionRequest,
+  parseDropContextLearningQuestionRequest,
+  parseGoDeeperContextLearningRequest,
   parseAllowContextLearningSourceRequest,
   parseDeclineContextLearningSourceRequest,
   parseContextMergedCandidates,
@@ -383,8 +387,9 @@ describe('repository context contracts', () => {
       expect(() => parseContextDiscoveryReport(invalid, 'workspace')).toThrow('Malformed repository context');
     const plan: ContextLearningPlanDto = { id: 'plan-1', workspaceId: 'workspace', reportId: report.id, baselineSha: report.baselineSha,
       topics: [{ id: 'topic:1', title: 'Iceberg connector', scopeId: 'path:plugin/trino-iceberg/', paths: ['plugin/trino-iceberg/', 'plugin/trino-hive/'], notePaths: ['plugin/trino-iceberg/'],
-        repositoryFiles: [], sourceIds: ['source:1'], questions: [{ text: 'How are tables read?', status: 'UNFINISHED', progress: 'Read the split manager.' },
-          { text: 'How are snapshots committed?', status: 'PENDING', progress: '' }] }],
+        repositoryFiles: [], sourceIds: ['source:1'], questions: [{ text: 'How are tables read?', status: 'UNFINISHED', progress: 'Read the split manager.',
+          origin: 'DISCOVERY', note: '' },
+          { text: 'How are snapshots committed?', status: 'PENDING', progress: '', origin: 'LEARNING', note: 'Raised by run 2 · cited IcebergMetadata.java:40-41' }] }],
       gaps: ['Delta Lake transaction-log behavior needs its own learning topic.'], documentationSources: [source], documentInventory: { items: [{ sourceId: source.id, resolvedUrl: source.url,
         relativePage: null, depth: 0, status: 'PENDING', detail: '' }],
         suggestions: [{ url: 'https://example.org/iceberg/', parentUrl: source.url, topicId: 'topic:1', question: 0, taskId: 'learn-task',
@@ -392,6 +397,10 @@ describe('repository context contracts', () => {
     const planView = { plan, next: { topicId: 'topic:1', question: 0 } };
     expect(parseContextLearningPlanView(planView, 'workspace')).toEqual(planView);
     expect(parseContextLearningPlanView({ plan: null, next: null }, 'workspace')).toEqual({ plan: null, next: null });
+    const closed = { ...plan, topics: [{ ...plan.topics[0], questions: [...plan.topics[0].questions,
+      { text: 'Is there one commit path?', status: 'CORRECTED' as const, progress: 'Two paths.', origin: 'DISCOVERY' as const, note: 'There are two. Cited: A.java:1-9' },
+      { text: 'How are releases cut?', status: 'DROPPED' as const, progress: '', origin: 'USER' as const, note: 'Dropped by you' }] }] };
+    expect(parseContextLearningPlanView({ plan: closed, next: null }, 'workspace').plan).toEqual(closed);
     for (const notePaths of [undefined, null, []] as Array<string[] | null | undefined>) {
       expect(parseContextLearningPlanView({ ...planView, plan: { ...plan, topics: [{ ...plan.topics[0], notePaths }] } }, 'workspace').plan?.topics[0].notePaths)
         .toEqual(notePaths ?? null);
@@ -400,6 +409,8 @@ describe('repository context contracts', () => {
       { plan: { ...plan, topics: [{ ...plan.topics[0], notePaths: 'plugin/trino-iceberg/' }] }, next: null },
       { plan: { ...plan, topics: [{ ...plan.topics[0], questions: [{ ...plan.topics[0].questions[0], status: 'GUESS' }] }] }, next: null },
       { plan: { ...plan, topics: [{ ...plan.topics[0], questions: [{ ...plan.topics[0].questions[1], progress: 'Started' }] }] }, next: null },
+      { plan: { ...plan, topics: [{ ...plan.topics[0], questions: [{ ...plan.topics[0].questions[0], origin: 'GUESS' }] }] }, next: null },
+      { plan: { ...plan, topics: [{ ...plan.topics[0], questions: Array(31).fill(plan.topics[0].questions[1]) }] }, next: null },
       { plan: { ...plan, documentInventory: { ...plan.documentInventory, suggestions: [{ ...plan.documentInventory.suggestions[0], topicId: 'other' }] } },
         next: null }] as unknown[])
       expect(() => parseContextLearningPlanView(invalid, 'workspace')).toThrow('Malformed repository context');
@@ -413,6 +424,15 @@ describe('repository context contracts', () => {
       .toThrow('Malformed repository context');
     expect(parseContinueContextLearningRequest({ ...base, planId: plan.id }).planId).toBe(plan.id);
     expect(parseDiscardContextLearningPlanRequest({ planId: plan.id, expectedRevision: 7, expectedBuildSequence: 1 }).planId).toBe(plan.id);
+    const question = { planId: plan.id, topicId: 'topic:1', text: 'How are releases cut?' };
+    expect(parseAddContextLearningQuestionRequest(question)).toEqual(question);
+    expect(parseEditContextLearningQuestionRequest({ ...question, question: 1 })).toEqual({ ...question, question: 1 });
+    expect(parseDropContextLearningQuestionRequest({ planId: plan.id, topicId: 'topic:1', question: 0 }).question).toBe(0);
+    expect(parseGoDeeperContextLearningRequest({ ...base, planId: plan.id, topicId: 'topic:1' })).toEqual({ ...base, planId: plan.id, topicId: 'topic:1' });
+    for (const invalid of [() => parseAddContextLearningQuestionRequest({ ...question, text: ' ' }),
+      () => parseEditContextLearningQuestionRequest({ ...question, question: -1 }), () => parseDropContextLearningQuestionRequest({ ...question, question: 0 }),
+      () => parseGoDeeperContextLearningRequest({ ...base, planId: plan.id, topicId: 'topic:1', prompt: 'forged' })])
+      expect(invalid).toThrow();
     const allow = { planId: plan.id, suggestedUrl: 'https://example.org/iceberg/', boundary: 'ROOT', expectedRevision: 7, expectedBuildSequence: 1 };
     expect(parseAllowContextLearningSourceRequest(allow)).toEqual(allow);
     expect(parseAllowContextLearningSourceRequest({ ...allow, suggestedUrl: 'https://example.org/page.html', boundary: 'PAGE' }).boundary).toBe('PAGE');

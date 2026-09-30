@@ -466,6 +466,9 @@ public class ContextBuildService
             ContextBuild.Assignment assignment = build.assignment().orElseThrow();
             return "Learn one approved question for " + build.repository().fullName() + " at " + build.baselineSha() + " (topic " + assignment.topicTitle() + "): "
                     + assignment.question() + (assignment.progress().isEmpty() ? "" : " Saved progress from an earlier run: " + assignment.progress())
+                    + " First check the question's assumption against the code. If it does not hold, or the question is too broad, correct it with "
+                    + "repository_context_progress: the reason, the readIds that show it and one to three questions that replace it. Add up to three "
+                    + "follow-up questions for what this topic should also answer."
                     + " Use repository_context_read SELECTION for saved progress and exact source boundaries. "
                     + "Inspect existing notes before saving duplicates. Read only what answers this question, within the approved paths and documentation inventory. "
                     + ContextBuildTools.TARGET_GUIDANCE

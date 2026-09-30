@@ -17,7 +17,7 @@ import type {
   ContextScopeDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto,
 } from './contracts';
 import {
-  batchLine, batchRuns, disputeSides, filterNotes, gradeLine, grader, latestReport, runOrigin, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pendingCounts, previousVersion,
+  batchLine, batchRuns, disputeSides, filterNotes, gradeLine, grader, latestReport, runOrigin, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pendingCounts, planCounts, previousVersion,
   questionRow, reportsNeedingYou, reviewItems, runNotesToDisable, scopeForTopic, settledLine, statusCard, topicSummary, type StatusInput,
 } from './model';
 
@@ -35,8 +35,8 @@ const report: ContextDiscoveryReportDto = { id: 'report', workspaceId: 'w',
     paths: ['plugin/trino-iceberg/', 'plugin/trino-hive/'], notePaths: ['plugin/trino-iceberg/'], sourceIds: [], evidenceReadIds: [], why: '' }], sources: [], evidence: [], remaining: [], partial: true,
   coverage: { areas: [{ path: 'plugin/', surveyed: 10, total: 40 }], unsurveyed: [], unsurveyedTruncated: false }, createdAt: '2026-09-29T09:00:00Z' };
 const plan: ContextLearningPlanDto = { id: 'plan', workspaceId: 'w', reportId: 'report', baselineSha: report.baselineSha, topics: [{ id: 'topic:iceberg', title: 'Iceberg connector', scopeId: 'iceberg', paths: ['plugin/trino-iceberg/', 'plugin/trino-hive/'], notePaths: ['plugin/trino-iceberg/'],
-    repositoryFiles: [], sourceIds: [], questions: [{ text: 'How is metadata refreshed?', status: 'COMPLETED', progress: 'Answered.' },
-      { text: 'How are commits retried?', status: 'UNFINISHED', progress: 'Read the commit loop.' }] }],
+    repositoryFiles: [], sourceIds: [], questions: [{ text: 'How is metadata refreshed?', status: 'COMPLETED', progress: 'Answered.', origin: 'DISCOVERY', note: '' },
+      { text: 'How are commits retried?', status: 'UNFINISHED', progress: 'Read the commit loop.', origin: 'DISCOVERY', note: '' }] }],
   gaps: [], documentationSources: [], documentInventory: { items: [], suggestions: [], truncated: false }, batch: null };
 const run = (sequence: number, outcome: ContextRunDto['outcome'], index: number, at: string, noteIds: string[] = []): ContextRunDto => ({
   sequence, taskId: `task-${sequence}`, mode: 'LEARN', requestedAt: at, endedAt: outcome === 'RUNNING' ? null : at,
@@ -192,6 +192,24 @@ describe('repository context notes', () => {
     expect(questionRow(plan.topics[0], 0, answered, null, notebook)).toMatchObject({ meta: 'Answered', noteId: null });
     expect(questionRow(plan.topics[0], 1, answered, null, notebook).meta).toBe('Unfinished · progress saved');
     expect(topicSummary(plan.topics[0], answered, null, { ...notebook, entries: [entry] }).meta).toBe('1 of 2 questions answered · 1 unfinished · 1 note saved');
+  });
+
+  it('keeps corrected and dropped questions visible without counting them', () => {
+    const grown = { ...plan.topics[0], questions: [...plan.topics[0].questions,
+      { text: 'Is refresh per query?', status: 'CORRECTED' as const, progress: '', origin: 'DISCOVERY' as const, note: 'It is per transaction. Cited: A.java:40-41' },
+      { text: 'When is the cache cleared?', status: 'PENDING' as const, progress: '', origin: 'LEARNING' as const, note: 'Replaces “Is refresh per query?”' },
+      { text: 'How are releases cut?', status: 'DROPPED' as const, progress: '', origin: 'USER' as const, note: 'Dropped by you' }] };
+    expect(questionRow(grown, 2, [], null, notebook)).toMatchObject({ state: 'CORRECTED', meta: 'Corrected', origin: null });
+    expect(questionRow(grown, 3, [], null, notebook)).toMatchObject({ state: 'PENDING', origin: 'from a learning run', note: 'Replaces “Is refresh per query?”' });
+    expect(questionRow(grown, 4, [], null, notebook)).toMatchObject({ state: 'DROPPED', origin: 'added by you' });
+    expect(topicSummary(grown, [], null, notebook).meta).toBe('1 of 3 questions answered · 1 unfinished');
+    expect(planCounts({ ...plan, topics: [grown] })).toEqual({ answered: 1, total: 3 });
+    expect(batchRuns({ ...plan, topics: [grown] })).toBe(2);
+    const corrected = { ...plan, topics: [grown] };
+    const card = statusCard(input({ report, planView: { plan: corrected, next: { topicId: grown.id, question: 1 } },
+      build: build([{ ...run(2, 'CORRECTED', 0, '2026-09-29T11:59:00Z'), question: { planId: 'plan', topicId: grown.id, topicTitle: grown.title, index: 2, text: grown.questions[2].text } }]) }));
+    expect(card.headline).toBe('Run 2 corrected its question');
+    expect(card.body).toBe('It is per transaction. Cited: A.java:40-41');
   });
 
   it('shows a task only the notes whose current version it saved', () => {

@@ -63,7 +63,11 @@ import {
   parseContextUsageWindow,
   parseDeclineContextLearningSourceRequest,
   parseDisableRepositoryContextRunNotesRequest,
+  parseAddContextLearningQuestionRequest,
+  parseDropContextLearningQuestionRequest,
+  parseEditContextLearningQuestionRequest,
   parseEditRepositoryContextEntryRequest,
+  parseGoDeeperContextLearningRequest,
   parseInvestigateRepositoryContextNoteRequest,
   parseReportRepositoryContextNoteRequest,
   parseRepositoryNotebook,
@@ -1371,6 +1375,18 @@ function registerIpc(): void {
     backendJson(contextBuildUrl(workspaceId) + '/baseline', { headers: agentHeaders() }).then(parseContextBaseline));
   ipcMain.handle('repository-context:build:plan', (_event, workspaceId: string) =>
     backendJson(contextBuildUrl(workspaceId) + '/plan', { headers: agentHeaders() }).then(value => parseContextLearningPlanView(value, workspaceId)));
+  ipcMain.handle('repository-context:build:plan:questions:add', (_event, workspaceId: string, request: unknown) =>
+    backendJson(contextBuildUrl(workspaceId) + '/plan/questions', jsonInit('POST', parseAddContextLearningQuestionRequest(request), agentHeaders()))
+      .then(value => parseContextLearningPlanView(value, workspaceId)));
+  ipcMain.handle('repository-context:build:plan:questions:edit', (_event, workspaceId: string, request: unknown) =>
+    backendJson(contextBuildUrl(workspaceId) + '/plan/questions', jsonInit('PUT', parseEditContextLearningQuestionRequest(request), agentHeaders()))
+      .then(value => parseContextLearningPlanView(value, workspaceId)));
+  ipcMain.handle('repository-context:build:plan:questions:drop', (_event, workspaceId: string, request: unknown) =>
+    backendJson(contextBuildUrl(workspaceId) + '/plan/questions/drop', jsonInit('POST', parseDropContextLearningQuestionRequest(request), agentHeaders()))
+      .then(value => parseContextLearningPlanView(value, workspaceId)));
+  ipcMain.handle('repository-context:build:plan:deeper', (_event, workspaceId: string, request: unknown) =>
+    backendJson(contextBuildUrl(workspaceId) + '/plan/deeper', jsonInit('POST', parseGoDeeperContextLearningRequest(request), agentHeaders()))
+      .then(value => parseContextBuildView(value, workspaceId)));
   ipcMain.handle('repository-context:build:investigate', (_event, workspaceId: string, request: unknown) =>
     backendJson(contextBuildUrl(workspaceId) + '/investigate', jsonInit('POST', parseInvestigateRepositoryContextNoteRequest(request), agentHeaders()))
       .then(value => parseContextBuildView(value, workspaceId)));

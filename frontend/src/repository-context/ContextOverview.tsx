@@ -11,13 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Fragment, useState, type ReactNode } from 'react';
+import { Fragment, useState, type FormEvent, type ReactNode } from 'react';
 import { Clickable } from '../cards/Card';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { relativeTime } from '../relativeTime';
 import { settingsRoute } from '../settings/routes';
 import type { AgentRuntimeStopImpactDto } from '../types';
-import type { ContextDiscoveryReportDto } from './contracts';
+import type { ContextDiscoveryReportDto, ContextPlanTopicDto } from './contracts';
 import { Chevron, Icon, Spinner } from './icons';
 import {
   BATCH_RUNS, batchLine, batchRuns, clock, currentRun, entryTimeKey, grader, kindLabel, latestReport, needsTopicReselection, nextQuestion, openCandidates, planCounts, plural, previousVersion,
@@ -51,7 +51,7 @@ export default function ContextOverview({ data, actions, busy, pending }: { data
     <StatusCardView data={data} actions={actions} busy={busy} pending={pending} />
     {suggestions && plan === null && <SuggestedTopics data={data} actions={actions} busy={busy} report={report} topics={outside} />}
     <ReviewSection data={data} actions={actions} />
-    {plan !== null && plan.topics.length > 0 && <PlanSection data={data} actions={actions} />}
+    {plan !== null && plan.topics.length > 0 && <PlanSection data={data} actions={actions} busy={busy} />}
     {(notebook.entries.length > 0 || plan !== null) && <NotesSummary data={data} actions={actions} busy={busy} />}
     {!(plan === null && report !== null && outside.length > 0) && (candidates.length > 0 || moreTopics)
       && <Opportunities data={data} actions={actions} busy={busy} showMoreTopics={showMoreTopics} onMoreTopics={() => setShowMoreTopics(value => !value)} />}
@@ -221,17 +221,67 @@ export function NoteApplicability({ paths }: { paths: string[] | null }) {
     : paths.length === 0 ? 'Project-wide' : paths.map(path => <span className="rcp-path-chip" key={path}>{path}</span>)}</div>;
 }
 
-export function QuestionLine({ row, onOpen }: { row: QuestionRow; onOpen: (noteId: string) => void }) {
-  const glyph = row.state === 'RUNNING' ? <Spinner size={11} /> : row.state === 'ANSWERED' ? '✓' : row.state === 'UNFINISHED' ? '◐' : '○';
+/** Edit and Drop change a question no run is working on; neither starts a run. */
+export type QuestionChanges = { edit: (row: QuestionRow) => void; drop: (row: QuestionRow) => void };
+
+export function QuestionLine({ row, onOpen, changes = null }: { row: QuestionRow; onOpen: (noteId: string) => void; changes?: QuestionChanges | null }) {
+  const glyph = row.state === 'RUNNING' ? <Spinner size={11} /> : row.state === 'ANSWERED' ? '✓' : row.state === 'UNFINISHED' ? '◐'
+    : row.state === 'CORRECTED' ? '↺' : row.state === 'DROPPED' ? '–' : '○';
+  const sub = [row.origin, row.note].filter(Boolean).join(' · ');
   return <>
     <span className={`rcp-q__glyph${row.state === 'ANSWERED' ? ' is-done' : row.state === 'UNFINISHED' ? ' is-partial' : ''}`} aria-hidden="true">{glyph}</span>
-    <span className="rcp-q__text">{row.text}</span>
+    <span className={`rcp-q__text${row.state === 'DROPPED' || row.state === 'CORRECTED' ? ' is-closed' : ''}`}>{row.text}
+      {sub && <span className="rcp-q__sub">{sub}</span>}</span>
     <span className={`rcp-q__meta is-${row.metaTone}`}>{row.meta}</span>
     {row.noteId !== null && <button type="button" className="rcp-link" onClick={() => onOpen(row.noteId)}>Open note</button>}
+    {changes !== null && row.state === 'PENDING' && <button type="button" className="rcp-link" aria-label={`Edit “${row.text}”`}
+      onClick={() => changes.edit(row)}>Edit</button>}
+    {changes !== null && (row.state === 'PENDING' || row.state === 'UNFINISHED') && <button type="button" className="rcp-link"
+      aria-label={`Drop “${row.text}”`} onClick={() => changes.drop(row)}>Drop</button>}
   </>;
 }
 
-function PlanSection({ data, actions }: { data: ContextData; actions: ContextActions }) {
+/** Adds the user's question to a topic, edits an open one, and offers Go deeper for the topic. */
+function TopicQuestions({ data, actions, busy, topic, rows, openNote }: {
+  data: ContextData; actions: ContextActions; busy: boolean; topic: ContextPlanTopicDto; rows: QuestionRow[]; openNote: (id: string) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const [editing, setEditing] = useState<{ index: number; text: string } | null>(null);
+  const canRun = data.build.canStart && !busy && data.model.blocker === null;
+  const changes: QuestionChanges = { edit: row => setEditing({ index: row.index, text: row.text }), drop: row => actions.dropQuestion(topic.id, row.index) };
+  const add = (event: FormEvent) => {
+    event.preventDefault();
+    if (draft.trim() === '') return;
+    actions.addQuestion(topic.id, draft.trim());
+    setDraft('');
+  };
+  return <>
+    {rows.map(row => editing?.index === row.index
+      ? <form className="rcp-q rcp-q-edit" key={row.index} onSubmit={event => {
+        event.preventDefault();
+        if (editing.text.trim() !== '') actions.editQuestion(topic.id, row.index, editing.text.trim());
+        setEditing(null);
+      }}>
+        <input aria-label="Question" value={editing.text} maxLength={1000} onChange={event => setEditing({ ...editing, text: event.target.value })} />
+        <button type="submit" className="rcp-btn rcp-btn--secondary" disabled={busy}>Save</button>
+        <button type="button" className="rcp-link" onClick={() => setEditing(null)}>Cancel</button>
+      </form>
+      : <div className="rcp-q" key={row.index}><QuestionLine row={row} onOpen={openNote} changes={changes} /></div>)}
+    <form className="rcp-q-add" onSubmit={add}>
+      <input aria-label={`Add a question to ${topic.title}`} placeholder="Add a question for this topic · no agent runs" value={draft} maxLength={1000}
+        onChange={event => setDraft(event.target.value)} />
+      <button type="submit" className="rcp-btn rcp-btn--secondary" disabled={busy || draft.trim() === ''}>Add question</button>
+    </form>
+    <div className="rcp-q-deeper">
+      <button type="button" className="rcp-btn rcp-btn--secondary" disabled={!canRun} onClick={() => actions.goDeeper(topic.id)}>
+        <Icon name="bolt" size={13} />Go deeper</button>
+      <RunLine workspaceId={data.workspaceId} blocked={data.model.blocker !== null}>{data.model.blocker
+        ?? `Starts 1 run · reads further into this topic and adds the questions it should also answer · ${data.model.label}`}</RunLine>
+    </div>
+  </>;
+}
+
+function PlanSection({ data, actions, busy }: { data: ContextData; actions: ContextActions; busy: boolean }) {
   const plan = data.planView.plan;
   const running = currentRun(data.build);
   const next = nextQuestion(data.planView);
@@ -253,13 +303,13 @@ function PlanSection({ data, actions }: { data: ContextData; actions: ContextAct
             <span className="rcp-topic__main"><span className="rcp-topic__line"><span className="rcp-topic__title">{topic.title}</span>
               {summary.running && <span className="rcp-running"><Spinner size={8} />Running</span>}</span>
               <span className="rcp-topic__meta">{summary.meta}</span></span>
-            <span className="rcp-dots" role="img" aria-label={`${summary.answered} of ${plural(topic.questions.length, 'question')} answered`}>
-              {summary.rows.map(row => <span key={row.index} className={`rcp-dot${row.state === 'ANSWERED' ? ' is-done' : row.state === 'RUNNING' ? ' is-running'
-                : row.state === 'UNFINISHED' ? ' is-partial' : ''}`} />)}</span>
+            <span className="rcp-dots" role="img" aria-label={summary.meta}>
+              {summary.rows.filter(row => row.state !== 'CORRECTED' && row.state !== 'DROPPED').slice(0, 12).map(row => <span key={row.index}
+                className={`rcp-dot${row.state === 'ANSWERED' ? ' is-done' : row.state === 'RUNNING' ? ' is-running' : row.state === 'UNFINISHED' ? ' is-partial' : ''}`} />)}</span>
           </button>
           {expanded && <div className="rcp-questions">
             <NoteApplicability paths={topic.notePaths} />
-            {summary.rows.map(row => <div className="rcp-q" key={row.index}><QuestionLine row={row} onOpen={openNote} /></div>)}
+            <TopicQuestions data={data} actions={actions} busy={busy} topic={topic} rows={summary.rows} openNote={openNote} />
           </div>}
         </div>;
       })}

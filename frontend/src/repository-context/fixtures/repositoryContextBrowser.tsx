@@ -22,7 +22,7 @@ import type { AgentTaskDto, Bridge, DevelopmentContextActivityDto, WorkspaceDto 
 import { workspaceLocationFromRoute } from '../../workspaces/model';
 import type {
   ContextBuildViewDto, ContextDiscoveryReportDto, ContextDisputesDto, ContextEntryDto, ContextGradeDto, ContextLearningPlanDto, ContextLearningPlanViewDto,
-  ContextMergedCandidatesDto, ContextReportedNoteDto, ContextRunDto, ContextSettlementDto, ContextSourceDto, ContextTimesDto, ContextUsageOverviewDto,
+  ContextMergedCandidatesDto, ContextPlanQuestionDto, ContextReportedNoteDto, ContextRunDto, ContextSettlementDto, ContextSourceDto, ContextTimesDto, ContextUsageOverviewDto,
   ContextUsageWindow, RepositoryNotebookDto, ReportRepositoryContextNoteRequest,
 } from '../contracts';
 import { TaskContextNotes } from '../ContextCards';
@@ -166,6 +166,8 @@ function report(): ContextDiscoveryReportDto {
     createdAt: ago(60 * 27) };
 }
 
+const CORRECTED = 'Does every commit retry use the same backoff?';
+
 function plan(): ContextLearningPlanDto {
   const docs = { id: 'docs:iceberg', kind: 'DOCUMENTATION_PAGE' as const, url: 'https://trino.io/docs/current/connector/iceberg.html', origin: 'GENERATED' as const,
     discoveryEvidenceRef: 'read:1' };
@@ -173,10 +175,14 @@ function plan(): ContextLearningPlanDto {
     topics: [
       { id: 'topic:iceberg', title: 'Iceberg connector', scopeId: ICEBERG, paths: TOPICS[0].paths, notePaths: TOPICS[0].notePaths, sourceIds: [docs.id],
         repositoryFiles: ['plugin/trino-iceberg/README.md', 'plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergMetadata.java'],
-        questions: [{ text: TOPICS[0].questions[0], status: 'COMPLETED', progress: 'Answered.' }, { text: TOPICS[0].questions[1], status: 'COMPLETED', progress: 'Answered.' },
-          { text: TOPICS[0].questions[2], status: 'UNFINISHED', progress: 'Read `DeleteManager` and the positional delete reader.' }] },
+        questions: [{ text: TOPICS[0].questions[0], status: 'COMPLETED', progress: 'Answered.', origin: 'DISCOVERY', note: '' },
+          { text: TOPICS[0].questions[1], status: 'COMPLETED', progress: 'Answered.', origin: 'DISCOVERY', note: '' },
+          { text: TOPICS[0].questions[2], status: 'UNFINISHED', progress: 'Read `DeleteManager` and the positional delete reader.', origin: 'DISCOVERY', note: '' },
+          { text: CORRECTED, status: 'CORRECTED', progress: '', origin: 'DISCOVERY',
+            note: 'Only metadata commits retry; data files are written once. Cited: IcebergMetadata.java:1204-1236' },
+          { text: 'Which conflicts does a commit retry treat as safe?', status: 'PENDING', progress: '', origin: 'LEARNING', note: `Replaces “${CORRECTED}”` }] },
       { id: 'topic:planner', title: 'Query planning and optimizer rules', scopeId: PLANNER, paths: TOPICS[1].paths, notePaths: TOPICS[1].notePaths, sourceIds: [], repositoryFiles: [],
-        questions: TOPICS[1].questions.map(text => ({ text, status: 'PENDING' as const, progress: '' })) }],
+        questions: TOPICS[1].questions.map(text => ({ text, status: 'PENDING' as const, progress: '', origin: 'DISCOVERY' as const, note: '' })) }],
     gaps: ['Delta Lake transaction-log behavior needs its own learning topic.'], documentationSources: [docs],
     documentInventory: { truncated: false,
       items: [{ sourceId: docs.id, resolvedUrl: docs.url, relativePage: null, depth: 0, status: 'READ', detail: '' }],
@@ -211,7 +217,7 @@ type State = {
   notebook: RepositoryNotebookDto; times: ContextTimesDto; build: ContextBuildViewDto; report: ContextDiscoveryReportDto | null;
   planView: ContextLearningPlanViewDto; candidates: ContextMergedCandidatesDto; reports: ContextReportedNoteDto[]; disputes: ContextDisputesDto; staleOnce: boolean;
   calls: { starts: Array<{ kind: string; request: unknown }>; restores: string[]; disables: string[]; allows: unknown[]; declines: unknown[];
-    configures: unknown[]; stops: string[]; keeps: string[]; reports: ReportRepositoryContextNoteRequest[] };
+    configures: unknown[]; stops: string[]; keeps: string[]; reports: ReportRepositoryContextNoteRequest[]; questions: unknown[] };
 };
 
 function scene(name: Scene): State {
@@ -233,7 +239,7 @@ function scene(name: Scene): State {
     disputes: full && contestRefresh ? { contested: { [refresh.id]: { statement: DISPUTED, version: refresh.version } }, settlements: { [refresh.id]: EARLIER } }
       : { contested: {}, settlements: {} },
     staleOnce: false,
-    calls: { starts: [], restores: [], disables: [], allows: [], declines: [], configures: [], stops: [], keeps: [], reports: [] },
+    calls: { starts: [], restores: [], disables: [], allows: [], declines: [], configures: [], stops: [], keeps: [], reports: [], questions: [] },
   };
 }
 
@@ -278,6 +284,13 @@ function install() {
     return Promise.resolve(clone(state.build));
   };
   const planView = () => clone(state.planView);
+  const changeQuestions = (request: { topicId: string }, change: (questions: ContextPlanQuestionDto[]) => ContextPlanQuestionDto[]) => {
+    state.calls.questions.push(clone(request));
+    const current = state.planView.plan;
+    assert(current !== null, 'A plan must exist');
+    current.topics = current.topics.map(topic => topic.id === request.topicId ? { ...topic, questions: change(topic.questions) } : topic);
+    return planView();
+  };
   const bridge: Partial<Bridge> = {
     getRepositoryContext: async () => clone(state.notebook),
     getRepositoryContextTimes: async () => clone(state.times),
@@ -349,6 +362,13 @@ function install() {
       current.entries = current.entries.map(value => value.id === request.entryId ? { ...value, enabled: request.enabled } : value);
     }),
     discardRepositoryContextLearningPlan: async () => { state.planView = { plan: null, next: null }; return planView(); },
+    addRepositoryContextQuestion: async (_workspaceId, request) => changeQuestions(request, questions => [...questions,
+      { text: request.text, status: 'PENDING', progress: '', origin: 'USER', note: '' }]),
+    editRepositoryContextQuestion: async (_workspaceId, request) => changeQuestions(request, questions => questions.map((value, index) =>
+      index === request.question ? { ...value, text: request.text } : value)),
+    dropRepositoryContextQuestion: async (_workspaceId, request) => changeQuestions(request, questions => questions.map((value, index) =>
+      index === request.question ? { ...value, status: 'DROPPED', note: 'Dropped by you' } : value)),
+    goDeeperRepositoryContextTopic: async (_workspaceId, request) => start('deeper', request, 'LEARN'),
     allowRepositoryContextLearningSource: async (_workspaceId, request) => {
       state.calls.allows.push(clone(request));
       const current = state.planView.plan;
@@ -577,10 +597,44 @@ const scenarios: Array<[string, () => Promise<void>]> = [
   ['one Continue learning click runs every open question, starting with the saved next one', async () => {
     await render('review');
     assert(text().includes('Run 4 reached its source limit'), 'Saved historical limit outcomes remain truthful');
-    assert(text().includes('5 runs, one per open question, starting with Iceberg connector · “How are delete files applied during reads?” (resumes saved progress)')
+    assert(text().includes('6 runs, one per open question, starting with Iceberg connector · “How are delete files applied during reads?” (resumes saved progress)')
       && text().includes('Stop ends the batch'), 'The run line counts the batch and names the first question');
     await click('Continue learning');
     assert(state.calls.starts.length === 1 && state.calls.starts[0].kind === 'continue', 'Continue sends one request');
+  }],
+  ['questions grow, change and drop without a run, and Go deeper starts one', async () => {
+    await render('review');
+    const topic = () => {
+      const found = [...document.querySelectorAll('.rcp-topic')].find(item => item.querySelector('.rcp-topic__title')?.textContent === 'Iceberg connector');
+      assert(found !== undefined, 'The Iceberg topic is listed');
+      return found;
+    };
+    const type = (input: HTMLInputElement | null, value: string) => {
+      assert(input !== null, 'The question field is visible');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    assert(text(topic()).includes('Corrected') && text(topic()).includes('Only metadata commits retry'), 'A corrected question stays visible with its reason');
+    assert(text(topic()).includes(`from a learning run · Replaces “${CORRECTED}”`), 'A follow-up says where it came from');
+    assert(text(topic()).includes('2 of 4 questions answered'), 'The corrected question no longer counts');
+    assert(![...topic().querySelectorAll('button')].some(button => button.getAttribute('aria-label') === 'Edit “How are delete files applied during reads?”'),
+      'A started question cannot be edited');
+    type(topic().querySelector('input[aria-label="Add a question to Iceberg connector"]'), '  How are orphan files removed?  ');
+    await settle();
+    await click('Add question', topic());
+    assert((state.calls.questions[0] as { text: string }).text === 'How are orphan files removed?', 'Add sends the trimmed question');
+    assert(text(topic()).includes('How are orphan files removed?added by you'), 'The added question appears at once');
+    await click('Edit “How are orphan files removed?”', topic());
+    type(topic().querySelector('input[aria-label="Question"]'), 'How are orphan and expired files removed?');
+    await settle();
+    await click('Save', topic());
+    assert((state.calls.questions[1] as { question: number }).question === 5 && text(topic()).includes('How are orphan and expired files removed?'), 'Edit rewrites that question');
+    await click('Drop “How are orphan and expired files removed?”', topic());
+    assert(text(topic()).includes('added by you · Dropped by you'), 'A dropped question stays visible');
+    assert(state.calls.starts.length === 0, 'Changing questions starts no run');
+    await click('Go deeper', topic());
+    assert(state.calls.starts.map(start => start.kind).join() === 'deeper'
+      && (state.calls.starts[0].request as { topicId: string }).topicId === 'topic:iceberg', 'Go deeper starts one run for the topic');
   }],
   ['a running learning question shows its question and can be stopped', async () => {
     await render('learning');
@@ -855,6 +909,7 @@ export async function show(mode: string) {
     case 'changes': await click(refresh.title); await click('Changes', drawer()); break;
     case 'disable': await click('Disable notes from this run'); break;
     case 'plan': await click('Plan details'); break;
+    case 'questions': document.querySelector('.rcp-q-add')?.scrollIntoView({ block: 'center' }); break;
     case 'sources': await review('https://iceberg.apache.org/docs/latest/'); break;
     case 'coverage': await click('See coverage'); break;
     case 'usage': await click('More options'); await click('Usage'); break;

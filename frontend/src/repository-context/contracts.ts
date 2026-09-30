@@ -73,6 +73,12 @@ export type ContextDiscoveryReportDto = {
 /** Proposed sources the user unchecked while inspecting topics are left out of the approval. */
 export type StartContextLearningRequest = ContextRunFence & { reportId: string; topicIds: string[]; excludedSourceIds: string[] };
 export type ContinueContextLearningRequest = ContextRunFence & { planId: string };
+/** Adding, editing or dropping a question never starts a run. */
+export type AddContextLearningQuestionRequest = { planId: string; topicId: string; text: string };
+export type EditContextLearningQuestionRequest = { planId: string; topicId: string; question: number; text: string };
+export type DropContextLearningQuestionRequest = { planId: string; topicId: string; question: number };
+/** Go deeper adds a question asking what the topic should cover next and starts one run for it. */
+export type GoDeeperContextLearningRequest = ContextRunFence & { planId: string; topicId: string };
 export type DiscardContextLearningPlanRequest = { planId: string; expectedRevision: number; expectedBuildSequence: number };
 export type ContextSourceBoundary = 'PAGE' | 'ROOT';
 export type AllowContextLearningSourceRequest = DiscardContextLearningPlanRequest & { suggestedUrl: string; boundary: ContextSourceBoundary };
@@ -88,9 +94,13 @@ export type ContextMergedCandidateDto = {
   issue: null | { key: string; title: string }; review: null | { combinedResult: string }; checks: Array<{ conclusion: string }>;
 };
 export type ContextMergedCandidatesDto = { candidates: ContextMergedCandidateDto[] };
-export type ContextQuestionStatus = 'PENDING' | 'UNFINISHED' | 'COMPLETED';
+/** Open questions are PENDING or UNFINISHED; the others are closed. */
+export type ContextQuestionStatus = 'PENDING' | 'UNFINISHED' | 'COMPLETED' | 'CORRECTED' | 'DROPPED';
+export type ContextQuestionOrigin = 'DISCOVERY' | 'LEARNING' | 'TASK' | 'REVIEW' | 'USER';
+/** The note says why a question was added, with its lead or cited lines, or why it was corrected or dropped. */
+export type ContextPlanQuestionDto = { text: string; status: ContextQuestionStatus; progress: string; origin: ContextQuestionOrigin; note: string };
 export type ContextPlanTopicDto = { id: string; title: string; scopeId: string; paths: string[]; notePaths: string[] | null; repositoryFiles: string[];
-  sourceIds: string[]; questions: Array<{ text: string; status: ContextQuestionStatus; progress: string }> };
+  sourceIds: string[]; questions: ContextPlanQuestionDto[] };
 export type ContextSuggestionDto = { url: string; parentUrl: string; topicId: string; question: number; taskId: string; foundAt: string };
 export type ContextLearningPlanDto = {
   id: string; workspaceId: string; reportId: string; baselineSha: string; gaps: string[];
@@ -104,7 +114,7 @@ export type ContextLearningPlanDto = {
 export type ContextQuestionTarget = { topicId: string; question: number };
 /** The backend names the question Continue learning takes, so the page never re-derives the order. */
 export type ContextLearningPlanViewDto = { plan: ContextLearningPlanDto | null; next: ContextQuestionTarget | null };
-export type ContextRunOutcome = 'RUNNING' | 'SUBMITTED' | 'SETTLED' | 'ANSWERED' | 'NO_NOTE' | 'UNFINISHED' | 'LIMIT' | 'STOPPED' | 'FAILED';
+export type ContextRunOutcome = 'RUNNING' | 'SUBMITTED' | 'SETTLED' | 'ANSWERED' | 'CORRECTED' | 'NO_NOTE' | 'UNFINISHED' | 'LIMIT' | 'STOPPED' | 'FAILED';
 export type ContextActivityDto = { at: string; text: string; tone: 'DONE' | 'FAILED' | 'LIMIT' };
 export type ContextRunDto = {
   sequence: number; taskId: string; mode: 'DISCOVER' | 'LEARN'; requestedAt: string; endedAt: string | null;
@@ -413,6 +423,24 @@ export function parseContinueContextLearningRequest(value: unknown): ContinueCon
   const item = request(value, ['requestKey', 'expectedRevision', 'expectedBuildSequence', 'planId']);
   return { ...runFence(item, 'continuation'), planId: nonblank(item.planId, 'learning plan id') };
 }
+export function parseAddContextLearningQuestionRequest(value: unknown): AddContextLearningQuestionRequest {
+  const item = request(value, ['planId', 'topicId', 'text']);
+  return { planId: nonblank(item.planId, 'learning plan id'), topicId: nonblank(item.topicId, 'learning topic id'), text: nonblank(item.text, 'learning question') };
+}
+export function parseEditContextLearningQuestionRequest(value: unknown): EditContextLearningQuestionRequest {
+  const item = request(value, ['planId', 'topicId', 'question', 'text']);
+  return { planId: nonblank(item.planId, 'learning plan id'), topicId: nonblank(item.topicId, 'learning topic id'),
+    question: count(item.question, 'learning question index'), text: nonblank(item.text, 'learning question') };
+}
+export function parseDropContextLearningQuestionRequest(value: unknown): DropContextLearningQuestionRequest {
+  const item = request(value, ['planId', 'topicId', 'question']);
+  return { planId: nonblank(item.planId, 'learning plan id'), topicId: nonblank(item.topicId, 'learning topic id'),
+    question: count(item.question, 'learning question index') };
+}
+export function parseGoDeeperContextLearningRequest(value: unknown): GoDeeperContextLearningRequest {
+  const item = request(value, ['requestKey', 'expectedRevision', 'expectedBuildSequence', 'planId', 'topicId']);
+  return { ...runFence(item, 'go deeper'), planId: nonblank(item.planId, 'learning plan id'), topicId: nonblank(item.topicId, 'learning topic id') };
+}
 export function parseDiscardContextLearningPlanRequest(value: unknown): DiscardContextLearningPlanRequest {
   const item = request(value, ['planId', 'expectedRevision', 'expectedBuildSequence']);
   return { planId: nonblank(item.planId, 'discarded plan id'), expectedRevision: count(item.expectedRevision, 'expected revision'),
@@ -507,12 +535,14 @@ function planTopic(value: unknown): ContextPlanTopicDto {
   const topic = object(value, 'plan topic');
   const questions = array(topic.questions, 'plan questions', value => {
     const question = object(value, 'plan question');
-    const result = { text: text(question.text, 'plan question text'), status: oneOf(question.status, ['PENDING', 'UNFINISHED', 'COMPLETED'], 'question status'),
-      progress: text(question.progress, 'question progress') };
+    const result: ContextPlanQuestionDto = { text: text(question.text, 'plan question text'),
+      status: oneOf(question.status, ['PENDING', 'UNFINISHED', 'COMPLETED', 'CORRECTED', 'DROPPED'], 'question status'),
+      progress: text(question.progress, 'question progress'), origin: oneOf(question.origin, ['DISCOVERY', 'LEARNING', 'TASK', 'REVIEW', 'USER'], 'question origin'),
+      note: text(question.note, 'question note') };
     if (result.status === 'PENDING' && result.progress !== '') malformed('unstarted question progress');
     return result;
   });
-  if (questions.length === 0 || questions.length > 6) malformed('plan questions');
+  if (questions.length === 0 || questions.length > 30) malformed('plan questions');
   return { id: text(topic.id, 'plan topic id'), title: text(topic.title, 'plan topic title'), scopeId: text(topic.scopeId, 'plan scope id'),
     paths: strings(topic.paths, 'plan paths'), notePaths: topic.notePaths == null ? null : strings(topic.notePaths, 'plan note paths'),
     repositoryFiles: strings(topic.repositoryFiles, 'plan repository files'),
@@ -572,7 +602,7 @@ function run(value: unknown): ContextRunDto {
     question: question === null ? null : { planId: text(question.planId, 'run plan'), topicId: text(question.topicId, 'run topic'),
       topicTitle: text(question.topicTitle, 'run topic title'), index: count(question.index, 'run question index'), text: text(question.text, 'run question') },
     pullRequest: item.pullRequest == null ? null : count(item.pullRequest, 'run pull request', 1),
-    outcome: oneOf(item.outcome, ['RUNNING', 'SUBMITTED', 'SETTLED', 'ANSWERED', 'NO_NOTE', 'UNFINISHED', 'LIMIT', 'STOPPED', 'FAILED'], 'run outcome'),
+    outcome: oneOf(item.outcome, ['RUNNING', 'SUBMITTED', 'SETTLED', 'ANSWERED', 'CORRECTED', 'NO_NOTE', 'UNFINISHED', 'LIMIT', 'STOPPED', 'FAILED'], 'run outcome'),
     sourceOperations: count(item.sourceOperations, 'run operations'), documentOpens: count(item.documentOpens, 'run document opens'),
     noteIds: strings(item.noteIds, 'run notes'), activity: array(item.activity, 'run activity', activity), detail: optionalText(item.detail, 'run detail'),
     investigation: investigation === null ? null : { entryId: text(investigation.entryId, 'investigated note'), title: text(investigation.title, 'investigated title'),

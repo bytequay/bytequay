@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.BiFunction;
 import java.util.function.UnaryOperator;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -206,9 +207,100 @@ public class ContextLearningService
         }
     }
 
+    /** Adds the user's question to a topic; it waits for the next batch. No agent runs. */
+    public ContextLearningPlan addQuestion(String workspaceId, QuestionRequest request)
+    {
+        return changeTopic(workspaceId, request.planId(), request.topicId(), (plan, topic) -> {
+            checkArgument(!topic.asks(request.text()), "This topic already has that question");
+            checkArgument(topic.questions().size() < ContextLearningPlan.Topic.MAX_QUESTIONS, "This topic already has %s questions",
+                    ContextLearningPlan.Topic.MAX_QUESTIONS);
+            return topic.withQuestions(ImmutableList.<ContextLearningPlan.Question>builder().addAll(topic.questions())
+                    .add(ContextLearningPlan.Question.added(request.text().strip(), ContextLearningPlan.Origin.USER, "")).build());
+        });
+    }
+
+    /** Rewrites a question no run has started. No agent runs. */
+    public ContextLearningPlan editQuestion(String workspaceId, QuestionEdit request)
+    {
+        return changeTopic(workspaceId, request.planId(), request.topicId(), (plan, topic) -> {
+            ContextLearningPlan.Question question = openQuestion(workspaceId, plan, topic, request.question());
+            checkArgument(question.status() == ContextLearningPlan.Status.PENDING, "Only a question no run has started can be edited; drop it instead");
+            checkArgument(!topic.asks(request.text()) || question.text().strip().equalsIgnoreCase(request.text().strip()), "This topic already has that question");
+            return topic.withQuestion(request.question(), question.withText(request.text().strip()));
+        });
+    }
+
+    /** Closes an open question so no batch runs it; saved notes stay. No agent runs. */
+    public ContextLearningPlan dropQuestion(String workspaceId, QuestionDrop request)
+    {
+        return changeTopic(workspaceId, request.planId(), request.topicId(), (plan, topic) -> {
+            ContextLearningPlan.Question question = openQuestion(workspaceId, plan, topic, request.question());
+            return topic.withQuestion(request.question(), question.closed(ContextLearningPlan.Status.DROPPED, question.progress(), "Dropped by you"));
+        });
+    }
+
+    /** Adds a question asking what the topic should cover next and starts one run for it alone. */
+    public ContextBuildService.View goDeeper(String workspaceId, DeeperRequest request)
+    {
+        if (buildStore.find(workspaceId).filter(build -> build.requestKey().equals(request.requestKey())).isPresent()) {
+            return builds.get(workspaceId);
+        }
+        ContextLearningPlan plan = get(workspaceId).filter(value -> value.id().equals(request.planId()))
+                .orElseThrow(() -> new IllegalArgumentException("Learning plan changed; inspect current progress"));
+        ContextLearningPlan.Topic topic = topic(plan, request.topicId());
+        String text = "What else should someone working on " + topic.title() + " know that this topic's answered questions don't cover? "
+                + "Propose the follow-up questions worth learning, and save notes only for what the code shows.";
+        int index = topic.questions().stream().filter(question -> question.open() && question.text().equals(text)).findFirst()
+                .map(topic.questions()::indexOf).orElse(topic.questions().size());
+        ContextLearningPlan deeper = plan;
+        if (index == topic.questions().size()) {
+            checkArgument(index < ContextLearningPlan.Topic.MAX_QUESTIONS, "This topic already has %s questions", ContextLearningPlan.Topic.MAX_QUESTIONS);
+            deeper = addQuestionAt(workspaceId, plan, topic, ContextLearningPlan.Question.added(text, ContextLearningPlan.Origin.USER, "Go deeper"));
+        }
+        return startBatch(deeper, request.requestKey(), request.expectedBuildSequence(), request.expectedRevision(), false,
+                Optional.of(new ContextLearningPlan.Target(topic.id(), index)), true);
+    }
+
+    private ContextLearningPlan addQuestionAt(String workspaceId, ContextLearningPlan plan, ContextLearningPlan.Topic topic, ContextLearningPlan.Question question)
+    {
+        return changeTopic(workspaceId, plan.id(), topic.id(), (current, found) -> found.withQuestions(ImmutableList.<ContextLearningPlan.Question>builder()
+                .addAll(found.questions()).add(question).build()));
+    }
+
+    private ContextLearningPlan changeTopic(String workspaceId, String planId, String topicId,
+            BiFunction<ContextLearningPlan, ContextLearningPlan.Topic, ContextLearningPlan.Topic> change)
+    {
+        return WorkspaceOperationLocks.withLock(workspaceId, () -> unitOfWork.execute(() -> {
+            ContextLearningPlan plan = get(workspaceId).filter(value -> value.id().equals(planId))
+                    .orElseThrow(() -> new IllegalArgumentException("Learning plan changed; inspect current progress"));
+            ContextLearningPlan.Topic replacement = change.apply(plan, topic(plan, topicId));
+            return plans.save(Optional.of(plan), plan.withProgress(plan.topics().stream()
+                    .map(topic -> topic.id().equals(topicId) ? replacement : topic).toList(), plan.gaps()));
+        }));
+    }
+
+    /** An open question that no run is working on right now. */
+    private ContextLearningPlan.Question openQuestion(String workspaceId, ContextLearningPlan plan, ContextLearningPlan.Topic topic, int index)
+    {
+        checkArgument(index >= 0 && index < topic.questions().size(), "Learning question changed");
+        ContextLearningPlan.Question question = topic.questions().get(index);
+        checkArgument(question.open(), "This question is already answered, corrected or dropped");
+        boolean running = !builds.get(workspaceId).canStart() && buildStore.find(workspaceId).flatMap(ContextBuild::assignment)
+                .filter(assignment -> assignment.planId().equals(plan.id()) && assignment.topicId().equals(topic.id()) && assignment.questionIndex() == index)
+                .isPresent();
+        checkArgument(!running, "A run is working on this question; stop it first");
+        return question;
+    }
+
     /** One click runs each open question in turn, starting with the requested one; the coordinator starts the rest. */
     private ContextBuildService.View startBatch(ContextLearningPlan plan, String requestKey, long expectedBuildSequence,
             long expectedRevision, boolean accepted, Optional<ContextLearningPlan.Target> requested)
+    {
+        return startBatch(plan, requestKey, expectedBuildSequence, expectedRevision, accepted, requested, false);
+    }
+
+    private ContextBuildService.View startBatch(ContextLearningPlan plan, String requestKey, long expectedBuildSequence,
+            long expectedRevision, boolean accepted, Optional<ContextLearningPlan.Target> requested, boolean alone)
     {
         if (buildStore.find(plan.workspaceId()).filter(build -> build.requestKey().startsWith(requestKey + "#")).isPresent()) {
             return builds.get(plan.workspaceId());
@@ -219,7 +311,7 @@ public class ContextLearningService
             return launch(plan, requestKey, expectedBuildSequence, expectedRevision, accepted, first);
         }
         checkArgument(requestKey.length() <= 90, "A learning request key is at most 90 characters");
-        List<ContextLearningPlan.Target> queue = open.stream().filter(target -> !target.equals(first.orElseThrow()))
+        List<ContextLearningPlan.Target> queue = alone ? ImmutableList.of() : open.stream().filter(target -> !target.equals(first.orElseThrow()))
                 .limit(ContextLearningPlan.Batch.MAX_RUNS - 1).toList();
         ContextLearningPlan batched = plans.save(Optional.of(plan), plan.withBatch(Optional.of(new ContextLearningPlan.Batch(requestKey, queue, queue.size() + 1, 1))));
         try {
@@ -336,18 +428,44 @@ public class ContextLearningService
 
     public ContextLearningPlan progress(ContextBuild build, String progress, boolean completed, List<String> gaps)
     {
+        return progress(build, progress, completed, gaps, Optional.empty(), ImmutableList.of());
+    }
+
+    /**
+     * Saves the run's checkpoint for its question. A correction closes the question with its reason and adds the questions
+     * that replace it; follow-ups join the same topic. Questions the topic already asks are not added twice.
+     */
+    public ContextLearningPlan progress(ContextBuild build, String progress, boolean completed, List<String> gaps, Optional<Correction> correction,
+            List<FollowUp> followUps)
+    {
         ContextLimits.text(progress, "question progress", 2000);
         List<String> additions = ImmutableList.copyOf(gaps);
         checkArgument(additions.size() <= 20, "Too many progress limitations");
+        checkArgument(followUps.size() <= 3, "Add at most three follow-up questions per run");
         ContextLearningPlan plan = require(build);
         ContextBuild.Assignment assignment = build.assignment().orElseThrow();
-        ContextLearningPlan.Question current = topic(plan, assignment.topicId()).questions().get(assignment.questionIndex());
-        checkArgument(current.status() != ContextLearningPlan.Status.COMPLETED || completed,
+        ContextLearningPlan.Topic target = topic(plan, assignment.topicId());
+        ContextLearningPlan.Question current = target.questions().get(assignment.questionIndex());
+        checkArgument(current.status() != ContextLearningPlan.Status.COMPLETED || completed || correction.isPresent(),
                 "Completed question cannot be reset by a later tool call");
-        ContextLearningPlan.Question saved = new ContextLearningPlan.Question(current.text(),
-                completed ? ContextLearningPlan.Status.COMPLETED : ContextLearningPlan.Status.UNFINISHED, progress);
+        checkArgument(current.status() != ContextLearningPlan.Status.CORRECTED && current.status() != ContextLearningPlan.Status.DROPPED,
+                "This question was closed while the run worked; end the run");
+        List<ContextLearningPlan.Question> questions = new ArrayList<>(target.questions());
+        questions.set(assignment.questionIndex(), correction.map(value -> current.closed(ContextLearningPlan.Status.CORRECTED, progress, value.reason()))
+                .orElseGet(() -> current.withProgress(completed ? ContextLearningPlan.Status.COMPLETED : ContextLearningPlan.Status.UNFINISHED, progress)));
+        List<ContextLearningPlan.Question> added = new ArrayList<>();
+        correction.ifPresent(value -> value.questions().forEach(text -> added.add(ContextLearningPlan.Question.added(text,
+                ContextLearningPlan.Origin.LEARNING, "Replaces \u201c" + current.text() + "\u201d"))));
+        followUps.forEach(followUp -> added.add(ContextLearningPlan.Question.added(followUp.question(), ContextLearningPlan.Origin.LEARNING, followUp.why())));
+        for (ContextLearningPlan.Question question : added) {
+            if (questions.stream().noneMatch(existing -> existing.text().strip().equalsIgnoreCase(question.text().strip()))) {
+                questions.add(question);
+            }
+        }
+        checkArgument(questions.size() <= ContextLearningPlan.Topic.MAX_QUESTIONS, "The topic holds at most %s questions; add fewer",
+                ContextLearningPlan.Topic.MAX_QUESTIONS);
         List<ContextLearningPlan.Topic> updated = plan.topics().stream().map(topic -> topic.id().equals(assignment.topicId())
-                ? topic.withQuestion(assignment.questionIndex(), saved) : topic).toList();
+                ? topic.withQuestions(questions) : topic).toList();
         List<String> limitations = plan.gaps();
         for (String gap : additions) {
             limitations = ContextBuildService.gaps(limitations, gap);
@@ -381,7 +499,7 @@ public class ContextLearningService
         int index = target.orElseThrow().question();
         checkArgument(index < topic.questions().size(), "Learning question changed");
         ContextLearningPlan.Question question = topic.questions().get(index);
-        checkArgument(question.status() != ContextLearningPlan.Status.COMPLETED, "This learning question is already answered");
+        checkArgument(question.open(), "This learning question is already answered, corrected or dropped");
         List<RegisteredContextSource> selected = plan.documentationSources().stream()
                 .filter(source -> topic.sourceIds().contains(source.id())).toList();
         ContextBuild.Assignment assignment = new ContextBuild.Assignment(plan.id(), topic.id(), topic.title(), index,
@@ -594,6 +712,68 @@ public class ContextLearningService
         {
             ContextLimits.text(planId, "planId", 100);
             ContextLimits.documentationUrl(suggestedUrl);
+        }
+    }
+
+    /** Why a run closed its question and the one to three questions that replace it. */
+    public record Correction(String reason, List<String> questions)
+    {
+        public Correction
+        {
+            ContextLimits.text(reason, "correction reason", ContextLearningPlan.Question.MAX_NOTE_BYTES);
+            questions = ImmutableList.copyOf(questions);
+            checkArgument(!questions.isEmpty() && questions.size() <= 3, "A correction replaces the question with one to three questions");
+            questions.forEach(question -> ContextLimits.text(question, "corrected question", 1000));
+        }
+    }
+
+    /** A question the run found its topic should also answer, and why. */
+    public record FollowUp(String question, String why)
+    {
+        public FollowUp
+        {
+            ContextLimits.text(question, "follow-up question", 1000);
+            ContextLimits.text(why, "follow-up reason", ContextLearningPlan.Question.MAX_NOTE_BYTES);
+        }
+    }
+
+    public record QuestionRequest(String planId, String topicId, String text)
+    {
+        public QuestionRequest
+        {
+            ContextLimits.text(planId, "planId", 100);
+            ContextLimits.text(topicId, "topicId", 100);
+            ContextLimits.text(text, "learning question", 1000);
+        }
+    }
+
+    public record QuestionEdit(String planId, String topicId, int question, String text)
+    {
+        public QuestionEdit
+        {
+            ContextLimits.text(planId, "planId", 100);
+            ContextLimits.text(topicId, "topicId", 100);
+            ContextLimits.text(text, "learning question", 1000);
+        }
+    }
+
+    public record QuestionDrop(String planId, String topicId, int question)
+    {
+        public QuestionDrop
+        {
+            ContextLimits.text(planId, "planId", 100);
+            ContextLimits.text(topicId, "topicId", 100);
+        }
+    }
+
+    public record DeeperRequest(String requestKey, long expectedRevision, long expectedBuildSequence, String planId, String topicId)
+    {
+        public DeeperRequest
+        {
+            ContextLimits.text(requestKey, "requestKey", 90);
+            checkArgument(expectedRevision >= 0 && expectedBuildSequence >= 0, "Invalid Go deeper request");
+            ContextLimits.text(planId, "planId", 100);
+            ContextLimits.text(topicId, "topicId", 100);
         }
     }
 

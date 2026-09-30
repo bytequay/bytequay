@@ -70,6 +70,9 @@ public record ContextDiscoveryReport(
     }
 
     /** Source paths bound reading; note paths separately declare where every question's notes apply. Missing targets need rediscovery. */
+    /** Discovery writes a topic's starting questions; learning adds more to the plan. */
+    public static final int STARTING_QUESTIONS = 6;
+
     public record Topic(String id, String title, List<String> questions, List<String> paths, Optional<List<String>> notePaths,
             List<String> sourceIds, List<String> evidenceReadIds, String why)
     {
@@ -78,8 +81,8 @@ public record ContextDiscoveryReport(
             checkArgument(id.matches("topic:[1-9][0-9]*"), "Invalid topic ID");
             ContextLimits.text(title, "topic title", 200);
             questions = ImmutableList.copyOf(questions);
-            checkArgument(!questions.isEmpty() && questions.size() <= ContextLearningPlan.Topic.MAX_QUESTIONS, "A topic proposes one to six learning questions");
-            ContextLimits.unique(questions, "learning questions", ContextLearningPlan.Topic.MAX_QUESTIONS);
+            checkArgument(!questions.isEmpty() && questions.size() <= STARTING_QUESTIONS, "A topic proposes one to six learning questions");
+            ContextLimits.unique(questions, "learning questions", STARTING_QUESTIONS);
             questions.forEach(question -> ContextLimits.text(question, "learning question", 1000));
             ContextLimits.text(why, "topic rationale", 1000);
             paths = ImmutableList.copyOf(paths);

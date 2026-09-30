@@ -59,6 +59,9 @@ import static java.util.Objects.requireNonNull;
 public class ContextAgentDiscoveryTools
 {
     static final String TOPIC_GUIDANCE = "Propose separate focused topics for independently useful components with their own behavior or contracts, supported by read evidence. "
+            + "Write one to six starting questions per topic, more for a larger component: the contracts and invariants the code relies on, "
+            + "the risky paths and the tests that guard them. Phrase each question so it does not assume behavior you have not read; "
+            + "learning runs add more questions as they go. "
             + "paths defines allowed source reads; notePaths defines where saved notes apply. All questions in a topic must share notePaths; "
             + "split questions into separate topics when their applicability differs. Use notePaths=[] only for repository-wide knowledge. "
             + "Keep component notePaths narrow even when paths includes other components needed for comparison or dependencies. "

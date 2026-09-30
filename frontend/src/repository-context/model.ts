@@ -15,7 +15,7 @@ import { displayModelName, effortLabel, providerAvailable, providerRemedy } from
 import { ago, relativeTime } from '../relativeTime';
 import type { ModelSettingsDto } from '../types';
 import type {
-  ContextActivityDto, ContextBaselineDto, ContextBuildViewDto, ContextClaimDto, ContextDiscoveryReportDto, ContextEntryDto, ContextGradeDto,
+  ContextActivityDto, ContextBaselineDto, ContextPlanQuestionDto, ContextBuildViewDto, ContextClaimDto, ContextDiscoveryReportDto, ContextEntryDto, ContextGradeDto,
   ContextLearningPlanDto, ContextLearningPlanViewDto, ContextMergedCandidatesDto, ContextPlanTopicDto, ContextQuestionTarget, ContextReportedNoteDto, ContextRunDto,
   ContextInvestigationOutcome, ContextScopeDto, ContextSettlementDto, ContextSourceEvidenceDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto,
 } from './contracts';
@@ -110,6 +110,7 @@ export const OUTCOME: Record<ContextRunDto['outcome'], { label: string; tone: To
   SUBMITTED: { label: 'Suggestions saved', tone: 'green' },
   SETTLED: { label: 'Settled', tone: 'green' },
   ANSWERED: { label: 'Answered', tone: 'green' },
+  CORRECTED: { label: 'Question corrected', tone: 'amber' },
   NO_NOTE: { label: 'No reusable note', tone: 'gray' },
   UNFINISHED: { label: 'Progress saved', tone: 'amber' },
   LIMIT: { label: 'Source limit reached', tone: 'amber' },
@@ -123,19 +124,34 @@ export type Tone = 'amber' | 'green' | 'gray' | 'blue' | 'red' | 'purple' | 'ora
 
 export type QuestionRow = {
   topicId: string; index: number; text: string;
-  state: 'PENDING' | 'RUNNING' | 'UNFINISHED' | 'ANSWERED';
+  state: 'PENDING' | 'RUNNING' | 'UNFINISHED' | 'ANSWERED' | 'CORRECTED' | 'DROPPED';
   meta: string; metaTone: 'muted' | 'blue' | 'amber' | 'plain';
   noteId: string | null;
+  /** Where the question came from, when not discovery, and why it exists or ended. */
+  origin: string | null; note: string;
 };
+
+const ORIGIN: Record<ContextPlanQuestionDto['origin'], string | null> = {
+  DISCOVERY: null, LEARNING: 'from a learning run', TASK: 'from a task', REVIEW: 'from a review', USER: 'added by you',
+};
+
+/** Questions a batch still runs. */
+export const isOpen = (question: ContextPlanQuestionDto): boolean => question.status === 'PENDING' || question.status === 'UNFINISHED';
+
+/** Questions that count toward a topic: corrected ones were replaced and dropped ones are no longer asked. */
+const counted = (question: ContextPlanQuestionDto): boolean => question.status !== 'CORRECTED' && question.status !== 'DROPPED';
 
 /** Answered questions link to a note their run saved. */
 export function questionRow(topic: ContextPlanTopicDto, index: number, runs: ContextRunDto[], running: ContextRunDto | null,
   notebook: RepositoryNotebookDto): QuestionRow {
   const question = topic.questions[index];
-  const base: Pick<QuestionRow, 'topicId' | 'index' | 'text' | 'noteId'> = { topicId: topic.id, index, text: question.text, noteId: null };
+  const base: Pick<QuestionRow, 'topicId' | 'index' | 'text' | 'noteId' | 'origin' | 'note'> = { topicId: topic.id, index, text: question.text, noteId: null,
+    origin: ORIGIN[question.origin], note: question.note };
   if (running?.question?.topicId === topic.id && running.question.index === index) {
     return { ...base, state: 'RUNNING', meta: 'Running now', metaTone: 'blue' };
   }
+  if (question.status === 'CORRECTED') return { ...base, state: 'CORRECTED', meta: 'Corrected', metaTone: 'muted' };
+  if (question.status === 'DROPPED') return { ...base, state: 'DROPPED', meta: 'Dropped', metaTone: 'muted' };
   if (question.status === 'UNFINISHED') return { ...base, state: 'UNFINISHED', meta: 'Unfinished · progress saved', metaTone: 'amber' };
   if (question.status === 'PENDING') return { ...base, state: 'PENDING', meta: 'Not started', metaTone: 'muted' };
   const answered = latestRun(runs, run => run.question?.topicId === topic.id && run.question.index === index
@@ -150,10 +166,11 @@ export type TopicSummary = { topic: ContextPlanTopicDto; rows: QuestionRow[]; an
 export function topicSummary(topic: ContextPlanTopicDto, runs: ContextRunDto[], running: ContextRunDto | null, notebook: RepositoryNotebookDto): TopicSummary {
   const rows = topic.questions.map((_, index) => questionRow(topic, index, runs, running, notebook));
   const answered = topic.questions.filter(question => question.status === 'COMPLETED').length;
+  const total = topic.questions.filter(counted).length;
   const unfinished = rows.filter(row => row.state === 'UNFINISHED').length;
   const noteIds = new Set(runs.filter(run => run.question?.topicId === topic.id).flatMap(run => run.noteIds));
   const notes = notebook.entries.filter(entry => noteIds.has(entry.id)).length;
-  const meta = `${answered} of ${plural(topic.questions.length, 'question')} answered`
+  const meta = `${answered} of ${plural(total, 'question')} answered`
     + (unfinished ? ` · ${unfinished} unfinished` : '') + (notes ? ` · ${plural(notes, 'note')} saved` : '');
   return { topic, rows, answered, unfinished, running: rows.some(row => row.state === 'RUNNING'), meta };
 }
@@ -163,7 +180,7 @@ export const BATCH_RUNS = 30;
 
 /** How many runs Continue learning or Learn selected starts: one per open or unfinished question, capped. */
 export function batchRuns(plan: ContextLearningPlanDto | null, adding = 0): number {
-  const open = plan?.topics.flatMap(topic => topic.questions).filter(question => question.status === 'PENDING' || question.status === 'UNFINISHED').length ?? 0;
+  const open = plan?.topics.flatMap(topic => topic.questions).filter(isOpen).length ?? 0;
   return Math.min(BATCH_RUNS, open + adding);
 }
 
@@ -173,7 +190,7 @@ export function batchLine(runs: number, first: string | null, model: string): st
 }
 
 export function planCounts(plan: ContextLearningPlanDto): { answered: number; total: number } {
-  const questions = plan.topics.flatMap(topic => topic.questions);
+  const questions = plan.topics.flatMap(topic => topic.questions).filter(counted);
   return { answered: questions.filter(question => question.status === 'COMPLETED').length, total: questions.length };
 }
 
@@ -318,6 +335,7 @@ function lastRunSentence(run: ContextRunDto, question: string): string {
   switch (run.outcome) {
     case 'LIMIT': return `reached its source limit before finishing “${question}”. Progress is saved.`;
     case 'ANSWERED': return `answered “${question}”.`;
+    case 'CORRECTED': return `corrected “${question}” and added the questions that replace it.`;
     case 'NO_NOTE': return `answered “${question}” without a reusable note.`;
     case 'STOPPED': return `was stopped during “${question}”. Progress is saved.`;
     case 'UNFINISHED': return `saved progress on “${question}”.`;
@@ -421,13 +439,18 @@ export function statusCard(input: StatusInput): StatusCard {
       : last.outcome === 'LIMIT' ? `Run ${last.sequence} reached its source limit` : `Run ${last.sequence} finished · progress saved`;
     card = { ...blank, icon: 'pause', headline, body: `“${lastQuestion}” is unfinished; Continue picks it up.` };
   }
+  else if (last?.outcome === 'CORRECTED') {
+    const topic = active.topics.find(value => value.id === last.question?.topicId);
+    card = { ...blank, icon: 'review', tone: 'amber', headline: `Run ${last.sequence} corrected its question`,
+      body: topic?.questions[last.question?.index ?? -1]?.note ?? `“${lastQuestion}” did not hold as asked.` };
+  }
   else if (last?.outcome === 'FAILED') {
     card = { ...blank, icon: 'alert', tone: 'red', headline: `Run ${last.sequence} failed`,
       body: `${last.detail ? last.detail + ' ' : ''}Progress and saved notes are kept.` };
   }
   else if (last !== null) {
     const topic = active.topics.find(value => value.id === last.question?.topicId);
-    const open = topic?.questions.filter(question => question.status !== 'COMPLETED').length ?? 0;
+    const open = topic?.questions.filter(isOpen).length ?? 0;
     card = { ...blank, icon: 'check', tone: 'green', headline: `Run ${last.sequence} finished · question answered`,
       body: topic ? `${topic.title} ${open ? `still has ${plural(open, 'open question')}` : 'has no open questions'}; ${left} left in the plan.` : null };
   }

@@ -49,7 +49,8 @@ public final class ProviderAgentEventAdapter
                     tool.name(),
                     tool.state(),
                     tool.summary(),
-                    tool.duration().map(Duration::toMillis));
+                    tool.duration().map(Duration::toMillis),
+                    tool.description());
             case ProviderAgentEvent.Command command -> new AgentEventPayload.CommandActivity(
                     command.state(),
                     command.argv(),

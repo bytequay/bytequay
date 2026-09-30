@@ -133,7 +133,7 @@ function currentActivityLabel(turn: TranscriptTurn | undefined): string {
     if (action?.kind === 'LIST_FILES') return `Listing ${action.name ?? action.path ?? 'files'}`;
     return member.description ?? (member.command === '' ? 'Running command' : `Running ${member.command}`);
   }
-  if (member?.kind === 'tool') return toolLabel(member.name);
+  if (member?.kind === 'tool') return member.description ?? toolLabel(member.name);
   if (turn?.answer && !turn.answer.complete) return 'Writing response';
   return 'Thinking';
 }
@@ -277,13 +277,17 @@ const CHANGE_VERBS: Record<string, string> = { ADDED: 'Added', MODIFIED: 'Edited
 
 /** A one-line result stays on the row; anything longer folds like a command's output. */
 function ToolRows({ member }: { member: ToolMember }): React.JSX.Element {
-  const label = toolLabel(member.name);
-  const summary = member.summary === member.name || member.summary === label ? '' : member.summary;
+  // A ByteQuay tool says what the call read or saved; the tool's name stays on hover.
+  const label = member.description ?? toolLabel(member.name);
+  const title = member.description === null ? undefined : toolLabel(member.name);
+  const raw = member.summary === member.name || member.summary === toolLabel(member.name) ? '' : member.summary;
+  // A context receipt is bookkeeping for usage, not something to read.
+  const summary = member.description !== null && raw.startsWith('context-receipt:') ? '' : raw;
   if (summary.length <= 80 && !summary.includes('\n')) {
     return (
       <div className="agt-act__row">
         <ActivityIcon member={member} />
-        <span className="agt-muted">{label}</span>
+        <span className="agt-muted" title={title}>{label}</span>
         {summary !== '' && <span className="agt-mono">{summary}</span>}
       </div>
     );
@@ -292,7 +296,7 @@ function ToolRows({ member }: { member: ToolMember }): React.JSX.Element {
     <details className="agt-out">
       <summary className="agt-act__row">
         <ActivityIcon member={member} />
-        <span className="agt-muted">{label}</span>
+        <span className="agt-muted" title={title}>{label}</span>
         <Chevron size={11} />
       </summary>
       <pre className="agt-pre">{toolDetail(summary)}</pre>
@@ -359,7 +363,7 @@ function ActivityView({ block, expanded, onToggle }: {
 /** The one line a running member is named by, in the group's fold. */
 function memberLabel(member: ActivityMember): string {
   if (member.kind === 'command') return commandLabel(member);
-  if (member.kind === 'tool') return toolLabel(member.name);
+  if (member.kind === 'tool') return member.description ?? toolLabel(member.name);
   return `${CHANGE_VERBS[member.change] ?? member.change} ${member.path}`;
 }
 

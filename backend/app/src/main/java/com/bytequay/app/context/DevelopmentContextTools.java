@@ -46,6 +46,7 @@ import com.bytequay.core.review.ReviewEvidence;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hashing;
@@ -214,7 +215,7 @@ public class DevelopmentContextTools
                 && turn.settings().orElseThrow().useRepositoryContext(), "Context lookup requires the running development turn");
         JsonNode input = parse(arguments);
         String action = text(input, "action");
-        return switch (action) {
+        String output = switch (action) {
             case "LIST", "SEARCH" -> search(task, turn, input, action);
             case "READ" -> read(task, turn, input);
             case "PROPOSE" -> propose(task, turn, input);
@@ -222,6 +223,36 @@ public class DevelopmentContextTools
             case "ASK" -> ask(task, input);
             default -> throw new IllegalArgumentException("Unknown context action");
         };
+        return described(action, input, output);
+    }
+
+    /** Adds the line the task log shows for this call in place of the tool's name: what it searched, read, proposed, graded or asked. */
+    private String described(String action, JsonNode input, String output)
+    {
+        JsonNode result;
+        try {
+            result = mapper.readTree(output);
+        }
+        catch (JsonProcessingException failure) {
+            return output;
+        }
+        if (!(result instanceof ObjectNode object) || object.has("error")) {
+            return output;
+        }
+        int hits = object.path("hits").isArray() ? object.path("hits").size() : object.path("result").path("hits").size();
+        String query = input.path("query").asText("");
+        String line = switch (action) {
+            case "LIST" -> "Listed notes";
+            case "SEARCH" -> "Searched notes" + (query.isBlank() ? "" : " for “" + query + "”") + " · " + (hits == 0 ? "no match" : hits + (hits == 1 ? " note" : " notes"));
+            case "READ" -> object.path("status").asText("").equals("AVAILABLE")
+                    ? "Read note · " + object.path("note").path("title").asText(input.path("entryId").asText(""))
+                    : "Note version unavailable · " + input.path("entryId").asText("");
+            case "PROPOSE" -> "Proposed note · " + input.path("title").asText("");
+            case "GRADE" -> "Graded note " + input.path("grade").asText("") + " · " + input.path("entryId").asText("");
+            case "ASK" -> "Asked “" + input.path("question").asText("") + "”";
+            default -> action;
+        };
+        return object.put("activityLine", ContextText.excerpt(line.replaceAll("\\s+", " ").strip(), 200)).toString();
     }
 
     private String search(AgentTask task, AgentTurn turn, JsonNode input, String action)

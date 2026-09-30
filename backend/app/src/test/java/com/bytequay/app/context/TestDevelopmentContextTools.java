@@ -241,6 +241,7 @@ class TestDevelopmentContextTools
         String request = "{\"action\":\"SEARCH\",\"query\":\"snapshot isolation\",\"operationKey\":\"first\"}";
         String result = service.call(taskId.toString(), request);
         assertThat(result).contains("knowledge:project");
+        assertThat(mapper.readTree(result).path("activityLine").asText()).startsWith("Searched notes for “snapshot isolation” · ");
         assertThat(service.call(taskId.toString(), request)).isEqualTo(result);
         assertThat(receipts.listTurn(taskId.toString(), turnId.toString())).hasSize(1);
         assertThatThrownBy(() -> service.call(taskId.toString(),
@@ -254,6 +255,7 @@ class TestDevelopmentContextTools
                 new ContextNoteReader.Read("Saved exact note", ImmutableMap.of(), ImmutableMap.of()), CHANGED_SOURCE)));
         String read = service.call(taskId.toString(), readRequest);
         assertThat(read).contains("Saved exact note").contains("AVAILABLE");
+        assertThat(mapper.readTree(read).path("activityLine").asText()).isEqualTo("Read note · " + entry().title());
         assertThat(receipts.listTurn(taskId.toString(), turnId.toString())).hasSize(2);
         when(lookup.readEnabled(WORKSPACE, "knowledge:project", 3, Optional.of(HEAD))).thenReturn(Optional.empty());
         assertThat(service.call(taskId.toString(), readRequest)).isEqualTo(read);

@@ -101,6 +101,12 @@ class TestFileTaskLogStore
                         ActivityState.COMPLETED,
                         "read a file",
                         Optional.empty()),
+                new AgentEventPayload.ToolActivity(
+                        "bytequay/review_get_context",
+                        ActivityState.COMPLETED,
+                        "context-receipt:context-search:" + "a".repeat(64),
+                        Optional.of(12L),
+                        Optional.of("Searched notes for “checkpoint” · 3 notes")),
                 new AgentEventPayload.CommandActivity(
                         ActivityState.COMPLETED,
                         ImmutableList.of("git", "status"),

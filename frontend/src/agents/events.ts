@@ -123,6 +123,8 @@ export type AgentEventEnvelope =
     state: typeof ACTIVITY_STATES[number];
     summary: string;
     durationMs: number | null;
+    /** The line a ByteQuay tool returned about what the call read or saved. */
+    description: string | null;
   }>
   | AgentEvent<'approval_requested', {
     approvalId: string;
@@ -315,6 +317,9 @@ function validatePayload(type: typeof EVENT_TYPES[number], value: unknown, index
       stringValue(payload.summary, 'tool.summary');
       if (payload.durationMs === undefined) payload.durationMs = null;
       nullableInteger(payload.durationMs, 'tool.durationMs');
+      // Absent on events stored before tools described their calls.
+      if (payload.description === undefined) payload.description = null;
+      nullableString(payload.description, 'tool.description');
       break;
     case 'approval_requested': {
       stringValue(payload.approvalId, 'approvalRequested.approvalId');

@@ -15,6 +15,7 @@ package com.bytequay.agent.cli.claude;
 
 import com.bytequay.agent.cli.development.DevelopmentResultTool;
 import com.bytequay.agent.cli.mcp.ContextReceiptRef;
+import com.bytequay.agent.cli.mcp.ToolActivityLine;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
@@ -482,7 +483,9 @@ final class ClaudeEventMapper
                 call.name(),
                 state,
                 summary,
-                source(call.parentToolUseId(), Optional.of(result.toolUseId())));
+                source(call.parentToolUseId(), Optional.of(result.toolUseId())),
+                Optional.empty(),
+                !result.error() && call.name().startsWith("mcp__bytequay__") ? ToolActivityLine.fromResult(result.content()) : Optional.empty());
     }
 
     private ProviderAgentEvent.Tool hook(

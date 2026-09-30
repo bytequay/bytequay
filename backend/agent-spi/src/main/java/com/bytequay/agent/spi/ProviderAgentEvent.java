@@ -110,13 +110,15 @@ public sealed interface ProviderAgentEvent
         }
     }
 
+    /** The description is the line a ByteQuay tool returned about what the call read or saved, shown in place of the name. */
     record Tool(
             Optional<String> providerEventId,
             String name,
             ActivityState state,
             String summary,
             ProviderAgentEventSource source,
-            Optional<Duration> duration)
+            Optional<Duration> duration,
+            Optional<String> description)
             implements ProviderAgentEvent
     {
         public Tool(
@@ -126,7 +128,18 @@ public sealed interface ProviderAgentEvent
                 String summary,
                 ProviderAgentEventSource source)
         {
-            this(providerEventId, name, state, summary, source, Optional.empty());
+            this(providerEventId, name, state, summary, source, Optional.empty(), Optional.empty());
+        }
+
+        public Tool(
+                Optional<String> providerEventId,
+                String name,
+                ActivityState state,
+                String summary,
+                ProviderAgentEventSource source,
+                Optional<Duration> duration)
+        {
+            this(providerEventId, name, state, summary, source, duration, Optional.empty());
         }
 
         public Tool
@@ -137,6 +150,7 @@ public sealed interface ProviderAgentEvent
             requireNonNull(summary, "summary is null");
             requireNonNull(source, "source is null");
             requireNonNull(duration, "duration is null");
+            checkOptionalText(description, "description");
         }
     }
 

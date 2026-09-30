@@ -677,6 +677,14 @@ reasoning summaries, plans, tool activity, commands, file changes, approvals,
 subagent activity, usage, errors, and lifecycle events. Hidden
 chain-of-thought and raw provider JSON are not part of the contract.
 
+A completed call to a ByteQuay tool (`bytequay` MCP server) returns an
+`activityLine`: one short line saying what the call read or saved, such as
+"Searched notes for “checkpoint” · 3 notes" or "Read TableSnapshot.java ·
+lines 380–420". The Codex and Claude adapters carry it as the tool event's
+description, and the task log shows it in place of the tool's name. Other
+servers' results never supply a description, and a context receipt stays in
+the event summary, where usage tracking reads it.
+
 For Codex development tasks, App Server owns reasoning and tool selection.
 ByteQuay launches one task-owned App Server per active turn, never more than one
 turn-bearing process for a task, with that task's worktree as its working

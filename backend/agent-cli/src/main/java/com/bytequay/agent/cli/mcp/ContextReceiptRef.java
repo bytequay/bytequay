@@ -13,9 +13,7 @@
  */
 package com.bytequay.agent.cli.mcp;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -25,26 +23,12 @@ public final class ContextReceiptRef
 {
     public static final String SUMMARY_PREFIX = "context-receipt:";
     private static final Pattern REF = Pattern.compile("^context-(?:search|note):(?:[0-9a-f]{64}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$");
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private ContextReceiptRef() {}
 
     public static Optional<String> fromResult(JsonNode content)
     {
-        if (content == null || content.path("isError").asBoolean(false)) {
-            return Optional.empty();
-        }
-        JsonNode blocks = content.isObject() && content.has("content") ? content.path("content") : content;
-        JsonNode text = blocks.isArray() && blocks.size() == 1 && blocks.get(0).path("type").asText().equals("text")
-                ? blocks.get(0).path("text") : blocks;
-        if (!text.isTextual() || text.textValue().length() > 128 * 1024) {
-            return Optional.empty();
-        }
-        try {
-            JsonNode result = MAPPER.readTree(text.textValue());
-            if (result == null || !result.isObject() || result.has("error")) {
-                return Optional.empty();
-            }
+        return ToolResults.object(content).flatMap(result -> {
             JsonNode searchRef = result.path("searchRef");
             if (searchRef.isTextual() && (result.path("hits").isArray() || result.path("result").path("hits").isArray())
                     && REF.matcher(searchRef.asText()).matches() && searchRef.asText().startsWith("context-search:")) {
@@ -55,10 +39,7 @@ public final class ContextReceiptRef
                     && REF.matcher(evidenceRef.asText()).matches() && evidenceRef.asText().startsWith("context-note:")) {
                 return Optional.of(evidenceRef.asText());
             }
-        }
-        catch (JsonProcessingException ignored) {
-            // A malformed provider echo is not evidence that the agent received a saved context result.
-        }
-        return Optional.empty();
+            return Optional.empty();
+        });
     }
 }

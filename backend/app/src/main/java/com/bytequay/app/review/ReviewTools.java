@@ -339,7 +339,7 @@ public class ReviewTools
                                 .put("ref", ImmutableMap.of("type", "string", "maxLength", MAX_EVIDENCE_REF))
                                 .buildOrThrow(), ImmutableList.of("kind")),
                         // The only review tool that reads, so the only one an exploration child may call.
-                        arguments -> call(reviewId, turnId, arguments, this::getContext), true),
+                        arguments -> call("review_get_context", reviewId, turnId, arguments, this::getContext), true),
                 new ReviewTool("review_save_summary",
                         "Save only the pull request's intention and one design/implementation explanation per commit in scope. "
                                 + "Put bugs and concrete code improvements in inline findings. Saving again creates the next revision.",
@@ -350,7 +350,7 @@ public class ReviewTools
                                         "sha", ImmutableMap.of("type", "string"),
                                         "explanation", ImmutableMap.of("type", "string", "maxLength", 1000)), "required", ImmutableList.of("sha", "explanation"))))
                                 .buildOrThrow(), ImmutableList.of("operationKey", "purpose", "commits")),
-                        arguments -> call(reviewId, turnId, arguments, this::saveSummary)),
+                        arguments -> call("review_save_summary", reviewId, turnId, arguments, this::saveSummary)),
                 new ReviewTool("review_save_investigation",
                         "Save the change map, assessed changed-file paths, supporting evidence refs, and candidate claims before ending investigation. "
                                 + "Candidates are private hypotheses numbered from 1, not findings. "
@@ -374,7 +374,7 @@ public class ReviewTools
                                         "evidenceRefs", stringArray(MAX_EVIDENCE, MAX_EVIDENCE_REF),
                                         "limitation", ImmutableMap.of("type", "string", "maxLength", 2000)), ImmutableList.of("candidate", "attempted", "evidenceRefs")))),
                                 ImmutableList.of("operationKey", "changeMap", "reviewedFiles", "contextEvidenceRefs", "candidates", "answers")),
-                        arguments -> call(reviewId, turnId, arguments, this::saveInvestigation)),
+                        arguments -> call("review_save_investigation", reviewId, turnId, arguments, this::saveInvestigation)),
                 new ReviewTool("review_save_finding",
                         "During validation, create or revise an inline bug report or concrete code improvement, with evidence refs and diff anchors from review_get_context. "
                                 + "Use severity for defects; mark optional improvements as suggestions and omit severity. "
@@ -401,14 +401,14 @@ public class ReviewTools
                                                 "explanation", ImmutableMap.of("type", "string", "maxLength", 800)), "required", ImmutableList.of("ref", "explanation"))))
                                 .put("scope", ImmutableMap.of("type", "string", "enum", ImmutableList.of("lines", "pull_request")))
                                 .buildOrThrow(), ImmutableList.of("operationKey", "title", "body", "evidence", "validation")),
-                        arguments -> call(reviewId, turnId, arguments, this::saveFinding)),
+                        arguments -> call("review_save_finding", reviewId, turnId, arguments, this::saveFinding)),
                 new ReviewTool("review_reply",
                         "Append your private answer to a discussion: target is \"summary\", a run-scoped cardId, or a findingId.",
                         schema(ImmutableMap.of(
                                 "operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY),
                                 "target", ImmutableMap.of("type", "string", "minLength", 1),
                                 "body", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_TEXT)), ImmutableList.of("operationKey", "target", "body")),
-                        arguments -> call(reviewId, turnId, arguments, this::reply)),
+                        arguments -> call("review_reply", reviewId, turnId, arguments, this::reply)),
                 new ReviewTool("review_withdraw_finding",
                         "Withdraw a finding you no longer stand behind, with its expectedRevision and an explanation. "
                                 + "During validation, cite current-run evidenceRefs supporting withdrawal.",
@@ -419,7 +419,7 @@ public class ReviewTools
                                 "evidenceRefs", stringArray(MAX_EVIDENCE, MAX_EVIDENCE_REF),
                                 "explanation", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000)),
                                 ImmutableList.of("operationKey", "findingId", "expectedRevision", "explanation")),
-                        arguments -> call(reviewId, turnId, arguments, this::withdraw)),
+                        arguments -> call("review_withdraw_finding", reviewId, turnId, arguments, this::withdraw)),
                 new ReviewTool("review_finish",
                         "Seal this validation assignment. Assess every candidate as SUPPORTED, REJECTED, NEEDS_EVIDENCE, or UNRESOLVED. "
                                 + "NEEDS_EVIDENCE requires a specific question, check, and resolving criterion; ByteQuay schedules the evidence turn. "
@@ -443,7 +443,7 @@ public class ReviewTools
                                         "evidenceRefs", stringArray(MAX_EVIDENCE, 20)), ImmutableList.of("text", "evidenceRefs"))),
                                 "validations", ImmutableMap.of("type", "array", "items", validationSchema())),
                                 ImmutableList.of("operationKey", "complete", "omissions", "validations")),
-                        arguments -> call(reviewId, turnId, arguments, this::finish)),
+                        arguments -> call("review_finish", reviewId, turnId, arguments, this::finish)),
                 new ReviewTool("review_grade_note",
                         "Grade an exact note version this review received or opened, after checking it against the code, with a one-line reason: "
                                 + "HELPED when it informed the review, NOT_RELEVANT when it did not apply, WRONG when the monitored baseline contradicts it. "
@@ -463,7 +463,7 @@ public class ReviewTools
                                                 "startLine", ImmutableMap.of("type", "integer", "minimum", 1),
                                                 "endLine", ImmutableMap.of("type", "integer", "minimum", 1)), ImmutableList.of("path", "startLine"))))
                                 .buildOrThrow(), ImmutableList.of("entryId", "entryVersion", "grade", "reason")),
-                        arguments -> call(reviewId, turnId, arguments, this::gradeNote)),
+                        arguments -> call("review_grade_note", reviewId, turnId, arguments, this::gradeNote)),
                 new ReviewTool("review_ask_question",
                         "File a question this review had to answer on the web or by exploring at length, when later work will need the answer "
                                 + "too: the question, the repository paths it concerns and an optional lead, the page address or baseline lines that "
@@ -473,7 +473,7 @@ public class ReviewTools
                                 "question", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1000),
                                 "paths", stringArray(8, 1000),
                                 "lead", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1000)), ImmutableList.of("question", "paths")),
-                        arguments -> call(reviewId, turnId, arguments, this::askQuestion)),
+                        arguments -> call("review_ask_question", reviewId, turnId, arguments, this::askQuestion)),
                 // A later run may enable context; the stable definition survives native thread resume.
                 // preparationExecution checks this turn's assignment and captured context before any operation.
                 preparationTool(reviewId, turnId));
@@ -552,7 +552,7 @@ public class ReviewTools
                         ImmutableList.of("operation")),
                 arguments -> ContextLimits.bytes(arguments) > ContextLimits.MAX_NOTEBOOK_BYTES
                         ? error("arguments", "preparation request exceeds the UTF-8 byte limit")
-                        : call(reviewId, turnId, arguments, this::prepareContext));
+                        : call("repository_context_prepare", reviewId, turnId, arguments, this::prepareContext));
     }
 
     private static Map<String, Object> validationSchema()
@@ -582,7 +582,7 @@ public class ReviewTools
         return ImmutableMap.of("type", "array", "maxItems", maximum, "items", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", length));
     }
 
-    private String call(String reviewId, Optional<TurnId> turnId, String arguments, Function<Call, JsonNode> handler)
+    private String call(String tool, String reviewId, Optional<TurnId> turnId, String arguments, Function<Call, JsonNode> handler)
     {
         JsonNode parsed;
         try {
@@ -602,7 +602,12 @@ public class ReviewTools
                 return error("review", "this review has ended; nothing can be recorded");
             }
             ReviewToolAssignment.Binding bound = assignments.resolve(reviewId, turnId);
-            return handler.apply(new Call(review, bound.run(), bound.step(), bound.discussion(), turnId, (ObjectNode) parsed)).toString();
+            JsonNode result = handler.apply(new Call(review, bound.run(), bound.step(), bound.discussion(), turnId, (ObjectNode) parsed));
+            if (!(result instanceof ObjectNode object) || object.has("error")) {
+                return result.toString();
+            }
+            // A copy, so a stored result an operation replays is never changed.
+            return object.deepCopy().put("activityLine", ReviewToolActivity.describe(tool, parsed, object)).toString();
         }
         catch (ReviewInvalidRequestException | ReviewConflictException e) {
             String message = Optional.ofNullable(e.getMessage()).orElse("invalid request");

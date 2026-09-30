@@ -250,10 +250,16 @@ describe('projecting the transcript', () => {
       { kind: 'file', id: 'f', path: 'B.java', change: 'ADDED', diff: null, added: 0, removed: 0 },
     ])).toBe('Read 2 files, ran 2 commands, and edited 2 files');
     expect(activitySummary([
-      { kind: 'tool', id: 'g', name: 'Web search', state: 'COMPLETED', summary: 'Opened https://example.com/spec', durationMs: null },
-      { kind: 'tool', id: 'h', name: 'WebFetch', state: 'COMPLETED', summary: 'https://example.com/spec', durationMs: null },
-      { kind: 'tool', id: 'i', name: 'mcp__bytequay__repository_context_lookup', state: 'COMPLETED', summary: 'LIST', durationMs: null },
+      { kind: 'tool', id: 'g', name: 'Web search', state: 'COMPLETED', summary: 'Opened https://example.com/spec', durationMs: null, description: null },
+      { kind: 'tool', id: 'h', name: 'WebFetch', state: 'COMPLETED', summary: 'https://example.com/spec', durationMs: null, description: null },
+      { kind: 'tool', id: 'i', name: 'mcp__bytequay__repository_context_lookup', state: 'COMPLETED', summary: 'LIST', durationMs: null, description: null },
     ])).toBe('Searched the web 2 times and used 1 tool');
+    expect(activitySummary([
+      { kind: 'tool', id: 'j', name: 'bytequay/review_get_context', state: 'COMPLETED', summary: 'context-receipt:context-search:a', durationMs: null,
+        description: 'Searched notes for “checkpoint” · 3 notes' },
+      { kind: 'tool', id: 'k', name: 'bytequay/review_get_context', state: 'COMPLETED', summary: '', durationMs: null, description: 'Read note · Snapshot loading' },
+      { kind: 'tool', id: 'l', name: 'bytequay/review_get_context', state: 'COMPLETED', summary: '', durationMs: null, description: 'Read diff · TableSnapshot.java' },
+    ])).toBe('Looked up notes 2 times and used 1 tool');
   });
 
   it('replaces the plan in place when a newer plan arrives', () => {
@@ -427,6 +433,18 @@ describe('bounded transcript windows', () => {
     terminalReason: null,
     metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, elapsed: 'PT5M' },
   };
+
+  it('keeps the line a tool gave its call when its completion updates the started row', () => {
+    const turn = projectTranscript([
+      event('tool', { name: 'bytequay/review_get_context', state: 'STARTED', summary: 'bytequay/review_get_context', durationMs: null, description: null },
+        { itemId: 'context' }),
+      event('tool', { name: 'bytequay/review_get_context', state: 'COMPLETED', summary: 'context-receipt:context-search:a', durationMs: 5,
+        description: 'Searched notes for “checkpoint” · 3 notes' }, { itemId: 'context' }),
+    ], null, {}, false)[0];
+    expect((turn.blocks[0] as ActivityBlock).members).toMatchObject([
+      { kind: 'tool', state: 'COMPLETED', description: 'Searched notes for “checkpoint” · 3 notes' },
+    ]);
+  });
 
   it.each(['COMPLETED', 'FAILED', 'CANCELLED'])('does not keep page-local activity live after the durable turn is %s', (state) => {
     const events = [

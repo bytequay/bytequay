@@ -15,6 +15,7 @@ package com.bytequay.agent.cli.codex;
 
 import com.bytequay.agent.cli.development.DevelopmentResultTool;
 import com.bytequay.agent.cli.mcp.ContextReceiptRef;
+import com.bytequay.agent.cli.mcp.ToolActivityLine;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
@@ -260,13 +261,16 @@ final class CodexEventMapper
                     !started && tool.server().equals("bytequay")
                             && (tool.tool().equals("review_get_context") || tool.tool().equals("repository_context_lookup"))
                             && tool.status() == CodexProtocol.ActivityStatus.COMPLETED && tool.error().isEmpty()
-                            ? tool.result().flatMap(ContextReceiptRef::fromResult).map(ContextReceiptRef.SUMMARY_PREFIX::concat) : Optional.empty()));
+                            ? tool.result().flatMap(ContextReceiptRef::fromResult).map(ContextReceiptRef.SUMMARY_PREFIX::concat) : Optional.empty(),
+                    !started && tool.server().equals("bytequay") && tool.status() == CodexProtocol.ActivityStatus.COMPLETED && tool.error().isEmpty()
+                            ? tool.result().flatMap(ToolActivityLine::fromResult) : Optional.empty()));
             case CodexProtocol.DynamicToolCallItem tool -> ImmutableList.of(tool(
                     tool.tool(),
                     tool.status(),
                     eventId,
                     started,
                     source,
+                    Optional.empty(),
                     Optional.empty(),
                     Optional.empty()));
             // Spawning is shown as the subagent it creates, not as a tool row; the other
@@ -279,6 +283,7 @@ final class CodexEventMapper
                             eventId,
                             started,
                             source,
+                            Optional.empty(),
                             Optional.empty(),
                             Optional.empty()));
             case CodexProtocol.ReasoningItem reasoning -> {
@@ -359,7 +364,8 @@ final class CodexEventMapper
             boolean started,
             ProviderAgentEventSource source,
             Optional<Long> durationMs,
-            Optional<String> summary)
+            Optional<String> summary,
+            Optional<String> description)
     {
         return new ProviderAgentEvent.Tool(
                 Optional.of(eventId),
@@ -369,7 +375,8 @@ final class CodexEventMapper
                         : activityState(status),
                 redactor.redact(summary.orElse(name)),
                 source,
-                durationMs.map(Duration::ofMillis));
+                durationMs.map(Duration::ofMillis),
+                description.map(redactor::redact));
     }
 
     /** A built-in App Server tool has no status of its own: it runs until its item completes. */

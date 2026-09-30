@@ -153,9 +153,15 @@ public sealed interface AgentEventPayload
         }
     }
 
-    record ToolActivity(String name, ActivityState state, String summary, Optional<Long> durationMs)
+    /** Summary is the tool's result or receipt; description, when present, is the line its row shows instead of the name. */
+    record ToolActivity(String name, ActivityState state, String summary, Optional<Long> durationMs, Optional<String> description)
             implements AgentEventPayload
     {
+        public ToolActivity(String name, ActivityState state, String summary, Optional<Long> durationMs)
+        {
+            this(name, state, summary, durationMs, Optional.empty());
+        }
+
         public ToolActivity
         {
             checkNotBlank(name, "name");
@@ -163,6 +169,7 @@ public sealed interface AgentEventPayload
             requireNonNull(summary, "summary is null");
             requireNonNull(durationMs, "durationMs is null");
             durationMs.ifPresent(value -> checkArgument(value >= 0, "durationMs is negative"));
+            requireNonNull(description, "description is null");
         }
     }
 

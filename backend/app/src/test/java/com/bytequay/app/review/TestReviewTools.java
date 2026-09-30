@@ -923,7 +923,7 @@ class TestReviewTools
                 .withOperation(ref, new ReviewOperation(digest, result.toString()), NOW);
         store.updateRun(run);
 
-        assertThat(call("review_get_context", noteRequest(7))).isEqualTo(result);
+        assertThat(call("review_get_context", noteRequest(7))).isEqualTo(result.deepCopy().put("activityLine", "Read note · knowledge:project"));
         verifyNoInteractions(notebooks, usageStore, usage);
     }
 
@@ -938,6 +938,8 @@ class TestReviewTools
 
         JsonNode search = call("review_get_context", query);
         assertThat(search.path("contextState").asText()).isEqualTo("MATCHES");
+        assertThat(search.path("activityLine").asText()).isEqualTo("Searched notes for “Original” in src/ · " + search.path("hits").size()
+                + (search.path("hits").size() == 1 ? " note" : " notes"));
         assertThat(search.path("newerThanSnapshot").asBoolean()).isTrue();
         assertThat(search.at("/hits/0/entryId").asText()).isEqualTo("knowledge:project");
         assertThat(search.at("/hits/0/entryVersion").asLong()).isEqualTo(8);
@@ -1913,7 +1915,7 @@ class TestReviewTools
         ReviewEvidence captured = new ReviewEvidence(ref, "Captured reference", "Frozen repository context", "Caller contract", "");
         store.updateRun(store.findRun(RUN_ID).orElseThrow().withEvidence(ref, captured, NOW));
         assertThat(call("review_get_context", ImmutableMap.of("kind", "evidence", "ref", ref)))
-                .isEqualTo(objectMapper.valueToTree(captured));
+                .isEqualTo(objectMapper.<ObjectNode>valueToTree(captured).put("activityLine", "Read evidence"));
         call("review_save_summary", summary("summary", "Guard input"));
         List<String> refs = ImmutableList.of("E1", ref);
 
@@ -2753,6 +2755,7 @@ class TestReviewTools
         JsonNode result = call("review_get_context", ImmutableMap.of("kind", "source", "revision", "baseline", "path", "README.md", "endLine", 1));
 
         assertThat(result.has("error")).isFalse();
+        assertThat(result.path("activityLine").asText()).isEqualTo("Read README.md · lines 1–1 (baseline)");
         assertThat(result.path("commit").asText()).isEqualTo(BASE_SHA);
         assertThat(result.path("source").asText()).isEqualTo(excerpt);
         assertThat(result.path("truncated").asBoolean()).isTrue();

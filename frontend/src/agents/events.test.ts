@@ -56,6 +56,15 @@ describe('agent event contract', () => {
     expect(approval?.payload.availableDecisions).toEqual(['ALLOW_ONCE', 'DENY']);
   });
 
+  it('reads the line a tool gave its call, and none from events stored before tools described calls', () => {
+    const tool = { ...fixture.events.find(event => event.type === 'tool'), sequence: 1 };
+    const [older] = parseAgentEventSequence([tool]);
+    expect(older.type === 'tool' ? older.payload.description : undefined).toBeNull();
+    const [described] = parseAgentEventSequence([{ ...tool, payload: { ...tool.payload, description: 'Read note · Snapshot loading' } }]);
+    expect(described.type === 'tool' ? described.payload.description : undefined).toBe('Read note · Snapshot loading');
+    expect(() => parseAgentEventSequence([{ ...tool, payload: { ...tool.payload, description: 3 } }])).toThrow('tool.description');
+  });
+
   it('accepts invocation-cumulative usage and preserves its counter scope', () => {
     const usage = { ...fixture.events[11], sequence: 1,
       payload: { ...fixture.events[11].payload, semantics: 'CUMULATIVE_FOR_INVOCATION' } };

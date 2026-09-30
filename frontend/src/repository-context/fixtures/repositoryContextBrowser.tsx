@@ -200,7 +200,7 @@ function contextRun(sequence: number, outcome: ContextRunDto['outcome'], minutes
       { at: ago(minutesAgo + 9), text: 'Read IcebergMetadata.java lines 412–468', tone: 'DONE' },
       { at: ago(minutesAgo + 6), text: 'Opened trino.io/docs/current/connector/iceberg.html', tone: 'DONE' },
       ...outcome === 'LIMIT' ? [{ at: ago(minutesAgo), text: 'Reached 100 source operations · progress saved', tone: 'LIMIT' as const }] : []],
-    detail: null, investigation: null, ...patch };
+    detail: null, investigation: null, check: null, ...patch };
 }
 
 function binding(taskId: string): NonNullable<ContextBuildViewDto['build']> {

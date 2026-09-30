@@ -23,6 +23,7 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.app.context.ContextAgentDiscoveryTools;
 import com.bytequay.app.context.ContextBuildTools;
+import com.bytequay.app.context.ContextSpecCheckTools;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,6 +45,7 @@ class TestReviewBridgeResolverImpl
     private final ReviewTools tools = mock(ReviewTools.class);
     private final ContextBuildTools builders = mock(ContextBuildTools.class);
     private final ContextAgentDiscoveryTools discovery = mock(ContextAgentDiscoveryTools.class);
+    private final ContextSpecCheckTools checks = mock(ContextSpecCheckTools.class);
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
 
@@ -52,6 +54,7 @@ class TestReviewBridgeResolverImpl
     {
         beans.registerSingleton("contextBuildTools", builders);
         beans.registerSingleton("contextAgentDiscoveryTools", discovery);
+        beans.registerSingleton("contextSpecCheckTools", checks);
     }
 
     @Test
@@ -61,7 +64,7 @@ class TestReviewBridgeResolverImpl
         ReviewBridge learning = new ReviewBridge(ImmutableList.of(), "Read selected repository context sources");
         when(builders.bridge(task.id().toString())).thenReturn(Optional.of(learning));
         ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextBuildTools.class),
-                beans.getBeanProvider(ContextAgentDiscoveryTools.class), tasks);
+                beans.getBeanProvider(ContextAgentDiscoveryTools.class), beans.getBeanProvider(ContextSpecCheckTools.class), tasks);
 
         assertThat(resolver.resolve(task.id().toString())).contains(learning);
         verifyNoInteractions(tools, tasks);
@@ -74,7 +77,7 @@ class TestReviewBridgeResolverImpl
         ReviewBridge bridge = new ReviewBridge(ImmutableList.of(), "Discover structure and propose topics");
         when(discovery.bridge(task.id().toString())).thenReturn(Optional.of(bridge));
         ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextBuildTools.class),
-                beans.getBeanProvider(ContextAgentDiscoveryTools.class), tasks);
+                beans.getBeanProvider(ContextAgentDiscoveryTools.class), beans.getBeanProvider(ContextSpecCheckTools.class), tasks);
 
         assertThat(resolver.resolve(task.id().toString())).contains(bridge);
         verifyNoInteractions(builders, tools, tasks);
@@ -88,7 +91,7 @@ class TestReviewBridgeResolverImpl
         when(tasks.find(development.id())).thenReturn(Optional.of(privateReview));
         beans.registerSingleton("reviewTools", tools);
         ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextBuildTools.class),
-                beans.getBeanProvider(ContextAgentDiscoveryTools.class), tasks);
+                beans.getBeanProvider(ContextAgentDiscoveryTools.class), beans.getBeanProvider(ContextSpecCheckTools.class), tasks);
 
         ReviewBridge bridge = resolver.resolve(privateReview.id().toString()).orElseThrow();
 
@@ -106,7 +109,7 @@ class TestReviewBridgeResolverImpl
         when(tools.bridge(task.id().toString())).thenReturn(Optional.of(review));
         beans.registerSingleton("reviewTools", tools);
         ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextBuildTools.class),
-                beans.getBeanProvider(ContextAgentDiscoveryTools.class), tasks);
+                beans.getBeanProvider(ContextAgentDiscoveryTools.class), beans.getBeanProvider(ContextSpecCheckTools.class), tasks);
 
         assertThat(resolver.resolve(task.id().toString())).contains(review);
         verifyNoInteractions(tasks);
@@ -119,7 +122,7 @@ class TestReviewBridgeResolverImpl
         when(tasks.find(review.id())).thenReturn(Optional.of(review.fail("Task ended", NOW, NOW.plusSeconds(60))));
         beans.registerSingleton("reviewTools", tools);
         ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextBuildTools.class),
-                beans.getBeanProvider(ContextAgentDiscoveryTools.class), tasks);
+                beans.getBeanProvider(ContextAgentDiscoveryTools.class), beans.getBeanProvider(ContextSpecCheckTools.class), tasks);
 
         assertThat(resolver.resolve(review.id().toString())).isEmpty();
     }

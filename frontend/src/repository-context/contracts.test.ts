@@ -358,9 +358,13 @@ describe('repository context contracts', () => {
     const run: ContextRunDto = { sequence: 1, taskId: 'learn-task', mode: 'LEARN', requestedAt: '2026-09-01T00:00:00Z', endedAt: null,
       question: { planId: 'plan-1', topicId: 'topic:1', topicTitle: 'Iceberg connector', index: 0, text: 'How are tables read?' },
       pullRequest: null, outcome: 'RUNNING', sourceOperations: 3, documentOpens: 1, noteIds: [],
-      activity: [{ at: '2026-09-01T00:00:01Z', text: 'Read README.md', tone: 'DONE' }], detail: null, investigation: null };
+      activity: [{ at: '2026-09-01T00:00:01Z', text: 'Read README.md', tone: 'DONE' }], detail: null, investigation: null, check: null };
     const view = { ...empty, buildRequestSequence: 1, canStart: false, runs: [run], build };
     expect(parseContextBuildView(view, 'workspace')).toEqual(view);
+    const reproduction: ContextRunDto = { ...run, mode: 'CHECK', question: null, check: { checkId: 'check-1', topicTitle: 'Delta Lake', reproduced: 'Removes keyed by path' } };
+    expect(parseContextBuildView({ ...view, runs: [reproduction] }, 'workspace').runs[0].check).toEqual(reproduction.check);
+    const { check: _absent, ...older } = run;
+    expect(parseContextBuildView({ ...view, runs: [older] }, 'workspace').runs[0].check).toBeNull();
     expect(parseContextBuildView({ ...view, build: { ...view.build, task: null, activeTurn: null } }, 'workspace').build?.task).toBeNull();
     for (const value of [{ ...view, canStart: 'true' }, { ...view, build: undefined },
       { ...view, build: { ...view.build, task: { ...view.build.task, workspaceId: 'other' } } },

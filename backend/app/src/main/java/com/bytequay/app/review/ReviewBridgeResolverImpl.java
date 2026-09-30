@@ -20,6 +20,7 @@ import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.app.context.ContextAgentDiscoveryTools;
 import com.bytequay.app.context.ContextBuildTools;
+import com.bytequay.app.context.ContextSpecCheckTools;
 import com.google.common.collect.ImmutableList;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -39,21 +40,24 @@ public class ReviewBridgeResolverImpl
     private final ObjectProvider<ReviewTools> tools;
     private final ObjectProvider<ContextBuildTools> builders;
     private final ObjectProvider<ContextAgentDiscoveryTools> discovery;
+    private final ObjectProvider<ContextSpecCheckTools> checks;
     private final AgentTaskStore tasks;
 
     public ReviewBridgeResolverImpl(ObjectProvider<ReviewTools> tools, ObjectProvider<ContextBuildTools> builders,
-            ObjectProvider<ContextAgentDiscoveryTools> discovery, AgentTaskStore tasks)
+            ObjectProvider<ContextAgentDiscoveryTools> discovery, ObjectProvider<ContextSpecCheckTools> checks, AgentTaskStore tasks)
     {
         this.tools = requireNonNull(tools, "tools is null");
         this.builders = requireNonNull(builders, "builders is null");
         this.discovery = requireNonNull(discovery, "discovery is null");
+        this.checks = requireNonNull(checks, "checks is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
     }
 
     @Override
     public Optional<ReviewBridge> resolve(String taskId)
     {
-        return discovery.getObject().bridge(taskId).or(() -> builders.getObject().bridge(taskId)).or(() -> tools.getObject().bridge(taskId))
+        return discovery.getObject().bridge(taskId).or(() -> builders.getObject().bridge(taskId)).or(() -> checks.getObject().bridge(taskId))
+                .or(() -> tools.getObject().bridge(taskId))
                 .or(() -> tasks.find(TaskId.valueOf(taskId))
                 .filter(task -> task.interactive() && task.state() == TaskState.OPEN)
                 .flatMap(task -> task.localReviewHead().map(head -> new ReviewBridge(ImmutableList.of(),

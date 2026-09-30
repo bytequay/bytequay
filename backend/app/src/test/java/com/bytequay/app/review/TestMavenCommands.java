@@ -17,6 +17,7 @@ import com.bytequay.app.review.MavenCommands.Maven;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -51,6 +52,19 @@ class TestMavenCommands
         assertThat(MavenCommands.detect(ImmutableList.of("./mvnw test -Dtest=TestA,TestB")).orElseThrow().testClass()).isEmpty();
         assertThat(MavenCommands.detect(ImmutableList.of("./mvnw test -Dtest='Test*'")).orElseThrow().testClass()).isEmpty();
         assertThat(MavenCommands.detect(ImmutableList.of("./mvnw test -Dtest=TestA && ./mvnw test -Dtest=TestB")).orElseThrow().testClass()).isEmpty();
+    }
+
+    @Test
+    void aLoneCommandIsItsWordsOnlyWithoutSeparatorsPipesOrRedirects()
+    {
+        List<String> words = ImmutableList.of("./mvnw", "-pl", "core", "test", "-Dtest=TestAccess");
+        assertThat(MavenCommands.loneCommand(ImmutableList.of("/bin/zsh -lc './mvnw -pl core test -Dtest=TestAccess'"))).contains(words);
+        assertThat(MavenCommands.loneCommand(ImmutableList.of("./mvnw  -pl core test \"-Dtest=TestAccess\""))).contains(words);
+        assertThat(MavenCommands.loneCommand(ImmutableList.of("pytest", "tests/test_spec.py"))).contains(ImmutableList.of("pytest", "tests/test_spec.py"));
+        assertThat(MavenCommands.loneCommand(ImmutableList.of("./mvnw test -Dtest=TestAccess | tail -40"))).isEmpty();
+        assertThat(MavenCommands.loneCommand(ImmutableList.of("cd core && ../mvnw test"))).isEmpty();
+        assertThat(MavenCommands.loneCommand(ImmutableList.of("/bin/zsh -lc './mvnw test > build.log'"))).isEmpty();
+        assertThat(MavenCommands.loneCommand(ImmutableList.of(" "))).isEmpty();
     }
 
     @Test

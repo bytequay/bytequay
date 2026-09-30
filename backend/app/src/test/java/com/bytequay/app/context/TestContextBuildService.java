@@ -39,6 +39,8 @@ import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
+import com.bytequay.agent.core.WorktreeService;
+import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
 import com.bytequay.agent.core.impl.DefaultAgentCompletionService;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
@@ -112,6 +114,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
@@ -151,6 +154,8 @@ class TestContextBuildService
     private final AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
     private final AgentDriver driver = mock(AgentDriver.class);
     private final ContextBuildCoordinator coordinator = mock(ContextBuildCoordinator.class);
+    private final ContextSpecCheckStore checks = mock(ContextSpecCheckStore.class);
+    private final WorktreeService worktrees = mock(WorktreeService.class);
     private final GitCommandRunner git = mock(GitCommandRunner.class);
     private final RepositoryContextService notebooks = new RepositoryContextService(settings, mapper, workspaceStore, reviews, Clock.systemUTC());
     private final ContextLearningPlanStore plans = mock(ContextLearningPlanStore.class);
@@ -327,6 +332,75 @@ class TestContextBuildService
         assertThat(savedTasks.get(TaskId.valueOf(asked.taskId())).state()).isEqualTo(TaskState.COMPLETED);
         verify(completions).cleanupWorktree(TaskId.valueOf(asked.taskId()));
         verify(coordinator).unwatch(asked.taskId());
+    }
+
+    @Test
+    void aSpecCheckReproducesItsNextCandidateInTheSameTaskFromACleanWorktreeAndDiscardsItsTestsAtTheEnd()
+    {
+        Path checkout = Path.of("/tmp/context-check-worktree");
+        AtomicReference<ContextSpecCheck> check = new AtomicReference<>(specCheck(ContextSpecCheck.Status.PENDING));
+        when(checks.find(WORKSPACE, "check-1")).thenAnswer(call -> Optional.of(check.get()));
+        when(worktrees.inspect(any(TaskWorktree.class))).thenAnswer(call -> new WorktreeSnapshot(call.getArgument(0), SHA, true, false, true));
+        when(worktrees.ownedCheckout(any(TaskWorktree.class))).thenReturn(checkout);
+        when(git.run(eq(checkout), any(String[].class))).thenReturn(new GitCommandRunner.Result(0, "", false));
+        when(git.run(REPOSITORY_PATH, "rev-parse", "--verify", SHA + "^{commit}")).thenReturn(new GitCommandRunner.Result(0, SHA + "\n", false));
+        long revision = notebooks.getNotebook(WORKSPACE).revision();
+
+        service.check(WORKSPACE, new ContextBuildService.Request("check", revision, 0, ImmutableList.of("project"), ImmutableList.of()), SHA,
+                new ContextBuild.Check("check-1", "Project", Optional.empty(), "Specs to check against"));
+        ContextBuild planned = builds.find(WORKSPACE).orElseThrow();
+        assertThat(savedTasks.get(TaskId.valueOf(planned.taskId())).title()).startsWith("Check ");
+        checked();
+        finishTurn(TurnState.COMPLETED, true);
+        service.reconcile(WORKSPACE, planned.taskId());
+
+        assertThat(savedTasks.get(TaskId.valueOf(planned.taskId())).state()).isEqualTo(TaskState.OPEN);
+        verify(git, never()).run(eq(checkout), any(String[].class));
+
+        service.check(WORKSPACE, new ContextBuildService.Request("check:1", revision, 1, ImmutableList.of("project"), ImmutableList.of()), SHA,
+                new ContextBuild.Check("check-1", "Project", Optional.of(new ContextBuild.Reproduction("c1", "Gap")), "Candidate c1: Gap"));
+
+        ContextBuild reproducing = builds.find(WORKSPACE).orElseThrow();
+        assertThat(reproducing.taskId()).isEqualTo(planned.taskId());
+        verify(tasks, times(1)).create(any(CreateAgentTaskCommand.class));
+        verify(git).run(checkout, "reset", "--quiet", "--hard", SHA);
+        verify(git).run(checkout, "clean", "--quiet", "--force", "-d", "--");
+        ArgumentCaptor<StartAgentTurnCommand> starts = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
+        verify(turns, times(2)).start(starts.capture());
+        assertThat(starts.getAllValues().get(0).message()).contains("save candidate gaps", "Specs to check against");
+        assertThat(starts.getAllValues().get(1).message()).contains("Reproduce one spec check candidate", "Candidate c1: Gap", "repository_context_spec_result");
+
+        check.set(specCheck(ContextSpecCheck.Status.CONFIRMED));
+        checked();
+        finishTurn(TurnState.COMPLETED, true);
+        service.reconcile(WORKSPACE, reproducing.taskId());
+
+        verify(git).run(checkout, "clean", "--quiet", "--force", "-d", "-x");
+        assertThat(savedTasks.get(TaskId.valueOf(planned.taskId())).state()).isEqualTo(TaskState.COMPLETED);
+        verify(completions).cleanupWorktree(TaskId.valueOf(planned.taskId()));
+        assertThat(service.get(WORKSPACE).runs()).extracting(ContextRun::outcome)
+                .containsExactly(ContextRun.Outcome.SUBMITTED, ContextRun.Outcome.SUBMITTED);
+    }
+
+    @Test
+    void stoppingASpecCheckEndsItAndKeepsWhatItConfirmed()
+    {
+        AtomicReference<ContextSpecCheck> check = new AtomicReference<>(specCheck(ContextSpecCheck.Status.PENDING));
+        when(checks.find(WORKSPACE, "check-1")).thenAnswer(call -> Optional.of(check.get()));
+        when(checks.save(eq(WORKSPACE), any(), any())).thenAnswer(call -> {
+            check.set(call.getArgument(2));
+            return check.get();
+        });
+        when(worktrees.inspect(any(TaskWorktree.class))).thenAnswer(call -> new WorktreeSnapshot(call.getArgument(0), SHA, false, false, false));
+        when(git.run(REPOSITORY_PATH, "rev-parse", "--verify", SHA + "^{commit}")).thenReturn(new GitCommandRunner.Result(0, SHA + "\n", false));
+        service.check(WORKSPACE, new ContextBuildService.Request("check", notebooks.getNotebook(WORKSPACE).revision(), 0, ImmutableList.of("project"),
+                ImmutableList.of()), SHA, new ContextBuild.Check("check-1", "Project", Optional.empty(), "brief"));
+        ContextBuild planned = builds.find(WORKSPACE).orElseThrow();
+
+        service.stop(WORKSPACE, planned.taskId());
+
+        assertThat(check.get().state()).isEqualTo(ContextSpecCheck.State.STOPPED);
+        assertThat(check.get().candidate("c1").status()).isEqualTo(ContextSpecCheck.Status.NOT_REPRODUCED);
     }
 
     @Test
@@ -648,6 +722,25 @@ class TestContextBuildService
     }
 
     /** Records the current question as answered, as the progress tool does. */
+    /** What the check tools record once a turn saves its candidates or its result. */
+    private void checked()
+    {
+        ContextBuild current = builds.find(WORKSPACE).orElseThrow();
+        ContextBuild.Capture capture = current.capture();
+        builds.save(Optional.of(current), current.withCapture(new ContextBuild.Capture(capture.sourceReads(), capture.evidence(),
+                ImmutableMap.of(ContextRun.CHECKED, "saved"), capture.operations(), capture.result(), capture.gaps(), capture.activity())));
+    }
+
+    private static ContextSpecCheck specCheck(ContextSpecCheck.Status status)
+    {
+        ContextSpecCheck.Predicted predicted = ContextSpecCheck.Predicted.DIVERGES;
+        ContextSpecCheck.Candidate candidate = new ContextSpecCheck.Candidate("c1", predicted.type(), predicted, "Gap", "MUST x", "https://example.com/spec#x",
+                ImmutableList.of("README.md:1-2"), "why", 2, Optional.empty(), status, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        return new ContextSpecCheck("check-1", "plan", "topic:1", "Project", "project", ImmutableList.of(), SHA, "check",
+                ImmutableList.of("https://example.com/spec"), ImmutableList.of(), ContextSpecCheck.State.REPRODUCING, ImmutableList.of(candidate), ImmutableList.of(),
+                ImmutableList.of(), 1, Optional.empty(), NOW, Optional.empty());
+    }
+
     private void answer()
     {
         ContextBuild current = builds.find(WORKSPACE).orElseThrow();
@@ -661,7 +754,7 @@ class TestContextBuildService
         DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
         beans.registerSingleton("contextBuildCoordinator", coordinator);
         return new ContextBuildService(builds, notebooks, plans, reports, preparation, workspaces, models, credentials, drivers, tasks, taskStore, turns, turnStore,
-                completion, approvals, beans.getBeanProvider(ContextBuildCoordinator.class), git, mapper, Clock.fixed(NOW, ZoneOffset.UTC));
+                completion, approvals, checks, worktrees, beans.getBeanProvider(ContextBuildCoordinator.class), git, mapper, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private static String runGit(GitCommandRunner git, Path repository, String... arguments)

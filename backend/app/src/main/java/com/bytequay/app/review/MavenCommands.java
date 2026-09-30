@@ -32,7 +32,7 @@ import static java.util.Objects.requireNonNull;
  * bare Bash script. The text is split into shell words, a leading {@code <shell> -c} script is unwrapped, and a command
  * matches when any {@code &&}, {@code ||}, {@code ;}, {@code |} or {@code &} segment runs {@code mvn} or {@code mvnw}.
  */
-final class MavenCommands
+public final class MavenCommands
 {
     private static final int MAXIMUM_DISPLAY_CHARACTERS = 16 * 1024;
     private static final String IDENTIFIER = "\\p{javaJavaIdentifierStart}\\p{javaJavaIdentifierPart}*";
@@ -111,6 +111,20 @@ final class MavenCommands
         }
         String display = script.length() <= MAXIMUM_DISPLAY_CHARACTERS ? script.strip() : script.substring(0, MAXIMUM_DISPLAY_CHARACTERS) + "…";
         return Optional.of(new Maven(display, segments == 1 && !anyOperator, testClass, testMethod));
+    }
+
+    /**
+     * The words of a command that runs one program, its {@code <shell> -c} wrapper removed, so the exit status reported for it is
+     * that program's. Empty for a script with separators, pipes or redirects.
+     */
+    public static Optional<List<String>> loneCommand(List<String> argv)
+    {
+        List<Word> words = split(String.join(" ", argv));
+        Optional<String> wrapped = shellScript(words);
+        if (wrapped.isPresent()) {
+            words = split(wrapped.orElseThrow());
+        }
+        return words.isEmpty() || words.stream().anyMatch(Word::operator) ? Optional.empty() : Optional.of(words.stream().map(Word::text).toList());
     }
 
     /** The script of {@code <shell> [flags] -c <script>}, as Codex wraps commands in the user's login shell. */

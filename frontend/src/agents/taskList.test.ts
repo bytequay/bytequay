@@ -94,7 +94,7 @@ describe('task list days', () => {
 describe('task list items', () => {
   it('lists discovery and learning as read-only work without an interactive task', () => {
     const run: ContextRunDto = { sequence: 1, taskId: 'research', mode: 'DISCOVER', requestedAt: '2026-09-29T09:00:00Z', endedAt: null,
-      question: null, pullRequest: null, outcome: 'RUNNING', sourceOperations: 4, documentOpens: 0, noteIds: [], detail: null, investigation: null,
+      question: null, pullRequest: null, outcome: 'RUNNING', sourceOperations: 4, documentOpens: 0, noteIds: [], detail: null, investigation: null, check: null,
       activity: [{ at: '2026-09-29T09:01:00Z', text: 'Read pom.xml', tone: 'DONE' }] };
     expect(learningItem([run])).toMatchObject({ type: 'learning', title: 'Discovery run 1', task: null, contextRun: run,
       state: { label: 'Running' }, change: 'Running · read-only' });
@@ -106,7 +106,7 @@ describe('task list items', () => {
   it('shows one card for a task that asked several questions of a topic, from its latest run', () => {
     const question = { planId: 'plan', topicId: 'topic:1', topicTitle: 'Connector SPI', index: 0, text: 'Which hooks?' };
     const base: ContextRunDto = { sequence: 3, taskId: 'shared', mode: 'LEARN', requestedAt: '2026-09-30T09:00:00Z', endedAt: '2026-09-30T09:05:00Z',
-      question, pullRequest: null, outcome: 'ANSWERED', sourceOperations: 4, documentOpens: 0, noteIds: [], detail: null, investigation: null,
+      question, pullRequest: null, outcome: 'ANSWERED', sourceOperations: 4, documentOpens: 0, noteIds: [], detail: null, investigation: null, check: null,
       activity: [{ at: '2026-09-30T09:04:00Z', text: 'Question answered', tone: 'DONE' }] };
     const latest: ContextRunDto = { ...base, sequence: 4, endedAt: null, outcome: 'RUNNING', question: { ...question, index: 1, text: 'Which splits?' },
       activity: [{ at: '2026-09-30T09:06:00Z', text: 'Read Connector.java', tone: 'DONE' }] };

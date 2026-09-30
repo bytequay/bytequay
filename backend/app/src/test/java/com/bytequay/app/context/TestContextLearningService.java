@@ -830,7 +830,7 @@ class TestContextLearningService
                 ImmutableList.of(topic.scopeId()), ImmutableList.of(), ImmutableList.of(), 0, Instant.EPOCH,
                 ContextBuild.Capture.empty(), ContextBuild.Mode.LEARN,
                 Optional.of(new ContextBuild.Assignment(plan.id(), topicId, topic.title(), question, asked.text(), asked.progress(),
-                        topic.paths(), topic.repositoryFiles())), Optional.empty(), Optional.empty());
+                        topic.paths(), topic.repositoryFiles())), Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     private static ContextBuildService.View view(long sequence)
@@ -842,6 +842,6 @@ class TestContextLearningService
     {
         return new ContextBuildService.View(sequence, 0, true, Optional.empty(), ImmutableList.of(new ContextRun(build.sequence(), build.taskId(), build.mode(),
                 Instant.EPOCH, Optional.of(Instant.EPOCH), Optional.empty(), Optional.empty(), outcome, 0, 0, ImmutableList.of(), ImmutableList.of(),
-                Optional.empty(), Optional.empty())));
+                Optional.empty(), Optional.empty(), Optional.empty())));
     }
 }

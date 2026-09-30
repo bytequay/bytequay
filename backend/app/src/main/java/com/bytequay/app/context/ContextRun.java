@@ -28,13 +28,14 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * What one explicit discovery or learning run did and how it ended, derived from its build capture and agent task.
+ * What one explicit discovery, learning or spec check run did and how it ended, derived from its build capture and agent task.
  * Pages opened, questions answered and notes proposed stay separate facts.
  */
 public record ContextRun(
         long sequence, String taskId, ContextBuild.Mode mode, Instant requestedAt, Optional<Instant> endedAt,
         Optional<Question> question, Optional<Integer> pullRequest, Outcome outcome, int sourceOperations, int documentOpens,
-        List<String> noteIds, List<ContextBuild.Activity> activity, Optional<String> detail, Optional<Investigated> investigation)
+        List<String> noteIds, List<ContextBuild.Activity> activity, Optional<String> detail, Optional<Investigated> investigation,
+        Optional<Checked> check)
 {
     /** Capture attempt key under which a learning run records whether its question was answered. */
     public static final String PROGRESS = "question-progress";
@@ -43,6 +44,8 @@ public record ContextRun(
     public static final String CORRECTED = "CORRECTED";
     /** Capture attempt key under which an investigation records the outcome that settled its dispute. */
     public static final String SETTLED = "investigation-settled";
+    /** Capture attempt key under which a spec check turn records that it saved its candidates or its reproduction result. */
+    public static final String CHECKED = "spec-check-saved";
 
     public ContextRun
     {
@@ -60,6 +63,7 @@ public record ContextRun(
         requireNonNull(detail, "detail is null");
         detail.ifPresent(value -> ContextLimits.text(value, "run detail", 1000));
         requireNonNull(investigation, "investigation is null");
+        requireNonNull(check, "check is null");
     }
 
     /** Summarizes a build without starting, resending or settling anything. */
@@ -88,7 +92,8 @@ public record ContextRun(
                 : turn.flatMap(AgentTurn::endedAt).or(() -> task.flatMap(AgentTask::terminalAt));
         return new ContextRun(build.sequence(), build.taskId(), build.mode(), build.requestedAt(), ended, question, pullRequest, outcome,
                 operations, opens, notes, capture.activity(), detail,
-                build.investigation().map(value -> new Investigated(value.entryId(), value.title(), value.statement(), settledBy)));
+                build.investigation().map(value -> new Investigated(value.entryId(), value.title(), value.statement(), settledBy)),
+                build.check().map(value -> new Checked(value.checkId(), value.topicTitle(), value.reproduction().map(ContextBuild.Reproduction::title))));
     }
 
     private static Outcome outcome(ContextBuild build, Optional<AgentTask> task, Optional<AgentTurn> turn, List<String> notes)
@@ -106,9 +111,10 @@ public record ContextRun(
         if (progress.equals(CORRECTED)) {
             return Outcome.CORRECTED;
         }
-        boolean settled = build.assignment().isPresent() ? progress.equals(COMPLETED) : build.capture().result().isPresent();
+        boolean settled = build.assignment().isPresent() ? progress.equals(COMPLETED)
+                : build.check().isPresent() ? build.capture().attempts().containsKey(CHECKED) : build.capture().result().isPresent();
         if (settled) {
-            return build.mode() == ContextBuild.Mode.DISCOVER ? Outcome.SUBMITTED
+            return build.mode() != ContextBuild.Mode.LEARN ? Outcome.SUBMITTED
                     : build.investigation().isPresent() ? Outcome.SETTLED : notes.isEmpty() ? Outcome.NO_NOTE : Outcome.ANSWERED;
         }
         if (build.capture().activity().stream().anyMatch(line -> line.tone() == ContextBuild.Activity.Tone.LIMIT)) {
@@ -138,6 +144,17 @@ public record ContextRun(
             ContextLimits.text(title, "investigated title", 200);
             ContextLimits.text(statement, "disputed statement", 500);
             requireNonNull(outcome, "outcome is null");
+        }
+    }
+
+    /** The spec check a run worked for, and the candidate it reproduced; its planning turn reproduces none. */
+    public record Checked(String checkId, String topicTitle, Optional<String> reproduced)
+    {
+        public Checked
+        {
+            ContextLimits.text(checkId, "check id", 100);
+            ContextLimits.text(topicTitle, "topic title", 200);
+            requireNonNull(reproduced, "reproduced is null");
         }
     }
 

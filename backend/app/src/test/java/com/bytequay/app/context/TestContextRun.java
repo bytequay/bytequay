@@ -115,7 +115,7 @@ class TestContextRun
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), 0, NOW,
                 new ContextBuild.Capture(ImmutableList.of(), ImmutableMap.of(), ImmutableMap.of("discovery:1", "LIST core"), ImmutableMap.of(),
                         Optional.of(new ContextBuild.Result(ImmutableList.of())), ImmutableList.of(), ImmutableList.of()),
-                ContextBuild.Mode.DISCOVER, Optional.empty(), Optional.empty(), Optional.empty());
+                ContextBuild.Mode.DISCOVER, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
 
         ContextRun run = ContextRun.of(discovery, task(), finished(false));
 
@@ -155,7 +155,7 @@ class TestContextRun
                 new RepositoryIdentity("owner", "repository"), 1, REPO, SHA, "branch", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
                 ImmutableList.of("project"), ImmutableList.of(), ImmutableList.of(), 0, NOW,
                 new ContextBuild.Capture(ImmutableList.of(), ImmutableMap.of(), attempts, ImmutableMap.of(), result, ImmutableList.of(), ImmutableList.of()),
-                ContextBuild.Mode.LEARN, Optional.empty(), Optional.empty(), Optional.of(investigation));
+                ContextBuild.Mode.LEARN, Optional.empty(), Optional.empty(), Optional.of(investigation), Optional.empty());
     }
 
     private static ContextBuild learning(Map<String, String> attempts, Optional<ContextBuild.Result> result)
@@ -165,7 +165,7 @@ class TestContextRun
                 ImmutableList.of("project"), ImmutableList.of(), ImmutableList.of(), 0, NOW,
                 new ContextBuild.Capture(ImmutableList.of(), ImmutableMap.of(), attempts, ImmutableMap.of(), result, ImmutableList.of(), ImmutableList.of()),
                 ContextBuild.Mode.LEARN, Optional.of(new ContextBuild.Assignment("plan", "topic:1", "Iceberg connector", 0,
-                        "How are table snapshots committed?", "", ImmutableList.of(), ImmutableList.of())), Optional.empty(), Optional.empty());
+                        "How are table snapshots committed?", "", ImmutableList.of(), ImmutableList.of())), Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     private static ContextPreparationResult ready(String noteId)

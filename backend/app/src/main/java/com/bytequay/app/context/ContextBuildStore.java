@@ -71,9 +71,12 @@ public class ContextBuildStore
                 checkArgument(ContextLimits.bytes(json) <= MAX_STORED_BYTES, "Saved context build exceeds 4 MiB");
                 JsonNode saved = mapper.readTree(json);
                 checkArgument(saved instanceof ObjectNode, "Saved build must be an object");
-                // Builds saved before Investigate existed have no investigation.
+                // Builds saved before Investigate or spec checks existed have neither.
                 if (!saved.has("investigation")) {
                     ((ObjectNode) saved).putNull("investigation");
+                }
+                if (!saved.has("check")) {
+                    ((ObjectNode) saved).putNull("check");
                 }
                 ContextBuild build = requireNonNull(mapper.treeToValue(saved, ContextBuild.class), "Saved build is null");
                 checkArgument(build.workspaceId().equals(workspaceId), "Saved build belongs to another workspace");
@@ -98,10 +101,13 @@ public class ContextBuildStore
                 checkArgument(ContextLimits.bytes(json) <= MAX_STORED_BYTES, "Saved context runs exceed 4 MiB");
                 JsonNode saved = mapper.readTree(json);
                 checkArgument(saved instanceof ArrayNode, "Saved runs must be an array");
-                // Runs recorded before Investigate existed have no investigation.
+                // Runs recorded before Investigate or spec checks existed have neither.
                 saved.forEach(run -> {
                     if (run instanceof ObjectNode summary && !summary.has("investigation")) {
                         summary.putNull("investigation");
+                    }
+                    if (run instanceof ObjectNode summary && !summary.has("check")) {
+                        summary.putNull("check");
                     }
                 });
                 List<ContextRun> runs = ImmutableList.copyOf(mapper.treeToValue(saved, ContextRun[].class));

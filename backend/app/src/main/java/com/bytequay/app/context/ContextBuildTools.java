@@ -212,7 +212,7 @@ public class ContextBuildTools
                                 : POLICY);
     }
 
-    private ReviewTool readTool(AgentTask task, Optional<TurnId> turn)
+    ReviewTool readTool(AgentTask task, Optional<TurnId> turn)
     {
         return new ReviewTool("repository_context_read", "Read the accepted source selection, frozen directory tree/files, registered documents or selected history. "
                 + "For FILE, prefer explicit inclusive, 1-based startLine/endLine. Omit both for lines 1-200; startLine alone requests 200 lines from there. "
@@ -303,7 +303,7 @@ public class ContextBuildTools
     }
 
     /** This run's captured FILE reads as note evidence; nothing the agent wrote counts as a source. */
-    private static List<ContextSourceEvidence> cited(ContextBuild build, List<String> readIds)
+    static List<ContextSourceEvidence> cited(ContextBuild build, List<String> readIds)
     {
         checkArgument(!readIds.isEmpty(), "sourceIds: cite one to three readIds of this run's FILE reads");
         return readIds.stream().map(id -> {
@@ -374,6 +374,7 @@ public class ContextBuildTools
                         .putPOJO("question", plan.topic(assignment.topicId()).questions().get(assignment.questionIndex()));
             });
             build.investigation().ifPresent(investigation -> selection.putPOJO("investigation", investigation));
+            build.check().ifPresent(check -> selection.putPOJO("check", check));
             candidates.selected(build).ifPresent(candidate -> selection.putPOJO("mergedWork", candidate).put("untrusted", true));
             return selection;
         }
@@ -671,7 +672,7 @@ public class ContextBuildTools
     private JsonNode page(ContextBuild build, Optional<TurnId> turn, JsonNode args)
     {
         fields(args, "kind", "url", "captureId", "page");
-        checkArgument(build.assignment().isPresent(), "kind: only a learning run reads a page by its address");
+        checkArgument(build.assignment().isPresent() || build.check().isPresent(), "kind: only a learning run or spec check reads a page by its address");
         String address = text(args, "url", 1400);
         int hash = address.indexOf('#');
         String url = hash < 0 ? address : address.substring(0, hash);
@@ -1049,30 +1050,30 @@ public class ContextBuildTools
                 || name.equals("agents.md") || (lower.startsWith("docs/") && (lower.endsWith(".md") || lower.endsWith(".rst") || lower.endsWith(".txt")));
     }
 
-    private static void fields(JsonNode args, String... allowed)
+    static void fields(JsonNode args, String... allowed)
     {
         List<String> names = ImmutableList.copyOf(allowed);
         args.fieldNames().forEachRemaining(name -> checkArgument(names.contains(name), "%s: irrelevant selector for this operation", name));
     }
 
-    private static String text(JsonNode args, String key, int maximum)
+    static String text(JsonNode args, String key, int maximum)
     {
         return string(args.get(key), key, maximum, false);
     }
 
-    private static String string(JsonNode node, String key, int maximum, boolean empty)
+    static String string(JsonNode node, String key, int maximum, boolean empty)
     {
         checkArgument(node != null && node.isTextual() && (empty || !node.textValue().isBlank()) && ContextLimits.bytes(node.textValue()) <= maximum,
                 "%s: required text of at most %s UTF-8 bytes", key, maximum);
         return node.textValue();
     }
 
-    private static Optional<String> optionalText(JsonNode args, String key, int maximum)
+    static Optional<String> optionalText(JsonNode args, String key, int maximum)
     {
         return args.has(key) ? Optional.of(text(args, key, maximum)) : Optional.empty();
     }
 
-    private static int integer(JsonNode args, String key, int fallback)
+    static int integer(JsonNode args, String key, int fallback)
     {
         JsonNode value = args.get(key);
         if (value == null) {
@@ -1089,7 +1090,7 @@ public class ContextBuildTools
         return value.longValue();
     }
 
-    private static List<String> strings(JsonNode args, String key, int maximumItems, int maximumBytes)
+    static List<String> strings(JsonNode args, String key, int maximumItems, int maximumBytes)
     {
         JsonNode values = args.get(key);
         checkArgument(values != null && values.isArray(), "%s: required array", key);
@@ -1145,17 +1146,17 @@ public class ContextBuildTools
                 ImmutableList.of("operation"));
     }
 
-    private static Map<String, Object> textSchema(int maximum)
+    static Map<String, Object> textSchema(int maximum)
     {
         return ImmutableMap.of("type", "string", "minLength", 1, "maxLength", maximum, "description", "Nonblank; at most " + maximum + " UTF-8 bytes.");
     }
 
-    private static Map<String, Object> stringArray(int items, int length)
+    static Map<String, Object> stringArray(int items, int length)
     {
         return ImmutableMap.of("type", "array", "maxItems", items, "items", textSchema(length));
     }
 
-    private static Map<String, Object> schema(Map<String, Object> properties, List<String> required)
+    static Map<String, Object> schema(Map<String, Object> properties, List<String> required)
     {
         return ImmutableMap.of("type", "object", "properties", properties, "required", required, "additionalProperties", false);
     }

@@ -102,6 +102,7 @@ export function latestRun(runs: ContextRunDto[], filter: (run: ContextRunDto) =>
 export function runOrigin(run: ContextRunDto): string {
   if (run.question !== null) return `Learning run ${run.sequence} · ${run.question.topicTitle}`;
   if (run.investigation !== null) return `Investigation ${run.sequence} · ${run.investigation.title}`;
+  if (run.check !== null) return run.check.reproduced === null ? `Spec check ${run.sequence} · ${run.check.topicTitle}` : `Reproduction ${run.sequence} · ${run.check.reproduced}`;
   if (run.pullRequest !== null) return `Learning from merged PR #${run.pullRequest}`;
   return run.mode === 'DISCOVER' ? `Discovery run ${run.sequence}` : `Learning run ${run.sequence}`;
 }

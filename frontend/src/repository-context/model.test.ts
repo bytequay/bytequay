@@ -41,7 +41,7 @@ const plan: ContextLearningPlanDto = { id: 'plan', workspaceId: 'w', reportId: '
 const run = (sequence: number, outcome: ContextRunDto['outcome'], index: number, at: string, noteIds: string[] = []): ContextRunDto => ({
   sequence, taskId: `task-${sequence}`, mode: 'LEARN', requestedAt: at, endedAt: outcome === 'RUNNING' ? null : at,
   question: { planId: 'plan', topicId: 'topic:iceberg', topicTitle: 'Iceberg connector', index, text: plan.topics[0].questions[index].text },
-  pullRequest: null, outcome, sourceOperations: 17, documentOpens: 0, noteIds, activity: [], detail: null, investigation: null });
+  pullRequest: null, outcome, sourceOperations: 17, documentOpens: 0, noteIds, activity: [], detail: null, investigation: null, check: null });
 const build = (runs: ContextRunDto[]): ContextBuildViewDto => ({ buildRequestSequence: runs.length, notebookRevision: 8, canStart: runs.every(value => value.outcome !== 'RUNNING'),
   runs, build: null });
 const input = (patch: Partial<StatusInput>): StatusInput => ({ repository: 'trinodb/trino', baseline: { branch: 'master', sha: 'a'.repeat(40) }, model: 'Codex · 5.6',

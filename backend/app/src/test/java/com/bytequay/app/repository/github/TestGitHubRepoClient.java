@@ -406,6 +406,23 @@ class TestGitHubRepoClient
     }
 
     @Test
+    void reportSearchFindsIssuesAndPullRequestsInAnyState()
+    {
+        Fixture fixture = fixture();
+        fixture.server().expect(request -> assertThat(request.getURI().getQuery())
+                        .isEqualTo("q=repo:owner/repo in:title,body \"deletion\" \"vector\" \"checkpoint\"&sort=updated&order=desc&per_page=10&page=1"))
+                .andRespond(withSuccess("""
+                        {"total_count":1,"items":[{"id":10,"number":31252,"title":"Checkpoint loses a remove","state":"open",
+                        "updated_at":"2026-08-21T00:00:00Z","html_url":"https://github.com/owner/repo/issues/31252"}]}
+                        """, MediaType.APPLICATION_JSON));
+        assertThat(fixture.client().searchReports("pat", REPOSITORY, "deletion vector checkpoint").items()).singleElement()
+                .satisfies(item -> assertThat(item.number()).isEqualTo(31252));
+        assertThatThrownBy(() -> fixture.client().searchReports("pat", REPOSITORY, " "))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Name the words");
+        fixture.server().verify();
+    }
+
+    @Test
     void historySearchRejectsRawQualifiersAndQuoteEscapesWithoutSendingRequests()
     {
         Fixture fixture = fixture();

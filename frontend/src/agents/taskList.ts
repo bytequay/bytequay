@@ -77,7 +77,7 @@ export function learningItem(runs: ContextRunDto[]): TaskListItem {
       : run.outcome === 'FAILED' ? { label: 'Failed', tone: 'red', spinning: false, reason: run.detail }
         : { label: 'Finished', tone: 'neutral', spinning: false, reason: null },
     at: run.endedAt ?? last?.at ?? run.requestedAt,
-    message: last === undefined ? null : { who: run.mode === 'DISCOVER' ? 'Discovery' : 'Learning', text: last.text, at: last.at },
+    message: last === undefined ? null : { who: run.mode === 'DISCOVER' ? 'Discovery' : run.mode === 'CHECK' ? 'Spec check' : 'Learning', text: last.text, at: last.at },
     links: [], change: `${OUTCOME[run.outcome].label} · read-only`, progress: null, contextRun: run,
   };
 }

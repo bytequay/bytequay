@@ -75,7 +75,8 @@ public record ContextSpecSource(String url, Kind kind, int links, List<String> s
                             .addAll(paths.stream().map(path -> ":(literal)" + path).toList()).build());
             checkArgument((output.successful() || output.exitCode() == 1) && !output.truncated(), "The topic's code has too many links to scan");
             for (String line : output.output().split("\n")) {
-                String link = line.strip().replaceAll("[.,;:]+$", "");
+                // Pages are only read over HTTPS, which every spec host serves.
+                String link = line.strip().replaceAll("[.,;:]+$", "").replaceFirst("^http://", "https://");
                 int hash = link.indexOf('#');
                 String address = hash < 0 ? link : link.substring(0, hash);
                 if (address.isEmpty() || ignored(address)) {

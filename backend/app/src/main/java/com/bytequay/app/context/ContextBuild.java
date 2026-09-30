@@ -34,13 +34,13 @@ import java.util.Optional;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** The latest explicit learning request and its captured evidence; execution state belongs to its agent task. */
+/** The latest explicit learning request or spec check turn and its captured evidence; execution state belongs to its agent task. */
 public record ContextBuild(
         long sequence, String requestKey, String requestDigest, String workspaceId, String taskId,
         RepositoryIdentity physicalRepository, long repositoryId, RepoRef repository, String baselineSha, String branch,
         String laneId, AgentTaskDefaults defaults, List<String> scopeIds, List<History> history,
         List<RegisteredContextSource> documentationSources, long notebookRevision, Instant requestedAt, Capture capture, Mode mode, Optional<Assignment> assignment,
-        Optional<String> continuesReport, Optional<Investigation> investigation)
+        Optional<String> continuesReport, Optional<Investigation> investigation, Optional<Check> check)
 {
     public ContextBuild
     {
@@ -71,6 +71,9 @@ public record ContextBuild(
         checkArgument(investigation.isEmpty() || (mode == Mode.LEARN && assignment.isEmpty() && history.isEmpty()
                         && scopeIds.equals(ImmutableList.of(investigation.orElseThrow().scopeId()))),
                 "An investigation is one learning run over its note's scope, without a plan question or history");
+        requireNonNull(check, "check is null");
+        checkArgument((mode == Mode.CHECK) == check.isPresent() && (check.isEmpty() || history.isEmpty() && scopeIds.size() == 1),
+                "A spec check turn is one check of one topic's scope, without history");
         requireNonNull(requestedAt, "requestedAt is null");
         requireNonNull(capture, "capture is null");
     }
@@ -85,7 +88,7 @@ public record ContextBuild(
     {
         return new ContextBuild(sequence, requestKey, requestDigest, workspaceId, taskId, physicalRepository, repositoryId, repository, baselineSha, branch,
                 laneId, defaults, scopeIds, history, documentationSources, notebookRevision, requestedAt, replacement, mode, assignment, continuesReport,
-                investigation);
+                investigation, check);
     }
 
     /** One accepted plan question; progress is the checkpoint an earlier run saved for it, empty when it has not started. */
@@ -128,9 +131,35 @@ public record ContextBuild(
         }
     }
 
+    /**
+     * The spec check a turn works for: its planning turn when nothing is being reproduced, otherwise the turn that reproduces one
+     * candidate. The brief is what the turn starts from.
+     */
+    public record Check(String checkId, String topicTitle, Optional<Reproduction> reproduction, String brief)
+    {
+        public static final int MAX_BRIEF_BYTES = 48 * 1024;
+
+        public Check
+        {
+            ContextLimits.text(checkId, "check id", 100);
+            ContextLimits.text(topicTitle, "topic title", 200);
+            requireNonNull(reproduction, "reproduction is null");
+            ContextLimits.text(brief, "check brief", MAX_BRIEF_BYTES);
+        }
+    }
+
+    public record Reproduction(String candidateId, String title)
+    {
+        public Reproduction
+        {
+            ContextLimits.text(candidateId, "candidate id", 60);
+            ContextLimits.text(title, "candidate title", 200);
+        }
+    }
+
     public enum Mode
     {
-        LEARN, DISCOVER
+        LEARN, DISCOVER, CHECK
     }
 
     public record History(ContextHistoryReader.SourceKind kind, int number)

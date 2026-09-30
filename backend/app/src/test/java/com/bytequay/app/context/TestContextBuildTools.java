@@ -202,7 +202,7 @@ class TestContextBuildTools
         ContextBuild bound = new ContextBuild(base.sequence(), base.requestKey(), base.requestDigest(), base.workspaceId(), base.taskId(), base.physicalRepository(),
                 base.repositoryId(), base.repository(), base.baselineSha(), base.branch(), base.laneId(), base.defaults(), base.scopeIds(),
                 ImmutableList.of(new ContextBuild.History(ContextHistoryReader.SourceKind.PR, 7)), base.documentationSources(), base.notebookRevision(),
-                base.requestedAt(), base.capture(), base.mode(), base.assignment(), Optional.empty(), Optional.empty());
+                base.requestedAt(), base.capture(), base.mode(), base.assignment(), Optional.empty(), Optional.empty(), Optional.empty());
         store.save(Optional.of(base), bound);
         ContextMergedCandidate selected = new ContextMergedCandidate("pr:owner/repository#7", REPO.fullName(), 7, "Fix checkpoint identity",
                 "https://github.com/owner/repository/pull/7", Instant.EPOCH, Optional.of(TASK.toString()), Optional.of("Investigate logical file identity"),
@@ -681,7 +681,7 @@ class TestContextBuildTools
         ContextBuild selected = new ContextBuild(before.sequence(), before.requestKey(), before.requestDigest(), before.workspaceId(), before.taskId(),
                 before.physicalRepository(), before.repositoryId(), before.repository(), before.baselineSha(), before.branch(), before.laneId(), before.defaults(),
                 ImmutableList.of("component", "project"), before.history(), before.documentationSources(), before.notebookRevision(), before.requestedAt(), capture,
-                before.mode(), before.assignment(), Optional.empty(), Optional.empty());
+                before.mode(), before.assignment(), Optional.empty(), Optional.empty(), Optional.empty());
         store.save(Optional.of(before), selected);
         ContextPreparationResult generated = new ContextPreparationResult("attempt", ContextInputFingerprint.create("project", ImmutableMap.of("README.md", SHA),
                 ImmutableList.of()), ContextPreparationResult.Outcome.FAILED, ImmutableList.of(), ImmutableList.of(), "Insufficient source coverage");
@@ -711,7 +711,7 @@ class TestContextBuildTools
         store.save(Optional.of(current()), new ContextBuild(base.sequence(), base.requestKey(), base.requestDigest(), base.workspaceId(), base.taskId(),
                 base.physicalRepository(), base.repositoryId(), base.repository(), base.baselineSha(), base.branch(), base.laneId(), base.defaults(), base.scopeIds(),
                 base.history(), base.documentationSources(), base.notebookRevision(), base.requestedAt(), base.capture(), base.mode(), Optional.empty(), Optional.empty(),
-                Optional.of(investigation)));
+                Optional.of(investigation), Optional.empty()));
         bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, pages, history, preparation,
                 unitOfWork, mapper, learning, lookup, candidates, CLOCK).bridge(TASK.toString()).orElseThrow();
         assertThat(bridge.tools()).extracting(tool -> tool.name()).containsExactly("repository_context_read", "repository_context_settle");
@@ -798,7 +798,7 @@ class TestContextBuildTools
     {
         return new ContextBuild(1, "request", "sha256:" + "b".repeat(64), WORKSPACE, TASK.toString(), new RepositoryIdentity("owner", "repository"), 1, REPO, SHA,
                 "bytequay/learning", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), ImmutableList.of("project"), ImmutableList.of(), documents,
-                0, Instant.EPOCH, ContextBuild.Capture.empty(), ContextBuild.Mode.LEARN, Optional.empty(), Optional.empty(), Optional.empty());
+                0, Instant.EPOCH, ContextBuild.Capture.empty(), ContextBuild.Mode.LEARN, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     private static ContextBuild assigned(List<RegisteredContextSource> documents)
@@ -808,6 +808,6 @@ class TestContextBuildTools
                 base.repositoryId(), base.repository(), base.baselineSha(), base.branch(), base.laneId(), base.defaults(), base.scopeIds(), base.history(),
                 base.documentationSources(), base.notebookRevision(), base.requestedAt(), base.capture(), base.mode(),
                 Optional.of(new ContextBuild.Assignment("plan-1", "topic:1", "Iceberg metadata", 0, "How does Iceberg read metadata?", "",
-                        ImmutableList.of("plugin/trino-iceberg/"), ImmutableList.of("pom.xml"))), Optional.empty(), Optional.empty());
+                        ImmutableList.of("plugin/trino-iceberg/"), ImmutableList.of("pom.xml"))), Optional.empty(), Optional.empty(), Optional.empty());
     }
 }

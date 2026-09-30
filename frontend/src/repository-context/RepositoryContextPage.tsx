@@ -297,7 +297,8 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
       { planId, topicId, question }), 'Question dropped · no batch runs it · no agent run'),
     stop: (run: ContextRunDto) => perform(async () => {
       setBuild(await window.bridge.stopRepositoryContextBuild(workspaceId, run.taskId));
-      say(run.mode === 'DISCOVER' ? 'Discovery stopped · notes unchanged' : run.pullRequest !== null ? 'Run stopped · candidate kept'
+      say(run.mode === 'DISCOVER' ? 'Discovery stopped · notes unchanged' : run.mode === 'CHECK' ? 'Spec check stopped · confirmed findings kept'
+        : run.pullRequest !== null ? 'Run stopped · candidate kept'
         : run.investigation !== null ? 'Investigation stopped · the note stays disputed'
           : planView?.plan?.batch ? 'Batch stopped · no more runs start · plan and saved notes kept' : 'Run stopped · plan and saved notes kept');
     }),
@@ -395,6 +396,8 @@ export type ContextActions = {
 
 function finishMessage(run: ContextRunDto): string {
   if (run.mode === 'DISCOVER') return run.outcome === 'SUBMITTED' ? 'Discovery finished · suggestions saved' : 'Discovery ended without saving suggestions';
+  if (run.check !== null) return run.check.reproduced === null ? `Spec check ${run.sequence} ${run.outcome === 'SUBMITTED' ? 'saved its candidates' : 'ended'}`
+    : `Reproduction ${run.sequence} ended · ${run.check.reproduced}`;
   switch (run.outcome) {
     case 'SETTLED': return `Investigation ${run.sequence} ${run.investigation?.outcome ? SETTLED_BY[run.investigation.outcome] : 'settled the dispute'} · no further run`;
     case 'ANSWERED': return `Run ${run.sequence} finished · ${plural(run.noteIds.length, 'note')} saved`;

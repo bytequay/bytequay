@@ -118,12 +118,14 @@ export type ContextLearningPlanViewDto = { plan: ContextLearningPlanDto | null; 
 export type ContextRunOutcome = 'RUNNING' | 'SUBMITTED' | 'SETTLED' | 'ANSWERED' | 'CORRECTED' | 'NO_NOTE' | 'UNFINISHED' | 'LIMIT' | 'STOPPED' | 'FAILED';
 export type ContextActivityDto = { at: string; text: string; tone: 'DONE' | 'FAILED' | 'LIMIT' };
 export type ContextRunDto = {
-  sequence: number; taskId: string; mode: 'DISCOVER' | 'LEARN'; requestedAt: string; endedAt: string | null;
+  sequence: number; taskId: string; mode: 'DISCOVER' | 'LEARN' | 'CHECK'; requestedAt: string; endedAt: string | null;
   question: null | { planId: string; topicId: string; topicTitle: string; index: number; text: string };
   pullRequest: number | null; outcome: ContextRunOutcome; sourceOperations: number; documentOpens: number;
   noteIds: string[]; activity: ContextActivityDto[]; detail: string | null;
   /** The note and statement an investigation took up, and how it settled them. */
   investigation: null | { entryId: string; title: string; statement: string; outcome: ContextInvestigationOutcome | null };
+  /** The spec check a run worked for, and the candidate it reproduced; the check's planning run reproduces none. */
+  check: null | { checkId: string; topicTitle: string; reproduced: string | null };
 };
 export type ContextBaselineDto = { branch: string; sha: string };
 export type ContextTimeStampDto = { at: string; taskId: string | null };
@@ -604,7 +606,8 @@ function run(value: unknown): ContextRunDto {
   const item = object(value, 'context run');
   const question = item.question == null ? null : object(item.question, 'run question');
   const investigation = item.investigation == null ? null : object(item.investigation, 'run investigation');
-  return { sequence: count(item.sequence, 'run sequence', 1), taskId: text(item.taskId, 'run task'), mode: oneOf(item.mode, ['DISCOVER', 'LEARN'], 'run mode'),
+  const check = item.check == null ? null : object(item.check, 'run spec check');
+  return { sequence: count(item.sequence, 'run sequence', 1), taskId: text(item.taskId, 'run task'), mode: oneOf(item.mode, ['DISCOVER', 'LEARN', 'CHECK'], 'run mode'),
     requestedAt: text(item.requestedAt, 'run request time'), endedAt: optionalText(item.endedAt, 'run end time'),
     question: question === null ? null : { planId: text(question.planId, 'run plan'), topicId: text(question.topicId, 'run topic'),
       topicTitle: text(question.topicTitle, 'run topic title'), index: count(question.index, 'run question index'), text: text(question.text, 'run question') },
@@ -614,7 +617,9 @@ function run(value: unknown): ContextRunDto {
     noteIds: strings(item.noteIds, 'run notes'), activity: array(item.activity, 'run activity', activity), detail: optionalText(item.detail, 'run detail'),
     investigation: investigation === null ? null : { entryId: text(investigation.entryId, 'investigated note'), title: text(investigation.title, 'investigated title'),
       statement: text(investigation.statement, 'disputed statement'),
-      outcome: investigation.outcome == null ? null : oneOf(investigation.outcome, ['REWRITE', 'KEEP_CURRENT', 'KEEP_PREVIOUS', 'NARROW', 'QUESTION'], 'investigation outcome') } };
+      outcome: investigation.outcome == null ? null : oneOf(investigation.outcome, ['REWRITE', 'KEEP_CURRENT', 'KEEP_PREVIOUS', 'NARROW', 'QUESTION'], 'investigation outcome') },
+    check: check === null ? null : { checkId: text(check.checkId, 'run spec check'), topicTitle: text(check.topicTitle, 'run spec check topic'),
+      reproduced: optionalText(check.reproduced, 'reproduced candidate') } };
 }
 export function parseContextBaseline(value: unknown): ContextBaselineDto | null {
   if (value == null) return null;

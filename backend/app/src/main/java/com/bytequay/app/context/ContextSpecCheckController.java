@@ -16,6 +16,8 @@ package com.bytequay.app.context;
 import com.google.common.collect.ImmutableList;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -35,11 +37,41 @@ public class ContextSpecCheckController
         this.checks = requireNonNull(checks, "checks is null");
     }
 
+    @GetMapping
+    public Checks checks(@PathVariable String workspaceId)
+    {
+        return new Checks(checks.checks(workspaceId));
+    }
+
+    /** Starts one check of a topic; the user reads its report when it ends. */
+    @PostMapping
+    public ContextSpecCheckService.Started start(@PathVariable String workspaceId, @RequestBody ContextSpecCheckService.StartRequest request)
+    {
+        return checks.start(workspaceId, request);
+    }
+
+    @PostMapping("/{checkId}/candidates/{candidateId}/dismiss")
+    public ContextSpecCheck dismiss(@PathVariable String workspaceId, @PathVariable String checkId, @PathVariable String candidateId,
+            @RequestBody DismissRequest request)
+    {
+        return checks.dismiss(workspaceId, checkId, candidateId, request.reason());
+    }
+
     @GetMapping("/topics/{topicId}/sources")
     public Sources sources(@PathVariable String workspaceId, @PathVariable String topicId)
     {
         return new Sources(checks.sources(workspaceId, topicId));
     }
+
+    public record Checks(List<ContextSpecCheck> checks)
+    {
+        public Checks
+        {
+            checks = ImmutableList.copyOf(checks);
+        }
+    }
+
+    public record DismissRequest(String reason) {}
 
     public record Sources(List<ContextSpecSource> sources)
     {

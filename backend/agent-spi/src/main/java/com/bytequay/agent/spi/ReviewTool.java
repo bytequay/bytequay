@@ -39,7 +39,10 @@ public record ReviewTool(String name, String description, Map<String, Object> in
             "repository_context_progress",
             "repository_context_settle",
             "repository_context_discovery_read",
-            "repository_context_discovery_submit");
+            "repository_context_discovery_submit",
+            "repository_context_spec_search",
+            "repository_context_spec_candidates",
+            "repository_context_spec_result");
 
     /** A tool only the root agent may call, which is every tool that saves or changes review state. */
     public ReviewTool(String name, String description, Map<String, Object> inputSchema, Function<String, String> call)

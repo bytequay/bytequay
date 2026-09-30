@@ -241,8 +241,19 @@ gets the fixed discovery read/submit tools; learning gets read/prepare/progress.
 Neither profile can publish, edit code or start children. Existing model preflight,
 Stop, runtime recovery and verified worktree cleanup controls apply.
 
+A [spec check](repository-context-spec-check.md) is a third profile of the same
+binding. Its planning turn gets read and the spec search/candidates tools; each
+reproduction turn gets read and the spec result tool, and writes and runs one test
+in the task's worktree. The session is review-scoped, with network for build
+dependencies and no GitHub commands; its policy forbids commits, pushes and
+children. A result counts only for a test
+command the provider recorded in that turn. The check's tests and build output
+are its own, so between turns and before cleanup the service returns the worktree
+to its baseline; a worktree whose HEAD moved is kept and its task abandoned.
+
 The Tasks list projects these runs as Learning items from the existing context
-run history, one item per task. They open read-only Repository context activity, never an interactive
+run history, one item per task; a spec check's turns form one item named for the
+check. They open read-only Repository context activity, never an interactive
 task screen. Generic send and steer endpoints reject noninteractive tasks;
 workflow-owned services retain their existing turn controls.
 

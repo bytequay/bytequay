@@ -88,7 +88,7 @@ historical checkpoint evidence and explicitly deferred future work.
   [checklist](repository-context-impl-tmp.md#refactor-development-checkpoints)
   tracks delivery separately from the earlier implementation, with its own
   [UI refactor checkpoints](repository-context-impl-tmp.md#ui-refactor-checkpoints).
-- [Repository context: spec check](repository-context-spec-check.md) is approved:
+- [Repository context: spec check](repository-context-spec-check.md) is implemented:
   compare a topic's code with the specification it implements, reproduce each
   gap with a test the check writes and runs, and report only reproduced bugs,
   feature requests and improvements, each with a draft issue the user files.

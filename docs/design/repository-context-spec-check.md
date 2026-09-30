@@ -1,6 +1,6 @@
 # Repository context: spec check
 
-Status: approved, not yet implemented. It extends
+Status: implemented. It extends
 [Repository context](repository-context-refactor.md) with one agent-service
 addition, [a spec check task](#4-the-task-and-its-safety). The user approved the
 task kind, at most eight reproduction turns per check, linking open issues that
@@ -13,13 +13,14 @@ and reads the result; nothing in between asks for a decision.
 
 ## 1. What the user does
 
-**Start.** A topic offers **Check against spec**. The sheet lists the spec
-documents found for the topic, each already selected, with how often the code
-links it: "Delta Lake protocol · PROTOCOL.md · 25 links, 20 sections". The user
-may add a spec address or clear one, but never picks sections: the check plans
-them. Usually the user just starts. The run line states what the click starts:
-one task for the topic, one check turn and up to eight reproduction turns, and
-the model.
+**Start.** A topic offers **Check against spec**, which opens its Spec check
+drawer. The drawer lists the spec documents found for the topic, each already
+selected, with how often the code links it: "Spec · 25 links from the topic's
+code · 20 sections". Reference code is listed unselected. The user may add a spec
+address or clear one, but never picks sections: the check plans them. A new
+check of a topic starts from the specs its last check read. Usually the user just
+starts. The run line states what the click starts: one task for the topic, a
+check turn and up to eight reproduction turns, and the model.
 
 **Finish.** The topic shows a report, and Needs you links to it. It says, for
 example: "2 bugs and 3 feature requests confirmed · 4 not reproduced · 1 already
@@ -27,9 +28,12 @@ reported (#31252)", and what the check covered: "41 rules in 14 sections; the
 next check continues with Column Mapping and Domain Metadata". Each confirmed
 finding has its type, title, the spec rule with its link, the code lines, the
 failing test, its output and a proposed change. **Open issue** opens GitHub's
-new-issue form pre-filled with that finding; the user submits it there.
-**Dismiss** hides a finding and records why. Nothing is filed, commented or
-pushed without the user's click.
+new-issue form in the in-app browser, pre-filled with that finding; the user
+submits it there. A body too long for the form's address is cut there and copied
+whole to the clipboard, and **Copy body** copies it at any time. **Dismiss** hides
+a finding and records why: filed on GitHub, not a real gap, or not worth filing.
+Needs you lists each topic with findings to file until they are dismissed.
+Nothing is filed, commented or pushed without the user's click.
 
 ## 2. Which specs
 
@@ -94,11 +98,19 @@ may have come back.
 **Reproduction turns.** One turn per candidate, most severe first, at most eight.
 The task re-reads the code, since the candidate may be wrong, and writes the
 smallest test in the module's own style that asserts what the spec requires. It
-runs the test in its worktree. ByteQuay records the command, exit code and output
-from the provider's events and does not take the agent's word for them.
+runs the test in its worktree as one command from the worktree root, without
+`cd`, pipes, redirects or `&&`, so the command's exit status is the test's, and
+reports the test file and that command. ByteQuay takes the exit code and output
+of the command's latest completed run in that turn from the provider's events,
+and the test's source from the worktree; it does not take the agent's word for
+them. A command that does not name the test is refused, and so is a confirmed
+result whose output shows a compile failure or no test run.
 
 - **Confirmed**: the test fails, and its failure shows the gap the candidate
-  states: a wrong result for a bug, the refusal for a feature request.
+  states: a wrong result for a bug, the refusal for a feature request. The agent
+  writes the issue's summary, impact and proposal, and picks repository labels;
+  ByteQuay composes the draft from them and from the recorded rule, code lines,
+  test and output.
 - **Refuted**: the test passes. The code follows the rule, and the task saves
   that as a note citing the test.
 - **Not reproduced**: the test cannot be built, fails for another reason, or
@@ -122,13 +134,21 @@ not interactive and appears in Tasks as a Spec check item.
 - It never starts a ByteQuay local run; its test commands run in its own sandbox.
 - Each turn has the configured turn timeout. Stop ends the check and keeps what it
   has confirmed.
+- The planning turn gets the learning read tool, `repository_context_spec_search`
+  and `repository_context_spec_candidates`; a reproduction turn gets the read tool
+  and `repository_context_spec_result`.
+- Before each reproduction turn the worktree returns to the check's baseline,
+  keeping ignored build output for the next build. Before the task ends, the
+  tests and build output are removed as well, so worktree cleanup succeeds. A
+  worktree whose HEAD moved is kept for inspection and its task abandoned.
 
 This is a new workflow task kind in the agent service, approved with this design.
 
 ## 5. The report and issue drafts
 
-Findings are stored with the plan, keyed by topic and spec section, so a later
-check updates them instead of repeating them.
+A topic keeps its latest check. A new check of the topic keeps the earlier
+confirmed, refuted and already reported candidates, so it neither repeats nor
+loses them, and starts from the sections the last check named next.
 
 - **Bug draft:** summary, the spec rule quoted with its link, what the code does
   with its lines, impact, the test and its failing output, and the proposed fix.
@@ -142,7 +162,8 @@ Drafts use the repository's labels when they match (`correctness`,
 
 ## 6. Limits
 
-- One check per topic at a time, at most eight reproduction turns per check.
+- One check at a time, at most eight reproduction turns per check. Candidates the
+  check did not reach end as not reproduced, with the reason.
 - A candidate needing containers, credentials or external services the task
   cannot start ends as not reproduced, with the reason.
 - A spec newer than the code describes features the code never claimed; those are

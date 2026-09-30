@@ -1,9 +1,9 @@
 # Repository context: discover, learn, and use
 
-Status: implemented and verified by automated tests, except contested notes,
-settlements and Investigate under [grades and reports](#grades-and-reports),
-which are approved and not yet implemented and have
-[their own checklist](repository-context-impl-tmp.md#save-notes-without-approval).
+Status: implemented and verified by automated tests, except Investigate under
+[grades and reports](#grades-and-reports), which is approved and not yet
+implemented and has
+[its own checklist](repository-context-impl-tmp.md#save-notes-without-approval).
 Live-provider quality and cost acceptance remain separate. Delivery and verification belong in
 [the temporary development checkpoints](repository-context-impl-tmp.md#refactor-development-checkpoints);
 the [source check at read](#source-check-at-read) has
@@ -313,18 +313,20 @@ cited line ranges that support the statement. A report on a note the user wrote
 also goes to **Needs you** at once: agents cannot change it, and its author can
 judge it. Any new version closes the open reports on the version it replaces.
 
-Each correction and settlement records the statement it settled: the
-correction's new text, a settling save's rewritten statement, or the disputed
-statement the user kept or restored. Agents disagree, and the note becomes
-**contested**, when a task answers an open report with Holds, or when another
-task's correction quotes a settled statement of the current version while none
-of that version's cited repository lines changed at the reporter's base. When
-they changed, the code moved on and the correction is an ordinary fix. A
-contested note stays active, and an exact read shows its current and previous
-text with each side's quote, reason and cited lines. It stays contested through
-further agent corrections until a settling save or the user's **Keep** (the
-current text), **Restore** (the previous text), **Edit** or **Disable**. Needs
-you lists it, and leaving it there is safe.
+Each correction and agent settlement records the statement it settled: the
+correction's new text or a settling save's rewritten statement, for as long as
+the note's text still holds it. The user's Keep or Restore settles the whole
+version they chose while it stays current. Agents disagree, and the note
+becomes **contested**, when a task answers an open report with Holds, or when
+another task's correction quotes a settled statement of the current version
+while none of that version's cited repository lines changed at the reporter's
+base. When they changed, or cannot be compared, the code may have moved on and
+the correction is an ordinary fix. A contested note stays active, and an exact
+read shows its current and previous text with each side's quote, reason and
+cited lines. It stays contested through further agent corrections until a
+settling save or the user's **Keep** (the current text), **Restore** (the
+previous text), **Edit** or **Disable**. Needs you lists it, and leaving it
+there is safe.
 
 **Investigate** starts one learning run whose single question is the dispute.
 Its input is both texts, every report and answer with its evidence, and the
@@ -342,11 +344,11 @@ exactly one outcome:
 
 That outcome is a settling save: it records a root cause of at most 300 bytes
 with the version it produces, and the note shows it. A development task that
-needs a contested agent-written note for its own work may make the same
-settling save without a separate run. For a note the user wrote, an
-investigation changes nothing and returns its root cause and suggested text
-for the user to apply with Edit. Keep and Restore record the user's choice the
-same way.
+needs a contested agent-written note for its own work may settle it without a
+separate run: its correction of the note carries the root cause. For a note the
+user wrote, an investigation changes nothing and returns its root cause and
+suggested text for the user to apply with Edit. Keep and Restore record the
+user's choice the same way.
 
 A later correction of a settled statement on unchanged cited lines makes the
 note contested again; Needs you then shows the earlier root cause or choice,

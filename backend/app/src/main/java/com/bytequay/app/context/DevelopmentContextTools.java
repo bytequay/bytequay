@@ -102,6 +102,9 @@ public class DevelopmentContextTools
             + "WRONG quotes the contradicted statement exactly and cites one to three line ranges that show it; for an agent-written note also pass "
             + "correction with title, summary, body and the statement that replaces the quote. When READ returns openReports, re-check each quoted "
             + "statement: correct it with WRONG, or answer HOLDS quoting the reported statement and citing the lines that support it. "
+            + "When READ returns a dispute, agents disagree about its statement: check both texts against your base and trust the code. "
+            + "If your work needs a disputed agent-written note, you may settle it with WRONG and a correction whose rootCause says in "
+            + "at most 300 bytes why the sides disagreed. "
             + "Cite only code the monitored branch already has; a note learned from newer code than your base is not wrong.";
 
     private final AgentTaskStore tasks;
@@ -294,18 +297,19 @@ public class DevelopmentContextTools
         }
         ContextNotebookLookup.Read found = captured.orElseThrow();
         List<OpenReport> reports = gradeService.reportsFor(task.workspaceId().orElseThrow(), found.entry()).stream().map(OpenReport::from).collect(ImmutableList.toImmutableList());
+        Optional<ContextGradeService.Dispute> dispute = gradeService.disputeFor(task.workspaceId().orElseThrow(), id, version);
         String evidenceRef = "context-note:" + UUID.randomUUID();
         String applicability = found.sourceCheck().applicability().name();
         List<ReviewEvidence> sources = new ArrayList<>(found.capture().evidence().values());
         ReadResponse response = new ReadResponse("AVAILABLE", id, version, found.notebookRevision(), applicability, found.sourceCheck(), evidenceRef,
-                ContextUsageEvent.Note.from(found.entry()), found.capture().text(), found.capture().sourceEvidenceRefs(), sources, 0, reports,
-                readLimitations(reports));
+                ContextUsageEvent.Note.from(found.entry()), found.capture().text(), found.capture().sourceEvidenceRefs(), sources, 0, reports, dispute,
+                readLimitations(reports, dispute, found.entry()));
         String output = encode(response);
         while (ContextLimits.bytes(output) > READ_RESPONSE_BYTES && !sources.isEmpty()) {
             sources.removeLast();
             response = new ReadResponse(response.status(), id, version, found.notebookRevision(), applicability, found.sourceCheck(), evidenceRef,
                     response.note(), found.capture().text(), found.capture().sourceEvidenceRefs(), sources,
-                    found.capture().evidence().size() - sources.size(), reports, response.limitations());
+                    found.capture().evidence().size() - sources.size(), reports, dispute, response.limitations());
             output = encode(response);
         }
         checkArgument(ContextLimits.bytes(output) <= READ_RESPONSE_BYTES, "Context read response exceeds 64 KiB");
@@ -393,15 +397,15 @@ public class DevelopmentContextTools
             ContextGrade saved = new ContextGrade(workspaceId, taskId, Optional.empty(), ContextUsageEvent.TaskKind.DEVELOPMENT, ContextGrade.Grader.AGENT,
                     grade, note, reason, Optional.empty(), ImmutableList.of(), Optional.empty(), Instant.now(clock));
             return unitOfWork.execute(() -> {
-                grades.save(saved);
-                return encode(GradeResponse.of(saved));
+                gradeService.save(saved);
+                return encode(GradeResponse.of(saved, false));
             });
         }
         String quote = text(input, "quote");
         Optional<ContextGrade> repeated = grades.find(taskId, ContextGrade.Grader.AGENT, entryId, version)
                 .filter(value -> value.grade() == grade && value.reason().equals(reason) && value.quote().equals(Optional.of(quote)));
         if (repeated.isPresent()) {
-            return encode(GradeResponse.of(repeated.orElseThrow()));
+            return encode(GradeResponse.of(repeated.orElseThrow(), notebooks.getDisputes(workspaceId).contest(entryId).isPresent()));
         }
         gradeService.requireStatement(workspaceId, notebook, entryId, version, grade, quote);
         List<TaskContextDraftService.Source> windows = windows(input.path("sources"));
@@ -413,15 +417,21 @@ public class DevelopmentContextTools
         String operationId = "task:" + digest(taskId + "\n" + turn.id() + "\n" + entryId + "\n" + version).substring(0, 32)
                 + ":" + digest(input.toString()).substring(0, 32);
         if (corrects) {
-            checkArgument(correction.size() == 4 && allowed(correction, "title", "summary", "body", "statement"),
-                    "correction needs title, summary, body and statement");
+            checkArgument((correction.size() == 4 || correction.size() == 5) && allowed(correction, "title", "summary", "body", "statement", "rootCause"),
+                    "correction needs title, summary, body and statement, with rootCause only to settle a contested note");
             String replacement = text(correction, "statement");
+            Optional<String> rootCause = correction.has("rootCause") ? Optional.of(text(correction, "rootCause")) : Optional.empty();
+            boolean contested = notebooks.getDisputes(workspaceId).contest(entryId).isPresent();
+            checkArgument(rootCause.isEmpty() || contested, "rootCause settles a contested note, and this note is not contested");
+            rootCause.ifPresent(value -> checkArgument(ContextLimits.bytes(value) <= ContextDisputes.Settlement.MAX_ROOT_CAUSE_BYTES,
+                    "rootCause exceeds %s UTF-8 bytes", ContextDisputes.Settlement.MAX_ROOT_CAUSE_BYTES));
             TaskContextDraftService.Proposal proposal = new TaskContextDraftService.Proposal(graded.kind(), graded.scopeId(), Optional.of(entryId),
                     Optional.of(version), text(correction, "title"), text(correction, "summary"), text(correction, "body"), windows);
             checkArgument((proposal.title() + "\n" + proposal.summary() + "\n" + proposal.body()).contains(replacement),
                     "The corrected note must contain the statement that replaces the quote");
             TaskContextDraftService.Prepared prepared = drafts.prepare(task, proposal, operationId);
             List<ContextGrade.Citation> citations = citations(prepared.note().evidence(), windows);
+            boolean disputes = !contested && gradeService.disputesSettled(workspaceId, notebook, graded, quote, prepared.base());
             return unitOfWork.execute(() -> {
                 requireRunning(task, turn, prepared.tree());
                 TaskContextDraftService.Result result = drafts.commit(prepared);
@@ -429,7 +439,14 @@ public class DevelopmentContextTools
                         grade, note, reason, Optional.of(quote), citations, Optional.of(new ContextGrade.Correction(result.entryVersion(), replacement)),
                         Instant.now(clock));
                 grades.save(saved);
-                return encode(GradeResponse.of(saved));
+                if (rootCause.isPresent()) {
+                    notebooks.settle(workspaceId, entryId, new ContextDisputes.Settlement(result.entryVersion(), ContextDisputes.By.TASK, replacement, rootCause));
+                    return encode(GradeResponse.settled(saved));
+                }
+                if (disputes) {
+                    notebooks.contest(workspaceId, entryId, version, quote);
+                }
+                return encode(GradeResponse.of(saved, contested || disputes));
             });
         }
         TaskContextDraftService.Captured captured = drafts.capture(task, windows, Optional.of(entryId));
@@ -437,8 +454,8 @@ public class DevelopmentContextTools
                 grade, note, reason, Optional.of(quote), citations(captured.evidence(), windows), Optional.empty(), Instant.now(clock));
         return unitOfWork.execute(() -> {
             requireRunning(task, turn, captured.tree());
-            grades.save(saved);
-            return encode(GradeResponse.of(saved));
+            gradeService.save(saved);
+            return encode(GradeResponse.of(saved, notebooks.getDisputes(workspaceId).contest(entryId).isPresent()));
         });
     }
 
@@ -453,12 +470,19 @@ public class DevelopmentContextTools
                 "Saving context requires the running development turn");
     }
 
-    private static List<String> readLimitations(List<OpenReport> reports)
+    private static List<String> readLimitations(List<OpenReport> reports, Optional<ContextGradeService.Dispute> dispute, ContextEntry entry)
     {
-        String base = "sourceCheck compares cited lines with this task's committed HEAD; uncommitted edits are not compared. "
-                + "Claims remain unverified reference material.";
-        return reports.isEmpty() ? ImmutableList.of(base) : ImmutableList.of(base, "This version has open reports: re-check each quoted statement at your base, "
-                + "then GRADE WRONG with the lines that contradict it or HOLDS with the lines that support it.");
+        ImmutableList.Builder<String> limitations = ImmutableList.<String>builder().add("sourceCheck compares cited lines with this task's committed HEAD; "
+                + "uncommitted edits are not compared. Claims remain unverified reference material.");
+        if (!reports.isEmpty()) {
+            limitations.add("This version has open reports: re-check each quoted statement at your base, "
+                    + "then GRADE WRONG with the lines that contradict it or HOLDS with the lines that support it.");
+        }
+        dispute.ifPresent(ignored -> limitations.add(entry.origin() == ContextEntryOrigin.GENERATED
+                ? "Agents disagree about this note: rely on it only where your base shows which side holds. A WRONG with a correction and a rootCause "
+                        + "settles it; a correction without one leaves it contested for the user."
+                : "Agents disagree about this note the user wrote; the user decides. GRADE what your base shows."));
+        return limitations.build();
     }
 
     private static List<TaskContextDraftService.Source> windows(JsonNode sources)
@@ -711,7 +735,7 @@ public class DevelopmentContextTools
 
     private record ReadResponse(String status, String entryId, long entryVersion, long notebookRevision, String applicability, ContextSourceCheck sourceCheck,
             String evidenceRef, ContextUsageEvent.Note note, String text, Map<String, String> sourceEvidenceRefs, List<ReviewEvidence> sources, int omittedSources,
-            List<OpenReport> openReports, List<String> limitations) {}
+            List<OpenReport> openReports, Optional<ContextGradeService.Dispute> dispute, List<String> limitations) {}
 
     /** What a reader must re-check; the cited excerpts stay in the report store, not in every read. */
     private record OpenReport(String grader, String reason, Optional<String> quote, List<String> citedLines, Instant reportedAt)
@@ -724,14 +748,31 @@ public class DevelopmentContextTools
         }
     }
 
-    private record GradeResponse(String status, String grade, String entryId, long entryVersion, Optional<Long> correctionVersion, boolean openReport, String note)
+    private record GradeResponse(String status, String grade, String entryId, long entryVersion, Optional<Long> correctionVersion, boolean openReport,
+            boolean contested, String note)
     {
-        static GradeResponse of(ContextGrade grade)
+        static GradeResponse of(ContextGrade grade, boolean contested)
         {
             boolean open = grade.grade() == ContextGrade.Grade.WRONG && grade.correction().isEmpty();
+            String note;
+            if (grade.correction().isPresent()) {
+                note = contested ? "The corrected version is active, but agents disagree about this statement on unchanged code, so the note stays contested "
+                        + "until the user or a settling save decides." : "The corrected version is active; the graded version stays restorable.";
+            }
+            else if (grade.grade() == ContextGrade.Grade.HOLDS) {
+                note = "Agents now disagree about this statement, so the note is contested; the user sees both sides.";
+            }
+            else {
+                note = open ? "The report stays open until the note changes; agents that open this version see it." : "Grade saved.";
+            }
             return new GradeResponse("SAVED", grade.grade().name(), grade.note().id(), grade.note().version(), grade.correction().map(ContextGrade.Correction::version),
-                    open, grade.correction().isPresent() ? "The corrected version is active; the graded version stays restorable."
-                            : open ? "The report stays open until the note changes; agents that open this version see it." : "Grade saved.");
+                    open, contested, note);
+        }
+
+        static GradeResponse settled(ContextGrade grade)
+        {
+            return new GradeResponse("SAVED", grade.grade().name(), grade.note().id(), grade.note().version(), grade.correction().map(ContextGrade.Correction::version),
+                    false, false, "The corrected version is active and settles the dispute; the note shows its root cause.");
         }
     }
 }

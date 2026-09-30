@@ -21,7 +21,9 @@ import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.ContextGrade;
 import com.bytequay.core.context.ContextGradeStore;
 import com.bytequay.core.context.ContextLimits;
+import com.bytequay.core.context.ContextReference;
 import com.bytequay.core.context.ContextSelectedEntry;
+import com.bytequay.core.context.ContextSourceEvidence;
 import com.bytequay.core.context.ContextUsageEvent;
 import com.bytequay.core.context.DevelopmentContextReceiptStore;
 import com.bytequay.core.context.RepositoryNotebook;
@@ -38,6 +40,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -58,6 +61,8 @@ public class ContextGradeService
 {
     /** An exact read carries at most this many open reports. */
     static final int READ_REPORTS = 3;
+    /** An exact read of a contested note carries at most this many Wrong and Holds grades from both sides. */
+    static final int READ_SIDES = 6;
     /** Review runs retain exact note reads under this operation-key prefix. */
     public static final String NOTE_READ_PREFIX = "context-note:";
     private static final int REPORT_PAGE = 1000;
@@ -103,6 +108,85 @@ public class ContextGradeService
         return entry;
     }
 
+    /** Saves an agent's grade. A Holds answers an open report, so agents now disagree and the note becomes contested. */
+    public void save(ContextGrade grade)
+    {
+        grades.save(grade);
+        if (grade.grade() == ContextGrade.Grade.HOLDS) {
+            notebooks.contest(grade.workspaceId(), grade.note().id(), grade.note().version(), grade.quote().orElseThrow());
+        }
+    }
+
+    /**
+     * Whether a correction of {@code graded}, the current version, disputes a settled statement while none of that version's
+     * cited repository lines changed at the corrector's {@code base}. Settled are a correction's or an agent settlement's
+     * statement that the text still holds, and every statement of a version the user kept or restored while it is current.
+     * Git reads only; call outside the notebook lock.
+     */
+    public boolean disputesSettled(String workspaceId, RepositoryNotebook notebook, ContextEntry graded, String quote, String base)
+    {
+        String text = text(graded);
+        boolean settled = notebooks.getDisputes(workspaceId).settlement(graded.id())
+                .map(settlement -> settlement.by() == ContextDisputes.By.USER
+                        ? settlement.version() == graded.version()
+                        : text.contains(settlement.statement()) && overlaps(settlement.statement(), quote))
+                .orElse(false)
+                // ponytail: scans the workspace's newest 1000 Wrong grades; add a per-note query if corrections outgrow it.
+                || grades.listGrades(workspaceId, ImmutableSet.of(ContextGrade.Grade.WRONG), REPORT_PAGE).stream()
+                        .filter(grade -> grade.note().id().equals(graded.id()))
+                        .flatMap(grade -> grade.correction().stream())
+                        .anyMatch(correction -> text.contains(correction.statement()) && overlaps(correction.statement(), quote));
+        if (!settled) {
+            return false;
+        }
+        Set<String> cited = ImmutableSet.copyOf(graded.sourceIds());
+        Map<String, ContextSourceEvidence> sources = notebook.sourceEvidence().stream()
+                .filter(source -> cited.contains(source.id()) && source.reference() instanceof ContextReference.RepositoryFile)
+                .collect(toImmutableMap(ContextSourceEvidence::id, source -> source));
+        // Lines that cannot be compared count as changed: the code may have moved on, so the correction stays an ordinary fix.
+        return !sources.isEmpty() && checker.check(workspaceId, Optional.of(base), sources).sources().stream()
+                .allMatch(source -> source.status() == ContextSourceCheck.Status.UNCHANGED);
+    }
+
+    private static boolean overlaps(String statement, String quote)
+    {
+        return statement.contains(quote) || quote.contains(statement);
+    }
+
+    /** What a reader of this exact version sees while agents contest the note; empty unless it is the current, enabled version. */
+    public Optional<Dispute> disputeFor(String workspaceId, String entryId, long version)
+    {
+        ContextDisputes disputes = notebooks.getDisputes(workspaceId);
+        Optional<ContextDisputes.Contest> contest = disputes.contest(entryId);
+        if (contest.isEmpty()) {
+            return Optional.empty();
+        }
+        RepositoryNotebook notebook = notebooks.getNotebook(workspaceId);
+        return notebook.entries().stream().filter(entry -> entry.id().equals(entryId) && entry.version() == version && entry.enabled()).findFirst().map(entry -> {
+            Optional<ContextEntry> previous = previous(notebook, entryId);
+            List<Side> sides = graded(workspaceId, notebook, entry, contest).stream()
+                    .filter(grade -> grade.grade() == ContextGrade.Grade.WRONG || grade.grade() == ContextGrade.Grade.HOLDS)
+                    .limit(READ_SIDES).map(Side::from).collect(toImmutableList());
+            return new Dispute(contest.orElseThrow().statement(), contest.orElseThrow().version(), previous.map(ContextEntry::version),
+                    previous.map(ContextGradeService::text), sides, disputes.settlement(entryId));
+        });
+    }
+
+    /** Grades of the current version and, for a contested note, of its previous and first disputed versions, newest first. */
+    private List<ContextGrade> graded(String workspaceId, RepositoryNotebook notebook, ContextEntry entry, Optional<ContextDisputes.Contest> contest)
+    {
+        Stream<Long> versions = contest.isEmpty()
+                ? Stream.of(entry.version())
+                : Stream.concat(Stream.of(entry.version(), contest.orElseThrow().version()), previous(notebook, entry.id()).map(ContextEntry::version).stream());
+        return versions.distinct().flatMap(version -> grades.listVersion(workspaceId, entry.id(), version, REPORT_PAGE).stream())
+                .sorted(Comparator.comparing(ContextGrade::gradedAt).reversed()).collect(toImmutableList());
+    }
+
+    private static Optional<ContextEntry> previous(RepositoryNotebook notebook, String entryId)
+    {
+        return notebook.replaced().stream().filter(entry -> entry.id().equals(entryId)).findFirst();
+    }
+
     /**
      * Saves a review's grade of an exact version its run received or opened; the caller captured the cited lines at the
      * run's monitored baseline. Reviews cannot change notes, so a Wrong stays an open report.
@@ -125,7 +209,7 @@ public class ContextGradeService
         }
         ContextGrade saved = new ContextGrade(workspaceId, taskId, Optional.of(runId), ContextUsageEvent.TaskKind.PR_REVIEW, ContextGrade.Grader.AGENT, grade,
                 ContextUsageEvent.Note.from(graded), reason, quote, citations, Optional.empty(), Instant.now(clock));
-        grades.save(saved);
+        save(saved);
         return saved;
     }
 
@@ -165,15 +249,19 @@ public class ContextGradeService
                 });
     }
 
-    /** Notes whose current version has open reports, with every grade of that version, newest first. */
+    /**
+     * Enabled notes whose current version has open reports or that agents contest, with how the note's last dispute was
+     * settled and the grades of the versions in question, newest first.
+     */
     public List<ReportedNote> reportedNotes(String workspaceId)
     {
         RepositoryNotebook notebook = notebooks.getNotebook(workspaceId);
-        return openReports(workspaceId, notebook).stream().map(report -> report.note().id()).distinct().map(id -> {
-            ContextEntry entry = notebook.entries().stream().filter(value -> value.id().equals(id)).findFirst().orElseThrow();
-            return new ReportedNote(entry.id(), entry.version(), entry.title(), entry.origin() == ContextEntryOrigin.USER,
-                    grades.listVersion(workspaceId, entry.id(), entry.version(), REPORT_PAGE));
-        }).collect(toImmutableList());
+        ContextDisputes disputes = notebooks.getDisputes(workspaceId);
+        return Stream.concat(openReports(workspaceId, notebook).stream().map(report -> report.note().id()), disputes.contested().keySet().stream()).distinct()
+                .flatMap(id -> notebook.entries().stream().filter(entry -> entry.id().equals(id) && entry.enabled()).findFirst().stream())
+                .map(entry -> new ReportedNote(entry.id(), entry.version(), entry.title(), entry.origin() == ContextEntryOrigin.USER,
+                        graded(workspaceId, notebook, entry, disputes.contest(entry.id())), disputes.contest(entry.id()), disputes.settlement(entry.id())))
+                .collect(toImmutableList());
     }
 
     /** Wrong reports on the current version of an enabled note, newest first; any newer version closes a report. */
@@ -254,12 +342,48 @@ public class ContextGradeService
 
     public record Counts(long helped, long notRelevant, long wrong) {}
 
-    /** A note with open reports on its current version and every grade of that version. */
-    public record ReportedNote(String entryId, long entryVersion, String title, boolean userWritten, List<ContextGrade> grades)
+    /**
+     * A note with open reports on its current version or that agents contest. Grades cover the current version and, while
+     * contested, the previous and first disputed versions.
+     */
+    public record ReportedNote(String entryId, long entryVersion, String title, boolean userWritten, List<ContextGrade> grades,
+            Optional<ContextDisputes.Contest> contested, Optional<ContextDisputes.Settlement> settlement)
     {
         public ReportedNote
         {
             grades = ImmutableList.copyOf(grades);
+            requireNonNull(contested, "contested is null");
+            requireNonNull(settlement, "settlement is null");
+        }
+    }
+
+    /**
+     * Agents disagree about {@code statement}, first disputed on version {@code since}: the previous text, each side's Wrong
+     * or Holds, and how an earlier dispute of the note was settled.
+     */
+    public record Dispute(String statement, long since, Optional<Long> previousVersion, Optional<String> previousText, List<Side> sides,
+            Optional<ContextDisputes.Settlement> earlierSettlement)
+    {
+        public Dispute
+        {
+            sides = ImmutableList.copyOf(sides);
+        }
+    }
+
+    /** One side of a dispute: who said what about which version, citing which lines, and the statement a correction wrote. */
+    public record Side(String grader, String grade, long version, String reason, Optional<String> quote, List<String> citedLines,
+            Optional<String> replacement, Instant gradedAt)
+    {
+        public Side
+        {
+            citedLines = ImmutableList.copyOf(citedLines);
+        }
+
+        static Side from(ContextGrade grade)
+        {
+            return new Side(grade.grader().name(), grade.grade().name(), grade.note().version(), grade.reason(), grade.quote(),
+                    grade.citations().stream().map(citation -> citation.path() + ":" + citation.startLine() + "-" + citation.endLine()).collect(toImmutableList()),
+                    grade.correction().map(ContextGrade.Correction::statement), grade.gradedAt());
         }
     }
 }

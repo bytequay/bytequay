@@ -196,12 +196,15 @@ function ReviewSection({ data, actions }: { data: ContextData; actions: ContextA
         <Icon name="next" size={14} className="rcp-go" />
       </button>)}
       {reported.map(note => {
-        const report = latestReport(note);
+        const report = note.contested === null ? latestReport(note) : note.grades[0];
         return <button type="button" key={note.entryId} className="rcp-review rcp-tone--amber" onClick={() => actions.openDrawer({ kind: 'note', id: note.entryId })}>
           <span className="rcp-review__icon"><Icon name="alert" /></span>
           <span className="rcp-review__main"><span className="rcp-review__title">{note.title}</span>
-            <span className="rcp-review__meta"><span className="rcp-review__kind">Reported wrong</span><span className="rcp-sep">·</span>
-              <span className="rcp-review__origin">by {report === undefined ? 'a task' : grader(report, data.titles)}</span></span></span>
+            <span className="rcp-review__meta">{note.contested === null
+              ? <><span className="rcp-review__kind">Reported wrong</span><span className="rcp-sep">·</span>
+                <span className="rcp-review__origin">by {report === undefined ? 'a task' : grader(report, data.titles)}</span></>
+              : <><span className="rcp-review__kind">Agents disagree</span><span className="rcp-sep">·</span>
+                <span className="rcp-review__origin">“{note.contested.statement}”</span></>}</span></span>
           <span className="rcp-age">{relativeTime(report?.gradedAt, { suffix: false, now: data.now })}</span>
           <Icon name="next" size={14} className="rcp-go" />
         </button>;

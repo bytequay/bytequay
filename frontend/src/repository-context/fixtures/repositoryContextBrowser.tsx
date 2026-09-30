@@ -21,9 +21,9 @@ import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
 import type { AgentTaskDto, Bridge, DevelopmentContextActivityDto, WorkspaceDto } from '../../types';
 import { workspaceLocationFromRoute } from '../../workspaces/model';
 import type {
-  ContextBuildViewDto, ContextDiscoveryReportDto, ContextEntryDto, ContextGradeDto, ContextLearningPlanDto, ContextLearningPlanViewDto,
-  ContextMergedCandidatesDto, ContextReportedNoteDto, ContextRunDto, ContextSourceDto, ContextTimesDto, ContextUsageOverviewDto, ContextUsageWindow,
-  RepositoryNotebookDto, ReportRepositoryContextNoteRequest,
+  ContextBuildViewDto, ContextDiscoveryReportDto, ContextDisputesDto, ContextEntryDto, ContextGradeDto, ContextLearningPlanDto, ContextLearningPlanViewDto,
+  ContextMergedCandidatesDto, ContextReportedNoteDto, ContextRunDto, ContextSettlementDto, ContextSourceDto, ContextTimesDto, ContextUsageOverviewDto,
+  ContextUsageWindow, RepositoryNotebookDto, ReportRepositoryContextNoteRequest,
 } from '../contracts';
 import { TaskContextNotes } from '../ContextCards';
 import RepositoryContextPage from '../RepositoryContextPage';
@@ -113,13 +113,24 @@ function grade(entry: ContextEntryDto, patch: Partial<ContextGradeDto>): Context
 
 // The lesson the user wrote waits in Needs you; the user's own report on an agent-written note waits for agents.
 const reports = (): ContextReportedNoteDto[] => [
-  { entryId: lesson.id, entryVersion: lesson.version, title: lesson.title, userWritten: true, grades: [
-    grade(lesson, { grade: 'HOLDS', taskId: 'task-dev-8', reason: 'Duplicate leaf names resolve by parent in the projection code.', gradedAt: ago(10) }),
+  { entryId: lesson.id, entryVersion: lesson.version, title: lesson.title, userWritten: true, contested: null, settlement: null, grades: [
+    grade(lesson, { grade: 'NOT_RELEVANT', taskId: 'task-dev-8', reason: 'The task only touched top-level columns.', quote: null, citations: [], gradedAt: ago(10) }),
     grade(lesson, {}),
     grade(lesson, { grade: 'HELPED', taskId: 'task-dev-6', reason: 'Explained duplicate leaf names.', quote: null, citations: [], gradedAt: ago(60 * 30) })] },
-  { entryId: commits.id, entryVersion: commits.version, title: commits.title, userWritten: false, grades: [
+  { entryId: commits.id, entryVersion: commits.version, title: commits.title, userWritten: false, contested: null, settlement: null, grades: [
     grade(commits, { grader: 'USER', reason: '', quote: null, citations: [], gradedAt: ago(15) })] },
 ];
+
+// A review reported a statement of the refresh note wrong and a task answered Holds; an investigation settled an earlier dispute of the note.
+const DISPUTED = 'Later reads in the same transaction reuse it.';
+const EARLIER: ContextSettlementDto = { version: 4, by: 'INVESTIGATION', statement: 'reads never refresh mid-query',
+  rootCause: 'One reader followed the REFRESH procedure; the other only plain reads.' };
+const contestedRefresh = (): ContextReportedNoteDto => ({ entryId: refresh.id, entryVersion: refresh.version, title: refresh.title, userWritten: false,
+  contested: { statement: DISPUTED, version: refresh.version }, settlement: EARLIER, grades: [
+    grade(refresh, { grade: 'HOLDS', taskId: 'task-dev-8', quote: DISPUTED, reason: 'Plain reads still go through the cached table.', gradedAt: ago(5) }),
+    grade(refresh, { taskId: 'review-task-3', reviewRunId: 'run-3', taskKind: 'PR_REVIEW', quote: DISPUTED,
+      reason: 'The metadata cache is invalidated after each commit.', gradedAt: ago(25) })] });
+let contestRefresh = false;
 
 const times = (full: boolean): ContextTimesDto => full ? {
   entries: { [`4:${refresh.id}`]: { at: ago(60 * 26), taskId: 'task-run-2' }, [`11:${refresh.id}`]: { at: ago(21), taskId: 'task-run-4' },
@@ -197,7 +208,7 @@ type Scene = 'fresh' | 'discovering' | 'suggested' | 'review' | 'learning';
 
 type State = {
   notebook: RepositoryNotebookDto; times: ContextTimesDto; build: ContextBuildViewDto; report: ContextDiscoveryReportDto | null;
-  planView: ContextLearningPlanViewDto; candidates: ContextMergedCandidatesDto; reports: ContextReportedNoteDto[]; staleOnce: boolean;
+  planView: ContextLearningPlanViewDto; candidates: ContextMergedCandidatesDto; reports: ContextReportedNoteDto[]; disputes: ContextDisputesDto; staleOnce: boolean;
   calls: { starts: Array<{ kind: string; request: unknown }>; restores: string[]; disables: string[]; allows: unknown[]; declines: unknown[];
     configures: unknown[]; stops: string[]; keeps: string[]; reports: ReportRepositoryContextNoteRequest[] };
 };
@@ -217,7 +228,10 @@ function scene(name: Scene): State {
     candidates: { candidates: full ? [{ id: 'pr:trinodb/trino#27315', repo: 'trinodb/trino', number: 27315, title: 'Retry Iceberg commits on conflicting snapshots',
       mergedAt: ago(60 * 5), taskTitle: 'Fix flaky Iceberg commit test', taskResult: 'Tests pass', issue: { key: '#27290', title: 'Concurrent commits lose files' },
       review: { combinedResult: 'Approved after 2 rounds' }, checks: [{ conclusion: 'success' }, { conclusion: 'success' }] }] : [] },
-    reports: full ? reports() : [], staleOnce: false,
+    reports: full ? [...reports(), ...contestRefresh ? [contestedRefresh()] : []] : [],
+    disputes: full && contestRefresh ? { contested: { [refresh.id]: { statement: DISPUTED, version: refresh.version } }, settlements: { [refresh.id]: EARLIER } }
+      : { contested: {}, settlements: {} },
+    staleOnce: false,
     calls: { starts: [], restores: [], disables: [], allows: [], declines: [], configures: [], stops: [], keeps: [], reports: [] },
   };
 }
@@ -273,6 +287,7 @@ function install() {
     getRepositoryContextMergedCandidates: async () => clone(state.candidates),
     getRepositoryContextUsage: async (_workspaceId, window) => usage(window),
     getRepositoryContextReports: async () => clone(state.reports),
+    getRepositoryContextDisputes: async () => clone(state.disputes),
     reportRepositoryContextNote: async (_workspaceId, request) => {
       // The first report is refused the way the backend refuses a version the task never received.
       if (state.calls.reports.push(clone(request)) === 1) {
@@ -284,6 +299,11 @@ function install() {
       state.calls.keeps.push(request.entryId);
       current.entries = current.entries.map(value => value.id === request.entryId ? { ...value, version: current.revision + 1 } : value);
       state.reports = state.reports.filter(value => value.entryId !== request.entryId);
+      const contest = state.disputes.contested[request.entryId];
+      if (contest !== undefined) {
+        delete state.disputes.contested[request.entryId];
+        state.disputes.settlements[request.entryId] = { version: current.revision + 1, by: 'USER', statement: contest.statement, rootCause: null };
+      }
     }),
     getModelSettings: () => createPreviewBridge('ws-1').getModelSettings(),
     getAgentTask: async taskId => ({ id: taskId, workspaceId: 'ws-1', title: TASK_TITLES[taskId] ?? 'Task' }) as unknown as AgentTaskDto,
@@ -606,7 +626,7 @@ const scenarios: Array<[string, () => Promise<void>]> = [
   }],
   ['Home offers the waiting source review and a task’s saved notes open Repository context', async () => {
     await renderHome();
-    await waitFor(() => text(document.querySelector('.item-row.is-context')).includes('1 source · 1 reported note to review'),
+    await waitFor(() => text(document.querySelector('.item-row.is-context')).includes('1 source · 1 note to review'),
       'Home counts source proposals and reports on notes you wrote');
     assert(text().includes('Sending starts a task with Codex · 5.6 Terra High.'), 'Explore mode names the run it starts');
     await renderTaskNotes();
@@ -633,7 +653,7 @@ const scenarios: Array<[string, () => Promise<void>]> = [
       'The cited lines show beside the quote');
     assert(text(panel).includes('Reported by task “Fix flaky Iceberg commit test”') && text(panel).includes('Field IDs are unique across the whole schema'),
       'The report shows its reason and reporter');
-    assert(text(panel).includes(`Holds “${QUOTE}” · Duplicate leaf names resolve by parent`) && text(panel).includes('by task “Prune nested Iceberg fields”')
+    assert(text(panel).includes('Not relevant · The task only touched top-level columns.') && text(panel).includes('by task “Prune nested Iceberg fields”')
       && !text(panel).includes('Explained duplicate leaf names'), 'Grades after the report show as short lines; earlier ones do not');
     assert(text(panel).includes('opened in 2 tasks · helped 2 · not relevant 2 · wrong 1 · last opened 4h ago'), 'The drawer shows the grade line');
     assert(text(panel).includes('No agent runs.') && control('Keep', panel).querySelector('svg') === null, 'Keep says no agent runs and carries no lightning mark');
@@ -645,6 +665,31 @@ const scenarios: Array<[string, () => Promise<void>]> = [
     await waitFor(() => !document.querySelector('[aria-label="Needs you"]')?.textContent?.includes(lesson.title), 'The note leaves Needs you');
     await waitFor(() => document.querySelector('[aria-label^="Repository context, "]')?.getAttribute('aria-label') === 'Repository context, 1 to review',
       'The sidebar count follows');
+  }],
+  ['a note agents disagree about waits in Needs you with both sides and its earlier settlement, and Keep ends the dispute without a run', async () => {
+    contestRefresh = true;
+    try {
+      await render('review');
+      await waitFor(() => text(document.querySelector('[aria-label="Needs you"] .rcp-label')) === 'NEEDS YOU · 3', 'Needs you counts the contested note');
+      const row = reviewRow(refresh.title);
+      assert(text(row).includes('Agents disagree') && text(row).includes(`“${DISPUTED}”`), 'The row quotes the disputed statement');
+      await review(refresh.title);
+      const panel = drawer();
+      await waitFor(() => text(panel).includes('AGENTS DISAGREE · SINCE V11'), 'The drawer shows the dispute');
+      assert(text(panel).includes(`Holds on v11 · “${DISPUTED}”`) && text(panel).includes(`Wrong on v11 · “${DISPUTED}”`), 'Both sides show their quotes');
+      assert(text(panel).includes('By task “Prune nested Iceberg fields”') && text(panel).includes('The metadata cache is invalidated after each commit.'),
+        'Each side shows its reason and who said it');
+      assert(text(panel).includes('Settled before: An investigation settled it in v4: One reader followed the REFRESH procedure'), 'The earlier root cause shows');
+      assert(text(panel).includes('Restore brings back v4') && text(panel).includes('No agent runs.') && control('Keep', panel).querySelector('svg') === null,
+        'Keep and Restore say no agent runs');
+      await click('Keep', panel);
+      assert(state.calls.keeps.join() === refresh.id && state.calls.starts.length === 0, 'Keep sends one request and starts no run');
+      await waitFor(() => !text(drawer()).includes('AGENTS DISAGREE') && text(drawer()).includes('You kept v13 when agents disagreed'),
+        'The dispute ends and the note shows your choice');
+    }
+    finally {
+      contestRefresh = false;
+    }
   }],
   ['notes show grade lines, and your report on an agent-written note shows in its drawer', async () => {
     await render('review');
@@ -763,6 +808,7 @@ export async function show(mode: string) {
   if (mode === 'task') { await renderTaskNotes(); return; }
   if (mode === 'task-report') { await renderTaskActivity(); await click(`Report ${refresh.title} v${refresh.version} as wrong`); return; }
   const [base, extra] = mode.split(':') as [Scene, string | undefined];
+  contestRefresh = extra === 'contested';
   await render(base, extra === 'run' ? 'task-run-5' : null);
   switch (extra) {
     case 'tasks': {
@@ -777,6 +823,7 @@ export async function show(mode: string) {
     case 'select': await check('Iceberg connector'); await click('Inspect Iceberg connector'); break;
     case 'note': await click(refresh.title); break;
     case 'reported': await waitFor(() => document.querySelector('.rcp-review.rcp-tone--amber') !== null, 'The report appears'); await review(lesson.title); break;
+    case 'contested': await waitFor(() => text().includes('Agents disagree'), 'The dispute appears'); await review(refresh.title); break;
     case 'changes': await click(refresh.title); await click('Changes', drawer()); break;
     case 'disable': await click('Disable notes from this run'); break;
     case 'plan': await click('Plan details'); break;

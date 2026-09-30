@@ -136,8 +136,18 @@ export type ContextGradeDto = {
   reason: string; quote: string | null; citations: Array<{ path: string; startLine: number; endLine: number; commit: string; excerpt: string }>;
   correction: { version: number; statement: string } | null; gradedAt: string;
 };
-/** A note whose current version has an open Wrong report, with every grade of that version, newest first. */
-export type ContextReportedNoteDto = { entryId: string; entryVersion: number; title: string; userWritten: boolean; grades: ContextGradeDto[] };
+/** The statement agents disagree about and the version on which the disagreement arose. */
+export type ContextContestDto = { statement: string; version: number };
+/** How a note's last dispute was settled: the version it produced, the statement it settled and, for an agent's settlement, the root cause. */
+export type ContextSettlementDto = { version: number; by: 'INVESTIGATION' | 'TASK' | 'USER'; statement: string; rootCause: string | null };
+/**
+ * A note with an open Wrong report on its current version or that agents contest. Grades are newest first and cover the current version
+ * and, while contested, the previous and first disputed versions.
+ */
+export type ContextReportedNoteDto = { entryId: string; entryVersion: number; title: string; userWritten: boolean; grades: ContextGradeDto[];
+  contested: ContextContestDto | null; settlement: ContextSettlementDto | null };
+/** Which notes agents contest and how each note's last dispute was settled, by note id. */
+export type ContextDisputesDto = { contested: Record<string, ContextContestDto>; settlements: Record<string, ContextSettlementDto> };
 export type ContextContributionDto = {
   investigationStep: number; text: string; evidenceRefs: string[]; preparationRefs: string[]; limitations: string[];
 };
@@ -618,16 +628,34 @@ function grade(value: unknown): ContextGradeDto {
     correction: correction === null ? null : { version: count(correction.version, 'correction version', 1), statement: text(correction.statement, 'corrected statement') },
     gradedAt: text(item.gradedAt, 'grade time') };
 }
-/** Every grade must be of the workspace and the exact version it is listed under. */
+function contest(value: unknown): ContextContestDto {
+  const item = object(value, 'contest');
+  return { statement: text(item.statement, 'contested statement'), version: count(item.version, 'contested version', 1) };
+}
+function settlement(value: unknown): ContextSettlementDto {
+  const item = object(value, 'settlement');
+  const result: ContextSettlementDto = { version: count(item.version, 'settled version', 1), by: oneOf(item.by, ['INVESTIGATION', 'TASK', 'USER'], 'settled by'),
+    statement: text(item.statement, 'settled statement'), rootCause: optionalText(item.rootCause, 'root cause') };
+  if (result.by !== 'USER' && result.rootCause === null) malformed('settlement root cause');
+  return result;
+}
+/** Every grade must be of the workspace and the note; only a contested note lists grades of versions other than its current one. */
 export function parseContextReportedNotes(value: unknown, workspaceId: string): ContextReportedNoteDto[] {
   return array(value, 'reported notes', raw => {
     const item = object(raw, 'reported note');
     const result: ContextReportedNoteDto = { entryId: text(item.entryId, 'reported note id'), entryVersion: count(item.entryVersion, 'reported note version', 1),
-      title: text(item.title, 'reported note title'), userWritten: flag(item.userWritten, 'reported note author'), grades: array(item.grades, 'reported note grades', grade) };
-    if (result.grades.some(value => value.workspaceId !== workspaceId || value.note.id !== result.entryId || value.note.version !== result.entryVersion))
+      title: text(item.title, 'reported note title'), userWritten: flag(item.userWritten, 'reported note author'), grades: array(item.grades, 'reported note grades', grade),
+      contested: item.contested == null ? null : contest(item.contested), settlement: item.settlement == null ? null : settlement(item.settlement) };
+    if (result.grades.some(value => value.workspaceId !== workspaceId || value.note.id !== result.entryId
+      || (result.contested === null ? value.note.version !== result.entryVersion : value.note.version > result.entryVersion)))
       malformed('reported note grades');
     return result;
   });
+}
+export function parseContextDisputes(value: unknown): ContextDisputesDto {
+  const item = object(value, 'disputes');
+  return { contested: Object.fromEntries(Object.entries(object(item.contested, 'contested notes')).map(([id, raw]) => [id, contest(raw)])),
+    settlements: Object.fromEntries(Object.entries(object(item.settlements, 'settlements')).map(([id, raw]) => [id, settlement(raw)])) };
 }
 export function parseConfigureRepositoryContextRequest(value: unknown): ConfigureRepositoryContextRequest {
   const item = request(value, ['expectedRevision', 'useInReviews', 'useInDevelopment', 'sources']);

@@ -343,6 +343,10 @@ it('reads open reports and sends the user’s report of an exact version, showin
   await expect(desktop.handlers.get('repository-context:report')?.({}, 'workspace/one', request)).rejects.toThrow('Report only a note version this task received or opened');
   fetch.mockImplementation(async () => new Response(JSON.stringify([{ entryId: 'knowledge:project', entryVersion: 3, title: 'Project', userWritten: 'yes', grades: [] }])));
   await expect(desktop.handlers.get('repository-context:reports')?.({}, 'workspace/one')).rejects.toThrow('Malformed repository context');
+  const disputes = { contested: { 'knowledge:project': { statement: 'Keep the condition.', version: 3 } }, settlements: {} };
+  fetch.mockImplementation(async () => new Response(JSON.stringify(disputes)));
+  await expect(desktop.handlers.get('repository-context:disputes')?.({}, 'workspace/one')).resolves.toEqual(disputes);
+  expect(fetch).toHaveBeenLastCalledWith(base.replace(/reports$/, 'disputes'), expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
 });
 
 it('rejects forged notebook mutation fields before sending and surfaces stale revisions without an automatic retry', async () => {

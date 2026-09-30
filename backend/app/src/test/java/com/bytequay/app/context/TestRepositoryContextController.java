@@ -19,6 +19,7 @@ import com.bytequay.core.context.RepositoryNotebook;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpMethod;
@@ -157,8 +158,11 @@ class TestRepositoryContextController
     {
         when(grades.reportedNotes(WORKSPACE)).thenReturn(ImmutableList.of());
         when(service.keepEntry(WORKSPACE, 4, ENTRY_ID)).thenReturn(RepositoryNotebook.empty());
+        when(service.getDisputes(WORKSPACE)).thenReturn(new ContextDisputes(ImmutableMap.of(ENTRY_ID, new ContextDisputes.Contest("A statement", 3)), ImmutableMap.of()));
 
         mvc.perform(get(ROOT + "/reports")).andExpect(status().isOk());
+        mvc.perform(get(ROOT + "/disputes")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.contested['" + ENTRY_ID + "'].statement").value("A statement"));
         mvc.perform(post(ROOT + "/reports").contentType(MediaType.APPLICATION_JSON).content("{\"taskId\":\"task-1\",\"entryId\":\"" + ENTRY_ID
                         + "\",\"entryVersion\":3,\"reason\":\"Wrong path\",\"grade\":\"HELPED\",\"grader\":\"AGENT\"}"))
                 .andExpect(status().isOk());

@@ -17,7 +17,7 @@ import type { ModelSettingsDto } from '../types';
 import type {
   ContextActivityDto, ContextBaselineDto, ContextBuildViewDto, ContextClaimDto, ContextDiscoveryReportDto, ContextEntryDto, ContextGradeDto,
   ContextLearningPlanDto, ContextLearningPlanViewDto, ContextMergedCandidatesDto, ContextPlanTopicDto, ContextQuestionTarget, ContextReportedNoteDto, ContextRunDto,
-  ContextScopeDto, ContextSourceEvidenceDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto,
+  ContextScopeDto, ContextSettlementDto, ContextSourceEvidenceDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto,
 } from './contracts';
 
 export const DOCUMENT_LINK_HOPS = 2;
@@ -215,9 +215,18 @@ export function openReports(notebook: RepositoryNotebookDto, reports: ContextRep
   return reports.filter(report => notebook.entries.some(entry => entry.id === report.entryId && entry.version === report.entryVersion && entry.enabled));
 }
 
-/** Needs you: agents cannot change a note the user wrote, so its open reports wait for the user. */
+/** Needs you: notes agents contest, and open reports on notes the user wrote, which agents cannot change. */
 export function reportsNeedingYou(notebook: RepositoryNotebookDto, reports: ContextReportedNoteDto[]): ContextReportedNoteDto[] {
-  return openReports(notebook, reports).filter(report => report.userWritten);
+  return openReports(notebook, reports).filter(report => report.userWritten || report.contested !== null);
+}
+
+/** The Wrong and Holds grades on each side of a dispute, newest first. */
+export const disputeSides = (report: ContextReportedNoteDto): ContextGradeDto[] => report.grades.filter(grade => grade.grade === 'WRONG' || grade.grade === 'HOLDS');
+
+/** How a settlement reads on its note: an agent's root cause, or the user's choice. */
+export function settledLine(settlement: ContextSettlementDto): string {
+  const by = settlement.by === 'INVESTIGATION' ? 'An investigation' : settlement.by === 'TASK' ? 'A task' : 'You';
+  return settlement.rootCause === null ? `${by} kept v${settlement.version} when agents disagreed` : `${by} settled it in v${settlement.version}: ${settlement.rootCause}`;
 }
 
 /** The newest open Wrong report on a note; grades come newest first. */
@@ -239,7 +248,7 @@ export function gradeLine(usage: ContextUsageOverviewDto | null, entry: Pick<Con
     + (row.lastConfirmedUseAt === null ? '' : ` · last opened ${ago(row.lastConfirmedUseAt, now)}`);
 }
 
-/** What the sidebar count, Home and the page header show: source proposals and reports on notes the user wrote. */
+/** What the sidebar count, Home and the page header show: source proposals, contested notes and reports on notes the user wrote. */
 export function pendingCounts(plan: ContextLearningPlanDto | null, reports: ContextReportedNoteDto[] = []): { sources: number; reports: number; total: number } {
   const sources = plan?.documentInventory.suggestions.length ?? 0;
   return { sources, reports: reports.length, total: sources + reports.length };

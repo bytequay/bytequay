@@ -82,6 +82,12 @@ public class RepositoryContextController
         return context.keepEntry(workspaceId, request.expectedRevision(), request.entryId());
     }
 
+    @GetMapping("/disputes")
+    public ContextDisputes disputes(@PathVariable String workspaceId)
+    {
+        return context.getDisputes(workspaceId);
+    }
+
     @GetMapping("/reports")
     public List<ContextGradeService.ReportedNote> reports(@PathVariable String workspaceId)
     {

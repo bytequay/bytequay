@@ -1787,9 +1787,11 @@ public class ReviewTools
         activeNoteDiscovery(call);
         Optional<ContextNotebookLookup.Read> read;
         JsonNode reports;
+        Optional<ContextGradeService.Dispute> dispute;
         try {
             read = outsideReviewLock(call, () -> notebookLookup.readEnabled(call.review().workspaceId(), entryId, version, Optional.of(call.run().headSha())));
             reports = outsideReviewLock(call, () -> openReports(call, entryId, version));
+            dispute = outsideReviewLock(call, () -> dispute(call, entryId, version));
         }
         catch (ContextNotFoundException | ContextStorageException failure) {
             throw new ReviewInvalidRequestException("note: the current notebook is unavailable; no note was retained");
@@ -1817,6 +1819,10 @@ public class ReviewTools
                             + "Re-read CHANGED or ABSENT sources before relying on claims that cite them.");
             result.set("sourceCheck", objectMapper.valueToTree(capture.sourceCheck()));
             result.set("openReports", reports);
+            dispute.ifPresent(value -> {
+                result.set("dispute", objectMapper.valueToTree(value));
+                result.put("disputeNote", "Agents disagree about this note's statement; grade what the monitored baseline shows. The user settles the dispute.");
+            });
             if (!searchRef.isEmpty()) {
                 result.put("searchRef", searchRef);
             }
@@ -1871,6 +1877,17 @@ public class ReviewTools
                 "reportedAt", report.gradedAt().toString())).toList());
     }
 
+    /** Whether agents contest this exact current version; a captured note stays readable when disputes cannot be read. */
+    private Optional<ContextGradeService.Dispute> dispute(Call call, String entryId, long version)
+    {
+        try {
+            return grades.disputeFor(call.review().workspaceId(), entryId, version);
+        }
+        catch (RuntimeException unavailable) {
+            return Optional.empty();
+        }
+    }
+
     /**
      * Saves this review's grade of a note version its run received or opened. A Wrong or Holds cites lines read at the
      * run's monitored baseline, so code the pull request changes cannot count against a note.
@@ -1916,8 +1933,10 @@ public class ReviewTools
             ContextGrade saved = outsideReviewLock(call, () -> grades.gradeByReview(call.review().workspaceId(), call.review().taskId(), call.run().id(), baseline,
                     entryId, version, grade, reason, quote, statement ? baselineCitations(call, arguments.get("sources")) : ImmutableList.of()));
             boolean open = saved.grade() == ContextGrade.Grade.WRONG;
+            boolean contested = saved.grade() == ContextGrade.Grade.HOLDS;
             return objectMapper.createObjectNode().put("status", "SAVED").put("grade", saved.grade().name()).put("entryId", entryId).put("entryVersion", version)
-                    .put("openReport", open).put("note", open ? "The report stays open until the note changes; development tasks and the user see it." : "Grade saved.");
+                    .put("openReport", open).put("contested", contested).put("note", open ? "The report stays open until the note changes; development tasks and the user see it."
+                            : contested ? "Agents now disagree about this statement, so the note is contested; the user sees both sides." : "Grade saved.");
         }
         catch (IllegalArgumentException | ContextNotFoundException | ContextStorageException failure) {
             throw new ReviewInvalidRequestException("grade: " + bounded(Optional.ofNullable(failure.getMessage()).orElse("not saved"), 500));

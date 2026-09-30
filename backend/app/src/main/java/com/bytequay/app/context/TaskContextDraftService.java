@@ -66,7 +66,7 @@ public class TaskContextDraftService
         RepositoryContextService.TaskNote note = new RepositoryContextService.TaskNote(operationId, task.id().toString(), proposal.kind(),
                 proposal.scopeId(), proposal.entryId(), proposal.entryVersion(), proposal.title(), proposal.summary(), proposal.body(),
                 captured.head(), captured.evidence());
-        return new Prepared(captured.workspaceId(), captured.notebook().revision(), captured.tree(), note, captured.capturedBytes());
+        return new Prepared(captured.workspaceId(), captured.notebook().revision(), captured.tree(), note, captured.capturedBytes(), captured.base());
     }
 
     /**
@@ -154,8 +154,9 @@ public class TaskContextDraftService
         }
     }
 
+    /** {@code base} is where the cited lines were found on the monitored branch. */
     public record Prepared(String workspaceId, long expectedRevision, TaskWorktree tree,
-            RepositoryContextService.TaskNote note, int capturedBytes) {}
+            RepositoryContextService.TaskNote note, int capturedBytes, String base) {}
 
     /** Lines captured at {@code head} and found at {@code base} on the monitored branch. */
     public record Captured(String workspaceId, TaskWorktree tree, RepositoryNotebook notebook, String head, String base,

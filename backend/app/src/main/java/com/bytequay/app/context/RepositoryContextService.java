@@ -57,6 +57,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.BiConsumer;
 import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 
@@ -77,6 +78,7 @@ public class RepositoryContextService
 {
     public static final String SETTINGS_PREFIX = "workspace.repositoryContext.";
     static final String TIMES_PREFIX = "workspace.repositoryContextTimes.";
+    static final String DISPUTES_PREFIX = "workspace.repositoryContextDisputes.";
 
     private final AppSettingsStore settings;
     private final ObjectMapper mapper;
@@ -219,7 +221,7 @@ public class RepositoryContextService
     public RepositoryNotebook editEntry(String workspaceId, long expectedRevision, EditContextEntry edit)
     {
         requireNonNull(edit, "edit is null");
-        return mutate(workspaceId, expectedRevision, current -> {
+        return mutate(workspaceId, expectedRevision, Optional.empty(), afterUserChange(workspaceId, edit.id(), false), current -> {
             Optional<ContextEntry> previous = current.entries().stream().filter(entry -> entry.id().equals(edit.id())).findFirst();
             previous.ifPresent(entry -> checkArgument(entry.scopeId().equals(edit.scopeId()), "Entry scope identity cannot change"));
             ContextEntry entry = new ContextEntry(
@@ -345,7 +347,7 @@ public class RepositoryContextService
      */
     public RepositoryNotebook restoreEntry(String workspaceId, long expectedRevision, String entryId)
     {
-        return mutate(workspaceId, expectedRevision, current -> {
+        return mutate(workspaceId, expectedRevision, Optional.empty(), afterUserChange(workspaceId, entryId, true), current -> {
             ContextEntry entry = requireEntry(current, entryId);
             ContextEntry old = current.replaced().stream().filter(value -> value.id().equals(entryId)).findFirst()
                     .orElseThrow(() -> new ContextNotFoundException("This note has no earlier version to restore"));
@@ -359,7 +361,7 @@ public class RepositoryContextService
     /** Saves a note's current text and owner again as a new version, which closes its open reports; the text is unchanged. */
     public RepositoryNotebook keepEntry(String workspaceId, long expectedRevision, String entryId)
     {
-        return mutate(workspaceId, expectedRevision, current -> {
+        return mutate(workspaceId, expectedRevision, Optional.empty(), afterUserChange(workspaceId, entryId, true), current -> {
             ContextEntry entry = requireEntry(current, entryId);
             ContextEntry kept = new ContextEntry(entry.id(), entry.kind(), entry.scopeId(), entry.title(), entry.summary(), entry.body(),
                     entry.claims(), entry.sourceIds(), entry.origin(), entry.enabled(), Math.addExact(current.revision(), 1));
@@ -448,7 +450,113 @@ public class RepositoryContextService
             settings.delete(ContextMergedCandidateStore.PREFIX + workspaceId);
             settings.delete(ContextBuildStore.RUNS_PREFIX + workspaceId);
             settings.delete(TIMES_PREFIX + workspaceId);
+            settings.delete(DISPUTES_PREFIX + workspaceId);
         });
+    }
+
+    /** Which notes agents disagree about and how each note's last dispute was settled; a local read only. */
+    public ContextDisputes getDisputes(String workspaceId)
+    {
+        requireWorkspace(workspaceId);
+        return readDisputes(workspaceId);
+    }
+
+    /**
+     * Marks an enabled note contested from the given version on. A note that is already contested keeps its first statement
+     * through further agent corrections until a settling save or the user's Keep, Restore, Edit or Disable.
+     */
+    public void contest(String workspaceId, String entryId, long version, String statement)
+    {
+        ContextDisputes.Contest contest = new ContextDisputes.Contest(statement, version);
+        WorkspaceOperationLocks.withLock(workspaceId, () -> {
+            ContextDisputes current = readDisputes(workspaceId);
+            boolean enabled = getNotebook(workspaceId).entries().stream().anyMatch(entry -> entry.id().equals(entryId) && entry.enabled());
+            if (enabled && current.contest(entryId).isEmpty()) {
+                writeDisputes(workspaceId, new ContextDisputes(with(current.contested(), entryId, contest), current.settlements()));
+            }
+            return null;
+        });
+    }
+
+    /** Records an agent's settling save of the version it produced and ends the note's contest. */
+    public void settle(String workspaceId, String entryId, ContextDisputes.Settlement settlement)
+    {
+        requireNonNull(settlement, "settlement is null");
+        WorkspaceOperationLocks.withLock(workspaceId, () -> {
+            ContextDisputes current = readDisputes(workspaceId);
+            writeDisputes(workspaceId, new ContextDisputes(without(current.contested(), entryId), with(current.settlements(), entryId, settlement)));
+            return null;
+        });
+    }
+
+    /**
+     * The user's Edit ends the note's contest. Keep and Restore also record the user's choice as a settlement of the whole
+     * version, so an agent that later disputes any statement of it on unchanged lines contests the note again.
+     */
+    private BiConsumer<RepositoryNotebook, RepositoryNotebook> afterUserChange(String workspaceId, String entryId, boolean choice)
+    {
+        return (previous, saved) -> {
+            ContextDisputes current = readDisputes(workspaceId);
+            Optional<ContextDisputes.Contest> contest = current.contest(entryId);
+            if (contest.isEmpty()) {
+                return;
+            }
+            Map<String, ContextDisputes.Settlement> settlements = current.settlements();
+            Optional<Long> version = saved.entries().stream().filter(entry -> entry.id().equals(entryId)).map(ContextEntry::version).findFirst();
+            if (choice && version.isPresent()) {
+                settlements = with(settlements, entryId, new ContextDisputes.Settlement(version.orElseThrow(), ContextDisputes.By.USER,
+                        contest.orElseThrow().statement(), Optional.empty()));
+            }
+            writeDisputes(workspaceId, new ContextDisputes(without(current.contested(), entryId), settlements));
+        };
+    }
+
+    /** Only an enabled note can be contested; disabling a note, alone or with its run's notes, ends its contest. */
+    private void endInactiveContests(String workspaceId, RepositoryNotebook saved)
+    {
+        ContextDisputes current = readDisputes(workspaceId);
+        Set<String> enabled = saved.entries().stream().filter(ContextEntry::enabled).map(ContextEntry::id).collect(toSet());
+        if (!enabled.containsAll(current.contested().keySet())) {
+            Map<String, ContextDisputes.Contest> contested = new LinkedHashMap<>(current.contested());
+            contested.keySet().retainAll(enabled);
+            writeDisputes(workspaceId, new ContextDisputes(contested, current.settlements()));
+        }
+    }
+
+    private ContextDisputes readDisputes(String workspaceId)
+    {
+        return settings.get(DISPUTES_PREFIX + workspaceId).map(json -> {
+            try {
+                return requireNonNull(mapper.readValue(json, ContextDisputes.class), "Saved disputes are null");
+            }
+            catch (JsonProcessingException | NullPointerException failure) {
+                throw new ContextStorageException("Saved repository context disputes cannot be read", failure);
+            }
+        }).orElseGet(ContextDisputes::empty);
+    }
+
+    private void writeDisputes(String workspaceId, ContextDisputes disputes)
+    {
+        try {
+            settings.put(DISPUTES_PREFIX + workspaceId, mapper.writeValueAsString(disputes));
+        }
+        catch (JsonProcessingException failure) {
+            throw new ContextStorageException("Repository context disputes cannot be saved", failure);
+        }
+    }
+
+    private static <T> Map<String, T> with(Map<String, T> values, String key, T value)
+    {
+        Map<String, T> updated = new LinkedHashMap<>(values);
+        updated.put(key, value);
+        return updated;
+    }
+
+    private static <T> Map<String, T> without(Map<String, T> values, String key)
+    {
+        Map<String, T> updated = new LinkedHashMap<>(values);
+        updated.remove(key);
+        return updated;
     }
 
     private RepositoryNotebook mutate(String workspaceId, long expectedRevision, UnaryOperator<RepositoryNotebook> operation)
@@ -457,6 +565,13 @@ public class RepositoryContextService
     }
 
     private RepositoryNotebook mutate(String workspaceId, long expectedRevision, Optional<String> proposer, UnaryOperator<RepositoryNotebook> operation)
+    {
+        return mutate(workspaceId, expectedRevision, proposer, (previous, saved) -> {}, operation);
+    }
+
+    /** {@code afterSave} runs under the same workspace lock once the changed notebook is saved. */
+    private RepositoryNotebook mutate(String workspaceId, long expectedRevision, Optional<String> proposer,
+            BiConsumer<RepositoryNotebook, RepositoryNotebook> afterSave, UnaryOperator<RepositoryNotebook> operation)
     {
         checkArgument(expectedRevision >= 0, "Negative expected revision");
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
@@ -475,6 +590,8 @@ public class RepositoryContextService
             checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_STORED_NOTEBOOK_BYTES, "Serialized notebook exceeds UTF-8 limit");
             settings.put(key(workspaceId), json);
             stamp(workspaceId, current, saved, proposer);
+            afterSave.accept(current, saved);
+            endInactiveContests(workspaceId, saved);
             return saved;
         });
     }

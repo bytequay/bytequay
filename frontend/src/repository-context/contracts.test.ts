@@ -18,6 +18,7 @@ import {
   parseConfigureRepositoryContextRequest,
   parseContextBuildView,
   parseContextDiscoveryReport,
+  parseContextDisputes,
   parseContextBaseline,
   parseContextLearningPlanView,
   parseContextReportedNotes,
@@ -76,7 +77,8 @@ const wrong: ContextGradeDto = { workspaceId: 'workspace', taskId: 'task-dev', r
   correction: null, gradedAt: '2026-09-29T10:00:00Z' };
 const userReport: ContextGradeDto = { ...wrong, taskId: 'task-other', grader: 'USER', reason: '', quote: null, citations: [], gradedAt: '2026-09-29T11:00:00Z' };
 const holds: ContextGradeDto = { ...wrong, taskId: 'review-task', reviewRunId: 'run-1', taskKind: 'PR_REVIEW', grade: 'HOLDS', gradedAt: '2026-09-29T12:00:00Z' };
-const reported: ContextReportedNoteDto = { entryId: 'knowledge:project', entryVersion: 2, title: 'Project', userWritten: true, grades: [holds, userReport, wrong] };
+const reported: ContextReportedNoteDto = { entryId: 'knowledge:project', entryVersion: 2, title: 'Project', userWritten: true, grades: [holds, userReport, wrong],
+  contested: null, settlement: null };
 const snapshot: ReviewContextSnapshotDto = {
   id: 'snapshot', enabled: true, notebookRevision: 7, repositoryId: 42, baselineSha: 'a'.repeat(40),
   bootstrap: { text: 'Prepared only', digest: 'sha256:packet', utf8Bytes: 13 },
@@ -135,6 +137,20 @@ describe('repository context contracts', () => {
     expect(parseContextReportedNotes([], 'workspace')).toEqual([]);
     const corrected = { ...wrong, correction: { version: 3, statement: 'The cache is per transaction.' } };
     expect(parseContextReportedNotes([{ ...reported, grades: [corrected] }], 'workspace')[0].grades[0].correction).toEqual(corrected.correction);
+  });
+
+  it('parses a contested note with the grades of its earlier versions and how its last dispute was settled', () => {
+    const earlier = { ...wrong, note: { ...wrong.note, version: 1 }, correction: { version: 2, statement: 'Keep the condition.' } };
+    const settlement = { version: 1, by: 'INVESTIGATION' as const, statement: 'The condition holds.', rootCause: 'Each side read a different branch.' };
+    const contested = { ...reported, userWritten: false, grades: [holds, earlier], contested: { statement: 'Keep the condition.', version: 2 }, settlement };
+    expect(parseContextReportedNotes([contested], 'workspace')).toEqual([contested]);
+    expect(() => parseContextReportedNotes([{ ...contested, grades: [{ ...holds, note: { ...holds.note, version: 3 } }] }], 'workspace')).toThrow('Malformed');
+    expect(() => parseContextReportedNotes([{ ...contested, settlement: { ...settlement, rootCause: null } }], 'workspace')).toThrow('Malformed');
+    expect(parseContextReportedNotes([{ ...contested, settlement: { ...settlement, by: 'USER', rootCause: null } }], 'workspace')[0].settlement?.by).toBe('USER');
+    expect(parseContextDisputes({ contested: { 'knowledge:project': contested.contested }, settlements: { 'knowledge:project': settlement } }))
+      .toEqual({ contested: { 'knowledge:project': contested.contested }, settlements: { 'knowledge:project': settlement } });
+    for (const value of [null, { contested: {} }, { contested: { 'knowledge:project': { statement: 'Keep the condition.', version: 0 } }, settlements: {} }])
+      expect(() => parseContextDisputes(value)).toThrow('Malformed repository context');
   });
 
   it('rejects reports whose grades belong to another workspace or version, or carry unknown grades', () => {

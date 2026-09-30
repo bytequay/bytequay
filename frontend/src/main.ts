@@ -55,6 +55,7 @@ import {
   parseContextBaseline,
   parseContextBuildView,
   parseContextDiscoveryReport,
+  parseContextDisputes,
   parseContextLearningPlanView,
   parseContextReportedNotes,
   parseContextTimes,
@@ -1418,6 +1419,9 @@ function registerIpc(): void {
   ipcMain.handle('repository-context:keep', (_event, workspaceId: string, request: unknown) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/entries/keep`,
       jsonInit('POST', parseRestoreRepositoryContextEntryRequest(request), agentHeaders())).then(parseRepositoryNotebook));
+  ipcMain.handle('repository-context:disputes', (_event, workspaceId: string) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/disputes`, { headers: agentHeaders() })
+      .then(parseContextDisputes));
   ipcMain.handle('repository-context:reports', (_event, workspaceId: string) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/reports`, { headers: agentHeaders() })
       .then(value => parseContextReportedNotes(value, workspaceId)));

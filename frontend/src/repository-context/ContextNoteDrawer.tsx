@@ -14,10 +14,13 @@
 import { useState } from 'react';
 import MarkdownBody from '../pulls/MarkdownBody';
 import { ago, relativeTime } from '../relativeTime';
-import type { ContextEntryDto, ContextGradeDto, ContextReportedNoteDto, RepositoryNotebookDto } from './contracts';
+import type { ContextContestDto, ContextEntryDto, ContextGradeDto, ContextReportedNoteDto, RepositoryNotebookDto } from './contracts';
 import { Coded } from './ContextOverview';
 import { Icon } from './icons';
-import { CLAIM_TAG, entryOrigin, entryTimeKey, gradeLine, grader, kindLabel, noteArea, noteDiff, openReports, previousVersion, shortDate, sourceView, type TaskTitles } from './model';
+import {
+  CLAIM_TAG, disputeSides, entryOrigin, entryTimeKey, gradeLine, grader, kindLabel, noteArea, noteDiff, openReports, previousVersion, settledLine, shortDate, sourceView,
+  type TaskTitles,
+} from './model';
 import type { ContextActions, ContextData } from './RepositoryContextPage';
 
 type Edit = { title: string; summary: string; body: string };
@@ -77,6 +80,7 @@ export default function ContextNoteDrawer({ data, actions, busy, id, onClose }: 
   const keep = () => act(revision => window.bridge.keepRepositoryContextEntry(workspaceId, { expectedRevision: revision, entryId: entry.id }),
     `Kept as v${nextVersion} · reports closed · no agent run`, () => setView('current'));
   const reported = openReports(notebook, data.reports).find(value => value.entryId === entry.id);
+  const settlement = data.disputes?.settlements[entry.id];
   const diff = previous !== undefined && view === 'changes' ? noteDiff(previous, entry) : null;
   const sources = shown.sourceIds.map(sourceId => ({ id: sourceId, ...sourceView(notebook.sourceEvidence.find(value => value.id === sourceId), sourceId) }));
   const refs = (sourceIds: string[]) => sourceIds.map(sourceId => shown.sourceIds.indexOf(sourceId) + 1).filter(n => n > 0);
@@ -99,7 +103,11 @@ export default function ContextNoteDrawer({ data, actions, busy, id, onClose }: 
     </div>
     <div className="rcp-drawer__body">
       {editing === null ? <>
-        {reported !== undefined && <Reports reported={reported} titles={data.titles} now={data.now} nextVersion={nextVersion} />}
+        {reported !== undefined && (reported.contested === null
+          ? <Reports reported={reported} titles={data.titles} now={data.now} nextVersion={nextVersion} />
+          : <Dispute reported={reported} contest={reported.contested} titles={data.titles} now={data.now} nextVersion={nextVersion}
+            previous={previous?.version ?? null} />)}
+        {settlement !== undefined && reported?.contested == null && <div className="rcp-caveat">{settledLine(settlement)}</div>}
         {origin.startsWith('Learning from merged PR') && <div className="rcp-caveat">Learned from merged work. A merged PR records a decision, not proof that every claim holds.</div>}
         {diff !== null ? <>
           <div className="rcp-diff-summary">{diff.summary}</div>
@@ -146,28 +154,59 @@ export default function ContextNoteDrawer({ data, actions, busy, id, onClose }: 
   </>;
 }
 
+/** Agents disagree about one statement: each side's Wrong or Holds over the lines it cites, and how an earlier dispute of the note was settled. */
+function Dispute({ reported, contest, titles, now, nextVersion, previous }: {
+  reported: ContextReportedNoteDto; contest: ContextContestDto; titles: TaskTitles; now: number; nextVersion: number; previous: number | null;
+}) {
+  return <section className="rcp-reports" aria-label="Dispute">
+    <div className="rcp-drawer-label">AGENTS DISAGREE · SINCE V{contest.version}</div>
+    <div className="rcp-report-quote">“<Coded text={contest.statement} />”</div>
+    <div className="rcp-sources">
+      {disputeSides(reported).map(grade => <div className="rcp-source" key={gradeKey(grade)}>
+        <div className="rcp-source__main">
+          <div className="rcp-report-quote">{GRADE[grade.grade]} on v{grade.note.version}{grade.quote !== null && <> · “<Coded text={grade.quote} />”</>}</div>
+          {grade.correction !== null && <span className="rcp-source__sub">Rewrote it in v{grade.correction.version}: “<Coded text={grade.correction.statement} />”</span>}
+          <Cited grade={grade} />
+          <span className="rcp-source__sub">By {grader(grade, titles)} · {ago(grade.gradedAt, now)}</span>
+        </div>
+      </div>)}
+    </div>
+    {reported.settlement !== null && <div className="rcp-caveat">Settled before: {settledLine(reported.settlement)}</div>}
+    <div className="rcp-usage-note">The note stays available, and agents that read it see both sides. Keep saves the current text as v{nextVersion}
+      {previous === null ? '' : `, Restore brings back v${previous}`}; Edit and Disable also end the dispute. No agent runs.</div>
+  </section>;
+}
+
+const gradeKey = (grade: ContextGradeDto) => `${grade.grader}:${grade.taskId}:${grade.reviewRunId ?? ''}:${grade.note.version}:${grade.gradedAt}`;
+
+/** The lines a grade cites and its reason. */
+function Cited({ grade }: { grade: ContextGradeDto }) {
+  return <>
+    {grade.citations.map(citation => <div key={`${citation.path}:${citation.startLine}`}>
+      <span className="rcp-source__target">{citation.path}:{citation.startLine}–{citation.endLine}</span>
+      <pre className="rcp-excerpt">{citation.excerpt}</pre>
+    </div>)}
+    {grade.reason !== '' && <span className="rcp-source__sub">{grade.reason}</span>}
+  </>;
+}
+
 /** Open Wrong reports on the current version, each quoted statement over the lines cited against it, then what later grades of that version said. */
 function Reports({ reported, titles, now, nextVersion }: { reported: ContextReportedNoteDto; titles: TaskTitles; now: number; nextVersion: number }) {
   const wrong = reported.grades.filter(grade => grade.grade === 'WRONG');
   // Grades come newest first, so the ones listed before the oldest report came after it.
   const later = reported.grades.slice(0, Math.max(0, reported.grades.findLastIndex(grade => grade.grade === 'WRONG'))).filter(grade => grade.grade !== 'WRONG');
-  const key = (grade: ContextGradeDto) => `${grade.grader}:${grade.taskId}:${grade.reviewRunId ?? ''}:${grade.gradedAt}`;
   return <section className="rcp-reports" aria-label="Reports">
     <div className="rcp-drawer-label">REPORTS ON V{reported.entryVersion} · {wrong.length}</div>
     <div className="rcp-sources">
-      {wrong.map(grade => <div className="rcp-source" key={key(grade)}>
+      {wrong.map(grade => <div className="rcp-source" key={gradeKey(grade)}>
         <div className="rcp-source__main">
           <div className="rcp-report-quote">{grade.quote === null ? <span className="rcp-source__sub">No statement quoted</span> : <>“<Coded text={grade.quote} />”</>}</div>
-          {grade.citations.map(citation => <div key={`${citation.path}:${citation.startLine}`}>
-            <span className="rcp-source__target">{citation.path}:{citation.startLine}–{citation.endLine}</span>
-            <pre className="rcp-excerpt">{citation.excerpt}</pre>
-          </div>)}
-          {grade.reason !== '' && <span className="rcp-source__sub">{grade.reason}</span>}
+          <Cited grade={grade} />
           <span className="rcp-source__sub">Reported by {grader(grade, titles)} · {ago(grade.gradedAt, now)}</span>
         </div>
       </div>)}
     </div>
-    {later.map(grade => <div className="rcp-why" key={key(grade)}><span className="rcp-why__mark">•</span>
+    {later.map(grade => <div className="rcp-why" key={gradeKey(grade)}><span className="rcp-why__mark">•</span>
       <span>{GRADE[grade.grade]}{grade.quote !== null && <> “<Coded text={grade.quote} />”</>} · {grade.reason} · by {grader(grade, titles)} · {ago(grade.gradedAt, now)}</span></div>)}
     <div className="rcp-usage-note">{reported.userWritten ? 'Agents can’t change a note you wrote.' : 'Agents that open this note see open reports.'} Keep saves
       this text again as v{nextVersion}, which closes {wrong.length === 1 ? 'the report' : 'the reports'}; Edit and Disable close {wrong.length === 1 ? 'it' : 'them'} too.

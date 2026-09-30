@@ -2207,8 +2207,11 @@ Behavior: the [save rules](repository-context-refactor.md#1-one-saved-object-a-c
 - [x] Record Helped, Not relevant, Wrong and Holds grades and the user's Wrong
   report in a task-owned table; return open reports with exact reads; show
   grade lines and Needs you.
-- [ ] Mark contested notes, record settlements, and add Investigate as a
-  one-question learning run with four outcomes and a root cause.
+- [x] Mark contested notes and record settlements: Holds, and a correction of a
+  settled statement on unchanged lines, contest a note; a task's correction
+  with a root cause, and the user's Keep and Restore, settle it.
+- [ ] Add Investigate as a one-question learning run with four outcomes and a
+  root cause.
 - [ ] Verify each step with the backend and desktop build gates.
 
 The first three items landed together: the base check is what makes saving
@@ -2233,3 +2236,15 @@ at the captured monitored baseline, open reports on exact reads, user reports
 from task and review activity, Keep, grade counts per distinct task, grades
 deleted with their task, and the Needs you rows, grade lines and the task
 panel's Wrong action. No live model run was used.
+
+Contested notes and settlements passed JVM 25 `mvn verify` with 3,659 tests and
+no Checkstyle violations; frontend lint, TypeScript, all 1,419 tests and macOS
+packaging passed. Regressions cover contests from Holds by tasks and reviews, a
+correction of a correction's or settlement's statement contesting only while
+its cited lines are unchanged, the user's settlement of a whole version,
+settling corrections with a root cause, rootCause refused on an uncontested
+note, the first contest kept through later ones, Keep and Restore settling and
+Edit and Disable ending a contest, disputes deleted with the workspace, dispute
+views on development and review reads, contested notes in Needs you with both
+sides and the earlier settlement, and the Home and sidebar counts. No live
+model run was used.

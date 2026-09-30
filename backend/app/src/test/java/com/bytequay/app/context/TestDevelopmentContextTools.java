@@ -125,6 +125,7 @@ class TestDevelopmentContextTools
         when(turns.findActive(taskId)).thenAnswer(ignored -> Optional.of(turn));
         when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.empty());
         when(checker.head(worktree.canonicalWorktree())).thenReturn(Optional.of(HEAD));
+        when(notebooks.getDisputes(WORKSPACE)).thenReturn(ContextDisputes.empty());
     }
 
     @Test
@@ -151,7 +152,7 @@ class TestDevelopmentContextTools
             String id = call.getArgument(2);
             return new TaskContextDraftService.Prepared(WORKSPACE, 0, task.taskWorktree().orElseThrow(),
                     new RepositoryContextService.TaskNote(id, "task", proposed.kind(), proposed.scopeId(), proposed.entryId(),
-                            proposed.entryVersion(), proposed.title(), proposed.summary(), proposed.body(), "a".repeat(40), ImmutableList.of()), 42);
+                            proposed.entryVersion(), proposed.title(), proposed.summary(), proposed.body(), "a".repeat(40), ImmutableList.of()), 42, "b".repeat(40));
         });
         when(drafts.commit(any())).thenAnswer(call -> {
             TaskContextDraftService.Prepared prepared = call.getArgument(0);
@@ -323,7 +324,8 @@ class TestDevelopmentContextTools
         assertThatThrownBy(() -> service.call(taskId.toString(), holds)).hasMessageContaining("answers an open report");
         grades.save(new ContextGrade(WORKSPACE, "review-task", Optional.empty(), ContextUsageEvent.TaskKind.DEVELOPMENT, ContextGrade.Grader.USER,
                 ContextGrade.Grade.WRONG, ContextUsageEvent.Note.from(generated), "Looks wrong", Optional.empty(), ImmutableList.of(), Optional.empty(), Instant.EPOCH));
-        assertThat(service.call(taskId.toString(), holds)).contains("\"grade\":\"HOLDS\"", "\"openReport\":false");
+        assertThat(service.call(taskId.toString(), holds)).contains("\"grade\":\"HOLDS\"", "\"openReport\":false", "the note is contested");
+        verify(notebooks).contest(WORKSPACE, "knowledge:project", 3, "Avoid stale snapshots");
 
         String wrong = holds.replace("HOLDS", "WRONG").replace("Still true", "The code refreshes it");
         assertThatThrownBy(() -> service.call(taskId.toString(), wrong)).hasMessageContaining("saves its correction");
@@ -337,7 +339,7 @@ class TestDevelopmentContextTools
             assertThat(proposal.entryVersion()).contains(3L);
             return new TaskContextDraftService.Prepared(WORKSPACE, 7, task.taskWorktree().orElseThrow(), new RepositoryContextService.TaskNote(call.getArgument(2),
                     taskId.toString(), proposal.kind(), proposal.scopeId(), proposal.entryId(), proposal.entryVersion(), proposal.title(), proposal.summary(),
-                    proposal.body(), HEAD, captured().evidence()), 30);
+                    proposal.body(), HEAD, captured().evidence()), 30, "b".repeat(40));
         });
         when(drafts.commit(any())).thenReturn(new TaskContextDraftService.Result("knowledge:project", 9, 9, HEAD, ImmutableList.of("task-read:1"), 30, "ACTIVE"));
         String result = service.call(taskId.toString(), corrected);
@@ -346,6 +348,65 @@ class TestDevelopmentContextTools
                 .contains(new ContextGrade.Correction(9, "Refresh the snapshot before reading"));
         assertThat(service.call(taskId.toString(), corrected)).isEqualTo(result);
         verify(drafts).commit(any());
+    }
+
+    @Test
+    void correctingASettledStatementOnUnchangedLinesContestsTheNoteAndARootCauseSettlesIt()
+    {
+        turn = turn.markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("provider-turn"), Optional.empty());
+        ContextEntry settled = new ContextEntry("knowledge:project", ContextEntryKind.KNOWLEDGE, "project", "Project", "Snapshot isolation",
+                "Refresh the snapshot before reading", ImmutableList.of(), ImmutableList.of("task-read:1"), ContextEntryOrigin.GENERATED, true, 5);
+        when(notebooks.getNotebook(WORKSPACE)).thenReturn(notebook(settled));
+        opened("knowledge:project", 5);
+        grades.save(new ContextGrade(WORKSPACE, "earlier-task", Optional.empty(), ContextUsageEvent.TaskKind.DEVELOPMENT, ContextGrade.Grader.AGENT,
+                ContextGrade.Grade.WRONG, new ContextUsageEvent.Note("knowledge:project", 4, ContextEntryKind.KNOWLEDGE, "project", "Project"), "It reused the snapshot",
+                Optional.of("Reuse the snapshot"), ImmutableList.of(new ContextGrade.Citation("Snapshot.java", 12, 14, HEAD, "12  refresh();\n")),
+                Optional.of(new ContextGrade.Correction(5, "Refresh the snapshot before reading")), Instant.EPOCH));
+        when(checker.check(eq(WORKSPACE), eq(Optional.of("b".repeat(40))), any())).thenReturn(new ContextSourceCheck(Optional.of("b".repeat(40)),
+                ImmutableList.of(new ContextSourceCheck.Source("task-read:1", "REPOSITORY_FILE", Optional.of("Snapshot.java"), Optional.of("12-14"), Optional.empty(),
+                        Optional.of(HEAD), ContextSourceCheck.Status.UNCHANGED)), ImmutableList.of()));
+        when(drafts.prepare(eq(task), any(), any())).thenAnswer(call -> {
+            TaskContextDraftService.Proposal proposal = call.getArgument(1);
+            return new TaskContextDraftService.Prepared(WORKSPACE, 7, task.taskWorktree().orElseThrow(), new RepositoryContextService.TaskNote(call.getArgument(2),
+                    taskId.toString(), proposal.kind(), proposal.scopeId(), proposal.entryId(), proposal.entryVersion(), proposal.title(), proposal.summary(),
+                    proposal.body(), HEAD, captured().evidence()), 30, "b".repeat(40));
+        });
+        when(drafts.commit(any())).thenReturn(new TaskContextDraftService.Result("knowledge:project", 9, 9, HEAD, ImmutableList.of("task-read:1"), 30, "ACTIVE"));
+        String correction = "{\"action\":\"GRADE\",\"entryId\":\"knowledge:project\",\"entryVersion\":5,\"grade\":\"WRONG\",\"reason\":\"It reuses the snapshot\","
+                + "\"quote\":\"Refresh the snapshot before reading\",\"sources\":[{\"path\":\"Snapshot.java\",\"startLine\":12,\"endLine\":14}],"
+                + "\"correction\":{\"title\":\"Project\",\"summary\":\"Snapshot isolation\",\"body\":\"Reuse the snapshot\",\"statement\":\"Reuse the snapshot\"}}";
+        String settling = correction.replace("It reuses the snapshot", "Both readers were right for their paths")
+                .replace("\"statement\":\"Reuse the snapshot\"}", "\"statement\":\"Reuse the snapshot\",\"rootCause\":\"Each reader saw one code path\"}");
+        assertThatThrownBy(() -> service.call(taskId.toString(), settling)).hasMessageContaining("not contested");
+
+        assertThat(service.call(taskId.toString(), correction)).contains("\"correctionVersion\":9", "\"contested\":true", "stays contested");
+        verify(notebooks).contest(WORKSPACE, "knowledge:project", 5, "Refresh the snapshot before reading");
+
+        when(notebooks.getDisputes(WORKSPACE)).thenReturn(new ContextDisputes(ImmutableMap.of("knowledge:project",
+                new ContextDisputes.Contest("Refresh the snapshot before reading", 5)), ImmutableMap.of()));
+        assertThat(service.call(taskId.toString(), settling)).contains("settles the dispute", "\"contested\":false");
+        verify(notebooks).settle(WORKSPACE, "knowledge:project", new ContextDisputes.Settlement(9, ContextDisputes.By.TASK, "Reuse the snapshot",
+                Optional.of("Each reader saw one code path")));
+    }
+
+    @Test
+    void readsOfAContestedNoteShowBothSidesAndHowToSettleIt()
+    {
+        turn = turn.markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("provider-turn"), Optional.empty());
+        ContextEntry generated = new ContextEntry("knowledge:project", ContextEntryKind.KNOWLEDGE, "project", "Project", "Snapshot isolation",
+                "Avoid stale snapshots", ImmutableList.of(), ImmutableList.of("task-read:1"), ContextEntryOrigin.GENERATED, true, 3);
+        when(notebooks.getNotebook(WORKSPACE)).thenReturn(notebook(generated));
+        when(notebooks.getDisputes(WORKSPACE)).thenReturn(new ContextDisputes(ImmutableMap.of("knowledge:project",
+                new ContextDisputes.Contest("Avoid stale snapshots", 3)), ImmutableMap.of()));
+        grades.save(new ContextGrade(WORKSPACE, "other-task", Optional.empty(), ContextUsageEvent.TaskKind.DEVELOPMENT, ContextGrade.Grader.AGENT,
+                ContextGrade.Grade.HOLDS, ContextUsageEvent.Note.from(generated), "The refresh still runs", Optional.of("Avoid stale snapshots"),
+                ImmutableList.of(new ContextGrade.Citation("Snapshot.java", 12, 14, HEAD, "12  refresh();\n")), Optional.empty(), Instant.EPOCH));
+        when(lookup.readEnabled(WORKSPACE, "knowledge:project", 3, Optional.of(HEAD))).thenReturn(Optional.of(new Read(7, generated,
+                new ContextNoteReader.Read("Saved exact note", ImmutableMap.of(), ImmutableMap.of()), CHANGED_SOURCE)));
+
+        assertThat(service.call(taskId.toString(), "{\"action\":\"READ\",\"entryId\":\"knowledge:project\",\"entryVersion\":3}"))
+                .contains("\"dispute\"", "\"statement\":\"Avoid stale snapshots\"", "\"grade\":\"HOLDS\"", "The refresh still runs", "Snapshot.java:12-14",
+                        "A WRONG with a correction and a rootCause settles it");
     }
 
     @Test

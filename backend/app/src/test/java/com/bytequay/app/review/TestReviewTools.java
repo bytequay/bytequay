@@ -27,6 +27,7 @@ import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.context.ContextBaselineReader;
+import com.bytequay.app.context.ContextDisputes;
 import com.bytequay.app.context.ContextGradeService;
 import com.bytequay.app.context.ContextHistoryReader;
 import com.bytequay.app.context.ContextNotFoundException;
@@ -981,9 +982,14 @@ class TestReviewTools
         gradeStore.save(new ContextGrade(WORKSPACE_ID, "development-task", Optional.empty(), ContextUsageEvent.TaskKind.DEVELOPMENT, ContextGrade.Grader.USER,
                 ContextGrade.Grade.WRONG, note, "Looks stale", Optional.empty(), ImmutableList.of(), Optional.empty(), NOW));
 
+        when(notebooks.getDisputes(WORKSPACE_ID)).thenReturn(new ContextDisputes(ImmutableMap.of("knowledge:project",
+                new ContextDisputes.Contest("Always refresh the snapshot", 7)), ImmutableMap.of()));
         JsonNode opened = call("review_get_context", noteRequest(7));
         assertThat(opened.path("status").asText()).isEqualTo("AVAILABLE");
         assertThat(opened.at("/openReports/0/reason").asText()).isEqualTo("Looks stale");
+        assertThat(opened.at("/dispute/statement").asText()).isEqualTo("Always refresh the snapshot");
+        assertThat(opened.at("/dispute/sides/0/reason").asText()).isEqualTo("Looks stale");
+        assertThat(opened.path("disputeNote").asText()).contains("The user settles the dispute");
         assertThat(call("review_grade_note", helped).path("status").asText()).isEqualTo("SAVED");
         assertThat(call("review_grade_note", ImmutableMap.of("entryId", "knowledge:project", "entryVersion", 7, "grade", "WRONG", "reason", "No lines"))
                 .at("/error/message").asText()).contains("need quote and sources");
@@ -1001,6 +1007,12 @@ class TestReviewTools
         assertThat(reviewed.grade()).isEqualTo(ContextGrade.Grade.WRONG);
         assertThat(reviewed.reviewRunId()).contains(RUN_ID);
         assertThat(reviewed.citations()).extracting(ContextGrade.Citation::commit, ContextGrade.Citation::startLine).containsExactly(tuple(BASE_SHA, 3));
+
+        JsonNode holds = call("review_grade_note", ImmutableMap.of("entryId", "knowledge:project", "entryVersion", 7, "grade", "HOLDS",
+                "reason", "The baseline still refreshes on reads", "quote", "Always refresh the snapshot",
+                "sources", ImmutableList.of(ImmutableMap.of("path", "Snapshot.java", "startLine", 3, "endLine", 4))));
+        assertThat(holds.path("contested").asBoolean()).isTrue();
+        verify(notebooks).contest(WORKSPACE_ID, "knowledge:project", 7, "Always refresh the snapshot");
     }
 
     @Test

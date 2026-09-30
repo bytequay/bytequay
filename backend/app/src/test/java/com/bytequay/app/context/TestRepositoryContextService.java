@@ -576,6 +576,40 @@ class TestRepositoryContextService
     }
 
     @Test
+    void contestsLastUntilTheUserDecidesAndKeepOrRestoreRecordTheChoice()
+            throws Exception
+    {
+        seedGenerated();
+        service.contest(WORKSPACE, "knowledge:project", 1, "Generated body");
+        service.contest(WORKSPACE, "knowledge:project", 1, "Summary");
+        assertThat(service.getDisputes(WORKSPACE).contest("knowledge:project")).contains(new ContextDisputes.Contest("Generated body", 1));
+
+        RepositoryNotebook kept = service.keepEntry(WORKSPACE, 1, "knowledge:project");
+        assertThat(service.getDisputes(WORKSPACE).contested()).isEmpty();
+        assertThat(service.getDisputes(WORKSPACE).settlement("knowledge:project"))
+                .contains(new ContextDisputes.Settlement(kept.revision(), ContextDisputes.By.USER, "Generated body", Optional.empty()));
+
+        RepositoryNotebook edited = service.editEntry(WORKSPACE, kept.revision(), edit("User correction", "source"));
+        service.contest(WORKSPACE, "knowledge:project", edited.revision(), "User correction");
+        RepositoryNotebook restored = service.restoreEntry(WORKSPACE, edited.revision(), "knowledge:project");
+        ContextDisputes.Settlement restoredChoice = new ContextDisputes.Settlement(restored.revision(), ContextDisputes.By.USER, "User correction", Optional.empty());
+        assertThat(service.getDisputes(WORKSPACE)).isEqualTo(new ContextDisputes(ImmutableMap.of(), ImmutableMap.of("knowledge:project", restoredChoice)));
+
+        service.contest(WORKSPACE, "knowledge:project", restored.revision(), "Generated body");
+        RepositoryNotebook rewritten = service.editEntry(WORKSPACE, restored.revision(), edit("Second correction", "source"));
+        assertThat(service.getDisputes(WORKSPACE)).isEqualTo(new ContextDisputes(ImmutableMap.of(), ImmutableMap.of("knowledge:project", restoredChoice)));
+
+        service.contest(WORKSPACE, "knowledge:project", rewritten.revision(), "Second correction");
+        RepositoryNotebook disabled = service.setEntryEnabled(WORKSPACE, rewritten.revision(), "knowledge:project", false);
+        assertThat(service.getDisputes(WORKSPACE).contested()).isEmpty();
+        service.contest(WORKSPACE, "knowledge:project", disabled.revision(), "Second correction");
+        assertThat(service.getDisputes(WORKSPACE).contested()).isEmpty();
+
+        service.deleteWorkspaceData(WORKSPACE);
+        assertThat(settings.get(RepositoryContextService.DISPUTES_PREFIX + WORKSPACE)).isEmpty();
+    }
+
+    @Test
     void removedWorkspaceCannotRecreateNotebookAndDeletionIsIdempotent()
     {
         service.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty()));

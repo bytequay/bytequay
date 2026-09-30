@@ -17,8 +17,8 @@ import type {
   ContextScopeDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto,
 } from './contracts';
 import {
-  filterNotes, gradeLine, grader, latestReport, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pendingCounts, previousVersion, questionRow,
-  reportsNeedingYou, reviewItems, runNotesToDisable, scopeForTopic, statusCard, topicSummary, type StatusInput,
+  disputeSides, filterNotes, gradeLine, grader, latestReport, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pendingCounts, previousVersion,
+  questionRow, reportsNeedingYou, reviewItems, runNotesToDisable, scopeForTopic, settledLine, statusCard, topicSummary, type StatusInput,
 } from './model';
 
 const NOW = Date.parse('2026-09-29T12:00:00Z');
@@ -200,7 +200,7 @@ describe('repository context notes', () => {
 
   it('sends only open reports on notes the user wrote to Needs you', () => {
     const report = (entryId: string, entryVersion: number, userWritten: boolean): ContextReportedNoteDto => ({ entryId, entryVersion, title: entryId, userWritten,
-      grades: [{ ...wrong, note: { ...wrong.note, id: entryId, version: entryVersion } }] });
+      grades: [{ ...wrong, note: { ...wrong.note, id: entryId, version: entryVersion } }], contested: null, settlement: null });
     const lesson = { ...entry, id: 'lesson:mine', origin: 'USER' as const, version: 4 };
     const disabled = { ...entry, id: 'lesson:off', origin: 'USER' as const, enabled: false };
     const book = { ...notebook, entries: [entry, lesson, disabled] };
@@ -212,10 +212,25 @@ describe('repository context notes', () => {
     expect(reportsNeedingYou({ ...book, entries: [entry, { ...lesson, version: 5 }] }, reports)).toEqual([]);
   });
 
+  it('sends every contested note to Needs you with both sides and reads a settlement as its root cause or the user’s choice', () => {
+    const holds = { ...wrong, grade: 'HOLDS' as const, taskId: 'task-later', gradedAt: '2026-09-29T11:30:00Z' };
+    const helped = { ...wrong, grade: 'HELPED' as const, quote: null as string | null, citations: [] as ContextGradeDto['citations'], taskId: 'task-other' };
+    const contested: ContextReportedNoteDto = { entryId: entry.id, entryVersion: 3, title: entry.title, userWritten: false, grades: [holds, helped, wrong],
+      contested: { statement: 'Keep the condition.', version: 3 }, settlement: null };
+    const book = { ...notebook, entries: [entry] };
+    expect(reportsNeedingYou(book, [contested])).toEqual([contested]);
+    expect(reportsNeedingYou(book, [{ ...contested, contested: null }])).toEqual([]);
+    expect(disputeSides(contested)).toEqual([holds, wrong]);
+    expect(settledLine({ version: 4, by: 'INVESTIGATION', statement: 'Keep the condition.', rootCause: 'Each side read a different branch.' }))
+      .toBe('An investigation settled it in v4: Each side read a different branch.');
+    expect(settledLine({ version: 5, by: 'USER', statement: 'Keep the condition.', rootCause: null })).toBe('You kept v5 when agents disagreed');
+  });
+
   it('names the newest report and its reporter without claiming a title it doesn’t know', () => {
     const answered = { ...wrong, grade: 'HOLDS' as const, taskId: 'task-later', gradedAt: '2026-09-29T11:30:00Z' };
     const byUser = { ...wrong, grader: 'USER' as const, reason: '', quote: null as string | null, citations: [] as ContextGradeDto['citations'], gradedAt: '2026-09-29T11:00:00Z' };
-    const note: ContextReportedNoteDto = { entryId: entry.id, entryVersion: 3, title: entry.title, userWritten: true, grades: [answered, byUser, wrong] };
+    const note: ContextReportedNoteDto = { entryId: entry.id, entryVersion: 3, title: entry.title, userWritten: true, grades: [answered, byUser, wrong],
+      contested: null, settlement: null };
     expect(latestReport(note)).toBe(byUser);
     expect(latestReport({ ...note, grades: [answered] })).toBeUndefined();
     expect(grader(byUser, { 'task-dev': 'Fix refresh' })).toBe('you');

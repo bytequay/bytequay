@@ -26,6 +26,7 @@ import type {
   ContextUsageOverviewDto,
   ContextUsageWindow,
   ContextDiscoveryReportDto,
+  ContextDisputesDto,
   ContextLearningPlanViewDto,
   ContextReportedNoteDto,
   ContextTimesDto,
@@ -1658,6 +1659,7 @@ export type Bridge = JiraBridge & {
   restoreRepositoryContextEntry: (workspaceId: string, request: RestoreRepositoryContextEntryRequest) => Promise<RepositoryNotebookDto>;
   keepRepositoryContextEntry: (workspaceId: string, request: KeepRepositoryContextEntryRequest) => Promise<RepositoryNotebookDto>;
   getRepositoryContextReports: (workspaceId: string) => Promise<ContextReportedNoteDto[]>;
+  getRepositoryContextDisputes: (workspaceId: string) => Promise<ContextDisputesDto>;
   reportRepositoryContextNote: (workspaceId: string, request: ReportRepositoryContextNoteRequest) => Promise<ContextReportedNoteDto[]>;
   disableRepositoryContextRunNotes: (workspaceId: string, request: DisableRepositoryContextRunNotesRequest) => Promise<RepositoryNotebookDto>;
   saveRepositoryContextLesson: (workspaceId: string, request: SaveRepositoryContextLessonRequest) => Promise<RepositoryNotebookDto>;

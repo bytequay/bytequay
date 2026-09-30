@@ -66,6 +66,9 @@ export type ContextData = {
 };
 
 /** The workspace's Repository context page. Opening it only reads saved state; every agent run starts from an explicit action. */
+// ponytail: the newest 500 interactive tasks name note origins; an older task's notes read as earlier learning.
+const TITLED_TASKS = 500;
+
 export default function RepositoryContextPage({ workspace, initialRunId = null }: { workspace: WorkspaceDto; initialRunId?: string | null }) {
   const workspaceId = workspace.id;
   const repository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
@@ -128,16 +131,19 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
     return () => { mounted.current = false; };
   }, [loadAll, workspaceId]);
 
-  // Note origins and reports name the task behind them; titles are read only for tasks the run history does not cover.
+  // Note origins and reports name the task behind them, for tasks the run history does not cover. One read of the
+  // workspace's tasks names them: learning tasks never appear there, so their notes read as earlier learning.
   useEffect(() => {
-    const known = new Set(build?.runs.map(run => run.taskId) ?? []);
-    const wanted = [...Object.values(times.entries).flatMap(stamp => stamp.taskId === null ? [] : [stamp.taskId]),
-      ...reports.flatMap(report => report.grades.filter(grade => grade.grader === 'AGENT').map(grade => grade.taskId))]
+    if (build === null) return;
+    const known = new Set(build.runs.map(run => run.taskId));
+    const wanted = [...new Set([...Object.values(times.entries).flatMap(stamp => stamp.taskId === null ? [] : [stamp.taskId]),
+      ...reports.flatMap(report => report.grades.filter(grade => grade.grader === 'AGENT').map(grade => grade.taskId))])]
       .filter(id => !known.has(id) && titles[id] === undefined);
-    for (const taskId of new Set(wanted)) {
-      void window.bridge.getAgentTask(taskId, workspaceId).then(task => { if (mounted.current) setTitles(value => ({ ...value, [taskId]: task.title })); })
-        .catch(() => { if (mounted.current) setTitles(value => ({ ...value, [taskId]: '' })); });
-    }
+    if (wanted.length === 0) return;
+    setTitles(value => ({ ...value, ...Object.fromEntries(wanted.map(id => [id, ''])) }));
+    void window.bridge.listAgentTasks(workspaceId, TITLED_TASKS).then(tasks => {
+      if (mounted.current) setTitles(value => ({ ...value, ...Object.fromEntries(tasks.filter(task => wanted.includes(task.id)).map(task => [task.id, task.title])) }));
+    }).catch(() => {});
   }, [build, reports, times, titles, workspaceId]);
 
   const running = currentRun(build);

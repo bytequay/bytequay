@@ -287,7 +287,7 @@ export function entryOrigin(entry: ContextEntryDto, times: ContextTimesDto, runs
   // A task can hold several runs; the one that saved the note names it, else the task's latest.
   const run = taskId === null ? null : runs.find(value => value.taskId === taskId && value.noteIds.includes(entry.id)) ?? latestRun(runs, value => value.taskId === taskId);
   if (run !== null) return runOrigin(run);
-  if (taskId !== null && titles[taskId] !== undefined) return `Task “${titles[taskId]}”`;
+  if (taskId !== null && titles[taskId]) return `Task “${titles[taskId]}”`;
   return entry.origin === 'USER' ? 'Saved by you' : 'Earlier learning';
 }
 

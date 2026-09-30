@@ -17,7 +17,7 @@ import type {
   ContextScopeDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto,
 } from './contracts';
 import {
-  batchLine, batchNext, batchOrder, batchRemaining, batchRuns, disputeSides, spotTitle, filterNotes, gradeLine, grader, latestReport, runOrigin, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pageChangedAt, pendingCounts, planCounts, previousVersion, webLookupLine,
+  batchLine, batchNext, batchOrder, batchRemaining, batchRuns, disputeSides, entryOrigin, spotTitle, filterNotes, gradeLine, grader, latestReport, runOrigin, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pageChangedAt, pendingCounts, planCounts, previousVersion, webLookupLine,
   questionRow, reportsNeedingYou, reviewItems, runNotesToDisable, scopeForTopic, settledLine, statusCard, topicSummary, type StatusInput,
 } from './model';
 
@@ -273,6 +273,15 @@ describe('repository context notes', () => {
       '5:lesson:1': { at: '2026-09-29T11:30:00Z', taskId: 'task-other' } } };
     expect(notesSavedBy({ ...notebook, entries: [entry, lesson] }, times, 'task-dev').map(value => value.id)).toEqual([entry.id]);
     expect(notesSavedBy({ ...notebook, entries: [{ ...entry, version: 6 }, lesson] }, times, 'task-dev')).toEqual([]);
+  });
+
+  it('names a note by the run of its task that saved it, a titled task, or earlier learning', () => {
+    const times: ContextTimesDto = { entries: { [`3:${entry.id}`]: { at: '2026-09-29T11:00:00Z', taskId: 'task-2' } } };
+    const shared = [{ ...run(1, 'ANSWERED', 0, '2026-09-29T10:00:00Z'), taskId: 'task-2' }, run(2, 'ANSWERED', 1, '2026-09-29T11:00:00Z', [entry.id])];
+    expect(entryOrigin(entry, times, shared, {})).toBe('Learning run 2 · Iceberg connector');
+    expect(entryOrigin(entry, times, [], { 'task-2': 'Fix flaky Iceberg commit test' })).toBe('Task “Fix flaky Iceberg commit test”');
+    // A learning task whose runs left the history has no title to show.
+    expect(entryOrigin(entry, times, [], { 'task-2': '' })).toBe('Earlier learning');
   });
 
   it('diffs the current version against the one it replaced line by line', () => {

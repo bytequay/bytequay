@@ -327,6 +327,7 @@ function install() {
     }),
     getModelSettings: () => createPreviewBridge('ws-1').getModelSettings(),
     getAgentTask: async taskId => ({ id: taskId, workspaceId: 'ws-1', title: TASK_TITLES[taskId] ?? 'Task' }) as unknown as AgentTaskDto,
+    listAgentTasks: async () => Object.entries(TASK_TITLES).map(([id, title]) => ({ id, workspaceId: 'ws-1', title }) as unknown as AgentTaskDto),
     startRepositoryContextDiscovery: async (_workspaceId, request) => start('discover', request, 'DISCOVER'),
     startRepositoryContextLearning: async (_workspaceId, request) => start('learn', request, 'LEARN'),
     continueRepositoryContextLearning: async (_workspaceId, request) => start('continue', request, 'LEARN'),

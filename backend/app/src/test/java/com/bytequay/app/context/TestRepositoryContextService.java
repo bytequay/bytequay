@@ -430,11 +430,14 @@ class TestRepositoryContextService
         RepositoryNotebook third = service.saveTaskNote(WORKSPACE, second.revision(),
                 taskNote(OTHER_TASK_ID, "d", KNOWLEDGE, Optional.of(second.entries().get(1)), "Corrected by another task", source));
         RepositoryNotebook fourth = service.saveTaskNote(WORKSPACE, third.revision(), taskNote(OTHER_TASK_ID, "e", KNOWLEDGE, Optional.empty(), "Another task's note", source));
+        // A later question of the same task saved this one; it belongs to another run.
+        RepositoryNotebook fifth = service.saveTaskNote(WORKSPACE, fourth.revision(), taskNote(TASK_ID, "f", KNOWLEDGE, Optional.empty(), "The task's next run", source));
+        List<String> run = fifth.entries().stream().filter(entry -> !entry.body().equals("The task's next run")).map(ContextEntry::id).toList();
 
-        RepositoryNotebook disabled = service.disableRunNotes(WORKSPACE, fourth.revision(), TASK_ID);
+        RepositoryNotebook disabled = service.disableRunNotes(WORKSPACE, fifth.revision(), TASK_ID, run);
         assertThat(disabled.entries()).extracting(ContextEntry::body, ContextEntry::enabled).containsExactly(
-                tuple("Added and untouched", false), tuple("Corrected by another task", true), tuple("Another task's note", true));
-        assertThat(service.disableRunNotes(WORKSPACE, disabled.revision(), TASK_ID)).isEqualTo(disabled);
+                tuple("Added and untouched", false), tuple("Corrected by another task", true), tuple("Another task's note", true), tuple("The task's next run", true));
+        assertThat(service.disableRunNotes(WORKSPACE, disabled.revision(), TASK_ID, run)).isEqualTo(disabled);
     }
 
     @Test

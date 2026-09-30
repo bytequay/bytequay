@@ -371,16 +371,18 @@ public class RepositoryContextService
     }
 
     /**
-     * Disables the enabled notes one run's task added that nobody changed since: their current version was saved by
-     * that task and has no replaced version. Updates the run made to existing notes stay; each can be restored.
+     * Disables the enabled notes one run added that nobody changed since: of the notes it names, those whose current version
+     * its task saved and that have no replaced version. A batch asks several questions in one task, so the run names its
+     * notes. Updates the run made to existing notes stay; each can be restored.
      */
-    public RepositoryNotebook disableRunNotes(String workspaceId, long expectedRevision, String taskId)
+    public RepositoryNotebook disableRunNotes(String workspaceId, long expectedRevision, String taskId, List<String> noteIds)
     {
         checkText(taskId, "taskId", 200);
+        checkArgument(noteIds.size() <= 1000, "A run names at most 1000 notes");
         return mutate(workspaceId, expectedRevision, current -> {
             ContextTimes times = readTimes(workspaceId);
             Set<String> changed = current.replaced().stream().map(ContextEntry::id).collect(toSet());
-            List<ContextEntry> entries = current.entries().stream().map(entry -> entry.enabled() && !changed.contains(entry.id())
+            List<ContextEntry> entries = current.entries().stream().map(entry -> entry.enabled() && !changed.contains(entry.id()) && noteIds.contains(entry.id())
                     && Optional.ofNullable(times.entries().get(ContextTimes.key(entry.id(), entry.version()))).flatMap(ContextTimes.Stamp::taskId)
                             .filter(taskId::equals).isPresent()
                     ? new ContextEntry(entry.id(), entry.kind(), entry.scopeId(), entry.title(), entry.summary(), entry.body(), entry.claims(),

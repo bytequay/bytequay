@@ -93,15 +93,16 @@ function RunCard({ run, defaultOpen, title, meta }: { run: ContextRunDto; defaul
 function RunDrawer({ data, actions, busy, taskId, onClose }: {
   data: ContextData; actions: ContextActions; busy: boolean; taskId: string; onClose: () => void;
 }) {
-  const run = data.build.runs.find(value => value.taskId === taskId);
+  // A batch asks a topic's questions as turns of one task; its latest run is the one working or the last to finish.
+  const run = latestRun(data.build.runs, value => value.taskId === taskId);
   return <>
     <div className="rcp-drawer__head"><div className="rcp-drawer__top">
-      <span className="rcp-drawer__name">{run === undefined ? 'Learning run' : runOrigin(run)}</span>
+      <span className="rcp-drawer__name">{run === null ? 'Learning run' : runOrigin(run)}</span>
       <span className="rcp-chip rcp-tone--purple">Read-only</span><span className="rcp-spacer" /><Close onClose={onClose} />
     </div></div>
     <div className="rcp-drawer__body">
-      {run === undefined ? <div className="rcp-empty">This run is no longer in the retained activity history.</div>
-        : <RunCard key={run.taskId} run={run} defaultOpen title={run.question?.text ?? run.investigation?.statement ?? 'Activity'}
+      {run === null ? <div className="rcp-empty">This run is no longer in the retained activity history.</div>
+        : <RunCard key={run.sequence} run={run} defaultOpen title={run.question?.text ?? run.investigation?.statement ?? 'Activity'}
           meta={`${shortDate(run.endedAt ?? run.requestedAt, data.now)} · ${plural(run.sourceOperations, 'source operation')} · ${plural(run.noteIds.length, 'saved note')}`} />}
     </div>
     {run?.outcome === 'RUNNING' && <div className="rcp-drawer__foot">
@@ -170,7 +171,7 @@ function PlanDrawer({ data, actions, busy, tab, onTab, onClose }: { data: Contex
       {tab === 'sources' && plan === null && <div className="rcp-empty">Sources are approved when you learn selected topics.</div>}
       {tab === 'activity' && <>
         {runs.length === 0 && <div className="rcp-empty">No learning run has started yet.</div>}
-        {runs.map(run => <RunCard key={run.taskId} run={run}
+        {runs.map(run => <RunCard key={run.sequence} run={run}
           defaultOpen={run.outcome === 'RUNNING' || (learning === null && run === latest)}
           title={`Run ${run.sequence} · ${run.question?.topicTitle ?? run.investigation?.title ?? `Merged PR #${run.pullRequest ?? ''}`}`}
           meta={`“${run.question?.text ?? run.investigation?.statement ?? 'What’s reusable from this change?'}” · ${shortDate(run.endedAt ?? run.requestedAt, data.now)}`} />)}
@@ -221,7 +222,8 @@ function PlanSources({ data, actions, busy }: { data: ContextData; actions: Cont
   const runsFor = (topicId: string) => data.build.runs.filter(run => run.question?.topicId === topicId && run.question.planId === plan.id).length;
   return <>
     {plan.documentInventory.suggestions.map(suggestion => {
-      const run = data.build.runs.find(value => value.taskId === suggestion.taskId);
+      const run = data.build.runs.find(value => value.taskId === suggestion.taskId && value.question?.topicId === suggestion.topicId
+        && value.question.index === suggestion.question);
       const topic = plan.topics.find(value => value.id === suggestion.topicId);
       const question = topic?.questions[suggestion.question]?.text;
       const root = suggestion.url.endsWith('/');

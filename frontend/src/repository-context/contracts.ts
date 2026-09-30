@@ -204,7 +204,7 @@ export type KeepRepositoryContextEntryRequest = RestoreRepositoryContextEntryReq
 /** The user's Wrong on a note version the task received or opened; the reason is optional. */
 export type ReportRepositoryContextNoteRequest = { taskId: string; entryId: string; entryVersion: number; reason: string };
 /** Disables the notes the run's task added that nobody changed since. */
-export type DisableRepositoryContextRunNotesRequest = { expectedRevision: number; taskId: string };
+export type DisableRepositoryContextRunNotesRequest = { expectedRevision: number; taskId: string; noteIds: string[] };
 export type SaveRepositoryContextLessonRequest = {
   expectedRevision: number; scopeId: string; title: string; summary: string; body: string; reviewId: string; runId: string;
   evidenceRefs: string[]; messageId?: string | null;
@@ -756,8 +756,8 @@ export function parseReportRepositoryContextNoteRequest(value: unknown): ReportR
     entryVersion: count(item.entryVersion, 'reported entry version', 1), reason: text(item.reason, 'report reason') };
 }
 export function parseDisableRepositoryContextRunNotesRequest(value: unknown): DisableRepositoryContextRunNotesRequest {
-  const item = request(value, ['expectedRevision', 'taskId']);
-  return { expectedRevision: count(item.expectedRevision, 'expected revision'), taskId: nonblank(item.taskId, 'run task') };
+  const item = request(value, ['expectedRevision', 'taskId', 'noteIds']);
+  return { expectedRevision: count(item.expectedRevision, 'expected revision'), taskId: nonblank(item.taskId, 'run task'), noteIds: strings(item.noteIds, 'run notes') };
 }
 export function parseSaveRepositoryContextLessonRequest(value: unknown): SaveRepositoryContextLessonRequest {
   const item = request(value, ['expectedRevision', 'scopeId', 'title', 'summary', 'body', 'reviewId', 'runId', 'evidenceRefs', 'messageId']);

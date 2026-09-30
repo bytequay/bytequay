@@ -59,10 +59,20 @@ export type TaskListItem = {
 
 const EMPTY: Pick<TaskListItem, 'task' | 'review' | 'execution' | 'run' | 'contextRun'> = { task: null, review: null, execution: null, run: null, contextRun: null };
 
-export function learningItem(run: ContextRunDto): TaskListItem {
+/** One card per learning task: a batch asks a topic's questions as turns of one task. */
+export function learningItems(runs: ContextRunDto[]): TaskListItem[] {
+  const byTask = new Map<string, ContextRunDto[]>();
+  for (const run of runs) byTask.set(run.taskId, [...(byTask.get(run.taskId) ?? []), run]);
+  return [...byTask.values()].map(learningItem);
+}
+
+export function learningItem(runs: ContextRunDto[]): TaskListItem {
+  const run = runs.reduce((latest, value) => value.sequence > latest.sequence ? value : latest);
+  const first = runs.reduce((earliest, value) => value.sequence < earliest.sequence ? value : earliest);
   const last = run.activity.at(-1);
   return {
-    ...EMPTY, key: `learning:${run.taskId}`, type: 'learning', title: runOrigin(run),
+    ...EMPTY, key: `learning:${run.taskId}`, type: 'learning',
+    title: runs.length > 1 && run.question !== null ? `Learning runs ${first.sequence}–${run.sequence} · ${run.question.topicTitle}` : runOrigin(run),
     state: run.outcome === 'RUNNING' ? { label: 'Running', tone: 'blue', spinning: true, reason: null }
       : run.outcome === 'FAILED' ? { label: 'Failed', tone: 'red', spinning: false, reason: run.detail }
         : { label: 'Finished', tone: 'neutral', spinning: false, reason: null },

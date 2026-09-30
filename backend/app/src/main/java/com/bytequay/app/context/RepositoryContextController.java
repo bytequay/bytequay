@@ -116,7 +116,7 @@ public class RepositoryContextController
     @PostMapping("/runs/disable-notes")
     public RepositoryNotebook disableRunNotes(@PathVariable String workspaceId, @RequestBody RunNotesRequest request)
     {
-        return context.disableRunNotes(workspaceId, request.expectedRevision(), request.taskId());
+        return context.disableRunNotes(workspaceId, request.expectedRevision(), request.taskId(), request.noteIds());
     }
 
     @PutMapping("/entries/enabled")
@@ -207,12 +207,13 @@ public class RepositoryContextController
         }
     }
 
-    public record RunNotesRequest(Long expectedRevision, String taskId)
+    public record RunNotesRequest(Long expectedRevision, String taskId, List<String> noteIds)
     {
         public RunNotesRequest
         {
             requireRevision(expectedRevision);
             requireNonNull(taskId, "taskId is null");
+            noteIds = ImmutableList.copyOf(noteIds);
         }
     }
 

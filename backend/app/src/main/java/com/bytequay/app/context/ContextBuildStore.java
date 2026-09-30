@@ -119,7 +119,7 @@ public class ContextBuildStore
     {
         WorkspaceOperationLocks.withLock(workspaceId, () -> {
             List<ContextRun> current = runs(workspaceId);
-            if (current.stream().anyMatch(value -> value.taskId().equals(run.taskId()))) {
+            if (current.stream().anyMatch(value -> value.sequence() == run.sequence())) {
                 return null;
             }
             List<ContextRun> updated = ImmutableList.<ContextRun>builder().addAll(current).add(run).build();

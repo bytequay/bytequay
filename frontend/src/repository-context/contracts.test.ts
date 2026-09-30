@@ -195,10 +195,12 @@ describe('repository context contracts', () => {
     expect(() => parseRepositoryNotebook({ ...notebook, replaced: undefined })).toThrow('replaced versions');
     expect(() => parseRepositoryNotebook({ ...notebook, replaced: [{ ...previous, kind: 'UNKNOWN' }] })).toThrow('entry kind');
     expect(parseRestoreRepositoryContextEntryRequest({ expectedRevision: 7, entryId: previous.id })).toEqual({ expectedRevision: 7, entryId: previous.id });
-    expect(parseDisableRepositoryContextRunNotesRequest({ expectedRevision: 7, taskId: 'learn-task' })).toEqual({ expectedRevision: 7, taskId: 'learn-task' });
+    expect(parseDisableRepositoryContextRunNotesRequest({ expectedRevision: 7, taskId: 'learn-task', noteIds: [previous.id] }))
+      .toEqual({ expectedRevision: 7, taskId: 'learn-task', noteIds: [previous.id] });
+    expect(() => parseDisableRepositoryContextRunNotesRequest({ expectedRevision: 7, taskId: 'learn-task' })).toThrow('run notes');
     expect(() => parseRestoreRepositoryContextEntryRequest({ expectedRevision: 7, entryId: previous.id, version: 1 })).toThrow('unsupported request field');
-    expect(() => parseDisableRepositoryContextRunNotesRequest({ expectedRevision: 7, taskId: ' ' })).toThrow('run task');
-    expect(() => parseDisableRepositoryContextRunNotesRequest({ taskId: 'learn-task' })).toThrow('expected revision');
+    expect(() => parseDisableRepositoryContextRunNotesRequest({ expectedRevision: 7, taskId: ' ', noteIds: [] })).toThrow('run task');
+    expect(() => parseDisableRepositoryContextRunNotesRequest({ taskId: 'learn-task', noteIds: [] })).toThrow('expected revision');
   });
 
   it('requires nullable discovery provenance on stored scopes and registered sources', () => {

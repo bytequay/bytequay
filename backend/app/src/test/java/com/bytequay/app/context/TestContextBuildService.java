@@ -109,6 +109,7 @@ import static com.bytequay.core.context.ContextPreparationResult.Outcome.EMPTY;
 import static com.bytequay.core.context.ContextPreparationResult.Outcome.FAILED;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
@@ -288,6 +289,62 @@ class TestContextBuildService
         verify(turns).start(started.capture());
         assertThat(started.getValue().message()).contains("\"Reads reuse the snapshot\"", "WRONG on v3 by a review", "repository_context_settle",
                 "KEEP_PREVIOUS", "root cause of at most 300 bytes");
+    }
+
+    @Test
+    void aBatchAsksATopicsNextQuestionAsANewTurnOfTheSameTaskAndFinishesItAfterTheLast()
+    {
+        AtomicReference<ContextLearningPlan> plan = batchedPlan();
+        ContextBuild asked = builds.find(WORKSPACE).orElseThrow();
+        answer();
+        finishTurn(TurnState.COMPLETED, true);
+
+        service.reconcile(WORKSPACE, asked.taskId());
+        assertThat(savedTasks.get(TaskId.valueOf(asked.taskId())).state()).isEqualTo(TaskState.OPEN);
+        verify(completions, never()).cleanupWorktree(any());
+        verify(coordinator, never()).unwatch(anyString());
+
+        plan.set(plan.get().withBatch(Optional.of(new ContextLearningPlan.Batch("learn", ImmutableList.of(),
+                ImmutableList.of(new ContextLearningPlan.Target("topic:1", 0), new ContextLearningPlan.Target("topic:1", 1)), 2, false))));
+        service.learn(WORKSPACE, new ContextBuildService.Request("learn#2", notebooks.getNotebook(WORKSPACE).revision(), 1, ImmutableList.of("project"),
+                ImmutableList.of()), SHA, ImmutableList.of(), new ContextBuild.Assignment("plan", "topic:1", "Project", 1, "Where are the tests?", "",
+                ImmutableList.of(), ImmutableList.of("README.md")));
+
+        ContextBuild next = builds.find(WORKSPACE).orElseThrow();
+        assertThat(next.taskId()).isEqualTo(asked.taskId());
+        assertThat(next.branch()).isEqualTo(asked.branch());
+        assertThat(next.turnKey()).isNotEqualTo(asked.turnKey());
+        verify(tasks, times(1)).create(any(CreateAgentTaskCommand.class));
+        ArgumentCaptor<StartAgentTurnCommand> starts = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
+        verify(turns, times(2)).start(starts.capture());
+        assertThat(starts.getAllValues().get(1).message()).contains("this turn asks a new one", "Where are the tests?");
+        assertThat(service.get(WORKSPACE).runs()).extracting(ContextRun::sequence, ContextRun::taskId, ContextRun::outcome)
+                .containsExactly(tuple(1L, asked.taskId(), ContextRun.Outcome.NO_NOTE), tuple(2L, asked.taskId(), ContextRun.Outcome.RUNNING));
+
+        answer();
+        finishTurn(TurnState.COMPLETED, true);
+        service.reconcile(WORKSPACE, next.taskId());
+        assertThat(savedTasks.get(TaskId.valueOf(asked.taskId())).state()).isEqualTo(TaskState.COMPLETED);
+        verify(completions).cleanupWorktree(TaskId.valueOf(asked.taskId()));
+        verify(coordinator).unwatch(asked.taskId());
+    }
+
+    @Test
+    void stopBetweenTwoQuestionsOfATaskEndsTheBatchAndCleansTheTaskUp()
+    {
+        AtomicReference<ContextLearningPlan> plan = batchedPlan();
+        ContextBuild asked = builds.find(WORKSPACE).orElseThrow();
+        answer();
+        finishTurn(TurnState.COMPLETED, true);
+        service.reconcile(WORKSPACE, asked.taskId());
+        assertThat(savedTasks.get(TaskId.valueOf(asked.taskId())).state()).isEqualTo(TaskState.OPEN);
+
+        ContextBuildService.View stopped = service.stop(WORKSPACE, asked.taskId());
+
+        assertThat(plan.get().batch()).isEmpty();
+        assertThat(stopped.canStart()).isTrue();
+        verify(completions).cleanupWorktree(TaskId.valueOf(asked.taskId()));
+        verify(turns, times(1)).start(any(StartAgentTurnCommand.class));
     }
 
     @Test
@@ -566,6 +623,37 @@ class TestContextBuildService
         return new ContextLearningPlan(assignment.planId(), WORKSPACE, "report", "accept", "sha256:" + "b".repeat(64),
                 notebooks.getNotebook(WORKSPACE).revision(), 0, ImmutableList.of(topic.id()), 7, REPOSITORY, SHA,
                 ImmutableList.of(topic), selected, ContextDocumentInventory.initial(selected), ImmutableList.of(), NOW, Optional.empty());
+    }
+
+    /** Starts the first of a topic's two questions in a batch that asks the second next. */
+    private AtomicReference<ContextLearningPlan> batchedPlan()
+    {
+        ContextBuild.Assignment first = new ContextBuild.Assignment("plan", "topic:1", "Project", 0, "Project overview", "",
+                ImmutableList.of(), ImmutableList.of("README.md"));
+        ContextLearningPlan accepted = acceptedPlan(ImmutableList.of(), ImmutableList.of(), first);
+        ContextLearningPlan.Topic topic = accepted.topics().getFirst().withQuestions(ImmutableList.of(ContextLearningPlan.Question.open("Project overview"),
+                ContextLearningPlan.Question.open("Where are the tests?")));
+        AtomicReference<ContextLearningPlan> plan = new AtomicReference<>(accepted.withProgress(ImmutableList.of(topic), ImmutableList.of())
+                .withBatch(Optional.of(new ContextLearningPlan.Batch("learn", ImmutableList.of(new ContextLearningPlan.Target("topic:1", 1)),
+                        ImmutableList.of(new ContextLearningPlan.Target("topic:1", 0)), 2, false))));
+        when(plans.find(WORKSPACE)).thenAnswer(ignored -> Optional.of(plan.get()));
+        when(plans.save(any(), any(ContextLearningPlan.class))).thenAnswer(call -> {
+            plan.set(call.getArgument(1));
+            return plan.get();
+        });
+        when(git.run(REPOSITORY_PATH, "rev-parse", "--verify", SHA + "^{commit}")).thenReturn(new GitCommandRunner.Result(0, SHA + "\n", false));
+        service.learn(WORKSPACE, new ContextBuildService.Request("learn", notebooks.getNotebook(WORKSPACE).revision(), 0, ImmutableList.of("project"),
+                ImmutableList.of()), SHA, ImmutableList.of(), first);
+        return plan;
+    }
+
+    /** Records the current question as answered, as the progress tool does. */
+    private void answer()
+    {
+        ContextBuild current = builds.find(WORKSPACE).orElseThrow();
+        builds.save(Optional.of(current), current.withCapture(new ContextBuild.Capture(ImmutableList.of(), ImmutableMap.of(),
+                ImmutableMap.of(ContextRun.PROGRESS, ContextRun.COMPLETED), ImmutableMap.of(), Optional.of(new ContextBuild.Result(ImmutableList.of())),
+                ImmutableList.of(), ImmutableList.of())));
     }
 
     private ContextBuildService createService(AgentCompletionService completion)

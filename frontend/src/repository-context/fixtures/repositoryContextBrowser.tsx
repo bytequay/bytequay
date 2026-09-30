@@ -358,7 +358,7 @@ function install() {
     disableRepositoryContextRunNotes: async (_workspaceId, request) => mutate(request.expectedRevision, current => {
       state.calls.disables.push(request.taskId);
       current.entries = current.entries.map(value => state.times.entries[`${value.version}:${value.id}`]?.taskId === request.taskId
-        && !current.replaced.some(previous => previous.id === value.id) ? { ...value, enabled: false } : value);
+        && request.noteIds.includes(value.id) && !current.replaced.some(previous => previous.id === value.id) ? { ...value, enabled: false } : value);
     }),
     editRepositoryContextEntry: async (_workspaceId, request) => mutate(request.expectedRevision, current => {
       current.entries = current.entries.map(value => value.id !== request.id ? value

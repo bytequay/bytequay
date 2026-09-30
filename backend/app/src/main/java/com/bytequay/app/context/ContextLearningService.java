@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.context;
 
+import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
@@ -168,8 +169,9 @@ public class ContextLearningService
     }
 
     /**
-     * Starts the batch's next question once the previous run has ended and its worktree is gone. A stopped or failed run,
-     * or a run the batch did not start, ends the batch; so does running out of questions.
+     * Starts the batch's next question once the previous run has ended: as a new turn of its task when the build service kept
+     * that task for the same topic, otherwise once the task is finished and its worktree is gone. A stopped or failed run, or a
+     * run the batch did not start, ends the batch; so does running out of questions.
      */
     public void continueBatch(String workspaceId)
     {
@@ -177,21 +179,24 @@ public class ContextLearningService
             return;
         }
         ContextBuildService.View view = builds.get(workspaceId);
-        if (!view.canStart()) {
+        boolean kept = view.build().flatMap(ContextBuildService.BuildView::task)
+                .filter(task -> task.state().equals(TaskState.OPEN.name()) && task.mutationClaim().isEmpty()).isPresent()
+                && view.runs().stream().noneMatch(run -> run.outcome() == ContextRun.Outcome.RUNNING);
+        if (!view.canStart() && !kept) {
             return;
         }
         ContextLearningPlan plan = plans.find(workspaceId).orElseThrow();
         ContextLearningPlan.Batch batch = plan.batch().orElseThrow();
         Optional<ContextBuild> last = buildStore.find(workspaceId).filter(build -> batch.owns(build.requestKey()));
-        Optional<ContextRun.Outcome> outcome = last.flatMap(build -> view.runs().stream().filter(run -> run.taskId().equals(build.taskId())).findFirst())
+        Optional<ContextRun.Outcome> outcome = last.flatMap(build -> view.runs().stream().filter(run -> run.sequence() == build.sequence()).findFirst())
                 .map(ContextRun::outcome);
         if (outcome.isEmpty() || outcome.orElseThrow() == ContextRun.Outcome.STOPPED || outcome.orElseThrow() == ContextRun.Outcome.FAILED) {
-            plans.save(Optional.of(plan), plan.withBatch(Optional.empty()));
+            endBatch(workspaceId, plan);
             return;
         }
         List<ContextLearningPlan.Target> remaining = batch.remaining(plan);
         if (remaining.isEmpty() || batch.ran().size() >= ContextLearningPlan.Batch.MAX_RUNS) {
-            plans.save(Optional.of(plan), plan.withBatch(Optional.empty()));
+            endBatch(workspaceId, plan);
             return;
         }
         ContextLearningPlan.Target next = remaining.getFirst();
@@ -205,10 +210,16 @@ public class ContextLearningService
             launch(started, batch.runKey(ran.size()), view.buildRequestSequence(), notebooks.getNotebook(workspaceId).revision(), false, Optional.of(next));
         }
         catch (RuntimeException failure) {
-            plans.find(workspaceId).filter(current -> current.batch().isPresent())
-                    .ifPresent(current -> plans.save(Optional.of(current), current.withBatch(Optional.empty())));
+            plans.find(workspaceId).filter(current -> current.batch().isPresent()).ifPresent(current -> endBatch(workspaceId, current));
             throw failure;
         }
+    }
+
+    /** Without a batch, the next reconcile finishes and cleans up a task that was kept open for the batch's next question. */
+    private void endBatch(String workspaceId, ContextLearningPlan plan)
+    {
+        plans.save(Optional.of(plan), plan.withBatch(Optional.empty()));
+        builds.get(workspaceId);
     }
 
     /** Adds the user's question to a topic; it waits for the next batch. No agent runs. */

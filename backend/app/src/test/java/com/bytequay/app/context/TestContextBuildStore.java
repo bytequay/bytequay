@@ -122,6 +122,12 @@ class TestContextBuildStore
         assertThat(runs.getFirst().sequence()).isEqualTo(3);
         assertThat(runs.getLast().sequence()).isEqualTo(ContextBuildStore.MAX_RUNS + 2);
         assertThat(store.runs("different-workspace")).isEmpty();
+
+        // A batch asks a topic's questions as turns of one task, so two runs can share a task.
+        ContextRun later = run(ContextBuildStore.MAX_RUNS + 3);
+        store.recordRun(WORKSPACE, new ContextRun(later.sequence(), runs.getLast().taskId(), later.mode(), later.requestedAt(), later.endedAt(), later.question(),
+                later.pullRequest(), later.outcome(), later.sourceOperations(), later.documentOpens(), later.noteIds(), later.activity(), later.detail(), later.investigation()));
+        assertThat(store.runs(WORKSPACE).getLast().sequence()).isEqualTo(ContextBuildStore.MAX_RUNS + 3);
     }
 
     @Test

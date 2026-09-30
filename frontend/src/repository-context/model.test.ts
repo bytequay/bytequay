@@ -101,7 +101,7 @@ describe('repository context status card', () => {
     const card = statusCard(input({ notebook: book, times, report, build: build([answered]), planView: view }));
     expect(card.primary).toEqual({ label: 'Continue learning', bolt: true, action: 'continue' });
     expect(card.foot).toEqual({ text: 'Run 1 saved 3 notes.', link: { label: 'Disable notes from this run', action: 'disable-notes' } });
-    expect(card.disable).toEqual({ taskId: 'task-1', sequence: 1, notes: 1 });
+    expect(card.disable).toEqual({ taskId: 'task-1', sequence: 1, noteIds: [added.id] });
     expect(runNotesToDisable(book, times, answered).map(value => value.id)).toEqual([added.id]);
     expect(previousVersion(book, updated.id)?.summary).toBe('Earlier summary');
     expect(previousVersion(book, added.id)).toBeUndefined();

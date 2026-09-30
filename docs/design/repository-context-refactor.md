@@ -170,8 +170,8 @@ At a limit, stop starting more work and show the notes the run saved and
 bounded run per open question, counted before the click. No other action grants
 more spending.
 
-Resume with relevant saved notes and progress, not the complete old conversation
-or every note. Recheck changed sources as necessary. Do not promise zero
+Resume an unfinished question with relevant saved notes and progress, not the
+complete old conversation or every note. Recheck changed sources as necessary. Do not promise zero
 rereading, full expertise, or hard token/dollar ceilings where a provider only
 reports usage after a request. Source-access, response-size and turn bounds must be enforced by
 ByteQuay, not merely written in a prompt. Save progress before exhausting them.
@@ -248,12 +248,19 @@ runs per click. It never runs a question twice, so a question it leaves
 unfinished waits for a later click. The run line shows how many runs the click
 starts. Each queued question carries its place in the batch as a number, the
 last one with a flag, and before a click the plan previews what one click
-would run. Go deeper runs only its own question. The next run starts when the previous one ends and its worktree is
-cleaned up; meanwhile the page names the question that starts next and keeps
-checking, so the gap does not look like a stop. A run that reaches a limit or
-saves progress leaves its question unfinished for a later batch, and the batch
-moves on. Stop ends the current run and the rest of the batch; a failed run ends
-it too, and so does another run the user starts between batch runs.
+would run. Go deeper runs only its own question.
+
+A batch asks a topic's questions as turns of one learning task, so each run
+starts from what the earlier ones in that conversation read; it still cites only
+its own reads. The next question in the same topic starts as soon as the
+previous turn ends normally. Another topic, a changed learning model, a run that
+fails or is stopped, or ten questions on one task finish that task and clean up
+its worktree before a new task starts. Meanwhile the page names the question
+that starts next and keeps checking, so the gap does not look like a stop. A run
+that reaches a limit or saves progress leaves its question unfinished for a
+later batch, and the batch moves on. Stop ends the current run and the rest of
+the batch, even between two questions of a task; a failed run ends it too, and
+so does another run the user starts between batch runs.
 
 ## 5. Use during development and review
 
@@ -531,7 +538,9 @@ implementation extends its existing patterns rather than the old settings page.
   counts as an icon and a number, with the sentence on hover. Run limits appear
   in the selection bar and the learning drawer.
 - **Learning tasks.** Discovery and learning runs appear as a distinct Learning
-  type in Tasks. Selecting one opens its retained activity in Repository context.
+  type in Tasks, one card per task: a task that asked several questions of a
+  topic shows the range of its runs and its latest one. Selecting one opens its
+  retained activity in Repository context.
   These are read-only workflow views with Stop for the current run; they never
   link to the interactive task screen or offer messages, queues, or steering.
   Generic interactive input endpoints reject workflow-owned tasks.

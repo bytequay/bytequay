@@ -314,7 +314,7 @@ it('routes notebook actions through authenticated workspace-scoped endpoints wit
     { action: 'enabled', path: '/entries/enabled', method: 'PUT', request: { expectedRevision: 7, entryId: 'knowledge:project', enabled: false } },
     { action: 'restore', path: '/entries/restore', method: 'POST', request: { expectedRevision: 7, entryId: 'knowledge:project' } },
     { action: 'keep', path: '/entries/keep', method: 'POST', request: { expectedRevision: 7, entryId: 'knowledge:project' } },
-    { action: 'run-notes:disable', path: '/runs/disable-notes', method: 'POST', request: { expectedRevision: 7, taskId: 'learn-task' } },
+    { action: 'run-notes:disable', path: '/runs/disable-notes', method: 'POST', request: { expectedRevision: 7, taskId: 'learn-task', noteIds: ['knowledge:project'] } },
     { action: 'lesson', path: '/lessons', method: 'POST', request: { expectedRevision: 7, scopeId: 'project',
       title: 'Lesson', summary: 'Summary', body: 'Conditional lesson', reviewId: 'review', runId: 'old-run', evidenceRefs: ['E2'], messageId: 'old-message' } },
   ];

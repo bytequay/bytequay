@@ -75,9 +75,10 @@ public record ContextBuild(
         requireNonNull(capture, "capture is null");
     }
 
+    /** Keyed by sequence as well: one task can ask several questions of a topic, one turn each. */
     public String turnKey()
     {
-        return "context-build:" + taskId;
+        return "context-build:" + taskId + ":" + sequence;
     }
 
     public ContextBuild withCapture(Capture replacement)

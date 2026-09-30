@@ -154,17 +154,17 @@ class TestRepositoryContextController
             throws Exception
     {
         when(service.restoreEntry(WORKSPACE, 4, ENTRY_ID)).thenReturn(RepositoryNotebook.empty());
-        when(service.disableRunNotes(WORKSPACE, 5, "task-1")).thenReturn(RepositoryNotebook.empty());
+        when(service.disableRunNotes(WORKSPACE, 5, "task-1", ImmutableList.of(ENTRY_ID))).thenReturn(RepositoryNotebook.empty());
 
         mvc.perform(post(ROOT + "/entries/restore").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"expectedRevision\":4,\"entryId\":\"" + ENTRY_ID + "\"}"))
                 .andExpect(status().isOk());
         mvc.perform(post(ROOT + "/runs/disable-notes").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"expectedRevision\":5,\"taskId\":\"task-1\"}"))
+                        .content("{\"expectedRevision\":5,\"taskId\":\"task-1\",\"noteIds\":[\"" + ENTRY_ID + "\"]}"))
                 .andExpect(status().isOk());
 
         verify(service).restoreEntry(WORKSPACE, 4, ENTRY_ID);
-        verify(service).disableRunNotes(WORKSPACE, 5, "task-1");
+        verify(service).disableRunNotes(WORKSPACE, 5, "task-1", ImmutableList.of(ENTRY_ID));
     }
 
     @Test
@@ -214,7 +214,7 @@ class TestRepositoryContextController
                 new Mutation(HttpMethod.PUT, "/configuration", "\"useInReviews\":true"),
                 new Mutation(HttpMethod.PUT, "/entries", ENTRY_FIELDS),
                 new Mutation(HttpMethod.POST, "/entries/restore", "\"entryId\":\"knowledge:project\""),
-                new Mutation(HttpMethod.POST, "/runs/disable-notes", "\"taskId\":\"task-1\""),
+                new Mutation(HttpMethod.POST, "/runs/disable-notes", "\"taskId\":\"task-1\",\"noteIds\":[]"),
                 new Mutation(HttpMethod.POST, "/entries/keep", "\"entryId\":\"knowledge:project\""),
                 new Mutation(HttpMethod.PUT, "/entries/enabled", "\"entryId\":\"knowledge:project\",\"enabled\":false"),
                 new Mutation(HttpMethod.POST, "/lessons", LESSON_FIELDS))) {

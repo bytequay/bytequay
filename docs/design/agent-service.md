@@ -221,7 +221,10 @@ research tasks for explicit discovery and learning. Start discovery inspects a
 frozen local revision through language-neutral filename/text search and selective
 file reads. It saves an outline and evidenced topic/source suggestions. Learn
 selected accepts a bounded plan and starts one question; Continue starts another
-run from saved progress. No page load, synchronization or startup starts a model.
+run from saved progress. A batch asks the next question of the same topic as a
+new turn of the same task after the previous turn completes normally; another
+topic, a changed model or a failed or stopped run finishes the task and cleans
+up its worktree first. No page load, synchronization or startup starts a model.
 
 Learning topics distinguish source-read paths from explicit note applicability.
 All questions in a topic share the latter; different targets require separate
@@ -231,7 +234,7 @@ explicit discovery. Unknown targets in older plans block learning and preparatio
 without changing existing notes or drafts.
 
 ContextBuildService validates the configured Review model, notebook revision,
-source selection and prior task cleanup before allocation. Its saved binding fixes
+source selection and prior task cleanup before allocating a new task. Its saved binding fixes
 task identity, repository routing, baseline and purpose. The resolver chooses the
 restricted research profile from that binding, never from prompt text. Discovery
 gets the fixed discovery read/submit tools; learning gets read/prepare/progress.
@@ -239,7 +242,7 @@ Neither profile can publish, edit code or start children. Existing model preflig
 Stop, runtime recovery and verified worktree cleanup controls apply.
 
 The Tasks list projects these runs as Learning items from the existing context
-run history. They open read-only Repository context activity, never an interactive
+run history, one item per task. They open read-only Repository context activity, never an interactive
 task screen. Generic send and steer endpoints reject noninteractive tasks;
 workflow-owned services retain their existing turn controls.
 

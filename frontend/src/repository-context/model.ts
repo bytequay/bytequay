@@ -255,7 +255,7 @@ export function batchNext(plan: ContextLearningPlanDto | null, build: ContextBui
   const batch = plan?.batch ?? null;
   const current = build.build;
   if (batch === null || current === null || currentRun(build) !== null || (current.requestKey !== batch.key && !current.requestKey.startsWith(`${batch.key}#`))) return null;
-  const last = build.runs.find(run => run.taskId === current.taskId);
+  const last = build.runs.find(run => run.sequence === build.buildRequestSequence);
   if (last === undefined || last.outcome === 'STOPPED' || last.outcome === 'FAILED') return null;
   const remaining = batchRemaining(plan);
   if (remaining.length === 0) return null;
@@ -284,8 +284,9 @@ export type TaskTitles = Record<string, string>;
 
 export function entryOrigin(entry: ContextEntryDto, times: ContextTimesDto, runs: ContextRunDto[], titles: TaskTitles): string {
   const taskId = times.entries[entryTimeKey(entry)]?.taskId ?? null;
-  const run = taskId === null ? undefined : runs.find(value => value.taskId === taskId);
-  if (run !== undefined) return runOrigin(run);
+  // A task can hold several runs; the one that saved the note names it, else the task's latest.
+  const run = taskId === null ? null : runs.find(value => value.taskId === taskId && value.noteIds.includes(entry.id)) ?? latestRun(runs, value => value.taskId === taskId);
+  if (run !== null) return runOrigin(run);
   if (taskId !== null && titles[taskId] !== undefined) return `Task “${titles[taskId]}”`;
   return entry.origin === 'USER' ? 'Saved by you' : 'Earlier learning';
 }
@@ -304,7 +305,7 @@ export function previousVersion(notebook: RepositoryNotebookDto, entryId: string
 
 /** What Disable notes from this run turns off: enabled notes the run added that are still at the version it saved. */
 export function runNotesToDisable(notebook: RepositoryNotebookDto, times: ContextTimesDto, run: ContextRunDto): ContextEntryDto[] {
-  return notesSavedBy(notebook, times, run.taskId).filter(entry => entry.enabled && previousVersion(notebook, entry.id) === undefined);
+  return notesSavedBy(notebook, times, run.taskId).filter(entry => run.noteIds.includes(entry.id) && entry.enabled && previousVersion(notebook, entry.id) === undefined);
 }
 
 export type ReviewItem = { url: string; origin: string; at: string };
@@ -312,7 +313,7 @@ export type ReviewItem = { url: string; origin: string; at: string };
 /** Needs you: sources learning runs want to read outside their approved boundary. */
 export function reviewItems(plan: ContextLearningPlanDto | null, runs: ContextRunDto[]): ReviewItem[] {
   return (plan?.documentInventory.suggestions ?? []).map(suggestion => {
-    const run = runs.find(value => value.taskId === suggestion.taskId);
+    const run = runs.find(value => value.taskId === suggestion.taskId && value.question?.topicId === suggestion.topicId && value.question.index === suggestion.question);
     return { url: suggestion.url, origin: run === undefined ? 'found by an earlier learning run' : `found in Learning run ${run.sequence}`, at: suggestion.foundAt };
   });
 }
@@ -393,7 +394,7 @@ export type StatusCard = {
   foot: null | { text: string; link: null | { label: string; action: StatusAction } };
   sourceApproval: string | null;
   /** The finished run whose notes Disable notes from this run turns off, and how many. */
-  disable: null | { taskId: string; sequence: number; notes: number };
+  disable: null | { taskId: string; sequence: number; noteIds: string[] };
 };
 
 export type StatusInput = {
@@ -554,11 +555,11 @@ export function statusCard(input: StatusInput): StatusCard {
       body: 'Saved notes are available to agents. Choose more topics under Learning opportunities.' };
   }
   if (last !== null && last.noteIds.length > 0) {
-    const disable = runNotesToDisable(notebook, input.times, last).length;
+    const disable = runNotesToDisable(notebook, input.times, last).map(entry => entry.id);
     const saved = `Run ${last.sequence} saved ${plural(last.noteIds.length, 'note')}.`;
     card.foot = { text: card.foot === null ? saved : `${card.foot.text} ${saved}`,
-      link: disable === 0 ? null : { label: 'Disable notes from this run', action: 'disable-notes' } };
-    if (disable > 0) card.disable = { taskId: last.taskId, sequence: last.sequence, notes: disable };
+      link: disable.length === 0 ? null : { label: 'Disable notes from this run', action: 'disable-notes' } };
+    if (disable.length > 0) card.disable = { taskId: last.taskId, sequence: last.sequence, noteIds: disable };
   }
   card.details = { label: 'Plan details', action: 'plan' };
   if (sources) card.sourceApproval = active.documentInventory.suggestions[0].url;

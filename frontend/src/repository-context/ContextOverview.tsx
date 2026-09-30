@@ -171,10 +171,11 @@ function StatusCardView({ data, actions, busy, pending }: { data: ContextData; a
       Stop the remaining agent runtime for this run. Its saved notes, progress and worktree are kept. {impact.liveProcess ? 'An agent process is still running.' : 'No live agent process was reported.'}
     </ConfirmDialog>}
     {disabling && card.disable !== null && <ConfirmDialog title="Disable notes from this run?" confirmLabel="Disable notes" busy={busy} onCancel={() => setDisabling(false)}
-      onConfirm={() => void actions.mutate(revision => window.bridge.disableRepositoryContextRunNotes(workspaceId, { expectedRevision: revision, taskId: card.disable.taskId }),
-        `${plural(card.disable.notes, 'note')} from Run ${card.disable.sequence} disabled · agents can’t find them · no agent run`).then(() => setDisabling(false))}>
-      Agents stop finding the {plural(card.disable.notes, 'note')} Run {card.disable.sequence} added that nobody has changed since. Nothing is deleted; you can
-      enable {card.disable.notes === 1 ? 'it' : 'them'} again from Notes. No agent run starts.
+      onConfirm={() => void actions.mutate(revision => window.bridge.disableRepositoryContextRunNotes(workspaceId, { expectedRevision: revision, taskId: card.disable.taskId,
+        noteIds: card.disable.noteIds }), `${plural(card.disable.noteIds.length, 'note')} from Run ${card.disable.sequence} disabled · agents can’t find them · no agent run`)
+        .then(() => setDisabling(false))}>
+      Agents stop finding the {plural(card.disable.noteIds.length, 'note')} Run {card.disable.sequence} added that nobody has changed since. Nothing is deleted; you can
+      enable {card.disable.noteIds.length === 1 ? 'it' : 'them'} again from Notes. No agent run starts.
     </ConfirmDialog>}
   </div>;
 }

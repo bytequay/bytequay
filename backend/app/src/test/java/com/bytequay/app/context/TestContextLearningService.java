@@ -840,7 +840,7 @@ class TestContextLearningService
 
     private static ContextBuildService.View finished(long sequence, ContextBuild build, ContextRun.Outcome outcome)
     {
-        return new ContextBuildService.View(sequence, 0, true, Optional.empty(), ImmutableList.of(new ContextRun(sequence, build.taskId(), build.mode(),
+        return new ContextBuildService.View(sequence, 0, true, Optional.empty(), ImmutableList.of(new ContextRun(build.sequence(), build.taskId(), build.mode(),
                 Instant.EPOCH, Optional.of(Instant.EPOCH), Optional.empty(), Optional.empty(), outcome, 0, 0, ImmutableList.of(), ImmutableList.of(),
                 Optional.empty(), Optional.empty())));
     }

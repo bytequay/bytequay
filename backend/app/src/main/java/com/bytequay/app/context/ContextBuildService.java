@@ -68,10 +68,17 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
-/** Runs one explicitly requested repository-learning task using the existing agent lifecycle. */
+/**
+ * Runs one explicitly requested repository-learning task using the existing agent lifecycle. A batch asks a topic's next
+ * question as a new turn of the same task, so the run keeps what it read; another topic or model starts a fresh task.
+ */
 @Service
 public class ContextBuildService
 {
+    /** Questions one task asks in turn before the batch starts a fresh task. */
+    // ponytail: fixed cap so a long thread does not carry every earlier question; raise it if provider compaction keeps threads focused.
+    static final int MAX_QUESTIONS_PER_TASK = 10;
+
     private static final Logger log = LoggerFactory.getLogger(ContextBuildService.class);
     private final ContextBuildStore builds;
     private final RepositoryContextService notebooks;
@@ -181,7 +188,11 @@ public class ContextBuildService
                 return view(workspaceId);
             }
             checkArgument(previous.map(ContextBuild::sequence).orElse(0L) == request.expectedBuildSequence(), "Build request sequence changed; inspect the latest build");
-            checkArgument(previous.map(this::canStartAfter).orElse(true),
+            Optional<ContextBuild> continued = previous.filter(build -> assignment.isPresent()
+                    && build.assignment().filter(asked -> asked.topicId().equals(assignment.orElseThrow().topicId())).isPresent()
+                    && taskStore.find(TaskId.valueOf(build.taskId()))
+                            .filter(task -> reusable(build, task, turns.findTurnByIdempotencyKey(task.id(), build.turnKey()))).isPresent());
+            checkArgument(continued.isPresent() || previous.map(this::canStartAfter).orElse(true),
                     "The previous learning task must finish and its worktree must be cleaned up before another request");
             RepositoryNotebook notebook = notebooks.getNotebook(workspaceId);
             checkArgument(notebook.revision() == request.expectedRevision(), "Notebook revision changed; inspect the latest configuration");
@@ -198,13 +209,13 @@ public class ContextBuildService
                     baselineSha.orElse("refs/remotes/" + workspace.sourceRemote() + "/" + workspace.defaultBranch()) + "^{commit}");
             checkArgument(resolved.successful() && !resolved.truncated() && resolved.output().strip().matches("[0-9a-f]{40}|[0-9a-f]{64}"),
                     "The current monitored baseline is unavailable");
-            TaskId id = TaskId.random();
+            TaskId id = continued.map(build -> TaskId.valueOf(build.taskId())).orElseGet(TaskId::random);
             String title = (mode == ContextBuild.Mode.DISCOVER ? "Discover " : investigation.isPresent() ? "Investigate " : "Learn ")
                     + workspace.monitoredRepository().fullName();
-            String branch = TaskBranches.generate(id, credentials.resolveGitHubCredential().profile().login(), title);
+            String branch = continued.map(ContextBuild::branch).orElseGet(() -> TaskBranches.generate(id, credentials.resolveGitHubCredential().profile().login(), title));
             ContextBuild build = new ContextBuild(Math.addExact(request.expectedBuildSequence(), 1), request.requestKey(), digest, workspaceId, id.toString(),
                     WorkflowAgentTasks.repositoryIdentity(workspace.selectedRepository()), RepositoryContextReader.repositoryId(workspace), workspace.monitoredRepository(),
-                    resolved.output().strip(), branch, lane.value(), new AgentTaskDefaults(Optional.of(model.model()), model.effort(), AgentPermissionPolicy.AUTO),
+                    resolved.output().strip(), branch, lane.value(), defaults(model),
                     request.scopeIds(), request.history(), documentation,
                     notebook.revision(), Instant.now(clock), ContextBuild.Capture.empty(), mode, assignment, continuesReport, investigation);
             Optional<ContextLearningPlan.Question> asked = WorkspaceOperationLocks.withLock(workspaceId, () -> {
@@ -215,10 +226,12 @@ public class ContextBuildService
                 return question;
             });
             try {
-                tasks.create(new CreateAgentTaskCommand(id, workspaceId, lane, build.physicalRepository(), build.baselineSha(), branch, title, build.defaults()));
+                if (continued.isEmpty()) {
+                    tasks.create(new CreateAgentTaskCommand(id, workspaceId, lane, build.physicalRepository(), build.baselineSha(), branch, title, build.defaults()));
+                }
                 coordinator.getObject().watch(build);
-                turns.start(new StartAgentTurnCommand(id, prompt(build, asked.map(question -> question.origin() != ContextLearningPlan.Origin.LEARNING).orElse(true)),
-                        ImmutableList.of(), build.turnKey()));
+                turns.start(new StartAgentTurnCommand(id, prompt(build, asked.map(question -> question.origin() != ContextLearningPlan.Origin.LEARNING).orElse(true),
+                        continued.isPresent()), ImmutableList.of(), build.turnKey()));
             }
             catch (RuntimeException failure) {
                 recordGap(workspaceId, build.taskId(), "Learning could not start or its response was interrupted: " + failure.getClass().getSimpleName());
@@ -263,9 +276,16 @@ public class ContextBuildService
         return task;
     }
 
+    /** Stop ends the batch as well, so a task kept open between two questions is cleaned up rather than asked the next one. */
     public View stop(String workspaceId, String taskId)
     {
         AgentTask task = task(workspaceId, taskId);
+        ContextBuild build = builds.find(workspaceId).orElseThrow();
+        WorkspaceOperationLocks.withLock(workspaceId, () -> {
+            plans.find(workspaceId).filter(plan -> plan.batch().filter(batch -> batch.owns(build.requestKey())).isPresent())
+                    .ifPresent(plan -> plans.save(Optional.of(plan), plan.withBatch(Optional.empty())));
+            return null;
+        });
         activeTurn(task).ifPresent(turn -> turns.cancel(turn.id()));
         return get(workspaceId);
     }
@@ -322,6 +342,9 @@ public class ContextBuildService
                         .ifPresent(active -> preparation.fail(workspaceId, active, "The learning task ended before submitting its preparation."));
                 return null;
             });
+            if (continuesBatch(workspaceId, build, task.orElseThrow(), turn)) {
+                return;
+            }
             // Mark-failed can discard an unverified recovery claim. A later read must not turn that choice into automatic worktree removal.
             if (task.orElseThrow().state() == TaskState.FAILED) {
                 coordinator.getObject().unwatch(taskId);
@@ -348,6 +371,34 @@ public class ContextBuildService
         finally {
             lock.unlock();
         }
+    }
+
+    /** The batch asks its next question as a new turn of this task when that question is in the same topic. */
+    private boolean continuesBatch(String workspaceId, ContextBuild build, AgentTask task, Optional<AgentTurn> turn)
+    {
+        return reusable(build, task, turn) && plans.find(workspaceId)
+                .flatMap(plan -> plan.batch().filter(batch -> batch.owns(build.requestKey()) && batch.ran().size() < ContextLearningPlan.Batch.MAX_RUNS)
+                        .flatMap(batch -> batch.remaining(plan).stream().findFirst()))
+                .filter(next -> next.topicId().equals(build.assignment().orElseThrow().topicId())).isPresent();
+    }
+
+    /** An idle task whose question ended normally, under its question cap and still on the model learning uses, can ask another question. */
+    private boolean reusable(ContextBuild build, AgentTask task, Optional<AgentTurn> turn)
+    {
+        if (build.assignment().isEmpty() || task.state() != TaskState.OPEN || task.worktreeMutationClaim().isPresent()
+                || turn.filter(value -> value.state() == TurnState.COMPLETED && value.cancellationRequestedAt().isEmpty()).isEmpty()) {
+            return false;
+        }
+        ContextRun.Outcome outcome = ContextRun.of(build, Optional.of(task), turn).outcome();
+        AgentModelSetting model = models.agentModel(AgentModelType.REVIEW, Optional.of(build.workspaceId()));
+        return outcome != ContextRun.Outcome.FAILED && outcome != ContextRun.Outcome.STOPPED
+                && builds.runs(build.workspaceId()).stream().filter(run -> run.taskId().equals(build.taskId())).count() + 1 < MAX_QUESTIONS_PER_TASK
+                && build.laneId().equals(model.configId()) && build.defaults().equals(defaults(model));
+    }
+
+    private static AgentTaskDefaults defaults(AgentModelSetting model)
+    {
+        return new AgentTaskDefaults(Optional.of(model.model()), model.effort(), AgentPermissionPolicy.AUTO);
     }
 
     void recordGap(String workspaceId, String taskId, String gap)
@@ -405,7 +456,7 @@ public class ContextBuildService
         });
         boolean canStart = found.map(this::canStartAfter).orElse(true);
         List<ContextRun> runs = ImmutableList.<ContextRun>builder().addAll(builds.runs(workspaceId).stream()
-                .filter(run -> found.filter(current -> current.taskId().equals(run.taskId())).isEmpty()).toList())
+                .filter(run -> found.filter(current -> current.sequence() == run.sequence()).isEmpty()).toList())
                 .addAll(found.map(this::run).stream().toList()).build();
         return new View(found.map(ContextBuild::sequence).orElse(0L), notebook.revision(), canStart, build, runs);
     }
@@ -433,8 +484,11 @@ public class ContextBuildService
         }
     }
 
-    /** A question from discovery, the user, a task or a review grows the plan; one a learning run added does not. */
-    private static String prompt(ContextBuild build, boolean grows)
+    /**
+     * A question from discovery, the user, a task or a review grows the plan; one a learning run added does not. A continued
+     * task already worked on other questions of the topic in this conversation.
+     */
+    private static String prompt(ContextBuild build, boolean grows, boolean continued)
     {
         if (build.mode() == ContextBuild.Mode.DISCOVER && build.continuesReport().isPresent()) {
             return "Continue the saved partial discovery of " + build.repository().fullName() + " at its recorded baseline " + build.baselineSha()
@@ -470,7 +524,9 @@ public class ContextBuildService
         }
         if (build.assignment().isPresent()) {
             ContextBuild.Assignment assignment = build.assignment().orElseThrow();
-            return "Learn one approved question for " + build.repository().fullName() + " at " + build.baselineSha() + " (topic " + assignment.topicTitle() + "): "
+            return (continued ? "The earlier questions in this conversation are finished; this turn asks a new one. Use what you read for them to "
+                            + "find your way, but cite only readIds from reads in this turn: read again what you cite. " : "")
+                    + "Learn one approved question for " + build.repository().fullName() + " at " + build.baselineSha() + " (topic " + assignment.topicTitle() + "): "
                     + assignment.question() + (assignment.progress().isEmpty() ? "" : " Saved progress from an earlier run: " + assignment.progress())
                     + " First check the question's assumption against the code. "
                     + (grows ? "If it does not hold, or the question is too broad, correct it with repository_context_progress: the reason, one to three "

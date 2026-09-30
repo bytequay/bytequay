@@ -43,7 +43,7 @@ import { ImageAttachment } from './ImageAttachment';
 import { ATTENTION_SEED } from '../home/attention';
 import type { TaskAttention } from './attention';
 import { TaskItemCard, TaskItemRow, TaskTypeIcon, viewerInitials, type TaskItemHandlers } from './TaskListCards';
-import { TASK_TYPES, cherryPickItem, ciFixItem, developmentItem, groupTaskList, learningItem, reviewItem, type TaskListItem, type TaskType } from './taskList';
+import { TASK_TYPES, cherryPickItem, ciFixItem, developmentItem, groupTaskList, learningItems, reviewItem, type TaskListItem, type TaskType } from './taskList';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 
 export type DraftImage = { id: string; name: string; url: string };
@@ -735,7 +735,7 @@ export default function AgentTasksView({
     ...work.reviews.map(reviewItem),
     ...work.executions.map(cherryPickItem),
     ...work.runs.map(ciFixItem),
-    ...work.learning.map(learningItem),
+    ...learningItems(work.learning),
   ], [work]);
   const openItem = useCallback((item: TaskListItem) => {
     const { review, execution, run, contextRun } = item;

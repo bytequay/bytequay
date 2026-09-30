@@ -95,7 +95,7 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
   const opener = useRef<HTMLElement | null>(null);
   const mounted = useRef(true);
   const inFlight = useRef(false);
-  const runningTask = useRef<string | null>(null);
+  const runningRun = useRef<number | null>(null);
 
   const say = useCallback((text: string) => setToast({ id: Date.now(), text }), []);
   const announce = useCallback(() => window.dispatchEvent(new CustomEvent(CONTEXT_CHANGED, { detail: workspaceId })), [workspaceId]);
@@ -160,10 +160,10 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
   }, [active, starting, workspaceId]);
 
   useEffect(() => {
-    const previous = runningTask.current;
-    runningTask.current = running?.taskId ?? null;
-    if (previous === null || running !== null || build === null) return;
-    const finished = build.runs.find(run => run.taskId === previous);
+    const previous = runningRun.current;
+    runningRun.current = running?.sequence ?? null;
+    if (previous === null || running?.sequence === previous || build === null) return;
+    const finished = build.runs.find(run => run.sequence === previous);
     void loadAll().then(announce).catch(cause => { if (mounted.current) setLoadError(failure(cause)); });
     if (finished !== undefined) say(finishMessage(finished));
   }, [announce, build, loadAll, running, say]);

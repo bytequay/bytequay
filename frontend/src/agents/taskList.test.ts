@@ -19,7 +19,7 @@ import type { ContextRunDto } from '../repository-context/contracts';
 import { CI_RUN } from './fixtures/ciAutofix';
 import { previewTask } from './fixtures/previewBridge';
 import { viewerInitials } from './TaskListCards';
-import { cherryPickItem, ciFixItem, developmentItem, groupTaskList, learningItem, reviewItem, type TaskListItem } from './taskList';
+import { cherryPickItem, ciFixItem, developmentItem, groupTaskList, learningItem, learningItems, reviewItem, type TaskListItem } from './taskList';
 
 function item(key: string, at: string, label: TaskListItem['state']['label'] = 'Idle'): TaskListItem {
   return {
@@ -96,11 +96,25 @@ describe('task list items', () => {
     const run: ContextRunDto = { sequence: 1, taskId: 'research', mode: 'DISCOVER', requestedAt: '2026-09-29T09:00:00Z', endedAt: null,
       question: null, pullRequest: null, outcome: 'RUNNING', sourceOperations: 4, documentOpens: 0, noteIds: [], detail: null, investigation: null,
       activity: [{ at: '2026-09-29T09:01:00Z', text: 'Read pom.xml', tone: 'DONE' }] };
-    expect(learningItem(run)).toMatchObject({ type: 'learning', title: 'Discovery run 1', task: null, contextRun: run,
+    expect(learningItem([run])).toMatchObject({ type: 'learning', title: 'Discovery run 1', task: null, contextRun: run,
       state: { label: 'Running' }, change: 'Running · read-only' });
-    const finished = learningItem({ ...run, mode: 'LEARN', outcome: 'STOPPED', endedAt: '2026-09-29T09:05:00Z' });
+    const finished = learningItem([{ ...run, mode: 'LEARN', outcome: 'STOPPED', endedAt: '2026-09-29T09:05:00Z' }]);
     expect(finished).toMatchObject({ title: 'Learning run 1', task: null, at: '2026-09-29T09:05:00Z', state: { label: 'Finished', spinning: false } });
     expect(finished.change).toContain('Stopped');
+  });
+
+  it('shows one card for a task that asked several questions of a topic, from its latest run', () => {
+    const question = { planId: 'plan', topicId: 'topic:1', topicTitle: 'Connector SPI', index: 0, text: 'Which hooks?' };
+    const base: ContextRunDto = { sequence: 3, taskId: 'shared', mode: 'LEARN', requestedAt: '2026-09-30T09:00:00Z', endedAt: '2026-09-30T09:05:00Z',
+      question, pullRequest: null, outcome: 'ANSWERED', sourceOperations: 4, documentOpens: 0, noteIds: [], detail: null, investigation: null,
+      activity: [{ at: '2026-09-30T09:04:00Z', text: 'Question answered', tone: 'DONE' }] };
+    const latest: ContextRunDto = { ...base, sequence: 4, endedAt: null, outcome: 'RUNNING', question: { ...question, index: 1, text: 'Which splits?' },
+      activity: [{ at: '2026-09-30T09:06:00Z', text: 'Read Connector.java', tone: 'DONE' }] };
+    const items = learningItems([base, latest, { ...base, sequence: 2, taskId: 'alone' }]);
+    expect(items.map(item => item.key)).toEqual(['learning:shared', 'learning:alone']);
+    expect(items[0]).toMatchObject({ title: 'Learning runs 3–4 · Connector SPI', contextRun: latest, state: { label: 'Running' },
+      message: { text: 'Read Connector.java' } });
+    expect(items[1].title).toBe('Learning run 2 · Connector SPI');
   });
 
   it('names a development task by its lane, or You, and leaves a pull request to the links', () => {

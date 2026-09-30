@@ -23,16 +23,16 @@ import type {
   ConfigureRepositoryContextRequest,
   ContextBuildViewDto,
   ContextBaselineDto,
-  ContextDraftActionRequest,
   ContextUsageOverviewDto,
   ContextUsageWindow,
   ContextDiscoveryReportDto,
   ContextLearningPlanViewDto,
   ContextTimesDto,
   DeclineContextLearningSourceRequest,
+  DisableRepositoryContextRunNotesRequest,
   EditRepositoryContextEntryRequest,
-  EditContextDraftRequest,
   RepositoryNotebookDto,
+  RestoreRepositoryContextEntryRequest,
   SaveRepositoryContextLessonRequest,
   SetRepositoryContextEntryEnabledRequest,
   StartContextDiscoveryRequest,
@@ -1651,10 +1651,9 @@ export type Bridge = JiraBridge & {
   cleanupRepositoryContextBuild: (workspaceId: string, taskId: string) => Promise<ContextBuildViewDto>;
   configureRepositoryContext: (workspaceId: string, request: ConfigureRepositoryContextRequest) => Promise<RepositoryNotebookDto>;
   editRepositoryContextEntry: (workspaceId: string, request: EditRepositoryContextEntryRequest) => Promise<RepositoryNotebookDto>;
-  editRepositoryContextDraft: (workspaceId: string, request: EditContextDraftRequest) => Promise<RepositoryNotebookDto>;
-  approveRepositoryContextDraft: (workspaceId: string, request: ContextDraftActionRequest) => Promise<RepositoryNotebookDto>;
-  dismissRepositoryContextDraft: (workspaceId: string, request: ContextDraftActionRequest) => Promise<RepositoryNotebookDto>;
   setRepositoryContextEntryEnabled: (workspaceId: string, request: SetRepositoryContextEntryEnabledRequest) => Promise<RepositoryNotebookDto>;
+  restoreRepositoryContextEntry: (workspaceId: string, request: RestoreRepositoryContextEntryRequest) => Promise<RepositoryNotebookDto>;
+  disableRepositoryContextRunNotes: (workspaceId: string, request: DisableRepositoryContextRunNotesRequest) => Promise<RepositoryNotebookDto>;
   saveRepositoryContextLesson: (workspaceId: string, request: SaveRepositoryContextLessonRequest) => Promise<RepositoryNotebookDto>;
   setWorkspaceCommitsTarget: (workspaceId: string, branch: string) => Promise<WorkspaceCommitsTargetDto>;
   clearWorkspaceCommitsTarget: (workspaceId: string) => Promise<WorkspaceCommitsTargetDto>;

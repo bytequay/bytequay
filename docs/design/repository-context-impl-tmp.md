@@ -2197,12 +2197,12 @@ Behavior: the [save rules](repository-context-refactor.md#1-one-saved-object-a-c
 [grades and reports](repository-context-refactor.md#grades-and-reports) and
 [the user interface](repository-context-refactor.md#8-user-interface).
 
-- [ ] Save learning-run and development-task notes as the active version under
+- [x] Save learning-run and development-task notes as the active version under
   the checks approval made; remove drafts, their endpoints and review UI; drop
   drafts saved by earlier builds when a notebook loads.
-- [ ] Keep each note's replaced text one level deep; add Restore and Disable
+- [x] Keep each note's replaced text one level deep; add Restore and Disable
   notes from this run; list the notes a task saved.
-- [ ] Check cited lines at the saver's base and reject updates and reports from
+- [x] Check cited lines at the saver's base and reject updates and reports from
   a base older than the note's sources.
 - [ ] Record Helped, Not relevant, Wrong and Holds grades and the user's Wrong
   report in a task-owned table; return open reports with exact reads; leave
@@ -2210,3 +2210,14 @@ Behavior: the [save rules](repository-context-refactor.md#1-one-saved-object-a-c
 - [ ] Mark contested notes, record settlements, and add Investigate as a
   one-question learning run with four outcomes and a root cause.
 - [ ] Verify each step with the backend and desktop build gates.
+
+The first three items landed together: the base check is what makes saving
+without approval safe. JVM 25 `mvn verify` passed 3,645 tests with no failures,
+errors or skips, and Checkstyle reported no violations. Frontend lint,
+TypeScript, all 1,408 tests across 136 files, and macOS packaging passed.
+Regressions cover direct task and learning-run saves, rejected updates of
+user-written or disabled notes and of stale versions, one-level Restore and its
+undo, evidence pruning, disabling only a run's untouched additions, loading
+notebooks and times saved with approval drafts, lines missing from the task's
+merge-base, and updates from a base older than the note. No live model run was
+used.

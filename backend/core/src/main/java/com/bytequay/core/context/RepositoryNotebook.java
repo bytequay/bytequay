@@ -26,7 +26,10 @@ import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toSet;
 
-/** Workspace-owned content and bounded extraction receipts; execution metadata does not change the content revision. */
+/**
+ * Workspace-owned content and bounded extraction receipts; execution metadata does not change the content revision.
+ * {@code replaced} keeps, one level deep, the version each text change replaced so the user can restore it.
+ */
 public record RepositoryNotebook(
         int schemaVersion,
         long revision,
@@ -35,7 +38,7 @@ public record RepositoryNotebook(
         List<RegisteredContextSource> sources,
         List<ContextScope> scopes,
         List<ContextEntry> entries,
-        List<ContextKnowledgeDraft> pendingDrafts,
+        List<ContextEntry> replaced,
         List<ContextSourceEvidence> sourceEvidence,
         Optional<ActiveContextPreparation> activePreparation)
 {
@@ -59,24 +62,22 @@ public record RepositoryNotebook(
         sources = ImmutableList.copyOf(sources);
         scopes = ImmutableList.copyOf(scopes);
         entries = ImmutableList.copyOf(entries);
-        pendingDrafts = ImmutableList.copyOf(pendingDrafts);
+        replaced = ImmutableList.copyOf(replaced);
         sourceEvidence = ImmutableList.copyOf(sourceEvidence);
         requireNonNull(activePreparation, "activePreparation is null");
         ContextLimits.unique(sources.stream().map(RegisteredContextSource::id).toList(), "sources", 200);
         ContextLimits.unique(scopes.stream().map(ContextScope::id).toList(), "scopes", 256);
         ContextLimits.unique(entries.stream().map(ContextEntry::id).toList(), "entries", ContextLimits.MAX_STORED_ENTRIES);
-        ContextLimits.unique(pendingDrafts.stream().map(ContextKnowledgeDraft::id).toList(), "drafts", ContextLimits.MAX_STORED_ENTRIES);
-        ContextLimits.unique(pendingDrafts.stream().map(draft -> draft.entry().id()).toList(), "draft entry ids", ContextLimits.MAX_STORED_ENTRIES);
-        checkArgument(Stream.concat(entries.stream().map(ContextEntry::id), pendingDrafts.stream().map(draft -> draft.entry().id())).distinct().count()
-                <= ContextLimits.MAX_STORED_ENTRIES, "Notebook has too many distinct note identities");
+        ContextLimits.unique(replaced.stream().map(ContextEntry::id).toList(), "replaced versions", ContextLimits.MAX_STORED_ENTRIES);
+        Map<String, Long> versions = entries.stream().collect(toImmutableMap(ContextEntry::id, ContextEntry::version));
+        checkArgument(replaced.stream().allMatch(old -> versions.containsKey(old.id()) && versions.get(old.id()) > old.version()),
+                "A replaced version must precede its note's current version");
         ContextLimits.unique(sourceEvidence.stream().map(ContextSourceEvidence::id).toList(), "source evidence", 4000);
         Set<String> scopeIds = scopes.stream().map(ContextScope::id).collect(toSet());
         Set<String> evidenceIds = sourceEvidence.stream().map(ContextSourceEvidence::id).collect(toSet());
         checkArgument(scopeIds.contains("project"), "Project scope is missing");
-        checkArgument(entries.stream().allMatch(entry -> scopeIds.contains(entry.scopeId())), "Entry scope is missing");
-        checkArgument(entries.stream().allMatch(entry -> evidenceIds.containsAll(entry.sourceIds())), "Entry evidence is missing");
-        checkArgument(pendingDrafts.stream().allMatch(draft -> scopeIds.contains(draft.entry().scopeId())), "Draft scope is missing");
-        checkArgument(pendingDrafts.stream().allMatch(draft -> evidenceIds.containsAll(draft.entry().sourceIds())), "Draft evidence is missing");
+        checkArgument(Stream.concat(entries.stream(), replaced.stream()).allMatch(entry -> scopeIds.contains(entry.scopeId())), "Entry scope is missing");
+        checkArgument(Stream.concat(entries.stream(), replaced.stream()).allMatch(entry -> evidenceIds.containsAll(entry.sourceIds())), "Entry evidence is missing");
         activePreparation.ifPresent(active -> {
             checkArgument(active.baseContentRevision() <= revision, "Preparation revision is newer than notebook content");
             checkArgument(active.inputs().stream().allMatch(input -> scopeIds.contains(input.scopeId())), "Active preparation scope is missing");
@@ -109,8 +110,7 @@ public record RepositoryNotebook(
                         "History evidence content identity differs");
             }
         }));
-        long proseBytes = entries.stream().mapToLong(ContextEntry::proseBytes).sum()
-                + pendingDrafts.stream().mapToLong(draft -> draft.entry().proseBytes() + ContextLimits.bytes(draft.explanation())).sum()
+        long proseBytes = Stream.concat(entries.stream(), replaced.stream()).mapToLong(ContextEntry::proseBytes).sum()
                 + results.stream().mapToLong(result -> ContextLimits.bytes(result.explanation())).sum()
                 + sourceEvidence.stream().mapToLong(source -> ContextLimits.bytes(source.excerpt()) + ContextLimits.bytes(source.provenance())).sum();
         checkArgument(proseBytes <= ContextLimits.MAX_PROSE_BYTES, "Notebook prose exceeds UTF-8 limit");

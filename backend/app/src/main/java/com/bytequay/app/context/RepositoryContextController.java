@@ -16,7 +16,6 @@ package com.bytequay.app.context;
 import com.bytequay.core.context.ContextClaim;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.google.common.collect.ImmutableList;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -69,22 +68,16 @@ public class RepositoryContextController
         return context.editEntry(workspaceId, request.expectedRevision(), edit);
     }
 
-    @PutMapping("/drafts")
-    public RepositoryNotebook editDraft(@PathVariable String workspaceId, @RequestBody DraftEditRequest request)
+    @PostMapping("/entries/restore")
+    public RepositoryNotebook restore(@PathVariable String workspaceId, @RequestBody RestoreRequest request)
     {
-        return context.editDraft(workspaceId, request.expectedRevision(), request.draftId(), request.title(), request.summary(), request.body(), request.claims());
+        return context.restoreEntry(workspaceId, request.expectedRevision(), request.entryId());
     }
 
-    @PostMapping("/drafts/approve")
-    public RepositoryNotebook approveDraft(@PathVariable String workspaceId, @RequestBody DraftActionRequest request)
+    @PostMapping("/runs/disable-notes")
+    public RepositoryNotebook disableRunNotes(@PathVariable String workspaceId, @RequestBody RunNotesRequest request)
     {
-        return context.approveDraft(workspaceId, request.expectedRevision(), request.draftId());
-    }
-
-    @DeleteMapping("/drafts")
-    public RepositoryNotebook dismissDraft(@PathVariable String workspaceId, @RequestBody DraftActionRequest request)
-    {
-        return context.dismissDraft(workspaceId, request.expectedRevision(), request.draftId());
+        return context.disableRunNotes(workspaceId, request.expectedRevision(), request.taskId());
     }
 
     @PutMapping("/entries/enabled")
@@ -147,25 +140,21 @@ public class RepositoryContextController
         }
     }
 
-    public record DraftEditRequest(Long expectedRevision, String draftId, String title, String summary, String body, List<ContextClaim> claims)
+    public record RestoreRequest(Long expectedRevision, String entryId)
     {
-        public DraftEditRequest
+        public RestoreRequest
         {
             requireRevision(expectedRevision);
-            requireNonNull(draftId, "draftId is null");
-            requireNonNull(title, "title is null");
-            requireNonNull(summary, "summary is null");
-            requireNonNull(body, "body is null");
-            claims = ImmutableList.copyOf(claims);
+            requireNonNull(entryId, "entryId is null");
         }
     }
 
-    public record DraftActionRequest(Long expectedRevision, String draftId)
+    public record RunNotesRequest(Long expectedRevision, String taskId)
     {
-        public DraftActionRequest
+        public RunNotesRequest
         {
             requireRevision(expectedRevision);
-            requireNonNull(draftId, "draftId is null");
+            requireNonNull(taskId, "taskId is null");
         }
     }
 

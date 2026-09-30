@@ -66,7 +66,7 @@ import static java.lang.Math.toIntExact;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
-/** Gives an accepted development turn a task-bound notebook lookup and pending-note proposal. */
+/** Gives an accepted development turn a task-bound notebook lookup and note saving. */
 @Component
 public class DevelopmentContextTools
         implements BridgeResolver<RepositoryContextBridge>
@@ -87,7 +87,8 @@ public class DevelopmentContextTools
             + "When you have a reusable finding backed by committed task code, PROPOSE a concise KNOWLEDGE or MEMORY note with one to three narrow file line ranges "
             + "that support it; pass entryId and entryVersion to update a note that current code shows is out of date. "
             + "Keep commit SHAs, run numbers and dates out of note text. "
-            + "The app captures those Git sources and queues the note for user approval. Proposing is optional and never activates a note or publishes it.";
+            + "The app captures those Git sources and saves the note; other tasks can use it at once, so save only what the cited lines support. "
+            + "Saving is optional and never publishes anything.";
 
     private final AgentTaskStore tasks;
     private final AgentTurnStore turns;
@@ -334,12 +335,12 @@ public class DevelopmentContextTools
         List<DevelopmentContextReceipt> prior = receipts.listTurn(task.id().toString(), turn.id().toString());
         List<DevelopmentContextReceipt> proposals = prior.stream()
                 .filter(receipt -> receipt.kind() == DevelopmentContextReceipt.Kind.PROPOSE).toList();
-        checkArgument(proposals.size() < PROPOSALS_PER_TURN, "This turn reached its three pending-note proposals");
+        checkArgument(proposals.size() < PROPOSALS_PER_TURN, "This turn reached its three saved notes");
         int priorBytes = proposals.stream().mapToInt(receipt -> decode(receipt.payloadJson(), TaskContextDraftService.Result.class).capturedBytes()).sum();
         checkArgument(priorBytes < PROPOSAL_CAPTURE_BYTES_PER_TURN, "This turn reached its task-note capture budget");
-        String draftId = "draft:task:" + digest(task.id() + "\n" + turn.id() + "\n" + key).substring(0, 32)
+        String operationId = "task:" + digest(task.id() + "\n" + turn.id() + "\n" + key).substring(0, 32)
                 + ":" + requestDigest.substring(0, 32);
-        TaskContextDraftService.Prepared prepared = drafts.prepare(task, proposal, draftId);
+        TaskContextDraftService.Prepared prepared = drafts.prepare(task, proposal, operationId);
         checkArgument(priorBytes + prepared.capturedBytes() <= PROPOSAL_CAPTURE_BYTES_PER_TURN,
                 "This turn reached its task-note capture budget");
         return unitOfWork.execute(() -> {
@@ -352,7 +353,7 @@ public class DevelopmentContextTools
                     "Context proposal requires the running development turn");
             TaskContextDraftService.Result result = drafts.commit(prepared);
             String output = encode(result);
-            save(receipt(task, turn, operationKey, result.draftId(), DevelopmentContextReceipt.Kind.PROPOSE, requestDigest, output));
+            save(receipt(task, turn, operationKey, operationId, DevelopmentContextReceipt.Kind.PROPOSE, requestDigest, output));
             return output;
         });
     }

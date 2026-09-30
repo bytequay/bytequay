@@ -340,7 +340,7 @@ class TestContextLearningService
 
         assertThatIllegalArgumentException().isThrownBy(() -> learning.continueLearning(WORKSPACE,
                 new ContextLearningService.ContinueRequest("continue", saved.revision(), 0, mismatched.id())))
-                .withMessageContaining("Discard this learning plan").withMessageContaining("saved notes and drafts are kept");
+                .withMessageContaining("Discard this learning plan").withMessageContaining("saved notes are kept");
         assertThatIllegalArgumentException().isThrownBy(() -> learning.require(task(mismatched, "topic:1", 0)))
                 .withMessageContaining("Saved note paths do not match");
         verify(builds, times(1)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), any());
@@ -387,7 +387,7 @@ class TestContextLearningService
 
         assertThatIllegalArgumentException().isThrownBy(() -> learning.continueLearning(WORKSPACE,
                 new ContextLearningService.ContinueRequest("continue", saved.revision(), 0, legacy.id())))
-                .withMessageContaining("note applicability").withMessageContaining("saved notes and drafts are kept");
+                .withMessageContaining("note applicability").withMessageContaining("saved notes are kept");
         assertThatIllegalArgumentException().isThrownBy(() -> learning.require(task(legacy, "topic:1", 0)))
                 .withMessageContaining("note applicability");
 

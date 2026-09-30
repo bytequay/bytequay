@@ -19,6 +19,7 @@ import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.app.agent.WorkflowAgentTasks;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextEntryKind;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextSourceEvidence;
@@ -29,12 +30,15 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.UUID;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.toSet;
 
-/** Captures proposed task notes from committed Git objects in the task-owned worktree. */
+/** Captures task notes from committed Git objects in the task-owned worktree and saves them. */
 @Service
 public class TaskContextDraftService
 {
@@ -42,18 +46,20 @@ public class TaskContextDraftService
     private final WorkspaceRepositoryService workspaces;
     private final ContextBaselineReader reader;
     private final RepositoryContextService notebooks;
+    private final ContextSourceChecker checker;
 
     public TaskContextDraftService(WorktreeService worktrees, WorkspaceRepositoryService workspaces,
-            ContextBaselineReader reader, RepositoryContextService notebooks)
+            ContextBaselineReader reader, RepositoryContextService notebooks, ContextSourceChecker checker)
     {
         this.worktrees = requireNonNull(worktrees, "worktrees is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.reader = requireNonNull(reader, "reader is null");
         this.notebooks = requireNonNull(notebooks, "notebooks is null");
+        this.checker = requireNonNull(checker, "checker is null");
     }
 
     /** Performs Git reads before the notebook/receipt write transaction. Agent text is never used as source evidence. */
-    public Prepared prepare(AgentTask task, Proposal proposal, String draftId)
+    public Prepared prepare(AgentTask task, Proposal proposal, String operationId)
     {
         requireNonNull(task, "task is null");
         requireNonNull(proposal, "proposal is null");
@@ -65,7 +71,7 @@ public class TaskContextDraftService
         checkArgument(task.repository().equals(tree.physicalRepository())
                 && task.repository().equals(WorkflowAgentTasks.repositoryIdentity(routing.selectedRepository())),
                 "Task repository differs from the selected workspace repository");
-        long revision = notebooks.getNotebook(workspaceId).revision();
+        RepositoryNotebook notebook = notebooks.getNotebook(workspaceId);
         String head = worktrees.inspect(tree).head();
         WorkspaceRepositoryContext snapshot = new WorkspaceRepositoryContext(workspaceId, tree.canonicalWorktree(),
                 routing.selectedRepositoryId(), routing.selectedRepository(), OptionalLong.empty(),
@@ -81,24 +87,31 @@ public class TaskContextDraftService
         }).collect(ImmutableList.toImmutableList());
         int capturedBytes = captured.stream().mapToInt(source -> ContextLimits.bytes(source.excerpt())).sum();
         checkArgument(capturedBytes <= 24 * 1024, "Task note captures exceed 24 KiB");
+        String base = checker.base(workspaceId, head)
+                .orElseThrow(() -> new IllegalArgumentException("The monitored branch is not available locally, so cited lines cannot be checked against it"));
+        checker.requireAtBase(workspaceId, base, captured.stream().collect(toImmutableMap(ContextSourceEvidence::id, source -> source)));
+        proposal.entryId().ifPresent(id -> {
+            Set<String> cited = notebook.entries().stream().filter(entry -> entry.id().equals(id)).flatMap(entry -> entry.sourceIds().stream()).collect(toSet());
+            checkArgument(!checker.newerThan(workspaceId, base, notebook.sourceEvidence().stream().filter(source -> cited.contains(source.id())).toList()),
+                    "This note was saved from code newer than this task's base; don't update it from older code");
+        });
         checkArgument(worktrees.inspect(tree).head().equals(head), "Task HEAD changed while capturing note evidence");
-        RepositoryContextService.TaskDraftProposal draft = new RepositoryContextService.TaskDraftProposal(draftId, task.id().toString(), proposal.kind(),
+        RepositoryContextService.TaskNote note = new RepositoryContextService.TaskNote(operationId, task.id().toString(), proposal.kind(),
                 proposal.scopeId(), proposal.entryId(), proposal.entryVersion(), proposal.title(), proposal.summary(), proposal.body(), head, captured);
-        return new Prepared(workspaceId, revision, tree, draft, capturedBytes);
+        return new Prepared(workspaceId, notebook.revision(), tree, note, capturedBytes);
     }
 
-    /** Writes only the pending draft. A changed HEAD or notebook revision requires a new proposal. */
+    /** Saves the note as the active version. A changed HEAD or notebook revision requires a new proposal. */
     public Result commit(Prepared prepared)
     {
         requireNonNull(prepared, "prepared is null");
-        checkArgument(worktrees.inspect(prepared.tree()).head().equals(prepared.proposal().baselineSha()),
-                "Task HEAD changed before saving the draft");
-        RepositoryNotebook updated = notebooks.proposeTaskDraft(prepared.workspaceId(), prepared.expectedRevision(), prepared.proposal());
-        var saved = updated.pendingDrafts().stream()
-                .filter(draft -> draft.id().equals(prepared.proposal().draftId()))
-                .findFirst().orElseThrow(() -> new IllegalStateException("Task proposal was not retained"));
-        return new Result(saved.id(), saved.entry().id(), updated.revision(), prepared.proposal().baselineSha(),
-                saved.entry().sourceIds(), prepared.capturedBytes(), "PENDING_APPROVAL");
+        RepositoryContextService.TaskNote note = prepared.note();
+        checkArgument(worktrees.inspect(prepared.tree()).head().equals(note.baselineSha()), "Task HEAD changed before saving the note");
+        RepositoryNotebook updated = notebooks.saveTaskNote(prepared.workspaceId(), prepared.expectedRevision(), note);
+        String id = note.entryId().orElseGet(() -> RepositoryContextService.taskNoteId(note));
+        ContextEntry saved = updated.entries().stream().filter(entry -> entry.id().equals(id)).findFirst()
+                .orElseThrow(() -> new IllegalStateException("Task note was not retained"));
+        return new Result(saved.id(), saved.version(), updated.revision(), note.baselineSha(), saved.sourceIds(), prepared.capturedBytes(), "ACTIVE");
     }
 
     public record Source(String path, int startLine, Optional<Integer> endLine)
@@ -131,8 +144,9 @@ public class TaskContextDraftService
     }
 
     public record Prepared(String workspaceId, long expectedRevision, TaskWorktree tree,
-            RepositoryContextService.TaskDraftProposal proposal, int capturedBytes) {}
+            RepositoryContextService.TaskNote note, int capturedBytes) {}
 
-    public record Result(String draftId, String entryId, long notebookRevision, String committedHead,
+    /** What the agent sees after saving; other tasks can find the saved version at once. */
+    public record Result(String entryId, long entryVersion, long notebookRevision, String committedHead,
             List<String> sourceEvidenceIds, int capturedBytes, String status) {}
 }

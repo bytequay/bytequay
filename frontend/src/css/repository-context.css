@@ -88,8 +88,6 @@
 .rcp-btn--secondary:hover:not(:disabled) { background: #eef1f4; border-color: #b6bcc4; }
 .rcp-btn--danger { color: #cf222e; }
 .rcp-btn--danger:hover:not(:disabled) { background: #fff5f5; }
-.rcp-btn--solid-danger { border-color: rgba(31, 35, 40, 0.15); background: #cf222e; color: #fff; }
-.rcp-btn--solid-danger:hover:not(:disabled) { background: #a40e26; }
 .rcp-btn--sm { height: 30px; font-size: 12.5px; }
 .rcp-btn--xs { height: 28px; padding: 0 10px; font-size: 12.5px; }
 .rcp-btn:disabled:not(.rcp-btn--primary) { opacity: 0.55; cursor: not-allowed; }
@@ -373,9 +371,6 @@
 .rcp-close { width: 28px; height: 28px; border: 0; border-radius: 6px; background: transparent; color: #57606a; cursor: pointer; display: inline-flex; align-items: center;
   justify-content: center; }
 .rcp-close:hover { background: #eef1f4; }
-.rcp-pager { font-size: 12px; color: #57606a; white-space: nowrap; }
-.rcp-pager-btn { width: 26px; height: 26px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; color: #57606a; cursor: pointer; padding: 0; }
-.rcp-pager-btn:disabled { opacity: 0.45; cursor: default; }
 .rcp-note-title { font-size: 17px; font-weight: 600; margin-top: 10px; line-height: 1.35; text-wrap: pretty; }
 .rcp-applies { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; font-size: 12px; color: #57606a; }
 .rcp-applies .rcp-path-chip { padding: 0 6px; color: #1f2328; }
@@ -391,7 +386,6 @@
 .rcp-diff__sign { font-family: var(--mono); width: 12px; flex: none; font-weight: 700; color: #1a7f37; }
 .rcp-diff__line.is-del .rcp-diff__sign { color: #cf222e; }
 .rcp-diff__text { flex: 1; text-wrap: pretty; overflow-wrap: anywhere; }
-.rcp-view-note { font-size: 12px; font-weight: 600; color: #1a7f37; margin-bottom: 8px; }
 .rcp-summary { font-size: 14px; line-height: 1.55; text-wrap: pretty; }
 .rcp-body { margin-top: 12px; font-size: 13.5px; line-height: 1.55; }
 .rcp-body .markdown-body { font-size: 13.5px; }
@@ -528,18 +522,15 @@
 .rcp-adv-add { display: flex; gap: 8px; margin-top: 10px; }
 .rcp-adv-add input { flex: 1; min-width: 0; height: 30px; padding: 0 10px; border: 1px solid #d0d7de; border-radius: 6px; font-size: 12.5px; box-sizing: border-box; }
 
-/* A task's own draft after its transcript, on the shared card base; it opens the same review drawer as the page. */
-.rcx-draft { margin: 16px 0 4px; overflow: hidden; }
-.rcx-draft__head { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid #eceff2; background: #f6f8fa; font-size: 12.5px; color: #57606a; }
-.rcx-draft__label { color: #1f2328; }
-.rcx-draft__body { padding: 12px 14px 14px; }
-.rcx-draft__title { font-size: 13px; line-height: 18px; color: #1f2328; }
-.rcx-draft__summary { margin-top: 4px; font-size: 12.5px; line-height: 1.5; color: #57606a; }
-.rcx-draft__meta { margin-top: 8px; font-size: 12px; color: #656d76; }
-.rcx-draft__meta .rcp-code { margin-left: 4px; }
-.rcx-draft__actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; font-size: 12px; color: #656d76; }
-.rcx-draft .rcp-btn { font-weight: 400; }
-.rcx-draft .rcp-btn:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
+/* A note the task saved, after its transcript, on the shared card base; it opens Repository context. */
+.rcx-note { margin: 16px 0 4px; overflow: hidden; }
+.rcx-note__head { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid #eceff2; background: #f6f8fa; font-size: 12.5px; color: #57606a; }
+.rcx-note__label { color: #1f2328; }
+.rcx-note__body { padding: 12px 14px 14px; }
+.rcx-note__title { font-size: 13px; line-height: 18px; color: #1f2328; }
+.rcx-note__summary { margin-top: 4px; font-size: 12.5px; line-height: 1.5; color: #57606a; }
+.rcx-note__meta { margin-top: 8px; font-size: 12px; color: #656d76; }
+.rcx-note__meta .rcp-code { margin-left: 4px; }
 
 @container rcp (max-width: 600px) {
   .rcp-scroll { padding: 22px 20px 140px; }

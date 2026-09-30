@@ -1,7 +1,6 @@
 # Repository context: discover, learn, and use
 
-Status: implemented and verified by automated tests, except saving notes
-without approval, checking cited code at the saver's base, and
+Status: implemented and verified by automated tests, except
 [grades and reports](#grades-and-reports), which are approved and not yet
 implemented and have
 [their own checklist](repository-context-impl-tmp.md#save-notes-without-approval).

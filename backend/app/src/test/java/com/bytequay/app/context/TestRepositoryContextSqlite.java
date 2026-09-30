@@ -26,7 +26,6 @@ import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.ContextInputFingerprint;
-import com.bytequay.core.context.ContextKnowledgeDraft;
 import com.bytequay.core.context.ContextMatch;
 import com.bytequay.core.context.ContextPreparationResult;
 import com.bytequay.core.context.ContextReference;
@@ -188,28 +187,27 @@ class TestRepositoryContextSqlite
     }
 
     @Test
-    void pendingDraftRoundTripsAndBecomesActiveOnlyAfterApproval()
+    void replacedVersionRoundTripsAndRestores()
     {
         ContextSourceEvidence source = new ContextSourceEvidence("captured", new ContextReference.Document("docs", "https://example.com/docs/page"),
                 "Captured document", "Connector contract", ContextSourceEvidence.Capture.BYTEQUAY_READ,
                 Optional.of(Instant.EPOCH), Optional.empty(), Optional.empty(), false);
-        ContextEntry proposed = new ContextEntry("knowledge:project:connector", KNOWLEDGE, "project", "Connector", "Contract summary", "Contract body",
+        ContextEntry earlier = new ContextEntry("knowledge:project:connector", KNOWLEDGE, "project", "Connector", "Contract summary", "Contract body",
                 ImmutableList.of(new ContextClaim("Contract", ContextClaim.Basis.DOCUMENTED, ImmutableList.of(source.id()))),
                 ImmutableList.of(source.id()), ContextEntryOrigin.GENERATED, true, 1);
-        ContextKnowledgeDraft draft = new ContextKnowledgeDraft("draft:connector", proposed, Optional.empty(), "a".repeat(40), "Read connector documentation");
+        ContextEntry current = new ContextEntry(earlier.id(), KNOWLEDGE, "project", "Connector", "Newer summary", "Newer body",
+                earlier.claims(), earlier.sourceIds(), ContextEntryOrigin.GENERATED, true, 2);
         RepositoryNotebook empty = context.getNotebook(workspaceId);
-        RepositoryNotebook pending = context.savePreparation(workspaceId, empty, new RepositoryNotebook(1, 1, true, true,
-                empty.sources(), empty.scopes(), empty.entries(), ImmutableList.of(draft),
-                ImmutableList.of(source), Optional.empty()));
+        RepositoryNotebook saved = context.savePreparation(workspaceId, empty, new RepositoryNotebook(1, 2, true, true,
+                empty.sources(), empty.scopes(), ImmutableList.of(current), ImmutableList.of(earlier), ImmutableList.of(source), Optional.empty()));
         RepositoryContextService recreated = new RepositoryContextService(settings, mapper, workspaces, reviews, Clock.systemUTC());
-        assertThat(recreated.getNotebook(workspaceId)).isEqualTo(pending);
-        assertThat(pending.entries()).isEmpty();
+        assertThat(recreated.getNotebook(workspaceId)).isEqualTo(saved);
 
-        RepositoryNotebook approved = recreated.approveDraft(workspaceId, pending.revision(), draft.id());
-        assertThat(approved.pendingDrafts()).isEmpty();
-        assertThat(approved.entries()).containsExactly(new ContextEntry(proposed.id(), proposed.kind(), proposed.scopeId(), proposed.title(),
-                proposed.summary(), proposed.body(), proposed.claims(), proposed.sourceIds(), proposed.origin(), true, approved.revision()));
-        assertThat(context.getNotebook(workspaceId)).isEqualTo(approved);
+        RepositoryNotebook restored = recreated.restoreEntry(workspaceId, saved.revision(), earlier.id());
+        assertThat(restored.entries()).containsExactly(new ContextEntry(earlier.id(), earlier.kind(), earlier.scopeId(), earlier.title(),
+                earlier.summary(), earlier.body(), earlier.claims(), earlier.sourceIds(), earlier.origin(), true, restored.revision()));
+        assertThat(restored.replaced()).containsExactly(current);
+        assertThat(context.getNotebook(workspaceId)).isEqualTo(restored);
     }
 
     @Test
@@ -332,7 +330,7 @@ class TestRepositoryContextSqlite
         when(repositories.requireReadableRepository(workspaceId)).thenReturn(new WorkspaceRepositoryContext(workspaceId, Path.of(workspace.localRepositoryPath()),
                 workspace.monitoredRepositoryId(), workspace.monitoredRepository(), OptionalLong.empty(), workspace.monitoredRepository(),
                 "origin", "origin", "main", ImmutableList.of()));
-        RepositoryContextPreparation preparation = new RepositoryContextPreparation(context, inputs, repositories);
+        RepositoryContextPreparation preparation = new RepositoryContextPreparation(context, inputs, repositories, mock(ContextSourceChecker.class));
         CountDownLatch inspecting = new CountDownLatch(2);
         CountDownLatch releaseInspection = new CountDownLatch(1);
         when(inputs.capture(any(), any(), any(), anyList())).thenAnswer(_ -> {

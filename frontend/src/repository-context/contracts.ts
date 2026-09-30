@@ -25,9 +25,6 @@ export type ContextEntryDto = {
   id: string; kind: 'KNOWLEDGE' | 'MEMORY'; scopeId: string; title: string; summary: string; body: string;
   claims: ContextClaimDto[]; sourceIds: string[]; origin: ContextOrigin; enabled: boolean; version: number;
 };
-export type ContextKnowledgeDraftDto = {
-  id: string; entry: ContextEntryDto; replacesVersion: number | null; baselineSha: string;
-};
 type RepositoryIdentity = { owner: string; repo: string };
 export type ContextReferenceDto =
   | { kind: 'REPOSITORY_FILE'; repositoryId: number; repository: RepositoryIdentity; path: string; commit: string }
@@ -38,9 +35,10 @@ export type ContextReferenceDto =
 export type ContextSourceEvidenceDto = {
   id: string; reference: ContextReferenceDto; provenance: string; capture: 'BYTEQUAY_READ' | 'AGENT_REPORTED'; retrievedAt: string | null;
 };
+/** {@code replaced} holds, for some entries, the version their last text change replaced; Restore makes it current again. */
 export type RepositoryNotebookDto = {
   schemaVersion: number; revision: number; useInReviews: boolean; useInDevelopment: boolean; sources: ContextSourceDto[]; scopes: ContextScopeDto[];
-  entries: ContextEntryDto[]; pendingDrafts: ContextKnowledgeDraftDto[]; sourceEvidence: ContextSourceEvidenceDto[];
+  entries: ContextEntryDto[]; replaced: ContextEntryDto[]; sourceEvidence: ContextSourceEvidenceDto[];
 };
 export type ContextSelectedEntryDto = {
   entryId: string; entryVersion: number; title: string; text: string | null; sourceEvidenceRefs: Record<string, string>;
@@ -110,8 +108,8 @@ export type ContextRunDto = {
 };
 export type ContextBaselineDto = { branch: string; sha: string };
 export type ContextTimeStampDto = { at: string; taskId: string | null };
-/** Approval and proposal times kept beside the notebook; content saved before stamping began has none. */
-export type ContextTimesDto = { entries: Record<string, ContextTimeStampDto>; drafts: Record<string, ContextTimeStampDto> };
+/** When each note version was saved, and by which agent task; content saved before stamping began has none. */
+export type ContextTimesDto = { entries: Record<string, ContextTimeStampDto> };
 export type ContextBuildViewDto = {
   buildRequestSequence: number; notebookRevision: number; canStart: boolean; runs: ContextRunDto[];
   build: null | {
@@ -155,9 +153,10 @@ export type ConfigureRepositoryContextRequest = {
 export type EditRepositoryContextEntryRequest = {
   expectedRevision: number; id: string; scopeId: string; title: string; summary: string; body: string; claims: ContextClaimDto[]; sourceIds: string[];
 };
-export type ContextDraftActionRequest = { expectedRevision: number; draftId: string };
-export type EditContextDraftRequest = ContextDraftActionRequest & { title: string; summary: string; body: string; claims: ContextClaimDto[] };
 export type SetRepositoryContextEntryEnabledRequest = { expectedRevision: number; entryId: string; enabled: boolean };
+export type RestoreRepositoryContextEntryRequest = { expectedRevision: number; entryId: string };
+/** Disables the notes the run's task added that nobody changed since. */
+export type DisableRepositoryContextRunNotesRequest = { expectedRevision: number; taskId: string };
 export type SaveRepositoryContextLessonRequest = {
   expectedRevision: number; scopeId: string; title: string; summary: string; body: string; reviewId: string; runId: string;
   evidenceRefs: string[]; messageId?: string | null;
@@ -222,12 +221,6 @@ function entry(value: unknown): ContextEntryDto {
     body: text(item.body, 'entry body'), claims: array(item.claims, 'entry claims', claim), sourceIds: strings(item.sourceIds, 'entry sources'),
     origin: oneOf(item.origin, ['USER', 'GENERATED'], 'entry origin'), enabled: flag(item.enabled, 'entry enabled'), version: count(item.version, 'entry version', 1) };
 }
-function knowledgeDraft(value: unknown): ContextKnowledgeDraftDto {
-  const item = object(value, 'knowledge draft');
-  const proposed = entry(item.entry);
-  return { id: text(item.id, 'draft id'), entry: proposed, replacesVersion: item.replacesVersion === null ? null : count(item.replacesVersion, 'replaced version', 1),
-    baselineSha: text(item.baselineSha, 'draft baseline') };
-}
 function reference(value: unknown): ContextReferenceDto {
   const item = object(value, 'source reference');
   const kind = oneOf(item.kind, ['REPOSITORY_FILE', 'PR', 'ISSUE', 'TASK', 'REVIEW', 'DOCUMENT'], 'source reference kind');
@@ -256,7 +249,7 @@ export function parseRepositoryNotebook(value: unknown): RepositoryNotebookDto {
   return { schemaVersion: 1, revision: count(item.revision, 'notebook revision'), useInReviews: flag(item.useInReviews, 'review preference'),
     useInDevelopment: flag(item.useInDevelopment, 'development preference'),
     sources: array(item.sources, 'sources', source), scopes: array(item.scopes, 'scopes', scope), entries: array(item.entries, 'entries', entry),
-    pendingDrafts: array(item.pendingDrafts, 'pending drafts', knowledgeDraft), sourceEvidence: array(item.sourceEvidence, 'source evidence', evidence) };
+    replaced: array(item.replaced, 'replaced versions', entry), sourceEvidence: array(item.sourceEvidence, 'source evidence', evidence) };
 }
 function inputFingerprint(value: unknown): ContextInputFingerprintDto {
   const input = object(value, 'input fingerprint');
@@ -547,11 +540,10 @@ export function parseContextBaseline(value: unknown): ContextBaselineDto | null 
 }
 export function parseContextTimes(value: unknown): ContextTimesDto {
   const item = object(value, 'context times');
-  const stamps = (field: string) => Object.fromEntries(Object.entries(object(item[field], field)).map(([key, raw]) => {
+  return { entries: Object.fromEntries(Object.entries(object(item.entries, 'entries')).map(([key, raw]) => {
     const stamp = object(raw, 'time stamp');
     return [key, { at: text(stamp.at, 'stamp time'), taskId: optionalText(stamp.taskId, 'stamp task') }];
-  }));
-  return { entries: stamps('entries'), drafts: stamps('drafts') };
+  })) };
 }
 export function parseContextBuildView(value: unknown, workspaceId: string): ContextBuildViewDto {
   const item = object(value, 'build view');
@@ -607,19 +599,17 @@ export function parseEditRepositoryContextEntryRequest(value: unknown): EditRepo
     title: text(item.title, 'entry title'), summary: text(item.summary, 'entry summary'), body: text(item.body, 'entry body'),
     claims: array(item.claims, 'claims', claim), sourceIds: strings(item.sourceIds, 'entry sources') };
 }
-export function parseContextDraftActionRequest(value: unknown): ContextDraftActionRequest {
-  const item = request(value, ['expectedRevision', 'draftId']);
-  return { expectedRevision: count(item.expectedRevision, 'expected revision'), draftId: text(item.draftId, 'draft id') };
-}
-export function parseEditContextDraftRequest(value: unknown): EditContextDraftRequest {
-  const item = request(value, ['expectedRevision', 'draftId', 'title', 'summary', 'body', 'claims']);
-  return { expectedRevision: count(item.expectedRevision, 'expected revision'), draftId: text(item.draftId, 'draft id'),
-    title: text(item.title, 'draft title'), summary: text(item.summary, 'draft summary'), body: text(item.body, 'draft body'),
-    claims: array(item.claims, 'draft claims', claim) };
-}
 export function parseSetRepositoryContextEntryEnabledRequest(value: unknown): SetRepositoryContextEntryEnabledRequest {
   const item = request(value, ['expectedRevision', 'entryId', 'enabled']);
   return { expectedRevision: count(item.expectedRevision, 'expected revision'), entryId: text(item.entryId, 'entry id'), enabled: flag(item.enabled, 'entry enabled') };
+}
+export function parseRestoreRepositoryContextEntryRequest(value: unknown): RestoreRepositoryContextEntryRequest {
+  const item = request(value, ['expectedRevision', 'entryId']);
+  return { expectedRevision: count(item.expectedRevision, 'expected revision'), entryId: nonblank(item.entryId, 'restored entry id') };
+}
+export function parseDisableRepositoryContextRunNotesRequest(value: unknown): DisableRepositoryContextRunNotesRequest {
+  const item = request(value, ['expectedRevision', 'taskId']);
+  return { expectedRevision: count(item.expectedRevision, 'expected revision'), taskId: nonblank(item.taskId, 'run task') };
 }
 export function parseSaveRepositoryContextLessonRequest(value: unknown): SaveRepositoryContextLessonRequest {
   const item = request(value, ['expectedRevision', 'scopeId', 'title', 'summary', 'body', 'reviewId', 'runId', 'evidenceRefs', 'messageId']);

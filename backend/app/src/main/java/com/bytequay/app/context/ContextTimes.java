@@ -23,20 +23,19 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 /**
- * When each retained note version and pending draft appeared, and which task proposed it. This is presentation data
- * kept beside the notebook, so the notebook's persisted shape and its approved notes stay unchanged.
+ * When each retained note version appeared, and which task saved it. This is presentation data kept beside the
+ * notebook, so the notebook's persisted shape stays unchanged.
  */
-public record ContextTimes(Map<String, Stamp> entries, Map<String, Stamp> drafts)
+public record ContextTimes(Map<String, Stamp> entries)
 {
     public ContextTimes
     {
         entries = ImmutableMap.copyOf(entries);
-        drafts = ImmutableMap.copyOf(drafts);
     }
 
     public static ContextTimes empty()
     {
-        return new ContextTimes(ImmutableMap.of(), ImmutableMap.of());
+        return new ContextTimes(ImmutableMap.of());
     }
 
     /** Versions come from the notebook revision, so a version prefix keeps every retained version distinct. */
@@ -51,7 +50,7 @@ public record ContextTimes(Map<String, Stamp> entries, Map<String, Stamp> drafts
         {
             requireNonNull(at, "at is null");
             requireNonNull(taskId, "taskId is null");
-            taskId.ifPresent(value -> ContextLimits.text(value, "proposing task", 200));
+            taskId.ifPresent(value -> ContextLimits.text(value, "saving task", 200));
         }
     }
 }

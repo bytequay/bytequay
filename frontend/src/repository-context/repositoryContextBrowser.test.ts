@@ -17,10 +17,10 @@ import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixtu
 // Set BYTEQUAY_CONTEXT_SCREENSHOTS to a directory to also capture every state at desktop and narrow widths.
 const SHOTS = [
   ['01-new', 'fresh'], ['02-discovering', 'discovering'], ['03-suggested', 'suggested:select'], ['04-coverage', 'suggested:coverage'],
-  ['05-learning', 'learning'], ['06-review', 'review'], ['07-draft', 'review:draft'], ['08-update', 'review:update'], ['09-plan', 'review:plan'],
+  ['05-learning', 'learning'], ['06-review', 'review'], ['07-note', 'review:note'], ['08-changes', 'review:changes'], ['09-plan', 'review:plan'],
   ['10-sources', 'review:sources'], ['11-notes', 'review:notes'], ['12-usage', 'review:usage'], ['13-advanced', 'review:advanced'], ['14-agent-use', 'review:use'],
-  ['15-home-explore', 'home'], ['16-task-draft', 'task'],
-  ['17-learning-run', 'learning:run'], ['18-learning-tasks', 'learning:tasks'],
+  ['15-home-explore', 'home'], ['16-task-notes', 'task'],
+  ['17-learning-run', 'learning:run'], ['18-learning-tasks', 'learning:tasks'], ['19-disable-notes', 'review:disable'],
 ];
 
 it('keeps every repository context run explicit and every review action run-free in Chromium', async () => {

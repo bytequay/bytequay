@@ -19,8 +19,8 @@ import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.context.ActiveContextPreparation;
 import com.bytequay.core.context.ContextClaim;
 import com.bytequay.core.context.ContextEntry;
+import com.bytequay.core.context.ContextEntryKind;
 import com.bytequay.core.context.ContextInputFingerprint;
-import com.bytequay.core.context.ContextKnowledgeDraft;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextMatch;
 import com.bytequay.core.context.ContextPreparationResult;
@@ -68,6 +68,7 @@ import static com.bytequay.core.context.ContextEntryOrigin.USER;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -75,6 +76,7 @@ import static org.mockito.Mockito.when;
 class TestRepositoryContextService
 {
     private static final String TASK_ID = "33333333-3333-4333-8333-333333333333";
+    private static final String OTHER_TASK_ID = "44444444-4444-4444-8444-444444444444";
     private static final String WORKSPACE = "workspace";
     private static final String KEY = RepositoryContextService.SETTINGS_PREFIX + WORKSPACE;
     private static final String HEAD = "a".repeat(40);
@@ -324,118 +326,134 @@ class TestRepositoryContextService
     }
 
     @Test
-    void taskMemoryProposalStaysPendingUntilApprovalAndRetainsKindAfterEditing()
+    void taskNoteSavesDirectlyAndItsUpdateKeepsTheReplacedText()
     {
-        String id = "draft:task:" + "a".repeat(32) + ":" + "b".repeat(32);
-        ContextSourceEvidence source = discoveryEvidence("task-read:1", "README.md", "1  Evidence");
-        RepositoryContextService.TaskDraftProposal proposal = new RepositoryContextService.TaskDraftProposal(id, TASK_ID, MEMORY,
-                "project", Optional.empty(), Optional.empty(), "Finding", "Checkpoint invariant", "Keep the older layout",
-                HEAD, ImmutableList.of(source));
-        RepositoryNotebook pending = service.proposeTaskDraft(WORKSPACE, 0, proposal);
-        assertThat(pending.entries()).isEmpty();
-        assertThat(pending.pendingDrafts()).singleElement().satisfies(draft -> {
-            assertThat(draft.entry().kind()).isEqualTo(MEMORY);
-            assertThat(draft.entry().id()).startsWith("lesson:project:task-");
-            assertThat(draft.entry().origin()).isEqualTo(GENERATED);
+        ContextSourceEvidence first = discoveryEvidence("task-read:1", "README.md", "1  Evidence");
+        RepositoryNotebook saved = service.saveTaskNote(WORKSPACE, 0, taskNote(TASK_ID, "b", MEMORY, Optional.empty(), "Keep the older layout", first));
+        ContextEntry note = saved.entries().getFirst();
+        assertThat(note.kind()).isEqualTo(MEMORY);
+        assertThat(note.id()).startsWith("lesson:project:task-");
+        assertThat(note.origin()).isEqualTo(GENERATED);
+        assertThat(note.enabled()).isTrue();
+        assertThat(saved.replaced()).isEmpty();
+        assertThat(service.getTimes(WORKSPACE).entries().get(ContextTimes.key(note.id(), note.version())).taskId()).contains(TASK_ID);
+
+        ContextSourceEvidence second = discoveryEvidence("task-read:2", "README.md", "2  Newer evidence");
+        RepositoryNotebook updated = service.saveTaskNote(WORKSPACE, saved.revision(), taskNote(TASK_ID, "c", MEMORY, Optional.of(note), "Use the new layout", second));
+        assertThat(updated.entries()).singleElement().satisfies(entry -> {
+            assertThat(entry.body()).isEqualTo("Use the new layout");
+            assertThat(entry.version()).isEqualTo(updated.revision());
         });
-        assertThat(service.proposeTaskDraft(WORKSPACE, pending.revision(), proposal)).isEqualTo(pending);
-        RepositoryNotebook edited = service.editDraft(WORKSPACE, pending.revision(), id, "Edited", "Edited summary", "Edited body",
-                ImmutableList.of());
-        assertThat(edited.pendingDrafts().getFirst().entry().kind()).isEqualTo(MEMORY);
-        ContextTimes.Stamp proposed = service.getTimes(WORKSPACE).drafts().get(id);
-        assertThat(proposed.taskId()).contains(TASK_ID);
-        RepositoryNotebook approved = service.approveDraft(WORKSPACE, edited.revision(), id);
-        assertThat(approved.entries()).singleElement().satisfies(entry -> {
-            assertThat(entry.kind()).isEqualTo(MEMORY);
-            assertThat(entry.origin()).isEqualTo(USER);
-        });
-        ContextTimes times = service.getTimes(WORKSPACE);
-        assertThat(times.drafts()).isEmpty();
-        ContextEntry active = approved.entries().getFirst();
-        assertThat(times.entries().get(ContextTimes.key(active.id(), active.version())).taskId()).contains(TASK_ID);
+        assertThat(updated.replaced()).containsExactly(note);
+        assertThat(updated.sourceEvidence()).extracting(ContextSourceEvidence::id).containsExactlyInAnyOrder("task-read:1", "task-read:2");
+        assertThatThrownBy(() -> service.saveTaskNote(WORKSPACE, updated.revision(), taskNote(TASK_ID, "d", MEMORY, Optional.of(note), "Stale update", second)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("changed since you read it");
     }
 
     @Test
-    void taskProposalRejectsUncapturedOrForeignRepositoryEvidence()
+    void taskNoteRejectsUncapturedOrForeignRepositoryEvidence()
     {
-        String id = "draft:task:" + "a".repeat(32) + ":" + "b".repeat(32);
         ContextSourceEvidence source = discoveryEvidence("task-read:1", "README.md", "1  Evidence");
         ContextSourceEvidence reported = new ContextSourceEvidence(source.id(), source.reference(), source.provenance(),
                 source.excerpt(), ContextSourceEvidence.Capture.AGENT_REPORTED, source.retrievedAt(), source.contentHash(), source.version(), false);
-        assertThatThrownBy(() -> service.proposeTaskDraft(WORKSPACE, 0, new RepositoryContextService.TaskDraftProposal(id, TASK_ID, MEMORY,
-                "project", Optional.empty(), Optional.empty(), "Finding", "Summary", "Body", HEAD, ImmutableList.of(reported))))
+        assertThatThrownBy(() -> service.saveTaskNote(WORKSPACE, 0, taskNote(TASK_ID, "b", MEMORY, Optional.empty(), "Body", reported)))
                 .hasMessageContaining("application-captured");
         ContextSourceEvidence foreign = new ContextSourceEvidence(source.id(),
                 new ContextReference.RepositoryFile(2, RepoRef.of("example", "other"), "README.md", HEAD), source.provenance(),
                 source.excerpt(), source.capture(), source.retrievedAt(), source.contentHash(), source.version(), false);
-        assertThatThrownBy(() -> service.proposeTaskDraft(WORKSPACE, 0, new RepositoryContextService.TaskDraftProposal(id, TASK_ID, MEMORY,
-                "project", Optional.empty(), Optional.empty(), "Finding", "Summary", "Body", HEAD, ImmutableList.of(foreign))))
+        assertThatThrownBy(() -> service.saveTaskNote(WORKSPACE, 0, taskNote(TASK_ID, "b", MEMORY, Optional.empty(), "Body", foreign)))
                 .hasMessageContaining("outside its committed repository HEAD");
-        assertThat(service.getNotebook(WORKSPACE).pendingDrafts()).isEmpty();
+        assertThat(service.getNotebook(WORKSPACE).entries()).isEmpty();
     }
 
     @Test
-    void draftEditRemainsPendingAndApprovalReplacesOnlyItsExactActiveVersion()
+    void taskNoteNeverReplacesUserOwnedOrDisabledNotes()
             throws Exception
     {
         seedGenerated();
-        RepositoryNotebook initial = service.getNotebook(WORKSPACE);
-        ContextKnowledgeDraft draft = replacementDraft(initial, "draft:replacement");
-        RepositoryNotebook pending = service.savePreparation(WORKSPACE, initial, new RepositoryNotebook(1, 2, true, true,
-                initial.sources(), initial.scopes(), initial.entries(), ImmutableList.of(draft),
-                initial.sourceEvidence(), Optional.empty()));
-        assertThat(pending.entries()).isEqualTo(initial.entries());
-        assertThat(pending.pendingDrafts()).singleElement().satisfies(value -> assertThat(value.entry().origin()).isEqualTo(GENERATED));
-
-        RepositoryNotebook edited = service.editDraft(WORKSPACE, pending.revision(), draft.id(), "Edited title", "Edited summary", "Edited body",
-                draft.entry().claims());
-        assertThat(edited.entries()).isEqualTo(initial.entries());
-        assertThat(edited.pendingDrafts()).singleElement().satisfies(value -> {
-            assertThat(value.entry().body()).isEqualTo("Edited body");
-            assertThat(value.entry().origin()).isEqualTo(USER);
-            assertThat(value.entry().sourceIds()).isEqualTo(draft.entry().sourceIds());
-        });
-        RepositoryNotebook approved = service.approveDraft(WORKSPACE, edited.revision(), draft.id());
-        assertThat(approved.pendingDrafts()).isEmpty();
-        assertThat(approved.entries()).singleElement().satisfies(entry -> {
-            assertThat(entry.body()).isEqualTo("Edited body");
-            assertThat(entry.origin()).isEqualTo(USER);
-            assertThat(entry.version()).isEqualTo(approved.revision());
-        });
+        ContextSourceEvidence source = discoveryEvidence("task-read:1", "README.md", "1  Evidence");
+        RepositoryNotebook disabled = service.setEntryEnabled(WORKSPACE, 1, "knowledge:project", false);
+        assertThatThrownBy(() -> service.saveTaskNote(WORKSPACE, disabled.revision(),
+                taskNote(TASK_ID, "b", KNOWLEDGE, Optional.of(disabled.entries().getFirst()), "Agent rewrite", source)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("user-owned or disabled");
+        RepositoryNotebook enabled = service.setEntryEnabled(WORKSPACE, disabled.revision(), "knowledge:project", true);
+        RepositoryNotebook edited = service.editEntry(WORKSPACE, enabled.revision(), edit("User correction", "source"));
+        assertThatThrownBy(() -> service.saveTaskNote(WORKSPACE, edited.revision(),
+                taskNote(TASK_ID, "b", KNOWLEDGE, Optional.of(edited.entries().getFirst()), "Agent rewrite", source)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("user-owned or disabled");
+        assertThat(service.getNotebook(WORKSPACE)).isEqualTo(edited);
     }
 
     @Test
-    void disabledActiveNoteCannotBeReplacedByItsPendingDraft()
+    void restoreBringsBackTheReplacedTextAndCanBeUndone()
             throws Exception
     {
         seedGenerated();
-        RepositoryNotebook initial = service.getNotebook(WORKSPACE);
-        ContextKnowledgeDraft draft = replacementDraft(initial, "draft:replacement");
-        service.savePreparation(WORKSPACE, initial, new RepositoryNotebook(1, 2, true, true, initial.sources(), initial.scopes(),
-                initial.entries(), ImmutableList.of(draft), initial.sourceEvidence(), Optional.empty()));
-        RepositoryNotebook disabled = service.setEntryEnabled(WORKSPACE, 2, "knowledge:project", false);
-        assertThatThrownBy(() -> service.approveDraft(WORKSPACE, disabled.revision(), draft.id()))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("changed since this proposal");
+        assertThatThrownBy(() -> service.restoreEntry(WORKSPACE, 1, "knowledge:project")).isInstanceOf(ContextNotFoundException.class);
+        RepositoryNotebook edited = service.editEntry(WORKSPACE, 1, edit("User correction", "source"));
+        assertThat(edited.replaced()).singleElement().satisfies(old -> assertThat(old.body()).isEqualTo("Generated body"));
+
+        RepositoryNotebook restored = service.restoreEntry(WORKSPACE, edited.revision(), "knowledge:project");
+        assertThat(restored.entries()).singleElement().satisfies(entry -> {
+            assertThat(entry.body()).isEqualTo("Generated body");
+            assertThat(entry.origin()).isEqualTo(GENERATED);
+            assertThat(entry.version()).isEqualTo(restored.revision());
+        });
+        assertThat(restored.replaced()).singleElement().satisfies(old -> assertThat(old.body()).isEqualTo("User correction"));
+
+        RepositoryNotebook undone = service.restoreEntry(WORKSPACE, restored.revision(), "knowledge:project");
+        assertThat(undone.entries().getFirst().body()).isEqualTo("User correction");
+        assertThat(undone.entries().getFirst().origin()).isEqualTo(USER);
+        assertThat(undone.replaced()).singleElement().satisfies(old -> assertThat(old.body()).isEqualTo("Generated body"));
     }
 
     @Test
-    void dismissingAnUnapprovedNewTopicPrunesItsOtherwiseUnusedEvidence()
+    void disablingARunsNotesSkipsNotesChangedSinceAndOtherTasksNotes()
     {
-        ContextSourceEvidence source = new ContextSourceEvidence("draft-source", new ContextReference.Document("docs", "https://example.com/docs/page"),
-                "Captured documentation", "Topic evidence", ContextSourceEvidence.Capture.BYTEQUAY_READ,
-                Optional.of(Instant.EPOCH), Optional.empty(), Optional.empty(), false);
-        ContextEntry entry = new ContextEntry("knowledge:project:new-topic", KNOWLEDGE, "project", "New topic", "Summary", "Body",
-                ImmutableList.of(), ImmutableList.of(source.id()), GENERATED, true, 1);
-        ContextKnowledgeDraft draft = new ContextKnowledgeDraft("draft:new-topic", entry, Optional.empty(), HEAD, "Proposed from documentation");
-        RepositoryNotebook empty = service.getNotebook(WORKSPACE);
-        RepositoryNotebook pending = service.savePreparation(WORKSPACE, empty, new RepositoryNotebook(1, 1, true, true,
-                empty.sources(), empty.scopes(), empty.entries(), ImmutableList.of(draft),
-                ImmutableList.of(source), Optional.empty()));
-        assertThat(pending.sourceEvidence()).containsExactly(source);
-        RepositoryNotebook dismissed = service.dismissDraft(WORKSPACE, pending.revision(), draft.id());
-        assertThat(dismissed.pendingDrafts()).isEmpty();
-        assertThat(dismissed.entries()).isEmpty();
-        assertThat(dismissed.sourceEvidence()).isEmpty();
+        ContextSourceEvidence source = discoveryEvidence("task-read:1", "README.md", "1  Evidence");
+        RepositoryNotebook first = service.saveTaskNote(WORKSPACE, 0, taskNote(TASK_ID, "b", KNOWLEDGE, Optional.empty(), "Added and untouched", source));
+        RepositoryNotebook second = service.saveTaskNote(WORKSPACE, first.revision(), taskNote(TASK_ID, "c", KNOWLEDGE, Optional.empty(), "Added then corrected", source));
+        RepositoryNotebook third = service.saveTaskNote(WORKSPACE, second.revision(),
+                taskNote(OTHER_TASK_ID, "d", KNOWLEDGE, Optional.of(second.entries().get(1)), "Corrected by another task", source));
+        RepositoryNotebook fourth = service.saveTaskNote(WORKSPACE, third.revision(), taskNote(OTHER_TASK_ID, "e", KNOWLEDGE, Optional.empty(), "Another task's note", source));
+
+        RepositoryNotebook disabled = service.disableRunNotes(WORKSPACE, fourth.revision(), TASK_ID);
+        assertThat(disabled.entries()).extracting(ContextEntry::body, ContextEntry::enabled).containsExactly(
+                tuple("Added and untouched", false), tuple("Corrected by another task", true), tuple("Another task's note", true));
+        assertThat(service.disableRunNotes(WORKSPACE, disabled.revision(), TASK_ID)).isEqualTo(disabled);
+    }
+
+    @Test
+    void onlyOneReplacedVersionIsKeptAndItsOtherwiseUnusedEvidenceIsPruned()
+    {
+        RepositoryNotebook saved = service.saveTaskNote(WORKSPACE, 0,
+                taskNote(TASK_ID, "b", KNOWLEDGE, Optional.empty(), "First", discoveryEvidence("task-read:1", "README.md", "1  First")));
+        RepositoryNotebook updated = service.saveTaskNote(WORKSPACE, saved.revision(),
+                taskNote(TASK_ID, "c", KNOWLEDGE, Optional.of(saved.entries().getFirst()), "Second", discoveryEvidence("task-read:2", "README.md", "2  Second")));
+        ContextEntry second = updated.entries().getFirst();
+        RepositoryNotebook again = service.saveTaskNote(WORKSPACE, updated.revision(),
+                taskNote(TASK_ID, "d", KNOWLEDGE, Optional.of(second), "Third", discoveryEvidence("task-read:3", "README.md", "3  Third")));
+        assertThat(again.replaced()).containsExactly(second);
+        assertThat(again.sourceEvidence()).extracting(ContextSourceEvidence::id).containsExactlyInAnyOrder("task-read:2", "task-read:3");
+        assertThatThrownBy(() -> new RepositoryNotebook(1, again.revision(), true, true, again.sources(), again.scopes(), again.entries(),
+                again.entries(), again.sourceEvidence(), Optional.empty())).hasMessageContaining("must precede");
+    }
+
+    @Test
+    void notebookAndTimesSavedWithApprovalDraftsStillLoadTheirNotes()
+            throws Exception
+    {
+        RepositoryNotebook saved = service.editEntry(WORKSPACE, 0, edit("Kept note"));
+        ObjectNode old = (ObjectNode) mapper.valueToTree(saved);
+        old.remove("replaced");
+        old.putArray("pendingDrafts").addObject().put("id", "draft:old");
+        settings.put(KEY, mapper.writeValueAsString(old));
+        ObjectNode times = (ObjectNode) mapper.valueToTree(service.getTimes(WORKSPACE));
+        times.putObject("drafts").putObject("draft:old").put("at", "2026-09-01T00:00:00Z");
+        settings.put(RepositoryContextService.TIMES_PREFIX + WORKSPACE, mapper.writeValueAsString(times));
+
+        assertThat(service.getNotebook(WORKSPACE)).isEqualTo(saved);
+        assertThat(service.getTimes(WORKSPACE).entries()).hasSize(1);
     }
 
     @Test
@@ -470,26 +488,26 @@ class TestRepositoryContextService
         List<ContextSourceEvidence> evidence = IntStream.range(0, 4000).mapToObj(index -> new ContextSourceEvidence("evidence:" + index,
                 new ContextReference.RepositoryFile(1, RepoRef.of("example", "repository"), "README.md", HEAD), "Captured source", "Evidence " + index,
                 ContextSourceEvidence.Capture.BYTEQUAY_READ, Optional.of(Instant.EPOCH), Optional.empty(), Optional.of(HEAD), false)).collect(toImmutableList());
-        List<ContextKnowledgeDraft> drafts = notes.subList(250, notes.size()).stream()
-                .map(note -> new ContextKnowledgeDraft("draft:" + note.id(), note, Optional.empty(), HEAD, "Awaiting approval")).collect(toImmutableList());
-        RepositoryNotebook accumulated = new RepositoryNotebook(1, 1, true, true, sources, scopes, notes.subList(0, 250), drafts, evidence, Optional.empty());
+        List<ContextEntry> current = notes.stream().map(note -> new ContextEntry(note.id(), note.kind(), note.scopeId(), note.title(), note.summary(),
+                note.body(), note.claims(), note.sourceIds(), note.origin(), note.enabled(), 2)).collect(toImmutableList());
+        RepositoryNotebook accumulated = new RepositoryNotebook(1, 2, true, true, sources, scopes, current, notes.subList(0, 250), evidence, Optional.empty());
 
         RepositoryNotebook saved = service.savePreparation(WORKSPACE, service.getNotebook(WORKSPACE), accumulated);
         assertThat(ContextLimits.bytes(settings.get(KEY).orElseThrow())).isGreaterThan(ContextLimits.MAX_NOTEBOOK_BYTES);
         assertThat(service.getNotebook(WORKSPACE)).isEqualTo(saved);
         RepositoryNotebook edited = service.configure(WORKSPACE, saved.revision(), new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty()));
         assertThat(service.getNotebook(WORKSPACE)).isEqualTo(edited);
-        assertThat(edited.entries()).hasSize(250);
-        assertThat(edited.pendingDrafts()).hasSize(250);
+        assertThat(edited.entries()).hasSize(ContextLimits.MAX_STORED_ENTRIES);
+        assertThat(edited.replaced()).hasSize(250);
         assertThat(edited.scopes()).hasSize(256);
         assertThat(edited.scopes().stream().flatMap(scope -> scope.preparation().stream()).mapToLong(result -> result.inputFingerprint().inputBytes()).sum())
                 .isGreaterThan(ReviewContextSnapshot.MAXIMUM_INPUT_BYTES).isLessThanOrEqualTo(ContextLimits.MAX_STORED_INPUT_BYTES);
         assertThat(edited.sources()).hasSize(200);
         assertThat(edited.sourceEvidence()).hasSize(4000);
-        List<ContextKnowledgeDraft> tooMany = ImmutableList.<ContextKnowledgeDraft>builder().addAll(drafts)
-                .add(new ContextKnowledgeDraft("draft:overflow", storedNote(500, "Another note", ImmutableList.of()), Optional.empty(), HEAD, "Awaiting approval")).build();
-        assertThatThrownBy(() -> new RepositoryNotebook(1, 1, true, true, sources, scopes, accumulated.entries(), tooMany, evidence, Optional.empty()))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("too many distinct note identities");
+        List<ContextEntry> tooMany = ImmutableList.<ContextEntry>builder().addAll(accumulated.entries())
+                .add(storedNote(ContextLimits.MAX_STORED_ENTRIES, "Another note", ImmutableList.of())).build();
+        assertThatThrownBy(() -> new RepositoryNotebook(1, 2, true, true, sources, scopes, tooMany, ImmutableList.of(), evidence, Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("entries exceeds");
     }
 
     @Test
@@ -593,12 +611,11 @@ class TestRepositoryContextService
         settings.put(KEY, mapper.writeValueAsString(notebook));
     }
 
-    private static ContextKnowledgeDraft replacementDraft(RepositoryNotebook initial, String draftId)
+    private static RepositoryContextService.TaskNote taskNote(String taskId, String digit, ContextEntryKind kind, Optional<ContextEntry> target,
+            String body, ContextSourceEvidence source)
     {
-        ContextEntry prior = initial.entries().getFirst();
-        ContextEntry proposed = new ContextEntry(prior.id(), KNOWLEDGE, prior.scopeId(), "New title", "New summary", "New generated body",
-                prior.claims(), prior.sourceIds(), GENERATED, true, 2);
-        return new ContextKnowledgeDraft(draftId, proposed, Optional.of(prior.version()), HEAD, "Refreshed from the retained source");
+        return new RepositoryContextService.TaskNote("task:" + "a".repeat(32) + ":" + digit.repeat(32), taskId, kind, "project",
+                target.map(ContextEntry::id), target.map(ContextEntry::version), "Finding", "Summary", body, HEAD, ImmutableList.of(source));
     }
 
     private RepositoryNotebook seedPreparation(ContextPreparationResult.Outcome outcome)

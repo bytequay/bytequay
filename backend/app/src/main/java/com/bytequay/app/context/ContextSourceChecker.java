@@ -26,6 +26,7 @@ import org.springframework.stereotype.Service;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -75,6 +76,58 @@ public class ContextSourceChecker
         }
         catch (RuntimeException failure) {
             return Optional.empty();
+        }
+    }
+
+    /** Where saved notes and reports must cite code: {@code commit}'s merge-base with the monitored branch; empty when Git cannot resolve it. */
+    public Optional<String> base(String workspaceId, String commit)
+    {
+        requireNonNull(workspaceId, "workspaceId is null");
+        if (!commit.matches(SHA)) {
+            return Optional.empty();
+        }
+        try {
+            WorkspaceRepositoryContext workspace = workspaces.requireLocalRepository(workspaceId);
+            GitCommandRunner.Result result = git.runLocalBounded(workspace.repository(), COMMAND_TIMEOUT, HEAD_BYTES,
+                    ImmutableList.of("merge-base", commit, "refs/remotes/" + workspace.sourceRemote() + "/" + workspace.defaultBranch()));
+            String base = result.output().strip();
+            return result.successful() && !result.truncated() && base.matches(SHA) ? Optional.of(base) : Optional.empty();
+        }
+        catch (RuntimeException failure) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Rejects cited repository lines that do not also appear at {@code base} as consecutive lines in the same order, so a saved
+     * note or report never rests on a task's own unmerged changes. Sources other than repository files are not checked.
+     */
+    public void requireAtBase(String workspaceId, String base, Map<String, ContextSourceEvidence> sources)
+    {
+        ContextSourceCheck check = check(workspaceId, Optional.of(base), sources);
+        List<String> missing = check.sources().stream().filter(source -> source.path().isPresent() && source.status() != Status.UNCHANGED)
+                .map(source -> source.path().orElseThrow() + source.lines().map(lines -> ":" + lines).orElse("")).distinct().collect(toImmutableList());
+        checkArgument(missing.isEmpty(), "The monitored branch at base %s does not have the cited lines %s. They come from this task's own changes "
+                + "or from code the branch does not have yet; cite only code the monitored branch already has.%s",
+                base, String.join(", ", missing), check.gaps().isEmpty() ? "" : " " + String.join(" ", check.gaps()));
+    }
+
+    /** True when a cited repository file was read at a commit that descends from {@code base}: the text describes newer code. */
+    public boolean newerThan(String workspaceId, String base, Collection<ContextSourceEvidence> sources)
+    {
+        WorkspaceRepositoryContext workspace = workspaces.requireLocalRepository(workspaceId);
+        return sources.stream().map(ContextSourceEvidence::reference).filter(ContextReference.RepositoryFile.class::isInstance)
+                .map(reference -> ((ContextReference.RepositoryFile) reference).commit()).filter(commit -> commit.matches(SHA) && !commit.equals(base))
+                .distinct().anyMatch(commit -> ancestor(workspace, base, commit));
+    }
+
+    private boolean ancestor(WorkspaceRepositoryContext workspace, String ancestor, String commit)
+    {
+        try {
+            return git.runLocalBounded(workspace.repository(), COMMAND_TIMEOUT, HEAD_BYTES, ImmutableList.of("merge-base", "--is-ancestor", ancestor, commit)).successful();
+        }
+        catch (RuntimeException failure) {
+            return false;
         }
     }
 

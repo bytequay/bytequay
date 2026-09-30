@@ -37,10 +37,9 @@ import type {
 
 const EXPLORE = 'Explore & prepare context';
 
-/** Explore sends the typed question inside the standing instruction; the agent may draft a note, which waits for the user's approval. */
+/** Explore sends the typed question inside the standing instruction; the agent may save a note from its answer. */
 export function exploreMessage(question: string): string {
-  return `Explore this code question: ${question}\n\nAnswer from the code, then propose a reusable context draft if committed source lines support it. `
-    + 'I will review the draft before it becomes shared knowledge.';
+  return `Explore this code question: ${question}\n\nAnswer from the code, then save a reusable context note if committed source lines support it.`;
 }
 
 /** Starting points that fill the composer; the user edits or sends them as they are. */
@@ -249,10 +248,10 @@ export function AgentHomeView({
   onAttach?: () => void;
   onPasteImages?: () => void;
   onRemoveImage?: (id: string) => void;
-  /** Explore & prepare context: the composer asks a question the agent answers, drafting a note when part of it is reusable. */
+  /** Explore & prepare context: the composer asks a question the agent answers, saving a note when part of it is reusable. */
   explore?: boolean;
   onExplore?: (on: boolean) => void;
-  /** Repository context drafts and sources waiting review, drawn first in Needs attention. */
+  /** Repository context source proposals waiting review, drawn first in Needs attention. */
   contextReview?: ContextReview | null;
 }): React.JSX.Element {
   if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup, headerAction }} />;
@@ -356,13 +355,13 @@ function modelText(laneId: string, providers: ModelProviderDto[], models: ModelO
   return [provider?.label ?? laneLabel(laneId), model].filter((part) => part !== '').join(' · ');
 }
 
-/** What sending in Explore mode starts: one task, and at most drafts that wait for approval. */
+/** What sending in Explore mode starts: one task, which may save a note. */
 function ExploreHint({ model, contextOn }: { model: string; contextOn: boolean }): React.JSX.Element {
   return <>
     <Zap className="agt-compose-hint__bolt" size={12} strokeWidth={2} aria-hidden="true" />
     <span>Sending starts a task with {model}. {contextOn
-      ? 'You get an answer; if part of it is reusable, the agent drafts a note. Drafts wait in Repository context — agents can’t use them until you approve.'
-      : 'Repository context is off for development tasks, so the agent answers without drafting a note.'}</span>
+      ? 'You get an answer; if part of it is reusable, the agent saves a note to Repository context, where other agents can look it up.'
+      : 'Repository context is off for development tasks, so the agent answers without saving a note.'}</span>
   </>;
 }
 

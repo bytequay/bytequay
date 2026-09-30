@@ -442,20 +442,20 @@ public class ContextBuildService
             return "Learn one approved question for " + build.repository().fullName() + " at " + build.baselineSha() + " (topic " + assignment.topicTitle() + "): "
                     + assignment.question() + (assignment.progress().isEmpty() ? "" : " Saved progress from an earlier run: " + assignment.progress())
                     + " Use repository_context_read SELECTION for saved progress and exact source boundaries. "
-                    + "Inspect existing notes before drafting duplicates. Read only what answers this question, within the approved paths and documentation inventory. "
+                    + "Inspect existing notes before saving duplicates. Read only what answers this question, within the approved paths and documentation inventory. "
                     + ContextBuildTools.TARGET_GUIDANCE
                     + "Research has no operation-count quota; the configured agent turn timeout applies. "
                     + "Stay within two link hops from each approved root. "
-                    + "Save useful supported drafts with repository_context_prepare; record this question as answered or save its progress with repository_context_progress. "
+                    + "Save useful supported notes with repository_context_prepare; record this question as answered or save its progress with repository_context_progress. "
                     + "A partial answer is allowed. Preserve uncertainty and source gaps. Do not claim a whole module or website was learned. "
-                    + "Stop after this unit. The user approves further runs and note activation separately.";
+                    + "Stop after this unit. Saved notes are available to agents at once; the user approves further runs separately.";
         }
         return "Learn repository " + build.repository().fullName() + " from its frozen monitored baseline " + build.baselineSha()
                 + ". Selected knowledge scopes: " + build.scopeIds() + ". Use repository_context_read SELECTION for the exact source assignment. "
                 + "Inspect directory structure, repository documentation and files, and attempt every registered documentation source before preparation BEGIN. "
-                + "Read only the explicitly selected historical references. Submit focused knowledge drafts with repository_context_prepare, then end the turn. "
+                + "Read only the explicitly selected historical references. Submit focused knowledge notes with repository_context_prepare, then end the turn. "
                 + "Record source failures, incomplete coverage and unsupported claims as limitations. "
-                + "Propose a lesson only for supported reusable conclusions. Do not commit, push or publish.";
+                + "Save a lesson only for supported reusable conclusions. Do not commit, push or publish.";
     }
 
     public record Request(String requestKey, long expectedRevision, long expectedBuildSequence, List<String> scopeIds, List<ContextBuild.History> history)

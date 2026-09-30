@@ -20,7 +20,6 @@ import {
   workspaceHasReadableCode,
   workspaceIssueRoute,
   workspaceIssueTaskRoute,
-  workspaceContextDraftRoute,
   workspaceContextRunRoute,
   workspaceLocationFromRoute,
   workspaceMetadataState,
@@ -158,17 +157,6 @@ describe('workspace model', () => {
     expect(workspaceLocationFromRoute('#/workspaces/w/prs/review/r')).toBeNull();
     expect(workspaceLocationFromRoute('#/workspaces/w/tasks/review/%')).toBeNull();
     expect(workspaceLocationFromRoute(workspaceRoute('w', 'tasks'))?.reviewId).toBeUndefined();
-  });
-
-  it('opens repository context on one draft only from its own page', () => {
-    const route = workspaceContextDraftRoute('workspace/id', 'draft/1');
-    expect(route).toBe('#/workspaces/workspace%2Fid/context/draft/draft%2F1');
-    expect(workspaceLocationFromRoute(route)).toEqual({
-      workspaceId: 'workspace/id', tab: 'context', pullRequestNumber: null,
-      issueNumber: null, agentTaskId: null, contextDraftId: 'draft/1',
-    });
-    expect(workspaceLocationFromRoute(workspaceRoute('w', 'context'))?.contextDraftId).toBeUndefined();
-    expect(workspaceLocationFromRoute('#/workspaces/w/tasks/draft/d')).toBeNull();
   });
 
   it('round-trips every workspace tab through the renderer route', () => {

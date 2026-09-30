@@ -42,6 +42,7 @@ import static com.bytequay.app.context.ContextSourceCheck.Status.CHANGED;
 import static com.bytequay.app.context.ContextSourceCheck.Status.UNCHANGED;
 import static com.bytequay.app.context.ContextSourceCheck.Status.UNCHECKED;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -137,6 +138,26 @@ class TestContextSourceChecker
         assertThat(none.commit()).isEmpty();
         assertThat(none.sources()).extracting(Source::lines, Source::status).containsExactly(tuple(Optional.of("1-1"), UNCHECKED));
         assertThat(none.gaps()).containsExactly("No commit was available to compare cited lines with.");
+    }
+
+    @Test
+    void savedLinesMustBeOnTheMonitoredBranchAtTheTaskBase()
+            throws IOException
+    {
+        write("Engine.java", "class Engine", "{", "    void run() {}", "}");
+        String base = commit();
+        command("update-ref", "refs/remotes/upstream/main", base);
+        write("Engine.java", "class Engine", "{", "    void run() {}", "    void stop() {}", "}");
+        String task = commit();
+
+        assertThat(checker.base(WORKSPACE, task)).contains(base);
+        assertThat(checker.base(WORKSPACE, "not-a-commit")).isEmpty();
+        checker.requireAtBase(WORKSPACE, base, ImmutableMap.of("run", source(task, "Engine.java", 3, 3)));
+        assertThatThrownBy(() -> checker.requireAtBase(WORKSPACE, base, ImmutableMap.of("stop", source(task, "Engine.java", 4, 4))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Engine.java:4-4").hasMessageContaining("own changes");
+        assertThat(checker.newerThan(WORKSPACE, base, ImmutableList.of(source(task, "Engine.java", 3, 3)))).isTrue();
+        assertThat(checker.newerThan(WORKSPACE, task, ImmutableList.of(source(base, "Engine.java", 3, 3)))).isFalse();
+        assertThat(checker.newerThan(WORKSPACE, base, ImmutableList.of(source(base, "Engine.java", 3, 3)))).isFalse();
     }
 
     @Test

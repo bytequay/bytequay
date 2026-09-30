@@ -535,7 +535,7 @@ class TestContextBuildTools
         assertThat(entry.at("/sourceIds/maxItems").intValue()).isEqualTo(ContextLimits.MAX_SOURCES);
         assertThat(entry.at("/claims/items/properties/sourceIds/maxItems").intValue()).isEqualTo(ContextLimits.MAX_SOURCES);
         assertThat(entry.at("/body/description").textValue()).contains("8192 UTF-8 bytes");
-        assertThat(bridge.tool("repository_context_prepare").orElseThrow().description()).contains("pending drafts", "claim sources must belong to the entry",
+        assertThat(bridge.tool("repository_context_prepare").orElseThrow().description()).contains("agents can use them at once", "claim sources must belong to the entry",
                 "READY checkedSourceIds may select a supporting subset", "EMPTY checkedSourceIds must include every captured readId");
     }
 
@@ -556,7 +556,7 @@ class TestContextBuildTools
             return scopes.stream().map(scope -> ContextInputFingerprint.create(scope.id(), ImmutableMap.of("README.md", SHA), ImmutableList.of()))
                     .collect(ImmutableList.toImmutableList());
         });
-        RepositoryContextPreparation actualPreparation = new RepositoryContextPreparation(actualNotebooks, inputs, workspaces);
+        RepositoryContextPreparation actualPreparation = new RepositoryContextPreparation(actualNotebooks, inputs, workspaces, mock(ContextSourceChecker.class));
         bridge = new ContextBuildTools(store, service, tasks, workspaces, actualNotebooks, baseline, documents, history, actualPreparation,
                 unitOfWork, mapper, learning, lookup, candidates, CLOCK)
                 .bridge(TASK.toString()).orElseThrow();
@@ -594,9 +594,8 @@ class TestContextBuildTools
         RepositoryNotebook saved = actualNotebooks.getNotebook(WORKSPACE);
         assertThat(saved.useInReviews()).isFalse();
         assertThat(saved.activePreparation()).isEmpty();
-        assertThat(saved.entries()).isEmpty();
-        assertThat(saved.pendingDrafts()).singleElement().satisfies(draft -> {
-            var entry = draft.entry();
+        assertThat(saved.replaced()).isEmpty();
+        assertThat(saved.entries()).singleElement().satisfies(entry -> {
             assertThat(entry.id()).isEqualTo("knowledge:project");
             assertThat(entry.origin()).isEqualTo(ContextEntryOrigin.GENERATED);
             assertThat(entry.body()).isEqualTo("Useful generated knowledge from the frozen README.");

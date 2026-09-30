@@ -15,7 +15,7 @@ import { displayModelName, effortLabel, providerAvailable, providerRemedy } from
 import { relativeTime } from '../relativeTime';
 import type { ModelSettingsDto } from '../types';
 import type {
-  ContextActivityDto, ContextBaselineDto, ContextBuildViewDto, ContextClaimDto, ContextDiscoveryReportDto, ContextEntryDto, ContextKnowledgeDraftDto,
+  ContextActivityDto, ContextBaselineDto, ContextBuildViewDto, ContextClaimDto, ContextDiscoveryReportDto, ContextEntryDto,
   ContextLearningPlanDto, ContextLearningPlanViewDto, ContextMergedCandidatesDto, ContextPlanTopicDto, ContextQuestionTarget, ContextRunDto,
   ContextScopeDto, ContextSourceEvidenceDto, ContextTimesDto, RepositoryNotebookDto,
 } from './contracts';
@@ -123,14 +123,14 @@ export type QuestionRow = {
   topicId: string; index: number; text: string;
   state: 'PENDING' | 'RUNNING' | 'UNFINISHED' | 'ANSWERED';
   meta: string; metaTone: 'muted' | 'blue' | 'amber' | 'plain';
-  link: null | { label: 'Open note' | 'Review draft'; kind: 'entry' | 'draft'; id: string };
+  noteId: string | null;
 };
 
-/** Answered questions link to the note their run proposed, when it still exists as a draft or an approved note. */
+/** Answered questions link to a note their run saved. */
 export function questionRow(topic: ContextPlanTopicDto, index: number, runs: ContextRunDto[], running: ContextRunDto | null,
   notebook: RepositoryNotebookDto): QuestionRow {
   const question = topic.questions[index];
-  const base: Pick<QuestionRow, 'topicId' | 'index' | 'text' | 'link'> = { topicId: topic.id, index, text: question.text, link: null };
+  const base: Pick<QuestionRow, 'topicId' | 'index' | 'text' | 'noteId'> = { topicId: topic.id, index, text: question.text, noteId: null };
   if (running?.question?.topicId === topic.id && running.question.index === index) {
     return { ...base, state: 'RUNNING', meta: 'Running now', metaTone: 'blue' };
   }
@@ -139,29 +139,21 @@ export function questionRow(topic: ContextPlanTopicDto, index: number, runs: Con
   const answered = latestRun(runs, run => run.question?.topicId === topic.id && run.question.index === index
     && (run.outcome === 'ANSWERED' || run.outcome === 'NO_NOTE'));
   if (answered === null) return { ...base, state: 'ANSWERED', meta: 'Answered', metaTone: 'plain' };
-  const draft = notebook.pendingDrafts.find(value => answered.noteIds.includes(value.entry.id));
-  if (draft !== undefined) return { ...base, state: 'ANSWERED', meta: 'Answered', metaTone: 'plain', link: { label: 'Review draft', kind: 'draft', id: draft.id } };
   const entry = notebook.entries.find(value => answered.noteIds.includes(value.id));
-  if (entry !== undefined) return { ...base, state: 'ANSWERED', meta: 'Answered', metaTone: 'plain', link: { label: 'Open note', kind: 'entry', id: entry.id } };
-  return { ...base, state: 'ANSWERED', meta: answered.outcome === 'NO_NOTE' ? 'Answered · no reusable note' : 'Answered · draft dismissed', metaTone: 'plain' };
+  return { ...base, state: 'ANSWERED', meta: answered.outcome === 'NO_NOTE' ? 'Answered · no reusable note' : 'Answered', metaTone: 'plain', noteId: entry?.id ?? null };
 }
 
-export type TopicSummary = {
-  topic: ContextPlanTopicDto; rows: QuestionRow[]; answered: number; unfinished: number; running: boolean;
-  approved: number; drafts: number; meta: string;
-};
+export type TopicSummary = { topic: ContextPlanTopicDto; rows: QuestionRow[]; answered: number; unfinished: number; running: boolean; meta: string };
 
 export function topicSummary(topic: ContextPlanTopicDto, runs: ContextRunDto[], running: ContextRunDto | null, notebook: RepositoryNotebookDto): TopicSummary {
   const rows = topic.questions.map((_, index) => questionRow(topic, index, runs, running, notebook));
   const answered = topic.questions.filter(question => question.status === 'COMPLETED').length;
   const unfinished = rows.filter(row => row.state === 'UNFINISHED').length;
   const noteIds = new Set(runs.filter(run => run.question?.topicId === topic.id).flatMap(run => run.noteIds));
-  const approved = notebook.entries.filter(entry => noteIds.has(entry.id)).length;
-  const drafts = notebook.pendingDrafts.filter(draft => noteIds.has(draft.entry.id)).length;
+  const notes = notebook.entries.filter(entry => noteIds.has(entry.id)).length;
   const meta = `${answered} of ${plural(topic.questions.length, 'question')} answered`
-    + (unfinished ? ` · ${unfinished} unfinished` : '')
-    + (approved || drafts ? ` · notes: ${approved} approved${drafts ? `, ${plural(drafts, 'draft')}` : ''}` : '');
-  return { topic, rows, answered, unfinished, running: rows.some(row => row.state === 'RUNNING'), approved, drafts, meta };
+    + (unfinished ? ` · ${unfinished} unfinished` : '') + (notes ? ` · ${plural(notes, 'note')} saved` : '');
+  return { topic, rows, answered, unfinished, running: rows.some(row => row.state === 'RUNNING'), meta };
 }
 
 export function planCounts(plan: ContextLearningPlanDto): { answered: number; total: number } {
@@ -179,18 +171,9 @@ export function nextQuestion(view: ContextLearningPlanViewDto | undefined): null
   return { target, topic, text: question.text, resumes: question.status === 'UNFINISHED' };
 }
 
-/* ── Review queue ───────────────────────────────────────────────────── */
+/* ── Saved notes and what needs the user ────────────────────────────── */
 
 export type TaskTitles = Record<string, string>;
-
-/** Where a draft came from: the learning run, merged PR or task recorded as its proposer. */
-export function draftOrigin(draft: ContextKnowledgeDraftDto, times: ContextTimesDto, runs: ContextRunDto[], titles: TaskTitles): string {
-  const taskId = times.drafts[draft.id]?.taskId ?? null;
-  const run = taskId === null ? undefined : runs.find(value => value.taskId === taskId);
-  if (run !== undefined) return runOrigin(run);
-  if (taskId !== null && titles[taskId] !== undefined) return `Task “${titles[taskId]}”`;
-  return draft.id.startsWith('draft:task:') ? 'a development task' : 'earlier learning';
-}
 
 export function entryOrigin(entry: ContextEntryDto, times: ContextTimesDto, runs: ContextRunDto[], titles: TaskTitles): string {
   const taskId = times.entries[entryTimeKey(entry)]?.taskId ?? null;
@@ -202,36 +185,39 @@ export function entryOrigin(entry: ContextEntryDto, times: ContextTimesDto, runs
 
 export const entryTimeKey = (entry: Pick<ContextEntryDto, 'id' | 'version'>) => `${entry.version}:${entry.id}`;
 
-export type ReviewItem =
-  | { kind: 'draft'; id: string; title: string; label: string; icon: 'doc' | 'lesson' | 'update'; tone: Tone; origin: string; at: string | null }
-  | { kind: 'source'; id: string; title: string; label: string; icon: 'link'; tone: Tone; origin: string; at: string | null };
-
-export function draftLabel(draft: ContextKnowledgeDraftDto, notebook: RepositoryNotebookDto): { label: string; icon: 'doc' | 'lesson' | 'update'; tone: Tone } {
-  if (draft.replacesVersion !== null) return { label: `Update · v${draft.replacesVersion} → v${notebook.revision + 1}`, icon: 'update', tone: 'amber' };
-  return draft.entry.kind === 'MEMORY' ? { label: 'New lesson', icon: 'lesson', tone: 'purple' } : { label: 'New knowledge', icon: 'doc', tone: 'blue' };
+/** Notes whose current version the task saved; a later change by anyone else makes the note no longer the task's. */
+export function notesSavedBy(notebook: RepositoryNotebookDto, times: ContextTimesDto, taskId: string): ContextEntryDto[] {
+  return notebook.entries.filter(entry => times.entries[entryTimeKey(entry)]?.taskId === taskId);
 }
 
-export function reviewItems(notebook: RepositoryNotebookDto, plan: ContextLearningPlanDto | null, times: ContextTimesDto, runs: ContextRunDto[],
-  titles: TaskTitles): ReviewItem[] {
-  const drafts: ReviewItem[] = notebook.pendingDrafts.map(draft => ({ kind: 'draft', id: draft.id, title: draft.entry.title, ...draftLabel(draft, notebook),
-    origin: 'from ' + draftOrigin(draft, times, runs, titles), at: times.drafts[draft.id]?.at ?? null }));
-  const sources: ReviewItem[] = (plan?.documentInventory.suggestions ?? []).map(suggestion => {
+/** The version a note's last text change replaced; Restore makes it current again. */
+export function previousVersion(notebook: RepositoryNotebookDto, entryId: string): ContextEntryDto | undefined {
+  return notebook.replaced.find(entry => entry.id === entryId);
+}
+
+/** What Disable notes from this run turns off: enabled notes the run added that are still at the version it saved. */
+export function runNotesToDisable(notebook: RepositoryNotebookDto, times: ContextTimesDto, run: ContextRunDto): ContextEntryDto[] {
+  return notesSavedBy(notebook, times, run.taskId).filter(entry => entry.enabled && previousVersion(notebook, entry.id) === undefined);
+}
+
+export type ReviewItem = { url: string; origin: string; at: string };
+
+/** Needs you: sources learning runs want to read outside their approved boundary. */
+export function reviewItems(plan: ContextLearningPlanDto | null, runs: ContextRunDto[]): ReviewItem[] {
+  return (plan?.documentInventory.suggestions ?? []).map(suggestion => {
     const run = runs.find(value => value.taskId === suggestion.taskId);
-    return { kind: 'source', id: suggestion.url, title: suggestion.url, label: 'Source approval', icon: 'link', tone: 'orange',
-      origin: run === undefined ? 'found by an earlier learning run' : `found in Learning run ${run.sequence}`, at: suggestion.foundAt };
+    return { url: suggestion.url, origin: run === undefined ? 'found by an earlier learning run' : `found in Learning run ${run.sequence}`, at: suggestion.foundAt };
   });
-  return [...drafts, ...sources];
 }
 
-export function pendingCounts(notebook: RepositoryNotebookDto | null, plan: ContextLearningPlanDto | null): { drafts: number; sources: number; total: number } {
-  const drafts = notebook?.pendingDrafts.length ?? 0;
+export function pendingCounts(plan: ContextLearningPlanDto | null): { sources: number; total: number } {
   const sources = plan?.documentInventory.suggestions.length ?? 0;
-  return { drafts, sources, total: drafts + sources };
+  return { sources, total: sources };
 }
 
 /* ── Status card ────────────────────────────────────────────────────── */
 
-export type StatusAction = 'discover' | 'discover-rest' | 'review' | 'continue' | 'plan' | 'disc-activity' | 'plan-activity' | 'coverage' | 'sources';
+export type StatusAction = 'discover' | 'discover-rest' | 'continue' | 'plan' | 'disc-activity' | 'plan-activity' | 'coverage' | 'sources' | 'disable-notes';
 export type StatusCard = {
   icon: 'search' | 'check' | 'doc' | 'pause' | 'review' | 'alert' | 'spin';
   tone: 'gray' | 'green' | 'blue' | 'amber' | 'red';
@@ -245,16 +231,18 @@ export type StatusCard = {
   feed: ContextActivityDto[]; live: string | null;
   foot: null | { text: string; link: null | { label: string; action: StatusAction } };
   sourceApproval: string | null;
+  /** The finished run whose notes Disable notes from this run turns off, and how many. */
+  disable: null | { taskId: string; sequence: number; notes: number };
 };
 
 export type StatusInput = {
   repository: string; baseline: ContextBaselineDto | null; model: string;
-  notebook: RepositoryNotebookDto; build: ContextBuildViewDto; report: ContextDiscoveryReportDto | null; planView: ContextLearningPlanViewDto;
-  now: number;
+  notebook: RepositoryNotebookDto; times: ContextTimesDto; build: ContextBuildViewDto; report: ContextDiscoveryReportDto | null;
+  planView: ContextLearningPlanViewDto; now: number;
 };
 
 const blank: StatusCard = { icon: 'doc', tone: 'gray', headline: '', elapsedSince: null, question: null, body: null, steps: false, how: false,
-  primary: null, secondary: null, details: null, stop: false, runLine: null, feed: [], live: null, foot: null, sourceApproval: null };
+  primary: null, secondary: null, details: null, stop: false, runLine: null, feed: [], live: null, foot: null, sourceApproval: null, disable: null };
 
 export function coverageFoot(report: ContextDiscoveryReportDto): string {
   const total = report.coverage.areas.reduce((sum, area) => sum + area.total, 0);
@@ -281,7 +269,7 @@ export function statusCard(input: StatusInput): StatusCard {
   const { notebook, build, report, planView, model, repository, baseline } = input;
   const plan = planView.plan;
   const running = currentRun(build);
-  const approved = notebook.entries.filter(entry => entry.enabled).length;
+  const available = notebook.entries.filter(entry => entry.enabled).length;
   const revision = baseline === null ? '' : `${baseline.branch}@${shortSha(report?.baselineSha ?? plan?.baselineSha ?? baseline.sha)}`;
   if (running !== null) {
     const last = running.activity.at(-1);
@@ -296,7 +284,7 @@ export function statusCard(input: StatusInput): StatusCard {
         body: continuing ? `Surveying the ${plural(unsurveyed, 'directory', 'directories')} the last discovery skipped. New suggestions appear when the run finishes.`
           : `Surveying ${repository}${revision ? ` at ${revision}` : ''}. Suggestions appear when the run finishes.`,
         details: { label: 'View activity', action: 'disc-activity' }, runLine: `Started by you · ${model} · read-only`,
-        foot: { text: approved ? `Your ${plural(approved, 'approved note')} stay available — discovery only adds suggestions.`
+        foot: { text: available ? `Your ${plural(available, 'note')} stay available — discovery only adds suggestions.`
           : 'Discovery saves suggestions only. It never writes notes or changes files.', link: null } };
     }
     if (running.question !== null) {
@@ -306,32 +294,32 @@ export function statusCard(input: StatusInput): StatusCard {
       return { ...card, headline: `Learning · ${running.question.topicTitle}`, question: running.question.text,
         body: `Run ${running.sequence} · question ${running.question.index + 1} of ${total} in this topic${resumed}`,
         details: { label: 'View details', action: 'plan-activity' },
-        foot: { text: 'Drafts are saved as they finish. Stopping keeps the plan and every draft.', link: null } };
+        foot: { text: 'Notes are saved as they finish. Stopping keeps the plan and every saved note.', link: null } };
     }
     return { ...card, headline: `Learning from merged PR #${running.pullRequest ?? ''}`, question: 'What’s reusable from this change?',
-      body: 'Reads the PR bundle and the current code. It may propose a note, an update, or nothing.',
+      body: 'Reads the PR bundle and the current code. It may save a note, an update, or nothing.',
       details: { label: 'View details', action: 'plan-activity' } };
   }
-  if (report === null && plan === null && approved === 0) {
+  if (report === null && plan === null && available === 0) {
     return { ...blank, icon: 'search', headline: `Find what’s worth learning in ${repository}`,
-      body: `An agent surveys the repository${revision ? ` at ${revision}` : ''} — layout, READMEs, build files and docs — and suggests topics. You choose what to learn and approve each note before agents can use it.`,
+      body: `An agent surveys the repository${revision ? ` at ${revision}` : ''} — layout, READMEs, build files and docs — and suggests topics. You choose what to learn; agents can use each note as soon as it’s saved.`,
       steps: true, how: true, primary: { label: 'Start discovery', bolt: true, action: 'discover' },
       runLine: `Starts 1 discovery run · ${model} · read-only · you can stop it` };
   }
   if (report === null && plan === null) {
-    return { ...blank, icon: 'check', tone: 'green', headline: `${plural(approved, 'note')} available to agents`,
+    return { ...blank, icon: 'check', tone: 'green', headline: `${plural(available, 'note')} available to agents`,
       body: 'Development and review agents look notes up when they seem relevant — the agent decides what applies. Missing notes never block work.',
       secondary: { label: 'Find topics to learn', bolt: true, action: 'discover' },
-      runLine: `Starts 1 discovery run · ${model} · your ${plural(approved, 'note')} stay as they are` };
+      runLine: `Starts 1 discovery run · ${model} · your ${plural(available, 'note')} stay as they are` };
   }
   if (needsTopicReselection(plan)) {
     return { ...blank, icon: 'alert', tone: 'amber', headline: 'Reselect topics before continuing',
-      body: 'This earlier plan does not say where its notes apply. Discard the remaining plan, discover again, and select topics with explicit note targets. Approved notes and drafts are kept.',
+      body: 'This earlier plan does not say where its notes apply. Discard the remaining plan, discover again, and select topics with explicit note targets. Saved notes are kept.',
       primary: { label: 'Review learning plan', bolt: false, action: 'plan' } };
   }
   if (plan === null && report?.topics.some(topic => topic.notePaths === null)) {
     return { ...blank, icon: 'alert', tone: 'amber', headline: 'Update suggestions before learning',
-      body: 'Earlier suggestions do not say where their notes apply. Discover again to set note targets. Approved notes and drafts are kept.',
+      body: 'Earlier suggestions do not say where their notes apply. Discover again to set note targets. Saved notes are kept.',
       primary: { label: 'Discover again', bolt: true, action: 'discover' }, runLine: `Starts 1 discovery run · ${model} · read-only` };
   }
   if (plan === null && report !== null) {
@@ -345,52 +333,54 @@ export function statusCard(input: StatusInput): StatusCard {
       runLine: `Discover remaining areas starts 1 discovery run · ${model}` } : card;
   }
   const active = plan;
-  const pending = pendingCounts(notebook, active);
+  const sources = pendingCounts(active).sources;
   const next = nextQuestion(planView);
   const left = planCounts(active).total - planCounts(active).answered;
   const last = latestRun(build.runs, run => run.question?.planId === active.id);
-  const draftText = pending.drafts ? ` ${plural(pending.drafts, 'draft')} ${pending.drafts === 1 ? 'waits' : 'wait'} for review — agents can’t use drafts until you approve.` : '';
   let card: StatusCard;
   const lastQuestion = last?.question?.text ?? '';
   const recent = last !== null && input.now - Date.parse(last.endedAt ?? last.requestedAt) < RECENT_RUN_MS;
   if (last !== null && !recent) {
     card = { ...blank, icon: 'review', tone: 'amber',
-      headline: pending.total ? `${plural(pending.total, 'item')} ${pending.total === 1 ? 'needs' : 'need'} your review` : 'Learning is paused',
-      body: pending.total ? `${plural(pending.drafts, 'draft')}${pending.sources ? ` and ${plural(pending.sources, 'source proposal')}` : ''} from recent work. Approved notes stay in use while updates wait.`
-        : `${plural(left, 'question')} left in the plan.`,
+      headline: sources ? `${plural(sources, 'source proposal')} ${sources === 1 ? 'needs' : 'need'} your review` : 'Learning is paused',
+      body: `${plural(left, 'question')} left in the plan.`,
       foot: { text: `Last run · ${shortDate(last.endedAt ?? last.requestedAt, input.now)} · ${lastRunSentence(last, lastQuestion)}`, link: null } };
   }
   else if (last?.outcome === 'STOPPED' || last?.outcome === 'UNFINISHED' || last?.outcome === 'LIMIT') {
     const headline = last.outcome === 'STOPPED' ? 'Run stopped · progress saved'
       : last.outcome === 'LIMIT' ? `Run ${last.sequence} reached its source limit` : `Run ${last.sequence} finished · progress saved`;
-    card = { ...blank, icon: 'pause', headline, body: `“${lastQuestion}” is unfinished; Continue picks it up.${draftText}` };
+    card = { ...blank, icon: 'pause', headline, body: `“${lastQuestion}” is unfinished; Continue picks it up.` };
   }
   else if (last?.outcome === 'FAILED') {
     card = { ...blank, icon: 'alert', tone: 'red', headline: `Run ${last.sequence} failed`,
-      body: `${last.detail ? last.detail + ' ' : ''}No drafts or progress were lost.${draftText}` };
+      body: `${last.detail ? last.detail + ' ' : ''}Progress and saved notes are kept.` };
   }
   else if (last !== null) {
     const topic = active.topics.find(value => value.id === last.question?.topicId);
     const open = topic?.questions.filter(question => question.status !== 'COMPLETED').length ?? 0;
     card = { ...blank, icon: 'check', tone: 'green', headline: `Run ${last.sequence} finished · question answered`,
-      body: (topic ? `${topic.title} ${open ? `still has ${plural(open, 'open question')}` : 'has no open questions'}; ${left} left in the plan.` : '') + draftText };
+      body: topic ? `${topic.title} ${open ? `still has ${plural(open, 'open question')}` : 'has no open questions'}; ${left} left in the plan.` : null };
   }
   else {
-    card = { ...blank, icon: 'doc', headline: 'Learning plan saved', body: `${plural(left, 'question')} left in the plan.${draftText}` };
+    card = { ...blank, icon: 'doc', headline: 'Learning plan saved', body: `${plural(left, 'question')} left in the plan.` };
   }
-  if (pending.drafts) card.primary = { label: pending.drafts === 1 ? 'Review draft' : `Review ${pending.drafts} drafts`, bolt: false, action: 'review' };
   if (next !== null) {
-    const action = { label: 'Continue learning', bolt: true, action: 'continue' as const };
-    if (pending.drafts) card.secondary = action;
-    else card.primary = action;
+    card.primary = { label: 'Continue learning', bolt: true, action: 'continue' };
     card.runLine = `Next: ${next.topic.title} · “${next.text}”${next.resumes ? ' · resumes saved progress' : ''} · 1 run · ${model}`;
   }
-  else if (!pending.drafts) {
+  else {
     card = { ...card, icon: 'check', tone: 'green', headline: 'All planned questions answered',
-      body: 'Approved notes are available to agents. Choose more topics under Learning opportunities.' };
+      body: 'Saved notes are available to agents. Choose more topics under Learning opportunities.' };
+  }
+  if (last !== null && last.noteIds.length > 0) {
+    const disable = runNotesToDisable(notebook, input.times, last).length;
+    const saved = `Run ${last.sequence} saved ${plural(last.noteIds.length, 'note')}.`;
+    card.foot = { text: card.foot === null ? saved : `${card.foot.text} ${saved}`,
+      link: disable === 0 ? null : { label: 'Disable notes from this run', action: 'disable-notes' } };
+    if (disable > 0) card.disable = { taskId: last.taskId, sequence: last.sequence, notes: disable };
   }
   card.details = { label: 'Plan details', action: 'plan' };
-  if (pending.sources) card.sourceApproval = active.documentInventory.suggestions[0].url;
+  if (sources) card.sourceApproval = active.documentInventory.suggestions[0].url;
   return card;
 }
 
@@ -448,13 +438,13 @@ export const CLAIM_TAG: Record<ContextClaimDto['basis'], { label: string; tone: 
 
 export type DiffLine = { sign: '+' | '−' | ' '; text: string };
 
-/** Compares what agents use today with the proposed update, claim by claim and line by line. */
-export function noteDiff(active: ContextEntryDto, proposed: ContextEntryDto): { lines: DiffLine[]; summary: string } {
+/** Compares a note's previous version with its current one, claim by claim and line by line. */
+export function noteDiff(previous: ContextEntryDto, current: ContextEntryDto): { lines: DiffLine[]; summary: string } {
   // Lines compare as the reader sees them: without Markdown heading and list markers.
   const items = (entry: ContextEntryDto) => [entry.summary,
     ...entry.body.split('\n').map(line => line.trim().replace(/^#{1,6}\s+/, '').replace(/^[-*+]\s+/, '')).filter(Boolean), ...entry.claims.map(claim => claim.text)];
-  const before = items(active);
-  const after = items(proposed);
+  const before = items(previous);
+  const after = items(current);
   const table = before.map(() => new Array<number>(after.length + 1).fill(0));
   table.push(new Array<number>(after.length + 1).fill(0));
   for (let i = before.length - 1; i >= 0; i--) {
@@ -472,7 +462,7 @@ export function noteDiff(active: ContextEntryDto, proposed: ContextEntryDto): { 
   }
   const added = lines.filter(line => line.sign === '+').length;
   const removed = lines.filter(line => line.sign === '−').length;
-  const sources = proposed.sourceIds.filter(id => !active.sourceIds.includes(id)).length;
+  const sources = current.sourceIds.filter(id => !previous.sourceIds.includes(id)).length;
   const summary = [`${plural(added, 'line')} added or changed`, `${removed} removed`, ...(sources ? [`${plural(sources, 'source')} added`] : [])].join(' · ');
   return { lines, summary };
 }

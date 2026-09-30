@@ -113,7 +113,7 @@ public class ContextLearningService
                 .filter(topic -> topic.id().equals(id)).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Selected discovery topic is unavailable: " + id))).toList();
         checkArgument(selected.stream().allMatch(topic -> topic.notePaths().isPresent()),
-                "These suggestions have no explicit note applicability. Discover again before learning; saved notes and drafts are kept.");
+                "These suggestions have no explicit note applicability. Discover again before learning; saved notes are kept.");
         RepositoryNotebook notebook = notebooks.getNotebook(workspaceId);
         checkArgument(notebook.revision() == request.expectedRevision(), "Notebook revision changed; inspect current context");
         ContextBuildService.View before = builds.get(workspaceId);
@@ -451,12 +451,12 @@ public class ContextLearningService
     private void requireScope(RepositoryNotebook notebook, ContextLearningPlan.Topic topic)
     {
         List<String> notePaths = topic.notePaths().orElseThrow(() -> new IllegalArgumentException(
-                "This learning plan has no explicit note applicability. Discard the plan and discover again; saved notes and drafts are kept."));
+                "This learning plan has no explicit note applicability. Discard the plan and discover again; saved notes are kept."));
         ContextScope scope = notebook.scopes().stream().filter(value -> value.id().equals(topic.scopeId()) && value.enabled()
                         && matchDigest(value.match()).equals(topic.scopeMatchDigest())).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Learning scope was disabled or its matching rule changed"));
         checkArgument(matchesPaths(scope.match(), notePaths),
-                "Saved note paths do not match its note scope. Discard this learning plan and select topics again; saved notes and drafts are kept.");
+                "Saved note paths do not match its note scope. Discard this learning plan and select topics again; saved notes are kept.");
     }
 
     private static boolean matchesPaths(ContextMatch rule, List<String> paths)

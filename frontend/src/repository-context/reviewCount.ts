@@ -17,8 +17,8 @@ import { pendingCounts } from './model';
 /** Every page that changes notes tells the sidebar count and Home to re-read them. */
 export const CONTEXT_CHANGED = 'bytequay:repository-context-changed';
 
-/** What waits for the user in Repository context, from local notebook, plan and time reads only. */
-export type ContextReview = { drafts: number; sources: number; total: number; firstDraftId: string | null; latestAt: string | null; useInDevelopment: boolean };
+/** What waits for the user in Repository context, from local notebook and plan reads only. */
+export type ContextReview = { sources: number; total: number; latestAt: string | null; useInDevelopment: boolean };
 
 /** Re-read on a change, on window focus, or when {@code refresh} changes; null until the first read lands. */
 export function useContextReview(workspaceId: string | null, refresh: unknown): ContextReview | null {
@@ -28,13 +28,11 @@ export function useContextReview(workspaceId: string | null, refresh: unknown): 
     let live = true;
     // A failed read, even a synchronous one, leaves the last summary; the count never breaks the page it sits on.
     const load = (): void => void Promise.resolve().then(() => Promise.all([window.bridge.getRepositoryContext(workspaceId),
-      window.bridge.getRepositoryContextLearningPlan(workspaceId), window.bridge.getRepositoryContextTimes(workspaceId)]))
-      .then(([notebook, view, times]) => {
+      window.bridge.getRepositoryContextLearningPlan(workspaceId)]))
+      .then(([notebook, view]) => {
         if (!live) return;
-        const stamps = [...notebook.pendingDrafts.map(draft => times.drafts[draft.id]?.at),
-          ...(view.plan?.documentInventory.suggestions ?? []).map(suggestion => suggestion.foundAt)].filter((at): at is string => at !== undefined);
-        setRead({ workspaceId, review: { ...pendingCounts(notebook, view.plan), firstDraftId: notebook.pendingDrafts[0]?.id ?? null,
-          latestAt: stamps.sort().at(-1) ?? null, useInDevelopment: notebook.useInDevelopment } });
+        const stamps = (view.plan?.documentInventory.suggestions ?? []).map(suggestion => suggestion.foundAt);
+        setRead({ workspaceId, review: { ...pendingCounts(view.plan), latestAt: stamps.sort().at(-1) ?? null, useInDevelopment: notebook.useInDevelopment } });
       })
       .catch(() => {});
     const onChange = (event: Event) => { if (!(event instanceof CustomEvent) || event.detail === workspaceId) load(); };

@@ -155,7 +155,8 @@ class TestContextBuildService
     private final ContextLearningPlanStore plans = mock(ContextLearningPlanStore.class);
     private final ContextDiscoveryReportStore reports = new ContextDiscoveryReportStore(settings, mapper);
     private final ContextBuildStore builds = new ContextBuildStore(settings, taskStore, mapper);
-    private final RepositoryContextPreparation preparation = new RepositoryContextPreparation(notebooks, mock(ContextInputReader.class), workspaces);
+    private final RepositoryContextPreparation preparation = new RepositoryContextPreparation(notebooks, mock(ContextInputReader.class), workspaces,
+            mock(ContextSourceChecker.class));
     private final Map<TaskId, AgentTask> savedTasks = new LinkedHashMap<>();
     private final Map<TurnId, AgentTurn> savedTurns = new LinkedHashMap<>();
     private ContextBuildService service;

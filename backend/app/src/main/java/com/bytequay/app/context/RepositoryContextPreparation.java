@@ -23,7 +23,6 @@ import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextEntryKind;
 import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextInputFingerprint;
-import com.bytequay.core.context.ContextKnowledgeDraft;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextPacket;
 import com.bytequay.core.context.ContextPreparationResult;
@@ -41,7 +40,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -68,12 +66,15 @@ public class RepositoryContextPreparation
     private final RepositoryContextService notebooks;
     private final ContextInputReader inputs;
     private final WorkspaceRepositoryService workspaces;
+    private final ContextSourceChecker checker;
 
-    public RepositoryContextPreparation(RepositoryContextService notebooks, ContextInputReader inputs, WorkspaceRepositoryService workspaces)
+    public RepositoryContextPreparation(RepositoryContextService notebooks, ContextInputReader inputs, WorkspaceRepositoryService workspaces,
+            ContextSourceChecker checker)
     {
         this.notebooks = requireNonNull(notebooks, "notebooks is null");
         this.inputs = requireNonNull(inputs, "inputs is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.checker = requireNonNull(checker, "checker is null");
     }
 
     /**
@@ -190,7 +191,7 @@ public class RepositoryContextPreparation
             }
             ActiveContextPreparation admitted = new ActiveContextPreparation(UUID.randomUUID().toString(), requestKey, requestDigest,
                     execution.taskId(), execution.turnId(), execution.turnKey(), execution.reviewId(), execution.runId(), current.revision(), missing);
-            RepositoryNotebook changed = copy(current, current.revision(), current.scopes(), current.entries(), current.pendingDrafts(),
+            RepositoryNotebook changed = copy(current, current.revision(), current.scopes(), current.entries(), current.replaced(),
                     current.sourceEvidence(), Optional.of(admitted));
             notebooks.savePreparation(execution.workspaceId(), current, changed);
             return new Admission(Status.OWNED, current.revision(), Optional.of(admitted), saved, gaps.build(), packet(current, saved));
@@ -217,7 +218,10 @@ public class RepositoryContextPreparation
         Map<String, ContextSourceRead> observed = execution.sourceReads().stream().collect(toImmutableMap(ContextSourceRead::id, value -> value));
         Map<String, ContextSourceEvidence> evidence = new LinkedHashMap<>();
         current.sourceEvidence().forEach(source -> evidence.put(source.id(), source));
-        List<ContextKnowledgeDraft> drafts = new ArrayList<>(current.pendingDrafts());
+        Map<String, ContextEntry> entries = new LinkedHashMap<>();
+        current.entries().forEach(entry -> entries.put(entry.id(), entry));
+        Map<String, ContextEntry> replaced = new LinkedHashMap<>();
+        current.replaced().forEach(entry -> replaced.put(entry.id(), entry));
         Map<String, ContextPreparationResult> results = new LinkedHashMap<>();
         long revision = readyIds.isEmpty() ? current.revision() : Math.addExact(current.revision(), 1);
         for (ScopeReport result : report.scopeResults()) {
@@ -242,25 +246,25 @@ public class RepositoryContextPreparation
                 for (String id : result.noteIds()) {
                     GeneratedEntry entry = proposals.get(id);
                     checkArgument(entry.scopeId().equals(scope.id()), "Generated entry belongs to another scope");
-                    checkArgument(current.pendingDrafts().stream().noneMatch(draft -> draft.entry().id().equals(id)),
-                            "Knowledge note already has a pending proposal");
                     Optional<ContextEntry> prior = current.entries().stream().filter(note -> note.id().equals(id)).findFirst();
                     checkArgument(prior.filter(note -> !note.scopeId().equals(scope.id()) || note.kind() != entry.kind()).isEmpty(),
                             "Generated note cannot change an existing note's scope");
                     checkArgument(prior.filter(note -> !note.enabled() || note.origin() == USER).isEmpty(),
                             "Generated note cannot replace user-owned or disabled content");
+                    checkArgument(prior.filter(note -> checker.newerThan(execution.workspaceId(), execution.baselineSha(),
+                            note.sourceIds().stream().flatMap(source -> Optional.ofNullable(evidence.get(source)).stream()).toList())).isEmpty(),
+                            "%s was saved from code newer than this run's baseline; don't update it from older code", id);
                     checkArgument(captured.containsAll(entry.sourceIds()), "Generated note sources must be checked nonblank reads for its scope");
                     checkArgument(entry.claims().stream().noneMatch(claim -> claim.basis() == ContextClaim.Basis.USER_LESSON), "Generation cannot author a user lesson");
-                    ContextEntry proposed = new ContextEntry(entry.id(), entry.kind(), entry.scopeId(), entry.title(), entry.summary(), entry.body(),
-                            entry.claims(), entry.sourceIds(), GENERATED, true, revision);
-                    drafts.add(new ContextKnowledgeDraft("draft:" + UUID.randomUUID(), proposed, prior.map(ContextEntry::version),
-                            execution.baselineSha(), result.explanation()));
+                    entries.put(id, new ContextEntry(entry.id(), entry.kind(), entry.scopeId(), entry.title(), entry.summary(), entry.body(),
+                            entry.claims(), entry.sourceIds(), GENERATED, true, revision));
+                    prior.ifPresent(old -> replaced.put(id, old));
                 }
             }
         }
         List<ContextScope> provisionalScopes = withResults(current.scopes(), results);
-        RepositoryNotebook prospective = copy(current, revision, provisionalScopes, current.entries(), ImmutableList.copyOf(drafts),
-                ImmutableList.copyOf(evidence.values()), Optional.empty());
+        RepositoryNotebook prospective = copy(current, revision, provisionalScopes, ImmutableList.copyOf(entries.values()),
+                ImmutableList.copyOf(replaced.values()), ImmutableList.copyOf(evidence.values()), Optional.empty());
         WorkspaceRepositoryContext workspace = workspace(execution);
         List<ContextScope> selected = provisionalScopes.stream().filter(scope -> expected.contains(scope.id())).collect(toImmutableList());
         List<ContextInputFingerprint> completedInputs = inputs.capture(workspace, Optional.of(execution.baselineSha()), prospective, selected);
@@ -272,7 +276,7 @@ public class RepositoryContextPreparation
                     result.noteIds(), result.checkedReads(), result.explanation()));
         }
         RepositoryNotebook replacement = copy(current, revision, withResults(current.scopes(), results),
-                prospective.entries(), prospective.pendingDrafts(), prospective.sourceEvidence(), Optional.empty());
+                prospective.entries(), prospective.replaced(), prospective.sourceEvidence(), Optional.empty());
         List<ContextPreparationResult> accepted = ImmutableList.copyOf(results.values());
         return new Completion(current, replacement, new Receipt(active.attemptId(), revision, accepted, packet(replacement, accepted)));
     }
@@ -286,10 +290,8 @@ public class RepositoryContextPreparation
             StringBuilder section = new StringBuilder(result.inputFingerprint().scopeId()).append(": ").append(result.outcome())
                     .append(" — ").append(result.explanation()).append('\n');
             result.noteIds().forEach(id -> {
-                Optional<ContextKnowledgeDraft> draft = notebook.pendingDrafts().stream().filter(value -> value.entry().id().equals(id)).findFirst();
-                ContextEntry entry = draft.map(ContextKnowledgeDraft::entry)
-                        .orElseGet(() -> notebook.entries().stream().filter(value -> value.id().equals(id)).findFirst().orElseThrow());
-                section.append(entry.title()).append(draft.isPresent() ? " (pending approval)\n" : " (version " + entry.version() + ")\n")
+                ContextEntry entry = notebook.entries().stream().filter(value -> value.id().equals(id)).findFirst().orElseThrow();
+                section.append(entry.title()).append(" (version ").append(entry.version()).append(")\n")
                         .append(entry.summary()).append('\n')
                         .append(entry.body()).append("\nSources: ").append(entry.sourceIds()).append('\n');
                 entry.claims().forEach(claim -> section.append(claim.basis()).append(": ").append(claim.text()).append(" ").append(claim.sourceIds()).append('\n'));
@@ -341,7 +343,7 @@ public class RepositoryContextPreparation
             Map<String, ContextPreparationResult> results = expected.inputs().stream().collect(toImmutableMap(ContextInputFingerprint::scopeId,
                     input -> new ContextPreparationResult(expected.attemptId(), input, FAILED, ImmutableList.of(), ImmutableList.of(), reason)));
             notebooks.savePreparation(workspaceId, current, copy(current, current.revision(), withResults(current.scopes(), results),
-                    current.entries(), current.pendingDrafts(), current.sourceEvidence(), Optional.empty()));
+                    current.entries(), current.replaced(), current.sourceEvidence(), Optional.empty()));
             return null;
         });
     }
@@ -380,8 +382,7 @@ public class RepositoryContextPreparation
                                         && fresh.contentHash().equals(saved.contentHash()) && fresh.truncated() == saved.truncated()
                                         && fresh.refreshFailed() == saved.refreshFailed())))
                 .filter(result -> result.outcome() == EMPTY || (result.outcome() == READY && result.noteIds().stream()
-                        .allMatch(id -> notebook.entries().stream().anyMatch(entry -> entry.id().equals(id) && entry.enabled())
-                                && notebook.pendingDrafts().stream().noneMatch(draft -> draft.entry().id().equals(id))))).isPresent();
+                        .allMatch(id -> notebook.entries().stream().anyMatch(entry -> entry.id().equals(id) && entry.enabled())))).isPresent();
     }
 
     private static ContextScope scope(RepositoryNotebook notebook, String id)
@@ -396,10 +397,10 @@ public class RepositoryContextPreparation
     }
 
     private static RepositoryNotebook copy(RepositoryNotebook current, long revision, List<ContextScope> scopes, List<ContextEntry> entries,
-            List<ContextKnowledgeDraft> drafts, List<ContextSourceEvidence> evidence, Optional<ActiveContextPreparation> active)
+            List<ContextEntry> replaced, List<ContextSourceEvidence> evidence, Optional<ActiveContextPreparation> active)
     {
-        Set<String> retained = RepositoryContextService.retainedSources(current.sources(), scopes, entries, drafts);
-        return new RepositoryNotebook(1, revision, current.useInReviews(), current.useInDevelopment(), current.sources(), scopes, entries, drafts,
+        Set<String> retained = RepositoryContextService.retainedSources(current.sources(), scopes, entries, replaced);
+        return new RepositoryNotebook(1, revision, current.useInReviews(), current.useInDevelopment(), current.sources(), scopes, entries, replaced,
                 evidence.stream().filter(source -> retained.contains(source.id())).collect(toImmutableList()), active);
     }
 

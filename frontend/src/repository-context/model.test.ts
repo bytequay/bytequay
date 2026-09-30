@@ -13,21 +13,23 @@
  */
 import { describe, expect, it } from 'vitest';
 import type {
-  ContextBuildViewDto, ContextDiscoveryReportDto, ContextEntryDto, ContextKnowledgeDraftDto, ContextLearningPlanDto, ContextMergedCandidateDto, ContextRunDto,
-  ContextScopeDto, RepositoryNotebookDto,
+  ContextBuildViewDto, ContextDiscoveryReportDto, ContextEntryDto, ContextLearningPlanDto, ContextMergedCandidateDto, ContextRunDto, ContextScopeDto,
+  ContextTimesDto, RepositoryNotebookDto,
 } from './contracts';
-import { filterNotes, needsTopicReselection, noteDiff, openCandidates, pendingCounts, questionRow, scopeForTopic, statusCard, type StatusInput } from './model';
+import {
+  filterNotes, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, pendingCounts, previousVersion, questionRow, reviewItems, runNotesToDisable, scopeForTopic,
+  statusCard, topicSummary, type StatusInput,
+} from './model';
 
 const NOW = Date.parse('2026-09-29T12:00:00Z');
 const entry: ContextEntryDto = { id: 'knowledge:iceberg', kind: 'KNOWLEDGE', scopeId: 'iceberg', title: 'Iceberg metadata refresh',
   summary: 'Refresh reads the latest snapshot.', body: 'Read the snapshot.\nCache per transaction.', claims: [{ text: 'Refresh is per query', basis: 'OBSERVED', sourceIds: [] }],
   sourceIds: ['s1'], origin: 'GENERATED', enabled: true, version: 3 };
-const draft: ContextKnowledgeDraftDto = { id: 'draft:1', entry, replacesVersion: null, baselineSha: 'a'.repeat(40) };
 const notebook: RepositoryNotebookDto = { schemaVersion: 1, revision: 8, useInReviews: true, useInDevelopment: true, sources: [],
   scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, discoveryEvidenceRef: null },
     { id: 'iceberg', title: 'Iceberg connector', match: { kind: 'SELECTED', pathPrefixes: ['plugin/trino-iceberg/'], terms: [] }, enabled: true,
       discoveryEvidenceRef: null }],
-  entries: [], pendingDrafts: [], sourceEvidence: [] };
+  entries: [], replaced: [], sourceEvidence: [] };
 const report: ContextDiscoveryReportDto = { id: 'report', workspaceId: 'w',
   baselineSha: 'a'.repeat(40), topics: [{ id: 'topic:iceberg', title: 'Iceberg connector', questions: ['How is metadata refreshed?', 'How are commits retried?'],
     paths: ['plugin/trino-iceberg/', 'plugin/trino-hive/'], notePaths: ['plugin/trino-iceberg/'], sourceIds: [], evidenceReadIds: [], why: '' }], sources: [], evidence: [], remaining: [], partial: true,
@@ -43,7 +45,9 @@ const run = (sequence: number, outcome: ContextRunDto['outcome'], index: number,
 const build = (runs: ContextRunDto[]): ContextBuildViewDto => ({ buildRequestSequence: runs.length, notebookRevision: 8, canStart: runs.every(value => value.outcome !== 'RUNNING'),
   runs, build: null });
 const input = (patch: Partial<StatusInput>): StatusInput => ({ repository: 'trinodb/trino', baseline: { branch: 'master', sha: 'a'.repeat(40) }, model: 'Codex · 5.6',
-  notebook, build: build([]), report: null, planView: { plan: null, next: null }, now: NOW, ...patch });
+  notebook, times: { entries: {} }, build: build([]), report: null, planView: { plan: null, next: null }, now: NOW, ...patch });
+const source = { url: 'https://iceberg.apache.org/docs/latest/', parentUrl: 'https://trino.io/docs/', topicId: 'topic:iceberg', question: 1, taskId: 'task-2',
+  foundAt: '2026-09-20T11:00:00Z' };
 
 describe('repository context status card', () => {
   it('starts discovery only from an explicit lightning action on a new repository', () => {
@@ -67,7 +71,7 @@ describe('repository context status card', () => {
     const card = statusCard(input({ report, planView: { plan: earlierPlan, next: { topicId: 'topic:iceberg', question: 1 } } }));
     expect(card.headline).toBe('Reselect topics before continuing');
     expect(card.primary).toEqual({ label: 'Review learning plan', bolt: false, action: 'plan' });
-    expect(card.body).toContain('Approved notes and drafts are kept');
+    expect(card.body).toContain('Saved notes are kept');
     expect(needsTopicReselection(earlierPlan)).toBe(true);
     expect(needsTopicReselection(plan)).toBe(false);
   });
@@ -80,19 +84,40 @@ describe('repository context status card', () => {
     expect(card.runLine).toContain('resumes saved progress');
   });
 
-  it('puts review before continuation and never marks review as a run', () => {
-    const draftNotebook = { ...notebook, pendingDrafts: [draft] };
-    const card = statusCard(input({ notebook: draftNotebook, report, build: build([run(1, 'ANSWERED', 0, '2026-09-29T11:00:00Z', [entry.id])]),
-      planView: { plan, next: { topicId: 'topic:iceberg', question: 1 } } }));
-    expect(card.primary).toEqual({ label: 'Review draft', bolt: false, action: 'review' });
-    expect(card.secondary?.bolt).toBe(true);
-    expect(pendingCounts(draftNotebook, plan).total).toBe(1);
+  it('names the notes a run saved and offers to disable only the ones it added that nobody changed, without a run', () => {
+    const at = '2026-09-29T11:00:00Z';
+    const added = { ...entry, id: 'knowledge:added', version: 9 };
+    const updated = { ...entry, id: 'knowledge:updated', version: 9 };
+    const edited = { ...entry, id: 'knowledge:edited', version: 10 };
+    const book = { ...notebook, entries: [added, updated, edited], replaced: [{ ...updated, summary: 'Earlier summary', version: 4 }] };
+    const times: ContextTimesDto = { entries: { '9:knowledge:added': { at, taskId: 'task-1' }, '9:knowledge:updated': { at, taskId: 'task-1' },
+      '10:knowledge:edited': { at, taskId: null } } };
+    const answered = run(1, 'ANSWERED', 0, at, [added.id, updated.id, edited.id]);
+    const view = { plan, next: { topicId: 'topic:iceberg', question: 1 } };
+    const card = statusCard(input({ notebook: book, times, report, build: build([answered]), planView: view }));
+    expect(card.primary).toEqual({ label: 'Continue learning', bolt: true, action: 'continue' });
+    expect(card.foot).toEqual({ text: 'Run 1 saved 3 notes.', link: { label: 'Disable notes from this run', action: 'disable-notes' } });
+    expect(card.disable).toEqual({ taskId: 'task-1', sequence: 1, notes: 1 });
+    expect(runNotesToDisable(book, times, answered).map(value => value.id)).toEqual([added.id]);
+    expect(previousVersion(book, updated.id)?.summary).toBe('Earlier summary');
+    expect(previousVersion(book, added.id)).toBeUndefined();
+    const disabled = statusCard(input({ notebook: { ...book, entries: [{ ...added, enabled: false }, updated, edited] }, times, report, build: build([answered]), planView: view }));
+    expect(disabled.foot).toEqual({ text: 'Run 1 saved 3 notes.', link: null });
+    expect(disabled.disable).toBeNull();
   });
 
-  it('summarizes old work as waiting review instead of the run that just ended', () => {
-    const card = statusCard(input({ report, build: build([run(1, 'ANSWERED', 0, '2026-09-20T11:00:00Z')]), planView: { plan, next: { topicId: 'topic:iceberg', question: 1 } } }));
+  it('summarizes old work with the source proposals that need the user', () => {
+    const view = { plan, next: { topicId: 'topic:iceberg', question: 1 } };
+    const card = statusCard(input({ report, build: build([run(1, 'ANSWERED', 0, '2026-09-20T11:00:00Z')]), planView: view }));
     expect(card.headline).toBe('Learning is paused');
     expect(card.foot?.text).toMatch(/^Last run · Sep 20 · answered/);
+    const proposed = { ...plan, documentInventory: { ...plan.documentInventory, suggestions: [source] } };
+    const waiting = statusCard(input({ report, build: build([run(2, 'LIMIT', 1, '2026-09-20T11:00:00Z')]), planView: { ...view, plan: proposed } }));
+    expect(waiting.headline).toBe('1 source proposal needs your review');
+    expect(waiting.sourceApproval).toBe(source.url);
+    expect(pendingCounts(proposed)).toEqual({ sources: 1, total: 1 });
+    expect(pendingCounts(null)).toEqual({ sources: 0, total: 0 });
+    expect(reviewItems(proposed, [run(2, 'LIMIT', 1, '2026-09-20T11:00:00Z')])).toEqual([{ url: source.url, origin: 'found in Learning run 2', at: source.foundAt }]);
   });
 
   it('reports a running learning question with its stop control', () => {
@@ -138,17 +163,25 @@ describe('repository context notes', () => {
     expect(scopeForTopic({ ...book, scopes: [disabled] }, ['plugin/trino-iceberg/'])).toBe(disabled);
   });
 
-  it('links an answered question to its waiting draft or approved note, and says when a draft was dismissed', () => {
+  it('links an answered question to the note its run saved and counts the topic’s saved notes', () => {
     const answered = [run(1, 'ANSWERED', 0, '2026-09-29T11:00:00Z', [entry.id])];
-    expect(questionRow(plan.topics[0], 0, answered, null, { ...notebook, pendingDrafts: [draft] }).link).toEqual({ label: 'Review draft', kind: 'draft', id: 'draft:1' });
-    expect(questionRow(plan.topics[0], 0, answered, null, { ...notebook, entries: [entry] }).link).toEqual({ label: 'Open note', kind: 'entry', id: entry.id });
-    expect(questionRow(plan.topics[0], 0, answered, null, notebook).meta).toBe('Answered · draft dismissed');
+    expect(questionRow(plan.topics[0], 0, answered, null, { ...notebook, entries: [entry] })).toMatchObject({ meta: 'Answered', noteId: entry.id });
+    expect(questionRow(plan.topics[0], 0, answered, null, notebook)).toMatchObject({ meta: 'Answered', noteId: null });
     expect(questionRow(plan.topics[0], 1, answered, null, notebook).meta).toBe('Unfinished · progress saved');
+    expect(topicSummary(plan.topics[0], answered, null, { ...notebook, entries: [entry] }).meta).toBe('1 of 2 questions answered · 1 unfinished · 1 note saved');
   });
 
-  it('diffs an update against the approved version line by line', () => {
-    const proposed = { ...entry, body: 'Read the snapshot.\nCache per query.', sourceIds: ['s1', 's2'] };
-    const diff = noteDiff(entry, proposed);
+  it('shows a task only the notes whose current version it saved', () => {
+    const lesson = { ...entry, id: 'lesson:1', kind: 'MEMORY' as const, version: 5 };
+    const times: ContextTimesDto = { entries: { [`3:${entry.id}`]: { at: '2026-09-29T11:00:00Z', taskId: 'task-dev' },
+      '5:lesson:1': { at: '2026-09-29T11:30:00Z', taskId: 'task-other' } } };
+    expect(notesSavedBy({ ...notebook, entries: [entry, lesson] }, times, 'task-dev').map(value => value.id)).toEqual([entry.id]);
+    expect(notesSavedBy({ ...notebook, entries: [{ ...entry, version: 6 }, lesson] }, times, 'task-dev')).toEqual([]);
+  });
+
+  it('diffs the current version against the one it replaced line by line', () => {
+    const current = { ...entry, body: 'Read the snapshot.\nCache per query.', sourceIds: ['s1', 's2'] };
+    const diff = noteDiff(entry, current);
     expect(diff.lines.filter(line => line.sign !== ' ').map(line => line.sign + line.text)).toEqual(['+Cache per query.', '−Cache per transaction.']);
     expect(diff.summary).toBe('1 line added or changed · 1 removed · 1 source added');
   });

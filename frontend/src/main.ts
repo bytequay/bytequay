@@ -60,10 +60,10 @@ import {
   parseContextUsageOverview,
   parseContextUsageWindow,
   parseDeclineContextLearningSourceRequest,
+  parseDisableRepositoryContextRunNotesRequest,
   parseEditRepositoryContextEntryRequest,
-  parseEditContextDraftRequest,
-  parseContextDraftActionRequest,
   parseRepositoryNotebook,
+  parseRestoreRepositoryContextEntryRequest,
   parseSaveRepositoryContextLessonRequest,
   parseSetRepositoryContextEntryEnabledRequest,
   parseStartContextDiscoveryRequest,
@@ -1407,16 +1407,15 @@ function registerIpc(): void {
   ipcMain.handle('repository-context:edit', (_event, workspaceId: string, request: unknown) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/entries`,
       jsonInit('PUT', parseEditRepositoryContextEntryRequest(request), agentHeaders())).then(parseRepositoryNotebook));
-  const contextDraftUrl = (workspaceId: string) => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/drafts`;
-  ipcMain.handle('repository-context:draft:edit', (_event, workspaceId: string, request: unknown) =>
-    backendJson(contextDraftUrl(workspaceId), jsonInit('PUT', parseEditContextDraftRequest(request), agentHeaders())).then(parseRepositoryNotebook));
-  ipcMain.handle('repository-context:draft:approve', (_event, workspaceId: string, request: unknown) =>
-    backendJson(contextDraftUrl(workspaceId) + '/approve', jsonInit('POST', parseContextDraftActionRequest(request), agentHeaders())).then(parseRepositoryNotebook));
-  ipcMain.handle('repository-context:draft:dismiss', (_event, workspaceId: string, request: unknown) =>
-    backendJson(contextDraftUrl(workspaceId), jsonInit('DELETE', parseContextDraftActionRequest(request), agentHeaders())).then(parseRepositoryNotebook));
   ipcMain.handle('repository-context:enabled', (_event, workspaceId: string, request: unknown) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/entries/enabled`,
       jsonInit('PUT', parseSetRepositoryContextEntryEnabledRequest(request), agentHeaders())).then(parseRepositoryNotebook));
+  ipcMain.handle('repository-context:restore', (_event, workspaceId: string, request: unknown) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/entries/restore`,
+      jsonInit('POST', parseRestoreRepositoryContextEntryRequest(request), agentHeaders())).then(parseRepositoryNotebook));
+  ipcMain.handle('repository-context:run-notes:disable', (_event, workspaceId: string, request: unknown) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/runs/disable-notes`,
+      jsonInit('POST', parseDisableRepositoryContextRunNotesRequest(request), agentHeaders())).then(parseRepositoryNotebook));
   ipcMain.handle('repository-context:lesson', (_event, workspaceId: string, request: unknown) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/lessons`,
       jsonInit('POST', parseSaveRepositoryContextLessonRequest(request), agentHeaders())).then(parseRepositoryNotebook));

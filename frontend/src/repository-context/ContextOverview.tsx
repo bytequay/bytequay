@@ -12,15 +12,16 @@
  * limitations under the License.
  */
 import { Fragment, useState, type ReactNode } from 'react';
+import { Clickable } from '../cards/Card';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { relativeTime } from '../relativeTime';
 import { settingsRoute } from '../settings/routes';
 import type { AgentRuntimeStopImpactDto } from '../types';
 import type { ContextDiscoveryReportDto } from './contracts';
-import { Chevron, Icon, Spinner, type IconName } from './icons';
+import { Chevron, Icon, Spinner } from './icons';
 import {
-  clock, currentRun, entryTimeKey, kindLabel, needsTopicReselection, nextQuestion, openCandidates, planCounts, plural, reviewItems, shortDate, shortSha,
-  scopeForTopic, statusCard, topicSummary, topicsOutsidePlan, DOCUMENT_LINK_HOPS, type QuestionRow, type StatusAction,
+  clock, currentRun, entryTimeKey, kindLabel, needsTopicReselection, nextQuestion, openCandidates, planCounts, plural, previousVersion, reviewItems, shortDate,
+  shortSha, scopeForTopic, statusCard, topicSummary, topicsOutsidePlan, DOCUMENT_LINK_HOPS, type QuestionRow, type StatusAction,
 } from './model';
 import type { ContextActions, ContextData } from './RepositoryContextPage';
 
@@ -50,7 +51,7 @@ export default function ContextOverview({ data, actions, busy, pending }: { data
     {suggestions && plan === null && <SuggestedTopics data={data} actions={actions} busy={busy} report={report} topics={outside} />}
     <ReviewSection data={data} actions={actions} />
     {plan !== null && plan.topics.length > 0 && <PlanSection data={data} actions={actions} />}
-    {(notebook.entries.length > 0 || plan !== null) && <NotesSummary data={data} actions={actions} />}
+    {(notebook.entries.length > 0 || plan !== null) && <NotesSummary data={data} actions={actions} busy={busy} />}
     {!(plan === null && report !== null && outside.length > 0) && (candidates.length > 0 || moreTopics)
       && <Opportunities data={data} actions={actions} busy={busy} showMoreTopics={showMoreTopics} onMoreTopics={() => setShowMoreTopics(value => !value)} />}
     {suggestions && plan !== null && <SuggestedTopics data={data} actions={actions} busy={busy} report={report} topics={outside} />}
@@ -62,9 +63,10 @@ export default function ContextOverview({ data, actions, busy, pending }: { data
 function StatusCardView({ data, actions, busy, pending }: { data: ContextData; actions: ContextActions; busy: boolean; pending: PendingView }) {
   const [howOpen, setHowOpen] = useState(false);
   const [impact, setImpact] = useState<AgentRuntimeStopImpactDto | null>(null);
+  const [disabling, setDisabling] = useState(false);
   const { notebook, build, workspaceId } = data;
-  const card = statusCard({ repository: data.repository, baseline: data.baseline, model: data.model.label, notebook, build, report: data.report,
-    planView: data.planView, now: data.now });
+  const card = statusCard({ repository: data.repository, baseline: data.baseline, model: data.model.label, notebook, times: data.times, build,
+    report: data.report, planView: data.planView, now: data.now });
   const running = currentRun(build);
   const task = build.build?.task ?? null;
   const blocked = data.model.blocker !== null;
@@ -74,11 +76,7 @@ function StatusCardView({ data, actions, busy, pending }: { data: ContextData; a
       case 'discover': return actions.discover(false);
       case 'discover-rest': return actions.discover(true);
       case 'continue': return actions.continueLearning();
-      case 'review': {
-        const first = notebook.pendingDrafts[0];
-        if (first !== undefined) actions.openDrawer({ kind: 'note', target: { kind: 'draft', id: first.id } });
-        return;
-      }
+      case 'disable-notes': return setDisabling(true);
       case 'plan': return actions.openDrawer({ kind: 'plan', tab: 'plan' });
       case 'sources': return actions.openDrawer({ kind: 'plan', tab: 'sources' });
       case 'plan-activity': return actions.openDrawer({ kind: 'plan', tab: 'activity' });
@@ -109,8 +107,7 @@ function StatusCardView({ data, actions, busy, pending }: { data: ContextData; a
         {card.steps && <div className="rcp-steps">
           <span className="rcp-step"><span className="rcp-step__n">1</span>Discover topics</span><span className="rcp-sep">→</span>
           <span className="rcp-step"><span className="rcp-step__n">2</span>Learn the ones you pick</span><span className="rcp-sep">→</span>
-          <span className="rcp-step"><span className="rcp-step__n">3</span>Approve notes</span><span className="rcp-sep">→</span>
-          <span className="rcp-step">Agents can look them up</span>
+          <span className="rcp-step">Agents can look notes up</span>
         </div>}
         {(card.primary !== null || card.secondary !== null || card.details !== null || card.stop) && <div className="rcp-actions">
           {card.primary !== null && button(card.primary, true)}
@@ -136,7 +133,7 @@ function StatusCardView({ data, actions, busy, pending }: { data: ContextData; a
         {running === null && task !== null && !build.canStart && <div className="rcp-alert">
           {task.mutationClaim === 'RECOVERY' ? 'The last run’s agent process needs recovery before another run can start.'
             : task.state === 'OPEN' ? 'The last run hasn’t settled yet. It usually finishes on its own.'
-              : 'The last run’s worktree is still retained. Clean it up before starting another run; notes and drafts are unaffected.'}
+              : 'The last run’s worktree is still retained. Clean it up before starting another run; notes are unaffected.'}
           <div className="rcp-actions">
             {task.mutationClaim === 'RECOVERY' && <button type="button" className="rcp-btn rcp-btn--sm" disabled={busy} onClick={() => settle(async () => {
               const found = await window.bridge.getRepositoryContextBuildStopImpact(workspaceId, task.id);
@@ -169,29 +166,31 @@ function StatusCardView({ data, actions, busy, pending }: { data: ContextData; a
         actions.setBuild(await window.bridge.stopRepositoryContextBuildRuntime(workspaceId, impact.taskId, impact.generation));
         setImpact(null);
       })}>
-      Stop the remaining agent runtime for this run. Its drafts, progress and worktree are kept. {impact.liveProcess ? 'An agent process is still running.' : 'No live agent process was reported.'}
+      Stop the remaining agent runtime for this run. Its saved notes, progress and worktree are kept. {impact.liveProcess ? 'An agent process is still running.' : 'No live agent process was reported.'}
+    </ConfirmDialog>}
+    {disabling && card.disable !== null && <ConfirmDialog title="Disable notes from this run?" confirmLabel="Disable notes" busy={busy} onCancel={() => setDisabling(false)}
+      onConfirm={() => void actions.mutate(revision => window.bridge.disableRepositoryContextRunNotes(workspaceId, { expectedRevision: revision, taskId: card.disable.taskId }),
+        `${plural(card.disable.notes, 'note')} from Run ${card.disable.sequence} disabled · agents can’t find them · no agent run`).then(() => setDisabling(false))}>
+      Agents stop finding the {plural(card.disable.notes, 'note')} Run {card.disable.sequence} added that nobody has changed since. Nothing is deleted; you can
+      enable {card.disable.notes === 1 ? 'it' : 'them'} again from Notes. No agent run starts.
     </ConfirmDialog>}
   </div>;
 }
 
-/* ── Needs review ────────────────────────────────────────────────────── */
-
-const ITEM_ICON: Record<'doc' | 'lesson' | 'update' | 'link', IconName> = { doc: 'doc', lesson: 'lesson', update: 'update', link: 'link' };
+/* ── Needs you ───────────────────────────────────────────────────────── */
 
 function ReviewSection({ data, actions }: { data: ContextData; actions: ContextActions }) {
-  const items = reviewItems(data.notebook, data.planView.plan, data.times, data.build.runs, data.titles);
+  const items = reviewItems(data.planView.plan, data.build.runs);
   if (items.length === 0) return null;
-  return <section aria-label="Needs review">
-    <div className="rcp-section-head"><span className="rcp-label">NEEDS REVIEW · {items.length}</span><span className="rcp-spacer" />
-      <span className="rcp-section-meta">Drafts aren’t available to agents until approved</span></div>
+  return <section aria-label="Needs you">
+    <div className="rcp-section-head"><span className="rcp-label">NEEDS YOU · {items.length}</span></div>
     <div className="rcp-list">
-      {items.map(item => <button type="button" key={item.kind + item.id} className={`rcp-review rcp-tone--${item.tone}`}
-        onClick={() => item.kind === 'draft' ? actions.openDrawer({ kind: 'note', target: { kind: 'draft', id: item.id } }) : actions.openDrawer({ kind: 'plan', tab: 'sources' })}>
-        <span className="rcp-review__icon"><Icon name={ITEM_ICON[item.icon]} /></span>
-        <span className="rcp-review__main"><span className="rcp-review__title">{item.title}</span>
-          <span className="rcp-review__meta"><span className="rcp-review__kind">{item.label}</span><span className="rcp-sep">·</span>
+      {items.map(item => <button type="button" key={item.url} className="rcp-review rcp-tone--orange" onClick={() => actions.openDrawer({ kind: 'plan', tab: 'sources' })}>
+        <span className="rcp-review__icon"><Icon name="link" /></span>
+        <span className="rcp-review__main"><span className="rcp-review__title">{item.url}</span>
+          <span className="rcp-review__meta"><span className="rcp-review__kind">Source approval</span><span className="rcp-sep">·</span>
             <span className="rcp-review__origin">{item.origin}</span></span></span>
-        {item.at !== null && <span className="rcp-age">{relativeTime(item.at, { suffix: false, now: data.now })}</span>}
+        <span className="rcp-age">{relativeTime(item.at, { suffix: false, now: data.now })}</span>
         <Icon name="next" size={14} className="rcp-go" />
       </button>)}
     </div>
@@ -205,13 +204,13 @@ export function NoteApplicability({ paths }: { paths: string[] | null }) {
     : paths.length === 0 ? 'Project-wide' : paths.map(path => <span className="rcp-path-chip" key={path}>{path}</span>)}</div>;
 }
 
-export function QuestionLine({ row, onOpen }: { row: QuestionRow; onOpen: (row: QuestionRow) => void }) {
+export function QuestionLine({ row, onOpen }: { row: QuestionRow; onOpen: (noteId: string) => void }) {
   const glyph = row.state === 'RUNNING' ? <Spinner size={11} /> : row.state === 'ANSWERED' ? '✓' : row.state === 'UNFINISHED' ? '◐' : '○';
   return <>
     <span className={`rcp-q__glyph${row.state === 'ANSWERED' ? ' is-done' : row.state === 'UNFINISHED' ? ' is-partial' : ''}`} aria-hidden="true">{glyph}</span>
     <span className="rcp-q__text">{row.text}</span>
     <span className={`rcp-q__meta is-${row.metaTone}`}>{row.meta}</span>
-    {row.link !== null && <button type="button" className="rcp-link" onClick={() => onOpen(row)}>{row.link.label}</button>}
+    {row.noteId !== null && <button type="button" className="rcp-link" onClick={() => onOpen(row.noteId)}>Open note</button>}
   </>;
 }
 
@@ -221,10 +220,7 @@ function PlanSection({ data, actions }: { data: ContextData; actions: ContextAct
   const next = nextQuestion(data.planView);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const counts = planCounts(plan);
-  const openRow = (row: QuestionRow) => {
-    if (row.link === null) return;
-    actions.openDrawer({ kind: 'note', target: row.link.kind === 'draft' ? { kind: 'draft', id: row.link.id } : { kind: 'entry', id: row.link.id } });
-  };
+  const openNote = (id: string) => actions.openDrawer({ kind: 'note', id });
   return <section aria-label="Learning plan">
     <div className="rcp-section-head"><span className="rcp-label">LEARNING PLAN</span>
       <span className="rcp-section-meta">{counts.answered} of {plural(counts.total, 'question')} answered · {counts.total - counts.answered} open</span>
@@ -246,7 +242,7 @@ function PlanSection({ data, actions }: { data: ContextData; actions: ContextAct
           </button>
           {expanded && <div className="rcp-questions">
             <NoteApplicability paths={topic.notePaths} />
-            {summary.rows.map(row => <div className="rcp-q" key={row.index}><QuestionLine row={row} onOpen={openRow} /></div>)}
+            {summary.rows.map(row => <div className="rcp-q" key={row.index}><QuestionLine row={row} onOpen={openNote} /></div>)}
           </div>}
         </div>;
       })}
@@ -256,28 +252,30 @@ function PlanSection({ data, actions }: { data: ContextData; actions: ContextAct
 
 /* ── Notes summary ───────────────────────────────────────────────────── */
 
-function NotesSummary({ data, actions }: { data: ContextData; actions: ContextActions }) {
+function NotesSummary({ data, actions, busy }: { data: ContextData; actions: ContextActions; busy: boolean }) {
   const { notebook, times } = data;
   const entries = notebook.entries;
   const available = entries.filter(entry => entry.enabled).length;
   const knowledge = entries.filter(entry => entry.kind === 'KNOWLEDGE').length;
-  const updates = notebook.pendingDrafts.filter(draft => draft.replacesVersion !== null).length;
   const recent = [...entries].sort((left, right) => (times.entries[entryTimeKey(right)]?.at ?? '').localeCompare(times.entries[entryTimeKey(left)]?.at ?? '')).slice(0, 3);
   const viewAll = `View all ${plural(entries.length, 'note')}`;
+  const restore = (entryId: string): void => void actions.mutate(revision => window.bridge.restoreRepositoryContextEntry(data.workspaceId, { expectedRevision: revision, entryId }),
+    'Previous version restored · agents see it on their next lookup · no agent run');
   return <section aria-label="Notes">
     <div className="rcp-section-head"><span className="rcp-label">NOTES · {entries.length}</span>
-      <span className="rcp-section-meta">{available} available to agents · {knowledge} knowledge · {plural(entries.length - knowledge, 'lesson')}
-        {updates > 0 && ` · ${plural(updates, 'update')} waiting`}</span>
+      <span className="rcp-section-meta">{available} available to agents · {knowledge} knowledge · {plural(entries.length - knowledge, 'lesson')}</span>
       <span className="rcp-spacer" />
       {entries.length > 0 && <button type="button" className="rcp-link" onClick={() => actions.openTab('notes')}>{viewAll} →</button>}</div>
-    {entries.length === 0 ? <div className="rcp-empty">No approved notes yet. Approve a draft and it appears here, available to development and review agents.</div>
+    {entries.length === 0 ? <div className="rcp-empty">No notes yet. Notes that learning runs and development tasks save appear here, available to development and review agents.</div>
       : <div className="rcp-list">
         <div className="rcp-recent-label">RECENTLY UPDATED</div>
-        {recent.map(entry => <button type="button" key={entry.id} className="rcp-recent" onClick={() => actions.openDrawer({ kind: 'note', target: { kind: 'entry', id: entry.id } })}>
+        {recent.map(entry => <Clickable key={entry.id} className="rcp-recent" label={entry.title} onOpen={() => actions.openDrawer({ kind: 'note', id: entry.id })}>
           <span className="rcp-recent__title">{entry.title}</span>
           <span className={`rcp-kind${entry.kind === 'MEMORY' ? ' is-lesson' : ''}`}>{kindLabel(entry.kind)}</span>
+          {previousVersion(notebook, entry.id) !== undefined && <button type="button" className="rcp-link" disabled={busy}
+            onClick={event => { event.stopPropagation(); restore(entry.id); }}>Restore</button>}
           <span className="rcp-recent__meta">v{entry.version}{times.entries[entryTimeKey(entry)] ? ` · ${shortDate(times.entries[entryTimeKey(entry)].at, data.now)}` : ''}</span>
-        </button>)}
+        </Clickable>)}
         <button type="button" className="rcp-view-all" onClick={() => actions.openTab('notes')}>{viewAll} by area →</button>
       </div>}
   </section>;
@@ -315,7 +313,7 @@ function Opportunities({ data, actions, busy, showMoreTopics, onMoreTopics }: { 
           {expanded && <div className="rcp-opp__body">
             <div className="rcp-mini-label">THE AGENT RECEIVES</div>
             {bundle.map(([key, value]) => <div className="rcp-bundle" key={key}><span className="rcp-bundle__key">{key}</span><span>{value}</span></div>)}
-            <div className="rcp-opp__note">A merged PR records a decision, not proof that every conclusion holds. The agent checks against code at {revision} and may propose a note, an update, or nothing.</div>
+            <div className="rcp-opp__note">A merged PR records a decision, not proof that every conclusion holds. The agent checks against code at {revision} and may save a note, an update, or nothing.</div>
             <div className="rcp-opp__actions">
               <button type="button" className="rcp-btn rcp-btn--secondary rcp-btn--xs" disabled={!canRun} onClick={() => actions.learnCandidate(candidate.id)}>
                 <Icon name="bolt" size={12} />Learn from this PR</button>
@@ -379,7 +377,8 @@ function SuggestedTopics({ data, actions, busy, report, topics }: { data: Contex
               onChange={() => toggle(topic.id, selected, setSelected)} />
             <label className="rcp-sugg__label" htmlFor={checkbox}>
               <span className="rcp-sugg__line"><span className="rcp-sugg__title">{topic.title}</span>
-                {existing > 0 && <span className="rcp-existing" title="Learning adds drafts or proposes updates; approved notes stay in use">{plural(existing, 'approved note')}</span>}</span>
+                {existing > 0 && <span className="rcp-existing" title="Learning adds notes or updates ones agents wrote; notes you wrote or edited stay as they are">
+                  {plural(existing, 'saved note')}</span>}</span>
               <span className="rcp-sugg__meta">{areaName !== null && <><span className="rcp-sugg__area">{areaName}</span>{notePaths !== null && notePaths.length > 0 && <span className="rcp-sep">·</span>}</>}
                 {notePaths !== null && notePaths.length > 0 && <span className="rcp-sugg__path">{notePaths[0]}</span>}
                 {notePaths !== null && notePaths.length > 1 && <span className="rcp-sugg__more">+{notePaths.length - 1}</span>}</span>
@@ -422,7 +421,7 @@ function SuggestedTopics({ data, actions, busy, report, topics }: { data: Contex
       <div className="rcp-bar__main">
         <div className="rcp-bar__title">{chosen.length ? `${plural(chosen.length, 'topic')} selected · ${plural(questions, 'question')} · ${plural(sources, 'source')}` : 'Select topics to learn'}</div>
         <div className="rcp-bar__line"><Icon name="bolt" size={12} className="rcp-bolt" />
-          <span>{needsReselection ? 'Discard the earlier plan and reselect topics; approved notes and drafts are kept'
+          <span>{needsReselection ? 'Discard the earlier plan and reselect topics; saved notes are kept'
             : newerDiscovery ? 'Finish or discard the current plan to learn from this newer discovery'
             : data.model.blocker ?? `${plan === null ? 'Saves a learning plan, then starts 1 run on its first question' : 'Adds them to your plan, then starts 1 run on the first new question'} · ${data.model.label}`}</span>
           <span className="rcp-sep">·</span>
@@ -434,7 +433,7 @@ function SuggestedTopics({ data, actions, busy, report, topics }: { data: Contex
         <div className="rcp-limits__title">Each learning run</div>
         <div>The agent chooses how many reads it needs within the approved sources.</div>
         <div>Links stay within approved documentation roots, up to {DOCUMENT_LINK_HOPS} hops.</div>
-        <div className="rcp-mt6">Each run uses the configured agent timeout. You can stop it; saved progress and drafts are kept.</div>
+        <div className="rcp-mt6">Each run uses the configured agent timeout. You can stop it; saved progress and notes are kept.</div>
       </div>}
     </div>
   </section>;

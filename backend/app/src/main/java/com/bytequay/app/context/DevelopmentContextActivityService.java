@@ -56,7 +56,7 @@ public class DevelopmentContextActivityService
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
-    /** Returns the latest persisted lookup cards; pending-note proposals are shown in the notebook draft queue. */
+    /** Returns the latest persisted lookup cards; notes the task saved are listed from the notebook instead. */
     public Activity activity(String workspaceId, String taskId)
     {
         List<DevelopmentContextReceipt> saved = receipts.listTask(taskId, CARD_LIMIT + 1);

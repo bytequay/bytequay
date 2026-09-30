@@ -47,7 +47,7 @@ import {
 } from './model';
 import '../css/workspaces.css';
 
-export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, sourceIssueNumber = null, initialAgentTaskId, initialAgentReviewId = null, initialContextDraftId = null, initialContextRunId = null, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onSelectIssue }: {
+export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, sourceIssueNumber = null, initialAgentTaskId, initialAgentReviewId = null, initialContextRunId = null, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onSelectIssue }: {
   workspace: WorkspaceDto;
   tab: WorkspaceTab;
   onSelectTab: (tab: WorkspaceTab) => void;
@@ -58,8 +58,6 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   /** Route-owned: which agent task is open, so a reload reopens the same one. */
   initialAgentTaskId: string | null;
   initialAgentReviewId?: string | null;
-  /** Route-owned: the draft a Home or task link opened the review drawer on. */
-  initialContextDraftId?: string | null;
   initialContextRunId?: string | null;
   browserOpen?: boolean;
   onSelectAgentTask: (taskId: string | null, mode: NavigationMode) => void;
@@ -236,7 +234,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       return <JiraScreen workspace={workspace} />;
     }
     if (tab === 'context') {
-      return <RepositoryContextPage workspace={workspace} initialDraftId={initialContextDraftId} initialRunId={initialContextRunId} />;
+      return <RepositoryContextPage workspace={workspace} initialRunId={initialContextRunId} />;
     }
     if (tab === 'tasks') {
       if (initialAgentReviewId !== null) return stage(<ReviewTaskScreen

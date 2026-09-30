@@ -266,9 +266,9 @@ it('routes Code & Tests reads and writes to the review or the development task t
 
 const emptyNotebook: RepositoryNotebookDto = { schemaVersion: 1, revision: 7, useInReviews: true, useInDevelopment: true, sources: [],
   scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, discoveryEvidenceRef: null }],
-  entries: [], pendingDrafts: [], sourceEvidence: [] };
+  entries: [], replaced: [], sourceEvidence: [] };
 
-it('reads bounded usage, approval times and the monitored baseline through authenticated workspace endpoints', async () => {
+it('reads bounded usage, save times and the monitored baseline through authenticated workspace endpoints', async () => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
   const overview: ContextUsageOverviewDto = { trackingSince: null, window: '30d',
@@ -280,7 +280,7 @@ it('reads bounded usage, approval times and the monitored baseline through authe
   await expect(desktop.handlers.get('repository-context:usage')?.({}, 'workspace/one', '30d')).resolves.toEqual(overview);
   expect(fetch).toHaveBeenLastCalledWith(base + '?window=30d',
     expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
-  const times = { entries: {}, drafts: { draft: { at: '2026-09-02T00:00:00Z', taskId: 'task' } } };
+  const times = { entries: { '3:knowledge:project': { at: '2026-09-02T00:00:00Z', taskId: 'task' } } };
   fetch.mockImplementation(async () => new Response(JSON.stringify(times)));
   await expect(desktop.handlers.get('repository-context:times')?.({}, 'workspace/one')).resolves.toEqual(times);
   expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context/times',
@@ -311,6 +311,8 @@ it('routes notebook actions through authenticated workspace-scoped endpoints wit
     { action: 'edit', path: '/entries', method: 'PUT', request: { expectedRevision: 7, id: 'knowledge:project', scopeId: 'project',
       title: 'Project', summary: 'Summary', body: 'Corrected text', claims: [], sourceIds: [] } },
     { action: 'enabled', path: '/entries/enabled', method: 'PUT', request: { expectedRevision: 7, entryId: 'knowledge:project', enabled: false } },
+    { action: 'restore', path: '/entries/restore', method: 'POST', request: { expectedRevision: 7, entryId: 'knowledge:project' } },
+    { action: 'run-notes:disable', path: '/runs/disable-notes', method: 'POST', request: { expectedRevision: 7, taskId: 'learn-task' } },
     { action: 'lesson', path: '/lessons', method: 'POST', request: { expectedRevision: 7, scopeId: 'project',
       title: 'Lesson', summary: 'Summary', body: 'Conditional lesson', reviewId: 'review', runId: 'old-run', evidenceRefs: ['E2'], messageId: 'old-message' } },
   ];
@@ -319,7 +321,7 @@ it('routes notebook actions through authenticated workspace-scoped endpoints wit
     expect(fetch).toHaveBeenLastCalledWith(base + path, expect.objectContaining({ method, body: JSON.stringify(request),
       headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
   }
-  expect(fetch).toHaveBeenCalledTimes(6);
+  expect(fetch).toHaveBeenCalledTimes(8);
 });
 
 it('rejects forged notebook mutation fields before sending and surfaces stale revisions without an automatic retry', async () => {

@@ -20,10 +20,10 @@ import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
 import type { AgentTaskDto, Bridge, WorkspaceDto } from '../../types';
 import { workspaceLocationFromRoute } from '../../workspaces/model';
 import type {
-  ContextBuildViewDto, ContextDiscoveryReportDto, ContextEntryDto, ContextKnowledgeDraftDto, ContextLearningPlanDto, ContextLearningPlanViewDto,
+  ContextBuildViewDto, ContextDiscoveryReportDto, ContextEntryDto, ContextLearningPlanDto, ContextLearningPlanViewDto,
   ContextMergedCandidatesDto, ContextRunDto, ContextSourceDto, ContextTimesDto, ContextUsageOverviewDto, ContextUsageWindow, RepositoryNotebookDto,
 } from '../contracts';
-import { TaskContextDrafts } from '../ContextCards';
+import { TaskContextNotes } from '../ContextCards';
 import RepositoryContextPage from '../RepositoryContextPage';
 import { useContextReview } from '../reviewCount';
 import '../../index.css';
@@ -50,8 +50,11 @@ function note(id: string, scopeId: string, title: string, summary: string, versi
       { text: 'Refreshing mid-transaction would break snapshot isolation.', basis: 'INFERENCE', sourceIds: [] }], ...patch };
 }
 
-const refresh = note('knowledge:iceberg-refresh', ICEBERG, 'Iceberg table metadata refresh',
+const refreshBefore = note('knowledge:iceberg-refresh', ICEBERG, 'Iceberg table metadata refresh',
   'Table metadata is loaded once per transaction through `TrinoCatalog`; reads never refresh mid-query.', 4);
+const refresh: ContextEntryDto = { ...refreshBefore, version: 11, sourceIds: ['ev-code', 'ev-doc'],
+  body: '## How it works\n- `IcebergMetadata` loads the table through the catalog on first use in a transaction.\n- Later reads in the same transaction reuse it.\n- `REFRESH` procedures drop the cached table explicitly.',
+  claims: [...refreshBefore.claims, { text: 'The `system.flush_metadata_cache` procedure clears cached tables.', basis: 'DOCUMENTED', sourceIds: ['ev-doc'] }] };
 const lesson = note('lesson:nested-fields', ICEBERG, 'Resolve nested fields within their parent',
   'Nested structs can reuse a leaf name; look the field ID up under its parent struct.', 3,
   { kind: 'MEMORY', origin: 'USER', body: 'Inspect the parent struct before selecting a leaf field ID.\nKeep a regression example with duplicate leaf names.',
@@ -65,16 +68,12 @@ const spi = note('knowledge:spi-compat', SPI, 'SPI compatibility rules', 'Changi
 const rules = note('knowledge:rule-order', PLANNER, 'Optimizer rule ordering', 'Iterative optimizer rules run in the order `PlanOptimizers` registers them.', 6,
   { enabled: false });
 
-const newDraft: ContextKnowledgeDraftDto = { id: 'draft:learn:commit-retries', baselineSha: SHA, replacesVersion: null,
-  entry: note('knowledge:iceberg-commit-retries', ICEBERG, 'How Iceberg commits retry on conflict',
-    'Commits retry through `Tasks.foreach` with exponential backoff when the catalog reports a conflicting snapshot.', 0, { sourceIds: ['ev-code', 'ev-doc'] }) };
-const taskDraft: ContextKnowledgeDraftDto = { id: 'draft:task:snapshot-check', baselineSha: SHA, replacesVersion: null,
-  entry: note('lesson:snapshot-check', ICEBERG, 'Check the snapshot ID before retrying a commit', 'A retried commit must re-read the current snapshot first.', 0,
-    { kind: 'MEMORY', origin: 'GENERATED', claims: [{ text: 'Retrying with a stale snapshot ID silently drops the other writer’s files.', basis: 'OBSERVED', sourceIds: ['ev-code'] }] }) };
-const updateDraft: ContextKnowledgeDraftDto = { id: 'draft:learn:refresh-update', baselineSha: SHA, replacesVersion: 4,
-  entry: { ...refresh, version: 0, sourceIds: ['ev-code', 'ev-doc'],
-    body: '## How it works\n- `IcebergMetadata` loads the table through the catalog on first use in a transaction.\n- Later reads in the same transaction reuse it.\n- `REFRESH` procedures drop the cached table explicitly.',
-    claims: [...refresh.claims, { text: 'The `system.flush_metadata_cache` procedure clears cached tables.', basis: 'DOCUMENTED', sourceIds: ['ev-doc'] }] } };
+const commits = note('knowledge:iceberg-commit-retries', ICEBERG, 'How Iceberg commits retry on conflict',
+  'Commits retry through `Tasks.foreach` with exponential backoff when the catalog reports a conflicting snapshot.', 10, { sourceIds: ['ev-code', 'ev-doc'] });
+const snapshotCheck = note('lesson:snapshot-check', ICEBERG, 'Check the snapshot ID before retrying a commit', 'A retried commit must re-read the current snapshot first.', 9,
+  { kind: 'MEMORY', claims: [{ text: 'Retrying with a stale snapshot ID silently drops the other writer’s files.', basis: 'OBSERVED', sourceIds: ['ev-code'] }] });
+const deletes = note('knowledge:iceberg-deletes', ICEBERG, 'Positional deletes apply per data file',
+  'The positional delete reader filters the rows of one data file at a time through `DeleteManager`.', 12);
 
 function notebook(full: boolean): RepositoryNotebookDto {
   return { schemaVersion: 1, revision: full ? 12 : 1, useInReviews: true, useInDevelopment: true,
@@ -87,8 +86,8 @@ function notebook(full: boolean): RepositoryNotebookDto {
           enabled: true, discoveryEvidenceRef: 'read:2' },
         { id: SPI, title: 'Connector SPI', match: { kind: 'SELECTED' as const, pathPrefixes: ['core/trino-spi/'], terms: [] }, enabled: true,
           discoveryEvidenceRef: null }] : []],
-    entries: full ? [refresh, lesson, layout, spi, rules] : [],
-    pendingDrafts: full ? [newDraft, taskDraft, updateDraft] : [],
+    entries: full ? [refresh, lesson, layout, spi, rules, commits, snapshotCheck, deletes] : [],
+    replaced: full ? [refreshBefore] : [],
     sourceEvidence: [
       { id: 'ev-code', reference: { kind: 'REPOSITORY_FILE', repositoryId: 1, repository: { owner: 'trinodb', repo: 'trino' },
         path: 'plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergMetadata.java', commit: SHA },
@@ -99,11 +98,11 @@ function notebook(full: boolean): RepositoryNotebookDto {
 }
 
 const times = (full: boolean): ContextTimesDto => full ? {
-  entries: { [`4:${refresh.id}`]: { at: ago(60 * 26), taskId: 'task-run-2' }, [`3:${lesson.id}`]: { at: ago(60 * 24 * 6), taskId: null },
-    [`2:${layout.id}`]: { at: ago(60 * 24 * 9), taskId: null }, [`5:${spi.id}`]: { at: ago(60 * 3), taskId: null } },
-  drafts: { [newDraft.id]: { at: ago(48), taskId: 'task-run-3' }, [taskDraft.id]: { at: ago(95), taskId: 'task-dev-7' },
-    [updateDraft.id]: { at: ago(21), taskId: 'task-run-4' } },
-} : { entries: {}, drafts: {} };
+  entries: { [`4:${refresh.id}`]: { at: ago(60 * 26), taskId: 'task-run-2' }, [`11:${refresh.id}`]: { at: ago(21), taskId: 'task-run-4' },
+    [`3:${lesson.id}`]: { at: ago(60 * 24 * 6), taskId: null }, [`2:${layout.id}`]: { at: ago(60 * 24 * 9), taskId: null }, [`5:${spi.id}`]: { at: ago(60 * 3), taskId: null },
+    [`10:${commits.id}`]: { at: ago(48), taskId: 'task-run-3' }, [`9:${snapshotCheck.id}`]: { at: ago(95), taskId: 'task-dev-7' },
+    [`12:${deletes.id}`]: { at: ago(22), taskId: 'task-run-4' } },
+} : { entries: {} };
 
 const TOPICS: ContextDiscoveryReportDto['topics'] = [
   { id: 'topic:iceberg', title: 'Iceberg connector', paths: ['plugin/trino-iceberg/', 'plugin/trino-hive/', 'lib/trino-filesystem/'], notePaths: ['plugin/trino-iceberg/'], sourceIds: ['src:iceberg-docs', 'src:iceberg-readme'], evidenceReadIds: ['read:1'],
@@ -166,15 +165,16 @@ function binding(taskId: string): NonNullable<ContextBuildViewDto['build']> {
     activeTurn: { cancellationRequestedAt: null }, pendingApprovals: 0, continuation: false };
 }
 
+// Run 4 updated the refresh note, which keeps its replaced text, and added the deletes note, which Disable notes from this run turns off.
 const HISTORY = [contextRun(1, 'SUBMITTED', 60 * 27, null), contextRun(2, 'ANSWERED', 60 * 26, 0, { noteIds: [refresh.id] }),
-  contextRun(3, 'ANSWERED', 48, 1, { noteIds: [newDraft.entry.id] }), contextRun(4, 'LIMIT', 21, 2, { noteIds: [refresh.id] })];
+  contextRun(3, 'ANSWERED', 48, 1, { noteIds: [commits.id] }), contextRun(4, 'LIMIT', 21, 2, { noteIds: [refresh.id, deletes.id] })];
 
 type Scene = 'fresh' | 'discovering' | 'suggested' | 'review' | 'learning';
 
 type State = {
   notebook: RepositoryNotebookDto; times: ContextTimesDto; build: ContextBuildViewDto; report: ContextDiscoveryReportDto | null;
   planView: ContextLearningPlanViewDto; candidates: ContextMergedCandidatesDto; staleOnce: boolean;
-  calls: { starts: Array<{ kind: string; request: unknown }>; approvals: string[]; dismissals: string[]; allows: unknown[]; declines: unknown[];
+  calls: { starts: Array<{ kind: string; request: unknown }>; restores: string[]; disables: string[]; allows: unknown[]; declines: unknown[];
     configures: unknown[]; stops: string[] };
 };
 
@@ -194,7 +194,7 @@ function scene(name: Scene): State {
       mergedAt: ago(60 * 5), taskTitle: 'Fix flaky Iceberg commit test', taskResult: 'Tests pass', issue: { key: '#27290', title: 'Concurrent commits lose files' },
       review: { combinedResult: 'Approved after 2 rounds' }, checks: [{ conclusion: 'success' }, { conclusion: 'success' }] }] : [] },
     staleOnce: false,
-    calls: { starts: [], approvals: [], dismissals: [], allows: [], declines: [], configures: [], stops: [] },
+    calls: { starts: [], restores: [], disables: [], allows: [], declines: [], configures: [], stops: [] },
   };
 }
 
@@ -256,22 +256,20 @@ function install() {
       if (request.useInDevelopment !== undefined) current.useInDevelopment = request.useInDevelopment;
       if (request.sources !== undefined) current.sources = request.sources.map((source): ContextSourceDto => ({ ...source, origin: 'USER', discoveryEvidenceRef: null }));
     }),
-    approveRepositoryContextDraft: async (_workspaceId, request) => mutate(request.expectedRevision, current => {
-      const draft = current.pendingDrafts.find(value => value.id === request.draftId);
-      assert(draft !== undefined, 'Approved draft must exist');
-      state.calls.approvals.push(draft.id);
-      const approved = { ...draft.entry, version: current.revision + 1 };
-      current.entries = [...current.entries.filter(value => value.id !== approved.id), approved];
-      current.pendingDrafts = current.pendingDrafts.filter(value => value.id !== draft.id);
-      state.times.entries[`${approved.version}:${approved.id}`] = { at: new Date().toISOString(), taskId: state.times.drafts[draft.id]?.taskId ?? null };
+    restoreRepositoryContextEntry: async (_workspaceId, request) => mutate(request.expectedRevision, current => {
+      const active = current.entries.find(value => value.id === request.entryId);
+      const previous = current.replaced.find(value => value.id === request.entryId);
+      assert(active !== undefined && previous !== undefined, 'A restored note must have a replaced version');
+      state.calls.restores.push(request.entryId);
+      const restored = { ...previous, version: current.revision + 1 };
+      current.entries = current.entries.map(value => value.id === restored.id ? restored : value);
+      current.replaced = current.replaced.map(value => value.id === restored.id ? active : value);
+      state.times.entries[`${restored.version}:${restored.id}`] = { at: new Date().toISOString(), taskId: null };
     }),
-    dismissRepositoryContextDraft: async (_workspaceId, request) => mutate(request.expectedRevision, current => {
-      state.calls.dismissals.push(request.draftId);
-      current.pendingDrafts = current.pendingDrafts.filter(value => value.id !== request.draftId);
-    }),
-    editRepositoryContextDraft: async (_workspaceId, request) => mutate(request.expectedRevision, current => {
-      current.pendingDrafts = current.pendingDrafts.map(value => value.id !== request.draftId ? value
-        : { ...value, entry: { ...value.entry, title: request.title, summary: request.summary, body: request.body, claims: request.claims } });
+    disableRepositoryContextRunNotes: async (_workspaceId, request) => mutate(request.expectedRevision, current => {
+      state.calls.disables.push(request.taskId);
+      current.entries = current.entries.map(value => state.times.entries[`${value.version}:${value.id}`]?.taskId === request.taskId
+        && !current.replaced.some(previous => previous.id === value.id) ? { ...value, enabled: false } : value);
     }),
     editRepositoryContextEntry: async (_workspaceId, request) => mutate(request.expectedRevision, current => {
       current.entries = current.entries.map(value => value.id !== request.id ? value
@@ -410,18 +408,16 @@ const scenarios: Array<[string, () => Promise<void>]> = [
     await click('Discover again');
     assert(state.calls.starts.map(start => start.kind).join() === 'discover', 'Discovery remains explicit');
   }],
-  ['earlier plans require reselection and keep their notes and drafts', async () => {
+  ['earlier plans require reselection and keep their notes', async () => {
     await render('review', null, true);
     const notes = state.notebook.entries.length;
-    const drafts = state.notebook.pendingDrafts.length;
     assert(text().includes('Reselect topics before continuing'), 'Earlier plans are not shown as complete or resumable');
     await click('Review learning plan');
-    assert(text(drawer()).includes('Approved notes and drafts are kept'), 'The plan explains preservation');
+    assert(text(drawer()).includes('Saved notes are kept'), 'The plan explains preservation');
     assert(text(drawer()).includes('OPEN QUESTIONS AND GAPS') && text(drawer()).includes('Delta Lake transaction-log behavior needs its own learning topic.'),
       'Deferred learning opportunities remain visible');
     assert(![...drawer().querySelectorAll('button')].some(button => button.textContent?.includes('Continue learning')), 'No continuation is offered');
-    assert(state.calls.starts.length === 0 && state.notebook.entries.length === notes && state.notebook.pendingDrafts.length === drafts,
-      'Inspecting earlier data neither starts a run nor removes notes');
+    assert(state.calls.starts.length === 0 && state.notebook.entries.length === notes, 'Inspecting earlier data neither starts a run nor removes notes');
   }],
   ['discovery and learning activity never offer an interactive task route', async () => {
     for (const name of ['discovering', 'learning'] as const) {
@@ -452,37 +448,51 @@ const scenarios: Array<[string, () => Promise<void>]> = [
     assert(state.calls.stops.join() === 'task-run-5', 'Stop targets this workflow run');
     window.location.hash = '';
   }],
-  ['approving a draft makes it available without a run and moves to the next item', async () => {
+  ['a finished run names its saved notes and disables the ones it added only after confirming, without a run', async () => {
     await render('review');
     const sidebar = document.querySelector('[aria-label^="Repository context, "]');
-    assert(sidebar?.getAttribute('aria-label') === 'Repository context, 4 to review', 'The sidebar counts drafts and source proposals');
-    await review(newDraft.entry.title);
-    assert(drawer().textContent?.includes('Draft · not available to agents'), 'A draft says it is not available');
-    assert(drawer().textContent?.includes('1 of 3 to review'), 'The drawer pages through the review queue');
-    await click('Approve and use', drawer());
-    assert(state.calls.approvals.join() === newDraft.id && state.calls.starts.length === 0, 'Approval saves the note and starts no run');
-    await waitFor(() => drawer().textContent?.includes(taskDraft.entry.title) === true, 'The drawer advances to the next draft');
+    assert(sidebar?.getAttribute('aria-label') === 'Repository context, 1 to review', 'The sidebar counts source proposals only');
+    assert(!/draft/i.test(text()), 'Nothing on the Overview mentions drafts');
+    assert(text(document.querySelector('.rcp-status')).includes('Run 4 saved 2 notes.'), 'The status card names the notes the last run saved');
+    await click('Disable notes from this run');
+    const dialog = document.querySelector('dialog[open]');
+    assert(dialog !== null && text(dialog).includes('No agent run starts'), 'Disabling asks first and says no agent runs');
+    assert(state.calls.disables.length === 0, 'Nothing is disabled before confirming');
+    await click('Disable notes', dialog);
+    await waitFor(() => !text().includes('Disable notes from this run'), 'The action goes away once the run’s notes are disabled');
+    assert(state.calls.disables.join() === 'task-run-4' && state.calls.starts.length === 0, 'Disabling names the run’s task and starts no run');
+    const enabled = (id: string) => state.notebook.entries.find(value => value.id === id)?.enabled;
+    assert(enabled(deletes.id) === false && enabled(refresh.id) === true, 'Only the note the run added and nobody changed is disabled');
     assert(text(document.body).includes('no agent run'), 'The confirmation says no run started');
-    await waitFor(() => document.querySelector('[aria-label="Repository context, 3 to review"]') !== null, 'The sidebar count follows the review queue');
   }],
-  ['dismissing asks first, and an update keeps the approved version in use', async () => {
+  ['Restore makes the replaced text current again without a run', async () => {
     await render('review');
-    await review(updateDraft.entry.title);
-    assert(drawer().textContent?.includes('Update draft · v4 stays in use'), 'An update names the version that stays in use');
-    assert(control('Changes', drawer()).getAttribute('aria-selected') === 'true', 'An update opens on its changes');
-    assert(drawer().querySelector('.rcp-diff__line.is-add')?.textContent?.includes('REFRESH') === true, 'The diff shows the added line');
-    await click('Dismiss update', drawer());
-    assert(drawer().textContent?.includes('Dismiss this update? v4 stays in use.'), 'Dismissal asks for confirmation');
-    await click('Keep', drawer());
-    assert(state.calls.dismissals.length === 0, 'Keeping the update sends nothing');
+    const rows = [...document.querySelectorAll<HTMLElement>('.rcp-recent')];
+    const restorable = rows.filter(row => [...row.querySelectorAll('button')].some(button => button.textContent === 'Restore'));
+    assert(restorable.length === 1 && text(restorable[0]).includes(refresh.title), 'Only the note with a replaced version offers Restore');
+    await click(refresh.title);
+    assert(control(`Current v${refresh.version}`, drawer()).getAttribute('aria-selected') === 'true', 'The note opens on its current version');
+    await click('Changes', drawer());
+    assert(drawer().querySelector('.rcp-diff__line.is-add')?.textContent?.includes('REFRESH') === true, 'Changes show what the last change added');
+    await click(`Previous v${refreshBefore.version}`, drawer());
+    assert(drawer().querySelectorAll('.rcp-claim').length === refreshBefore.claims.length, 'The previous version shows its own claims');
+    await click('Close', drawer());
+    await click('Restore', restorable[0]);
+    assert(document.querySelector('.rcp-drawer') === null, 'Restore in the list does not open the note');
+    assert(state.calls.restores.join() === refresh.id && state.calls.starts.length === 0, 'Restore sends one request and starts no run');
+    await waitFor(() => text(document.body).includes('Previous version restored'), 'The confirmation names what changed');
+    assert(text(document.body).includes('no agent run'), 'The confirmation says no run started');
+    const current = state.notebook.entries.find(value => value.id === refresh.id);
+    assert(current !== undefined && !current.body.includes('REFRESH') && state.notebook.replaced.some(value => value.body.includes('REFRESH')),
+      'The replaced text is current again, and the text it replaced can be restored in turn');
   }],
   ['a stale revision keeps the drawer open with its error', async () => {
     await render('review');
-    await review(newDraft.entry.title);
+    await click(refresh.title);
     state.staleOnce = true;
-    await click('Approve and use', drawer());
+    await click('Restore previous version', drawer());
     await waitFor(() => drawer().querySelector('[role=alert]') !== null, 'The conflict is shown in the drawer');
-    assert(state.calls.approvals.length === 0 && drawer().textContent?.includes(newDraft.entry.title), 'Nothing is approved on a stale revision');
+    assert(state.calls.restores.length === 0 && drawer().textContent?.includes(refresh.title), 'Nothing is restored on a stale revision');
   }],
   ['a proposed source is approved for its exact boundary without a run', async () => {
     await render('review');
@@ -515,7 +525,7 @@ const scenarios: Array<[string, () => Promise<void>]> = [
   }],
   ['escape closes a drawer and returns focus to its opener', async () => {
     await render('review');
-    const opener = reviewRow(newDraft.entry.title);
+    const opener = reviewRow('https://iceberg.apache.org/docs/latest/');
     opener.focus();
     opener.click();
     await settle();
@@ -526,13 +536,13 @@ const scenarios: Array<[string, () => Promise<void>]> = [
   }],
   ['the notes tab filters literally by area, kind and text', async () => {
     await render('review');
-    await click('Notes5');
-    await click('Iceberg connector2');
-    assert(document.querySelectorAll('.rcp-note').length === 2, 'The area rail narrows to that area');
-    await click('Lessons 1');
-    assert(document.querySelectorAll('.rcp-note').length === 1 && text().includes(lesson.title), 'The kind filter keeps lessons');
-    await click('All notes5');
-    await click('All 5');
+    await click('Notes8');
+    await click('Iceberg connector5');
+    assert(document.querySelectorAll('.rcp-note').length === 5, 'The area rail narrows to that area');
+    await click('Lessons 2');
+    assert(document.querySelectorAll('.rcp-note').length === 2 && text().includes(lesson.title) && text().includes(snapshotCheck.title), 'The kind filter keeps lessons');
+    await click('All notes8');
+    await click('All 8');
     const input = document.querySelector<HTMLInputElement>('input[aria-label="Filter notes"]');
     assert(input !== null, 'The notes filter exists');
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, 'SPI');
@@ -547,15 +557,16 @@ const scenarios: Array<[string, () => Promise<void>]> = [
     assert((state.calls.configures[0] as { useInReviews: boolean }).useInReviews === false && state.calls.starts.length === 0, 'The switch saves only configuration');
     await waitFor(() => text().includes('Used in development only'), 'The header reflects the saved setting');
   }],
-  ['Home offers the waiting review and task drafts open the same review drawer', async () => {
+  ['Home offers the waiting source review and a task’s saved notes open Repository context', async () => {
     await renderHome();
-    assert(text(document.querySelector('.item-row.is-context')).includes('3 drafts and 1 source to review'), 'Home counts drafts and sources');
+    assert(text(document.querySelector('.item-row.is-context')).includes('1 source to review'), 'Home counts source proposals');
     assert(text().includes('Sending starts a task with Codex · 5.6 Terra High.'), 'Explore mode names the run it starts');
-    await renderTaskDraft();
-    const card = document.querySelector('.rcx-draft');
-    assert(card !== null && text(card).includes(taskDraft.entry.title) && document.querySelectorAll('.rcx-draft').length === 1, 'Only this task’s draft is shown');
-    await click('Review draft', card);
-    assert(window.location.hash === '#/workspaces/ws-1/context/draft/draft%3Atask%3Asnapshot-check', `Review draft opens the drawer route (${window.location.hash})`);
+    await renderTaskNotes();
+    const card = document.querySelector<HTMLElement>('.rcx-note');
+    assert(card !== null && text(card).includes(snapshotCheck.title) && document.querySelectorAll('.rcx-note').length === 1, 'Only the note this task saved is shown');
+    card.click();
+    await settle();
+    assert(window.location.hash === '#/workspaces/ws-1/context', `The card opens Repository context (${window.location.hash})`);
     assert(state.calls.starts.length === 0, 'Nothing here starts a run');
     window.location.hash = '';
   }],
@@ -602,8 +613,8 @@ async function renderHome(): Promise<void> {
   await waitFor(() => document.querySelector('.item-row.is-context') !== null, 'The Home row appears');
 }
 
-/** A task's transcript end, with the draft that task proposed. */
-async function renderTaskDraft(): Promise<void> {
+/** A task's transcript end, with the note that task saved. */
+async function renderTaskNotes(): Promise<void> {
   await render('review');
   flushSync(() => root?.render(<>
     <AppSidebar page="workspaces" browserRailVisible={false} onToggleBrowserRail={() => {}} onNavigate={() => {}} canGoBack={false} canGoForward={false}
@@ -611,17 +622,17 @@ async function renderTaskDraft(): Promise<void> {
     <main className="app-content"><div style={{ maxWidth: 760, margin: '32px auto', padding: '0 24px' }}>
       <p style={{ fontSize: 13, lineHeight: 1.6 }}>Pruning happens while splits are generated, before any data file is opened. It compares partition values and column bounds
         stored in the manifests with the pushed-down constraint.</p>
-      <TaskContextDrafts workspaceId="ws-1" taskId="task-dev-7" refreshKey="0" />
+      <TaskContextNotes workspaceId="ws-1" taskId="task-dev-7" refreshKey="0" />
     </div></main>
   </>));
-  await waitFor(() => document.querySelector('.rcx-draft') !== null, 'The task draft card appears');
+  await waitFor(() => document.querySelector('.rcx-note') !== null, 'The task note card appears');
 }
 
-/** Renders one named state for a screenshot, e.g. `review:draft`. */
+/** Renders one named state for a screenshot, e.g. `review:note`. */
 export async function show(mode: string) {
   install();
   if (mode === 'home') { await renderHome(); return; }
-  if (mode === 'task') { await renderTaskDraft(); return; }
+  if (mode === 'task') { await renderTaskNotes(); return; }
   const [base, extra] = mode.split(':') as [Scene, string | undefined];
   await render(base, extra === 'run' ? 'task-run-5' : null);
   switch (extra) {
@@ -635,14 +646,15 @@ export async function show(mode: string) {
       break;
     }
     case 'select': await check('Iceberg connector'); await click('Inspect Iceberg connector'); break;
-    case 'draft': await review(newDraft.entry.title); break;
-    case 'update': await review(updateDraft.entry.title); break;
+    case 'note': await click(refresh.title); break;
+    case 'changes': await click(refresh.title); await click('Changes', drawer()); break;
+    case 'disable': await click('Disable notes from this run'); break;
     case 'plan': await click('Plan details'); break;
     case 'sources': await review('https://iceberg.apache.org/docs/latest/'); break;
     case 'coverage': await click('See coverage'); break;
     case 'usage': await click('More options'); await click('Usage'); break;
     case 'advanced': await click('Advanced configuration'); break;
-    case 'notes': await click('Notes5'); break;
+    case 'notes': await click('Notes8'); break;
     case 'use': await click('Used by agents'); break;
     default: break;
   }

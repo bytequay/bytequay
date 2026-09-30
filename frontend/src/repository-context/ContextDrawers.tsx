@@ -15,16 +15,16 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { relativeTime } from '../relativeTime';
 import type { ContextRunDto, ContextSourceBoundary, ContextUsageOverviewDto, ContextUsageWindow } from './contracts';
-import ContextNoteDrawer, { type NoteTarget } from './ContextNoteDrawer';
+import ContextNoteDrawer from './ContextNoteDrawer';
 import { NoteApplicability, QuestionLine } from './ContextOverview';
 import { Chevron, Icon } from './icons';
 import {
-  clock, currentRun, latestRun, DOCUMENT_LINK_HOPS, needsTopicReselection, nextQuestion, noteArea, OUTCOME, plural, questionRow, runOrigin, shortDate, shortSha, timeOfDay, type QuestionRow,
+  clock, currentRun, latestRun, DOCUMENT_LINK_HOPS, needsTopicReselection, nextQuestion, noteArea, OUTCOME, plural, questionRow, runOrigin, shortDate, shortSha, timeOfDay,
 } from './model';
 import type { ContextActions, ContextData } from './RepositoryContextPage';
 
 export type Drawer =
-  | { kind: 'note'; target: NoteTarget }
+  | { kind: 'note'; id: string }
   | { kind: 'plan'; tab: 'plan' | 'sources' | 'activity' }
   | { kind: 'discovery'; tab: 'coverage' | 'activity' }
   | { kind: 'run'; taskId: string }
@@ -38,14 +38,11 @@ export function ContextDrawers({ drawer, data, actions, busy, onDrawer, onClose 
   drawer: Drawer; data: ContextData; actions: ContextActions; busy: boolean; onDrawer: (drawer: Drawer | null) => void; onClose: () => void;
 }) {
   const panel = useRef<HTMLDivElement>(null);
-  const identity = drawer.kind === 'note' ? `note:${drawer.target.id}` : drawer.kind === 'run' ? `run:${drawer.taskId}` : drawer.kind;
+  const identity = drawer.kind === 'note' ? `note:${drawer.id}` : drawer.kind === 'run' ? `run:${drawer.taskId}` : drawer.kind;
   useEffect(() => { panel.current?.focus(); }, [identity]);
   let body: ReactNode;
   switch (drawer.kind) {
-    case 'note':
-      body = <ContextNoteDrawer key={drawer.target.id} data={data} actions={actions} busy={busy} target={drawer.target}
-        onTarget={target => target === null ? onClose() : onDrawer({ kind: 'note', target })} onClose={onClose} />;
-      break;
+    case 'note': body = <ContextNoteDrawer key={drawer.id} data={data} actions={actions} busy={busy} id={drawer.id} onClose={onClose} />; break;
     case 'plan': body = <PlanDrawer data={data} actions={actions} busy={busy} tab={drawer.tab} onTab={tab => onDrawer({ kind: 'plan', tab })} onClose={onClose} />; break;
     case 'discovery': body = <DiscoveryDrawer data={data} actions={actions} busy={busy} tab={drawer.tab} onTab={tab => onDrawer({ kind: 'discovery', tab })} onClose={onClose} />; break;
     case 'run': body = <RunDrawer data={data} actions={actions} busy={busy} taskId={drawer.taskId} onClose={onClose} />; break;
@@ -86,7 +83,7 @@ function RunCard({ run, defaultOpen, title, meta }: { run: ContextRunDto; defaul
           <span className={`rcp-event__mark${tone}`}>{line.tone === 'FAILED' ? '✕' : line.tone === 'LIMIT' ? '■' : '✓'}</span>
           <span className={`rcp-event__text${tone}`}>{line.text}</span></div>;
       })}
-      {run.outcome === 'FAILED' && <div className="rcp-run__error">{run.detail ? run.detail + ' ' : ''}No drafts or progress were lost.</div>}
+      {run.outcome === 'FAILED' && <div className="rcp-run__error">{run.detail ? run.detail + ' ' : ''}Progress and saved notes are kept.</div>}
       <div className="rcp-note-caption">Read-only {run.mode === 'DISCOVER' ? 'discovery' : 'learning'} run · messages and steering are unavailable.</div>
     </div>}
   </div>;
@@ -104,7 +101,7 @@ function RunDrawer({ data, actions, busy, taskId, onClose }: {
     <div className="rcp-drawer__body">
       {run === undefined ? <div className="rcp-empty">This run is no longer in the retained activity history.</div>
         : <RunCard key={run.taskId} run={run} defaultOpen title={run.question?.text ?? 'Activity'}
-          meta={`${shortDate(run.endedAt ?? run.requestedAt, data.now)} · ${plural(run.sourceOperations, 'source operation')} · ${plural(run.noteIds.length, 'proposed note')}`} />}
+          meta={`${shortDate(run.endedAt ?? run.requestedAt, data.now)} · ${plural(run.sourceOperations, 'source operation')} · ${plural(run.noteIds.length, 'saved note')}`} />}
     </div>
     {run?.outcome === 'RUNNING' && <div className="rcp-drawer__foot">
       <button type="button" className="rcp-btn rcp-btn--danger" disabled={busy || data.build.build?.activeTurn?.cancellationRequestedAt != null}
@@ -126,9 +123,7 @@ function PlanDrawer({ data, actions, busy, tab, onTab, onClose }: { data: Contex
   const suggestions = plan?.documentInventory.suggestions ?? [];
   const needsReselection = needsTopicReselection(plan);
   const canRun = data.build.canStart && !busy && data.model.blocker === null && !needsReselection;
-  const openRow = (row: QuestionRow) => {
-    if (row.link !== null) actions.openDrawer({ kind: 'note', target: { kind: row.link.kind, id: row.link.id } });
-  };
+  const openNote = (id: string) => actions.openDrawer({ kind: 'note', id });
   const runs = data.build.runs.filter(run => run.mode === 'LEARN' && (run.question === null || run.question.planId === plan?.id))
     .sort((left, right) => right.sequence - left.sequence);
   const latest = runs[0];
@@ -154,7 +149,7 @@ function PlanDrawer({ data, actions, busy, tab, onTab, onClose }: { data: Contex
             <div className="rcp-plan-topic">{topic.title}</div>
             <NoteApplicability paths={topic.notePaths} />
             {topic.questions.map((_, index) => <div className="rcp-plan-q" key={index}>
-              <QuestionLine row={questionRow(topic, index, data.build.runs, running, data.notebook)} onOpen={openRow} /></div>)}
+              <QuestionLine row={questionRow(topic, index, data.build.runs, running, data.notebook)} onOpen={openNote} /></div>)}
           </div>)}
           {plan.gaps.length > 0 && <>
             <div className="rcp-mini-label rcp-mt18">OPEN QUESTIONS AND GAPS</div>
@@ -165,7 +160,7 @@ function PlanDrawer({ data, actions, busy, tab, onTab, onClose }: { data: Contex
             Links stay within approved documentation roots, up to {DOCUMENT_LINK_HOPS} hops. Continuing doesn’t reset link depth or approve new sites.
             {learning !== null && <div className="rcp-limits-text__now">Run {learning.sequence} so far: {plural(learning.sourceOperations, 'source operation')}
               {' · '}{plural(learning.documentOpens, 'documentation open')}</div>}</div>}
-          <div className="rcp-discard">Discarding the plan removes its remaining questions and source inventory; approved notes and drafts stay.{' '}
+          <div className="rcp-discard">Discarding the plan removes its remaining questions and source inventory; saved notes stay.{' '}
             <button type="button" className="rcp-link" disabled={busy || !data.build.canStart} onClick={() => setDiscarding(true)}>Discard remaining plan</button></div>
         </>}
       </>}
@@ -182,8 +177,8 @@ function PlanDrawer({ data, actions, busy, tab, onTab, onClose }: { data: Contex
     <div className="rcp-drawer__foot">
       {learning !== null ? <div className="rcp-foot-line">
         <button type="button" className="rcp-btn rcp-btn--danger" disabled={busy} onClick={() => void actions.stop(learning)}>Stop run</button>
-        <span className="rcp-foot-line__text">Run {learning.sequence} · {plural(learning.sourceOperations, 'source operation')} · the plan and drafts are kept</span>
-      </div> : needsReselection ? <span className="rcp-foot-line__text">Discard this earlier plan and reselect topics with explicit note targets. Approved notes and drafts are kept.</span>
+        <span className="rcp-foot-line__text">Run {learning.sequence} · {plural(learning.sourceOperations, 'source operation')} · the plan and saved notes are kept</span>
+      </div> : needsReselection ? <span className="rcp-foot-line__text">Discard this earlier plan and reselect topics with explicit note targets. Saved notes are kept.</span>
         : next !== null ? <div className="rcp-foot-line">
         <button type="button" className="rcp-btn rcp-btn--secondary" disabled={!canRun} onClick={actions.continueLearning}><Icon name="bolt" size={13} />Continue learning</button>
         <span className="rcp-foot-line__text">{data.model.blocker ?? `Next: ${next.topic.title} · “${next.text}” · 1 run · ${data.model.label}`}</span>
@@ -194,10 +189,10 @@ function PlanDrawer({ data, actions, busy, tab, onTab, onClose }: { data: Contex
         actions.setPlanView(await window.bridge.discardRepositoryContextLearningPlan(data.workspaceId,
           { planId: plan.id, expectedRevision: data.notebook.revision, expectedBuildSequence: data.build.buildRequestSequence }));
         setDiscarding(false);
-        actions.say('Plan discarded · notes and drafts kept');
+        actions.say('Plan discarded · notes kept');
         actions.announce();
       })}>
-      Its remaining questions and source inventory are removed. Approved notes and drafts stay, and no agent run starts.
+      Its remaining questions and source inventory are removed. Saved notes stay, and no agent run starts.
     </ConfirmDialog>}
   </>;
 }
@@ -408,7 +403,7 @@ function UsageDrawer({ data, actions, onClose }: { data: ContextData; actions: C
         <div className="rcp-usage-cols"><span>NOTE</span><span>FOUND</span><span>OPENED</span><span>LAST</span></div>
         <div className="rcp-rows">
           {rows.length === 0 && <div className="rcp-srcrow"><span className="rcp-srcrow__sub">No note was found or opened in this period.</span></div>}
-          {rows.map(row => <button type="button" className="rcp-usage-row" key={row.entryId} onClick={() => actions.openDrawer({ kind: 'note', target: { kind: 'entry', id: row.entryId } })}>
+          {rows.map(row => <button type="button" className="rcp-usage-row" key={row.entryId} onClick={() => actions.openDrawer({ kind: 'note', id: row.entryId })}>
             <span className="rcp-usage-row__title">{row.title} <span className="rcp-usage-row__version">v{row.currentVersion}</span></span>
             <span>{row.foundTasks}</span><span>{row.openedTasks}</span>
             <span className="rcp-usage-row__last">{row.lastConfirmedUseAt ? shortDate(row.lastConfirmedUseAt, data.now) : '—'}</span></button>)}

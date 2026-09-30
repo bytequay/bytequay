@@ -118,23 +118,23 @@ describe.each(['Home', 'Tasks'])('first-message feedback on %s', (surface) => {
 });
 
 describe('Explore & prepare context on Home', () => {
-  const review = { drafts: 3, sources: 1, total: 4, firstDraftId: 'draft:1', latestAt: '2026-09-01T00:00:00Z', useInDevelopment: true };
+  const review = { sources: 2, total: 2, latestAt: '2026-09-01T00:00:00Z', useInDevelopment: true };
   const render = (overrides: Partial<React.ComponentProps<typeof AgentHomeView>>) => renderToStaticMarkup(
     <AgentHomeView {...props} draft="" images={[]} repository="bytequay/bytequay" onShowAll={() => {}} onExplore={() => {}} {...overrides} />);
 
-  it('asks a question and says what sending starts, including that drafts wait for approval', () => {
+  it('asks a question and says what sending starts, including that a reusable answer is saved as a note', () => {
     const markup = render({ explore: true, contextReview: review });
     expect(markup).toContain('aria-pressed="true"');
     expect(markup).toContain('class="agt-mode-chip"');
     expect(markup).toContain('placeholder="Ask how something in this repository works…"');
     expect(markup).toContain('Sending starts a task with Codex · 5.6 Sol Medium.');
-    expect(markup).toContain('Drafts wait in Repository context');
-    expect(render({ explore: true, contextReview: { ...review, useInDevelopment: false } })).toContain('answers without drafting a note');
+    expect(markup).toContain('the agent saves a note to Repository context');
+    expect(render({ explore: true, contextReview: { ...review, useInDevelopment: false } })).toContain('answers without saving a note');
     expect(render({})).not.toContain('agt-mode-chip');
   });
 
-  it('puts waiting Repository context review first in Needs attention', () => {
-    expect(render({ contextReview: review })).toContain('3 drafts and 1 source to review');
-    expect(render({ contextReview: { ...review, drafts: 0, sources: 0, total: 0 } })).not.toContain('to review');
+  it('puts waiting Repository context source proposals first in Needs attention', () => {
+    expect(render({ contextReview: review })).toContain('2 sources to review');
+    expect(render({ contextReview: { ...review, sources: 0, total: 0 } })).not.toContain('to review');
   });
 });

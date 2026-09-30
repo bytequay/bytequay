@@ -47,7 +47,7 @@ providerAvailable,
 providerRemedy,
 remedyCommand
 } from '../settings/model';
-import { TaskContextDrafts } from '../repository-context/ContextCards';
+import { TaskContextNotes } from '../repository-context/ContextCards';
 import { settingsRoute } from '../settings/routes';
 import type {
 AgentApprovalDecision,
@@ -1067,7 +1067,7 @@ export function AgentTaskBody({
   headerAction,
   attentionStatus,
   submissionBlocked = false,
-  onAskAgent, onAskAgentDisabled, localReview, learning, contextActivity, contextDrafts, reviewFocus, onOpenReview,
+  onAskAgent, onAskAgentDisabled, localReview, learning, contextActivity, contextNotes, reviewFocus, onOpenReview,
 }: {
   state: AgentTaskState;
   automation?: React.ReactNode;
@@ -1087,8 +1087,8 @@ export function AgentTaskBody({
   /** Renders the Summary; a development task's reviewer comes with it, so it can sit in the Summary's own strip and timeline. */
   learning?: React.ReactNode | ((onSelectCommit: (sha: string) => void, review?: TaskReviewOptions) => React.ReactNode);
   contextActivity?: React.ReactNode;
-  /** Repository context drafts this task proposed, after its transcript. */
-  contextDrafts?: React.ReactNode;
+  /** Repository context notes this task saved, after its transcript. */
+  contextNotes?: React.ReactNode;
   reviewFocus?: ReviewCardFocus | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
   models: ModelOptionDto[];
@@ -1382,7 +1382,7 @@ export function AgentTaskBody({
         previews={previews} agentLabels={agentLabels} pendingApprovals={pendingApprovals ?? []}
         onToggleTurn={onToggleTurn} onToggleActivity={onToggleActivity} onDecide={onDecide} onOpenAgent={onOpenAgent}
         transcriptFooter={<>
-          {contextDrafts}
+          {contextNotes}
           {working.length > 0 && (
             <div className="agt-barrier">
               {working.length === 1 ? '1 subagent is still working' : `${working.length} subagents are still working`}
@@ -2635,8 +2635,8 @@ export default function AgentTaskScreen({
         ? <DevelopmentContextActivityPanel taskId={taskId} workspaceId={workspaceId} bridge={live() as Required<Pick<AgentBridgePort, 'getAgentTaskRepositoryContext'>>}
           refreshKey={`${state.lifecycleEpoch}:${state.events.filter(event => event.type === 'tool' && event.payload.state === 'COMPLETED'
             && event.payload.summary.startsWith('context-receipt:')).at(-1)?.sequence ?? 0}`} /> : undefined}
-      contextDrafts={state.task?.interactive && state.task.localReviewHead == null
-        ? <TaskContextDrafts taskId={taskId} workspaceId={workspaceId} refreshKey={`${state.lifecycleEpoch}:${state.events.filter(event => event.type === 'tool'
+      contextNotes={state.task?.interactive && state.task.localReviewHead == null
+        ? <TaskContextNotes taskId={taskId} workspaceId={workspaceId} refreshKey={`${state.lifecycleEpoch}:${state.events.filter(event => event.type === 'tool'
           && event.payload.state === 'COMPLETED' && event.payload.name.endsWith('repository_context_lookup')).length}`} /> : undefined}
       automation={automationEligible && automationSelection !== null ? <AutomationControl value={automationSelection} providers={automationProviders} disabled />
         : automationEligible ? <span className="agt-meta">Loading automation settings…</span> : undefined}

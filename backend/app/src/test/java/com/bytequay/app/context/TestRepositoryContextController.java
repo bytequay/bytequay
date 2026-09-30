@@ -35,7 +35,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -134,29 +133,21 @@ class TestRepositoryContextController
     }
 
     @Test
-    void draftEditsAndActivationKeepSourceAuthorityInTheService()
+    void restoreAndRunNoteDisablingPassOnlyTheirExplicitFields()
             throws Exception
     {
-        String draftId = "draft:iceberg";
-        when(service.editDraft(WORKSPACE, 4, draftId, "Revised", "Summary", "Body", ImmutableList.of())).thenReturn(RepositoryNotebook.empty());
-        when(service.approveDraft(WORKSPACE, 5, draftId)).thenReturn(RepositoryNotebook.empty());
-        when(service.dismissDraft(WORKSPACE, 6, draftId)).thenReturn(RepositoryNotebook.empty());
+        when(service.restoreEntry(WORKSPACE, 4, ENTRY_ID)).thenReturn(RepositoryNotebook.empty());
+        when(service.disableRunNotes(WORKSPACE, 5, "task-1")).thenReturn(RepositoryNotebook.empty());
 
-        mvc.perform(put(ROOT + "/drafts").contentType(MediaType.APPLICATION_JSON).content("""
-                        {"expectedRevision":4,"draftId":"draft:iceberg","title":"Revised","summary":"Summary","body":"Body",
-                        "claims":[],"sourceIds":["invented"],"origin":"GENERATED","enabled":true}
-                        """))
+        mvc.perform(post(ROOT + "/entries/restore").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedRevision\":4,\"entryId\":\"" + ENTRY_ID + "\"}"))
                 .andExpect(status().isOk());
-        mvc.perform(post(ROOT + "/drafts/approve").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"expectedRevision\":5,\"draftId\":\"draft:iceberg\"}"))
-                .andExpect(status().isOk());
-        mvc.perform(delete(ROOT + "/drafts").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"expectedRevision\":6,\"draftId\":\"draft:iceberg\"}"))
+        mvc.perform(post(ROOT + "/runs/disable-notes").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedRevision\":5,\"taskId\":\"task-1\"}"))
                 .andExpect(status().isOk());
 
-        verify(service).editDraft(WORKSPACE, 4, draftId, "Revised", "Summary", "Body", ImmutableList.of());
-        verify(service).approveDraft(WORKSPACE, 5, draftId);
-        verify(service).dismissDraft(WORKSPACE, 6, draftId);
+        verify(service).restoreEntry(WORKSPACE, 4, ENTRY_ID);
+        verify(service).disableRunNotes(WORKSPACE, 5, "task-1");
     }
 
     @Test
@@ -180,9 +171,8 @@ class TestRepositoryContextController
         for (Mutation mutation : ImmutableList.of(
                 new Mutation(HttpMethod.PUT, "/configuration", "\"useInReviews\":true"),
                 new Mutation(HttpMethod.PUT, "/entries", ENTRY_FIELDS),
-                new Mutation(HttpMethod.PUT, "/drafts", "\"draftId\":\"draft:iceberg\",\"title\":\"Title\",\"summary\":\"Summary\",\"body\":\"Body\",\"claims\":[]"),
-                new Mutation(HttpMethod.POST, "/drafts/approve", "\"draftId\":\"draft:iceberg\""),
-                new Mutation(HttpMethod.DELETE, "/drafts", "\"draftId\":\"draft:iceberg\""),
+                new Mutation(HttpMethod.POST, "/entries/restore", "\"entryId\":\"knowledge:project\""),
+                new Mutation(HttpMethod.POST, "/runs/disable-notes", "\"taskId\":\"task-1\""),
                 new Mutation(HttpMethod.PUT, "/entries/enabled", "\"entryId\":\"knowledge:project\",\"enabled\":false"),
                 new Mutation(HttpMethod.POST, "/lessons", LESSON_FIELDS))) {
             for (String revision : ImmutableList.of("", "\"expectedRevision\":null,", "\"expectedRevision\":-1,")) {

@@ -63,7 +63,7 @@ type Props = {
   goal?: (item: AttentionItem) => GoalToggle | null;
   /** Whether Jira is connected; without it there is no Jira tab unless a Jira card is listed anyway. */
   jiraConnected?: boolean;
-  /** A row that is not an attention item, shown first under All: a workspace's Repository context drafts waiting review. */
+  /** A row that is not an attention item, shown first under All: a workspace's Repository context source proposals waiting review. */
   lead?: ReactNode;
 };
 

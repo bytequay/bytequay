@@ -29,7 +29,7 @@ import { currentRun, modelLine, needsTopicReselection, pendingCounts, plural, sh
 import { CONTEXT_CHANGED } from './reviewCount';
 import '../css/repository-context.css';
 
-const EMPTY_TIMES: ContextTimesDto = { entries: {}, drafts: {} };
+const EMPTY_TIMES: ContextTimesDto = { entries: {} };
 const failure = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
 
 export type PendingStart =
@@ -58,9 +58,7 @@ export type ContextData = {
 };
 
 /** The workspace's Repository context page. Opening it only reads saved state; every agent run starts from an explicit action. */
-export default function RepositoryContextPage({ workspace, initialDraftId = null, initialRunId = null }: {
-  workspace: WorkspaceDto; initialDraftId?: string | null; initialRunId?: string | null;
-}) {
+export default function RepositoryContextPage({ workspace, initialRunId = null }: { workspace: WorkspaceDto; initialRunId?: string | null }) {
   const workspaceId = workspace.id;
   const repository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
   const [notebook, setNotebook] = useState<RepositoryNotebookDto | null>(null);
@@ -115,10 +113,10 @@ export default function RepositoryContextPage({ workspace, initialDraftId = null
     return () => { mounted.current = false; };
   }, [loadAll, workspaceId]);
 
-  // Draft origins name the task that proposed them; titles are read only for tasks the run history does not cover.
+  // Note origins name the task that saved them; titles are read only for tasks the run history does not cover.
   useEffect(() => {
     const known = new Set(build?.runs.map(run => run.taskId) ?? []);
-    const wanted = [...Object.values(times.drafts), ...Object.values(times.entries)].flatMap(stamp => stamp.taskId === null ? [] : [stamp.taskId])
+    const wanted = Object.values(times.entries).flatMap(stamp => stamp.taskId === null ? [] : [stamp.taskId])
       .filter(id => !known.has(id) && titles[id] === undefined);
     for (const taskId of new Set(wanted)) {
       void window.bridge.getAgentTask(taskId, workspaceId).then(task => { if (mounted.current) setTitles(value => ({ ...value, [taskId]: task.title })); })
@@ -156,17 +154,6 @@ export default function RepositoryContextPage({ workspace, initialDraftId = null
     }
   }, [build, pending, workspaceId]);
 
-  // A link from Home or a task opens that draft once; later notebook reloads leave the drawer alone.
-  const shownDraft = useRef<string | null>(null);
-  useEffect(() => {
-    if (initialDraftId === null || notebook === null || shownDraft.current === initialDraftId) return;
-    shownDraft.current = initialDraftId;
-    if (notebook.pendingDrafts.some(draft => draft.id === initialDraftId)) {
-      setTab('overview');
-      setDrawer({ kind: 'note', target: { kind: 'draft', id: initialDraftId } });
-    }
-  }, [initialDraftId, notebook]);
-
   useEffect(() => {
     if (initialRunId !== null) {
       setTab('overview');
@@ -187,10 +174,10 @@ export default function RepositoryContextPage({ workspace, initialDraftId = null
   const start = useCallback((next: PendingStart) => perform(async () => {
     if (next.kind === 'learn' && (needsTopicReselection(planView?.plan ?? null) || report?.id !== next.request.reportId
       || next.request.topicIds.some(id => report.topics.find(topic => topic.id === id)?.notePaths == null))) {
-      throw new Error('Discover again and reselect topics with explicit note targets. Approved notes and drafts are kept.');
+      throw new Error('Discover again and reselect topics with explicit note targets. Saved notes are kept.');
     }
     if (next.kind === 'continue' && (planView?.plan?.id !== next.request.planId || needsTopicReselection(planView.plan))) {
-      throw new Error('Reselect topics before continuing. Approved notes and drafts are kept.');
+      throw new Error('Reselect topics before continuing. Saved notes are kept.');
     }
     sessionStorage.setItem(pendingKey(workspaceId), JSON.stringify(next));
     setPending(next);
@@ -234,7 +221,7 @@ export default function RepositoryContextPage({ workspace, initialDraftId = null
 
   const model = modelLine(models);
   const data: ContextData = { workspaceId, repository, notebook, times, build, report, planView, candidates, baseline, usage, model, titles, now };
-  const counts = pendingCounts(notebook, planView.plan);
+  const counts = pendingCounts(planView.plan);
   const available = notebook.entries.filter(entry => entry.enabled).length;
   const revision = baseline === null ? null : `${baseline.branch}@${shortSha(planView.plan?.baselineSha ?? report?.baselineSha ?? baseline.sha)}`;
   const useLabel = notebook.useInDevelopment && notebook.useInReviews ? 'Used by agents'
@@ -264,7 +251,7 @@ export default function RepositoryContextPage({ workspace, initialDraftId = null
     learnCandidate: (candidateId: string): void => void start({ kind: 'candidate', request: { ...fence(), candidateId } }),
     stop: (run: ContextRunDto) => perform(async () => {
       setBuild(await window.bridge.stopRepositoryContextBuild(workspaceId, run.taskId));
-      say(run.mode === 'DISCOVER' ? 'Discovery stopped · notes unchanged' : run.pullRequest !== null ? 'Run stopped · candidate kept' : 'Run stopped · plan and drafts saved');
+      say(run.mode === 'DISCOVER' ? 'Discovery stopped · notes unchanged' : run.pullRequest !== null ? 'Run stopped · candidate kept' : 'Run stopped · plan and saved notes kept');
     }),
     openDrawer,
     openTab: (next: 'overview' | 'notes', area = 'all') => { setTab(next); setNotesArea(area); setDrawer(null); setPop(null); },
@@ -293,20 +280,20 @@ export default function RepositoryContextPage({ workspace, initialDraftId = null
                 onClick={() => setPop(value => value === 'more' ? null : 'more')}>···</button>
             </div>
             {pop === 'use' && <div className="rcp-pop" role="dialog" aria-label="Agent use">
-              <div className="rcp-pop__title">Agents can look up approved notes in</div>
+              <div className="rcp-pop__title">Agents can look up notes in</div>
               <div className="rcp-switch-row">
                 <div className="rcp-switch-row__main"><div className="rcp-switch-row__name">Development tasks</div><div className="rcp-switch-row__sub">Tasks and Explore questions</div></div>
                 <button type="button" role="switch" className="rcp-switch" aria-checked={notebook.useInDevelopment} aria-label="Use in development tasks" disabled={busy}
                   onClick={() => void configure({ useInDevelopment: !notebook.useInDevelopment }, notebook.useInDevelopment
-                    ? 'New development tasks won’t look up notes · notes kept' : 'New development tasks can look up approved notes')}><span /></button>
+                    ? 'New development tasks won’t look up notes · notes kept' : 'New development tasks can look up notes')}><span /></button>
               </div>
               <div className="rcp-switch-row">
                 <div className="rcp-switch-row__main"><div className="rcp-switch-row__name">PR reviews</div><div className="rcp-switch-row__sub">Agent review runs</div></div>
                 <button type="button" role="switch" className="rcp-switch" aria-checked={notebook.useInReviews} aria-label="Use in PR reviews" disabled={busy}
                   onClick={() => void configure({ useInReviews: !notebook.useInReviews }, notebook.useInReviews
-                    ? 'New reviews won’t look up notes · notes kept' : 'New reviews can look up approved notes')}><span /></button>
+                    ? 'New reviews won’t look up notes · notes kept' : 'New reviews can look up notes')}><span /></button>
               </div>
-              <div className="rcp-pop__note">Applies to new tasks and reviews. Notes and drafts are kept when off. The agent decides whether a note applies.</div>
+              <div className="rcp-pop__note">Applies to new tasks and reviews. Notes are kept when off. The agent decides whether a note applies.</div>
               <button type="button" className="rcp-link" onClick={() => openDrawer({ kind: 'usage' })}>View usage</button>
             </div>}
             {pop === 'more' && <div className="rcp-menu" role="menu">
@@ -324,7 +311,7 @@ export default function RepositoryContextPage({ workspace, initialDraftId = null
             <button type="button" className="rcp-link" onClick={() => setActionError(null)}>Dismiss</button></div>}
           {tab === 'overview'
             ? <ContextOverview data={data} actions={actions} busy={busy} pending={pending === null ? null : { error: actionError, retry: retryPending, dismiss: dismissPending }} />
-            : <ContextNotes data={data} area={notesArea} onArea={setNotesArea} onOpen={entryId => openDrawer({ kind: 'note', target: { kind: 'entry', id: entryId } })} />}
+            : <ContextNotes data={data} area={notesArea} onArea={setNotesArea} onOpen={entryId => openDrawer({ kind: 'note', id: entryId })} />}
           <div className="rcp-manual"><span>Manual sources and paths aren’t needed for normal use.</span>
             <button type="button" onClick={() => openDrawer({ kind: 'advanced' })}>Advanced configuration</button></div>
         </div>
@@ -355,13 +342,12 @@ export type ContextActions = {
 
 function finishMessage(run: ContextRunDto): string {
   if (run.mode === 'DISCOVER') return run.outcome === 'SUBMITTED' ? 'Discovery finished · suggestions saved' : 'Discovery ended without saving suggestions';
-  const drafts = run.noteIds.length;
   switch (run.outcome) {
-    case 'ANSWERED': return `Run ${run.sequence} finished · ${plural(drafts, 'draft')} ready for review`;
+    case 'ANSWERED': return `Run ${run.sequence} finished · ${plural(run.noteIds.length, 'note')} saved`;
     case 'NO_NOTE': return `Run ${run.sequence} finished · no reusable note`;
     case 'LIMIT': return `Run ${run.sequence} reached its source limit · progress saved`;
     case 'UNFINISHED': return `Run ${run.sequence} finished · progress saved`;
-    case 'FAILED': return `Run ${run.sequence} failed · plan and drafts kept`;
+    case 'FAILED': return `Run ${run.sequence} failed · plan and saved notes kept`;
     default: return `Run ${run.sequence} ended`;
   }
 }

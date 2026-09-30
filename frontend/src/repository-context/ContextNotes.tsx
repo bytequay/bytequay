@@ -38,7 +38,6 @@ export default function ContextNotes({ data, area, onArea, onOpen }: { data: Con
   const knowledge = entries.filter(entry => entry.kind === 'KNOWLEDGE').length;
   const areas = noteGroups(notebook, entries);
   const selected = areas.find(group => group.area.id === area)?.area ?? null;
-  const updates = new Set(notebook.pendingDrafts.filter(draft => draft.replacesVersion !== null).map(draft => draft.entry.id));
   return <div className="rcp-notes" data-screen-label="Notes">
     <nav className="rcp-rail" aria-label="Note areas">
       <div className="rcp-rail__label">AREAS</div>
@@ -61,7 +60,7 @@ export default function ContextNotes({ data, area, onArea, onOpen }: { data: Con
         <label className="rcp-filter"><Icon name="search" size={13} />
           <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Filter by title, path, text" aria-label="Filter notes" /></label>
       </div>
-      {entries.length === 0 && <div className="rcp-empty">No approved notes yet. Drafts wait in Needs review on the Overview until you approve them.</div>}
+      {entries.length === 0 && <div className="rcp-empty">No notes yet. Notes appear here as learning runs and development tasks save them.</div>}
       {entries.length > 0 && filtered.length === 0 && <div className="rcp-empty">{query.trim() ? `No notes match “${query.trim()}”.` : 'No notes of this type in this area.'}</div>}
       {groups.map(group => <div className="rcp-group" key={group.area.id}>
         {area === 'all' && <div className="rcp-group__head"><span className="rcp-group__label">{group.area.label}</span>
@@ -74,8 +73,7 @@ export default function ContextNotes({ data, area, onArea, onOpen }: { data: Con
               <span className={`rcp-note__icon${lesson ? ' is-lesson' : ''}`}><Icon name={lesson ? 'lesson' : 'doc'} size={15} /></span>
               <span className="rcp-note__main">
                 <span className="rcp-note__line"><span className="rcp-note__title">{entry.title}</span>
-                  {!entry.enabled ? <span className="rcp-chip rcp-tone--gray">Disabled</span>
-                    : updates.has(entry.id) && <span className="rcp-chip rcp-tone--amber">Update waiting</span>}</span>
+                  {!entry.enabled && <span className="rcp-chip rcp-tone--gray">Disabled</span>}</span>
                 <span className="rcp-note__summary">{entry.summary.replaceAll('`', '')}</span>
                 <span className="rcp-note__meta"><span className="rcp-note__path">{noteArea(notebook, entry.scopeId).paths.join(' · ')}</span>
                   <span>v{entry.version}{stamp ? ` · ${shortDate(stamp.at, data.now)}` : ''}</span><span>{usageLabel(data, entry)}</span></span>

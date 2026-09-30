@@ -131,20 +131,21 @@ class TestDevelopmentContextTools
     }
 
     @Test
-    void proposalQueuesPendingNoteAndReplaysOnlyTheSameOperation()
+    void proposalSavesTheNoteAndReplaysOnlyTheSameOperation()
     {
         turn = turn.markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("provider-turn"), Optional.empty());
         when(drafts.prepare(eq(task), any(), any())).thenAnswer(call -> {
             TaskContextDraftService.Proposal proposed = call.getArgument(1);
             String id = call.getArgument(2);
             return new TaskContextDraftService.Prepared(WORKSPACE, 0, task.taskWorktree().orElseThrow(),
-                    new RepositoryContextService.TaskDraftProposal(id, "task", proposed.kind(), proposed.scopeId(), proposed.entryId(),
+                    new RepositoryContextService.TaskNote(id, "task", proposed.kind(), proposed.scopeId(), proposed.entryId(),
                             proposed.entryVersion(), proposed.title(), proposed.summary(), proposed.body(), "a".repeat(40), ImmutableList.of()), 42);
         });
         when(drafts.commit(any())).thenAnswer(call -> {
             TaskContextDraftService.Prepared prepared = call.getArgument(0);
-            return new TaskContextDraftService.Result(prepared.proposal().draftId(), "lesson:project:task-123", 1,
-                    "a".repeat(40), ImmutableList.of("task-read:1"), 42, "PENDING_APPROVAL");
+            assertThat(prepared.note().operationId()).matches("task:[0-9a-f]{32}:[0-9a-f]{32}");
+            return new TaskContextDraftService.Result("lesson:project:task-123", 1, 1,
+                    "a".repeat(40), ImmutableList.of("task-read:1"), 42, "ACTIVE");
         });
         String request = """
                 {"action":"PROPOSE","operationKey":"finding-1","kind":"MEMORY","title":"Checkpoint invariant",
@@ -152,7 +153,7 @@ class TestDevelopmentContextTools
                 "sources":[{"path":"plugin/trino-delta-lake/src/main/java/Checkpoint.java","startLine":12,"endLine":18}]}
                 """;
         String response = service.call(taskId.toString(), request);
-        assertThat(response).contains("PENDING_APPROVAL", "lesson:project:task-123", "42");
+        assertThat(response).contains("ACTIVE", "lesson:project:task-123", "42");
         assertThat(service.call(taskId.toString(), request)).isEqualTo(response);
         verify(drafts).prepare(eq(task), any(), any());
         verify(drafts).commit(any());

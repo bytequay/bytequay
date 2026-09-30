@@ -23,10 +23,10 @@ import {
   parseContextTimes,
   parseContextUsageOverview,
   parseContextUsageWindow,
-  parseContextDraftActionRequest,
-  parseEditContextDraftRequest,
+  parseDisableRepositoryContextRunNotesRequest,
   parseEditRepositoryContextEntryRequest,
   parseRepositoryNotebook,
+  parseRestoreRepositoryContextEntryRequest,
   parseReviewContextSnapshot,
   parseSaveRepositoryContextLessonRequest,
   parseStartContextDiscoveryRequest,
@@ -57,7 +57,7 @@ const notebook: RepositoryNotebookDto = {
   scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, discoveryEvidenceRef: null }],
   entries: [{ id: 'knowledge:project', kind: 'KNOWLEDGE', scopeId: 'project', title: 'Project', summary: 'Summary', body: 'Keep the condition.',
     claims: [{ text: 'Conditional claim', basis: 'INFERENCE', sourceIds: ['source'] }], sourceIds: ['source'], origin: 'GENERATED', enabled: false, version: 2 }],
-  pendingDrafts: [], sourceEvidence: [{ id: 'source', reference: { kind: 'DOCUMENT', sourceId: 'docs', url: 'https://example.com/docs/page' },
+  replaced: [], sourceEvidence: [{ id: 'source', reference: { kind: 'DOCUMENT', sourceId: 'docs', url: 'https://example.com/docs/page' },
     provenance: 'Captured page', capture: 'BYTEQUAY_READ', retrievedAt: null }],
 };
 const usage: ContextUsageOverviewDto = {
@@ -117,17 +117,16 @@ describe('repository context contracts', () => {
     expect(parseRepositoryNotebook({ ...notebook, useInDevelopment: false }).useInDevelopment).toBe(false);
   });
 
-  it('keeps pending drafts separate from active entries and validates draft edits', () => {
-    const draft = { id: 'draft:one', entry: { ...notebook.entries[0], enabled: true }, replacesVersion: 2, baselineSha: 'a'.repeat(40) };
-    expect(parseRepositoryNotebook({ ...notebook, pendingDrafts: [draft] }).pendingDrafts).toEqual([draft]);
-    expect(() => parseRepositoryNotebook({ ...notebook, pendingDrafts: undefined })).toThrow('pending drafts');
-    expect(parseRepositoryNotebook({ ...notebook, pendingDrafts: [{ ...draft, entry: { ...draft.entry, kind: 'MEMORY' } }] }).pendingDrafts[0].entry.kind)
-      .toBe('MEMORY');
-    expect(() => parseRepositoryNotebook({ ...notebook, pendingDrafts: [{ ...draft, entry: { ...draft.entry, kind: 'UNKNOWN' } }] })).toThrow('entry kind');
-    expect(parseContextDraftActionRequest({ expectedRevision: 7, draftId: draft.id })).toEqual({ expectedRevision: 7, draftId: draft.id });
-    expect(parseEditContextDraftRequest({ expectedRevision: 7, draftId: draft.id, title: 'Revised', summary: 'Condition', body: 'Check the code', claims: [] }).title)
-      .toBe('Revised');
-    expect(() => parseContextDraftActionRequest({ expectedRevision: 7, draftId: draft.id, body: 'activate' })).toThrow('unsupported request field');
+  it('parses a replaced version like an entry and binds restore and run-note requests to a revision', () => {
+    const previous = { ...notebook.entries[0], summary: 'Earlier summary', version: 1 };
+    expect(parseRepositoryNotebook({ ...notebook, replaced: [previous] }).replaced).toEqual([previous]);
+    expect(() => parseRepositoryNotebook({ ...notebook, replaced: undefined })).toThrow('replaced versions');
+    expect(() => parseRepositoryNotebook({ ...notebook, replaced: [{ ...previous, kind: 'UNKNOWN' }] })).toThrow('entry kind');
+    expect(parseRestoreRepositoryContextEntryRequest({ expectedRevision: 7, entryId: previous.id })).toEqual({ expectedRevision: 7, entryId: previous.id });
+    expect(parseDisableRepositoryContextRunNotesRequest({ expectedRevision: 7, taskId: 'learn-task' })).toEqual({ expectedRevision: 7, taskId: 'learn-task' });
+    expect(() => parseRestoreRepositoryContextEntryRequest({ expectedRevision: 7, entryId: previous.id, version: 1 })).toThrow('unsupported request field');
+    expect(() => parseDisableRepositoryContextRunNotesRequest({ expectedRevision: 7, taskId: ' ' })).toThrow('run task');
+    expect(() => parseDisableRepositoryContextRunNotesRequest({ taskId: 'learn-task' })).toThrow('expected revision');
   });
 
   it('requires nullable discovery provenance on stored scopes and registered sources', () => {
@@ -370,14 +369,15 @@ describe('repository context contracts', () => {
       deleteNotes: true })).toThrow();
   });
 
-  it('reads baseline and approval times without inventing them', () => {
+  it('reads baseline and save times without inventing them', () => {
     expect(parseContextBaseline(null)).toBeNull();
     expect(parseContextBaseline({ branch: 'master', sha: 'a'.repeat(40) })).toEqual({ branch: 'master', sha: 'a'.repeat(40) });
     expect(() => parseContextBaseline({ branch: 'master', sha: 'abc' })).toThrow('baseline commit');
-    const times: ContextTimesDto = { entries: { '2:knowledge:project': { at: '2026-09-01T00:00:00Z', taskId: null } },
-      drafts: { draft: { at: '2026-09-02T00:00:00Z', taskId: 'learn-task' } } };
+    const times: ContextTimesDto = { entries: { '2:knowledge:project': { at: '2026-09-01T00:00:00Z', taskId: null },
+      '3:knowledge:iceberg': { at: '2026-09-02T00:00:00Z', taskId: 'learn-task' } } };
     expect(parseContextTimes(times)).toEqual(times);
-    expect(() => parseContextTimes({ entries: {}, drafts: { draft: { taskId: null } } })).toThrow('Malformed repository context');
+    expect(() => parseContextTimes({ entries: { '3:knowledge:iceberg': { taskId: null } } })).toThrow('Malformed repository context');
+    expect(() => parseContextTimes({})).toThrow('Malformed repository context');
   });
 
   it('keeps merged PR selection separate from reading retained candidates', () => {

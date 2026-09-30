@@ -100,7 +100,7 @@ function RunDrawer({ data, actions, busy, taskId, onClose }: {
     </div></div>
     <div className="rcp-drawer__body">
       {run === undefined ? <div className="rcp-empty">This run is no longer in the retained activity history.</div>
-        : <RunCard key={run.taskId} run={run} defaultOpen title={run.question?.text ?? 'Activity'}
+        : <RunCard key={run.taskId} run={run} defaultOpen title={run.question?.text ?? run.investigation?.statement ?? 'Activity'}
           meta={`${shortDate(run.endedAt ?? run.requestedAt, data.now)} · ${plural(run.sourceOperations, 'source operation')} · ${plural(run.noteIds.length, 'saved note')}`} />}
     </div>
     {run?.outcome === 'RUNNING' && <div className="rcp-drawer__foot">
@@ -170,8 +170,8 @@ function PlanDrawer({ data, actions, busy, tab, onTab, onClose }: { data: Contex
         {runs.length === 0 && <div className="rcp-empty">No learning run has started yet.</div>}
         {runs.map(run => <RunCard key={run.taskId} run={run}
           defaultOpen={run.outcome === 'RUNNING' || (learning === null && run === latest)}
-          title={`Run ${run.sequence} · ${run.question?.topicTitle ?? `Merged PR #${run.pullRequest ?? ''}`}`}
-          meta={`“${run.question?.text ?? 'What’s reusable from this change?'}” · ${shortDate(run.endedAt ?? run.requestedAt, data.now)}`} />)}
+          title={`Run ${run.sequence} · ${run.question?.topicTitle ?? run.investigation?.title ?? `Merged PR #${run.pullRequest ?? ''}`}`}
+          meta={`“${run.question?.text ?? run.investigation?.statement ?? 'What’s reusable from this change?'}” · ${shortDate(run.endedAt ?? run.requestedAt, data.now)}`} />)}
       </>}
     </div>
     <div className="rcp-drawer__foot">

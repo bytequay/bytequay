@@ -130,9 +130,7 @@ class TestContextGradeService
     @Test
     void aCorrectionDisputesASettledStatementOnlyWhileItsLinesAreUnchanged()
     {
-        ContextSourceEvidence source = new ContextSourceEvidence("task-read:1", new ContextReference.RepositoryFile(1, RepoRef.of("example", "project"), "Snapshot.java",
-                "c".repeat(40)), "Committed task HEAD", "12  refresh();\n", ContextSourceEvidence.Capture.BYTEQUAY_READ, Optional.of(Instant.EPOCH),
-                Optional.of("d".repeat(40)), Optional.of("c".repeat(40)), false);
+        ContextSourceEvidence source = source();
         ContextEntry current = new ContextEntry("knowledge:project", ContextEntryKind.KNOWLEDGE, "project", "Title", "Summary", STATEMENT, ImmutableList.of(),
                 ImmutableList.of(source.id()), ContextEntryOrigin.GENERATED, true, 5);
         RepositoryNotebook notebook = new RepositoryNotebook(1, 6, true, true, ImmutableList.of(), ImmutableList.of(ContextScope.project()), ImmutableList.of(current),
@@ -193,6 +191,46 @@ class TestContextGradeService
             assertThat(dispute.earlierSettlement()).contains(earlier);
         });
         assertThat(service.disputeFor(WORKSPACE, current.id(), 5)).isEmpty();
+    }
+
+    @Test
+    void anInvestigationStartsFromBothTextsEverySideAndTheEarlierSettlement()
+    {
+        ContextSourceEvidence source = source();
+        ContextEntry current = new ContextEntry("knowledge:project", ContextEntryKind.KNOWLEDGE, "project", "Title", "Summary", "Body v6", ImmutableList.of(),
+                ImmutableList.of(source.id()), ContextEntryOrigin.GENERATED, true, 6);
+        when(notebooks.getNotebook(WORKSPACE)).thenReturn(new RepositoryNotebook(1, 7, true, true, ImmutableList.of(), ImmutableList.of(ContextScope.project()),
+                ImmutableList.of(current), ImmutableList.of(entry("knowledge:project", 5, true)), ImmutableList.of(source), Optional.empty()));
+        ContextDisputes.Settlement earlier = new ContextDisputes.Settlement(3, ContextDisputes.By.INVESTIGATION, "Body v3",
+                Optional.of("The readers used different configurations"));
+        when(notebooks.getDisputes(WORKSPACE)).thenReturn(new ContextDisputes(ImmutableMap.of(current.id(), new ContextDisputes.Contest(STATEMENT, 5)),
+                ImmutableMap.of(current.id(), earlier)));
+        when(grades.listVersion(WORKSPACE, current.id(), 6, 1000)).thenReturn(ImmutableList.of(agentGrade(6, ContextGrade.Grade.HOLDS, Optional.empty(),
+                Instant.EPOCH.plusSeconds(60))));
+        when(grades.listVersion(WORKSPACE, current.id(), 5, 1000)).thenReturn(ImmutableList.of(agentGrade(5, ContextGrade.Grade.WRONG,
+                Optional.of(new ContextGrade.Correction(6, "Body v6")), Instant.EPOCH)));
+
+        ContextBuild.Investigation investigation = service.investigation(WORKSPACE, current.id());
+        assertThat(investigation.entryVersion()).isEqualTo(6);
+        assertThat(investigation.scopeId()).isEqualTo("project");
+        assertThat(investigation.statement()).isEqualTo(STATEMENT);
+        assertThat(investigation.brief()).contains("Current text (v6):\nTitle\nSummary\nBody v6", "Previous text (v5):\nTitle\nSummary\nBody v5",
+                "HOLDS on v6 by a task: \"" + STATEMENT + "\". Checked the code", "WRONG on v5 by a task", "It rewrote the statement in v6: \"Body v6\"",
+                "Cited Snapshot.java:12-12 at " + BASE + ":\n12  refresh();", "settled in v3. Root cause: The readers used different configurations");
+        assertThat(investigation.brief().indexOf("HOLDS on v6")).isLessThan(investigation.brief().indexOf("WRONG on v5"));
+
+        when(notebooks.getDisputes(WORKSPACE)).thenReturn(ContextDisputes.empty());
+        assertThatThrownBy(() -> service.investigation(WORKSPACE, current.id())).hasMessageContaining("do not disagree");
+        when(notebooks.getNotebook(WORKSPACE)).thenReturn(new RepositoryNotebook(1, 7, true, true, ImmutableList.of(), ImmutableList.of(ContextScope.project()),
+                ImmutableList.of(entry("knowledge:project", 6, true)), ImmutableList.of(), ImmutableList.of(), Optional.empty()));
+        assertThatThrownBy(() -> service.investigation(WORKSPACE, current.id())).hasMessageContaining("notes agents wrote");
+    }
+
+    private static ContextSourceEvidence source()
+    {
+        return new ContextSourceEvidence("task-read:1", new ContextReference.RepositoryFile(1, RepoRef.of("example", "project"), "Snapshot.java",
+                "c".repeat(40)), "Committed task HEAD", "12  refresh();\n", ContextSourceEvidence.Capture.BYTEQUAY_READ, Optional.of(Instant.EPOCH),
+                Optional.of("d".repeat(40)), Optional.of("c".repeat(40)), false);
     }
 
     private void settled(ContextDisputes.Settlement settlement)

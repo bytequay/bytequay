@@ -34,12 +34,14 @@ import static java.util.Objects.requireNonNull;
 public record ContextRun(
         long sequence, String taskId, ContextBuild.Mode mode, Instant requestedAt, Optional<Instant> endedAt,
         Optional<Question> question, Optional<Integer> pullRequest, Outcome outcome, int sourceOperations, int documentOpens,
-        List<String> noteIds, List<ContextBuild.Activity> activity, Optional<String> detail)
+        List<String> noteIds, List<ContextBuild.Activity> activity, Optional<String> detail, Optional<Investigated> investigation)
 {
     /** Capture attempt key under which a learning run records whether its question was answered. */
     public static final String PROGRESS = "question-progress";
     public static final String COMPLETED = "COMPLETED";
     public static final String UNFINISHED = "UNFINISHED";
+    /** Capture attempt key under which an investigation records the outcome that settled its dispute. */
+    public static final String SETTLED = "investigation-settled";
 
     public ContextRun
     {
@@ -56,6 +58,7 @@ public record ContextRun(
         activity = ImmutableList.copyOf(activity);
         requireNonNull(detail, "detail is null");
         detail.ifPresent(value -> ContextLimits.text(value, "run detail", 1000));
+        requireNonNull(investigation, "investigation is null");
     }
 
     /** Summarizes a build without starting, resending or settling anything. */
@@ -66,9 +69,13 @@ public record ContextRun(
         int operations = (int) capture.attempts().keySet().stream()
                 .filter(key -> key.startsWith(discovery ? "discovery:" : "read-operation:")).count();
         int opens = (int) capture.attempts().keySet().stream().filter(key -> key.startsWith("document-open:")).count();
-        List<String> notes = capture.result().stream().flatMap(result -> result.scopeResults().stream())
-                .filter(result -> result.outcome() == ContextPreparationResult.Outcome.READY)
-                .flatMap(result -> result.noteIds().stream()).distinct().collect(ImmutableList.toImmutableList());
+        Optional<String> settledBy = Optional.ofNullable(capture.attempts().get(SETTLED));
+        List<String> notes = build.investigation().isPresent()
+                ? settledBy.filter(outcome -> !outcome.equals(RepositoryContextService.Settle.Outcome.KEEP_CURRENT.name()))
+                        .map(ignored -> ImmutableList.of(build.investigation().orElseThrow().entryId())).orElse(ImmutableList.of())
+                : capture.result().stream().flatMap(result -> result.scopeResults().stream())
+                        .filter(result -> result.outcome() == ContextPreparationResult.Outcome.READY)
+                        .flatMap(result -> result.noteIds().stream()).distinct().collect(ImmutableList.toImmutableList());
         Optional<Question> question = build.assignment().map(assignment -> new Question(assignment.planId(), assignment.topicId(),
                 assignment.topicTitle(), assignment.questionIndex(), assignment.question()));
         Optional<Integer> pullRequest = build.assignment().isPresent() ? Optional.empty() : build.history().stream()
@@ -79,7 +86,8 @@ public record ContextRun(
         Optional<Instant> ended = outcome == Outcome.RUNNING ? Optional.empty()
                 : turn.flatMap(AgentTurn::endedAt).or(() -> task.flatMap(AgentTask::terminalAt));
         return new ContextRun(build.sequence(), build.taskId(), build.mode(), build.requestedAt(), ended, question, pullRequest, outcome,
-                operations, opens, notes, capture.activity(), detail);
+                operations, opens, notes, capture.activity(), detail,
+                build.investigation().map(value -> new Investigated(value.entryId(), value.title(), value.statement(), settledBy)));
     }
 
     private static Outcome outcome(ContextBuild build, Optional<AgentTask> task, Optional<AgentTurn> turn, List<String> notes)
@@ -96,7 +104,8 @@ public record ContextRun(
         String progress = build.capture().attempts().getOrDefault(PROGRESS, "");
         boolean settled = build.assignment().isPresent() ? progress.equals(COMPLETED) : build.capture().result().isPresent();
         if (settled) {
-            return build.mode() == ContextBuild.Mode.DISCOVER ? Outcome.SUBMITTED : notes.isEmpty() ? Outcome.NO_NOTE : Outcome.ANSWERED;
+            return build.mode() == ContextBuild.Mode.DISCOVER ? Outcome.SUBMITTED
+                    : build.investigation().isPresent() ? Outcome.SETTLED : notes.isEmpty() ? Outcome.NO_NOTE : Outcome.ANSWERED;
         }
         if (build.capture().activity().stream().anyMatch(line -> line.tone() == ContextBuild.Activity.Tone.LIMIT)) {
             return Outcome.LIMIT;
@@ -116,10 +125,23 @@ public record ContextRun(
         }
     }
 
+    /** The note and statement an investigation run took up, and the outcome that settled it. */
+    public record Investigated(String entryId, String title, String statement, Optional<String> outcome)
+    {
+        public Investigated
+        {
+            ContextLimits.text(entryId, "investigated note", 1200);
+            ContextLimits.text(title, "investigated title", 200);
+            ContextLimits.text(statement, "disputed statement", 500);
+            requireNonNull(outcome, "outcome is null");
+        }
+    }
+
     public enum Outcome
     {
         RUNNING,
         SUBMITTED,
+        SETTLED,
         ANSWERED,
         NO_NOTE,
         UNFINISHED,

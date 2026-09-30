@@ -33,6 +33,7 @@ import type {
   DeclineContextLearningSourceRequest,
   DisableRepositoryContextRunNotesRequest,
   EditRepositoryContextEntryRequest,
+  InvestigateRepositoryContextNoteRequest,
   KeepRepositoryContextEntryRequest,
   ReportRepositoryContextNoteRequest,
   RepositoryNotebookDto,
@@ -1648,6 +1649,7 @@ export type Bridge = JiraBridge & {
   declineRepositoryContextLearningSource: (workspaceId: string, request: DeclineContextLearningSourceRequest) => Promise<ContextLearningPlanViewDto>;
   getRepositoryContextMergedCandidates: (workspaceId: string) => Promise<ContextMergedCandidatesDto>;
   learnRepositoryContextMergedCandidate: (workspaceId: string, request: LearnContextMergedCandidateRequest) => Promise<ContextBuildViewDto>;
+  investigateRepositoryContextNote: (workspaceId: string, request: InvestigateRepositoryContextNoteRequest) => Promise<ContextBuildViewDto>;
   stopRepositoryContextBuild: (workspaceId: string, taskId: string) => Promise<ContextBuildViewDto>;
   getRepositoryContextBuildStopImpact: (workspaceId: string, taskId: string) => Promise<AgentRuntimeStopImpactDto>;
   stopRepositoryContextBuildRuntime: (workspaceId: string, taskId: string, generation: string) => Promise<ContextBuildViewDto>;

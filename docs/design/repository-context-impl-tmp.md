@@ -2210,9 +2210,12 @@ Behavior: the [save rules](repository-context-refactor.md#1-one-saved-object-a-c
 - [x] Mark contested notes and record settlements: Holds, and a correction of a
   settled statement on unchanged lines, contest a note; a task's correction
   with a root cause, and the user's Keep and Restore, settle it.
-- [ ] Add Investigate as a one-question learning run with four outcomes and a
+- [x] Add Investigate as a one-question learning run with four outcomes and a
   root cause.
-- [ ] Verify each step with the backend and desktop build gates.
+- [ ] Investigate a note the user wrote, returning its root cause and suggested
+  text without changing it, and save what a narrowed note leaves out as
+  separate notes.
+- [x] Verify each step with the backend and desktop build gates.
 
 The first three items landed together: the base check is what makes saving
 without approval safe. JVM 25 `mvn verify` passed 3,645 tests with no failures,
@@ -2248,3 +2251,19 @@ Edit and Disable ending a contest, disputes deleted with the workspace, dispute
 views on development and review reads, contested notes in Needs you with both
 sides and the earlier settlement, and the Home and sidebar counts. No live
 model run was used.
+
+Investigate starts a learning run over the note's scope at the monitored
+branch head, with no documentation, history or plan question. Its brief holds
+both texts, each side's quote, reason, rewrite and cited lines, and an earlier
+root cause. The run reads code with the usual read tool and ends with one
+`repository_context_settle` call: REWRITE, NARROW or QUESTION save new text
+citing the run's own FILE reads, KEEP_PREVIOUS restores the replaced text, and
+KEEP_CURRENT changes nothing; each records the root cause and ends the contest.
+The button appears only on notes agents wrote. JVM 25 `mvn verify` passed
+3,665 tests with no Checkstyle violations; frontend lint, TypeScript, all
+1,421 tests and macOS packaging passed. Regressions cover the run's binding,
+title and prompt, a settlement citing only the run's FILE reads, replay and a
+second settlement refused, each outcome's notebook change and root cause, a
+note changed or settled during the run, builds and runs saved before
+investigations existed, the settled run summary, and the button, run line and
+status card. No live model run was used.

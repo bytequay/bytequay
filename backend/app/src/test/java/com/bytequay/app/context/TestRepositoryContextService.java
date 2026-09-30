@@ -610,6 +610,52 @@ class TestRepositoryContextService
     }
 
     @Test
+    void anInvestigationSettlesAContestedNoteWithNewTextOrEitherSideAndItsRootCause()
+    {
+        ContextSourceEvidence evidence = discoveryEvidence("task-read:1", "README.md", "1  Evidence");
+        RepositoryNotebook saved = service.saveTaskNote(WORKSPACE, 0, taskNote(TASK_ID, "b", KNOWLEDGE, Optional.empty(), "Reads reuse the snapshot", evidence));
+        RepositoryNotebook corrected = service.saveTaskNote(WORKSPACE, saved.revision(),
+                taskNote(OTHER_TASK_ID, "c", KNOWLEDGE, Optional.of(saved.entries().getFirst()), "Reads refresh the snapshot", evidence));
+        ContextEntry current = corrected.entries().getFirst();
+        RepositoryContextService.Settle rewrite = new RepositoryContextService.Settle(current.id(), current.version(), RepositoryContextService.Settle.Outcome.REWRITE,
+                Optional.of(new RepositoryContextService.Settle.Text("Finding", "Summary", "Reads reuse the snapshot until a REFRESH")),
+                ImmutableList.of(discoveryEvidence("context-read:1", "Snapshot.java", "12  refresh();\n")), "Reads reuse the snapshot until a REFRESH",
+                "One side read only the REFRESH path");
+        assertThatThrownBy(() -> service.settleEntry(WORKSPACE, corrected.revision(), "investigation", rewrite)).hasMessageContaining("settled while");
+
+        service.contest(WORKSPACE, current.id(), current.version(), "Reads refresh the snapshot");
+        assertThatThrownBy(() -> service.settleEntry(WORKSPACE, corrected.revision(), "investigation", new RepositoryContextService.Settle(current.id(),
+                current.version(), RepositoryContextService.Settle.Outcome.NARROW, rewrite.text(), rewrite.evidence(), "Not in the text", "Cause")))
+                .hasMessageContaining("settled text");
+        RepositoryNotebook settled = service.settleEntry(WORKSPACE, corrected.revision(), "investigation", rewrite);
+        ContextEntry rewritten = settled.entries().getFirst();
+        assertThat(rewritten.body()).isEqualTo("Reads reuse the snapshot until a REFRESH");
+        assertThat(rewritten.origin()).isEqualTo(GENERATED);
+        assertThat(rewritten.sourceIds()).containsExactly("context-read:1");
+        assertThat(settled.sourceEvidence()).extracting(ContextSourceEvidence::id).contains("context-read:1");
+        assertThat(settled.replaced()).singleElement().satisfies(old -> assertThat(old.body()).isEqualTo("Reads refresh the snapshot"));
+        assertThat(service.getDisputes(WORKSPACE)).isEqualTo(new ContextDisputes(ImmutableMap.of(), ImmutableMap.of(current.id(), new ContextDisputes.Settlement(
+                rewritten.version(), ContextDisputes.By.INVESTIGATION, "Reads reuse the snapshot until a REFRESH", Optional.of("One side read only the REFRESH path")))));
+        assertThat(service.getTimes(WORKSPACE).entries().get(ContextTimes.key(rewritten.id(), rewritten.version())).taskId()).contains("investigation");
+        assertThatThrownBy(() -> service.settleEntry(WORKSPACE, settled.revision(), "investigation", rewrite)).hasMessageContaining("changed since the investigation");
+
+        service.contest(WORKSPACE, rewritten.id(), rewritten.version(), "Reads reuse the snapshot until a REFRESH");
+        RepositoryNotebook restored = service.settleEntry(WORKSPACE, settled.revision(), "investigation", new RepositoryContextService.Settle(rewritten.id(),
+                rewritten.version(), RepositoryContextService.Settle.Outcome.KEEP_PREVIOUS, Optional.empty(), ImmutableList.of(), "Reads refresh the snapshot",
+                "Only the REFRESH path reads tables"));
+        ContextEntry previous = restored.entries().getFirst();
+        assertThat(previous.body()).isEqualTo("Reads refresh the snapshot");
+        assertThat(service.getDisputes(WORKSPACE).settlement(previous.id()).orElseThrow().version()).isEqualTo(previous.version());
+
+        service.contest(WORKSPACE, previous.id(), previous.version(), "Reads refresh the snapshot");
+        assertThat(service.settleEntry(WORKSPACE, restored.revision(), "investigation", new RepositoryContextService.Settle(previous.id(), previous.version(),
+                RepositoryContextService.Settle.Outcome.KEEP_CURRENT, Optional.empty(), ImmutableList.of(), "Reads refresh the snapshot", "Both sides read one path")))
+                .isEqualTo(restored);
+        assertThat(service.getDisputes(WORKSPACE).settlement(previous.id()).orElseThrow().rootCause()).contains("Both sides read one path");
+        assertThat(service.getDisputes(WORKSPACE).contested()).isEmpty();
+    }
+
+    @Test
     void removedWorkspaceCannotRecreateNotebookAndDeletionIsIdempotent()
     {
         service.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty()));

@@ -17,7 +17,7 @@ import type {
   ContextScopeDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto,
 } from './contracts';
 import {
-  disputeSides, filterNotes, gradeLine, grader, latestReport, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pendingCounts, previousVersion,
+  disputeSides, filterNotes, gradeLine, grader, latestReport, runOrigin, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pendingCounts, previousVersion,
   questionRow, reportsNeedingYou, reviewItems, runNotesToDisable, scopeForTopic, settledLine, statusCard, topicSummary, type StatusInput,
 } from './model';
 
@@ -41,7 +41,7 @@ const plan: ContextLearningPlanDto = { id: 'plan', workspaceId: 'w', reportId: '
 const run = (sequence: number, outcome: ContextRunDto['outcome'], index: number, at: string, noteIds: string[] = []): ContextRunDto => ({
   sequence, taskId: `task-${sequence}`, mode: 'LEARN', requestedAt: at, endedAt: outcome === 'RUNNING' ? null : at,
   question: { planId: 'plan', topicId: 'topic:iceberg', topicTitle: 'Iceberg connector', index, text: plan.topics[0].questions[index].text },
-  pullRequest: null, outcome, sourceOperations: 17, documentOpens: 0, noteIds, activity: [], detail: null });
+  pullRequest: null, outcome, sourceOperations: 17, documentOpens: 0, noteIds, activity: [], detail: null, investigation: null });
 const build = (runs: ContextRunDto[]): ContextBuildViewDto => ({ buildRequestSequence: runs.length, notebookRevision: 8, canStart: runs.every(value => value.outcome !== 'RUNNING'),
   runs, build: null });
 const input = (patch: Partial<StatusInput>): StatusInput => ({ repository: 'trinodb/trino', baseline: { branch: 'master', sha: 'a'.repeat(40) }, model: 'Codex · 5.6',
@@ -128,6 +128,15 @@ describe('repository context status card', () => {
     const card = statusCard(input({ report, build: build([run(3, 'RUNNING', 1, '2026-09-29T11:59:00Z')]), planView: { plan, next: null } }));
     expect(card).toMatchObject({ headline: 'Learning · Iceberg connector', question: 'How are commits retried?', stop: true });
     expect(card.body).toContain('resumed from saved progress');
+  });
+
+  it('names a running investigation by its note and disputed statement with its activity', () => {
+    const investigation: ContextRunDto = { ...run(4, 'RUNNING', 0, '2026-09-29T11:59:00Z'), question: null,
+      investigation: { entryId: 'knowledge:iceberg', title: 'Iceberg metadata refresh', statement: 'Later reads reuse the table.', outcome: null } };
+    const card = statusCard(input({ report, build: build([investigation]), planView: { plan, next: null } }));
+    expect(card).toMatchObject({ headline: 'Investigating · Iceberg metadata refresh', question: 'Later reads reuse the table.', stop: true,
+      details: { label: 'View activity', action: 'run-activity' } });
+    expect(runOrigin(investigation)).toBe('Investigation 4 · Iceberg metadata refresh');
   });
 
   it('keeps completed and failed source operations separate from the running agent', () => {

@@ -78,6 +78,10 @@ export type ContextSourceBoundary = 'PAGE' | 'ROOT';
 export type AllowContextLearningSourceRequest = DiscardContextLearningPlanRequest & { suggestedUrl: string; boundary: ContextSourceBoundary };
 export type DeclineContextLearningSourceRequest = { planId: string; suggestedUrl: string };
 export type LearnContextMergedCandidateRequest = ContextRunFence & { candidateId: string };
+/** Starts one run that settles the dispute about a contested note an agent wrote. */
+export type InvestigateRepositoryContextNoteRequest = ContextRunFence & { entryId: string };
+/** How an investigation settled its dispute. */
+export type ContextInvestigationOutcome = 'REWRITE' | 'KEEP_CURRENT' | 'KEEP_PREVIOUS' | 'NARROW' | 'QUESTION';
 /** What the page shows of a merged PR's learning bundle; the agent receives the full bundle. */
 export type ContextMergedCandidateDto = {
   id: string; repo: string; number: number; title: string; mergedAt: string; taskTitle: string | null; taskResult: string | null;
@@ -98,13 +102,15 @@ export type ContextLearningPlanDto = {
 export type ContextQuestionTarget = { topicId: string; question: number };
 /** The backend names the question Continue learning takes, so the page never re-derives the order. */
 export type ContextLearningPlanViewDto = { plan: ContextLearningPlanDto | null; next: ContextQuestionTarget | null };
-export type ContextRunOutcome = 'RUNNING' | 'SUBMITTED' | 'ANSWERED' | 'NO_NOTE' | 'UNFINISHED' | 'LIMIT' | 'STOPPED' | 'FAILED';
+export type ContextRunOutcome = 'RUNNING' | 'SUBMITTED' | 'SETTLED' | 'ANSWERED' | 'NO_NOTE' | 'UNFINISHED' | 'LIMIT' | 'STOPPED' | 'FAILED';
 export type ContextActivityDto = { at: string; text: string; tone: 'DONE' | 'FAILED' | 'LIMIT' };
 export type ContextRunDto = {
   sequence: number; taskId: string; mode: 'DISCOVER' | 'LEARN'; requestedAt: string; endedAt: string | null;
   question: null | { planId: string; topicId: string; topicTitle: string; index: number; text: string };
   pullRequest: number | null; outcome: ContextRunOutcome; sourceOperations: number; documentOpens: number;
   noteIds: string[]; activity: ContextActivityDto[]; detail: string | null;
+  /** The note and statement an investigation took up, and how it settled them. */
+  investigation: null | { entryId: string; title: string; statement: string; outcome: ContextInvestigationOutcome | null };
 };
 export type ContextBaselineDto = { branch: string; sha: string };
 export type ContextTimeStampDto = { at: string; taskId: string | null };
@@ -427,6 +433,10 @@ export function parseDeclineContextLearningSourceRequest(value: unknown): Declin
   const item = request(value, ['planId', 'suggestedUrl']);
   return { planId: nonblank(item.planId, 'plan id'), suggestedUrl: suggestedUrl(item.suggestedUrl) };
 }
+export function parseInvestigateRepositoryContextNoteRequest(value: unknown): InvestigateRepositoryContextNoteRequest {
+  const item = request(value, ['entryId', 'requestKey', 'expectedRevision', 'expectedBuildSequence']);
+  return { ...runFence(item, 'investigation'), entryId: nonblank(item.entryId, 'investigated note') };
+}
 export function parseLearnContextMergedCandidateRequest(value: unknown): LearnContextMergedCandidateRequest {
   const item = request(value, ['candidateId', 'requestKey', 'expectedRevision', 'expectedBuildSequence']);
   return { ...runFence(item, 'candidate'), candidateId: nonblank(item.candidateId, 'candidate ID') };
@@ -547,14 +557,18 @@ function activity(value: unknown): ContextActivityDto {
 function run(value: unknown): ContextRunDto {
   const item = object(value, 'context run');
   const question = item.question == null ? null : object(item.question, 'run question');
+  const investigation = item.investigation == null ? null : object(item.investigation, 'run investigation');
   return { sequence: count(item.sequence, 'run sequence', 1), taskId: text(item.taskId, 'run task'), mode: oneOf(item.mode, ['DISCOVER', 'LEARN'], 'run mode'),
     requestedAt: text(item.requestedAt, 'run request time'), endedAt: optionalText(item.endedAt, 'run end time'),
     question: question === null ? null : { planId: text(question.planId, 'run plan'), topicId: text(question.topicId, 'run topic'),
       topicTitle: text(question.topicTitle, 'run topic title'), index: count(question.index, 'run question index'), text: text(question.text, 'run question') },
     pullRequest: item.pullRequest == null ? null : count(item.pullRequest, 'run pull request', 1),
-    outcome: oneOf(item.outcome, ['RUNNING', 'SUBMITTED', 'ANSWERED', 'NO_NOTE', 'UNFINISHED', 'LIMIT', 'STOPPED', 'FAILED'], 'run outcome'),
+    outcome: oneOf(item.outcome, ['RUNNING', 'SUBMITTED', 'SETTLED', 'ANSWERED', 'NO_NOTE', 'UNFINISHED', 'LIMIT', 'STOPPED', 'FAILED'], 'run outcome'),
     sourceOperations: count(item.sourceOperations, 'run operations'), documentOpens: count(item.documentOpens, 'run document opens'),
-    noteIds: strings(item.noteIds, 'run notes'), activity: array(item.activity, 'run activity', activity), detail: optionalText(item.detail, 'run detail') };
+    noteIds: strings(item.noteIds, 'run notes'), activity: array(item.activity, 'run activity', activity), detail: optionalText(item.detail, 'run detail'),
+    investigation: investigation === null ? null : { entryId: text(investigation.entryId, 'investigated note'), title: text(investigation.title, 'investigated title'),
+      statement: text(investigation.statement, 'disputed statement'),
+      outcome: investigation.outcome == null ? null : oneOf(investigation.outcome, ['REWRITE', 'KEEP_CURRENT', 'KEEP_PREVIOUS', 'NARROW', 'QUESTION'], 'investigation outcome') } };
 }
 export function parseContextBaseline(value: unknown): ContextBaselineDto | null {
   if (value == null) return null;

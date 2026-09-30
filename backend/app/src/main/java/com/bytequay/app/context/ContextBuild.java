@@ -16,6 +16,7 @@ package com.bytequay.app.context;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.app.context.RepositoryContextPreparation.CapturedSource;
+import com.bytequay.core.context.ContextGrade;
 import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextPreparationResult;
@@ -39,7 +40,7 @@ public record ContextBuild(
         RepositoryIdentity physicalRepository, long repositoryId, RepoRef repository, String baselineSha, String branch,
         String laneId, AgentTaskDefaults defaults, List<String> scopeIds, List<History> history,
         List<RegisteredContextSource> documentationSources, long notebookRevision, Instant requestedAt, Capture capture, Mode mode, Optional<Assignment> assignment,
-        Optional<String> continuesReport)
+        Optional<String> continuesReport, Optional<Investigation> investigation)
 {
     public ContextBuild
     {
@@ -66,6 +67,10 @@ public record ContextBuild(
         checkArgument(mode == Mode.DISCOVER ? scopeIds.isEmpty() && history.isEmpty() && documentationSources.isEmpty() : !scopeIds.isEmpty(),
                 "Discovery has no configured sources; learning requires selected scopes");
         ContextLimits.unique(history, "history", 10);
+        requireNonNull(investigation, "investigation is null");
+        checkArgument(investigation.isEmpty() || (mode == Mode.LEARN && assignment.isEmpty() && history.isEmpty()
+                        && scopeIds.equals(ImmutableList.of(investigation.orElseThrow().scopeId()))),
+                "An investigation is one learning run over its note's scope, without a plan question or history");
         requireNonNull(requestedAt, "requestedAt is null");
         requireNonNull(capture, "capture is null");
     }
@@ -78,7 +83,8 @@ public record ContextBuild(
     public ContextBuild withCapture(Capture replacement)
     {
         return new ContextBuild(sequence, requestKey, requestDigest, workspaceId, taskId, physicalRepository, repositoryId, repository, baselineSha, branch,
-                laneId, defaults, scopeIds, history, documentationSources, notebookRevision, requestedAt, replacement, mode, assignment, continuesReport);
+                laneId, defaults, scopeIds, history, documentationSources, notebookRevision, requestedAt, replacement, mode, assignment, continuesReport,
+                investigation);
     }
 
     /** One accepted plan question; progress is the checkpoint an earlier run saved for it, empty when it has not started. */
@@ -99,6 +105,25 @@ public record ContextBuild(
             paths.forEach(ContextLimits::pathPrefix);
             ContextLimits.unique(repositoryFiles, "learning source files", 40);
             repositoryFiles.forEach(path -> ContextLimits.pathPrefix(path + "/"));
+        }
+    }
+
+    /**
+     * The dispute an investigation settles: the contested version of an agent-written note, its scope and disputed statement,
+     * and the brief the run starts from.
+     */
+    public record Investigation(String entryId, long entryVersion, String scopeId, String title, String statement, String brief)
+    {
+        public static final int MAX_BRIEF_BYTES = 48 * 1024;
+
+        public Investigation
+        {
+            ContextLimits.text(entryId, "investigated note", 1200);
+            checkArgument(entryVersion > 0, "Invalid investigated note version");
+            ContextLimits.text(scopeId, "investigated scope", 1100);
+            ContextLimits.text(title, "investigated title", 200);
+            ContextLimits.text(statement, "disputed statement", ContextGrade.MAX_QUOTE_BYTES);
+            ContextLimits.text(brief, "investigation brief", MAX_BRIEF_BYTES);
         }
     }
 

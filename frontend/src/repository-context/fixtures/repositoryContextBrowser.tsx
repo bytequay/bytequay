@@ -192,7 +192,7 @@ function contextRun(sequence: number, outcome: ContextRunDto['outcome'], minutes
       { at: ago(minutesAgo + 9), text: 'Read IcebergMetadata.java lines 412–468', tone: 'DONE' },
       { at: ago(minutesAgo + 6), text: 'Opened trino.io/docs/current/connector/iceberg.html', tone: 'DONE' },
       ...outcome === 'LIMIT' ? [{ at: ago(minutesAgo), text: 'Reached 100 source operations · progress saved', tone: 'LIMIT' as const }] : []],
-    detail: null, ...patch };
+    detail: null, investigation: null, ...patch };
 }
 
 function binding(taskId: string): NonNullable<ContextBuildViewDto['build']> {
@@ -268,10 +268,10 @@ function install() {
     state.notebook.revision += 1;
     return Promise.resolve(clone(state.notebook));
   };
-  const start = (kind: string, request: { requestKey: string }, mode: 'DISCOVER' | 'LEARN') => {
+  const start = (kind: string, request: { requestKey: string }, mode: 'DISCOVER' | 'LEARN', patch: Partial<ContextRunDto> = {}) => {
     state.calls.starts.push({ kind, request: clone(request) });
     const sequence = state.build.runs.length + 1;
-    const next = contextRun(sequence, 'RUNNING', 0, mode === 'DISCOVER' ? null : 2, { activity: [] });
+    const next = contextRun(sequence, 'RUNNING', 0, mode === 'DISCOVER' ? null : 2, { activity: [], ...patch });
     state.build = { ...state.build, buildRequestSequence: sequence, canStart: false, runs: [...state.build.runs, next],
       build: { ...binding(next.taskId), requestKey: request.requestKey } };
     return Promise.resolve(clone(state.build));
@@ -311,6 +311,8 @@ function install() {
     startRepositoryContextLearning: async (_workspaceId, request) => start('learn', request, 'LEARN'),
     continueRepositoryContextLearning: async (_workspaceId, request) => start('continue', request, 'LEARN'),
     learnRepositoryContextMergedCandidate: async (_workspaceId, request) => start('candidate', request, 'LEARN'),
+    investigateRepositoryContextNote: async (_workspaceId, request) => start('investigate', request, 'LEARN', { question: null,
+      investigation: { entryId: request.entryId, title: refresh.title, statement: DISPUTED, outcome: null } }),
     stopRepositoryContextBuild: async (_workspaceId, taskId) => {
       state.calls.stops.push(taskId);
       state.build = { ...state.build, canStart: true, build: null,
@@ -686,6 +688,30 @@ const scenarios: Array<[string, () => Promise<void>]> = [
       assert(state.calls.keeps.join() === refresh.id && state.calls.starts.length === 0, 'Keep sends one request and starts no run');
       await waitFor(() => !text(drawer()).includes('AGENTS DISAGREE') && text(drawer()).includes('You kept v13 when agents disagreed'),
         'The dispute ends and the note shows your choice');
+    }
+    finally {
+      contestRefresh = false;
+    }
+  }],
+  ['Investigate starts one named run for a note agents disagree about, and only from its lightning action', async () => {
+    contestRefresh = true;
+    try {
+      await render('review');
+      await waitFor(() => text().includes('Agents disagree'), 'The dispute appears');
+      await review(refresh.title);
+      const panel = drawer();
+      await waitFor(() => text(panel).includes('AGENTS DISAGREE'), 'The drawer shows the dispute');
+      assert(control('Investigate', panel).querySelector('svg') !== null, 'Investigate carries the lightning mark');
+      assert(text(panel).includes('Starts 1 run · reads the code at the monitored branch head · Codex'), 'The run line names the run and model');
+      const starts = () => state.calls.starts.length;
+      assert(starts() === 0, 'Opening the dispute starts nothing');
+      await click('Investigate', panel);
+      const started = state.calls.starts.at(-1) as { kind: string; request: { entryId: string; expectedRevision: number } } | undefined;
+      assert(started?.kind === 'investigate' && started.request.entryId === refresh.id && started.request.expectedRevision === state.notebook.revision,
+        'Investigate sends the note and the shown revision');
+      await waitFor(() => text(document.querySelector('.rcp-status')).includes(`Investigating · ${refresh.title}`)
+        && text(document.querySelector('.rcp-status')).includes(DISPUTED), 'The status card names the investigation and its statement');
+      assert(starts() === 1, 'One click starts one run');
     }
     finally {
       contestRefresh = false;

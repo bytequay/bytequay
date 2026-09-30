@@ -94,7 +94,7 @@ describe('task list days', () => {
 describe('task list items', () => {
   it('lists discovery and learning as read-only work without an interactive task', () => {
     const run: ContextRunDto = { sequence: 1, taskId: 'research', mode: 'DISCOVER', requestedAt: '2026-09-29T09:00:00Z', endedAt: null,
-      question: null, pullRequest: null, outcome: 'RUNNING', sourceOperations: 4, documentOpens: 0, noteIds: [], detail: null,
+      question: null, pullRequest: null, outcome: 'RUNNING', sourceOperations: 4, documentOpens: 0, noteIds: [], detail: null, investigation: null,
       activity: [{ at: '2026-09-29T09:01:00Z', text: 'Read pom.xml', tone: 'DONE' }] };
     expect(learningItem(run)).toMatchObject({ type: 'learning', title: 'Discovery run 1', task: null, contextRun: run,
       state: { label: 'Running' }, change: 'Running · read-only' });

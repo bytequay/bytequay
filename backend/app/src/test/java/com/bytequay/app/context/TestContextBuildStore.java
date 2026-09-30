@@ -31,6 +31,8 @@ import com.bytequay.core.context.ContextSourceRead;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.domain.RepoRef;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.common.collect.ImmutableList;
@@ -90,6 +92,24 @@ class TestContextBuildStore
     }
 
     @Test
+    void buildsAndRunsSavedBeforeInvestigationsStillLoad()
+            throws Exception
+    {
+        store.save(Optional.empty(), build());
+        store.recordRun(WORKSPACE, run(1));
+        ObjectNode saved = (ObjectNode) mapper.readTree(settings.get(ContextBuildStore.PREFIX + WORKSPACE).orElseThrow());
+        saved.remove("investigation");
+        settings.put(ContextBuildStore.PREFIX + WORKSPACE, mapper.writeValueAsString(saved));
+        ArrayNode runs = (ArrayNode) mapper.readTree(settings.get(ContextBuildStore.RUNS_PREFIX + WORKSPACE).orElseThrow());
+        runs.forEach(run -> ((ObjectNode) run).remove("investigation"));
+        settings.put(ContextBuildStore.RUNS_PREFIX + WORKSPACE, mapper.writeValueAsString(runs));
+
+        ContextBuildStore reopened = new ContextBuildStore(settings, tasks, mapper);
+        assertThat(reopened.find(WORKSPACE)).contains(build());
+        assertThat(reopened.runs(WORKSPACE)).containsExactly(run(1));
+    }
+
+    @Test
     void keepsTheNewestRunSummariesOnce()
     {
         for (int sequence = 1; sequence <= ContextBuildStore.MAX_RUNS + 2; sequence++) {
@@ -130,7 +150,7 @@ class TestContextBuildStore
         for (int sequence = 1; sequence <= ContextBuildStore.MAX_RUNS; sequence++) {
             store.recordRun(WORKSPACE, new ContextRun(sequence, "task:" + sequence, ContextBuild.Mode.LEARN, Instant.EPOCH, Optional.of(Instant.EPOCH),
                     Optional.empty(), Optional.empty(), ContextRun.Outcome.UNFINISHED, 256, 0,
-                    ImmutableList.of(), activity, Optional.empty()));
+                    ImmutableList.of(), activity, Optional.empty(), Optional.empty()));
         }
         assertThat(settings.get(ContextBuildStore.RUNS_PREFIX + WORKSPACE).orElseThrow().length()).isGreaterThan(1024 * 1024);
         assertThat(new ContextBuildStore(settings, tasks, mapper).runs(WORKSPACE)).hasSize(ContextBuildStore.MAX_RUNS);
@@ -141,7 +161,7 @@ class TestContextBuildStore
         return new ContextRun(sequence, "task-" + sequence, ContextBuild.Mode.LEARN, Instant.EPOCH, Optional.of(Instant.EPOCH),
                 Optional.of(new ContextRun.Question("plan", "topic:1", "Iceberg connector", 0, "How are snapshots committed?")), Optional.empty(),
                 ContextRun.Outcome.ANSWERED, 12, 2, ImmutableList.of("knowledge:project:commit"),
-                ImmutableList.of(new ContextBuild.Activity(Instant.EPOCH, "Question answered", ContextBuild.Activity.Tone.DONE)), Optional.empty());
+                ImmutableList.of(new ContextBuild.Activity(Instant.EPOCH, "Question answered", ContextBuild.Activity.Tone.DONE)), Optional.empty(), Optional.empty());
     }
 
     @Test
@@ -169,6 +189,6 @@ class TestContextBuildStore
         return new ContextBuild(1, "request", "sha256:" + "b".repeat(64), WORKSPACE, TASK.toString(), new RepositoryIdentity("owner", "repository"),
                 1, REPOSITORY, SHA, "bytequay/task", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
                 ImmutableList.of("project"), ImmutableList.of(), ImmutableList.of(), 0, Instant.EPOCH, ContextBuild.Capture.empty(), ContextBuild.Mode.LEARN,
-                Optional.empty(), Optional.empty());
+                Optional.empty(), Optional.empty(), Optional.empty());
     }
 }

@@ -19,6 +19,7 @@ import com.bytequay.core.context.ContextClaim;
 import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextEntryKind;
+import com.bytequay.core.context.ContextGrade;
 import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextMatch;
@@ -476,6 +477,108 @@ public class RepositoryContextService
             }
             return null;
         });
+    }
+
+    /**
+     * Saves an investigation's outcome on a contested agent-written note and settles it with the root cause. New text becomes the
+     * next version and the replaced text stays restorable; KEEP_PREVIOUS restores the replaced text; KEEP_CURRENT changes nothing.
+     * The settled statement must be in the text that holds after the outcome.
+     */
+    public RepositoryNotebook settleEntry(String workspaceId, long expectedRevision, String taskId, Settle settle)
+    {
+        requireNonNull(settle, "settle is null");
+        checkText(taskId, "taskId", 200);
+        if (settle.outcome() == Settle.Outcome.KEEP_CURRENT) {
+            return WorkspaceOperationLocks.withLock(workspaceId, () -> {
+                RepositoryNotebook current = getNotebook(workspaceId);
+                if (current.revision() != expectedRevision) {
+                    throw new ContextConflictException(current.revision());
+                }
+                ContextEntry kept = settleable(workspaceId, current, settle);
+                checkArgument(ContextGradeService.text(kept).contains(settle.statement()), "The settled statement is not in the note's current text");
+                settle(workspaceId, settle.entryId(), settlement(settle, kept.version()));
+                return current;
+            });
+        }
+        return mutate(workspaceId, expectedRevision, Optional.of(taskId), (previous, saved) -> settle(workspaceId, settle.entryId(), settlement(settle,
+                saved.entries().stream().filter(entry -> entry.id().equals(settle.entryId())).findFirst().orElseThrow().version())), current -> {
+                    ContextEntry entry = settleable(workspaceId, current, settle);
+                    long version = Math.addExact(current.revision(), 1);
+                    List<ContextSourceEvidence> evidence = current.sourceEvidence();
+                    ContextEntry settled;
+                    if (settle.outcome() == Settle.Outcome.KEEP_PREVIOUS) {
+                        ContextEntry old = current.replaced().stream().filter(value -> value.id().equals(entry.id())).findFirst()
+                                .orElseThrow(() -> new IllegalArgumentException("The note has no previous text to keep"));
+                        settled = new ContextEntry(old.id(), old.kind(), old.scopeId(), old.title(), old.summary(), old.body(), old.claims(), old.sourceIds(),
+                                old.origin(), true, version);
+                    }
+                    else {
+                        Settle.Text text = settle.text().orElseThrow();
+                        settled = new ContextEntry(entry.id(), entry.kind(), entry.scopeId(), text.title(), text.summary(), text.body(), ImmutableList.of(),
+                                settle.evidence().stream().map(ContextSourceEvidence::id).toList(), GENERATED, true, version);
+                        Map<String, ContextSourceEvidence> retained = new LinkedHashMap<>();
+                        current.sourceEvidence().forEach(source -> retained.put(source.id(), source));
+                        settle.evidence().forEach(source -> {
+                            ContextSourceEvidence previous = retained.putIfAbsent(source.id(), source);
+                            checkArgument(previous == null || previous.equals(source), "Investigation evidence identity was reused with different content");
+                        });
+                        evidence = ImmutableList.copyOf(retained.values());
+                    }
+                    checkArgument(ContextGradeService.text(settled).contains(settle.statement()), "The settled statement must be in the note's settled text");
+                    return content(current, current.useInReviews(), current.useInDevelopment(), current.sources(), current.scopes(),
+                            replaceEntry(current, settled, true), keep(current, entry), evidence);
+                });
+    }
+
+    private ContextEntry settleable(String workspaceId, RepositoryNotebook notebook, Settle settle)
+    {
+        ContextEntry entry = requireEntry(notebook, settle.entryId());
+        checkArgument(entry.version() == settle.version() && entry.enabled() && entry.origin() == GENERATED,
+                "The note changed since the investigation started; investigate it again");
+        checkArgument(readDisputes(workspaceId).contest(settle.entryId()).isPresent(), "The dispute was settled while the investigation ran");
+        return entry;
+    }
+
+    private static ContextDisputes.Settlement settlement(Settle settle, long version)
+    {
+        return new ContextDisputes.Settlement(version, ContextDisputes.By.INVESTIGATION, settle.statement(), Optional.of(settle.rootCause()));
+    }
+
+    /** One investigation outcome; new text cites repository lines the run read at the monitored branch head. */
+    public record Settle(String entryId, long version, Outcome outcome, Optional<Text> text, List<ContextSourceEvidence> evidence, String statement, String rootCause)
+    {
+        public Settle
+        {
+            ContextLimits.text(entryId, "settled note", 1200);
+            checkArgument(version > 0, "Invalid settled version");
+            requireNonNull(outcome, "outcome is null");
+            requireNonNull(text, "text is null");
+            evidence = ImmutableList.copyOf(evidence);
+            boolean rewrites = outcome != Outcome.KEEP_CURRENT && outcome != Outcome.KEEP_PREVIOUS;
+            checkArgument(rewrites == text.isPresent() && rewrites == !evidence.isEmpty(),
+                    "REWRITE, NARROW and QUESTION save new text with cited lines; KEEP_CURRENT and KEEP_PREVIOUS take neither");
+            checkArgument(evidence.size() <= 3, "Cite one to three repository line ranges");
+            evidence.forEach(source -> checkArgument(source.capture() == ContextSourceEvidence.Capture.BYTEQUAY_READ
+                    && source.reference() instanceof ContextReference.RepositoryFile && !source.excerpt().isBlank(),
+                    "Settled text cites only lines the run read from the repository"));
+            ContextLimits.text(statement, "settled statement", ContextGrade.MAX_QUOTE_BYTES);
+            ContextLimits.text(rootCause, "root cause", ContextDisputes.Settlement.MAX_ROOT_CAUSE_BYTES);
+        }
+
+        public enum Outcome
+        {
+            REWRITE, KEEP_CURRENT, KEEP_PREVIOUS, NARROW, QUESTION
+        }
+
+        public record Text(String title, String summary, String body)
+        {
+            public Text
+            {
+                ContextLimits.text(title, "title", 200);
+                ContextLimits.text(summary, "summary", 1000);
+                ContextLimits.text(body, "body", ContextLimits.MAX_BODY_BYTES);
+            }
+        }
     }
 
     /** Records an agent's settling save of the version it produced and ends the note's contest. */

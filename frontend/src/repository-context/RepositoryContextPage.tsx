@@ -19,14 +19,15 @@ import type { ModelSettingsDto, WorkspaceDto } from '../types';
 import type {
   ContextBaselineDto, ContextBuildViewDto, ContextDiscoveryReportDto, ContextDisputesDto, ContextLearningPlanViewDto, ContextMergedCandidatesDto, ContextReportedNoteDto,
   ContextRunDto,
-  ContextTimesDto, ContextUsageOverviewDto, ContinueContextLearningRequest, LearnContextMergedCandidateRequest, RepositoryNotebookDto, StartContextDiscoveryRequest,
+  ContextTimesDto, ContextUsageOverviewDto, ContinueContextLearningRequest, InvestigateRepositoryContextNoteRequest, LearnContextMergedCandidateRequest,
+  RepositoryNotebookDto, StartContextDiscoveryRequest,
   StartContextLearningRequest,
 } from './contracts';
 import { ContextDrawers, type Drawer } from './ContextDrawers';
 import ContextNotes from './ContextNotes';
 import ContextOverview from './ContextOverview';
 import { Icon } from './icons';
-import { currentRun, modelLine, needsTopicReselection, pendingCounts, plural, reportsNeedingYou, shortSha, type TaskTitles } from './model';
+import { currentRun, modelLine, needsTopicReselection, pendingCounts, plural, reportsNeedingYou, SETTLED_BY, shortSha, type TaskTitles } from './model';
 import { CONTEXT_CHANGED } from './reviewCount';
 import '../css/repository-context.css';
 
@@ -37,7 +38,8 @@ export type PendingStart =
   | { kind: 'discover'; request: StartContextDiscoveryRequest }
   | { kind: 'learn'; request: StartContextLearningRequest }
   | { kind: 'continue'; request: ContinueContextLearningRequest }
-  | { kind: 'candidate'; request: LearnContextMergedCandidateRequest };
+  | { kind: 'candidate'; request: LearnContextMergedCandidateRequest }
+  | { kind: 'investigate'; request: InvestigateRepositoryContextNoteRequest };
 
 const pendingKey = (workspaceId: string) => `repository-context-start:${workspaceId}`;
 
@@ -191,7 +193,8 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
     const accepted = next.kind === 'discover' ? await window.bridge.startRepositoryContextDiscovery(workspaceId, next.request)
       : next.kind === 'learn' ? await window.bridge.startRepositoryContextLearning(workspaceId, next.request)
         : next.kind === 'continue' ? await window.bridge.continueRepositoryContextLearning(workspaceId, next.request)
-          : await window.bridge.learnRepositoryContextMergedCandidate(workspaceId, next.request);
+          : next.kind === 'candidate' ? await window.bridge.learnRepositoryContextMergedCandidate(workspaceId, next.request)
+            : await window.bridge.investigateRepositoryContextNote(workspaceId, next.request);
     if (!mounted.current) return;
     setBuild(accepted);
     setDrawer(null);
@@ -256,9 +259,11 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
     },
     continueLearning: () => { if (planView.plan !== null) void start({ kind: 'continue', request: { ...fence(), planId: planView.plan.id } }); },
     learnCandidate: (candidateId: string): void => void start({ kind: 'candidate', request: { ...fence(), candidateId } }),
+    investigate: (entryId: string): void => void start({ kind: 'investigate', request: { ...fence(), entryId } }),
     stop: (run: ContextRunDto) => perform(async () => {
       setBuild(await window.bridge.stopRepositoryContextBuild(workspaceId, run.taskId));
-      say(run.mode === 'DISCOVER' ? 'Discovery stopped · notes unchanged' : run.pullRequest !== null ? 'Run stopped · candidate kept' : 'Run stopped · plan and saved notes kept');
+      say(run.mode === 'DISCOVER' ? 'Discovery stopped · notes unchanged' : run.pullRequest !== null ? 'Run stopped · candidate kept'
+        : run.investigation !== null ? 'Investigation stopped · the note stays disputed' : 'Run stopped · plan and saved notes kept');
     }),
     openDrawer,
     openTab: (next: 'overview' | 'notes', area = 'all') => { setTab(next); setNotesArea(area); setDrawer(null); setPop(null); },
@@ -342,6 +347,7 @@ export type ContextActions = {
   learn: (topicIds: string[], excludedSourceIds: string[]) => void;
   continueLearning: () => void;
   learnCandidate: (candidateId: string) => void;
+  investigate: (entryId: string) => void;
   stop: (run: ContextRunDto) => Promise<void>;
   openDrawer: (drawer: Drawer) => void;
   openTab: (tab: 'overview' | 'notes', area?: string) => void;
@@ -350,6 +356,7 @@ export type ContextActions = {
 function finishMessage(run: ContextRunDto): string {
   if (run.mode === 'DISCOVER') return run.outcome === 'SUBMITTED' ? 'Discovery finished · suggestions saved' : 'Discovery ended without saving suggestions';
   switch (run.outcome) {
+    case 'SETTLED': return `Investigation ${run.sequence} ${run.investigation?.outcome ? SETTLED_BY[run.investigation.outcome] : 'settled the dispute'} · no further run`;
     case 'ANSWERED': return `Run ${run.sequence} finished · ${plural(run.noteIds.length, 'note')} saved`;
     case 'NO_NOTE': return `Run ${run.sequence} finished · no reusable note`;
     case 'LIMIT': return `Run ${run.sequence} reached its source limit · progress saved`;

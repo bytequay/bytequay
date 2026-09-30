@@ -37,6 +37,7 @@ public record ReviewTool(String name, String description, Map<String, Object> in
             "repository_context_read",
             "repository_context_prepare",
             "repository_context_progress",
+            "repository_context_settle",
             "repository_context_discovery_read",
             "repository_context_discovery_submit");
 

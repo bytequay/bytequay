@@ -172,6 +172,34 @@ public class ContextGradeService
         });
     }
 
+    /** The dispute an Investigate run settles: a contested, enabled note an agent wrote, both texts, and every side with its cited lines. */
+    public ContextBuild.Investigation investigation(String workspaceId, String entryId)
+    {
+        RepositoryNotebook notebook = notebooks.getNotebook(workspaceId);
+        ContextEntry entry = notebook.entries().stream().filter(value -> value.id().equals(entryId) && value.enabled()).findFirst()
+                .orElseThrow(() -> new ContextNotFoundException("The note is unavailable or disabled"));
+        checkArgument(entry.origin() == ContextEntryOrigin.GENERATED, "Investigate settles notes agents wrote; edit a note you wrote to settle it");
+        ContextDisputes disputes = notebooks.getDisputes(workspaceId);
+        ContextDisputes.Contest contest = disputes.contest(entryId).orElseThrow(() -> new IllegalArgumentException("Agents do not disagree about this note"));
+        StringBuilder brief = new StringBuilder("Current text (v").append(entry.version()).append("):\n").append(text(entry)).append("\n\n");
+        previous(notebook, entryId).ifPresent(value -> brief.append("Previous text (v").append(value.version()).append("):\n").append(text(value)).append("\n\n"));
+        brief.append("Disputed since v").append(contest.version()).append(". Each side:\n");
+        graded(workspaceId, notebook, entry, Optional.of(contest)).stream()
+                .filter(grade -> grade.grade() == ContextGrade.Grade.WRONG || grade.grade() == ContextGrade.Grade.HOLDS).limit(READ_SIDES).forEach(grade -> {
+                    brief.append("- ").append(grade.grade()).append(" on v").append(grade.note().version()).append(" by ")
+                            .append(grade.grader() == ContextGrade.Grader.USER ? "the user" : grade.taskKind() == ContextUsageEvent.TaskKind.PR_REVIEW ? "a review" : "a task")
+                            .append(grade.quote().map(quote -> ": \"" + quote + "\"").orElse("")).append(grade.reason().isEmpty() ? "" : ". " + grade.reason()).append('\n');
+                    grade.correction().ifPresent(correction -> brief.append("  It rewrote the statement in v").append(correction.version()).append(": \"")
+                            .append(correction.statement()).append("\"\n"));
+                    grade.citations().forEach(citation -> brief.append("  Cited ").append(citation.path()).append(':').append(citation.startLine()).append('-')
+                            .append(citation.endLine()).append(" at ").append(citation.commit()).append(":\n").append(ContextText.excerpt(citation.excerpt(), 2 * 1024)));
+                });
+        disputes.settlement(entryId).ifPresent(settlement -> brief.append("\nAn earlier dispute of this note was settled in v").append(settlement.version())
+                .append(settlement.rootCause().map(cause -> ". Root cause: " + cause).orElse(" by the user's choice")).append('\n'));
+        return new ContextBuild.Investigation(entry.id(), entry.version(), entry.scopeId(), entry.title(), contest.statement(),
+                ContextText.excerpt(brief.toString(), ContextBuild.Investigation.MAX_BRIEF_BYTES));
+    }
+
     /** Grades of the current version and, for a contested note, of its previous and first disputed versions, newest first. */
     private List<ContextGrade> graded(String workspaceId, RepositoryNotebook notebook, ContextEntry entry, Optional<ContextDisputes.Contest> contest)
     {

@@ -323,6 +323,7 @@ const bridge: Bridge = {
   declineRepositoryContextLearningSource: (workspaceId, request) => ipcRenderer.invoke('repository-context:build:plan:decline', workspaceId, request),
   getRepositoryContextMergedCandidates: workspaceId => ipcRenderer.invoke('repository-context:candidates', workspaceId),
   learnRepositoryContextMergedCandidate: (workspaceId, request) => ipcRenderer.invoke('repository-context:candidates:learn', workspaceId, request),
+  investigateRepositoryContextNote: (workspaceId, request) => ipcRenderer.invoke('repository-context:build:investigate', workspaceId, request),
   stopRepositoryContextBuild: (workspaceId, taskId) => ipcRenderer.invoke('repository-context:build:stop', workspaceId, taskId),
   getRepositoryContextBuildStopImpact: (workspaceId, taskId) => ipcRenderer.invoke('repository-context:build:stop-impact', workspaceId, taskId),
   stopRepositoryContextBuildRuntime: (workspaceId, taskId, generation) => ipcRenderer.invoke('repository-context:build:stop-runtime', workspaceId, taskId, generation),

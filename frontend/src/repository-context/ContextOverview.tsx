@@ -82,6 +82,7 @@ function StatusCardView({ data, actions, busy, pending }: { data: ContextData; a
       case 'sources': return actions.openDrawer({ kind: 'plan', tab: 'sources' });
       case 'plan-activity': return actions.openDrawer({ kind: 'plan', tab: 'activity' });
       case 'disc-activity': return actions.openDrawer({ kind: 'discovery', tab: 'activity' });
+      case 'run-activity': return running === null ? undefined : actions.openDrawer({ kind: 'run', taskId: running.taskId });
       case 'coverage': return actions.openDrawer({ kind: 'discovery', tab: 'coverage' });
     }
   };

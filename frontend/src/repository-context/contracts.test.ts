@@ -39,6 +39,7 @@ import {
   parseAllowContextLearningSourceRequest,
   parseDeclineContextLearningSourceRequest,
   parseContextMergedCandidates,
+  parseInvestigateRepositoryContextNoteRequest,
   parseLearnContextMergedCandidateRequest,
   type ContextBuildViewDto,
   type ContextDiscoveryReportDto,
@@ -344,7 +345,7 @@ describe('repository context contracts', () => {
     const run: ContextRunDto = { sequence: 1, taskId: 'learn-task', mode: 'LEARN', requestedAt: '2026-09-01T00:00:00Z', endedAt: null,
       question: { planId: 'plan-1', topicId: 'topic:1', topicTitle: 'Iceberg connector', index: 0, text: 'How are tables read?' },
       pullRequest: null, outcome: 'RUNNING', sourceOperations: 3, documentOpens: 1, noteIds: [],
-      activity: [{ at: '2026-09-01T00:00:01Z', text: 'Read README.md', tone: 'DONE' }], detail: null };
+      activity: [{ at: '2026-09-01T00:00:01Z', text: 'Read README.md', tone: 'DONE' }], detail: null, investigation: null };
     const view = { ...empty, buildRequestSequence: 1, canStart: false, runs: [run], build };
     expect(parseContextBuildView(view, 'workspace')).toEqual(view);
     expect(parseContextBuildView({ ...view, build: { ...view.build, task: null, activeTurn: null } }, 'workspace').build?.task).toBeNull();
@@ -449,6 +450,19 @@ describe('repository context contracts', () => {
     const request = { candidateId: candidate.id, requestKey: 'candidate-key', expectedRevision: 7, expectedBuildSequence: 2 };
     expect(parseLearnContextMergedCandidateRequest(request)).toEqual(request);
     expect(() => parseLearnContextMergedCandidateRequest({ ...request, prompt: 'Use this PR' })).toThrow('unsupported request field');
+  });
+
+  it('parses a settled investigation run and binds Investigate to one note and the shown revisions', () => {
+    const view = parseContextBuildView({ buildRequestSequence: 3, notebookRevision: 9, canStart: true, build: null, runs: [{ sequence: 3, taskId: 'investigation',
+      mode: 'LEARN', requestedAt: '2026-09-29T09:00:00Z', endedAt: '2026-09-29T09:10:00Z', question: null, pullRequest: null, outcome: 'SETTLED',
+      sourceOperations: 6, documentOpens: 0, noteIds: ['knowledge:project'], activity: [], detail: null,
+      investigation: { entryId: 'knowledge:project', title: 'Project', statement: 'Keep the condition.', outcome: 'NARROW' } }] }, 'workspace');
+    expect(view.runs[0].investigation).toEqual({ entryId: 'knowledge:project', title: 'Project', statement: 'Keep the condition.', outcome: 'NARROW' });
+    expect(view.runs[0].outcome).toBe('SETTLED');
+    const request = { entryId: 'knowledge:project', requestKey: 'investigate-key', expectedRevision: 9, expectedBuildSequence: 3 };
+    expect(parseInvestigateRepositoryContextNoteRequest(request)).toEqual(request);
+    expect(() => parseInvestigateRepositoryContextNoteRequest({ ...request, prompt: 'Rewrite it' })).toThrow('unsupported request field');
+    expect(() => parseInvestigateRepositoryContextNoteRequest({ ...request, entryId: ' ' })).toThrow('Malformed repository context');
   });
 
   it('preserves the selected discussion run and evidence rather than substituting the latest run', () => {

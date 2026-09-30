@@ -17,7 +17,7 @@ import type { ModelSettingsDto } from '../types';
 import type {
   ContextActivityDto, ContextBaselineDto, ContextBuildViewDto, ContextClaimDto, ContextDiscoveryReportDto, ContextEntryDto, ContextGradeDto,
   ContextLearningPlanDto, ContextLearningPlanViewDto, ContextMergedCandidatesDto, ContextPlanTopicDto, ContextQuestionTarget, ContextReportedNoteDto, ContextRunDto,
-  ContextScopeDto, ContextSettlementDto, ContextSourceEvidenceDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto,
+  ContextInvestigationOutcome, ContextScopeDto, ContextSettlementDto, ContextSourceEvidenceDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto,
 } from './contracts';
 
 export const DOCUMENT_LINK_HOPS = 2;
@@ -100,6 +100,7 @@ export function latestRun(runs: ContextRunDto[], filter: (run: ContextRunDto) =>
 
 export function runOrigin(run: ContextRunDto): string {
   if (run.question !== null) return `Learning run ${run.sequence} · ${run.question.topicTitle}`;
+  if (run.investigation !== null) return `Investigation ${run.sequence} · ${run.investigation.title}`;
   if (run.pullRequest !== null) return `Learning from merged PR #${run.pullRequest}`;
   return run.mode === 'DISCOVER' ? `Discovery run ${run.sequence}` : `Learning run ${run.sequence}`;
 }
@@ -107,6 +108,7 @@ export function runOrigin(run: ContextRunDto): string {
 export const OUTCOME: Record<ContextRunDto['outcome'], { label: string; tone: Tone }> = {
   RUNNING: { label: 'Running', tone: 'blue' },
   SUBMITTED: { label: 'Suggestions saved', tone: 'green' },
+  SETTLED: { label: 'Settled', tone: 'green' },
   ANSWERED: { label: 'Answered', tone: 'green' },
   NO_NOTE: { label: 'No reusable note', tone: 'gray' },
   UNFINISHED: { label: 'Progress saved', tone: 'amber' },
@@ -256,7 +258,14 @@ export function pendingCounts(plan: ContextLearningPlanDto | null, reports: Cont
 
 /* ── Status card ────────────────────────────────────────────────────── */
 
-export type StatusAction = 'discover' | 'discover-rest' | 'continue' | 'plan' | 'disc-activity' | 'plan-activity' | 'coverage' | 'sources' | 'disable-notes';
+export type StatusAction = 'discover' | 'discover-rest' | 'continue' | 'plan' | 'disc-activity' | 'plan-activity' | 'run-activity' | 'coverage' | 'sources'
+  | 'disable-notes';
+
+/** What an investigation did to settle its dispute. */
+export const SETTLED_BY: Record<ContextInvestigationOutcome, string> = {
+  REWRITE: 'rewrote the statement with its conditions', KEEP_CURRENT: 'kept the current text', KEEP_PREVIOUS: 'restored the previous text',
+  NARROW: 'narrowed the note to its scope', QUESTION: 'turned the statement into an open question',
+};
 export type StatusCard = {
   icon: 'search' | 'check' | 'doc' | 'pause' | 'review' | 'alert' | 'spin';
   tone: 'gray' | 'green' | 'blue' | 'amber' | 'red';
@@ -334,6 +343,12 @@ export function statusCard(input: StatusInput): StatusCard {
         body: `Run ${running.sequence} · question ${running.question.index + 1} of ${total} in this topic${resumed}`,
         details: { label: 'View details', action: 'plan-activity' },
         foot: { text: 'Notes are saved as they finish. Stopping keeps the plan and every saved note.', link: null } };
+    }
+    if (running.investigation !== null) {
+      return { ...card, headline: `Investigating · ${running.investigation.title}`, question: running.investigation.statement,
+        body: `Run ${running.sequence} reads the code at the monitored branch head to find which side holds and why agents disagreed. It rewrites, keeps or narrows the note, with a root cause.`,
+        details: { label: 'View activity', action: 'run-activity' },
+        foot: { text: 'Stopping leaves the note as it is, still marked as disputed.', link: null } };
     }
     return { ...card, headline: `Learning from merged PR #${running.pullRequest ?? ''}`, question: 'What’s reusable from this change?',
       body: 'Reads the PR bundle and the current code. It may save a note, an update, or nothing.',

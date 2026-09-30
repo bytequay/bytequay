@@ -23,7 +23,10 @@ import com.bytequay.core.context.ContextSourceRead;
 import com.bytequay.core.store.AppSettingsStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Component;
 
@@ -66,7 +69,13 @@ public class ContextBuildStore
         return settings.get(PREFIX + workspaceId).map(json -> {
             try {
                 checkArgument(ContextLimits.bytes(json) <= MAX_STORED_BYTES, "Saved context build exceeds 4 MiB");
-                ContextBuild build = requireNonNull(mapper.readValue(json, ContextBuild.class), "Saved build is null");
+                JsonNode saved = mapper.readTree(json);
+                checkArgument(saved instanceof ObjectNode, "Saved build must be an object");
+                // Builds saved before Investigate existed have no investigation.
+                if (!saved.has("investigation")) {
+                    ((ObjectNode) saved).putNull("investigation");
+                }
+                ContextBuild build = requireNonNull(mapper.treeToValue(saved, ContextBuild.class), "Saved build is null");
                 checkArgument(build.workspaceId().equals(workspaceId), "Saved build belongs to another workspace");
                 return build;
             }
@@ -87,7 +96,15 @@ public class ContextBuildStore
         return settings.get(RUNS_PREFIX + workspaceId).map(json -> {
             try {
                 checkArgument(ContextLimits.bytes(json) <= MAX_STORED_BYTES, "Saved context runs exceed 4 MiB");
-                List<ContextRun> runs = ImmutableList.copyOf(mapper.readValue(json, ContextRun[].class));
+                JsonNode saved = mapper.readTree(json);
+                checkArgument(saved instanceof ArrayNode, "Saved runs must be an array");
+                // Runs recorded before Investigate existed have no investigation.
+                saved.forEach(run -> {
+                    if (run instanceof ObjectNode summary && !summary.has("investigation")) {
+                        summary.putNull("investigation");
+                    }
+                });
+                List<ContextRun> runs = ImmutableList.copyOf(mapper.treeToValue(saved, ContextRun[].class));
                 checkArgument(runs.size() <= MAX_RUNS, "Too many saved context runs");
                 return runs;
             }

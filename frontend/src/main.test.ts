@@ -442,6 +442,11 @@ it('reads retained merged PR candidates without starting learning and fences exp
   expect(() => desktop.handlers.get('repository-context:candidates:learn')?.({}, 'workspace/one', { ...request, prompt: 'forged' }))
     .toThrow('unsupported request field');
   expect(fetch).not.toHaveBeenCalled();
+  const investigate = { entryId: 'knowledge:project', requestKey: 'investigate-key', expectedRevision: 7, expectedBuildSequence: 1 };
+  await expect(desktop.handlers.get('repository-context:build:investigate')?.({}, 'workspace/one', investigate)).resolves.toEqual(view);
+  expect(fetch).toHaveBeenLastCalledWith(base.replace(/candidates$/, 'build/investigate'), expect.objectContaining({ method: 'POST',
+    body: JSON.stringify({ requestKey: investigate.requestKey, expectedRevision: investigate.expectedRevision,
+      expectedBuildSequence: investigate.expectedBuildSequence, entryId: investigate.entryId }) }));
 });
 
 it('routes Jira reads and versioned writes through the authenticated native API', async () => {

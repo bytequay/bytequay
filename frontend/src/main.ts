@@ -64,6 +64,7 @@ import {
   parseDeclineContextLearningSourceRequest,
   parseDisableRepositoryContextRunNotesRequest,
   parseEditRepositoryContextEntryRequest,
+  parseInvestigateRepositoryContextNoteRequest,
   parseReportRepositoryContextNoteRequest,
   parseRepositoryNotebook,
   parseRestoreRepositoryContextEntryRequest,
@@ -1370,6 +1371,9 @@ function registerIpc(): void {
     backendJson(contextBuildUrl(workspaceId) + '/baseline', { headers: agentHeaders() }).then(parseContextBaseline));
   ipcMain.handle('repository-context:build:plan', (_event, workspaceId: string) =>
     backendJson(contextBuildUrl(workspaceId) + '/plan', { headers: agentHeaders() }).then(value => parseContextLearningPlanView(value, workspaceId)));
+  ipcMain.handle('repository-context:build:investigate', (_event, workspaceId: string, request: unknown) =>
+    backendJson(contextBuildUrl(workspaceId) + '/investigate', jsonInit('POST', parseInvestigateRepositoryContextNoteRequest(request), agentHeaders()))
+      .then(value => parseContextBuildView(value, workspaceId)));
   ipcMain.handle('repository-context:build:discover', (_event, workspaceId: string, request: unknown) =>
     backendJson(contextBuildUrl(workspaceId) + '/discover', jsonInit('POST', parseStartContextDiscoveryRequest(request), agentHeaders()))
       .then(value => parseContextBuildView(value, workspaceId)));

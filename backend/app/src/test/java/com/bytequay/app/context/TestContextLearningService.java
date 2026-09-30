@@ -560,7 +560,7 @@ class TestContextLearningService
                 ImmutableList.of(topic.scopeId()), ImmutableList.of(), ImmutableList.of(), 0, Instant.EPOCH,
                 ContextBuild.Capture.empty(), ContextBuild.Mode.LEARN,
                 Optional.of(new ContextBuild.Assignment(plan.id(), topicId, topic.title(), question, asked.text(), asked.progress(),
-                        topic.paths(), topic.repositoryFiles())), Optional.empty());
+                        topic.paths(), topic.repositoryFiles())), Optional.empty(), Optional.empty());
     }
 
     private static ContextBuildService.View view(long sequence)

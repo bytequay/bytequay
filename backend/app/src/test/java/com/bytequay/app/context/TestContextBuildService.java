@@ -266,6 +266,31 @@ class TestContextBuildService
     }
 
     @Test
+    void investigationLearnsOneNoteScopeAtTheMonitoredHeadWithItsDispute()
+    {
+        ContextBuild.Investigation investigation = new ContextBuild.Investigation("knowledge:project", 3, "project", "Snapshots", "Reads reuse the snapshot",
+                "Current text (v3):\nReads reuse the snapshot\n\nDisputed since v3. Each side:\n- WRONG on v3 by a review: \"Reads reuse the snapshot\"");
+        assertThatThrownBy(() -> service.investigate(WORKSPACE, new ContextBuildService.Request("investigate", 0, 0, ImmutableList.of("other"), ImmutableList.of()),
+                investigation)).hasMessageContaining("its note's scope");
+
+        service.investigate(WORKSPACE, new ContextBuildService.Request("investigate", 0, 0, ImmutableList.of("project"), ImmutableList.of()), investigation);
+
+        ContextBuild bound = builds.find(WORKSPACE).orElseThrow();
+        assertThat(bound.mode()).isEqualTo(ContextBuild.Mode.LEARN);
+        assertThat(bound.investigation()).contains(investigation);
+        assertThat(bound.assignment()).isEmpty();
+        assertThat(bound.baselineSha()).isEqualTo(SHA);
+        assertThat(bound.documentationSources()).isEmpty();
+        ArgumentCaptor<CreateAgentTaskCommand> created = ArgumentCaptor.forClass(CreateAgentTaskCommand.class);
+        verify(tasks).create(created.capture());
+        assertThat(created.getValue().title()).isEqualTo("Investigate owner/repository");
+        ArgumentCaptor<StartAgentTurnCommand> started = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
+        verify(turns).start(started.capture());
+        assertThat(started.getValue().message()).contains("\"Reads reuse the snapshot\"", "WRONG on v3 by a review", "repository_context_settle",
+                "KEEP_PREVIOUS", "root cause of at most 300 bytes");
+    }
+
+    @Test
     void rejectsSourceExpansionThatWinsBeforeTaskAdmission()
     {
         notebooks.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.empty(), Optional.empty(), Optional.of(ImmutableList.of(

@@ -156,7 +156,7 @@ class TestReviewBridge
         assertThatThrownBy(() -> new ReviewTool("finish", "finish", ImmutableMap.of(), arguments -> "ok"))
                 .isInstanceOf(IllegalArgumentException.class);
         for (String name : ImmutableList.of("repository_context_read", "repository_context_prepare", "repository_context_progress",
-                "repository_context_discovery_read", "repository_context_discovery_submit")) {
+                "repository_context_settle", "repository_context_discovery_read", "repository_context_discovery_submit")) {
             ReviewTool context = new ReviewTool(name, name, ImmutableMap.of("type", "object"), arguments -> "ok");
             assertThat(new ReviewBridge(ImmutableList.of(context), "policy").tool(name)).isPresent();
         }

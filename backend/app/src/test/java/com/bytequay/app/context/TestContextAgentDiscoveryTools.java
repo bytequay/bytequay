@@ -349,7 +349,7 @@ class TestContextAgentDiscoveryTools
         return new ContextBuild(1, "request", "sha256:" + "b".repeat(64), WORKSPACE,
                 TASK.toString(), new RepositoryIdentity("owner", "repository"), 1, REPO, SHA, "branch", "codex",
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(), 0, Instant.EPOCH, ContextBuild.Capture.empty(), ContextBuild.Mode.DISCOVER, Optional.empty(), continuesReport);
+                ImmutableList.of(), 0, Instant.EPOCH, ContextBuild.Capture.empty(), ContextBuild.Mode.DISCOVER, Optional.empty(), continuesReport, Optional.empty());
     }
 
     private ContextBuild current()

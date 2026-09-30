@@ -200,7 +200,7 @@ class TestContextBuildTools
         ContextBuild bound = new ContextBuild(base.sequence(), base.requestKey(), base.requestDigest(), base.workspaceId(), base.taskId(), base.physicalRepository(),
                 base.repositoryId(), base.repository(), base.baselineSha(), base.branch(), base.laneId(), base.defaults(), base.scopeIds(),
                 ImmutableList.of(new ContextBuild.History(ContextHistoryReader.SourceKind.PR, 7)), base.documentationSources(), base.notebookRevision(),
-                base.requestedAt(), base.capture(), base.mode(), base.assignment(), Optional.empty());
+                base.requestedAt(), base.capture(), base.mode(), base.assignment(), Optional.empty(), Optional.empty());
         store.save(Optional.of(base), bound);
         ContextMergedCandidate selected = new ContextMergedCandidate("pr:owner/repository#7", REPO.fullName(), 7, "Fix checkpoint identity",
                 "https://github.com/owner/repository/pull/7", Instant.EPOCH, Optional.of(TASK.toString()), Optional.of("Investigate logical file identity"),
@@ -626,7 +626,7 @@ class TestContextBuildTools
         ContextBuild selected = new ContextBuild(before.sequence(), before.requestKey(), before.requestDigest(), before.workspaceId(), before.taskId(),
                 before.physicalRepository(), before.repositoryId(), before.repository(), before.baselineSha(), before.branch(), before.laneId(), before.defaults(),
                 ImmutableList.of("component", "project"), before.history(), before.documentationSources(), before.notebookRevision(), before.requestedAt(), capture,
-                before.mode(), before.assignment(), Optional.empty());
+                before.mode(), before.assignment(), Optional.empty(), Optional.empty());
         store.save(Optional.of(before), selected);
         ContextPreparationResult generated = new ContextPreparationResult("attempt", ContextInputFingerprint.create("project", ImmutableMap.of("README.md", SHA),
                 ImmutableList.of()), ContextPreparationResult.Outcome.FAILED, ImmutableList.of(), ImmutableList.of(), "Insufficient source coverage");
@@ -645,6 +645,58 @@ class TestContextBuildTools
     private ContextBuild current()
     {
         return store.find(WORKSPACE).orElseThrow();
+    }
+
+    @Test
+    void investigationReadsAndSettlesOnceCitingOnlyItsOwnFileReads()
+            throws Exception
+    {
+        ContextBuild.Investigation investigation = new ContextBuild.Investigation("knowledge:project", 3, "project", "Snapshots", "Reads reuse the snapshot", "Brief");
+        ContextBuild base = build(ImmutableList.of());
+        store.save(Optional.of(current()), new ContextBuild(base.sequence(), base.requestKey(), base.requestDigest(), base.workspaceId(), base.taskId(),
+                base.physicalRepository(), base.repositoryId(), base.repository(), base.baselineSha(), base.branch(), base.laneId(), base.defaults(), base.scopeIds(),
+                base.history(), base.documentationSources(), base.notebookRevision(), base.requestedAt(), base.capture(), base.mode(), Optional.empty(), Optional.empty(),
+                Optional.of(investigation)));
+        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, history, preparation,
+                unitOfWork, mapper, learning, lookup, candidates, CLOCK).bridge(TASK.toString()).orElseThrow();
+        assertThat(bridge.tools()).extracting(tool -> tool.name()).containsExactly("repository_context_read", "repository_context_settle");
+        assertThat(bridge.instruction()).contains("settles one dispute", "repository_context_settle once");
+        assertThat(read("{\"kind\":\"SELECTION\"}").at("/investigation/statement").textValue()).isEqualTo("Reads reuse the snapshot");
+        String readId = read("{\"kind\":\"FILE\",\"path\":\"README.md\"}").path("readId").textValue();
+        ContextEntry settledNote = new ContextEntry("knowledge:project", ContextEntryKind.KNOWLEDGE, "project", "Snapshots", "Snapshot reuse",
+                "Reads reuse the snapshot until a REFRESH", ImmutableList.of(), ImmutableList.of(), ContextEntryOrigin.USER, true, 5);
+        when(notebooks.settleEntry(eq(WORKSPACE), eq(0L), eq(TASK.toString()), any())).thenReturn(new RepositoryNotebook(1, 5, true, ImmutableList.of(),
+                ImmutableList.of(ContextScope.project()), ImmutableList.of(settledNote), ImmutableList.of(), Optional.empty()));
+        String settle = "{\"operationKey\":\"settle\",\"outcome\":\"REWRITE\",\"statement\":\"Reads reuse the snapshot until a REFRESH\","
+                + "\"rootCause\":\"One side read only the REFRESH path\",\"title\":\"Snapshots\",\"summary\":\"Snapshot reuse\","
+                + "\"body\":\"Reads reuse the snapshot until a REFRESH\",\"sourceIds\":[\"" + readId + "\"]}";
+
+        assertThat(settle(settle.replace(readId, "context-read:unknown")).at("/error/message").textValue()).contains("not a FILE read of this run");
+        assertThat(settle(settle.replace("REWRITE", "KEEP_CURRENT")).at("/error/message").textValue()).contains("pass none");
+        assertThat(settle(settle.replace("REWRITE", "MERGE")).at("/error/message").textValue()).contains("use REWRITE, KEEP_CURRENT");
+        JsonNode settled = settle(settle);
+        assertThat(settled.path("status").textValue()).isEqualTo("SETTLED");
+        assertThat(settled.path("entryVersion").longValue()).isEqualTo(5);
+        ArgumentCaptor<RepositoryContextService.Settle> captured = ArgumentCaptor.forClass(RepositoryContextService.Settle.class);
+        verify(notebooks).settleEntry(eq(WORKSPACE), eq(0L), eq(TASK.toString()), captured.capture());
+        assertThat(captured.getValue().outcome()).isEqualTo(RepositoryContextService.Settle.Outcome.REWRITE);
+        assertThat(captured.getValue().evidence()).singleElement().satisfies(source -> {
+            assertThat(source.id()).isEqualTo(readId);
+            assertThat(source.excerpt()).isEqualTo("source");
+            assertThat(source.reference()).isEqualTo(new ContextReference.RepositoryFile(1, REPO, "README.md", SHA));
+        });
+        assertThat(settle(settle)).isEqualTo(settled);
+        assertThat(settle(settle.replace("\"settle\"", "\"again\"")).at("/error/message").textValue()).contains("already settled");
+        assertThat(current().capture().attempts()).containsEntry(ContextRun.SETTLED, "REWRITE");
+        assertThat(current().capture().result()).isPresent();
+        assertThat(current().capture().activity()).extracting(ContextBuild.Activity::text).contains("Settled · rewrote the statement with its conditions");
+        assertThat(read("{\"kind\":\"FILE\",\"path\":\"README.md\"}").at("/error/message").textValue()).contains("already settled");
+    }
+
+    private JsonNode settle(String args)
+            throws Exception
+    {
+        return mapper.readTree(bridge.tool("repository_context_settle").orElseThrow().call().apply(args));
     }
 
     @Test
@@ -691,7 +743,7 @@ class TestContextBuildTools
     {
         return new ContextBuild(1, "request", "sha256:" + "b".repeat(64), WORKSPACE, TASK.toString(), new RepositoryIdentity("owner", "repository"), 1, REPO, SHA,
                 "bytequay/learning", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), ImmutableList.of("project"), ImmutableList.of(), documents,
-                0, Instant.EPOCH, ContextBuild.Capture.empty(), ContextBuild.Mode.LEARN, Optional.empty(), Optional.empty());
+                0, Instant.EPOCH, ContextBuild.Capture.empty(), ContextBuild.Mode.LEARN, Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     private static ContextBuild assigned(List<RegisteredContextSource> documents)
@@ -701,6 +753,6 @@ class TestContextBuildTools
                 base.repositoryId(), base.repository(), base.baselineSha(), base.branch(), base.laneId(), base.defaults(), base.scopeIds(), base.history(),
                 base.documentationSources(), base.notebookRevision(), base.requestedAt(), base.capture(), base.mode(),
                 Optional.of(new ContextBuild.Assignment("plan-1", "topic:1", "Iceberg metadata", 0, "How does Iceberg read metadata?", "",
-                        ImmutableList.of("plugin/trino-iceberg/"), ImmutableList.of("pom.xml"))), Optional.empty());
+                        ImmutableList.of("plugin/trino-iceberg/"), ImmutableList.of("pom.xml"))), Optional.empty(), Optional.empty());
     }
 }

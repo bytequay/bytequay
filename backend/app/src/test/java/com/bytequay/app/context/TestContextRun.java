@@ -115,13 +115,39 @@ class TestContextRun
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), 0, NOW,
                 new ContextBuild.Capture(ImmutableList.of(), ImmutableMap.of(), ImmutableMap.of("discovery:1", "LIST core"), ImmutableMap.of(),
                         Optional.of(new ContextBuild.Result(ImmutableList.of())), ImmutableList.of(), ImmutableList.of()),
-                ContextBuild.Mode.DISCOVER, Optional.empty(), Optional.empty());
+                ContextBuild.Mode.DISCOVER, Optional.empty(), Optional.empty(), Optional.empty());
 
         ContextRun run = ContextRun.of(discovery, task(), finished(false));
 
         assertThat(run.outcome()).isEqualTo(ContextRun.Outcome.SUBMITTED);
         assertThat(run.sourceOperations()).isEqualTo(1);
         assertThat(run.question()).isEmpty();
+    }
+
+    @Test
+    void anInvestigationSettlesWithItsNoteUnlessItKeptTheCurrentText()
+    {
+        ContextBuild.Investigation investigation = new ContextBuild.Investigation("knowledge:project", 3, "project", "Snapshots", "Reads reuse the snapshot", "Brief");
+        Optional<ContextBuild.Result> settled = Optional.of(new ContextBuild.Result(ImmutableList.of()));
+
+        ContextRun rewritten = ContextRun.of(investigating(investigation, ImmutableMap.of(ContextRun.SETTLED, "REWRITE"), settled), task(), finished(false));
+        assertThat(rewritten.outcome()).isEqualTo(ContextRun.Outcome.SETTLED);
+        assertThat(rewritten.noteIds()).containsExactly("knowledge:project");
+        assertThat(rewritten.investigation()).contains(new ContextRun.Investigated("knowledge:project", "Snapshots", "Reads reuse the snapshot", Optional.of("REWRITE")));
+        assertThat(ContextRun.of(investigating(investigation, ImmutableMap.of(ContextRun.SETTLED, "KEEP_CURRENT"), settled), task(), finished(false)).noteIds()).isEmpty();
+
+        ContextRun unsettled = ContextRun.of(investigating(investigation, ImmutableMap.of(), Optional.empty()), task(), finished(false));
+        assertThat(unsettled.outcome()).isEqualTo(ContextRun.Outcome.FAILED);
+        assertThat(unsettled.investigation().orElseThrow().outcome()).isEmpty();
+    }
+
+    private static ContextBuild investigating(ContextBuild.Investigation investigation, Map<String, String> attempts, Optional<ContextBuild.Result> result)
+    {
+        return new ContextBuild(4, "investigate", "sha256:" + "b".repeat(64), "workspace", TASK.toString(),
+                new RepositoryIdentity("owner", "repository"), 1, REPO, SHA, "branch", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
+                ImmutableList.of("project"), ImmutableList.of(), ImmutableList.of(), 0, NOW,
+                new ContextBuild.Capture(ImmutableList.of(), ImmutableMap.of(), attempts, ImmutableMap.of(), result, ImmutableList.of(), ImmutableList.of()),
+                ContextBuild.Mode.LEARN, Optional.empty(), Optional.empty(), Optional.of(investigation));
     }
 
     private static ContextBuild learning(Map<String, String> attempts, Optional<ContextBuild.Result> result)
@@ -131,7 +157,7 @@ class TestContextRun
                 ImmutableList.of("project"), ImmutableList.of(), ImmutableList.of(), 0, NOW,
                 new ContextBuild.Capture(ImmutableList.of(), ImmutableMap.of(), attempts, ImmutableMap.of(), result, ImmutableList.of(), ImmutableList.of()),
                 ContextBuild.Mode.LEARN, Optional.of(new ContextBuild.Assignment("plan", "topic:1", "Iceberg connector", 0,
-                        "How are table snapshots committed?", "", ImmutableList.of(), ImmutableList.of())), Optional.empty());
+                        "How are table snapshots committed?", "", ImmutableList.of(), ImmutableList.of())), Optional.empty(), Optional.empty());
     }
 
     private static ContextPreparationResult ready(String noteId)

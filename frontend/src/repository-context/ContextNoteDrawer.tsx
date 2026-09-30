@@ -15,7 +15,7 @@ import { useState } from 'react';
 import MarkdownBody from '../pulls/MarkdownBody';
 import { ago, relativeTime } from '../relativeTime';
 import type { ContextContestDto, ContextEntryDto, ContextGradeDto, ContextReportedNoteDto, RepositoryNotebookDto } from './contracts';
-import { Coded } from './ContextOverview';
+import { Coded, RunLine } from './ContextOverview';
 import { Icon } from './icons';
 import {
   CLAIM_TAG, disputeSides, entryOrigin, entryTimeKey, gradeLine, grader, kindLabel, noteArea, noteDiff, openReports, previousVersion, settledLine, shortDate, sourceView,
@@ -107,6 +107,12 @@ export default function ContextNoteDrawer({ data, actions, busy, id, onClose }: 
           ? <Reports reported={reported} titles={data.titles} now={data.now} nextVersion={nextVersion} />
           : <Dispute reported={reported} contest={reported.contested} titles={data.titles} now={data.now} nextVersion={nextVersion}
             previous={previous?.version ?? null} />)}
+        {reported?.contested != null && !reported.userWritten && <div className="rcp-investigate">
+          <button type="button" className="rcp-btn rcp-btn--secondary" disabled={busy || !data.build.canStart || data.model.blocker !== null}
+            onClick={() => actions.investigate(entry.id)}><Icon name="bolt" size={13} />Investigate</button>
+          <RunLine workspaceId={workspaceId} blocked={data.model.blocker !== null}>{data.model.blocker
+            ?? `Starts 1 run · reads the code at the monitored branch head · ${data.model.label} · settles the dispute with its root cause`}</RunLine>
+        </div>}
         {settlement !== undefined && reported?.contested == null && <div className="rcp-caveat">{settledLine(settlement)}</div>}
         {origin.startsWith('Learning from merged PR') && <div className="rcp-caveat">Learned from merged work. A merged PR records a decision, not proof that every claim holds.</div>}
         {diff !== null ? <>

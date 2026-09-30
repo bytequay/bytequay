@@ -27,6 +27,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Instant;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -61,10 +62,24 @@ class TestRepositoryContextController
     private final RepositoryContextService service = mock(RepositoryContextService.class);
     private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
     private final ContextGradeService grades = mock(ContextGradeService.class);
-    private final MockMvc mvc = standaloneSetup(new RepositoryContextController(service, grades))
+    private final ContextPageCaptures pages = mock(ContextPageCaptures.class);
+    private final MockMvc mvc = standaloneSetup(new RepositoryContextController(service, grades, pages))
             .setMessageConverters(new MappingJackson2HttpMessageConverter(mapper))
             .setControllerAdvice(new GlobalExceptionHandler())
             .build();
+
+    @Test
+    void listsTheSourcesWhosePageALaterCaptureFoundChanged()
+            throws Exception
+    {
+        RepositoryNotebook notebook = RepositoryNotebook.empty();
+        when(service.getNotebook("workspace")).thenReturn(notebook);
+        when(pages.changed("workspace", notebook)).thenReturn(ImmutableMap.of("context-read:page", Instant.parse("2026-09-30T00:00:00Z")));
+
+        mvc.perform(get("/api/workspaces/workspace/repository-context/pages/changed"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.changed['context-read:page']").exists());
+    }
 
     @Test
     void notebookResponseIncludesTheMatchDiscriminator()

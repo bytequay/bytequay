@@ -131,6 +131,7 @@ const contestedRefresh = (): ContextReportedNoteDto => ({ entryId: refresh.id, e
     grade(refresh, { taskId: 'review-task-3', reviewRunId: 'run-3', taskKind: 'PR_REVIEW', quote: DISPUTED,
       reason: 'The metadata cache is invalidated after each commit.', gradedAt: ago(25) })] });
 let contestRefresh = false;
+let changedDoc = false;
 
 const times = (full: boolean): ContextTimesDto => full ? {
   entries: { [`4:${refresh.id}`]: { at: ago(60 * 26), taskId: 'task-run-2' }, [`11:${refresh.id}`]: { at: ago(21), taskId: 'task-run-4' },
@@ -216,6 +217,7 @@ type Scene = 'fresh' | 'discovering' | 'suggested' | 'review' | 'learning';
 type State = {
   notebook: RepositoryNotebookDto; times: ContextTimesDto; build: ContextBuildViewDto; report: ContextDiscoveryReportDto | null;
   planView: ContextLearningPlanViewDto; candidates: ContextMergedCandidatesDto; reports: ContextReportedNoteDto[]; disputes: ContextDisputesDto; staleOnce: boolean;
+  changedPages: Record<string, string>;
   calls: { starts: Array<{ kind: string; request: unknown }>; restores: string[]; disables: string[]; allows: unknown[]; declines: unknown[];
     configures: unknown[]; stops: string[]; keeps: string[]; reports: ReportRepositoryContextNoteRequest[]; questions: unknown[] };
 };
@@ -239,6 +241,7 @@ function scene(name: Scene): State {
     disputes: full && contestRefresh ? { contested: { [refresh.id]: { statement: DISPUTED, version: refresh.version } }, settlements: { [refresh.id]: EARLIER } }
       : { contested: {}, settlements: {} },
     staleOnce: false,
+    changedPages: full && changedDoc ? { 'ev-doc': ago(45) } : {},
     calls: { starts: [], restores: [], disables: [], allows: [], declines: [], configures: [], stops: [], keeps: [], reports: [], questions: [] },
   };
 }
@@ -302,6 +305,7 @@ function install() {
     getRepositoryContextUsage: async (_workspaceId, window) => usage(window),
     getRepositoryContextReports: async () => clone(state.reports),
     getRepositoryContextDisputes: async () => clone(state.disputes),
+    getRepositoryContextChangedPages: async () => ({ changed: clone(state.changedPages) }),
     reportRepositoryContextNote: async (_workspaceId, request) => {
       // The first report is refused the way the backend refuses a version the task never received.
       if (state.calls.reports.push(clone(request)) === 1) {
@@ -749,6 +753,26 @@ const scenarios: Array<[string, () => Promise<void>]> = [
       contestRefresh = false;
     }
   }],
+  ['a note whose cited page changed is flagged in the notes list and its sources', async () => {
+    changedDoc = true;
+    try {
+      await render('review');
+      await click('Notes8');
+      const row = [...document.querySelectorAll<HTMLButtonElement>('button.rcp-note')].find(item => item.querySelector('.rcp-note__title')?.textContent === refresh.title);
+      assert(row !== undefined && text(row).includes('Page changed'), 'The note row is flagged');
+      const cites = state.notebook.entries.filter(entry => entry.sourceIds.includes('ev-doc')).length;
+      assert([...document.querySelectorAll('button.rcp-note')].filter(item => text(item).includes('Page changed')).length === cites, 'Exactly the notes citing the page are flagged');
+      row.click();
+      await settle();
+      await settle();
+      assert(text(drawer()).includes('A page this note cites changed after it was saved'), 'The drawer explains the change');
+      assert(text(drawer().querySelector('.rcp-source__changed')).includes('changed since'), 'The changed page is marked among the sources');
+      assert(state.calls.starts.length === 0, 'Flagging starts no run');
+    }
+    finally {
+      changedDoc = false;
+    }
+  }],
   ['Investigate starts one named run for a note agents disagree about, and only from its lightning action', async () => {
     contestRefresh = true;
     try {
@@ -891,6 +915,7 @@ export async function show(mode: string) {
   if (mode === 'task-report') { await renderTaskActivity(); await click(`Report ${refresh.title} v${refresh.version} as wrong`); return; }
   const [base, extra] = mode.split(':') as [Scene, string | undefined];
   contestRefresh = extra === 'contested';
+  changedDoc = extra === 'page-changed';
   await render(base, extra === 'run' ? 'task-run-5' : null);
   switch (extra) {
     case 'tasks': {
@@ -904,6 +929,7 @@ export async function show(mode: string) {
     }
     case 'select': await check('Iceberg connector'); await click('Inspect Iceberg connector'); break;
     case 'note': await click(refresh.title); break;
+    case 'page-changed': await click(refresh.title); break;
     case 'reported': await waitFor(() => document.querySelector('.rcp-review.rcp-tone--amber') !== null, 'The report appears'); await review(lesson.title); break;
     case 'contested': await waitFor(() => text().includes('Agents disagree'), 'The dispute appears'); await review(refresh.title); break;
     case 'changes': await click(refresh.title); await click('Changes', drawer()); break;

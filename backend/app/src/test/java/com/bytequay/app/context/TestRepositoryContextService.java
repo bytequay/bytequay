@@ -226,7 +226,7 @@ class TestRepositoryContextService
                 ImmutableList.of(), ImmutableList.of(sharedSource.id())));
         assertThat(saved.entries()).containsAll(before.entries());
         ContextNotebookLookup lookup = new ContextNotebookLookup(service, new RepositoryContextMatcher(), new ContextNoteReader(service,
-                new ContextSourceChecker(new GitCommandRunner(), mock(WorkspaceRepositoryService.class))), mapper);
+                new ContextSourceChecker(new GitCommandRunner(), mock(WorkspaceRepositoryService.class), mock(ContextPageCaptures.class))), mapper);
         ContextNotebookLookup.SearchResult found = lookup.search(WORKSPACE, new ContextNotebookLookup.SearchQuery("",
                 ImmutableList.of("plugin/trino-delta-lake/src/main/java/DeltaLakeMetadata.java")));
         assertThat(found.hits()).extracting(ContextNotebookLookup.Hit::entryId).containsExactly(ContextEntry.knowledgeId(shared.id()));
@@ -660,12 +660,14 @@ class TestRepositoryContextService
     {
         service.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty()));
         settings.put(ContextBuildStore.PREFIX + WORKSPACE, "retained learning request");
+        settings.put(ContextPageCaptures.PREFIX + WORKSPACE, "[]");
         service.deleteWorkspaceData(WORKSPACE);
         service.deleteWorkspaceData(WORKSPACE);
         when(workspaces.findById(WORKSPACE)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.editEntry(WORKSPACE, 0, edit("Orphan"))).isInstanceOf(ContextNotFoundException.class);
         assertThat(settings.get(KEY)).isEmpty();
         assertThat(settings.get(ContextBuildStore.PREFIX + WORKSPACE)).isEmpty();
+        assertThat(settings.get(ContextPageCaptures.PREFIX + WORKSPACE)).isEmpty();
     }
 
     @Test

@@ -45,6 +45,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestContextSourceChecker
@@ -57,7 +58,8 @@ class TestContextSourceChecker
 
     private final GitCommandRunner git = new GitCommandRunner();
     private final WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
-    private final ContextSourceChecker checker = new ContextSourceChecker(git, workspaces);
+    private final ContextPageCaptures pages = mock(ContextPageCaptures.class);
+    private final ContextSourceChecker checker = new ContextSourceChecker(git, workspaces, pages);
 
     @BeforeEach
     void initialize()
@@ -98,6 +100,28 @@ class TestContextSourceChecker
         assertThat(check.applicability()).isEqualTo(Applicability.VERSION_MISMATCH);
         assertThat(checker.check(WORKSPACE, Optional.of(current), ImmutableMap.of("moved", sources.get("moved"), "same", sources.get("same"))).applicability())
                 .isEqualTo(Applicability.MATCHED);
+        verifyNoInteractions(pages);
+    }
+
+    @Test
+    void aCitedPageChangedWhenALearningRunLaterCapturedDifferentText()
+    {
+        String url = "https://example.com/spec";
+        ContextSourceEvidence page = new ContextSourceEvidence("page", new ContextReference.Document("page:1", url), "Provenance", "Spec text",
+                ContextSourceEvidence.Capture.BYTEQUAY_READ, Optional.of(Instant.parse("2026-09-01T00:00:00Z")), Optional.of("a".repeat(64)), Optional.empty(), false);
+        when(pages.find(WORKSPACE)).thenReturn(ImmutableList.of(new ContextPageCaptures.Page(url, "b".repeat(64), Instant.parse("2026-09-30T00:00:00Z"))));
+
+        ContextSourceCheck check = checker.check(WORKSPACE, Optional.empty(), ImmutableMap.of("page", page));
+
+        assertThat(check.sources()).extracting(Source::status).containsExactly(CHANGED);
+        assertThat(check.applicability()).isEqualTo(Applicability.VERSION_MISMATCH);
+        assertThat(check.gaps()).anySatisfy(gap -> assertThat(gap).contains(url + " changed after this note cited it"));
+        when(pages.find(WORKSPACE)).thenReturn(ImmutableList.of(new ContextPageCaptures.Page(url, "a".repeat(64), Instant.parse("2026-09-30T00:00:00Z"))));
+        assertThat(checker.check(WORKSPACE, Optional.empty(), ImmutableMap.of("page", page)).sources()).extracting(Source::status).containsExactly(UNCHECKED);
+        when(pages.find(WORKSPACE)).thenThrow(new ContextStorageException("Saved page captures cannot be read", new IllegalStateException()));
+        ContextSourceCheck unreadable = checker.check(WORKSPACE, Optional.empty(), ImmutableMap.of("page", page));
+        assertThat(unreadable.sources()).extracting(Source::status).containsExactly(UNCHECKED);
+        assertThat(unreadable.gaps()).anySatisfy(gap -> assertThat(gap).startsWith("Cited pages could not be compared"));
     }
 
     @Test

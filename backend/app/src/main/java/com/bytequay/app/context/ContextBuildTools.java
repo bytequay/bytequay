@@ -111,6 +111,7 @@ public class ContextBuildTools
     private final RepositoryContextService notebooks;
     private final ContextBaselineReader baseline;
     private final SelectedDocumentationReader documents;
+    private final ContextPageCaptures pages;
     private final ContextHistoryReader history;
     private final RepositoryContextPreparation preparation;
     private final AgentUnitOfWork unitOfWork;
@@ -121,7 +122,7 @@ public class ContextBuildTools
     private final Clock clock;
 
     public ContextBuildTools(ContextBuildStore builds, ContextBuildService service, AgentTaskStore tasks, WorkspaceRepositoryService workspaces,
-            RepositoryContextService notebooks, ContextBaselineReader baseline, SelectedDocumentationReader documents, ContextHistoryReader history,
+            RepositoryContextService notebooks, ContextBaselineReader baseline, SelectedDocumentationReader documents, ContextPageCaptures pages, ContextHistoryReader history,
             RepositoryContextPreparation preparation, AgentUnitOfWork unitOfWork, ObjectMapper mapper, ContextLearningService learning, ContextNotebookLookup lookup,
             ContextMergedCandidateService candidates, Clock clock)
     {
@@ -132,6 +133,7 @@ public class ContextBuildTools
         this.notebooks = requireNonNull(notebooks, "notebooks is null");
         this.baseline = requireNonNull(baseline, "baseline is null");
         this.documents = requireNonNull(documents, "documents is null");
+        this.pages = requireNonNull(pages, "pages is null");
         this.history = requireNonNull(history, "history is null");
         this.preparation = requireNonNull(preparation, "preparation is null");
         this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
@@ -636,10 +638,13 @@ public class ContextBuildTools
                     .addAll(read.suggestedExpansionUrls().stream().filter(url -> !known.contains(url))
                             .map(url -> "Found a link outside approved sources · " + url).limit(5).toList()).build();
             saveRead(build, turn, key, Optional.of(receipt), evidence(read.excerpt(), provenance), ImmutableMap.of(), gaps, lines,
-                    current -> item.ifPresent(value -> learning.updateInventory(current, inventory -> inventory.read(value, id, read.contentHash())
-                            .offer(sourceId, value.resolvedUrl(), read.links(), read.linksTruncated())
-                            .suggest(read.suggestedExpansionUrls(), read.resolvedUrl(), current.assignment().orElseThrow().topicId(),
-                                    current.assignment().orElseThrow().questionIndex(), current.taskId(), read.readAt()))));
+                    current -> {
+                        pages.record(build.workspaceId(), new ContextPageCaptures.Page(read.resolvedUrl(), read.contentHash(), read.readAt()));
+                        item.ifPresent(value -> learning.updateInventory(current, inventory -> inventory.read(value, id, read.contentHash())
+                                .offer(sourceId, value.resolvedUrl(), read.links(), read.linksTruncated())
+                                .suggest(read.suggestedExpansionUrls(), read.resolvedUrl(), current.assignment().orElseThrow().topicId(),
+                                        current.assignment().orElseThrow().questionIndex(), current.taskId(), read.readAt())));
+                    });
             return source(receipt, read.excerpt(), gaps).put("captureId", read.captureId()).put("page", read.page()).put("pages", read.totalPages())
                     .putPOJO("links", read.links()).putPOJO("suggestedExpansionUrls", read.suggestedExpansionUrls()).put("linksTruncated", read.linksTruncated());
         }
@@ -681,7 +686,8 @@ public class ContextBuildTools
             List<String> gaps = read.page() < read.totalPages() ? ContextBuildService.gaps(read.gaps(), "Page " + read.resolvedUrl() + " read covers page "
                     + read.page() + "/" + read.totalPages() + " only; read further pages with its captureId.") : read.gaps();
             saveRead(build, turn, key, Optional.of(receipt), evidence(read.excerpt(), provenance), ImmutableMap.of(), gaps,
-                    ImmutableList.of("Opened " + read.resolvedUrl()), ignored -> {});
+                    ImmutableList.of("Opened " + read.resolvedUrl()),
+                    ignored -> pages.record(build.workspaceId(), new ContextPageCaptures.Page(read.resolvedUrl(), read.contentHash(), read.readAt())));
             return source(receipt, read.excerpt(), gaps).put("captureId", read.captureId()).put("page", read.page()).put("pages", read.totalPages());
         }
         catch (RuntimeException failure) {

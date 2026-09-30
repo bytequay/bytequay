@@ -35,6 +35,7 @@ import com.bytequay.app.context.ContextLearningService;
 import com.bytequay.app.context.ContextNotFoundException;
 import com.bytequay.app.context.ContextNoteReader;
 import com.bytequay.app.context.ContextNotebookLookup;
+import com.bytequay.app.context.ContextPageCaptures;
 import com.bytequay.app.context.ContextSourceChecker;
 import com.bytequay.app.context.ContextStorageException;
 import com.bytequay.app.context.ContextUsageRecorder;
@@ -270,9 +271,10 @@ class TestReviewTools
                 mock(ContextSourceChecker.class), objectMapper, Clock.fixed(NOW, ZoneOffset.UTC));
         learning = mock(ContextLearningService.class);
         ContextLearningService plan = learning;
+        ContextSourceChecker checker = new ContextSourceChecker(git, workspaces, mock(ContextPageCaptures.class));
         tools = new ReviewTools(store, pullRequests, selectedPullRequests, selectedPullRequestDiffs, selectedCommitPullRequests, selectedDocumentation, baselineSources,
-                historySources, new ContextNoteReader(notebooks, new ContextSourceChecker(git, workspaces)),
-                new ContextNotebookLookup(notebooks, new RepositoryContextMatcher(), new ContextNoteReader(notebooks, new ContextSourceChecker(git, workspaces)), objectMapper),
+                historySources, new ContextNoteReader(notebooks, checker),
+                new ContextNotebookLookup(notebooks, new RepositoryContextMatcher(), new ContextNoteReader(notebooks, checker), objectMapper),
                 grades,
                 usageStore, usage,
                 repositories, issues, issueRefresh, events, workspaces, git, objectMapper,

@@ -340,6 +340,7 @@ const bridge: Bridge = {
   keepRepositoryContextEntry: (workspaceId, request) => ipcRenderer.invoke('repository-context:keep', workspaceId, request),
   getRepositoryContextReports: workspaceId => ipcRenderer.invoke('repository-context:reports', workspaceId),
   getRepositoryContextDisputes: workspaceId => ipcRenderer.invoke('repository-context:disputes', workspaceId),
+  getRepositoryContextChangedPages: workspaceId => ipcRenderer.invoke('repository-context:pages:changed', workspaceId),
   reportRepositoryContextNote: (workspaceId, request) => ipcRenderer.invoke('repository-context:report', workspaceId, request),
   disableRepositoryContextRunNotes: (workspaceId, request) => ipcRenderer.invoke('repository-context:run-notes:disable', workspaceId, request),
   saveRepositoryContextLesson: (workspaceId, request) => ipcRenderer.invoke('repository-context:lesson', workspaceId, request),

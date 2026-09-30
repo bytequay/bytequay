@@ -17,7 +17,7 @@ import type {
   ContextScopeDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto,
 } from './contracts';
 import {
-  batchLine, batchRuns, disputeSides, filterNotes, gradeLine, grader, latestReport, runOrigin, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pendingCounts, planCounts, previousVersion,
+  batchLine, batchRuns, disputeSides, filterNotes, gradeLine, grader, latestReport, runOrigin, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pageChangedAt, pendingCounts, planCounts, previousVersion,
   questionRow, reportsNeedingYou, reviewItems, runNotesToDisable, scopeForTopic, settledLine, statusCard, topicSummary, type StatusInput,
 } from './model';
 
@@ -210,6 +210,12 @@ describe('repository context notes', () => {
       build: build([{ ...run(2, 'CORRECTED', 0, '2026-09-29T11:59:00Z'), question: { planId: 'plan', topicId: grown.id, topicTitle: grown.title, index: 2, text: grown.questions[2].text } }]) }));
     expect(card.headline).toBe('Run 2 corrected its question');
     expect(card.body).toBe('It is per transaction. Cited: A.java:40-41');
+  });
+
+  it('flags a note by the latest change among the pages it cites', () => {
+    const cited = { ...entry, sourceIds: ['s1', 's2', 's3'] };
+    expect(pageChangedAt(cited, {})).toBeNull();
+    expect(pageChangedAt(cited, { s3: '2026-09-30T10:00:00Z', s2: '2026-09-29T10:00:00Z', other: '2026-10-01T00:00:00Z' })).toBe('2026-09-30T10:00:00Z');
   });
 
   it('shows a task only the notes whose current version it saved', () => {

@@ -499,6 +499,12 @@ export function noteGroups(notebook: RepositoryNotebookDto, entries: ContextEntr
 
 const DOCUMENT_PATH = /\.(md|mdx|rst|adoc|txt)$|(^|\/)(docs?|documentation)\//i;
 
+/** The latest time a learning run captured different text from a page the note cites, or null when none changed. */
+export function pageChangedAt(entry: ContextEntryDto, changedPages: Record<string, string>): string | null {
+  const seen = entry.sourceIds.flatMap(id => changedPages[id] === undefined ? [] : [changedPages[id]]).sort();
+  return seen.length === 0 ? null : seen[seen.length - 1];
+}
+
 export function sourceView(source: ContextSourceEvidenceDto | undefined, id: string): { target: string; kind: string; detail: string; capture: string; agent: boolean } {
   if (source === undefined) return { target: id, kind: 'Source', detail: 'no longer retained', capture: '', agent: false };
   const reference = source.reference;

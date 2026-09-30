@@ -347,6 +347,10 @@ it('reads open reports and sends the user’s report of an exact version, showin
   fetch.mockImplementation(async () => new Response(JSON.stringify(disputes)));
   await expect(desktop.handlers.get('repository-context:disputes')?.({}, 'workspace/one')).resolves.toEqual(disputes);
   expect(fetch).toHaveBeenLastCalledWith(base.replace(/reports$/, 'disputes'), expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  const changed = { changed: { 'context-read:page': '2026-09-30T00:00:00Z' } };
+  fetch.mockImplementation(async () => new Response(JSON.stringify(changed)));
+  await expect(desktop.handlers.get('repository-context:pages:changed')?.({}, 'workspace/one')).resolves.toEqual(changed);
+  expect(fetch).toHaveBeenLastCalledWith(base.replace(/reports$/, 'pages/changed'), expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
 });
 
 it('rejects forged notebook mutation fields before sending and surfaces stale revisions without an automatic retry', async () => {

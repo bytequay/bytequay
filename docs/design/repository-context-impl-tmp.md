@@ -2205,6 +2205,13 @@ and [the user interface](repository-context-refactor.md#8-user-interface).
 - [x] Let tasks and reviews file questions with a lead; let learning runs read
   one public page and cite it; show the pages web steps opened in transcripts.
 - [x] Verify each step with the backend and desktop build gates.
+- [x] Tell tasks and reviews to search notes before researching an area and to
+  go to primary sources when notes do not answer the question.
+- [x] Keep the newest capture of each page a learning run reads; mark a cited page
+  CHANGED in the source check when a later capture differs, and flag the note in
+  the Notes list and its sources.
+- [ ] Count web lookups per development task with notes on and off, and show them
+  on the usage page.
 
 Batches passed JVM 25 `mvn verify` with 3,667 tests and no Checkstyle
 violations; frontend lint, TypeScript, all 1,421 tests and macOS packaging
@@ -2232,6 +2239,15 @@ covers becoming a gap, a repository without a plan refusing it, SELECTION showin
 the question's lead, a page read by its address without registration, that page
 registered when a saved note cites it, and Codex and Claude web steps naming the
 page they opened. The development tool's schema now lists GRADE and ASK. No live
+model run was used.
+
+Page change flags passed JVM 25 `mvn verify` with 3,682 tests and no Checkstyle
+violations; frontend lint, TypeScript, all 1,424 tests and macOS packaging
+passed. Regressions cover the newest capture kept per page and a late older
+capture ignored, the 200-page bound, a cited page marked CHANGED only after a
+later capture with different text, unreadable captures leaving pages unchecked,
+learning-run DOCUMENT and PAGE reads recording captures, captures removed with
+the workspace, and the flag in the Notes list and a note's sources. No live
 model run was used.
 
 ## Save notes without approval

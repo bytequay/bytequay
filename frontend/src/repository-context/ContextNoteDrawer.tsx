@@ -18,7 +18,8 @@ import type { ContextContestDto, ContextEntryDto, ContextGradeDto, ContextReport
 import { Coded, RunLine } from './ContextOverview';
 import { Icon } from './icons';
 import {
-  CLAIM_TAG, disputeSides, entryOrigin, entryTimeKey, gradeLine, grader, kindLabel, noteArea, noteDiff, openReports, previousVersion, settledLine, shortDate, sourceView,
+  CLAIM_TAG, disputeSides, entryOrigin, entryTimeKey, gradeLine, grader, kindLabel, noteArea, noteDiff, openReports, pageChangedAt, previousVersion, settledLine, shortDate,
+  sourceView,
   type TaskTitles,
 } from './model';
 import type { ContextActions, ContextData } from './RepositoryContextPage';
@@ -84,6 +85,7 @@ export default function ContextNoteDrawer({ data, actions, busy, id, onClose }: 
   const diff = previous !== undefined && view === 'changes' ? noteDiff(previous, entry) : null;
   const sources = shown.sourceIds.map(sourceId => ({ id: sourceId, ...sourceView(notebook.sourceEvidence.find(value => value.id === sourceId), sourceId) }));
   const refs = (sourceIds: string[]) => sourceIds.map(sourceId => shown.sourceIds.indexOf(sourceId) + 1).filter(n => n > 0);
+  const changedAt = pageChangedAt(shown, data.changedPages);
 
   return <>
     <div className="rcp-drawer__head">
@@ -114,6 +116,8 @@ export default function ContextNoteDrawer({ data, actions, busy, id, onClose }: 
             ?? `Starts 1 run · reads the code at the monitored branch head · ${data.model.label} · settles the dispute with its root cause`}</RunLine>
         </div>}
         {settlement !== undefined && reported?.contested == null && <div className="rcp-caveat">{settledLine(settlement)}</div>}
+        {changedAt !== null && <div className="rcp-caveat">A page this note cites changed after it was saved: a learning run found new text on it {ago(changedAt, data.now)}.
+          Agents that read the note are told and re-read the page.</div>}
         {origin.startsWith('Learning from merged PR') && <div className="rcp-caveat">Learned from merged work. A merged PR records a decision, not proof that every claim holds.</div>}
         {diff !== null ? <>
           <div className="rcp-diff-summary">{diff.summary}</div>
@@ -126,7 +130,9 @@ export default function ContextNoteDrawer({ data, actions, busy, id, onClose }: 
           {sources.length === 0 && <div className="rcp-source"><span className="rcp-source__sub">No supporting source is attached.</span></div>}
           {sources.map((source, position) => <div className="rcp-source" key={source.id}>
             <span className="rcp-source__n">[{position + 1}]</span>
-            <span className="rcp-source__main"><span className="rcp-source__target">{source.target}</span><span className="rcp-source__sub">{source.kind} · {source.detail}</span></span>
+            <span className="rcp-source__main"><span className="rcp-source__target">{source.target}</span><span className="rcp-source__sub">{source.kind} · {source.detail}
+              {data.changedPages[source.id] !== undefined && <span className="rcp-source__changed"> · changed since, seen {shortDate(data.changedPages[source.id], data.now)}</span>}
+            </span></span>
             {source.capture && <span className={`rcp-source__cap${source.agent ? ' is-agent' : ''}`}>{source.capture}</span>}
           </div>)}
         </div>

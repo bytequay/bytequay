@@ -18,6 +18,7 @@ import {
   parseConfigureRepositoryContextRequest,
   parseContextBuildView,
   parseContextDiscoveryReport,
+  parseContextChangedPages,
   parseContextDisputes,
   parseContextBaseline,
   parseContextLearningPlanView,
@@ -156,6 +157,9 @@ describe('repository context contracts', () => {
       .toEqual({ contested: { 'knowledge:project': contested.contested }, settlements: { 'knowledge:project': settlement } });
     for (const value of [null, { contested: {} }, { contested: { 'knowledge:project': { statement: 'Keep the condition.', version: 0 } }, settlements: {} }])
       expect(() => parseContextDisputes(value)).toThrow('Malformed repository context');
+    expect(parseContextChangedPages({ changed: { 'context-read:page': '2026-09-30T00:00:00Z' } })).toEqual({ changed: { 'context-read:page': '2026-09-30T00:00:00Z' } });
+    for (const value of [null, {}, { changed: { 'context-read:page': 30 } }])
+      expect(() => parseContextChangedPages(value)).toThrow('Malformed repository context');
   });
 
   it('rejects reports whose grades belong to another workspace or version, or carry unknown grades', () => {

@@ -16,6 +16,7 @@ package com.bytequay.app.context;
 import com.bytequay.core.context.ContextClaim;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -24,7 +25,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -37,11 +40,13 @@ public class RepositoryContextController
 {
     private final RepositoryContextService context;
     private final ContextGradeService grades;
+    private final ContextPageCaptures pages;
 
-    public RepositoryContextController(RepositoryContextService context, ContextGradeService grades)
+    public RepositoryContextController(RepositoryContextService context, ContextGradeService grades, ContextPageCaptures pages)
     {
         this.context = requireNonNull(context, "context is null");
         this.grades = requireNonNull(grades, "grades is null");
+        this.pages = requireNonNull(pages, "pages is null");
     }
 
     @GetMapping
@@ -88,6 +93,13 @@ public class RepositoryContextController
         return context.getDisputes(workspaceId);
     }
 
+    /** Sources whose cited page a later learning run captured with different text, and when. */
+    @GetMapping("/pages/changed")
+    public ChangedPages changedPages(@PathVariable String workspaceId)
+    {
+        return new ChangedPages(pages.changed(workspaceId, context.getNotebook(workspaceId)));
+    }
+
     @GetMapping("/reports")
     public List<ContextGradeService.ReportedNote> reports(@PathVariable String workspaceId)
     {
@@ -119,6 +131,14 @@ public class RepositoryContextController
         SaveContextLesson lesson = new SaveContextLesson(request.scopeId(), request.title(), request.summary(), request.body(),
                 request.reviewId(), request.runId(), request.evidenceRefs(), request.messageId());
         return context.saveLesson(workspaceId, request.expectedRevision(), lesson);
+    }
+
+    public record ChangedPages(Map<String, Instant> changed)
+    {
+        public ChangedPages
+        {
+            changed = ImmutableMap.copyOf(changed);
+        }
     }
 
     public record ConfigurationRequest(

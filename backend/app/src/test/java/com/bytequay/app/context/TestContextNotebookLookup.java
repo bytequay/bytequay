@@ -41,8 +41,9 @@ import static org.mockito.Mockito.when;
 class TestContextNotebookLookup
 {
     private final RepositoryContextService notebooks = mock(RepositoryContextService.class);
-    private final ContextNotebookLookup lookup = new ContextNotebookLookup(notebooks, new RepositoryContextMatcher(), new ContextNoteReader(notebooks,
-            new ContextSourceChecker(new GitCommandRunner(), mock(WorkspaceRepositoryService.class))), new ObjectMapper().findAndRegisterModules());
+    private final ContextSourceChecker checker = new ContextSourceChecker(new GitCommandRunner(), mock(WorkspaceRepositoryService.class), mock(ContextPageCaptures.class));
+    private final ContextNotebookLookup lookup = new ContextNotebookLookup(notebooks, new RepositoryContextMatcher(), new ContextNoteReader(notebooks, checker),
+            new ObjectMapper().findAndRegisterModules());
 
     @Test
     void literalSearchCoversBodyAndReferenceButExcludesDisabledNotesAndScopes()

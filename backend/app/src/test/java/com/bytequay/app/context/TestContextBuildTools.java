@@ -108,6 +108,7 @@ class TestContextBuildTools
     private final RepositoryContextService notebooks = mock(RepositoryContextService.class);
     private final ContextBaselineReader baseline = mock(ContextBaselineReader.class);
     private final SelectedDocumentationReader documents = mock(SelectedDocumentationReader.class);
+    private final ContextPageCaptures pages = mock(ContextPageCaptures.class);
     private final ContextHistoryReader history = mock(ContextHistoryReader.class);
     private final RepositoryContextPreparation preparation = mock(RepositoryContextPreparation.class);
     private final ContextLearningService learning = mock(ContextLearningService.class);
@@ -135,7 +136,7 @@ class TestContextBuildTools
         when(notebooks.getNotebook(WORKSPACE)).thenReturn(RepositoryNotebook.empty());
         when(unitOfWork.execute(any())).thenAnswer(call -> ((AgentUnitOfWork.Work<?>) call.getArgument(0)).run());
         store.save(Optional.empty(), build(ImmutableList.of()));
-        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, history, preparation,
+        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, pages, history, preparation,
                 unitOfWork, mapper, learning, lookup, candidates, CLOCK)
                 .bridge(TASK.toString()).orElseThrow();
         when(baseline.directory(any(), eq(1L), eq(SHA), eq(""), eq(0))).thenReturn(new ContextBaselineReader.Directory("", SHA,
@@ -295,6 +296,7 @@ class TestContextBuildTools
         assertThat(current().capture().sourceReads()).hasSize(1);
         assertThat(current().capture().gaps()).anySatisfy(gap -> assertThat(gap).contains("page 1/2 only").doesNotContain("unread"));
         verify(documents).read(WORKSPACE, DOC.id(), Optional.empty(), Optional.empty(), 1, true);
+        verify(pages).record(WORKSPACE, new ContextPageCaptures.Page(DOC.url(), "b".repeat(64), Instant.EPOCH));
     }
 
     @Test
@@ -307,7 +309,7 @@ class TestContextBuildTools
             assertThat(read("{\"kind\":\"TREE\",\"path\":\"module-" + index + "\"}").has("error")).isFalse();
         }
         ContextBuildStore reopened = new ContextBuildStore(settings, tasks, mapper);
-        bridge = new ContextBuildTools(reopened, service, tasks, workspaces, notebooks, baseline, documents, history, preparation,
+        bridge = new ContextBuildTools(reopened, service, tasks, workspaces, notebooks, baseline, documents, pages, history, preparation,
                 unitOfWork, mapper, learning, lookup, candidates, CLOCK).bridge(TASK.toString()).orElseThrow();
 
         assertThat(read("{\"kind\":\"TREE\"}").has("error")).isFalse();
@@ -370,7 +372,7 @@ class TestContextBuildTools
             throws Exception
     {
         store.save(Optional.of(current()), assigned(ImmutableList.of()));
-        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, history, preparation,
+        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, pages, history, preparation,
                 unitOfWork, mapper, learning, lookup, candidates, CLOCK).bridge(TASK.toString()).orElseThrow();
 
         assertThat(read("{\"kind\":\"FILE\",\"path\":\"plugin/trino-delta-lake/src/Connector.java\"}")
@@ -384,7 +386,7 @@ class TestContextBuildTools
             throws Exception
     {
         store.save(Optional.of(current()), assigned(ImmutableList.of(DOC_ROOT)));
-        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, history, preparation,
+        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, pages, history, preparation,
                 unitOfWork, mapper, learning, lookup, candidates, CLOCK).bridge(TASK.toString()).orElseThrow();
         ContextLearningPlan plan = new ContextLearningPlan("plan-1", WORKSPACE, "report-1", "request", "sha256:" + "b".repeat(64),
                 0, 1, ImmutableList.of("topic:1"), 1, REPO, SHA,
@@ -405,7 +407,7 @@ class TestContextBuildTools
             throws Exception
     {
         store.save(Optional.of(current()), assigned(ImmutableList.of()));
-        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, history, preparation,
+        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, pages, history, preparation,
                 unitOfWork, mapper, learning, lookup, candidates, CLOCK).bridge(TASK.toString()).orElseThrow();
         String lead = "https://github.com/delta-io/delta/blob/master/PROTOCOL.md";
         ContextLearningPlan plan = new ContextLearningPlan("plan-1", WORKSPACE, "report-1", "request", "sha256:" + "b".repeat(64),
@@ -432,6 +434,7 @@ class TestContextBuildTools
             assertThat(SelectedDocumentationReader.readByAddress(receipt.registration())).isTrue();
         });
         assertThat(current().capture().activity().getLast().text()).isEqualTo("Opened " + lead);
+        verify(pages).record(WORKSPACE, new ContextPageCaptures.Page(lead, "b".repeat(64), Instant.EPOCH));
         assertThat(read("{\"kind\":\"PAGE\",\"url\":\"https://example.com/search?q=delta\"}").path("error").path("message").textValue())
                 .contains("query");
         verify(documents).readPage(WORKSPACE, page, Optional.empty(), 1);
@@ -442,7 +445,7 @@ class TestContextBuildTools
             throws Exception
     {
         store.save(Optional.of(current()), assigned(ImmutableList.of()));
-        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, history, preparation,
+        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, pages, history, preparation,
                 unitOfWork, mapper, learning, lookup, candidates, CLOCK).bridge(TASK.toString()).orElseThrow();
         ContextLearningPlan plan = new ContextLearningPlan("plan-1", WORKSPACE, "report-1", "request", "sha256:" + "b".repeat(64),
                 0, 1, ImmutableList.of("topic:1"), 1, REPO, SHA,
@@ -487,7 +490,7 @@ class TestContextBuildTools
             throws Exception
     {
         store.save(Optional.of(current()), assigned(ImmutableList.of()));
-        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, history, preparation,
+        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, pages, history, preparation,
                 unitOfWork, mapper, learning, lookup, candidates, CLOCK).bridge(TASK.toString()).orElseThrow();
         Plan plan = new Plan(RepositoryNotebook.empty(), ImmutableList.of());
         when(preparation.plan(any(), anyList(), anyList())).thenReturn(plan);
@@ -607,7 +610,7 @@ class TestContextBuildTools
                     .collect(ImmutableList.toImmutableList());
         });
         RepositoryContextPreparation actualPreparation = new RepositoryContextPreparation(actualNotebooks, inputs, workspaces, mock(ContextSourceChecker.class));
-        bridge = new ContextBuildTools(store, service, tasks, workspaces, actualNotebooks, baseline, documents, history, actualPreparation,
+        bridge = new ContextBuildTools(store, service, tasks, workspaces, actualNotebooks, baseline, documents, pages, history, actualPreparation,
                 unitOfWork, mapper, learning, lookup, candidates, CLOCK)
                 .bridge(TASK.toString()).orElseThrow();
         when(baseline.read(any(), eq(1L), eq(SHA), anyString(), eq(1), eq(Optional.empty()))).thenAnswer(call ->
@@ -707,7 +710,7 @@ class TestContextBuildTools
                 base.physicalRepository(), base.repositoryId(), base.repository(), base.baselineSha(), base.branch(), base.laneId(), base.defaults(), base.scopeIds(),
                 base.history(), base.documentationSources(), base.notebookRevision(), base.requestedAt(), base.capture(), base.mode(), Optional.empty(), Optional.empty(),
                 Optional.of(investigation)));
-        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, history, preparation,
+        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, pages, history, preparation,
                 unitOfWork, mapper, learning, lookup, candidates, CLOCK).bridge(TASK.toString()).orElseThrow();
         assertThat(bridge.tools()).extracting(tool -> tool.name()).containsExactly("repository_context_read", "repository_context_settle");
         assertThat(bridge.instruction()).contains("settles one dispute", "repository_context_settle once");

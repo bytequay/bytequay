@@ -285,7 +285,7 @@ public class ReviewTools
                                 + "document (omit sourceId for registered source list pages; otherwise sourceId, optional relativePage, captureId, page, refresh), "
                                 + "history (required sourceKind PR or ISSUE and number; selected merged PR or closed non-PR issue), "
                                 + "note (entryId and entryVersion read that exact version; searchRef optionally binds a retained hit; "
-                                + "sourceCheck compares its cited lines with the reviewed head), "
+                                + "sourceCheck compares its cited lines with the reviewed head and marks a cited page changed after a later capture), "
                                 + "note_list (operationKey, optional page and notebookRevision; enabled note summaries), "
                                 + "note_search (query and/or paths, operationKey, optional page and notebookRevision; literal filtering, no relevance ranking), "
                                 + "source (path, startLine, endLine, revision: head/base/previous/baseline), command_output, investigation, findings "

@@ -25,6 +25,7 @@ import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -42,6 +43,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * Compares a note's cited repository lines with one commit, reading only local Git objects: no fetch, worktree or index.
  * A file whose blob changed still counts as unchanged while the cited lines appear in it, in order, wherever they now are.
+ * A cited web page counts as changed when a learning run later captured different text from it; nothing is fetched.
  */
 @Service
 public class ContextSourceChecker
@@ -58,11 +60,13 @@ public class ContextSourceChecker
 
     private final GitCommandRunner git;
     private final WorkspaceRepositoryService workspaces;
+    private final ContextPageCaptures pages;
 
-    public ContextSourceChecker(GitCommandRunner git, WorkspaceRepositoryService workspaces)
+    public ContextSourceChecker(GitCommandRunner git, WorkspaceRepositoryService workspaces, ContextPageCaptures pages)
     {
         this.git = requireNonNull(git, "git is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.pages = requireNonNull(pages, "pages is null");
     }
 
     /** The committed HEAD of a task checkout, ignoring uncommitted edits; empty when Git cannot resolve it. */
@@ -154,15 +158,34 @@ public class ContextSourceChecker
                 gaps.add("Cited lines could not be compared: " + ContextText.excerpt(Optional.ofNullable(failure.getMessage()).orElse("unknown failure"), 300));
             }
         }
+        List<ContextPageCaptures.Page> captures = captures(workspaceId, sources.values(), gaps);
         ImmutableList.Builder<ContextSourceCheck.Source> checked = ImmutableList.builder();
         sources.forEach((ref, source) -> {
             Optional<ContextReference.RepositoryFile> file = source.reference() instanceof ContextReference.RepositoryFile found ? Optional.of(found) : Optional.empty();
-            Compared result = results.getOrDefault(ref, UNCHECKED);
+            Optional<Instant> pageChanged = ContextPageCaptures.changed(captures, source);
+            pageChanged.ifPresent(at -> gaps.add("The page " + ((ContextReference.Document) source.reference()).url()
+                    + " changed after this note cited it: a learning run captured different text at " + at + "."));
+            Compared result = pageChanged.isPresent() ? new Compared(Status.CHANGED, Optional.empty()) : results.getOrDefault(ref, UNCHECKED);
             checked.add(new ContextSourceCheck.Source(ref, source.reference().getKind(), file.map(ContextReference.RepositoryFile::path),
                     file.flatMap(ignored -> excerpt(source.excerpt())).map(excerpt -> range(excerpt.start(), excerpt.lines().size())),
                     result.currentLines(), file.map(ContextReference.RepositoryFile::commit), result.status()));
         });
         return new ContextSourceCheck(compared, checked.build(), gaps.stream().distinct().collect(toImmutableList()));
+    }
+
+    /** Page captures only when a source is a web page; unreadable captures leave pages unchecked. */
+    private List<ContextPageCaptures.Page> captures(String workspaceId, Collection<ContextSourceEvidence> sources, List<String> gaps)
+    {
+        if (sources.stream().noneMatch(source -> source.reference() instanceof ContextReference.Document)) {
+            return ImmutableList.of();
+        }
+        try {
+            return pages.find(workspaceId);
+        }
+        catch (RuntimeException failure) {
+            gaps.add("Cited pages could not be compared with later captures: " + ContextText.excerpt(Optional.ofNullable(failure.getMessage()).orElse("unknown failure"), 300));
+            return ImmutableList.of();
+        }
     }
 
     private Map<String, Compared> compare(WorkspaceRepositoryContext workspace, String commit, Map<String, ContextSourceEvidence> sources, List<String> gaps)

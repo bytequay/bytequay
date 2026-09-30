@@ -308,8 +308,11 @@ that file as consecutive lines in the same order, wherever they now are.
 It is **CHANGED** when the file exists but the cited lines do not, and
 **ABSENT** when the path is missing or not a regular file. Matching is exact,
 so reformatting counts as a change; indentation carries meaning in files such as
-YAML and Python. Documents, history, agent-reported excerpts, files from another
-repository, sources without a recorded blob and failed lookups are
+YAML and Python. A cited web page is **CHANGED** when a learning run captured
+different text from its address after the note's source was saved; learning
+runs keep the newest capture of each page they read, for the 200 most recently
+read pages. Other documents, history, agent-reported excerpts, files from
+another repository, sources without a recorded blob and failed lookups are
 **UNCHECKED**, as is an excerpt cut short by the capture limit when its file's
 blob differs. The note is `MATCHED` when it has sources and all are UNCHANGED,
 `VERSION_MISMATCH` when any is CHANGED or ABSENT, and `UNVERIFIED` otherwise.
@@ -321,11 +324,13 @@ receipt, so an exact retry returns what the agent first saw.
 
 The check is one bounded local `git ls-tree` over the note's cited paths, at most
 eight, plus one bounded blob read for each file whose blob differs, within the
-existing local Git time bound and 2 MiB file bound. It never fetches, stores no
-freshness state and starts no background work. A failed check leaves the note
-`UNVERIFIED` with the reason as a limitation; it never fails the read. List and
-search stay literal and unchecked, so their hits remain `UNVERIFIED`. The Notes
-page does not run this check.
+existing local Git time bound and 2 MiB file bound, plus the saved page
+captures when a source is a web page. It never fetches and starts no background
+work. A failed check leaves the note `UNVERIFIED` with the reason as a
+limitation; it never fails the read. List and search stay literal and
+unchecked, so their hits remain `UNVERIFIED`. The Notes page does not run this
+check, but a note's sources show a cited page that changed and when that was
+seen.
 
 `MATCHED` means the cited lines are unchanged, not that a claim is proved; a
 claim can depend on lines it did not cite. Renamed files report ABSENT. The
@@ -493,7 +498,8 @@ implementation extends its existing patterns rather than the old settings page.
 - **Notes.** Notes grouped by area, with an area rail, a Knowledge / Lessons
   filter and a literal filter over title, summary and paths. An area is the
   note's scope; several notes may share one. Each row shows the note's grade
-  line and marks a contested note.
+  line and marks a contested note and a note that cites a page a learning run
+  later found changed.
 - **Run marking.** A lightning mark and a run line naming the run and model sit
   on every action that starts an agent: Start discovery, Discover remaining
   areas, Learn selected, Continue learning, Learn from this PR, Investigate, Go

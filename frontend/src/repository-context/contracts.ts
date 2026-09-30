@@ -166,6 +166,8 @@ export type ContextReportedNoteDto = { entryId: string; entryVersion: number; ti
   contested: ContextContestDto | null; settlement: ContextSettlementDto | null };
 /** Which notes agents contest and how each note's last dispute was settled, by note id. */
 export type ContextDisputesDto = { contested: Record<string, ContextContestDto>; settlements: Record<string, ContextSettlementDto> };
+/** Source evidence ids whose cited page a later learning run captured with different text, with the time of that capture. */
+export type ContextChangedPagesDto = { changed: Record<string, string> };
 export type ContextContributionDto = {
   investigationStep: number; text: string; evidenceRefs: string[]; preparationRefs: string[]; limitations: string[];
 };
@@ -704,6 +706,9 @@ export function parseContextReportedNotes(value: unknown, workspaceId: string): 
       malformed('reported note grades');
     return result;
   });
+}
+export function parseContextChangedPages(value: unknown): ContextChangedPagesDto {
+  return { changed: stringMap(object(value, 'changed pages').changed, 'changed pages') };
 }
 export function parseContextDisputes(value: unknown): ContextDisputesDto {
   const item = object(value, 'disputes');

@@ -249,7 +249,8 @@ function scene(name: Scene): State {
 function usage(window: ContextUsageWindow): ContextUsageOverviewDto {
   return { trackingSince: ago(60 * 24 * 40), window,
     summary: { eligibleDevelopmentTasks: window === '30d' ? 14 : 31, eligibleReviewRuns: window === '30d' ? 9 : 22, contextOffTasks: 2,
-      developmentTasksFoundOrOpened: 8, reviewRunsFoundOrOpened: 5 },
+      developmentTasksFoundOrOpened: 8, reviewRunsFoundOrOpened: 5,
+      webLookups: { notesOn: { tasks: window === '30d' ? 11 : 26, lookups: window === '30d' ? 9 : 24 }, notesOff: { tasks: 2, lookups: 7 } } },
     entries: [refresh, layout, lesson, spi].map((entry, index) => ({ entryId: entry.id, title: entry.title, currentVersion: entry.version,
       foundTasks: 9 - index * 2, openedTasks: 6 - index * 2, lastConfirmedUseAt: ago(60 * (index + 2)),
       helpedTasks: 4 - index, notRelevantTasks: index, wrongTasks: entry === lesson ? 1 : 0 })) };
@@ -752,6 +753,14 @@ const scenarios: Array<[string, () => Promise<void>]> = [
     finally {
       contestRefresh = false;
     }
+  }],
+  ['usage compares web lookups per task with notes on and off', async () => {
+    await render('review');
+    await click('More options');
+    await click('Usage');
+    await waitFor(() => text(drawer()).includes('WEB LOOKUPS'), 'Usage shows web lookups');
+    assert(text(drawer()).includes('0.8 per task with notes on (11 tasks) · 3.5 per task with notes off (2 tasks)'), 'Both settings show their per-task lookups');
+    assert(state.calls.starts.length === 0, 'Reading usage starts no run');
   }],
   ['a note whose cited page changed is flagged in the notes list and its sources', async () => {
     changedDoc = true;

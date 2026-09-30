@@ -20,6 +20,7 @@ import { NoteApplicability, QuestionLine } from './ContextOverview';
 import { Chevron, Icon } from './icons';
 import {
   batchLine, batchRuns, clock, currentRun, latestRun, DOCUMENT_LINK_HOPS, needsTopicReselection, nextQuestion, noteArea, OUTCOME, plural, questionRow, runOrigin, shortDate, shortSha, timeOfDay,
+  webLookupLine,
 } from './model';
 import type { ContextActions, ContextData } from './RepositoryContextPage';
 
@@ -401,6 +402,9 @@ function UsageDrawer({ data, actions, onClose }: { data: ContextData; actions: C
           <div className="rcp-tile"><div className="rcp-tile__label">Context off</div><div className="rcp-tile__n">{summary.contextOffTasks}</div>
             <div className="rcp-tile__sub">{summary.contextOffTasks === 1 ? 'task or review' : 'tasks or reviews'}</div></div>
         </div>
+        <div className="rcp-drawer-label">WEB LOOKUPS</div>
+        <div className="rcp-usage-line">{webLookupLine(summary.webLookups)}</div>
+        <div className="rcp-usage-note">Web searches and pages opened in finished development turns. A task that ran with notes both on and off counts in neither.</div>
         <div className="rcp-usage-cols"><span>NOTE</span><span>FOUND</span><span>OPENED</span><span>LAST</span></div>
         <div className="rcp-rows">
           {rows.length === 0 && <div className="rcp-srcrow"><span className="rcp-srcrow__sub">No note was found or opened in this period.</span></div>}

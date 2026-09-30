@@ -75,7 +75,8 @@ class TestContextUsageService
             return null;
         }).when(store).forEach(eq("workspace"), any(), any());
 
-        ContextUsageService.Overview result = new ContextUsageService(store, notebooks, mock(ContextGradeService.class), Clock.fixed(NOW, ZoneOffset.UTC))
+        ContextUsageService.Overview result = new ContextUsageService(store, notebooks, mock(ContextGradeService.class), mock(ContextWebLookups.class),
+                Clock.fixed(NOW, ZoneOffset.UTC))
                 .overview("workspace", "all");
 
         assertThat(result.summary().eligibleDevelopmentTasks()).isEqualTo(2);
@@ -87,6 +88,40 @@ class TestContextUsageService
         assertThat(row.openedTasks()).isZero();
         assertThat(row.lastConfirmedUseAt()).contains(NOW.minusSeconds(60));
         assertThat(result.entries()).extracting(ContextUsageService.EntryRow::entryId).containsExactly(ENTRY, ContextEntry.knowledgeId(SCOPE));
+    }
+
+    @Test
+    void comparesWebLookupsOfTasksThatRanWithNotesOnAndOff()
+    {
+        RepositoryContextService notebooks = mock(RepositoryContextService.class);
+        ContextUsageStore store = mock(ContextUsageStore.class);
+        ContextWebLookups lookups = mock(ContextWebLookups.class);
+        when(notebooks.getNotebook("workspace")).thenReturn(RepositoryNotebook.empty());
+        List<ContextUsageEvent> facts = ImmutableList.of(eligible("task-on", "on-1", true), eligible("task-on", "on-2", true), eligible("task-off", "off-1", false),
+                eligible("task-mixed", "mixed-1", true), eligible("task-mixed", "mixed-2", false), eligible("task-quiet", "quiet-1", true));
+        doAnswer(invocation -> {
+            Consumer<ContextUsageEvent> consumer = invocation.getArgument(2);
+            facts.forEach(consumer);
+            return null;
+        }).when(store).forEach(eq("workspace"), any(), any());
+        when(lookups.find("workspace")).thenReturn(ImmutableList.of(settled("task-on", "on-1", 1), settled("task-on", "on-2", 2), settled("task-off", "off-1", 5),
+                settled("task-mixed", "mixed-1", 4), settled("task-mixed", "mixed-2", 4), settled("task-quiet", "quiet-1", 0), settled("task-other", "other-1", 9)));
+
+        ContextUsageService.Summary summary = new ContextUsageService(store, notebooks, mock(ContextGradeService.class), lookups, Clock.fixed(NOW, ZoneOffset.UTC))
+                .overview("workspace", "all").summary();
+
+        assertThat(summary.webLookups()).isEqualTo(new ContextUsageService.WebLookups(new ContextUsageService.Lookups(2, 3), new ContextUsageService.Lookups(1, 5)));
+    }
+
+    private static ContextUsageEvent eligible(String task, String turn, boolean notesOn)
+    {
+        return new ContextUsageEvent("workspace", task, Optional.of(turn), Optional.empty(), ContextUsageEvent.TaskKind.DEVELOPMENT, ContextUsageEvent.Stage.ELIGIBLE,
+                ContextUsageEvent.Delivery.CONFIRMED, "context-eligible:" + turn, Optional.empty(), Optional.empty(), Optional.of(notesOn), NOW.minusSeconds(60));
+    }
+
+    private static ContextWebLookups.Turn settled(String task, String turn, int lookups)
+    {
+        return new ContextWebLookups.Turn(task, turn, lookups, NOW.minusSeconds(30));
     }
 
     private static ContextUsageEvent event(String task, ContextUsageEvent.Stage stage, ContextUsageEvent.Delivery delivery,

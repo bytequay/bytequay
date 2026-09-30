@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -43,13 +44,15 @@ public class ContextUsageService
     private final ContextUsageStore store;
     private final RepositoryContextService notebooks;
     private final ContextGradeService grades;
+    private final ContextWebLookups webLookups;
     private final Clock clock;
 
-    public ContextUsageService(ContextUsageStore store, RepositoryContextService notebooks, ContextGradeService grades, Clock clock)
+    public ContextUsageService(ContextUsageStore store, RepositoryContextService notebooks, ContextGradeService grades, ContextWebLookups webLookups, Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
         this.notebooks = requireNonNull(notebooks, "notebooks is null");
         this.grades = requireNonNull(grades, "grades is null");
+        this.webLookups = requireNonNull(webLookups, "webLookups is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -68,8 +71,37 @@ public class ContextUsageService
                 .collect(toImmutableList());
         Summary summary = new Summary(aggregation.development.size(), aggregation.reviews.size(), aggregation.off.size(),
                 aggregation.foundOrOpened.getOrDefault(ContextUsageEvent.TaskKind.DEVELOPMENT, ImmutableSet.of()).size(),
-                aggregation.foundOrOpened.getOrDefault(ContextUsageEvent.TaskKind.PR_REVIEW, ImmutableSet.of()).size());
+                aggregation.foundOrOpened.getOrDefault(ContextUsageEvent.TaskKind.PR_REVIEW, ImmutableSet.of()).size(),
+                webLookups(aggregation.notesOn, webLookups.find(workspaceId), since));
         return new Overview(store.trackingSince(workspaceId), window, summary, entries);
+    }
+
+    /** Web lookups per development task that ran with notes on and per task that ran with notes off; a task that mixed both counts in neither. */
+    private static WebLookups webLookups(Map<String, Boolean> notesOn, List<ContextWebLookups.Turn> turns, Optional<Instant> since)
+    {
+        Map<String, List<ContextWebLookups.Turn>> tasks = turns.stream()
+                .filter(turn -> notesOn.containsKey(turn.turnId()) && since.map(turn.settledAt()::isAfter).orElse(true))
+                .collect(Collectors.groupingBy(ContextWebLookups.Turn::taskId));
+        int onTasks = 0;
+        int onLookups = 0;
+        int offTasks = 0;
+        int offLookups = 0;
+        for (List<ContextWebLookups.Turn> task : tasks.values()) {
+            Set<Boolean> settings = task.stream().map(turn -> notesOn.get(turn.turnId())).collect(Collectors.toSet());
+            if (settings.size() != 1) {
+                continue;
+            }
+            int lookups = task.stream().mapToInt(ContextWebLookups.Turn::lookups).sum();
+            if (settings.contains(true)) {
+                onTasks++;
+                onLookups += lookups;
+            }
+            else {
+                offTasks++;
+                offLookups += lookups;
+            }
+        }
+        return new WebLookups(new Lookups(onTasks, onLookups), new Lookups(offTasks, offLookups));
     }
 
     private Optional<Instant> since(String window)
@@ -93,7 +125,12 @@ public class ContextUsageService
     }
 
     public record Summary(int eligibleDevelopmentTasks, int eligibleReviewRuns, int contextOffTasks, int developmentTasksFoundOrOpened,
-            int reviewRunsFoundOrOpened) {}
+            int reviewRunsFoundOrOpened, WebLookups webLookups) {}
+
+    public record WebLookups(Lookups notesOn, Lookups notesOff) {}
+
+    /** Tasks counted and the web lookups their finished turns made. */
+    public record Lookups(int tasks, int lookups) {}
 
     /** Found and opened count the note's current version; grades count tasks across its versions; a removed note has no current version. */
     public record EntryRow(String entryId, String title, Optional<Long> currentVersion, int foundTasks, int openedTasks, Optional<Instant> lastConfirmedUseAt,
@@ -104,6 +141,8 @@ public class ContextUsageService
         private final Set<String> development = new HashSet<>();
         private final Set<String> reviews = new HashSet<>();
         private final Set<String> off = new HashSet<>();
+        // Whether each eligible development turn ran with notes on.
+        private final Map<String, Boolean> notesOn = new HashMap<>();
         private final Map<String, EntryUsage> entries = new HashMap<>();
         private final Map<ContextUsageEvent.TaskKind, Set<String>> foundOrOpened = new HashMap<>();
 
@@ -114,6 +153,9 @@ public class ContextUsageService
                 (event.taskKind() == ContextUsageEvent.TaskKind.DEVELOPMENT ? development : reviews).add(work);
                 if (!event.contextEnabled().orElseThrow()) {
                     off.add(work);
+                }
+                if (event.taskKind() == ContextUsageEvent.TaskKind.DEVELOPMENT) {
+                    event.turnId().ifPresent(turn -> notesOn.put(turn, event.contextEnabled().orElseThrow()));
                 }
             }
             event.note().ifPresent(note -> entries.computeIfAbsent(note.id(), id -> new EntryUsage(note.id(), note.title())));

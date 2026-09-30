@@ -49,5 +49,5 @@ it('keeps every repository context run explicit and every review action run-free
       }`,
   });
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-  expect(results).toHaveLength(26);
+  expect(results).toHaveLength(27);
 }, 120_000);

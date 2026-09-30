@@ -73,7 +73,8 @@ const notebook: RepositoryNotebookDto = {
 };
 const usage: ContextUsageOverviewDto = {
   trackingSince: '2026-09-01T00:00:00Z', window: '30d',
-  summary: { eligibleDevelopmentTasks: 2, eligibleReviewRuns: 1, contextOffTasks: 1, developmentTasksFoundOrOpened: 1, reviewRunsFoundOrOpened: 0 },
+  summary: { eligibleDevelopmentTasks: 2, eligibleReviewRuns: 1, contextOffTasks: 1, developmentTasksFoundOrOpened: 1, reviewRunsFoundOrOpened: 0,
+    webLookups: { notesOn: { tasks: 1, lookups: 2 }, notesOff: { tasks: 1, lookups: 5 } } },
   entries: [{ entryId: 'knowledge:project', title: 'Project', currentVersion: 2, foundTasks: 1, openedTasks: 1, lastConfirmedUseAt: '2026-09-02T00:00:00Z',
     helpedTasks: 3, notRelevantTasks: 1, wrongTasks: 1 }],
 };
@@ -124,6 +125,8 @@ describe('repository context contracts', () => {
     for (const malformed of [{ ...usage, window: 'all' }, { ...usage, trackingSince: undefined },
       { ...usage, summary: { ...usage.summary, developmentTasksFoundOrOpened: undefined } },
       { ...usage, summary: { ...usage.summary, eligibleReviewRuns: -1 } },
+      { ...usage, summary: { ...usage.summary, webLookups: undefined } },
+      { ...usage, summary: { ...usage.summary, webLookups: { ...usage.summary.webLookups, notesOff: { tasks: 1, lookups: -2 } } } },
       { ...usage, entries: [{ ...usage.entries[0], currentVersion: 0 }] },
       { ...usage, entries: [{ ...usage.entries[0], currentVersion: null }] },
       { ...usage, entries: [{ ...usage.entries[0], foundTasks: -1 }] },

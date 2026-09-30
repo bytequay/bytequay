@@ -442,6 +442,7 @@ class TestDevelopmentContextTools
     {
         turn = AgentTurn.accepted(turnId, taskId, "turn", settings(false), Instant.EPOCH);
         assertThat(service.prepare(task, turn, "Work on Iceberg")).isEqualTo("Work on Iceberg");
+        verify(observer).watch(taskId);
         verify(usage).record(argThat(event -> event.stage() == com.bytequay.core.context.ContextUsageEvent.Stage.ELIGIBLE
                 && event.delivery() == com.bytequay.core.context.ContextUsageEvent.Delivery.CONFIRMED
                 && event.contextEnabled().equals(Optional.of(false))));

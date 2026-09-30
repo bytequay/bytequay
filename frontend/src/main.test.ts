@@ -272,7 +272,8 @@ it('reads bounded usage, save times and the monitored baseline through authentic
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
   const overview: ContextUsageOverviewDto = { trackingSince: null, window: '30d',
-    summary: { eligibleDevelopmentTasks: 0, eligibleReviewRuns: 0, contextOffTasks: 0, developmentTasksFoundOrOpened: 0, reviewRunsFoundOrOpened: 0 },
+    summary: { eligibleDevelopmentTasks: 0, eligibleReviewRuns: 0, contextOffTasks: 0, developmentTasksFoundOrOpened: 0, reviewRunsFoundOrOpened: 0,
+      webLookups: { notesOn: { tasks: 0, lookups: 0 }, notesOff: { tasks: 0, lookups: 0 } } },
     entries: [] };
   const fetch = vi.fn(async () => new Response(JSON.stringify(overview)));
   vi.stubGlobal('fetch', fetch);

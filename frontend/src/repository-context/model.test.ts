@@ -17,7 +17,7 @@ import type {
   ContextScopeDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto,
 } from './contracts';
 import {
-  batchLine, batchRuns, disputeSides, filterNotes, gradeLine, grader, latestReport, runOrigin, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pageChangedAt, pendingCounts, planCounts, previousVersion,
+  batchLine, batchRuns, disputeSides, filterNotes, gradeLine, grader, latestReport, runOrigin, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pageChangedAt, pendingCounts, planCounts, previousVersion, webLookupLine,
   questionRow, reportsNeedingYou, reviewItems, runNotesToDisable, scopeForTopic, settledLine, statusCard, topicSummary, type StatusInput,
 } from './model';
 
@@ -218,6 +218,13 @@ describe('repository context notes', () => {
     expect(pageChangedAt(cited, { s3: '2026-09-30T10:00:00Z', s2: '2026-09-29T10:00:00Z', other: '2026-10-01T00:00:00Z' })).toBe('2026-09-30T10:00:00Z');
   });
 
+  it('compares web lookups per task with notes on and off', () => {
+    expect(webLookupLine({ notesOn: { tasks: 0, lookups: 0 }, notesOff: { tasks: 0, lookups: 0 } })).toBe('No finished development task in this period recorded its web lookups.');
+    expect(webLookupLine({ notesOn: { tasks: 12, lookups: 9 }, notesOff: { tasks: 3, lookups: 7 } }))
+      .toBe('0.8 per task with notes on (12 tasks) · 2.3 per task with notes off (3 tasks)');
+    expect(webLookupLine({ notesOn: { tasks: 1, lookups: 2 }, notesOff: { tasks: 0, lookups: 0 } })).toBe('2.0 per task with notes on (1 task) · no task with notes off');
+  });
+
   it('shows a task only the notes whose current version it saved', () => {
     const lesson = { ...entry, id: 'lesson:1', kind: 'MEMORY' as const, version: 5 };
     const times: ContextTimesDto = { entries: { [`3:${entry.id}`]: { at: '2026-09-29T11:00:00Z', taskId: 'task-dev' },
@@ -286,7 +293,8 @@ describe('repository context notes', () => {
     const row = { entryId: entry.id, title: entry.title, currentVersion: 3, foundTasks: 14, openedTasks: 12, lastConfirmedUseAt: '2026-09-27T12:00:00Z',
       helpedTasks: 7, notRelevantTasks: 3, wrongTasks: 1 };
     const usage: ContextUsageOverviewDto = { trackingSince: null, window: '30d',
-      summary: { eligibleDevelopmentTasks: 0, eligibleReviewRuns: 0, contextOffTasks: 0, developmentTasksFoundOrOpened: 0, reviewRunsFoundOrOpened: 0 }, entries: [row] };
+      summary: { eligibleDevelopmentTasks: 0, eligibleReviewRuns: 0, contextOffTasks: 0, developmentTasksFoundOrOpened: 0, reviewRunsFoundOrOpened: 0,
+        webLookups: { notesOn: { tasks: 0, lookups: 0 }, notesOff: { tasks: 0, lookups: 0 } } }, entries: [row] };
     expect(gradeLine(usage, entry, NOW)).toBe('opened in 12 tasks · helped 7 · not relevant 3 · wrong 1 · last opened 2d ago');
     expect(gradeLine({ ...usage, entries: [{ ...row, openedTasks: 1, lastConfirmedUseAt: null }] }, entry, NOW)).toBe('opened in 1 task · helped 7 · not relevant 3 · wrong 1');
     expect(gradeLine({ ...usage, entries: [{ ...row, lastConfirmedUseAt: '2026-09-29T11:59:40Z' }] }, entry, NOW)).toMatch(/ · last opened just now$/);

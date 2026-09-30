@@ -19,6 +19,7 @@ import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
+import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
@@ -36,6 +37,7 @@ import org.springframework.stereotype.Component;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -45,7 +47,10 @@ import java.util.concurrent.Flow;
 
 import static java.util.Objects.requireNonNull;
 
-/** Confirms a notebook search or read only after its exact provider tool result enters the durable task log. */
+/**
+ * Confirms a notebook search or read only after its exact provider tool result enters the durable task log, and counts each
+ * development turn's web lookups for the usage comparison of turns with notes on and off.
+ */
 @Component
 public class DevelopmentContextUsageObserver
 {
@@ -54,6 +59,8 @@ public class DevelopmentContextUsageObserver
     private static final long REPLAY_EVENTS = 5000;
     private static final String RECEIPT_PREFIX = "context-receipt:";
     private static final Set<String> TOOL_NAMES = ImmutableSet.of("bytequay/repository_context_lookup", "mcp__bytequay__repository_context_lookup");
+    // Codex reports every web step as a Web search; Claude names its web tools.
+    private static final Set<String> WEB_TOOLS = ImmutableSet.of("Web search", "WebSearch", "WebFetch");
     private static final Set<AgentEventPayload.LifecyclePhase> SETTLING = EnumSet.of(
             AgentEventPayload.LifecyclePhase.TURN_COMPLETED,
             AgentEventPayload.LifecyclePhase.INTERRUPTED,
@@ -65,18 +72,22 @@ public class DevelopmentContextUsageObserver
     private final AgentTurnStore turns;
     private final DevelopmentContextReceiptStore receipts;
     private final ContextUsageRecorder usage;
+    private final ContextWebLookups lookups;
     private final Set<TaskId> watched = ConcurrentHashMap.newKeySet();
+    // Sequences of each unsettled turn's web steps, so a replayed step counts once.
+    private final Map<TurnId, Set<Long>> webSteps = new ConcurrentHashMap<>();
     private final Map<TaskId, Flow.Subscription> subscriptions = new ConcurrentHashMap<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("development-context-usage-", 0).factory());
 
     public DevelopmentContextUsageObserver(AgentEventService events, AgentTaskStore tasks, AgentTurnStore turns,
-            DevelopmentContextReceiptStore receipts, ContextUsageRecorder usage)
+            DevelopmentContextReceiptStore receipts, ContextUsageRecorder usage, ContextWebLookups lookups)
     {
         this.events = requireNonNull(events, "events is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.receipts = requireNonNull(receipts, "receipts is null");
         this.usage = requireNonNull(usage, "usage is null");
+        this.lookups = requireNonNull(lookups, "lookups is null");
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -164,6 +175,23 @@ public class DevelopmentContextUsageObserver
         }
     }
 
+    /** Counts a turn's completed web steps and records the count once when the turn settles. */
+    void count(AgentEventEnvelope event)
+    {
+        if (event.turnId().isEmpty()) {
+            return;
+        }
+        TurnId turn = event.turnId().orElseThrow();
+        if (event.payload() instanceof AgentEventPayload.ToolActivity tool && tool.state() == ActivityState.COMPLETED && WEB_TOOLS.contains(tool.name())) {
+            webSteps.computeIfAbsent(turn, ignored -> ConcurrentHashMap.newKeySet()).add(event.sequence());
+        }
+        else if (event.payload() instanceof AgentEventPayload.Lifecycle lifecycle && SETTLING.contains(lifecycle.phase())) {
+            int count = Optional.ofNullable(webSteps.remove(turn)).map(Set::size).orElse(0);
+            tasks.find(event.taskId()).flatMap(AgentTask::workspaceId)
+                    .ifPresent(workspaceId -> lookups.record(workspaceId, new ContextWebLookups.Turn(event.taskId().toString(), turn.toString(), count, event.occurredAt())));
+        }
+    }
+
     @PreDestroy
     public void close()
     {
@@ -201,6 +229,12 @@ public class DevelopmentContextUsageObserver
                 }
                 catch (RuntimeException failure) {
                     log.debug("Could not confirm development context delivery for task {}: {}", taskId, failure.toString());
+                }
+                try {
+                    count(item);
+                }
+                catch (RuntimeException failure) {
+                    log.debug("Could not count web lookups for task {}: {}", taskId, failure.toString());
                 }
                 if (settles(item)) {
                     if (subscriptions.remove(taskId, subscription)) {

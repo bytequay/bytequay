@@ -661,6 +661,7 @@ class TestRepositoryContextService
         service.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty()));
         settings.put(ContextBuildStore.PREFIX + WORKSPACE, "retained learning request");
         settings.put(ContextPageCaptures.PREFIX + WORKSPACE, "[]");
+        settings.put(ContextWebLookups.PREFIX + WORKSPACE, "[]");
         service.deleteWorkspaceData(WORKSPACE);
         service.deleteWorkspaceData(WORKSPACE);
         when(workspaces.findById(WORKSPACE)).thenReturn(Optional.empty());
@@ -668,6 +669,7 @@ class TestRepositoryContextService
         assertThat(settings.get(KEY)).isEmpty();
         assertThat(settings.get(ContextBuildStore.PREFIX + WORKSPACE)).isEmpty();
         assertThat(settings.get(ContextPageCaptures.PREFIX + WORKSPACE)).isEmpty();
+        assertThat(settings.get(ContextWebLookups.PREFIX + WORKSPACE)).isEmpty();
     }
 
     @Test

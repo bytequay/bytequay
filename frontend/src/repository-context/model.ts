@@ -15,7 +15,7 @@ import { displayModelName, effortLabel, providerAvailable, providerRemedy } from
 import { ago, relativeTime } from '../relativeTime';
 import type { ModelSettingsDto } from '../types';
 import type {
-  ContextActivityDto, ContextBaselineDto, ContextPlanQuestionDto, ContextBuildViewDto, ContextClaimDto, ContextDiscoveryReportDto, ContextEntryDto, ContextGradeDto,
+  ContextActivityDto, ContextBaselineDto, ContextPlanQuestionDto, ContextWebLookupsDto, ContextBuildViewDto, ContextClaimDto, ContextDiscoveryReportDto, ContextEntryDto, ContextGradeDto,
   ContextLearningPlanDto, ContextLearningPlanViewDto, ContextMergedCandidatesDto, ContextPlanTopicDto, ContextQuestionTarget, ContextReportedNoteDto, ContextRunDto,
   ContextInvestigationOutcome, ContextScopeDto, ContextSettlementDto, ContextSourceEvidenceDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto,
 } from './contracts';
@@ -270,6 +270,14 @@ export function grader(grade: ContextGradeDto, titles: TaskTitles): string {
   if (grade.grader === 'USER') return 'you';
   const kind = grade.taskKind === 'PR_REVIEW' ? 'review' : 'task';
   return titles[grade.taskId] ? `${kind} “${titles[grade.taskId]}”` : `a ${kind}`;
+}
+
+/** Web lookups per development task with notes on and off; a task whose turns ran with both counts in neither. */
+export function webLookupLine(web: ContextWebLookupsDto): string {
+  if (web.notesOn.tasks + web.notesOff.tasks === 0) return 'No finished development task in this period recorded its web lookups.';
+  const side = (lookups: ContextWebLookupsDto['notesOn'], setting: string) => lookups.tasks === 0 ? `no task with notes ${setting}`
+    : `${(lookups.lookups / lookups.tasks).toFixed(1)} per task with notes ${setting} (${plural(lookups.tasks, 'task')})`;
+  return `${side(web.notesOn, 'on')} · ${side(web.notesOff, 'off')}`;
 }
 
 /** A note's reach and grades in the usage window; the grades are what grading tasks said, not a verdict. Empty until usage is read. */

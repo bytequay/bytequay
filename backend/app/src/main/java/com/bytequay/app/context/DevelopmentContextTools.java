@@ -164,10 +164,11 @@ public class DevelopmentContextTools
         boolean enabled = turn.settings().orElseThrow().useRepositoryContext();
         usage.record(event(workspaceId, task, turn, ELIGIBLE, CONFIRMED, "context-eligible:" + turn.id(),
                 Optional.empty(), Optional.empty(), Optional.of(enabled)));
+        // Turns with notes off are watched too, so their web lookups can be compared with the turns that had notes.
+        observer.watch(task.id());
         if (!enabled) {
             return message;
         }
-        observer.watch(task.id());
         String digest = digest(message);
         Optional<DevelopmentContextReceipt> saved = receipts.find(task.id().toString(), turn.id().toString(), "offer");
         if (saved.isPresent()) {

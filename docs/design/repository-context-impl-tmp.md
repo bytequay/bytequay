@@ -2210,7 +2210,7 @@ and [the user interface](repository-context-refactor.md#8-user-interface).
 - [x] Keep the newest capture of each page a learning run reads; mark a cited page
   CHANGED in the source check when a later capture differs, and flag the note in
   the Notes list and its sources.
-- [ ] Count web lookups per development task with notes on and off, and show them
+- [x] Count web lookups per development task with notes on and off, and show them
   on the usage page.
 
 Batches passed JVM 25 `mvn verify` with 3,667 tests and no Checkstyle
@@ -2249,6 +2249,15 @@ later capture with different text, unreadable captures leaving pages unchecked,
 learning-run DOCUMENT and PAGE reads recording captures, captures removed with
 the workspace, and the flag in the Notes list and a note's sources. No live
 model run was used.
+
+Web lookup counts passed JVM 25 `mvn verify` with 3,686 tests and no Checkstyle
+violations; frontend lint, TypeScript, all 1,425 tests and macOS packaging
+passed. Regressions cover completed Codex and Claude web steps counted once per
+turn and recorded when the turn settles, the first count of a turn kept, turns
+with notes off watched too, tasks split by notes on and off with mixed tasks
+left out, the counts removed with the workspace, and the usage line. Fixing the
+observer's second-turn replay, which ended the watch at an earlier turn's
+completion, came first. No live model run was used.
 
 ## Save notes without approval
 

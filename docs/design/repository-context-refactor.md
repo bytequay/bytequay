@@ -437,6 +437,12 @@ wider than they hold, points to the learning instructions rather than to one
 note. Whether repository context improves results overall remains a question
 for the controlled On/Off comparison.
 
+The usage page compares web lookups per development task with notes on and
+with notes off: the web searches and pages each finished turn opened, counted
+once per step and recorded when the turn settles. A task whose turns ran with
+notes both on and off counts in neither; tasks differ in size, so the
+comparison is a signal, not a controlled measurement.
+
 ## 6. Explore and merged work
 
 **Explore & prepare context** reuses the workspace question/development task.

@@ -138,11 +138,13 @@ export type ContextBuildViewDto = {
   };
 };
 export type ContextUsageWindow = '30d' | 'all';
+/** Web lookups in finished development turns, per task that ran with notes on and per task that ran with notes off. */
+export type ContextWebLookupsDto = { notesOn: { tasks: number; lookups: number }; notesOff: { tasks: number; lookups: number } };
 /** Found and opened count each note's current version; graded counts distinct tasks across its versions; a removed note has no current version. */
 export type ContextUsageOverviewDto = {
   trackingSince: string | null; window: ContextUsageWindow;
   summary: { eligibleDevelopmentTasks: number; eligibleReviewRuns: number; contextOffTasks: number; developmentTasksFoundOrOpened: number;
-    reviewRunsFoundOrOpened: number };
+    reviewRunsFoundOrOpened: number; webLookups: ContextWebLookupsDto };
   entries: Array<{ entryId: string; title: string; currentVersion: number | null; foundTasks: number; openedTasks: number; lastConfirmedUseAt: string | null;
     helpedTasks: number; notRelevantTasks: number; wrongTasks: number }>;
 };
@@ -643,6 +645,11 @@ export function parseContextBuildView(value: unknown, workspaceId: string): Cont
   if (result.build.task !== null && (result.build.task.id !== result.build.taskId || result.build.task.workspaceId !== workspaceId)) malformed('build task ownership');
   return result;
 }
+function webLookups(value: unknown): ContextWebLookupsDto {
+  const item = object(value, 'web lookups');
+  const side = (raw: unknown, field: string) => { const lookups = object(raw, field); return { tasks: count(lookups.tasks, field), lookups: count(lookups.lookups, field) }; };
+  return { notesOn: side(item.notesOn, 'web lookups with notes on'), notesOff: side(item.notesOff, 'web lookups with notes off') };
+}
 export function parseContextUsageOverview(value: unknown, window: ContextUsageWindow): ContextUsageOverviewDto {
   const item = object(value, 'usage overview');
   if (item.window !== window) malformed('usage window');
@@ -651,7 +658,7 @@ export function parseContextUsageOverview(value: unknown, window: ContextUsageWi
     summary: { eligibleDevelopmentTasks: count(summary.eligibleDevelopmentTasks, 'eligible development tasks'),
       eligibleReviewRuns: count(summary.eligibleReviewRuns, 'eligible review runs'), contextOffTasks: count(summary.contextOffTasks, 'context off tasks'),
       developmentTasksFoundOrOpened: count(summary.developmentTasksFoundOrOpened, 'development tasks that found or opened a note'),
-      reviewRunsFoundOrOpened: count(summary.reviewRunsFoundOrOpened, 'review runs that found or opened a note') },
+      reviewRunsFoundOrOpened: count(summary.reviewRunsFoundOrOpened, 'review runs that found or opened a note'), webLookups: webLookups(summary.webLookups) },
     entries: array(item.entries, 'usage entries', value => {
       const row = object(value, 'usage entry');
       const currentVersion = row.currentVersion === null ? null : count(row.currentVersion, 'current version', 1);

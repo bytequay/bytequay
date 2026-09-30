@@ -67,7 +67,8 @@ class TestDevelopmentContextUsageObserver
     private final AgentTurnStore turns = mock(AgentTurnStore.class);
     private final DevelopmentContextReceiptStore receipts = mock(DevelopmentContextReceiptStore.class);
     private final ContextUsageRecorder usage = mock(ContextUsageRecorder.class);
-    private final DevelopmentContextUsageObserver observer = new DevelopmentContextUsageObserver(events, tasks, turns, receipts, usage);
+    private final ContextWebLookups lookups = mock(ContextWebLookups.class);
+    private final DevelopmentContextUsageObserver observer = new DevelopmentContextUsageObserver(events, tasks, turns, receipts, usage, lookups);
 
     @AfterEach
     void close()
@@ -127,6 +128,24 @@ class TestDevelopmentContextUsageObserver
 
         verify(usage, timeout(5_000)).confirm("workspace", reference, ContextUsageEvent.Stage.OPENED);
         verify(events, times(1)).subscribe(eq(taskId), anyLong());
+    }
+
+    @Test
+    void countsATurnsCompletedWebStepsOnceAndRecordsThemWhenItSettles()
+    {
+        when(tasks.find(taskId)).thenReturn(Optional.of(task()));
+        AgentEventEnvelope search = envelope(1, turnId, new AgentEventPayload.ToolActivity("Web search", ActivityState.COMPLETED, "Opened https://example.com/spec",
+                Optional.empty()));
+        observer.count(search);
+        observer.count(search);
+        observer.count(envelope(2, turnId, new AgentEventPayload.ToolActivity("WebFetch", ActivityState.COMPLETED, "https://example.com/spec", Optional.empty())));
+        observer.count(envelope(3, turnId, new AgentEventPayload.ToolActivity("WebFetch", ActivityState.STARTED, "https://example.com/other", Optional.empty())));
+        observer.count(envelope(4, turnId, new AgentEventPayload.ToolActivity("Bash", ActivityState.COMPLETED, "mvn verify", Optional.empty())));
+        observer.count(envelope(5, TurnId.random(), new AgentEventPayload.ToolActivity("WebSearch", ActivityState.COMPLETED, "delta", Optional.empty())));
+
+        observer.count(envelope(6, turnId, new AgentEventPayload.Lifecycle(AgentEventPayload.LifecyclePhase.TURN_COMPLETED, "Done")));
+
+        verify(lookups).record("workspace", new ContextWebLookups.Turn(taskId.toString(), turnId.toString(), 2, Instant.EPOCH));
     }
 
     /** Replays the events after {@code after} on request, then stays open like a live stream. */

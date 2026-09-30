@@ -185,7 +185,9 @@ export function usePullRequestDetail(
       }
       catch (failure) {
         retryAt = Date.now() + pullRequestDetailRefreshDelay(failure);
-        if (!cancelled) setError(remoteErrorMessage(failure));
+        // Nobody asked for this poll and the next one retries, so a failure is only worth showing
+        // when there is no detail on screen. A refresh the reader asks for still reports it.
+        if (!cancelled && applied.current === null) setError(remoteErrorMessage(failure));
       }
       finally {
         if (refreshInFlight.current === request) refreshInFlight.current = null;

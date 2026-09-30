@@ -146,6 +146,7 @@ export async function run(): Promise<string> {
     const resetAt = now + 120_000;
     calls[7].answer.reject(new Error(`GitHub core API rate limit reached; retry after ${new Date(resetAt).toISOString()}`));
     await settle();
+    assert(source?.error === null, 'A failed background poll must not report over the detail on screen');
     activity(4); activity(5);
     await advance(60_000);
     assert(Number(calls.length) === 8, 'Known updates must respect the reported rate-limit pause');

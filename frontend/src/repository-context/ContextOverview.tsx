@@ -20,7 +20,7 @@ import type { AgentRuntimeStopImpactDto } from '../types';
 import type { ContextDiscoveryReportDto, ContextPlanTopicDto } from './contracts';
 import { Chevron, Icon, Spinner } from './icons';
 import {
-  BATCH_RUNS, batchLine, batchRuns, clock, currentRun, entryTimeKey, grader, kindLabel, latestReport, needsTopicReselection, nextQuestion, openCandidates, planCounts, plural, previousVersion,
+  BATCH_RUNS, batchLine, batchOrder, batchRuns, clock, currentRun, entryTimeKey, grader, kindLabel, latestReport, needsTopicReselection, nextQuestion, openCandidates, planCounts, plural, previousVersion,
   reportsNeedingYou, reviewItems, shortDate, shortSha, scopeForTopic, statusCard, topicSummary, topicsOutsidePlan, DOCUMENT_LINK_HOPS, type QuestionRow,
   type StatusAction,
 } from './model';
@@ -101,6 +101,7 @@ function StatusCardView({ data, actions, busy, pending }: { data: ContextData; a
           && <span className="rcp-status__elapsed">{clock(data.now - Date.parse(card.elapsedSince))}</span>}</div>
         {card.question !== null && <div className="rcp-status__question">“{card.question}”</div>}
         {card.body !== null && <div className="rcp-status__text">{card.body}</div>}
+        {card.batch !== null && <div className="rcp-status__batch">{card.batch}</div>}
         {(card.feed.length > 0 || card.live !== null) && <div className="rcp-feed">
           {card.feed.map((line, index) => <div className={`rcp-feed__line rcp-tone--${line.tone === 'FAILED' ? 'red' : line.tone === 'LIMIT' ? 'amber' : 'green'}`} key={index}>
             <span className="rcp-feed__mark">{line.tone === 'FAILED' ? '✕' : line.tone === 'LIMIT' ? '■' : '✓'}</span><span className="rcp-feed__text">{line.text}</span></div>)}
@@ -287,6 +288,7 @@ function PlanSection({ data, actions, busy }: { data: ContextData; actions: Cont
   const next = nextQuestion(data.planView);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const counts = planCounts(plan);
+  const order = batchOrder(plan);
   const openNote = (id: string) => actions.openDrawer({ kind: 'note', id });
   return <section aria-label="Learning plan">
     <div className="rcp-section-head"><span className="rcp-label">LEARNING PLAN</span>
@@ -294,7 +296,7 @@ function PlanSection({ data, actions, busy }: { data: ContextData; actions: Cont
       <span className="rcp-spacer" /><button type="button" className="rcp-link" onClick={() => actions.openDrawer({ kind: 'plan', tab: 'plan' })}>Sources and activity</button></div>
     <div className="rcp-list">
       {plan.topics.map(topic => {
-        const summary = topicSummary(topic, data.build.runs, running, data.notebook);
+        const summary = topicSummary(topic, data.build.runs, running, data.notebook, order);
         const current = running?.question?.topicId === topic.id || (running === null && next?.topic.id === topic.id);
         const expanded = open[topic.id] ?? current;
         return <div className="rcp-topic" key={topic.id}>
@@ -490,7 +492,7 @@ function SuggestedTopics({ data, actions, busy, report, topics }: { data: Contex
         <div className="rcp-bar__line"><Icon name="bolt" size={12} className="rcp-bolt" />
           <span>{needsReselection ? 'Discard the earlier plan and reselect topics; saved notes are kept'
             : newerDiscovery ? 'Finish or discard the current plan to learn from this newer discovery'
-            : data.model.blocker ?? `${plan === null ? 'Saves a learning plan, then runs' : 'Adds them to your plan, then runs'} ${batchLine(batchRuns(plan, questions), null, data.model.label)}`}</span>
+            : data.model.blocker ?? `${plan === null ? 'Saves a learning plan, then runs' : 'Adds them to your plan, then runs'} ${batchLine(batchRuns(plan, questions), null, null, data.model.label)}`}</span>
           <span className="rcp-sep">·</span>
           <button type="button" className="rcp-link" aria-expanded={limitsOpen} onClick={() => setLimitsOpen(value => !value)}>How runs work</button></div>
       </div>
@@ -500,7 +502,7 @@ function SuggestedTopics({ data, actions, busy, report, topics }: { data: Contex
         <div className="rcp-limits__title">Each learning run</div>
         <div>The agent chooses how many reads it needs within the approved sources.</div>
         <div>Links stay within approved documentation roots, up to {DOCUMENT_LINK_HOPS} hops.</div>
-        <div className="rcp-mt6">Each run uses the configured agent timeout. One click runs each open question in turn, up to {BATCH_RUNS} runs; Stop ends the batch, and saved progress and notes are kept.</div>
+        <div className="rcp-mt6">Each run uses the configured agent timeout. One click runs each open question in turn, then the questions runs add, up to {BATCH_RUNS} runs; it never runs a question twice. Stop ends the batch, and saved progress and notes are kept.</div>
       </div>}
     </div>
   </section>;

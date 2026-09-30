@@ -237,14 +237,17 @@ starts a run on its own.
 
 **Learn selected** and **Continue learning** start a batch. One click runs each
 question that is open or unfinished at that moment, one run per question in the
-plan's order, at most 30 per batch; the run line shows how many runs the click
-starts. The next run starts when the previous one ends and its worktree is
+plan's order, then the questions runs and the user add while it runs, at most 30
+runs per click. It never runs a question twice, so a question it leaves
+unfinished waits for a later click. The run line shows how many runs the click
+starts and names the first and last question; while the batch runs, the page
+shows the question up next and the one the batch ends with, and marks each
+queued question's place in the plan. Go deeper runs only its own question. The next run starts when the previous one ends and its worktree is
 cleaned up; meanwhile the page names the question that starts next and keeps
-checking, so the gap does not look like a stop. A run that reaches a limit or saves progress leaves its question
-unfinished for a later batch, and the batch moves on. Stop ends the current run
-and the rest of the batch; a failed run ends it too, and so does another run
-the user starts between batch runs. Questions added during a batch wait for the
-next click.
+checking, so the gap does not look like a stop. A run that reaches a limit or
+saves progress leaves its question unfinished for a later batch, and the batch
+moves on. Stop ends the current run and the rest of the batch; a failed run ends
+it too, and so does another run the user starts between batch runs.
 
 ## 5. Use during development and review
 

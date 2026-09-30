@@ -400,7 +400,8 @@ describe('repository context contracts', () => {
       gaps: ['Delta Lake transaction-log behavior needs its own learning topic.'], documentationSources: [source], documentInventory: { items: [{ sourceId: source.id, resolvedUrl: source.url,
         relativePage: null, depth: 0, status: 'PENDING', detail: '' }],
         suggestions: [{ url: 'https://example.org/iceberg/', parentUrl: source.url, topicId: 'topic:1', question: 0, taskId: 'learn-task',
-          foundAt: '2026-09-01T00:00:00Z' }], truncated: false }, batch: { key: 'learn-key', queue: [{ topicId: 'topic:1', question: 1 }], total: 2, started: 1 } };
+          foundAt: '2026-09-01T00:00:00Z' }], truncated: false }, batch: { key: 'learn-key', queue: [{ topicId: 'topic:1', question: 1 }],
+          ran: [{ topicId: 'topic:1', question: 0 }], total: 2, alone: false } };
     const planView = { plan, next: { topicId: 'topic:1', question: 0 } };
     expect(parseContextLearningPlanView(planView, 'workspace')).toEqual(planView);
     expect(parseContextLearningPlanView({ plan: null, next: null }, 'workspace')).toEqual({ plan: null, next: null });
@@ -417,6 +418,7 @@ describe('repository context contracts', () => {
       { plan: { ...plan, topics: [{ ...plan.topics[0], questions: [{ ...plan.topics[0].questions[0], status: 'GUESS' }] }] }, next: null },
       { plan: { ...plan, topics: [{ ...plan.topics[0], questions: [{ ...plan.topics[0].questions[1], progress: 'Started' }] }] }, next: null },
       { plan: { ...plan, topics: [{ ...plan.topics[0], questions: [{ ...plan.topics[0].questions[0], origin: 'GUESS' }] }] }, next: null },
+      { plan: { ...plan, batch: { ...plan.batch, ran: [] } }, next: null },
       { plan: { ...plan, topics: [{ ...plan.topics[0], questions: Array(31).fill(plan.topics[0].questions[1]) }] }, next: null },
       { plan: { ...plan, documentInventory: { ...plan.documentInventory, suggestions: [{ ...plan.documentInventory.suggestions[0], topicId: 'other' }] } },
         next: null }] as unknown[])

@@ -156,7 +156,8 @@ class TestContextLearningService
         learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1", "topic:2"), ImmutableList.of()));
         ContextLearningPlan plan = plans.find(WORKSPACE).orElseThrow();
         assertThat(plan.batch()).contains(new ContextLearningPlan.Batch("accept", ImmutableList.of(new ContextLearningPlan.Target("topic:2", 0),
-                new ContextLearningPlan.Target("topic:1", 1), new ContextLearningPlan.Target("topic:2", 1)), 4, 1));
+                new ContextLearningPlan.Target("topic:1", 1), new ContextLearningPlan.Target("topic:2", 1)), ImmutableList.of(new ContextLearningPlan.Target("topic:1", 0)),
+                4, false));
 
         ContextBuild first = task(plan, "topic:1", 0);
         buildStore.save(Optional.empty(), first);
@@ -175,7 +176,8 @@ class TestContextLearningService
         assertThat(assignments.getValue().topicId()).isEqualTo("topic:2");
         assertThat(assignments.getValue().questionIndex()).isZero();
         assertThat(plans.find(WORKSPACE).orElseThrow().batch()).contains(new ContextLearningPlan.Batch("accept",
-                ImmutableList.of(new ContextLearningPlan.Target("topic:1", 1), new ContextLearningPlan.Target("topic:2", 1)), 4, 2));
+                ImmutableList.of(new ContextLearningPlan.Target("topic:1", 1), new ContextLearningPlan.Target("topic:2", 1)),
+                ImmutableList.of(new ContextLearningPlan.Target("topic:1", 0), new ContextLearningPlan.Target("topic:2", 0)), 4, false));
 
         ContextBuild second = task(plan, "topic:2", 0, "accept#2", "33333333-3333-4333-8333-333333333333");
         buildStore.save(Optional.of(first), second);
@@ -183,6 +185,43 @@ class TestContextLearningService
         learning.continueBatch(WORKSPACE);
         verify(builds, times(2)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), any());
         assertThat(plans.find(WORKSPACE).orElseThrow().batch()).isEmpty();
+    }
+
+    @Test
+    void aBatchGoesOnWithQuestionsAddedWhileItRunsButNeverRunsAQuestionTwice()
+    {
+        reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Project structure", ImmutableList.of(), ImmutableList.of())), ImmutableList.of()));
+        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1"), ImmutableList.of()));
+        ContextLearningPlan plan = plans.find(WORKSPACE).orElseThrow();
+        ContextBuild first = task(plan, "topic:1", 0);
+        buildStore.save(Optional.empty(), first);
+        learning.progress(first, "Found the module list; the layout needs another run.", false, ImmutableList.of(), Optional.empty(),
+                ImmutableList.of(new ContextLearningService.FollowUp("Where are the integration tests?", "Raised by a learning run")));
+        learning.addQuestion(WORKSPACE, new ContextLearningService.QuestionRequest(plan.id(), "topic:1", "How are releases cut?"));
+
+        ContextBuild previous = first;
+        ImmutableList.Builder<Integer> started = ImmutableList.builder();
+        ArgumentCaptor<ContextBuild.Assignment> assignments = ArgumentCaptor.forClass(ContextBuild.Assignment.class);
+        for (int run = 1; run <= 4; run++) {
+            view.set(finished(run, previous, run == 1 ? ContextRun.Outcome.UNFINISHED : ContextRun.Outcome.ANSWERED));
+            learning.continueBatch(WORKSPACE);
+            ContextLearningPlan current = plans.find(WORKSPACE).orElseThrow();
+            if (current.batch().isEmpty()) {
+                break;
+            }
+            verify(builds, times(run + 1)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), assignments.capture());
+            int index = assignments.getValue().questionIndex();
+            started.add(index);
+            learning.progress(task(current, "topic:1", index, "accept#" + (run + 1), "5555555" + run + "-5555-4555-8555-555555555555"), "Answered.", true, ImmutableList.of());
+            ContextBuild next = task(current, "topic:1", index, "accept#" + (run + 1), "5555555" + run + "-5555-4555-8555-555555555555");
+            buildStore.save(Optional.of(previous), next);
+            previous = next;
+        }
+
+        assertThat(started.build()).containsExactly(1, 2, 3);
+        assertThat(plans.find(WORKSPACE).orElseThrow().batch()).isEmpty();
+        assertThat(plans.find(WORKSPACE).orElseThrow().topic("topic:1").questions().getFirst().status()).isEqualTo(ContextLearningPlan.Status.UNFINISHED);
+        verify(builds, times(4)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), any());
     }
 
     @Test
@@ -288,7 +327,7 @@ class TestContextLearningService
         assertThat(added.text()).startsWith("What else should someone working on Project structure know");
         assertThat(added.origin()).isEqualTo(ContextLearningPlan.Origin.USER);
         assertThat(added.note()).isEqualTo("Go deeper");
-        assertThat(deeper.batch()).contains(new ContextLearningPlan.Batch("deeper", ImmutableList.of(), 1, 1));
+        assertThat(deeper.batch()).contains(new ContextLearningPlan.Batch("deeper", ImmutableList.of(), ImmutableList.of(new ContextLearningPlan.Target("topic:1", 2)), 1, true));
         ArgumentCaptor<ContextBuild.Assignment> assignments = ArgumentCaptor.forClass(ContextBuild.Assignment.class);
         verify(builds, times(2)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), assignments.capture());
         assertThat(assignments.getValue().questionIndex()).isEqualTo(2);

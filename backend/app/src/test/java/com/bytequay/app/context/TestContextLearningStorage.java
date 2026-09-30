@@ -66,7 +66,7 @@ class TestContextLearningStorage
         ObjectNode question = (ObjectNode) plan.path("topics").get(0).path("questions").get(0);
         question.remove("origin");
         question.remove("note");
-        plan.remove("batch");
+        plan.putObject("batch").put("key", "old").put("total", 2).put("started", 1).putArray("queue");
         settings.put(ContextDiscoveryReportStore.PREFIX + WORKSPACE, report.toString());
         settings.put(ContextLearningPlanStore.PREFIX + WORKSPACE, plan.toString());
 

@@ -189,18 +189,20 @@ public class ContextLearningService
             plans.save(Optional.of(plan), plan.withBatch(Optional.empty()));
             return;
         }
-        List<ContextLearningPlan.Target> open = plan.open();
-        List<ContextLearningPlan.Target> queue = batch.queue().stream().dropWhile(target -> !open.contains(target)).toList();
-        if (queue.isEmpty()) {
+        List<ContextLearningPlan.Target> remaining = batch.remaining(plan);
+        if (remaining.isEmpty() || batch.ran().size() >= ContextLearningPlan.Batch.MAX_RUNS) {
             plans.save(Optional.of(plan), plan.withBatch(Optional.empty()));
             return;
         }
-        int ordinal = batch.started() + 1;
-        ContextLearningPlan started = plans.save(Optional.of(plan), plan.withBatch(Optional.of(new ContextLearningPlan.Batch(batch.key(),
-                queue.subList(1, queue.size()).stream().filter(open::contains).toList(), batch.total(), ordinal))));
+        ContextLearningPlan.Target next = remaining.getFirst();
+        List<ContextLearningPlan.Target> ran = ImmutableList.<ContextLearningPlan.Target>builder().addAll(batch.ran()).add(next).build();
+        int total = Math.min(ContextLearningPlan.Batch.MAX_RUNS, ran.size() + remaining.size() - 1);
+        List<ContextLearningPlan.Target> queue = batch.queue().stream().filter(target -> remaining.contains(target) && !target.equals(next))
+                .limit(total - ran.size()).toList();
+        ContextLearningPlan started = plans.save(Optional.of(plan), plan.withBatch(Optional.of(new ContextLearningPlan.Batch(batch.key(), queue, ran, total,
+                batch.alone()))));
         try {
-            launch(started, batch.runKey(ordinal), view.buildRequestSequence(), notebooks.getNotebook(workspaceId).revision(), false,
-                    Optional.of(queue.getFirst()));
+            launch(started, batch.runKey(ran.size()), view.buildRequestSequence(), notebooks.getNotebook(workspaceId).revision(), false, Optional.of(next));
         }
         catch (RuntimeException failure) {
             plans.find(workspaceId).filter(current -> current.batch().isPresent())
@@ -359,7 +361,8 @@ public class ContextLearningService
         checkArgument(requestKey.length() <= 90, "A learning request key is at most 90 characters");
         List<ContextLearningPlan.Target> queue = alone ? ImmutableList.of() : open.stream().filter(target -> !target.equals(first.orElseThrow()))
                 .limit(ContextLearningPlan.Batch.MAX_RUNS - 1).toList();
-        ContextLearningPlan batched = plans.save(Optional.of(plan), plan.withBatch(Optional.of(new ContextLearningPlan.Batch(requestKey, queue, queue.size() + 1, 1))));
+        ContextLearningPlan batched = plans.save(Optional.of(plan), plan.withBatch(Optional.of(new ContextLearningPlan.Batch(requestKey, queue,
+                ImmutableList.of(first.orElseThrow()), queue.size() + 1, alone))));
         try {
             return launch(batched, requestKey, expectedBuildSequence, expectedRevision, accepted, first);
         }

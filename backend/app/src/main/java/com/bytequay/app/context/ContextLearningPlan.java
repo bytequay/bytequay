@@ -22,8 +22,10 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -139,7 +141,16 @@ public record ContextLearningPlan(
      * The questions one click authorized: the runs still to start, how many the click authorized, and how many have started.
      * Batch runs use the click's key, then the key with {@code #} and their ordinal.
      */
-    public record Batch(String key, List<Target> queue, int total, int started)
+    /**
+     * One click's runs: the questions open at the click in order, then questions added while it runs, one run each and at most 30.
+     * It never runs a question twice, so a question it leaves unfinished waits for a later click.
+     *
+     * @param queue questions open at the click that it has not started
+     * @param ran questions it started, in order
+     * @param total runs it expects to start, counting questions added since the click
+     * @param alone whether it runs only its first question, as Go deeper does
+     */
+    public record Batch(String key, List<Target> queue, List<Target> ran, int total, boolean alone)
     {
         public static final int MAX_RUNS = 30;
 
@@ -147,8 +158,17 @@ public record ContextLearningPlan(
         {
             ContextLimits.text(key, "batch key", 90);
             queue = ImmutableList.copyOf(queue);
-            checkArgument(total >= 1 && total <= MAX_RUNS && started >= 1 && started <= total && queue.size() <= total - started,
-                    "Invalid learning batch");
+            ran = ImmutableList.copyOf(ran);
+            checkArgument(!ran.isEmpty() && ran.size() <= total && total <= MAX_RUNS && queue.size() <= total - ran.size()
+                    && ran.stream().distinct().count() == ran.size(), "Invalid learning batch");
+        }
+
+        /** What it runs next, in order: queued questions still open, then any other open question unless it runs alone. */
+        public List<Target> remaining(ContextLearningPlan plan)
+        {
+            List<Target> open = plan.open();
+            return Stream.concat(queue.stream().filter(open::contains), alone ? Stream.empty() : open.stream().filter(target -> !queue.contains(target)))
+                    .filter(target -> !ran.contains(target)).distinct().collect(toImmutableList());
         }
 
         public boolean owns(String requestKey)

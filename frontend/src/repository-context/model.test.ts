@@ -17,7 +17,7 @@ import type {
   ContextScopeDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto,
 } from './contracts';
 import {
-  batchLine, batchNext, batchRuns, disputeSides, filterNotes, gradeLine, grader, latestReport, runOrigin, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pageChangedAt, pendingCounts, planCounts, previousVersion, webLookupLine,
+  batchLine, batchNext, batchOrder, batchPath, batchRemaining, batchRuns, disputeSides, lastInBatch, filterNotes, gradeLine, grader, latestReport, runOrigin, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pageChangedAt, pendingCounts, planCounts, previousVersion, webLookupLine,
   questionRow, reportsNeedingYou, reviewItems, runNotesToDisable, scopeForTopic, settledLine, statusCard, topicSummary, type StatusInput,
 } from './model';
 
@@ -143,10 +143,13 @@ describe('repository context status card', () => {
     expect(batchRuns(plan)).toBe(1);
     expect(batchRuns(plan, 40)).toBe(30);
     expect(batchRuns(null)).toBe(0);
-    const batched: ContextLearningPlanDto = { ...plan, batch: { key: 'learn-key', queue: [], total: 3, started: 2 } };
+    const batched: ContextLearningPlanDto = { ...plan, batch: { key: 'learn-key', queue: [],
+      ran: [{ topicId: 'topic:iceberg', question: 0 }, { topicId: 'topic:iceberg', question: 1 }], total: 2, alone: false } };
     const card = statusCard(input({ report, build: build([run(3, 'RUNNING', 1, '2026-09-29T11:59:00Z')]), planView: { plan: batched, next: null } }));
-    expect(card.body).toContain('run 2 of 3 in this batch');
-    expect(batchLine(3, null, 'Codex · 5.6')).toBe('3 runs, one per open question · Codex · 5.6 · Stop ends the batch');
+    expect(card.body).toContain('run 2 of 2 in this batch');
+    expect(card.batch).toBe('Nothing else is queued in this batch; questions this run adds run next.');
+    expect(batchLine(3, null, null, 'Codex · 5.6')).toBe('3 runs, one per open question, then any questions the runs add, up to 30 · Codex · 5.6 · Stop ends the batch');
+    expect(batchLine(3, 'Iceberg · “A?”', '“C?”', 'Codex')).toContain('starting with Iceberg · “A?” and ending with “C?”, then any questions the runs add');
   });
 
   it('keeps completed and failed source operations separate from the running agent', () => {
@@ -219,7 +222,8 @@ describe('repository context notes', () => {
   });
 
   it('shows the question a batch starts next while the finished run is cleaned up', () => {
-    const batched: ContextLearningPlanDto = { ...plan, batch: { key: 'learn-key', queue: [{ topicId: 'topic:iceberg', question: 1 }], total: 2, started: 1 } };
+    const batched: ContextLearningPlanDto = { ...plan, batch: { key: 'learn-key', queue: [{ topicId: 'topic:iceberg', question: 1 }],
+      ran: [{ topicId: 'topic:iceberg', question: 0 }], total: 2, alone: false } };
     const finished = run(1, 'ANSWERED', 0, '2026-09-29T11:59:00Z');
     const view: ContextBuildViewDto = { ...build([finished]), build: { requestKey: 'learn-key', taskId: finished.taskId,
       task: { id: finished.taskId, workspaceId: 'w', state: 'COMPLETED', mutationClaim: null, worktreeRemovedAt: null }, activeTurn: null, pendingApprovals: 0,
@@ -228,10 +232,30 @@ describe('repository context notes', () => {
     const card = statusCard(input({ report, planView: { plan: batched, next: { topicId: 'topic:iceberg', question: 1 } }, build: view }));
     expect(card).toMatchObject({ headline: 'Starting the next question', question: 'How are commits retried?', primary: null, icon: 'spin' });
     expect(batchNext(batched, { ...view, runs: [{ ...finished, outcome: 'STOPPED' }] })).toBeNull();
-    expect(batchNext({ ...batched, batch: { key: 'learn-key', queue: [], total: 2, started: 2 } }, view)).toBeNull();
+    expect(batchNext({ ...batched, batch: { key: 'learn-key', queue: [], ran: [{ topicId: 'topic:iceberg', question: 0 }, { topicId: 'topic:iceberg', question: 1 }],
+      total: 2, alone: false } }, view)).toBeNull();
     expect(batchNext(batched, { ...view, build: { ...view.build, requestKey: 'another-click' } })).toBeNull();
     expect(batchNext(batched, { ...view, build: { ...view.build, requestKey: 'learn-key#2' } })).not.toBeNull();
     expect(batchNext(batched, build([run(1, 'RUNNING', 0, '2026-09-29T11:59:00Z')]))).toBeNull();
+  });
+
+  it('shows where a batch goes next and ends, with questions added while it runs at the end', () => {
+    const topic = { ...plan.topics[0], questions: [...plan.topics[0].questions,
+      { text: 'Where are integration tests?', status: 'PENDING' as const, progress: '', origin: 'LEARNING' as const, note: '' },
+      { text: 'How are releases cut?', status: 'PENDING' as const, progress: '', origin: 'USER' as const, note: '' }] };
+    const batched: ContextLearningPlanDto = { ...plan, topics: [topic],
+      batch: { key: 'learn-key', queue: [{ topicId: 'topic:iceberg', question: 1 }], ran: [{ topicId: 'topic:iceberg', question: 0 }], total: 2, alone: false } };
+    expect(batchRemaining(batched)).toEqual([{ topicId: 'topic:iceberg', question: 1 }, { topicId: 'topic:iceberg', question: 2 }, { topicId: 'topic:iceberg', question: 3 }]);
+    expect(batchPath(batched)).toBe('Up next: “How are commits retried?”, then 2 more questions, ending with “How are releases cut?”. Questions added while it runs join the end.');
+    const order = batchOrder(batched);
+    expect([1, 2, 3].map(index => questionRow(topic, index, [], null, notebook, order).meta))
+      .toEqual(['Up next in this batch', '#2 in this batch', 'Last in this batch · #3']);
+    expect(questionRow(topic, 2, [], null, notebook).meta).toBe('Not started');
+    expect(topicSummary(topic, [], null, notebook, order).meta).toBe('1 of 4 questions answered · 1 unfinished · 3 in this batch');
+    const alone: ContextLearningPlanDto = { ...batched, batch: { key: 'deeper', queue: [], ran: [{ topicId: 'topic:iceberg', question: 3 }], total: 1, alone: true } };
+    expect(batchRemaining(alone)).toEqual([]);
+    expect(batchPath(alone)).toBe('This batch runs only this question.');
+    expect(lastInBatch(batched)).toBe('“How are releases cut?”');
   });
 
   it('compares web lookups per task with notes on and off', () => {

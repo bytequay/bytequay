@@ -109,7 +109,8 @@ export type ContextLearningPlanDto = {
   documentInventory: { items: Array<{ sourceId: string; resolvedUrl: string; relativePage: string | null; depth: number;
     status: 'PENDING' | 'READ' | 'FAILED'; detail: string }>; suggestions: ContextSuggestionDto[]; truncated: boolean };
   /** The questions one click authorized: runs still to start, how many the click authorized, and how many have started. */
-  batch: null | { key: string; queue: ContextQuestionTarget[]; total: number; started: number };
+  /** One click's runs: queue holds questions open at the click, ran the ones it started; added questions join the end unless it runs alone. */
+  batch: null | { key: string; queue: ContextQuestionTarget[]; ran: ContextQuestionTarget[]; total: number; alone: boolean };
 };
 export type ContextQuestionTarget = { topicId: string; question: number };
 /** The backend names the question Continue learning takes, so the page never re-derives the order. */
@@ -584,8 +585,10 @@ export function parseContextLearningPlanView(value: unknown, workspaceId: string
   if (plan.batch != null) {
     const batch = object(plan.batch, 'learning batch');
     result.batch = { key: text(batch.key, 'batch key'), queue: array(batch.queue, 'batch queue', questionTarget),
-      total: count(batch.total, 'batch size', 1), started: count(batch.started, 'batch runs started', 1) };
-    if (result.batch.started > result.batch.total || result.batch.queue.length > result.batch.total - result.batch.started) malformed('learning batch');
+      ran: array(batch.ran, 'batch runs', questionTarget), total: count(batch.total, 'batch size', 1), alone: flag(batch.alone, 'batch alone') };
+    if (result.batch.ran.length === 0 || result.batch.ran.length > result.batch.total || result.batch.queue.length > result.batch.total - result.batch.ran.length) {
+      malformed('learning batch');
+    }
   }
   const topicIds = result.topics.map(item => item.id);
   if (result.workspaceId !== workspaceId || new Set(topicIds).size !== topicIds.length

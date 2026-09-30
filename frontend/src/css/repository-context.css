@@ -149,6 +149,7 @@
 .rcp-status__elapsed { font-family: var(--mono); font-size: 12px; font-weight: 400; color: #8c959f; margin-left: 10px; }
 .rcp-status__question { font-size: 14px; margin-top: 6px; line-height: 1.45; text-wrap: pretty; }
 .rcp-status__text { font-size: 13px; color: #57606a; line-height: 1.5; margin-top: 4px; max-width: 680px; text-wrap: pretty; }
+.rcp-status__batch { font-size: 12.5px; color: #0969da; line-height: 1.5; margin-top: 6px; max-width: 680px; text-wrap: pretty; }
 .rcp-feed { margin-top: 10px; display: flex; flex-direction: column; gap: 2px; }
 .rcp-feed__line { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #57606a; min-width: 0; }
 .rcp-feed__line.is-live { margin-top: 2px; }

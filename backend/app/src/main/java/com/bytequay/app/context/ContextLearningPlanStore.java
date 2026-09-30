@@ -51,8 +51,8 @@ public class ContextLearningPlanStore
             try {
                 checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_NOTEBOOK_BYTES, "Saved learning plan exceeds 1 MiB");
                 JsonNode value = requireNonNull(mapper.readTree(json), "Saved learning plan is null");
-                // Plans saved before batches existed have none.
-                if (value instanceof ObjectNode saved && !saved.has("batch")) {
+                // Plans saved before batches existed have none; a batch saved before it recorded its runs ends, and the next click starts anew.
+                if (value instanceof ObjectNode saved && (!saved.has("batch") || saved.path("batch").has("started"))) {
                     saved.putNull("batch");
                 }
                 // Keep old progress visible; starting a run requires an explicit, approved note target.

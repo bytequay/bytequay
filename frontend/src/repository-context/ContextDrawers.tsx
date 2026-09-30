@@ -19,7 +19,7 @@ import ContextNoteDrawer from './ContextNoteDrawer';
 import { NoteApplicability, QuestionLine } from './ContextOverview';
 import { Chevron, Icon } from './icons';
 import {
-  batchLine, batchRuns, clock, currentRun, latestRun, DOCUMENT_LINK_HOPS, needsTopicReselection, nextQuestion, noteArea, OUTCOME, plural, questionRow, runOrigin, shortDate, shortSha, timeOfDay,
+  batchLine, batchOrder, batchRemaining, batchRuns, clock, lastInBatch, currentRun, latestRun, DOCUMENT_LINK_HOPS, needsTopicReselection, nextQuestion, noteArea, OUTCOME, plural, questionRow, runOrigin, shortDate, shortSha, timeOfDay,
   webLookupLine,
 } from './model';
 import type { ContextActions, ContextData } from './RepositoryContextPage';
@@ -116,6 +116,7 @@ function RunDrawer({ data, actions, busy, taskId, onClose }: {
 function PlanDrawer({ data, actions, busy, tab, onTab, onClose }: { data: ContextData; actions: ContextActions; busy: boolean; tab: 'plan' | 'sources' | 'activity';
   onTab: (tab: 'plan' | 'sources' | 'activity') => void; onClose: () => void }) {
   const plan = data.planView.plan;
+  const order = batchOrder(plan);
   const running = currentRun(data.build);
   const learning = running !== null && running.mode === 'LEARN' ? running : null;
   const next = nextQuestion(data.planView);
@@ -150,7 +151,7 @@ function PlanDrawer({ data, actions, busy, tab, onTab, onClose }: { data: Contex
             <div className="rcp-plan-topic">{topic.title}</div>
             <NoteApplicability paths={topic.notePaths} />
             {topic.questions.map((_, index) => <div className="rcp-plan-q" key={index}>
-              <QuestionLine row={questionRow(topic, index, data.build.runs, running, data.notebook)} onOpen={openNote} /></div>)}
+              <QuestionLine row={questionRow(topic, index, data.build.runs, running, data.notebook, order)} onOpen={openNote} /></div>)}
           </div>)}
           {plan.gaps.length > 0 && <>
             <div className="rcp-mini-label rcp-mt18">OPEN QUESTIONS AND GAPS</div>
@@ -179,11 +180,12 @@ function PlanDrawer({ data, actions, busy, tab, onTab, onClose }: { data: Contex
       {learning !== null ? <div className="rcp-foot-line">
         <button type="button" className="rcp-btn rcp-btn--danger" disabled={busy} onClick={() => void actions.stop(learning)}>Stop run</button>
         <span className="rcp-foot-line__text">Run {learning.sequence} · {plural(learning.sourceOperations, 'source operation')}
-          {plan?.batch ? ` · run ${plan.batch.started} of ${plan.batch.total} in this batch; Stop ends the batch` : ''} · the plan and saved notes are kept</span>
+          {plan?.batch ? ` · run ${plan.batch.ran.length} of ${plan.batch.ran.length + batchRemaining(plan).length} in this batch; Stop ends the batch` : ''}
+          {' · the plan and saved notes are kept'}</span>
       </div> : needsReselection ? <span className="rcp-foot-line__text">Discard this earlier plan and reselect topics with explicit note targets. Saved notes are kept.</span>
         : next !== null ? <div className="rcp-foot-line">
         <button type="button" className="rcp-btn rcp-btn--secondary" disabled={!canRun} onClick={actions.continueLearning}><Icon name="bolt" size={13} />Continue learning</button>
-        <span className="rcp-foot-line__text">{data.model.blocker ?? batchLine(batchRuns(plan), `${next.topic.title} · “${next.text}”`, data.model.label)}</span>
+        <span className="rcp-foot-line__text">{data.model.blocker ?? batchLine(batchRuns(plan), `${next.topic.title} · “${next.text}”`, lastInBatch(plan), data.model.label)}</span>
       </div> : <span className="rcp-foot-line__text">{plan === null ? 'Nothing to continue.' : 'Every planned question is answered.'}</span>}
     </div>
     {discarding && plan !== null && <ConfirmDialog title="Discard the remaining plan?" confirmLabel="Discard plan" destructive busy={busy} onCancel={() => setDiscarding(false)}

@@ -231,7 +231,8 @@ function scene(name: Scene): State {
   const running = runs.find(value => value.outcome === 'RUNNING');
   return {
     notebook: notebook(full), times: times(full), report: name === 'fresh' || name === 'discovering' ? null : report(),
-    planView: full ? { plan: plan(), next: { topicId: 'topic:iceberg', question: 2 } } : { plan: null, next: null },
+    planView: full ? { plan: name === 'learning' ? { ...plan(), batch: { key: 'learn-key', queue: [0, 1, 2, 3].map(question => ({ topicId: 'topic:planner', question })),
+      ran: [{ topicId: 'topic:iceberg', question: 2 }], total: 6, alone: false } } : plan(), next: { topicId: 'topic:iceberg', question: 2 } } : { plan: null, next: null },
     build: { buildRequestSequence: runs.length, notebookRevision: full ? 12 : 1, canStart: running === undefined, runs,
       build: running === undefined ? null : binding(running.taskId) },
     candidates: { candidates: full ? [{ id: 'pr:trinodb/trino#27315', repo: 'trinodb/trino', number: 27315, title: 'Retry Iceberg commits on conflicting snapshots',
@@ -602,8 +603,9 @@ const scenarios: Array<[string, () => Promise<void>]> = [
   ['one Continue learning click runs every open question, starting with the saved next one', async () => {
     await render('review');
     assert(text().includes('Run 4 reached its source limit'), 'Saved historical limit outcomes remain truthful');
-    assert(text().includes('6 runs, one per open question, starting with Iceberg connector · “How are delete files applied during reads?” (resumes saved progress)')
-      && text().includes('Stop ends the batch'), 'The run line counts the batch and names the first question');
+    assert(text().includes('6 runs, one per open question, starting with Iceberg connector · “How are delete files applied during reads?” (resumes saved progress) '
+      + 'and ending with “Which conflicts does a commit retry treat as safe?”, then any questions the runs add, up to 30')
+      && text().includes('Stop ends the batch'), 'The run line counts the batch and names its first and last question');
     await click('Continue learning');
     assert(state.calls.starts.length === 1 && state.calls.starts[0].kind === 'continue', 'Continue sends one request');
   }],
@@ -644,6 +646,9 @@ const scenarios: Array<[string, () => Promise<void>]> = [
   ['a running learning question shows its question and can be stopped', async () => {
     await render('learning');
     assert(text().includes('Learning · Iceberg connector') && text().includes('“How are delete files applied during reads?”'), 'The card names the running question');
+    assert(text().includes('run 1 of 6 in this batch') && text().includes('Up next: “In what order do optimizer rules run?”, then 4 more questions, '
+      + 'ending with “Which conflicts does a commit retry treat as safe?”.'), 'The card says where the batch goes next and where it ends');
+    assert(text().includes('Last in this batch · #5'), 'The plan marks the question the batch ends with');
     await click('View details');
     await click('Plan', drawer());
     await click('How runs work', drawer());

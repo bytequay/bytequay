@@ -482,7 +482,8 @@ public class ContextLearningService
 
     /**
      * Saves the run's checkpoint for its question. A correction closes the question with its reason and adds the questions
-     * that replace it; follow-ups join the same topic. Questions the topic already asks are not added twice.
+     * that replace it; follow-ups join the same topic. Questions the topic already asks are not added twice. Only a question
+     * from discovery, the user, a task or a review adds questions, so what learning runs add grows the plan one generation deep.
      */
     public ContextLearningPlan progress(ContextBuild build, String progress, boolean completed, List<String> gaps, Optional<Correction> correction,
             List<FollowUp> followUps)
@@ -495,6 +496,8 @@ public class ContextLearningService
         ContextBuild.Assignment assignment = build.assignment().orElseThrow();
         ContextLearningPlan.Topic target = topic(plan, assignment.topicId());
         ContextLearningPlan.Question current = target.questions().get(assignment.questionIndex());
+        checkArgument(current.origin() != ContextLearningPlan.Origin.LEARNING || (followUps.isEmpty() && correction.map(value -> value.questions().isEmpty()).orElse(true)),
+                "A learning run added this question, so its run adds no questions: pass no followUps and no correction questions, and put other questions in gaps");
         checkArgument(current.status() != ContextLearningPlan.Status.COMPLETED || completed || correction.isPresent(),
                 "Completed question cannot be reset by a later tool call");
         checkArgument(current.status() != ContextLearningPlan.Status.CORRECTED && current.status() != ContextLearningPlan.Status.DROPPED,
@@ -511,7 +514,7 @@ public class ContextLearningService
                 questions.add(question);
             }
         }
-        checkArgument(questions.size() <= ContextLearningPlan.Topic.MAX_QUESTIONS, "The topic holds at most %s questions; add fewer",
+        checkArgument(questions.size() <= ContextLearningPlan.Topic.MAX_QUESTIONS, "The topic holds at most %s questions; add fewer and put the rest in gaps",
                 ContextLearningPlan.Topic.MAX_QUESTIONS);
         List<ContextLearningPlan.Topic> updated = plan.topics().stream().map(topic -> topic.id().equals(assignment.topicId())
                 ? topic.withQuestions(questions) : topic).toList();
@@ -764,14 +767,14 @@ public class ContextLearningService
         }
     }
 
-    /** Why a run closed its question and the one to three questions that replace it. */
+    /** Why a run closed its question and up to three questions that replace it. */
     public record Correction(String reason, List<String> questions)
     {
         public Correction
         {
             ContextLimits.text(reason, "correction reason", ContextLearningPlan.Question.MAX_NOTE_BYTES);
             questions = ImmutableList.copyOf(questions);
-            checkArgument(!questions.isEmpty() && questions.size() <= 3, "A correction replaces the question with one to three questions");
+            checkArgument(questions.size() <= 3, "A correction replaces the question with at most three questions");
             questions.forEach(question -> ContextLimits.text(question, "corrected question", 1000));
         }
     }

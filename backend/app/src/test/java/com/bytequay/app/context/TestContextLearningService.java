@@ -282,6 +282,31 @@ class TestContextLearningService
     }
 
     @Test
+    void aQuestionALearningRunAddedClosesWithoutAddingQuestions()
+    {
+        reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Project structure", ImmutableList.of(), ImmutableList.of())), ImmutableList.of()));
+        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1"), ImmutableList.of()));
+        ContextLearningPlan plan = plans.find(WORKSPACE).orElseThrow();
+        learning.progress(task(plan, "topic:1", 0), "Found the module list.", true, ImmutableList.of(), Optional.empty(),
+                ImmutableList.of(new ContextLearningService.FollowUp("Where are the integration tests?", "Raised by a learning run")));
+        ContextBuild followUp = task(plans.find(WORKSPACE).orElseThrow(), "topic:1", 2);
+
+        assertThatIllegalArgumentException().isThrownBy(() -> learning.progress(followUp, "Needs engine code.", false, ImmutableList.of(), Optional.empty(),
+                ImmutableList.of(new ContextLearningService.FollowUp("Where does the engine run them?", "Raised by a learning run")))).withMessageContaining("adds no questions");
+        assertThatIllegalArgumentException().isThrownBy(() -> learning.progress(followUp, "Needs engine code.", false, ImmutableList.of(),
+                Optional.of(new ContextLearningService.Correction("The tests live outside these paths.", ImmutableList.of("Which engine tests run them?"))),
+                ImmutableList.of())).withMessageContaining("adds no questions");
+        learning.progress(followUp, "Needs engine code.", false, ImmutableList.of("The engine's test runner is outside the approved paths."),
+                Optional.of(new ContextLearningService.Correction("The tests live outside these paths.", ImmutableList.of())), ImmutableList.of());
+
+        ContextLearningPlan closed = plans.find(WORKSPACE).orElseThrow();
+        assertThat(closed.topic("topic:1").questions()).extracting(ContextLearningPlan.Question::status)
+                .containsExactly(ContextLearningPlan.Status.COMPLETED, ContextLearningPlan.Status.PENDING, ContextLearningPlan.Status.CORRECTED);
+        assertThat(closed.topic("topic:1").questions().get(2).note()).isEqualTo("The tests live outside these paths.");
+        assertThat(closed.gaps()).contains("The engine's test runner is outside the approved paths.");
+    }
+
+    @Test
     void usersAddEditAndDropQuestionsButNotTheOneARunIsWorkingOn()
     {
         reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Project structure", ImmutableList.of(), ImmutableList.of())), ImmutableList.of()));

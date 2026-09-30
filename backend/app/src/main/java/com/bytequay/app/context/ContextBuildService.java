@@ -207,16 +207,18 @@ public class ContextBuildService
                     resolved.output().strip(), branch, lane.value(), new AgentTaskDefaults(Optional.of(model.model()), model.effort(), AgentPermissionPolicy.AUTO),
                     request.scopeIds(), request.history(), documentation,
                     notebook.revision(), Instant.now(clock), ContextBuild.Capture.empty(), mode, assignment, continuesReport, investigation);
-            WorkspaceOperationLocks.withLock(workspaceId, () -> {
+            Optional<ContextLearningPlan.Question> asked = WorkspaceOperationLocks.withLock(workspaceId, () -> {
                 checkArgument(notebooks.getNotebook(workspaceId).equals(notebook), "Notebook changed while preparing learning");
-                assignment.ifPresent(accepted -> checkAcceptedPlan(workspaceId, build, accepted));
+                Optional<ContextLearningPlan.Question> question = assignment.map(accepted -> checkAcceptedPlan(workspaceId, build, accepted));
                 previous.ifPresent(replaced -> builds.recordRun(workspaceId, run(replaced)));
-                return builds.save(previous, build);
+                builds.save(previous, build);
+                return question;
             });
             try {
                 tasks.create(new CreateAgentTaskCommand(id, workspaceId, lane, build.physicalRepository(), build.baselineSha(), branch, title, build.defaults()));
                 coordinator.getObject().watch(build);
-                turns.start(new StartAgentTurnCommand(id, prompt(build), ImmutableList.of(), build.turnKey()));
+                turns.start(new StartAgentTurnCommand(id, prompt(build, asked.map(question -> question.origin() != ContextLearningPlan.Origin.LEARNING).orElse(true)),
+                        ImmutableList.of(), build.turnKey()));
             }
             catch (RuntimeException failure) {
                 recordGap(workspaceId, build.taskId(), "Learning could not start or its response was interrupted: " + failure.getClass().getSimpleName());
@@ -229,8 +231,8 @@ public class ContextBuildService
         }
     }
 
-    /** The saved topic/source selection must still match at the build admission boundary. */
-    private void checkAcceptedPlan(String workspaceId, ContextBuild build, ContextBuild.Assignment assignment)
+    /** The saved topic/source selection must still match at the build admission boundary; returns the accepted question. */
+    private ContextLearningPlan.Question checkAcceptedPlan(String workspaceId, ContextBuild build, ContextBuild.Assignment assignment)
     {
         ContextLearningPlan plan = plans.find(workspaceId).filter(value -> value.id().equals(assignment.planId()))
                 .orElseThrow(() -> new IllegalArgumentException("Learning plan changed before the task was started"));
@@ -246,6 +248,7 @@ public class ContextBuildService
                         && plan.baselineSha().equals(build.baselineSha()) && plan.repositoryId() == build.repositoryId()
                         && plan.repository().equals(build.repository()),
                 "Accepted learning topic or sources changed before the task was started");
+        return question;
     }
 
     public AgentTask task(String workspaceId, String taskId)
@@ -430,7 +433,8 @@ public class ContextBuildService
         }
     }
 
-    private static String prompt(ContextBuild build)
+    /** A question from discovery, the user, a task or a review grows the plan; one a learning run added does not. */
+    private static String prompt(ContextBuild build, boolean grows)
     {
         if (build.mode() == ContextBuild.Mode.DISCOVER && build.continuesReport().isPresent()) {
             return "Continue the saved partial discovery of " + build.repository().fullName() + " at its recorded baseline " + build.baselineSha()
@@ -468,9 +472,13 @@ public class ContextBuildService
             ContextBuild.Assignment assignment = build.assignment().orElseThrow();
             return "Learn one approved question for " + build.repository().fullName() + " at " + build.baselineSha() + " (topic " + assignment.topicTitle() + "): "
                     + assignment.question() + (assignment.progress().isEmpty() ? "" : " Saved progress from an earlier run: " + assignment.progress())
-                    + " First check the question's assumption against the code. If it does not hold, or the question is too broad, correct it with "
-                    + "repository_context_progress: the reason, the readIds that show it and one to three questions that replace it. Add up to three "
-                    + "follow-up questions for what this topic should also answer."
+                    + " First check the question's assumption against the code. "
+                    + (grows ? "If it does not hold, or the question is too broad, correct it with repository_context_progress: the reason, one to three "
+                            + "readIds that show it and up to three questions that replace it. Add up to three follow-up questions for what this topic "
+                            + "should also answer. Add only questions the approved paths can answer; record questions that need other code as gaps."
+                            : "A learning run added this question, so this run adds no questions. If the assumption does not hold, or the approved paths "
+                            + "cannot answer it, close it with a repository_context_progress correction that gives the reason and one to three readIds "
+                            + "and no questions, and record what other code would answer it as gaps.")
                     + " Use repository_context_read SELECTION for saved progress and exact source boundaries. "
                     + "Inspect existing notes before saving duplicates. Read only what answers this question: the approved paths, the documentation inventory, "
                     + "and single public pages by their address with PAGE. When the question came from a task or review with a lead, check the lead first. "

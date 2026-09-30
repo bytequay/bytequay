@@ -222,10 +222,16 @@ its questions is open or unfinished; there is no fixed count.
 A learning run first checks its question's assumption against the code. It then
 answers and saves notes, saves progress for a later run, or corrects the
 question: the assumption does not hold, or the question is too broad. A
-correction cites the lines that show why and replaces the question with one to
+correction cites the lines that show why and replaces the question with up to
 three questions, which also covers splitting it. A run may add up to three
 follow-up questions to the same topic, each with the lines that raised it. It
 never saves notes outside its topic's note target.
+
+Only a question from discovery, the user, a task or a review adds questions. A
+question a learning run added is answered, or closed by a correction that gives
+the reason and replaces it with nothing, so the plan grows one generation deep
+and a batch always ends. Runs add only questions their topic's paths can
+answer; what other code would answer becomes a plan gap.
 
 The user can add a question to a topic, edit an open one or drop one; a
 question a run is working on changes only after that run ends. **Go deeper**

@@ -180,8 +180,10 @@ public class ContextBuildTools
                 new ReviewTool("repository_context_progress", "Save the current approved learning question's checkpoint regularly and after saving notes. "
                         + "completed=true means this question is answered; otherwise progress states what was established and precisely what the next run "
                         + "should investigate. When the question's assumption does not hold or the question is too broad, pass correction with the "
-                        + "reason, one to three readIds that show it and one to three questions that replace it, instead of bending an answer to fit. "
+                        + "reason, one to three readIds that show it and up to three questions that replace it, instead of bending an answer to fit. "
                         + "Pass up to three followUps, each with one to three readIds that raised it, for questions this topic should also answer. "
+                        + "Only a question from discovery, the user, a task or a review adds questions; for one a learning run added, pass no followUps "
+                        + "and a correction without questions. Add only questions the approved paths can answer; put questions that need other code in gaps. "
                         + "This never starts another run.",
                         schema(ImmutableMap.of("progress", textSchema(2000), "completed", ImmutableMap.of("type", "boolean"),
                                 "gaps", stringArray(20, 1000),
@@ -462,7 +464,8 @@ public class ContextBuildTools
                 attempts.put(ContextRun.PROGRESS, correction.isPresent() ? ContextRun.CORRECTED : completed ? ContextRun.COMPLETED : ContextRun.UNFINISHED);
                 List<String> remaining = closes ? capture.gaps().stream().filter(gap -> !gap.equals(UNCONFIRMED_COMPLETION)).toList() : capture.gaps();
                 Optional<ContextBuild.Result> result = closes && capture.result().isEmpty() ? Optional.of(new ContextBuild.Result(ImmutableList.of())) : capture.result();
-                String line = correction.isPresent() ? "Question corrected · replaced by " + correction.orElseThrow().questions().size()
+                String line = correction.isPresent() ? "Question corrected" + (correction.orElseThrow().questions().isEmpty() ? ""
+                        : " · replaced by " + correction.orElseThrow().questions().size())
                         : completed ? "Question answered" : "Progress saved · the next run resumes this question";
                 builds.save(Optional.of(build), build.withCapture(new ContextBuild.Capture(capture.sourceReads(), capture.evidence(), attempts,
                         capture.operations(), result, remaining, capture.activity()).logged(Instant.now(clock),

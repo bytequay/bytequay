@@ -618,10 +618,10 @@ function diffSideLines(hunks: Array<{ rows: DiffRow[] }>, source: string[], side
   return lines.length > 0 ? lines : null;
 }
 
-const CONTEXT_LINES_PER_EXPAND = 200;
+const CONTEXT_LINES_PER_EXPAND = 30;
 
 /**
- * Lines shown at the top and bottom of a hidden gap. Each expansion reveals at most 200 more beside the
+ * Lines shown at the top and bottom of a hidden gap. Each expansion reveals at most 30 more beside the
  * neighboring hunks, so the expander stays over the lines that are still hidden.
  */
 function revealedGap(hidden: number, expansions: number, edge: 'leading' | 'between' | 'trailing'): { top: number; bottom: number } {

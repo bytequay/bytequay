@@ -146,13 +146,15 @@ async function incrementalContext(): Promise<void> {
   };
   try {
     await expand(450);
-    assert(gap(250)?.nextElementSibling === row(251) && row(250) === null, 'A leading gap must reveal only its last 200 lines below the expander');
+    assert(gap(420)?.nextElementSibling === row(421) && row(420) === null, 'A leading gap must reveal only its last 30 lines below the expander');
     await expand(390);
-    assert(gap(190)?.previousElementSibling === row(551) && gap(190)?.nextElementSibling === row(742),
-      'A gap between hunks must reveal 100 lines beside each hunk around the expander');
+    assert(gap(360)?.previousElementSibling === row(466) && gap(360)?.nextElementSibling === row(827),
+      'A gap between hunks must reveal 15 lines beside each hunk around the expander');
     await expand(658);
-    assert(gap(458)?.previousElementSibling === row(1042) && row(1043) === null, 'A trailing gap must reveal only its first 200 lines above the expander');
-    for (const remaining of [250, 50, 190, 458, 258, 58]) await expand(remaining);
+    assert(gap(628)?.previousElementSibling === row(872) && row(873) === null, 'A trailing gap must reveal only its first 30 lines above the expander');
+    for (const hidden of [420, 360, 628]) {
+      for (let remaining = hidden; remaining > 0; remaining -= 30) await expand(remaining);
+    }
     const rows = [...host.querySelectorAll('[data-diff-row]')].map(element => element.getAttribute('data-diff-row'));
     assert(host.querySelector('tr.is-gap') === null
       && rows.join() === Array.from({ length: 1500 }, (_, index) => `${file.filename}:RIGHT:${index + 1}`).join(),
@@ -345,7 +347,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const cases: Array<[string, () => Promise<void>]> = [
     ...(['missing', 'own PR', 'reviewable PR'] as const).map(mode => [`Shared diff with ${mode} review`, () => privateComment(mode)] as [string, () => Promise<void>]),
     ['Unchanged context preserves full and selected revision pairs', unchangedContent],
-    ['Unchanged context expands at most 200 lines per click', incrementalContext],
+    ['Unchanged context expands at most 30 lines per click', incrementalContext],
     ['Private submission preserves failed and in-flight feedback', asynchronousSubmission],
     ['Dragging and Shift-dragging line numbers select a range', dragSelection],
     ['Clicking below an open composer does not drag', pressBelowComposer],

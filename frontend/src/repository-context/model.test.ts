@@ -17,7 +17,7 @@ import type {
   ContextScopeDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto,
 } from './contracts';
 import {
-  batchLine, batchRuns, disputeSides, filterNotes, gradeLine, grader, latestReport, runOrigin, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pageChangedAt, pendingCounts, planCounts, previousVersion, webLookupLine,
+  batchLine, batchNext, batchRuns, disputeSides, filterNotes, gradeLine, grader, latestReport, runOrigin, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pageChangedAt, pendingCounts, planCounts, previousVersion, webLookupLine,
   questionRow, reportsNeedingYou, reviewItems, runNotesToDisable, scopeForTopic, settledLine, statusCard, topicSummary, type StatusInput,
 } from './model';
 
@@ -216,6 +216,22 @@ describe('repository context notes', () => {
     const cited = { ...entry, sourceIds: ['s1', 's2', 's3'] };
     expect(pageChangedAt(cited, {})).toBeNull();
     expect(pageChangedAt(cited, { s3: '2026-09-30T10:00:00Z', s2: '2026-09-29T10:00:00Z', other: '2026-10-01T00:00:00Z' })).toBe('2026-09-30T10:00:00Z');
+  });
+
+  it('shows the question a batch starts next while the finished run is cleaned up', () => {
+    const batched: ContextLearningPlanDto = { ...plan, batch: { key: 'learn-key', queue: [{ topicId: 'topic:iceberg', question: 1 }], total: 2, started: 1 } };
+    const finished = run(1, 'ANSWERED', 0, '2026-09-29T11:59:00Z');
+    const view: ContextBuildViewDto = { ...build([finished]), build: { requestKey: 'learn-key', taskId: finished.taskId,
+      task: { id: finished.taskId, workspaceId: 'w', state: 'COMPLETED', mutationClaim: null, worktreeRemovedAt: null }, activeTurn: null, pendingApprovals: 0,
+      continuation: false } };
+    expect(batchNext(batched, view)).toEqual({ question: 'How are commits retried?', topic: 'Iceberg connector', run: 2, total: 2 });
+    const card = statusCard(input({ report, planView: { plan: batched, next: { topicId: 'topic:iceberg', question: 1 } }, build: view }));
+    expect(card).toMatchObject({ headline: 'Starting the next question', question: 'How are commits retried?', primary: null, icon: 'spin' });
+    expect(batchNext(batched, { ...view, runs: [{ ...finished, outcome: 'STOPPED' }] })).toBeNull();
+    expect(batchNext({ ...batched, batch: { key: 'learn-key', queue: [], total: 2, started: 2 } }, view)).toBeNull();
+    expect(batchNext(batched, { ...view, build: { ...view.build, requestKey: 'another-click' } })).toBeNull();
+    expect(batchNext(batched, { ...view, build: { ...view.build, requestKey: 'learn-key#2' } })).not.toBeNull();
+    expect(batchNext(batched, build([run(1, 'RUNNING', 0, '2026-09-29T11:59:00Z')]))).toBeNull();
   });
 
   it('compares web lookups per task with notes on and off', () => {

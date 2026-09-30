@@ -239,7 +239,8 @@ starts a run on its own.
 question that is open or unfinished at that moment, one run per question in the
 plan's order, at most 30 per batch; the run line shows how many runs the click
 starts. The next run starts when the previous one ends and its worktree is
-cleaned up. A run that reaches a limit or saves progress leaves its question
+cleaned up; meanwhile the page names the question that starts next and keeps
+checking, so the gap does not look like a stop. A run that reaches a limit or saves progress leaves its question
 unfinished for a later batch, and the batch moves on. Stop ends the current run
 and the rest of the batch; a failed run ends it too, and so does another run
 the user starts between batch runs. Questions added during a batch wait for the

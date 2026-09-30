@@ -189,6 +189,24 @@ export function batchLine(runs: number, first: string | null, model: string): st
   return `${plural(runs, 'run')}, one per open question${first === null ? '' : `, starting with ${first}`} · ${model} · Stop ends the batch`;
 }
 
+/**
+ * The question a batch starts next while the run that just finished is cleaned up, or null when no batch goes on: the
+ * backend ends a batch when its run stops or fails, or when no queued question is still open.
+ */
+export function batchNext(plan: ContextLearningPlanDto | null, build: ContextBuildViewDto): { question: string; topic: string; run: number; total: number } | null {
+  const batch = plan?.batch ?? null;
+  const current = build.build;
+  if (batch === null || current === null || currentRun(build) !== null || (current.requestKey !== batch.key && !current.requestKey.startsWith(`${batch.key}#`))) return null;
+  const last = build.runs.find(run => run.taskId === current.taskId);
+  if (last === undefined || last.outcome === 'STOPPED' || last.outcome === 'FAILED') return null;
+  for (const target of batch.queue) {
+    const topic = plan.topics.find(value => value.id === target.topicId);
+    const question = topic?.questions[target.question];
+    if (question !== undefined && isOpen(question)) return { question: question.text, topic: topic.title, run: batch.started + 1, total: batch.total };
+  }
+  return null;
+}
+
 export function planCounts(plan: ContextLearningPlanDto): { answered: number; total: number } {
   const questions = plan.topics.flatMap(topic => topic.questions).filter(counted);
   return { answered: questions.filter(question => question.status === 'COMPLETED').length, total: questions.length };
@@ -395,6 +413,12 @@ export function statusCard(input: StatusInput): StatusCard {
     return { ...card, headline: `Learning from merged PR #${running.pullRequest ?? ''}`, question: 'What’s reusable from this change?',
       body: 'Reads the PR bundle and the current code. It may save a note, an update, or nothing.',
       details: { label: 'View details', action: 'plan-activity' } };
+  }
+  const upcoming = batchNext(plan, build);
+  if (upcoming !== null) {
+    return { ...blank, icon: 'spin', tone: 'blue', headline: 'Starting the next question', question: upcoming.question,
+      body: `${upcoming.topic} · run ${upcoming.run} of ${upcoming.total} in this batch. It starts once the last run’s worktree is cleaned up.`,
+      runLine: `Started by you · ${model} · Stop is available once it starts` };
   }
   if (report === null && plan === null && available === 0) {
     return { ...blank, icon: 'search', headline: `Find what’s worth learning in ${repository}`,

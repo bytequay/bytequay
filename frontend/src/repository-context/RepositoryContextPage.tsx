@@ -28,7 +28,7 @@ import { ContextDrawers, type Drawer } from './ContextDrawers';
 import ContextNotes from './ContextNotes';
 import ContextOverview from './ContextOverview';
 import { Icon } from './icons';
-import { currentRun, modelLine, needsTopicReselection, pendingCounts, plural, reportsNeedingYou, SETTLED_BY, shortSha, type TaskTitles } from './model';
+import { batchNext, currentRun, modelLine, needsTopicReselection, pendingCounts, plural, reportsNeedingYou, SETTLED_BY, shortSha, type TaskTitles } from './model';
 import { CONTEXT_CHANGED } from './reviewCount';
 import '../css/repository-context.css';
 
@@ -141,18 +141,23 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
   }, [build, reports, times, titles, workspaceId]);
 
   const running = currentRun(build);
-  const active = running !== null || build?.build?.task?.state === 'OPEN';
+  const starting = build !== null && planView !== undefined && batchNext(planView.plan, build) !== null;
+  const active = running !== null || build?.build?.task?.state === 'OPEN' || starting;
 
-  // Only the build view is polled while a run is active; the rest is re-read once the run settles.
+  // Only the build view is polled while a run is active or a batch is starting its next run; the rest is re-read once the run settles.
   useEffect(() => {
     if (!active) return;
     let live = true;
     const timer = setInterval(() => {
       void window.bridge.getRepositoryContextBuild(workspaceId).then(value => { if (live && mounted.current) setBuild(value); }).catch(() => {});
+      // Between batch runs the plan says whether the batch goes on; the backend ends it when a run cannot start.
+      if (starting) {
+        void window.bridge.getRepositoryContextLearningPlan(workspaceId).then(value => { if (live && mounted.current) setPlanView(value); }).catch(() => {});
+      }
     }, 2000);
     const clock = setInterval(() => setNow(Date.now()), 1000);
     return () => { live = false; clearInterval(timer); clearInterval(clock); };
-  }, [active, workspaceId]);
+  }, [active, starting, workspaceId]);
 
   useEffect(() => {
     const previous = runningTask.current;

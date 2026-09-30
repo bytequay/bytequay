@@ -22,7 +22,7 @@ const SHOTS = [
   ['15-home-explore', 'home'], ['16-task-notes', 'task'],
   ['17-learning-run', 'learning:run'], ['18-learning-tasks', 'learning:tasks'], ['19-disable-notes', 'review:disable'],
   ['20-reported-note', 'review:reported'], ['21-task-report', 'task-report'], ['22-contested-note', 'review:contested'],
-  ['23-plan-questions', 'review:questions'], ['24-page-changed', 'review:page-changed'],
+  ['23-plan-questions', 'review:questions'], ['24-page-changed', 'review:page-changed'], ['25-spec-check', 'review:spec'], ['26-spec-start', 'review:spec-start'],
 ];
 
 it('keeps every repository context run explicit and every review action run-free in Chromium', async () => {
@@ -49,5 +49,5 @@ it('keeps every repository context run explicit and every review action run-free
       }`,
   });
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-  expect(results).toHaveLength(27);
+  expect(results).toHaveLength(28);
 }, 120_000);

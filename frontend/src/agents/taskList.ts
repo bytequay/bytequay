@@ -72,7 +72,8 @@ export function learningItem(runs: ContextRunDto[]): TaskListItem {
   const last = run.activity.at(-1);
   return {
     ...EMPTY, key: `learning:${run.taskId}`, type: 'learning',
-    title: runs.length > 1 && run.question !== null ? `Learning runs ${first.sequence}–${run.sequence} · ${run.question.topicTitle}` : runOrigin(run),
+    title: runs.length > 1 && run.question !== null ? `Learning runs ${first.sequence}–${run.sequence} · ${run.question.topicTitle}`
+      : runs.length > 1 && run.check !== null ? `Spec check runs ${first.sequence}–${run.sequence} · ${run.check.topicTitle}` : runOrigin(run),
     state: run.outcome === 'RUNNING' ? { label: 'Running', tone: 'blue', spinning: true, reason: null }
       : run.outcome === 'FAILED' ? { label: 'Failed', tone: 'red', spinning: false, reason: run.detail }
         : { label: 'Finished', tone: 'neutral', spinning: false, reason: null },

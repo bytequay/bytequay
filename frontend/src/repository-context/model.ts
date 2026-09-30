@@ -18,7 +18,7 @@ import type { IconName } from './icons';
 import type {
   ContextActivityDto, ContextBaselineDto, ContextPlanQuestionDto, ContextWebLookupsDto, ContextBuildViewDto, ContextClaimDto, ContextDiscoveryReportDto, ContextEntryDto, ContextGradeDto,
   ContextLearningPlanDto, ContextLearningPlanViewDto, ContextMergedCandidatesDto, ContextPlanTopicDto, ContextQuestionTarget, ContextReportedNoteDto, ContextRunDto,
-  ContextInvestigationOutcome, ContextScopeDto, ContextSettlementDto, ContextSourceEvidenceDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto,
+  ContextInvestigationOutcome, ContextScopeDto, ContextSettlementDto, ContextSourceEvidenceDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto, ContextSpecCheckDto,
 } from './contracts';
 
 export const DOCUMENT_LINK_HOPS = 2;
@@ -402,6 +402,8 @@ export type StatusInput = {
   repository: string; baseline: ContextBaselineDto | null; model: string;
   notebook: RepositoryNotebookDto; times: ContextTimesDto; build: ContextBuildViewDto; report: ContextDiscoveryReportDto | null;
   planView: ContextLearningPlanViewDto; now: number;
+  /** Spec checks, so a check reads as one piece of work between its turns. */
+  checks?: ContextSpecCheckDto[];
 };
 
 const blank: StatusCard = { icon: 'doc', tone: 'gray', headline: '', elapsedSince: null, question: null, body: null, steps: false, how: false,
@@ -426,6 +428,25 @@ function lastRunSentence(run: ContextRunDto, question: string): string {
     case 'FAILED': return `failed during “${question}”.`;
     default: return `worked on “${question}”.`;
   }
+}
+
+/** A spec check reproduces at most this many candidates, most severe first. */
+export const CHECK_REPRODUCTIONS = 8;
+
+export function checkActive(check: ContextSpecCheckDto): boolean {
+  return check.state === 'CHECKING' || check.state === 'REPRODUCING';
+}
+
+/** The check that holds the workspace's one learning task, if one runs. */
+export function activeCheck(checks: ContextSpecCheckDto[]): ContextSpecCheckDto | null {
+  return checks.find(checkActive) ?? null;
+}
+
+/** What an active check is doing, for the status card and the topic row. */
+export function checkProgress(check: ContextSpecCheckDto): string {
+  if (check.state === 'CHECKING') return check.candidates.length === 0 ? 'Reading the specs and the code' : `${plural(check.candidates.length, 'candidate')} saved so far`;
+  const waiting = check.candidates.filter(candidate => candidate.status === 'PENDING').length;
+  return `Reproduction ${check.reproductions} of up to ${Math.min(CHECK_REPRODUCTIONS, check.reproductions + waiting)}`;
 }
 
 /** One status card: what is happening now and the one next action. Only lightning-marked actions start a run. */
@@ -462,6 +483,16 @@ export function statusCard(input: StatusInput): StatusCard {
         details: { label: 'View details', action: 'plan-activity' },
         foot: { text: 'Notes are saved as they finish. Stopping keeps the plan and every saved note.', link: null } };
     }
+    if (running.check !== null) {
+      const check = input.checks?.find(value => value.id === running.check?.checkId);
+      return { ...card, headline: `${running.check.reproduced === null ? 'Checking against spec' : 'Reproducing'} · ${running.check.topicTitle}`,
+        question: running.check.reproduced,
+        body: running.check.reproduced === null
+          ? `Run ${running.sequence} reads the specs and the topic’s code and saves candidate gaps${check === undefined ? '' : ` · ${checkProgress(check)}`}. Each candidate is reproduced with a test next.`
+          : `Run ${running.sequence} re-reads the code and writes a test that shows the gap${check === undefined ? '' : ` · ${checkProgress(check)}`}.`,
+        details: { label: 'View activity', action: 'run-activity' },
+        foot: { text: 'Only gaps a test reproduced become findings. Stopping keeps what the check confirmed.', link: null } };
+    }
     if (running.investigation !== null) {
       return { ...card, headline: `Investigating · ${running.investigation.title}`, question: running.investigation.statement,
         body: `Run ${running.sequence} reads the code at the monitored branch head to find which side holds and why agents disagreed. It rewrites, keeps or narrows the note, with a root cause.`,
@@ -471,6 +502,11 @@ export function statusCard(input: StatusInput): StatusCard {
     return { ...card, headline: `Learning from merged PR #${running.pullRequest ?? ''}`, question: 'What’s reusable from this change?',
       body: 'Reads the PR bundle and the current code. It may save a note, an update, or nothing.',
       details: { label: 'View details', action: 'plan-activity' } };
+  }
+  const checking = activeCheck(input.checks ?? []);
+  if (checking !== null) {
+    return { ...blank, icon: 'spin', tone: 'blue', headline: `Checking against spec · ${checking.topicTitle}`,
+      body: `${checkProgress(checking)} · the next turn starts in a moment`, runLine: `Started by you · ${model} · Stop is available once it starts` };
   }
   const upcoming = batchNext(plan, build);
   if (upcoming !== null) {

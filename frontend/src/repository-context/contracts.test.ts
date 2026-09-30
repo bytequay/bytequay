@@ -17,6 +17,10 @@ import { reviewFixture } from '../pulls/agent-review/fixtures/review';
 import {
   parseConfigureRepositoryContextRequest,
   parseContextBuildView,
+  parseContextSpecChecks,
+  parseContextSpecSources,
+  parseDismissContextSpecFindingRequest,
+  parseStartContextSpecCheckRequest,
   parseContextDiscoveryReport,
   parseContextChangedPages,
   parseContextDisputes,
@@ -111,6 +115,33 @@ const merged: ContextHistoryReadDto = { kind: 'HISTORY', id: 'context-read:merge
 const closed: ContextHistoryReadDto = { ...merged, id: 'context-read:closed-issue',
   reference: { ...merged.reference, kind: 'ISSUE', number: 9 }, state: 'CLOSED', sourceUpdatedAt: null, sourceRevision: null,
   truncated: false, refreshFailed: false, gaps: ['Closure reason is unknown.'], evidenceRef: 'history:issue:9' };
+
+describe('spec check contracts', () => {
+  it('reads checks with their findings and sends only HTTPS specs', () => {
+    const finding = { id: 'c1', type: 'BUG', predicted: 'DIVERGES', title: 'Removes keyed by path', rule: 'MUST key by path and deletion vector',
+      specUrl: 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md#checkpoints', code: ['plugin/trino-delta-lake/src/Writer.java:10-20'], reasoning: 'why',
+      severity: 3, duplicate: { number: 31252, title: 'Checkpoint loses a remove', state: 'closed', url: 'https://github.com/trinodb/trino/issues/31252' },
+      status: 'CONFIRMED', test: { path: 'plugin/trino-delta-lake/src/test/TestKeys.java', command: './mvnw -pl plugin/trino-delta-lake test -Dtest=TestKeys',
+        exitCode: 1, output: 'expected: 2 but was: 1', source: 'class TestKeys {}' }, reason: 'fails', draft: { title: 'Removes keyed by path', body: 'body', labels: ['bug'] },
+      dismissed: null as string | null };
+    const check = { id: 'check-1', planId: 'plan', topicId: 'topic:delta', topicTitle: 'Delta Lake', scopeId: 'delta', paths: ['plugin/trino-delta-lake/'],
+      baselineSha: 'a'.repeat(40), requestKey: 'key', specs: ['https://github.com/delta-io/delta/blob/master/PROTOCOL.md'], labels: ['bug'], state: 'DONE',
+      candidates: [finding, { ...finding, id: 'c2', status: 'NOT_REPRODUCED', test: null, draft: null, duplicate: null, reason: 'Needs a container' }],
+      covered: ['Checkpoints'], next: ['Column Mapping'], reproductions: 2, detail: null as string | null, startedAt: '2026-10-01T00:00:00Z', endedAt: '2026-10-01T01:00:00Z' };
+    expect(parseContextSpecChecks({ checks: [check] })).toEqual([check]);
+    expect(() => parseContextSpecChecks({ checks: [{ ...check, state: 'PAUSED' }] })).toThrow('check state');
+    expect(() => parseContextSpecChecks({ checks: [{ ...check, candidates: [{ ...finding, test: { ...finding.test, exitCode: 'failed' } }] }] })).toThrow('test exit code');
+    expect(parseContextSpecSources({ sources: [{ url: check.specs[0], kind: 'DOCUMENT', links: 25, sections: ['checkpoints'], approved: false }] }))
+      .toEqual([{ url: check.specs[0], kind: 'DOCUMENT', links: 25, sections: ['checkpoints'], approved: false }]);
+    const start = { requestKey: 'k', expectedRevision: 1, expectedBuildSequence: 2, planId: 'plan', topicId: 'topic:delta', specs: check.specs };
+    expect(parseStartContextSpecCheckRequest(start)).toEqual(start);
+    expect(() => parseStartContextSpecCheckRequest({ ...start, specs: ['http://example.com/spec'] })).toThrow('specs');
+    expect(() => parseStartContextSpecCheckRequest({ ...start, specs: [] })).toThrow('specs');
+    expect(() => parseStartContextSpecCheckRequest({ ...start, sections: ['checkpoints'] })).toThrow('unsupported request field');
+    expect(parseDismissContextSpecFindingRequest({ reason: 'Filed on GitHub' })).toEqual({ reason: 'Filed on GitHub' });
+    expect(() => parseDismissContextSpecFindingRequest({ reason: ' ' })).toThrow('dismissal reason');
+  });
+});
 
 describe('repository context contracts', () => {
   it('parses usage without treating an absent, removed or disabled note as confirmed use', () => {

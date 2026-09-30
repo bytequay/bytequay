@@ -117,6 +117,18 @@ describe('task list items', () => {
     expect(items[1].title).toBe('Learning run 2 · Connector SPI');
   });
 
+  it('shows a spec check’s turns as one card named for the check', () => {
+    const planning: ContextRunDto = { sequence: 5, taskId: 'check', mode: 'CHECK', requestedAt: '2026-10-01T09:00:00Z', endedAt: '2026-10-01T09:20:00Z',
+      question: null, pullRequest: null, outcome: 'SUBMITTED', sourceOperations: 9, documentOpens: 4, noteIds: [], detail: null, investigation: null,
+      check: { checkId: 'check-1', topicTitle: 'Delta Lake connector', reproduced: null }, activity: [{ at: '2026-10-01T09:19:00Z', text: 'Saved 3 candidates', tone: 'DONE' }] };
+    const reproduction: ContextRunDto = { ...planning, sequence: 6, endedAt: null, outcome: 'RUNNING',
+      check: { checkId: 'check-1', topicTitle: 'Delta Lake connector', reproduced: 'Removes keyed by path only' },
+      activity: [{ at: '2026-10-01T09:25:00Z', text: 'Searched reports for “checkpoint”', tone: 'DONE' }] };
+    expect(learningItems([planning, reproduction])[0]).toMatchObject({ title: 'Spec check runs 5–6 · Delta Lake connector',
+      message: { who: 'Spec check', text: 'Searched reports for “checkpoint”' } });
+    expect(learningItem([planning]).title).toBe('Spec check 5 · Delta Lake connector');
+  });
+
   it('names a development task by its lane, or You, and leaves a pull request to the links', () => {
     const task = { ...previewTask('workspace-1', 'task-1'), laneId: 'claude' };
     const activity: AgentTaskActivityDto = {

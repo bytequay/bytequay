@@ -26,6 +26,10 @@ import type {
   ContextUsageOverviewDto,
   ContextUsageWindow,
   GoDeeperContextLearningRequest,
+  ContextSpecCheckDto,
+  ContextSpecCheckStartedDto,
+  ContextSpecSourceDto,
+  StartContextSpecCheckRequest,
   EditContextLearningQuestionRequest,
   DropContextLearningQuestionRequest,
   AddContextLearningQuestionRequest,
@@ -1654,6 +1658,13 @@ export type Bridge = JiraBridge & {
   editRepositoryContextQuestion: (workspaceId: string, request: EditContextLearningQuestionRequest) => Promise<ContextLearningPlanViewDto>;
   dropRepositoryContextQuestion: (workspaceId: string, request: DropContextLearningQuestionRequest) => Promise<ContextLearningPlanViewDto>;
   goDeeperRepositoryContextTopic: (workspaceId: string, request: GoDeeperContextLearningRequest) => Promise<ContextBuildViewDto>;
+  /** The latest spec check of each plan topic, and the specs a topic's code links; reads only. */
+  getRepositoryContextSpecChecks: (workspaceId: string) => Promise<ContextSpecCheckDto[]>;
+  getRepositoryContextSpecSources: (workspaceId: string, topicId: string) => Promise<ContextSpecSourceDto[]>;
+  /** Starts one check of a topic: a turn that saves candidate gaps, then one turn per candidate that reproduces it with a test. */
+  startRepositoryContextSpecCheck: (workspaceId: string, request: StartContextSpecCheckRequest) => Promise<ContextSpecCheckStartedDto>;
+  /** Hides a finding from the report and records why; nothing is sent to GitHub. */
+  dismissRepositoryContextSpecFinding: (workspaceId: string, checkId: string, candidateId: string, request: { reason: string }) => Promise<ContextSpecCheckDto>;
   allowRepositoryContextLearningSource: (workspaceId: string, request: AllowContextLearningSourceRequest) => Promise<ContextLearningPlanViewDto>;
   declineRepositoryContextLearningSource: (workspaceId: string, request: DeclineContextLearningSourceRequest) => Promise<ContextLearningPlanViewDto>;
   getRepositoryContextMergedCandidates: (workspaceId: string) => Promise<ContextMergedCandidatesDto>;

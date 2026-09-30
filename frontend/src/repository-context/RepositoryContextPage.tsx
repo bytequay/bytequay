@@ -18,7 +18,7 @@ import { settingsRoute } from '../settings/routes';
 import type { ModelSettingsDto, WorkspaceDto } from '../types';
 import type {
   ContextBaselineDto, ContextBuildViewDto, ContextDiscoveryReportDto, ContextDisputesDto, ContextLearningPlanViewDto, ContextMergedCandidatesDto, ContextReportedNoteDto,
-  ContextRunDto,
+  ContextRunDto, ContextSpecCandidateDto, ContextSpecCheckDto, StartContextSpecCheckRequest,
   ContextTimesDto, ContextUsageOverviewDto, ContinueContextLearningRequest, GoDeeperContextLearningRequest, InvestigateRepositoryContextNoteRequest,
   LearnContextMergedCandidateRequest,
   RepositoryNotebookDto, StartContextDiscoveryRequest,
@@ -28,8 +28,9 @@ import { ContextDrawers, type Drawer } from './ContextDrawers';
 import ContextNotes from './ContextNotes';
 import ContextOverview from './ContextOverview';
 import { Icon } from './icons';
-import { batchNext, currentRun, modelLine, needsTopicReselection, pendingCounts, plural, reportsNeedingYou, SETTLED_BY, shortSha, type TaskTitles } from './model';
+import { activeCheck, batchNext, currentRun, modelLine, needsTopicReselection, pendingCounts, plural, reportsNeedingYou, SETTLED_BY, shortSha, type TaskTitles } from './model';
 import { CONTEXT_CHANGED } from './reviewCount';
+import { issueUrl } from './specChecks';
 import '../css/repository-context.css';
 
 const EMPTY_TIMES: ContextTimesDto = { entries: {} };
@@ -41,7 +42,8 @@ export type PendingStart =
   | { kind: 'continue'; request: ContinueContextLearningRequest }
   | { kind: 'candidate'; request: LearnContextMergedCandidateRequest }
   | { kind: 'investigate'; request: InvestigateRepositoryContextNoteRequest }
-  | { kind: 'deeper'; request: GoDeeperContextLearningRequest };
+  | { kind: 'deeper'; request: GoDeeperContextLearningRequest }
+  | { kind: 'spec'; request: StartContextSpecCheckRequest };
 
 const pendingKey = (workspaceId: string) => `repository-context-start:${workspaceId}`;
 
@@ -60,6 +62,8 @@ export type ContextData = {
   notebook: RepositoryNotebookDto; times: ContextTimesDto; build: ContextBuildViewDto; report: ContextDiscoveryReportDto | null;
   planView: ContextLearningPlanViewDto; candidates: ContextMergedCandidatesDto | null; baseline: ContextBaselineDto | null;
   usage: ContextUsageOverviewDto | null; reports: ContextReportedNoteDto[]; disputes: ContextDisputesDto | null; model: { label: string; blocker: string | null };
+  /** The latest spec check of each plan topic. */
+  checks: ContextSpecCheckDto[];
   /** Source evidence ids whose cited page changed after the note saved it, with when a learning run saw the change. */
   changedPages: Record<string, string>;
   titles: TaskTitles; now: number;
@@ -83,6 +87,7 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
   const [reports, setReports] = useState<ContextReportedNoteDto[]>([]);
   const [disputes, setDisputes] = useState<ContextDisputesDto | null>(null);
   const [changedPages, setChangedPages] = useState<Record<string, string>>({});
+  const [checks, setChecks] = useState<ContextSpecCheckDto[]>([]);
   const [models, setModels] = useState<ModelSettingsDto | null>(null);
   const [titles, setTitles] = useState<TaskTitles>({});
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -122,6 +127,7 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
     void Promise.resolve().then(() => window.bridge.getRepositoryContextDisputes(workspaceId)).then(value => { if (mounted.current) setDisputes(value); }).catch(() => {});
     void Promise.resolve().then(() => window.bridge.getRepositoryContextChangedPages(workspaceId))
       .then(value => { if (mounted.current) setChangedPages(value.changed); }).catch(() => {});
+    void Promise.resolve().then(() => window.bridge.getRepositoryContextSpecChecks(workspaceId)).then(value => { if (mounted.current) setChecks(value); }).catch(() => {});
   }, [workspaceId]);
 
   useEffect(() => {
@@ -148,7 +154,8 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
 
   const running = currentRun(build);
   const starting = build !== null && planView !== undefined && batchNext(planView.plan, build) !== null;
-  const active = running !== null || build?.build?.task?.state === 'OPEN' || starting;
+  const checking = activeCheck(checks) !== null;
+  const active = running !== null || build?.build?.task?.state === 'OPEN' || starting || checking;
 
   // Only the build view is polled while a run is active or a batch is starting its next run; the rest is re-read once the run settles.
   useEffect(() => {
@@ -160,10 +167,14 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
       if (starting) {
         void window.bridge.getRepositoryContextLearningPlan(workspaceId).then(value => { if (live && mounted.current) setPlanView(value); }).catch(() => {});
       }
+      // A spec check saves candidates and results during its turns, and between them says whether it goes on.
+      if (checking) {
+        void window.bridge.getRepositoryContextSpecChecks(workspaceId).then(value => { if (live && mounted.current) setChecks(value); }).catch(() => {});
+      }
     }, 2000);
     const clock = setInterval(() => setNow(Date.now()), 1000);
     return () => { live = false; clearInterval(timer); clearInterval(clock); };
-  }, [active, starting, workspaceId]);
+  }, [active, checking, starting, workspaceId]);
 
   useEffect(() => {
     const previous = runningRun.current;
@@ -213,7 +224,8 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
         : next.kind === 'continue' ? await window.bridge.continueRepositoryContextLearning(workspaceId, next.request)
           : next.kind === 'candidate' ? await window.bridge.learnRepositoryContextMergedCandidate(workspaceId, next.request)
             : next.kind === 'deeper' ? await window.bridge.goDeeperRepositoryContextTopic(workspaceId, next.request)
-              : await window.bridge.investigateRepositoryContextNote(workspaceId, next.request);
+              : next.kind === 'spec' ? (await window.bridge.startRepositoryContextSpecCheck(workspaceId, next.request)).build
+                : await window.bridge.investigateRepositoryContextNote(workspaceId, next.request);
     if (!mounted.current) return;
     setBuild(accepted);
     setDrawer(null);
@@ -250,7 +262,7 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
 
   const model = modelLine(models);
   const data: ContextData = { workspaceId, repository, notebook, times, build, report, planView, candidates, baseline, usage, reports, disputes, changedPages, model,
-    titles, now };
+    checks, titles, now };
   const counts = pendingCounts(planView.plan, reportsNeedingYou(notebook, reports));
   const available = notebook.entries.filter(entry => entry.enabled).length;
   const revision = baseline === null ? null : `${baseline.branch}@${shortSha(planView.plan?.baselineSha ?? report?.baselineSha ?? baseline.sha)}`;
@@ -289,6 +301,23 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
     learnCandidate: (candidateId: string): void => void start({ kind: 'candidate', request: { ...fence(), candidateId } }),
     investigate: (entryId: string): void => void start({ kind: 'investigate', request: { ...fence(), entryId } }),
     goDeeper: (topicId: string) => { if (planView.plan !== null) void start({ kind: 'deeper', request: { ...fence(), planId: planView.plan.id, topicId } }); },
+    checkSpec: (topicId: string, specs: string[]) => {
+      if (planView.plan !== null) void start({ kind: 'spec', request: { ...fence(), planId: planView.plan.id, topicId, specs } });
+    },
+    dismissFinding: (check: ContextSpecCheckDto, candidateId: string, reason: string): void => void perform(async () => {
+      const saved = await window.bridge.dismissRepositoryContextSpecFinding(workspaceId, check.id, candidateId, { reason });
+      if (!mounted.current) return;
+      setChecks(value => value.map(item => item.id === saved.id ? saved : item));
+      say('Finding dismissed · nothing was sent to GitHub');
+    }),
+    // Opening GitHub's form writes nothing; the user files the issue there.
+    openIssue: (candidate: ContextSpecCandidateDto): void => void perform(async () => {
+      if (candidate.draft === null) return;
+      const { url, cut } = issueUrl(repository, candidate.draft);
+      if (cut) await navigator.clipboard.writeText(candidate.draft.body);
+      await window.bridge.openInAppBrowser(url);
+      say(cut ? 'The issue form opened with a shortened body · the full report is on the clipboard' : 'The issue form opened on GitHub · file it there');
+    }),
     addQuestion: (topicId: string, text: string): void => void changePlan(planId => window.bridge.addRepositoryContextQuestion(workspaceId, { planId, topicId, text }),
       'Question added · the next batch runs it · no agent run'),
     editQuestion: (topicId: string, question: number, text: string): void => void changePlan(planId => window.bridge.editRepositoryContextQuestion(workspaceId,
@@ -386,6 +415,9 @@ export type ContextActions = {
   learnCandidate: (candidateId: string) => void;
   investigate: (entryId: string) => void;
   goDeeper: (topicId: string) => void;
+  checkSpec: (topicId: string, specs: string[]) => void;
+  dismissFinding: (check: ContextSpecCheckDto, candidateId: string, reason: string) => void;
+  openIssue: (candidate: ContextSpecCandidateDto) => void;
   addQuestion: (topicId: string, text: string) => void;
   editQuestion: (topicId: string, question: number, text: string) => void;
   dropQuestion: (topicId: string, question: number) => void;

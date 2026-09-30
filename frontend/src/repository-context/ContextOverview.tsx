@@ -22,9 +22,11 @@ import { Chevron, Icon, Spinner, type IconName } from './icons';
 import {
   BATCH_RUNS, batchLine, batchOrder, batchRuns, ORIGIN_LABEL, spotTitle, clock, currentRun, entryTimeKey, grader, kindLabel, latestReport, needsTopicReselection, nextQuestion, openCandidates, planCounts, plural, previousVersion,
   reportsNeedingYou, reviewItems, shortDate, shortSha, scopeForTopic, statusCard, topicSummary, topicsOutsidePlan, DOCUMENT_LINK_HOPS, type QuestionRow,
+  checkActive, checkProgress,
   type Stat, type StatusAction,
 } from './model';
 import type { ContextActions, ContextData } from './RepositoryContextPage';
+import { checkSummary, openFindings, topicCheck } from './specChecks';
 
 type PendingView = null | { error: string | null; retry: (() => void) | null; dismiss: () => void };
 
@@ -67,7 +69,7 @@ function StatusCardView({ data, actions, busy, pending }: { data: ContextData; a
   const [disabling, setDisabling] = useState(false);
   const { notebook, build, workspaceId } = data;
   const card = statusCard({ repository: data.repository, baseline: data.baseline, model: data.model.label, notebook, times: data.times, build,
-    report: data.report, planView: data.planView, now: data.now });
+    report: data.report, planView: data.planView, now: data.now, checks: data.checks });
   const running = currentRun(build);
   const task = build.build?.task ?? null;
   const blocked = data.model.blocker !== null;
@@ -185,9 +187,11 @@ function StatusCardView({ data, actions, busy, pending }: { data: ContextData; a
 function ReviewSection({ data, actions }: { data: ContextData; actions: ContextActions }) {
   const items = reviewItems(data.planView.plan, data.build.runs);
   const reported = reportsNeedingYou(data.notebook, data.reports);
-  if (items.length === 0 && reported.length === 0) return null;
+  const checked = data.checks.filter(check => check.planId === data.planView.plan?.id && openFindings(check).length > 0);
+  const findings = checked.reduce((sum, check) => sum + openFindings(check).length, 0);
+  if (items.length === 0 && reported.length === 0 && checked.length === 0) return null;
   return <section aria-label="Needs you">
-    <div className="rcp-section-head"><span className="rcp-label">NEEDS YOU · {items.length + reported.length}</span></div>
+    <div className="rcp-section-head"><span className="rcp-label">NEEDS YOU · {items.length + reported.length + findings}</span></div>
     <div className="rcp-list">
       {items.map(item => <button type="button" key={item.url} className="rcp-review rcp-tone--orange" onClick={() => actions.openDrawer({ kind: 'plan', tab: 'sources' })}>
         <span className="rcp-review__icon"><Icon name="link" /></span>
@@ -195,6 +199,15 @@ function ReviewSection({ data, actions }: { data: ContextData; actions: ContextA
           <span className="rcp-review__meta"><span className="rcp-review__kind">Source approval</span><span className="rcp-sep">·</span>
             <span className="rcp-review__origin">{item.origin}</span></span></span>
         <span className="rcp-age">{relativeTime(item.at, { suffix: false, now: data.now })}</span>
+        <Icon name="next" size={14} className="rcp-go" />
+      </button>)}
+      {checked.map(check => <button type="button" key={check.id} className="rcp-review rcp-tone--red"
+        onClick={() => actions.openDrawer({ kind: 'spec', topicId: check.topicId })}>
+        <span className="rcp-review__icon"><Icon name="flag" /></span>
+        <span className="rcp-review__main"><span className="rcp-review__title">{plural(openFindings(check).length, 'spec finding')} to file · {check.topicTitle}</span>
+          <span className="rcp-review__meta"><span className="rcp-review__kind">Spec check</span><span className="rcp-sep">·</span>
+            <span className="rcp-review__origin">{checkSummary(check)}</span></span></span>
+        <span className="rcp-age">{relativeTime(check.endedAt ?? check.startedAt, { suffix: false, now: data.now })}</span>
         <Icon name="next" size={14} className="rcp-go" />
       </button>)}
       {reported.map(note => {
@@ -256,6 +269,7 @@ function TopicQuestions({ data, actions, busy, topic, rows, openNote }: {
 }) {
   const [draft, setDraft] = useState('');
   const [editing, setEditing] = useState<{ index: number; text: string } | null>(null);
+  const check = data.planView.plan === null ? null : topicCheck(data.checks, data.planView.plan.id, topic.id);
   const canRun = data.build.canStart && !busy && data.model.blocker === null;
   const changes: QuestionChanges = { edit: row => setEditing({ index: row.index, text: row.text }), drop: row => actions.dropQuestion(topic.id, row.index) };
   const add = (event: FormEvent) => {
@@ -287,6 +301,12 @@ function TopicQuestions({ data, actions, busy, topic, rows, openNote }: {
       <RunLine workspaceId={data.workspaceId} blocked={data.model.blocker !== null}>{data.model.blocker
         ?? `Starts 1 run · reads further into this topic and adds the questions it should also answer · ${data.model.label}`}</RunLine>
     </div>
+    <div className="rcp-q-deeper">
+      <button type="button" className="rcp-btn rcp-btn--secondary" onClick={() => actions.openDrawer({ kind: 'spec', topicId: topic.id })}>
+        <Icon name="review" size={13} />{check === null ? 'Check against spec' : 'Spec check'}</button>
+      <span className="rcp-spec-line">{check === null ? 'Compares the code with the specs it links; only gaps a test reproduces are reported'
+        : checkActive(check) ? checkProgress(check) : checkSummary(check)}</span>
+    </div>
   </>;
 }
 
@@ -312,14 +332,18 @@ function PlanSection({ data, actions, busy }: { data: ContextData; actions: Cont
     <div className="rcp-list">
       {plan.topics.map(topic => {
         const summary = topicSummary(topic, data.build.runs, running, data.notebook, order);
+        const check = topicCheck(data.checks, plan.id, topic.id);
+        const findings = openFindings(check).length;
         const current = running?.question?.topicId === topic.id || (running === null && next?.topic.id === topic.id);
         const expanded = open[topic.id] ?? current;
         return <div className="rcp-topic" key={topic.id}>
           <button type="button" className="rcp-topic__head" aria-expanded={expanded} onClick={() => setOpen(value => ({ ...value, [topic.id]: !expanded }))}>
             <Chevron open={expanded} className="rcp-topic__chev" />
             <span className="rcp-topic__main"><span className="rcp-topic__line"><span className="rcp-topic__title">{topic.title}</span>
-              {summary.running && <span className="rcp-running"><Spinner size={8} />Running</span>}</span>
-              <span className="rcp-topic__meta"><Stats stats={summary.stats} /></span></span>
+              {summary.running && <span className="rcp-running"><Spinner size={8} />Running</span>}
+              {check !== null && checkActive(check) && !summary.running && <span className="rcp-running"><Spinner size={8} />Checking</span>}</span>
+              <span className="rcp-topic__meta"><Stats stats={findings === 0 ? summary.stats
+                : [...summary.stats, { icon: 'flag', value: findings, label: `${plural(findings, 'spec finding')} to file` }]} /></span></span>
             <span className="rcp-dots" aria-hidden="true">
               {summary.rows.filter(row => row.state !== 'CORRECTED' && row.state !== 'DROPPED').slice(0, 12).map(row => <span key={row.index}
                 className={`rcp-dot${row.state === 'ANSWERED' ? ' is-done' : row.state === 'RUNNING' ? ' is-running' : row.state === 'UNFINISHED' ? ' is-partial' : ''}`} />)}</span>

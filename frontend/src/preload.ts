@@ -323,6 +323,11 @@ const bridge: Bridge = {
   editRepositoryContextQuestion: (workspaceId, request) => ipcRenderer.invoke('repository-context:build:plan:questions:edit', workspaceId, request),
   dropRepositoryContextQuestion: (workspaceId, request) => ipcRenderer.invoke('repository-context:build:plan:questions:drop', workspaceId, request),
   goDeeperRepositoryContextTopic: (workspaceId, request) => ipcRenderer.invoke('repository-context:build:plan:deeper', workspaceId, request),
+  getRepositoryContextSpecChecks: workspaceId => ipcRenderer.invoke('repository-context:spec-checks:get', workspaceId),
+  getRepositoryContextSpecSources: (workspaceId, topicId) => ipcRenderer.invoke('repository-context:spec-checks:sources', workspaceId, topicId),
+  startRepositoryContextSpecCheck: (workspaceId, request) => ipcRenderer.invoke('repository-context:spec-checks:start', workspaceId, request),
+  dismissRepositoryContextSpecFinding: (workspaceId, checkId, candidateId, request) =>
+    ipcRenderer.invoke('repository-context:spec-checks:dismiss', workspaceId, checkId, candidateId, request),
   allowRepositoryContextLearningSource: (workspaceId, request) => ipcRenderer.invoke('repository-context:build:plan:source', workspaceId, request),
   declineRepositoryContextLearningSource: (workspaceId, request) => ipcRenderer.invoke('repository-context:build:plan:decline', workspaceId, request),
   getRepositoryContextMergedCandidates: workspaceId => ipcRenderer.invoke('repository-context:candidates', workspaceId),

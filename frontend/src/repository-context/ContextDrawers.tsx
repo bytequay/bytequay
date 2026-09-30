@@ -16,6 +16,7 @@ import { ConfirmDialog } from '../ConfirmDialog';
 import { relativeTime } from '../relativeTime';
 import type { ContextRunDto, ContextSourceBoundary, ContextUsageOverviewDto, ContextUsageWindow } from './contracts';
 import ContextNoteDrawer from './ContextNoteDrawer';
+import { SpecCheckDrawer } from './ContextSpecCheck';
 import { NoteApplicability, QuestionLine } from './ContextOverview';
 import { Chevron, Icon } from './icons';
 import {
@@ -29,17 +30,19 @@ export type Drawer =
   | { kind: 'plan'; tab: 'plan' | 'sources' | 'activity' }
   | { kind: 'discovery'; tab: 'coverage' | 'activity' }
   | { kind: 'run'; taskId: string }
+  | { kind: 'spec'; topicId: string }
   | { kind: 'usage' }
   | { kind: 'advanced' };
 
-const LABEL: Record<Drawer['kind'], string> = { note: 'Note', plan: 'Learning plan', discovery: 'Discovery', run: 'Learning run', usage: 'Usage', advanced: 'Advanced configuration' };
+const LABEL: Record<Drawer['kind'], string> = { note: 'Note', plan: 'Learning plan', discovery: 'Discovery', run: 'Learning run', spec: 'Spec check', usage: 'Usage',
+  advanced: 'Advanced configuration' };
 
 /** One side drawer over the still-visible list; it takes focus when it opens and Esc closes it. */
 export function ContextDrawers({ drawer, data, actions, busy, onDrawer, onClose }: {
   drawer: Drawer; data: ContextData; actions: ContextActions; busy: boolean; onDrawer: (drawer: Drawer | null) => void; onClose: () => void;
 }) {
   const panel = useRef<HTMLDivElement>(null);
-  const identity = drawer.kind === 'note' ? `note:${drawer.id}` : drawer.kind === 'run' ? `run:${drawer.taskId}` : drawer.kind;
+  const identity = drawer.kind === 'note' ? `note:${drawer.id}` : drawer.kind === 'run' ? `run:${drawer.taskId}` : drawer.kind === 'spec' ? `spec:${drawer.topicId}` : drawer.kind;
   useEffect(() => { panel.current?.focus(); }, [identity]);
   let body: ReactNode;
   switch (drawer.kind) {
@@ -47,6 +50,7 @@ export function ContextDrawers({ drawer, data, actions, busy, onDrawer, onClose 
     case 'plan': body = <PlanDrawer data={data} actions={actions} busy={busy} tab={drawer.tab} onTab={tab => onDrawer({ kind: 'plan', tab })} onClose={onClose} />; break;
     case 'discovery': body = <DiscoveryDrawer data={data} actions={actions} busy={busy} tab={drawer.tab} onTab={tab => onDrawer({ kind: 'discovery', tab })} onClose={onClose} />; break;
     case 'run': body = <RunDrawer data={data} actions={actions} busy={busy} taskId={drawer.taskId} onClose={onClose} />; break;
+    case 'spec': body = <SpecCheckDrawer key={drawer.topicId} data={data} actions={actions} busy={busy} topicId={drawer.topicId} onClose={onClose} />; break;
     case 'usage': body = <UsageDrawer data={data} actions={actions} onClose={onClose} />; break;
     case 'advanced': body = <AdvancedDrawer data={data} actions={actions} busy={busy} onClose={onClose} />; break;
   }
@@ -85,7 +89,7 @@ function RunCard({ run, defaultOpen, title, meta }: { run: ContextRunDto; defaul
           <span className={`rcp-event__text${tone}`}>{line.text}</span></div>;
       })}
       {run.outcome === 'FAILED' && <div className="rcp-run__error">{run.detail ? run.detail + ' ' : ''}Progress and saved notes are kept.</div>}
-      <div className="rcp-note-caption">Read-only {run.mode === 'DISCOVER' ? 'discovery' : 'learning'} run · messages and steering are unavailable.</div>
+      <div className="rcp-note-caption">Read-only {run.mode === 'DISCOVER' ? 'discovery' : run.mode === 'CHECK' ? 'spec check' : 'learning'} run · messages and steering are unavailable.</div>
     </div>}
   </div>;
 }

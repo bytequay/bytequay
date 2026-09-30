@@ -771,3 +771,86 @@ export function parseSaveRepositoryContextLessonRequest(value: unknown): SaveRep
     reviewId: text(item.reviewId, 'lesson review'), runId: text(item.runId, 'lesson run'), evidenceRefs: strings(item.evidenceRefs, 'lesson evidence'),
     messageId: optionalText(item.messageId, 'lesson message') };
 }
+
+/* ── Spec checks ─────────────────────────────────────────────────────── */
+
+/** A document the topic's code links, how often and at which sections; reference code is another engine's source, for comparison only. */
+export type ContextSpecSourceDto = { url: string; kind: 'DOCUMENT' | 'REFERENCE_CODE'; links: number; sections: string[]; approved: boolean };
+export type ContextSpecCheckState = 'CHECKING' | 'REPRODUCING' | 'DONE' | 'STOPPED' | 'FAILED';
+export type ContextSpecCandidateType = 'BUG' | 'FEATURE_REQUEST' | 'IMPROVEMENT';
+export type ContextSpecCandidateStatus = 'PENDING' | 'REPRODUCING' | 'CONFIRMED' | 'REFUTED' | 'NOT_REPRODUCED' | 'ALREADY_REPORTED';
+/** One gap a check found; only a confirmed one, whose test ByteQuay saw fail, is a finding with an issue draft. */
+export type ContextSpecCandidateDto = {
+  id: string; type: ContextSpecCandidateType; predicted: 'DIVERGES' | 'IGNORES' | 'REFUSES' | 'REFUSES_UNCLEARLY' | 'SKIPS_SHOULD';
+  title: string; rule: string; specUrl: string; code: string[]; reasoning: string; severity: number;
+  duplicate: null | { number: number; title: string; state: string; url: string };
+  status: ContextSpecCandidateStatus;
+  test: null | { path: string; command: string; exitCode: number; output: string; source: string };
+  reason: string | null; draft: null | { title: string; body: string; labels: string[] }; dismissed: string | null;
+};
+/** The latest spec check of one plan topic. */
+export type ContextSpecCheckDto = {
+  id: string; planId: string; topicId: string; topicTitle: string; scopeId: string; paths: string[]; baselineSha: string; requestKey: string;
+  specs: string[]; labels: string[]; state: ContextSpecCheckState; candidates: ContextSpecCandidateDto[]; covered: string[]; next: string[];
+  reproductions: number; detail: string | null; startedAt: string; endedAt: string | null;
+};
+/** Starts one check of a topic against the selected specs; the check plans which sections to read. */
+export type StartContextSpecCheckRequest = ContextRunFence & { planId: string; topicId: string; specs: string[] };
+export type ContextSpecCheckStartedDto = { check: ContextSpecCheckDto; build: ContextBuildViewDto };
+
+export function parseContextSpecSources(value: unknown): ContextSpecSourceDto[] {
+  return array(object(value, 'spec sources').sources, 'spec sources', raw => {
+    const item = object(raw, 'spec source');
+    return { url: text(item.url, 'spec address'), kind: oneOf(item.kind, ['DOCUMENT', 'REFERENCE_CODE'], 'spec kind'), links: count(item.links, 'spec links'),
+      sections: strings(item.sections, 'spec sections'), approved: flag(item.approved, 'approved spec') };
+  });
+}
+function specCandidate(value: unknown): ContextSpecCandidateDto {
+  const item = object(value, 'spec candidate');
+  const duplicate = item.duplicate == null ? null : object(item.duplicate, 'spec duplicate');
+  const test = item.test == null ? null : object(item.test, 'spec test');
+  const draft = item.draft == null ? null : object(item.draft, 'issue draft');
+  return { id: text(item.id, 'candidate id'), type: oneOf(item.type, ['BUG', 'FEATURE_REQUEST', 'IMPROVEMENT'], 'candidate type'),
+    predicted: oneOf(item.predicted, ['DIVERGES', 'IGNORES', 'REFUSES', 'REFUSES_UNCLEARLY', 'SKIPS_SHOULD'], 'predicted outcome'),
+    title: text(item.title, 'candidate title'), rule: text(item.rule, 'spec rule'), specUrl: text(item.specUrl, 'spec link'), code: strings(item.code, 'code locations'),
+    reasoning: text(item.reasoning, 'candidate reasoning'), severity: count(item.severity, 'severity', 1),
+    duplicate: duplicate === null ? null : { number: count(duplicate.number, 'report number', 1), title: text(duplicate.title, 'report title'),
+      state: text(duplicate.state, 'report state'), url: text(duplicate.url, 'report url') },
+    status: oneOf(item.status, ['PENDING', 'REPRODUCING', 'CONFIRMED', 'REFUTED', 'NOT_REPRODUCED', 'ALREADY_REPORTED'], 'candidate status'),
+    test: test === null ? null : { path: text(test.path, 'test path'), command: text(test.command, 'test command'), exitCode: exitCode(test.exitCode),
+      output: text(test.output, 'test output'), source: text(test.source, 'test source') },
+    reason: optionalText(item.reason, 'result reason'),
+    draft: draft === null ? null : { title: text(draft.title, 'issue title'), body: text(draft.body, 'issue body'), labels: strings(draft.labels, 'issue labels') },
+    dismissed: optionalText(item.dismissed, 'dismissal') };
+}
+function exitCode(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isInteger(value)) malformed('test exit code');
+  return value;
+}
+export function parseContextSpecCheck(value: unknown): ContextSpecCheckDto {
+  const item = object(value, 'spec check');
+  return { id: text(item.id, 'check id'), planId: text(item.planId, 'check plan'), topicId: text(item.topicId, 'check topic'),
+    topicTitle: text(item.topicTitle, 'check topic title'), scopeId: text(item.scopeId, 'check scope'), paths: strings(item.paths, 'check paths'),
+    baselineSha: text(item.baselineSha, 'check baseline'), requestKey: text(item.requestKey, 'check request key'), specs: strings(item.specs, 'check specs'),
+    labels: strings(item.labels, 'repository labels'), state: oneOf(item.state, ['CHECKING', 'REPRODUCING', 'DONE', 'STOPPED', 'FAILED'], 'check state'),
+    candidates: array(item.candidates, 'spec candidates', specCandidate), covered: strings(item.covered, 'covered sections'), next: strings(item.next, 'next sections'),
+    reproductions: count(item.reproductions, 'reproductions'), detail: optionalText(item.detail, 'check detail'), startedAt: text(item.startedAt, 'check start'),
+    endedAt: optionalText(item.endedAt, 'check end') };
+}
+export function parseContextSpecChecks(value: unknown): ContextSpecCheckDto[] {
+  return array(object(value, 'spec checks').checks, 'spec checks', parseContextSpecCheck);
+}
+export function parseContextSpecCheckStarted(value: unknown, workspaceId: string): ContextSpecCheckStartedDto {
+  const item = object(value, 'started spec check');
+  return { check: parseContextSpecCheck(item.check), build: parseContextBuildView(item.build, workspaceId) };
+}
+export function parseStartContextSpecCheckRequest(value: unknown): StartContextSpecCheckRequest {
+  const item = request(value, ['requestKey', 'expectedRevision', 'expectedBuildSequence', 'planId', 'topicId', 'specs']);
+  const result = { ...runFence(item, 'spec check'), planId: nonblank(item.planId, 'learning plan id'), topicId: nonblank(item.topicId, 'learning topic id'),
+    specs: strings(item.specs, 'specs') };
+  if (result.specs.length === 0 || result.specs.length > 10 || result.specs.some(spec => !spec.startsWith('https://'))) malformed('specs');
+  return result;
+}
+export function parseDismissContextSpecFindingRequest(value: unknown): { reason: string } {
+  return { reason: nonblank(request(value, ['reason']).reason, 'dismissal reason') };
+}

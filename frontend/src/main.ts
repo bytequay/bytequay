@@ -69,6 +69,12 @@ import {
   parseEditContextLearningQuestionRequest,
   parseEditRepositoryContextEntryRequest,
   parseGoDeeperContextLearningRequest,
+  parseContextSpecCheck,
+  parseContextSpecChecks,
+  parseContextSpecCheckStarted,
+  parseContextSpecSources,
+  parseDismissContextSpecFindingRequest,
+  parseStartContextSpecCheckRequest,
   parseInvestigateRepositoryContextNoteRequest,
   parseReportRepositoryContextNoteRequest,
   parseRepositoryNotebook,
@@ -1388,6 +1394,17 @@ function registerIpc(): void {
   ipcMain.handle('repository-context:build:plan:deeper', (_event, workspaceId: string, request: unknown) =>
     backendJson(contextBuildUrl(workspaceId) + '/plan/deeper', jsonInit('POST', parseGoDeeperContextLearningRequest(request), agentHeaders()))
       .then(value => parseContextBuildView(value, workspaceId)));
+  const specCheckUrl = (workspaceId: string) => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/spec-checks`;
+  ipcMain.handle('repository-context:spec-checks:get', (_event, workspaceId: string) =>
+    backendJson(specCheckUrl(workspaceId), { headers: agentHeaders() }).then(parseContextSpecChecks));
+  ipcMain.handle('repository-context:spec-checks:sources', (_event, workspaceId: string, topicId: string) =>
+    backendJson(`${specCheckUrl(workspaceId)}/topics/${encodeURIComponent(topicId)}/sources`, { headers: agentHeaders() }).then(parseContextSpecSources));
+  ipcMain.handle('repository-context:spec-checks:start', (_event, workspaceId: string, request: unknown) =>
+    backendJson(specCheckUrl(workspaceId), jsonInit('POST', parseStartContextSpecCheckRequest(request), agentHeaders()))
+      .then(value => parseContextSpecCheckStarted(value, workspaceId)));
+  ipcMain.handle('repository-context:spec-checks:dismiss', (_event, workspaceId: string, checkId: string, candidateId: string, request: unknown) =>
+    backendJson(`${specCheckUrl(workspaceId)}/${encodeURIComponent(checkId)}/candidates/${encodeURIComponent(candidateId)}/dismiss`,
+      jsonInit('POST', parseDismissContextSpecFindingRequest(request), agentHeaders())).then(parseContextSpecCheck));
   ipcMain.handle('repository-context:build:investigate', (_event, workspaceId: string, request: unknown) =>
     backendJson(contextBuildUrl(workspaceId) + '/investigate', jsonInit('POST', parseInvestigateRepositoryContextNoteRequest(request), agentHeaders()))
       .then(value => parseContextBuildView(value, workspaceId)));

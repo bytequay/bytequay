@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'vitest';
 import type {
   ContextBuildViewDto, ContextDiscoveryReportDto, ContextEntryDto, ContextGradeDto, ContextLearningPlanDto, ContextMergedCandidateDto, ContextReportedNoteDto, ContextRunDto,
-  ContextScopeDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto,
+  ContextScopeDto, ContextSpecCheckDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto,
 } from './contracts';
 import {
   batchLine, batchNext, batchOrder, batchRemaining, batchRuns, disputeSides, entryOrigin, spotTitle, filterNotes, gradeLine, grader, latestReport, runOrigin, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pageChangedAt, pendingCounts, planCounts, previousVersion, webLookupLine,
@@ -54,6 +54,23 @@ const wrong: ContextGradeDto = { workspaceId: 'w', taskId: 'task-dev', reviewRun
   gradedAt: '2026-09-29T10:00:00Z' };
 
 describe('repository context status card', () => {
+  it('follows a spec check through its turns and between them', () => {
+    const check: ContextSpecCheckDto = { id: 'check-1', planId: 'plan', topicId: 'topic:iceberg', topicTitle: 'Iceberg connector', scopeId: 'iceberg', paths: [],
+      baselineSha: 'a'.repeat(40), requestKey: 'key', specs: ['https://iceberg.apache.org/spec/'], labels: [], state: 'REPRODUCING', covered: [], next: [], reproductions: 1,
+      detail: null, startedAt: '2026-09-29T11:00:00Z', endedAt: null, candidates: [] };
+    const reproducing: ContextRunDto = { ...run(2, 'RUNNING', 0, '2026-09-29T11:30:00Z'), mode: 'CHECK', question: null,
+      check: { checkId: 'check-1', topicTitle: 'Iceberg connector', reproduced: 'Deleted entries are planned' } };
+    const card = statusCard(input({ build: build([reproducing]), planView: { plan, next: null }, checks: [check] }));
+    expect(card.headline).toBe('Reproducing · Iceberg connector');
+    expect(card.question).toBe('Deleted entries are planned');
+    expect(card.body).toContain('Reproduction 1 of up to 1');
+    expect(card.stop).toBe(true);
+    const between = statusCard(input({ build: build([{ ...reproducing, outcome: 'SUBMITTED', endedAt: '2026-09-29T11:40:00Z' }]), planView: { plan, next: null },
+      checks: [check] }));
+    expect(between.headline).toBe('Checking against spec · Iceberg connector');
+    expect(between.body).toContain('the next turn starts in a moment');
+  });
+
   it('starts discovery only from an explicit lightning action on a new repository', () => {
     const card = statusCard(input({}));
     expect(card.primary).toEqual({ label: 'Start discovery', bolt: true, action: 'discover' });

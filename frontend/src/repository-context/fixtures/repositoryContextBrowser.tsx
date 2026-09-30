@@ -22,7 +22,8 @@ import type { AgentTaskDto, Bridge, DevelopmentContextActivityDto, WorkspaceDto 
 import { workspaceLocationFromRoute } from '../../workspaces/model';
 import type {
   ContextBuildViewDto, ContextDiscoveryReportDto, ContextDisputesDto, ContextEntryDto, ContextGradeDto, ContextLearningPlanDto, ContextLearningPlanViewDto,
-  ContextMergedCandidatesDto, ContextPlanQuestionDto, ContextReportedNoteDto, ContextRunDto, ContextSettlementDto, ContextSourceDto, ContextTimesDto, ContextUsageOverviewDto,
+  ContextMergedCandidatesDto, ContextPlanQuestionDto, ContextReportedNoteDto, ContextRunDto, ContextSettlementDto, ContextSourceDto, ContextSpecCandidateDto, ContextSpecCheckDto,
+  ContextTimesDto, ContextUsageOverviewDto,
   ContextUsageWindow, RepositoryNotebookDto, ReportRepositoryContextNoteRequest,
 } from '../contracts';
 import { TaskContextNotes } from '../ContextCards';
@@ -132,6 +133,35 @@ const contestedRefresh = (): ContextReportedNoteDto => ({ entryId: refresh.id, e
       reason: 'The metadata cache is invalidated after each commit.', gradedAt: ago(25) })] });
 let contestRefresh = false;
 let changedDoc = false;
+let specFindings = false;
+
+const SPEC = 'https://iceberg.apache.org/spec/';
+const SPEC_TEST = 'plugin/trino-iceberg/src/test/java/io/trino/plugin/iceberg/TestIcebergDeletedManifestEntries.java';
+const SPEC_COMMAND = './mvnw -pl plugin/trino-iceberg test -Dtest=TestIcebergDeletedManifestEntries';
+const FINDING = 'Deleted manifest entries are planned after a rewrite';
+
+/** A finished check of the Iceberg topic: two findings to file, one it could not reproduce and one an open issue reports. */
+function specCheck(): ContextSpecCheckDto {
+  const candidate = (id: string, type: ContextSpecCandidateDto['type'], predicted: ContextSpecCandidateDto['predicted'], title: string,
+    status: ContextSpecCandidateDto['status'], patch: Partial<ContextSpecCandidateDto> = {}): ContextSpecCandidateDto => ({ id, type, predicted, title,
+    rule: 'Readers must ignore manifest entries with status DELETED; those files are no longer part of the table.', specUrl: `${SPEC}#manifests`,
+    code: ['plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergSplitSource.java:212-240'], reasoning: 'Split planning filters on the data file only.',
+    severity: 3, duplicate: null, status, test: null, reason: null, draft: null, dismissed: null, ...patch });
+  return { id: 'check-1', planId: 'plan-1', topicId: 'topic:iceberg', topicTitle: 'Iceberg connector', scopeId: ICEBERG, paths: ['plugin/trino-iceberg/'],
+    baselineSha: SHA, requestKey: 'check-key', specs: [SPEC], labels: ['bug', 'iceberg', 'enhancement'], state: 'DONE', candidates: [
+      candidate('c1', 'BUG', 'DIVERGES', FINDING, 'CONFIRMED', { reason: 'The rewritten table still returns the deleted file’s rows.',
+        test: { path: SPEC_TEST, command: SPEC_COMMAND, exitCode: 1, source: 'class TestIcebergDeletedManifestEntries\n{\n    @Test\n    void skipsDeletedEntries() {}\n}',
+          output: '[ERROR] TestIcebergDeletedManifestEntries.skipsDeletedEntries:48 expected: 2 but was: 3\n[INFO] BUILD FAILURE' },
+        draft: { title: FINDING, labels: ['bug', 'iceberg'], body: 'After a rewrite, split planning still reads a manifest entry marked DELETED.\n\n### Specification\n\n> Readers must ignore manifest entries with status DELETED.' } }),
+      candidate('c2', 'FEATURE_REQUEST', 'REFUSES', 'Row lineage in v3 tables is refused', 'CONFIRMED', { severity: 2, reason: 'Creating a v3 table fails with “Unsupported format version”.',
+        test: { path: SPEC_TEST, command: SPEC_COMMAND, exitCode: 1, source: 'class TestIcebergRowLineage {}', output: 'Unsupported format version: 3' },
+        draft: { title: 'Support row lineage in Iceberg v3 tables', labels: ['iceberg', 'enhancement'], body: 'Row lineage is refused.' } }),
+      candidate('c3', 'IMPROVEMENT', 'SKIPS_SHOULD', 'Snapshot summaries omit the recommended totals', 'NOT_REPRODUCED', { severity: 1,
+        reason: 'The test needs a Hive metastore container that this worktree cannot start.' }),
+      candidate('c4', 'BUG', 'DIVERGES', 'Sequence numbers are inherited from the wrong manifest', 'ALREADY_REPORTED',
+        { duplicate: { number: 24112, title: 'Wrong sequence number after manifest merge', state: 'open', url: 'https://github.com/trinodb/trino/issues/24112' } }),
+    ], covered: ['Manifests', 'Snapshots'], next: ['Row lineage', 'Deletion vectors'], reproductions: 3, detail: null, startedAt: ago(90), endedAt: ago(40) };
+}
 
 const times = (full: boolean): ContextTimesDto => full ? {
   entries: { [`4:${refresh.id}`]: { at: ago(60 * 26), taskId: 'task-run-2' }, [`11:${refresh.id}`]: { at: ago(21), taskId: 'task-run-4' },
@@ -218,8 +248,10 @@ type State = {
   notebook: RepositoryNotebookDto; times: ContextTimesDto; build: ContextBuildViewDto; report: ContextDiscoveryReportDto | null;
   planView: ContextLearningPlanViewDto; candidates: ContextMergedCandidatesDto; reports: ContextReportedNoteDto[]; disputes: ContextDisputesDto; staleOnce: boolean;
   changedPages: Record<string, string>;
+  checks: ContextSpecCheckDto[];
   calls: { starts: Array<{ kind: string; request: unknown }>; restores: string[]; disables: string[]; allows: unknown[]; declines: unknown[];
-    configures: unknown[]; stops: string[]; keeps: string[]; reports: ReportRepositoryContextNoteRequest[]; questions: unknown[] };
+    configures: unknown[]; stops: string[]; keeps: string[]; reports: ReportRepositoryContextNoteRequest[]; questions: unknown[];
+    dismissals: Array<{ candidateId: string; reason: string }>; opened: string[] };
 };
 
 function scene(name: Scene): State {
@@ -243,7 +275,8 @@ function scene(name: Scene): State {
       : { contested: {}, settlements: {} },
     staleOnce: false,
     changedPages: full && changedDoc ? { 'ev-doc': ago(45) } : {},
-    calls: { starts: [], restores: [], disables: [], allows: [], declines: [], configures: [], stops: [], keeps: [], reports: [], questions: [] },
+    checks: full && specFindings ? [specCheck()] : [],
+    calls: { starts: [], restores: [], disables: [], allows: [], declines: [], configures: [], stops: [], keeps: [], reports: [], questions: [], dismissals: [], opened: [] },
   };
 }
 
@@ -308,6 +341,25 @@ function install() {
     getRepositoryContextReports: async () => clone(state.reports),
     getRepositoryContextDisputes: async () => clone(state.disputes),
     getRepositoryContextChangedPages: async () => ({ changed: clone(state.changedPages) }),
+    getRepositoryContextSpecChecks: async () => clone(state.checks),
+    getRepositoryContextSpecSources: async () => [{ url: SPEC, kind: 'DOCUMENT', links: 14, sections: ['manifests', 'snapshots'], approved: false },
+      { url: 'https://github.com/apache/iceberg/blob/main/core/src/main/java/org/apache/iceberg/ManifestReader.java', kind: 'REFERENCE_CODE', links: 2, sections: [],
+        approved: false }],
+    startRepositoryContextSpecCheck: async (_workspaceId, request) => {
+      const build = await start('spec', request, 'LEARN', { mode: 'CHECK', question: null,
+        check: { checkId: 'check-2', topicTitle: 'Iceberg connector', reproduced: null } });
+      const check: ContextSpecCheckDto = { ...specCheck(), id: 'check-2', requestKey: request.requestKey, specs: request.specs, state: 'CHECKING',
+        candidates: specCheck().candidates.filter(value => value.status === 'CONFIRMED'), reproductions: 0, startedAt: new Date().toISOString(), endedAt: null };
+      state.checks = [check];
+      return { check: clone(check), build };
+    },
+    dismissRepositoryContextSpecFinding: async (_workspaceId, checkId, candidateId, request) => {
+      state.calls.dismissals.push({ candidateId, reason: request.reason });
+      state.checks = state.checks.map(check => check.id !== checkId ? check
+        : { ...check, candidates: check.candidates.map(value => value.id === candidateId ? { ...value, dismissed: request.reason } : value) });
+      return clone(state.checks.find(check => check.id === checkId) ?? specCheck());
+    },
+    openInAppBrowser: async url => { state.calls.opened.push(url); },
     reportRepositoryContextNote: async (_workspaceId, request) => {
       // The first report is refused the way the backend refuses a version the task never received.
       if (state.calls.reports.push(clone(request)) === 1) {
@@ -874,6 +926,40 @@ const scenarios: Array<[string, () => Promise<void>]> = [
     const scroller = document.querySelector('.rcp-scroll');
     assert(scroller !== null && scroller.scrollWidth <= scroller.clientWidth + 1, `The narrow page must not scroll sideways (${scroller?.scrollWidth} > ${scroller?.clientWidth})`);
   }],
+  ['a spec check files nothing: a finding opens GitHub’s form, and a new check starts only from its drawer', async () => {
+    specFindings = true;
+    try {
+      await render('review');
+      await waitFor(() => text().includes('2 spec findings to file · Iceberg connector'), 'Findings wait in Needs you');
+      await review('2 spec findings to file · Iceberg connector');
+      const report = drawer();
+      assert(text(report).includes('1 bug and 1 feature request confirmed · 1 not reproduced · 1 already reported (#24112)'), 'The report summarizes the check');
+      assert(text(report).includes('The next check continues with: Row lineage, Deletion vectors.'), 'The report says where a later check continues');
+      assert(state.calls.starts.length === 0, 'Reading the report starts nothing');
+      const finding = report.querySelector('.rcp-finding');
+      assert(finding !== null && text(finding).includes(FINDING), 'The most severe finding is listed first');
+      await click('Failing test · exit 1 · TestIcebergDeletedManifestEntries.java', finding);
+      assert(text(finding).includes(SPEC_COMMAND) && text(finding).includes('expected: 2 but was: 3'), 'The finding shows the command and output ByteQuay recorded');
+      await click('Open issue', finding);
+      const url = new URL(state.calls.opened[0] ?? 'about:blank');
+      assert(url.origin + url.pathname === 'https://github.com/trinodb/trino/issues/new' && url.searchParams.get('title') === FINDING
+        && url.searchParams.get('labels') === 'bug,iceberg' && (url.searchParams.get('body') ?? '').includes('### Specification'), 'Open issue pre-fills GitHub’s form');
+      assert(state.calls.dismissals.length === 0 && state.calls.starts.length === 0, 'Opening the form writes nothing');
+      await click('Dismiss', finding);
+      await click('Dismiss', finding);
+      assert(state.calls.dismissals[0]?.candidateId === 'c1' && state.calls.dismissals[0].reason === 'Filed on GitHub', 'Dismiss records why');
+      await waitFor(() => text().includes('1 spec finding to file · Iceberg connector'), 'A dismissed finding leaves Needs you');
+      await click('Check against spec', drawer());
+      const started = state.calls.starts[0];
+      assert(started?.kind === 'spec', 'The drawer starts one spec check');
+      const request = started.request as { topicId: string; specs: string[] };
+      assert(request.topicId === 'topic:iceberg' && request.specs.join() === SPEC, 'A new check reads the specs the last check read');
+      await waitFor(() => text().includes('Checking against spec · Iceberg connector'), 'The status card follows the check');
+    }
+    finally {
+      specFindings = false;
+    }
+  }],
 ];
 
 /** Workspace Home in Explore mode, with the Repository context card first in Needs attention. */
@@ -934,6 +1020,7 @@ export async function show(mode: string) {
   const [base, extra] = mode.split(':') as [Scene, string | undefined];
   contestRefresh = extra === 'contested';
   changedDoc = extra === 'page-changed';
+  specFindings = extra === 'spec';
   await render(base, extra === 'run' ? 'task-run-5' : null);
   switch (extra) {
     case 'tasks': {
@@ -954,6 +1041,8 @@ export async function show(mode: string) {
     case 'disable': await click('Disable notes from this run'); break;
     case 'plan': await click('Plan details'); break;
     case 'questions': document.querySelector('.rcp-q-add')?.scrollIntoView({ block: 'center' }); break;
+    case 'spec': await review('2 spec findings to file · Iceberg connector'); await click('Failing test · exit 1 · TestIcebergDeletedManifestEntries.java', drawer()); break;
+    case 'spec-start': await click('Check against spec'); await waitFor(() => drawer().querySelector('.rcp-src input') !== null, 'The linked specs are listed'); break;
     case 'sources': await review('https://iceberg.apache.org/docs/latest/'); break;
     case 'coverage': await click('See coverage'); break;
     case 'usage': await click('More options'); await click('Usage'); break;

@@ -1,7 +1,7 @@
 # Repository Context
 
 The approved [discover, learn, and use refactor](repository-context-refactor.md)
-supersedes automatic note selection, direct generated-note activation,
+supersedes automatic note selection, generated-note activation,
 one-note-per-scope, and manual-first discovery here. It also retires note removal
 with its regeneration suppression and Reset, manual scope editing, and the
 per-note usage activity list; disabling a note replaces removal. Delivery status is in the
@@ -80,7 +80,8 @@ Deferred:
 
 The implemented [agent discovery extension](repository-context-agent-discovery.md)
 adds bounded notebook offers, search and exact reads to ordinary development
-tasks and active reviews. It does not give agents notebook write authority.
+tasks and active reviews. Agents save notes only under the refactor's
+[save rules](repository-context-refactor.md#1-one-saved-object-a-context-note).
 
 ## 2. Overall flow
 

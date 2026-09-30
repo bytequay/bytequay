@@ -1,11 +1,15 @@
 # Repository context: discover, learn, and use
 
-Status: implemented and verified by automated tests. Live-provider quality and
-cost acceptance remain separate. Delivery and verification belong in
+Status: implemented and verified by automated tests, except saving notes
+without approval, checking cited code at the saver's base, and
+[grades and reports](#grades-and-reports), which are approved and not yet
+implemented and have
+[their own checklist](repository-context-impl-tmp.md#save-notes-without-approval).
+Live-provider quality and cost acceptance remain separate. Delivery and verification belong in
 [the temporary development checkpoints](repository-context-impl-tmp.md#refactor-development-checkpoints);
 the [source check at read](#source-check-at-read) has
 [its own checklist](repository-context-impl-tmp.md#check-note-sources-at-read).
-This contract supersedes earlier automatic note selection, direct generated-note
+This contract supersedes earlier automatic note selection, generated-note
 activation, one-note-per-scope, and manual-first discovery flows in
 [Repository Context](repository-context.md) and
 [agent discovery](repository-context-agent-discovery.md). Their ownership,
@@ -21,7 +25,8 @@ kind represents a lesson; there is no third memory system or model training.
 An area can have several focused notes. An area/path is an association for
 finding candidates, not proof that every note applies to every change there.
 Notes retain stable identity, kind, title, summary, body, source references,
-applicable area/path associations, origin, enabled state, and version.
+applicable area/path associations, origin, enabled state, version, and the text
+their last change replaced.
 Source references record each file's commit and blob. Titles, summaries, bodies
 and claims describe the code, not the run that produced them: they omit commit
 SHAs, baseline names, run numbers and dates unless the subject is itself a
@@ -32,14 +37,33 @@ supporting lines with an explicit range and cites that read, so the
 [source check at read](#source-check-at-read) does not flag edits the claim
 does not depend on.
 
-Agent-generated new notes and updates are drafts. Pending drafts are separate
-from active entries and excluded from ordinary agent lookup. An update retains
-the active version until the user approves the replacement. Approval checks the
-observed notebook revision and original entry version. Concurrent user edits,
-disabling, deletion, or stale evidence ownership cannot silently be overwritten.
-Users may edit, approve, or dismiss drafts. Explicit manual Save already grants
-approval and needs no second confirmation. Failed or stopped work preserves
-existing active notes and completed drafts.
+Agents save notes without user approval. A user cannot judge prose about code
+they do not know, so an approval step would catch no errors; wrong notes surface
+when agents use them, and [grades and reports](#grades-and-reports) catch them
+there. A new note, or an update of a note an agent wrote, becomes the active
+version when the agent saves it. The save checks the observed notebook revision
+and the updated entry's version, scope, kind and enabled state, so concurrent
+user edits, disabling, deletion, or stale evidence ownership are never silently
+overwritten; a failed check rejects the save with its reason, and the agent
+re-reads before trying again.
+
+Saved notes, updates, and agents' Wrong reports and Holds answers cite code at
+the saver's **base**: a learning run's baseline, a development task's
+merge-base with the monitored branch, or a review's PR base. ByteQuay captures
+cited repository lines at the saver's commit and rejects them unless they also
+appear, as consecutive lines in the same order, in the same file at that base.
+A task therefore cannot save knowledge about its own unmerged changes or call a
+note wrong because of them; that knowledge arrives through
+[merged work](#6-explore-and-merged-work) once it merges. ByteQuay also rejects
+an update, Wrong report or Holds answer when a repository source of the target
+note was recorded at a commit that descends from the saver's base, because the
+note describes newer code.
+
+Agents never change a note the user wrote or edited, or a disabled one. A
+disabled note does not stop an agent from saving a similar new note. Every
+change to a note's text keeps the text it replaced, one level deep;
+**Restore** makes that text current again as a new version. Failed or stopped
+work keeps every note it saved.
 
 ## 2. Who does what
 
@@ -49,7 +73,8 @@ and proposes new notes or changes. It must support conclusions with sources and
 distinguish documented rules, observations, inferences, and unanswered questions.
 
 ByteQuay provides repository/document tools, literal note lookup, persistence,
-source and version checks, run limits, task execution, progress, and approval.
+source and version checks, run limits, task execution, progress, source
+approval, and grade records.
 It does not decide semantic relevance, rank notes by inferred usefulness, or
 infer correctness from a merged PR or an accepted comment.
 
@@ -105,8 +130,8 @@ questions and evidence for the stated relationship.
 Accepting a topic reuses a scope only when its complete `notePaths` set matches,
 regardless of order, and it has no additional term rules. Otherwise it creates a
 scope identified by that matching rule. The existing note's scope owns retrieval;
-read paths and evidence never automatically broaden it. Draft approval remains
-required and does not prove semantic correctness.
+read paths and evidence never automatically broaden it. A saved note does not
+prove semantic correctness.
 
 The page shows **Notes apply to** separately from **Code available to read**.
 Explicit empty note paths mean repository-wide; missing note paths mean unknown.
@@ -114,7 +139,7 @@ Old suggestions and plans remain inspectable with unknown applicability, but
 cannot start or use a learning task until the user rediscovers and reselects topics.
 No targets are guessed from the former mixed path list. A saved target that differs
 from its scope is rejected before source reads or note preparation. Existing
-notes, drafts, scope rules and progress are retained; discarding a plan removes
+notes, scope rules and progress are retained; discarding a plan removes
 only that plan. Existing broad notes are not automatically moved or reclassified.
 
 The accepted plan fixes repository revisions/document versions and allowed
@@ -131,11 +156,11 @@ material. Reading an index does not mean reading its linked pages. Coverage
 describes sources processed, not complete understanding.
 
 After each small unit, retain the plan, source identities/read evidence,
-completed drafts, unfinished draft/question, and next source or question.
+saved notes, the unfinished question, and next source or question.
 Continue within the approved run while work and authorized capacity remain.
-At a limit, stop starting more work and show **Review drafts** and **Continue
-learning**. Continue authorizes another bounded run from the checkpoint; note
-approval never grants more spending.
+At a limit, stop starting more work and show the notes the run saved and
+**Continue learning**. Continue authorizes another bounded run from the
+checkpoint; no other action grants more spending.
 
 Resume with relevant saved notes and progress, not the complete old conversation
 or every note. Recheck changed sources as necessary. Do not promise zero
@@ -153,7 +178,7 @@ paths and ancestor directories, then expands the directories into exact manifest
 lookups in batches of at most 512, within the existing ten-second metadata deadline.
 A scope allows 256 source paths and 1,024 ancestor directories; 2,048 fingerprint
 inputs fit within 128 KiB. Candidate build-file names do not each consume a logical
-path slot. Expanding ancestor manifest names must not prevent saving an evidenced draft.
+path slot. Expanding ancestor manifest names must not prevent saving an evidenced note.
 Incomplete identity errors include their actual reason.
 
 Stored capacity is separate from what an agent receives or may submit at once:
@@ -171,8 +196,8 @@ separate count quota, while tool and stored-result byte limits still apply.
 Larger stored catalogs never trigger automatic
 learning or automatic delivery of the whole notebook to an agent.
 
-Approved completed notes are usable immediately while other topics remain
-unfinished. A stopped run may have useful drafts without finishing a topic.
+Saved notes are usable immediately while other topics remain unfinished. A
+stopped run may have saved useful notes without finishing a topic.
 
 ## 5. Use during development and review
 
@@ -193,15 +218,15 @@ never an assertion of applicability. The agent can broaden search or list pages.
 
 Missing notes never block development/review. The agent researches the specific
 question needed using code, tests, and permitted sources. Fresh evidence is
-usable in that task immediately; approval controls publishing reusable notes.
+usable in that task immediately; saving it as a reusable note is optional.
 If required work exceeds allowed sources or run limits, request expansion;
 otherwise continue inside the existing task without a separate learning run.
 Unestablished rules remain explicit uncertainty, not invented knowledge.
 
-Useful supported work can produce a draft/update. Check existing notes before
-proposing duplicates. No matching search hit does not prove a new note is needed;
-no task is required to produce a lesson. Larger research opportunities become
-suggested topics, not automatic jobs.
+Useful supported work can save a new note or an update. Check existing notes
+before saving duplicates. No matching search hit does not prove a new note is
+needed; no task is required to produce a lesson. Larger research opportunities
+become suggested topics, not automatic jobs.
 
 ### Source check at read
 
@@ -249,17 +274,109 @@ learned from newer code than the reader's commit is also `VERSION_MISMATCH`.
 A mismatch neither disables the note nor blocks its use. The agent re-reads the
 changed sources at its commit and trusts that code over the note. When that
 code establishes the current behavior, or shows the note still holds, the agent
-may propose an update of the exact version through the existing draft flow,
-which cites the lines at its own commit. Which side is newer is the drafting
-agent's judgment, which a development task can check with Git; the user
-approves every update as usual.
+may save an update of the exact version that cites the lines at its own commit.
+ByteQuay rejects an update or Wrong report from a base older than the note's
+sources under the [save rules](#1-one-saved-object-a-context-note); where Git
+cannot order the two, which side is newer is the agent's judgment.
+
+### Grades and reports
+
+A development task or review grades each note version it received in full or
+opened, after checking it against its code: **Helped** when the note informed
+the work, **Not relevant** when it did not apply, or **Wrong** when the code at
+its base contradicts the note. Every grade carries a reason of at most 300
+UTF-8 bytes. Wrong also quotes the contradicted statement, at most 500 bytes,
+and cites one to three line ranges under the
+[save rules](#1-one-saved-object-a-context-note); ByteQuay rejects a quote that
+is not in that version's text. A task's latest grade for a version counts.
+Grading is requested, not enforced: a note the task did not grade counts as
+ungraded, never as helped. Learning runs do not grade the notes they read.
+Grades, reports and answers are saved with the task's context receipts and
+counted with its usage facts, so deleting the task removes them.
+
+Helped and Not relevant are counts, never alerts. Not relevant describes one
+task, not the note, so another task finding the same note helpful is no
+conflict. Helped concerns the note as a whole and never answers a Wrong, which
+concerns one quoted statement; grades are not tallied against each other.
+
+A development task that grades an agent-written note Wrong saves the
+correction in the same call, which may simply drop the statement, and the
+correction becomes the active version. Any other Wrong is an open report on
+that version: one from a review, which cannot save notes; one on a note the
+user wrote; or one the user makes with **Wrong**, with an optional reason,
+wherever a task or review lists the notes it received or opened. While a report
+is open, automatic development offers and new review packets leave the note
+out; search still finds it, and an exact read returns up to three open reports
+with their reason, quote, cited lines and reporter. A task or review that opens
+a reported note re-checks the quoted statement at its base, then saves the
+correction where it may change the note, or answers **Holds** with one to three
+cited line ranges that support the statement. A report on a note the user
+wrote also goes to **Needs you** at once: agents cannot change it, and its
+author can judge it. Any new version closes the open reports on the version it
+replaces.
+
+Each correction and settlement records the statement it settled: the
+correction's new text, a settling save's rewritten statement, or the disputed
+statement the user kept or restored. Agents disagree, and the note becomes
+**contested**, when a task answers an open report with Holds, or when another
+task's correction quotes a settled statement of the current version while none
+of that version's cited repository lines changed at the reporter's base. When
+they changed, the code moved on and the correction is an ordinary fix. A contested note stays active
+but out of automatic offers and packets, and an exact read shows its current
+and previous text with each side's quote, reason and cited lines. It stays
+contested through further agent corrections until a settling save or the
+user's **Keep** (the current text), **Restore** (the previous text), **Edit** or
+**Disable**. Needs you lists it, and leaving it there is safe.
+
+**Investigate** starts one learning run whose single question is the dispute.
+Its input is both texts, every report and answer with its evidence, and the
+root cause of any earlier settlement of the note. It reads the repository at
+the monitored branch's current head within the usual run limits and ends in
+exactly one outcome:
+
+- rewrite the statement with the conditions under which each side holds,
+  citing the lines that decide between them;
+- keep the side that read the code correctly and say what the other missed;
+- narrow the note to what holds in its scope and save the rest as separate
+  notes;
+- turn the statement into an open question when code and documents cannot
+  settle it.
+
+That outcome is a settling save: it records a root cause of at most 300 bytes
+with the version it produces, and the note shows it. A development task that
+needs a contested agent-written note for its own work may make the same
+settling save without a separate run. For a note the user wrote, an
+investigation changes nothing and returns its root cause and suggested text
+for the user to apply with Edit. Keep and Restore record the user's choice the
+same way.
+
+A later correction of a settled statement on unchanged cited lines makes the
+note contested again; Needs you then shows the earlier root cause or choice,
+and nothing reruns. Investigating again passes that root cause to the new run.
+Runs start only from the user's click, so disputes never loop on their own:
+the resting state is a contested note that agents read with a warning.
+
+Recently updated notes show agent corrections with Restore. Keep saves the
+same text and owner again. ByteQuay stores and counts grades but never edits,
+disables or ranks a note because of them, and does not decide which side of a
+dispute is right.
+
+Each note shows its grades beside its reach for the usage window, for example
+*opened in 12 tasks · helped 7 · not relevant 3 · wrong 1 · last opened 2 days
+ago*, or *not opened* when no retained task opened it since tracking began.
+Helped is the agent's own judgment and the weakest signal. Mostly Not relevant
+suggests a title or summary that attracts the wrong searches. Root causes stay
+visible on their notes, so a kind that keeps recurring, such as notes scoped
+wider than they hold, points to the learning instructions rather than to one
+note. Whether repository context improves results overall remains a question
+for the controlled On/Off comparison.
 
 ## 6. Explore and merged work
 
 **Explore & prepare context** reuses the workspace question/development task.
-Starting it authorizes an answer and useful draft preparation within shown limits.
-Present the answer and optional drafts for approval, editing, or dismissal.
-An existing equivalent note may need an update or no change.
+Starting it authorizes an answer and useful note saving within shown limits.
+Present the answer and the notes it saved. An existing equivalent note may need
+an update or no change.
 
 A confirmed merged PR associated with a development task can become a candidate
 automatically without a model call. Its bundle uses known links to the final
@@ -268,24 +385,25 @@ Do not crawl unrelated history, infer links, or equate completion/closure with
 merge. Repeated observations must not duplicate the candidate. Accepted comments
 and merge status record a decision, not proof that every claim is true.
 
-The user starts bounded learning from selected candidates. The agent proposes
-a new note, an update, or no reusable conclusion. There is no default background
-model job after merge and no automatic activation of lessons.
+The user starts bounded learning from selected candidates. The agent saves a
+new note, an update, or no reusable conclusion. There is no default background
+model job after merge.
 
 ## 7. Visible controls and verification
 
-The main progression is **Start discovery → Learn selected → Review drafts /
-Continue learning**. Existing editing, context-use switches, source inspection,
+The main progression is **Start discovery → Learn selected → Continue
+learning**. Existing editing, context-use switches, source inspection,
 and usage details remain reachable without mandatory configuration steps.
 Show completed work, pending questions, limitations, and source versions.
 Found/opened/cited observations do not claim understanding or correctness.
 Section 8 defines how these controls are presented.
 
-Verify draft isolation/conflicts, multiple notes per area, literal pagination,
-exact reads and their source checks, empty-notebook task startup, deep/non-Maven
-discovery, bounded external sources, restart/continuation, partial results, and
-no hidden model launches. Real-provider quality/cost checks are separate,
-explicit acceptance work; do not run them against watched repositories during
+Verify save and base checks, Restore, grades, open reports, contested notes and
+investigations, multiple notes per area, literal pagination, exact reads and
+their source checks, empty-notebook task startup, deep/non-Maven discovery,
+bounded external sources, restart/continuation, partial results, and no hidden
+model launches. Real-provider quality/cost checks are separate, explicit
+acceptance work; do not run them against watched repositories during
 implementation tests.
 
 ## 8. User interface
@@ -298,23 +416,28 @@ above still define behavior. Where the prototype omits a state, the
 implementation extends its existing patterns rather than the old settings page.
 
 - **Navigation.** Repository context is a workspace sidebar destination below
-  Commits, not a Workspace settings page. An amber count shows pending drafts
-  and source proposals. The page has **Overview** and **Notes** tabs; detail
+  Commits, not a Workspace settings page. An amber count shows what needs the
+  user: pending source proposals, contested notes, and open Wrong reports on
+  notes the user wrote. The page has **Overview** and **Notes** tabs; detail
   opens in one right-side drawer (note, learning plan, discovery, usage or
   advanced configuration) over the still-visible list. Esc closes it.
 - **Overview.** One status card states what is happening and the next action,
-  followed by Needs review, Learning plan, recently updated notes, Learning
-  opportunities (merged work and suggested topics not yet in the plan) and,
-  before the first plan, the suggested topics with a sticky selection bar.
-- **Notes.** Approved notes grouped by area, with an area rail, a Knowledge /
-  Lessons filter and a literal filter over title, summary and paths. An area is
-  the note's scope; several notes may share one.
+  followed by Needs you, Learning plan, recently updated notes (agent changes
+  carry **Restore**), Learning opportunities (merged work and suggested topics
+  not yet in the plan) and, before the first plan, the suggested topics with a
+  sticky selection bar. A finished run's card names the notes it saved and
+  offers **Disable notes from this run**, which disables the notes it added
+  that are still at the version it saved.
+- **Notes.** Notes grouped by area, with an area rail, a Knowledge / Lessons
+  filter and a literal filter over title, summary and paths. An area is the
+  note's scope; several notes may share one. Each row shows the note's grade
+  line and marks a contested note.
 - **Run marking.** A lightning mark and a run line naming the run and model sit
   on every action that starts an agent: Start discovery, Discover remaining
-  areas, Learn selected, Continue learning, Learn from this PR and an Explore
-  send. Approve, edit, dismiss and source approval never carry it and say that
-  no agent runs.
-- **Counts.** Questions answered, pages opened and notes approved stay separate;
+  areas, Learn selected, Continue learning, Learn from this PR, Investigate and
+  an Explore send. Edit, restore, keep, disable and source approval never carry
+  it and say that no agent runs.
+- **Counts.** Questions answered, pages opened and notes saved stay separate;
   there is no completion percentage. Run limits appear in the selection bar and
   the learning drawer.
 - **Learning tasks.** Discovery and learning runs appear as a distinct Learning
@@ -327,15 +450,15 @@ The prototype's own "proposed" list is implemented as follows:
 
 | Prototype proposal | Implementation |
 | --- | --- |
-| Sidebar count | Pending drafts plus pending source proposals from local notebook and plan reads |
-| Home Needs attention row | A Repository context card in the workspace Home list; it opens the review drawer |
+| Sidebar count | Pending source proposals from plan reads, plus contested notes and open Wrong reports on notes the user wrote |
+| Home Needs attention row | A Repository context card in the workspace Home list; it opens the first item that needs the user |
 | Next question preview | The plan response names the question the next run will take |
 | Discover remaining areas | A continuation discovery run; at an unchanged baseline its report keeps the earlier topics and evidence and adds new ones |
 | Live activity line | Recorded source operations retain their completed, failed or limit status; a separate run indicator shows the last activity's age without claiming a finished read is still running |
 | Grouping notes by area | By the note's scope and title; the first path prefix is a compact hint, not its matching identity |
 | Stopping discovery | Saves nothing; a submitted partial report is shown with the partial banner |
 | Explore & prepare context | A Home composer mode; the sent first message carries the explore instruction, and the transcript shows it as sent. Tasks have no explore flag, so the task header shows no mode chip |
-| Task draft card | Pending drafts whose recorded proposing task is this task, shown after its transcript; duplicate checks are not reported |
+| Task note card | Notes this task saved, shown after its transcript; its context activity lists each note it received or opened with the grade and a Wrong action; duplicate checks are not reported |
 
 The prototype has no remove, reset, scope-editing or per-note activity
 controls, so those are retired: a note is disabled instead of removed, nothing
@@ -350,7 +473,8 @@ Supporting data the prototype assumes and the backend now records:
   from the plan's discovery report.
 - A bounded run history keeps each finished run's outcome (answered, no reusable
   note, source limit reached, stopped, failed or unfinished), operation counts
-  and proposed note IDs, so earlier runs stay inspectable after the next start.
+  and saved note IDs and versions, so earlier runs stay inspectable after the
+  next start.
 - Suggested external links keep the page and run that found them. Approval
   chooses the boundary explicitly: this page only, or the documentation root
   when the URL is a root. Declining removes the suggestion; neither starts a run.
@@ -358,5 +482,5 @@ Supporting data the prototype assumes and the backend now records:
   paths the run listed or read, and lists what it did not survey.
 - Suggestions stay learnable at their recorded discovery revision after the
   monitored branch moves; the plan and its runs read that revision.
-- Note versions and draft ages come from recorded approval and proposal times.
-  Notes approved before this change show no date.
+- Note ages come from recorded save times; notes saved before those times
+  were recorded show no date.

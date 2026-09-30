@@ -564,10 +564,9 @@ UsageActivities usageForEntry(String workspaceId, String entryId,
         UsageWindow window, int page);
 ~~~
 
-For quality, the smallest later addition is an optional **Helpful / Not
-relevant / Misleading** rating on a task's exact note version, editable by the
-user. It is feedback, not a required approval for every lesson and not an
-automatic notebook edit. Show ratings apart from retrieval counts, with links
-to inspect or disable misleading notes. Controlled On/Off comparisons and
+Quality feedback is the refactor's
+[grades and reports](repository-context-refactor.md#grades-and-reports): agents
+grade the note versions they receive or open, and users can report one Wrong.
+Grades appear apart from retrieval counts. Controlled On/Off comparisons and
 source checks remain the way to evaluate whether the feature improves review
 judgment; usage numbers alone measure reach.

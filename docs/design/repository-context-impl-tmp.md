@@ -2190,3 +2190,23 @@ Required checks below describe the current increment, not full feature acceptanc
   history does not justify making every development turn search. Remaining CP6
   work includes human judgment, misleading/stale/irrelevant-note cases,
   resolved-issue history and sustained resource measurements.
+
+## Save notes without approval
+
+Behavior: the [save rules](repository-context-refactor.md#1-one-saved-object-a-context-note),
+[grades and reports](repository-context-refactor.md#grades-and-reports) and
+[the user interface](repository-context-refactor.md#8-user-interface).
+
+- [ ] Save learning-run and development-task notes as the active version under
+  the checks approval made; remove drafts, their endpoints and review UI; drop
+  drafts saved by earlier builds when a notebook loads.
+- [ ] Keep each note's replaced text one level deep; add Restore and Disable
+  notes from this run; list the notes a task saved.
+- [ ] Check cited lines at the saver's base and reject updates and reports from
+  a base older than the note's sources.
+- [ ] Record Helped, Not relevant, Wrong and Holds grades and the user's Wrong
+  report in a task-owned table; return open reports with exact reads; leave
+  reported notes out of new review packets; show grade lines and Needs you.
+- [ ] Mark contested notes, record settlements, and add Investigate as a
+  one-question learning run with four outcomes and a root cause.
+- [ ] Verify each step with the backend and desktop build gates.

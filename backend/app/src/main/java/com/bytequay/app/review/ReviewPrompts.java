@@ -176,7 +176,9 @@ final class ReviewPrompts
 
     static final String CONTEXT_INSTRUCTION = """
 
-            Repository context is enabled. No saved note bodies are automatically loaded. Use review_get_context \
+            Repository context is enabled. No saved note bodies are automatically loaded. Before researching an \
+            area of the change, search its notes; go to primary sources when notes do not answer your question or \
+            a note read reports its sources changed. Use review_get_context \
             kind note_list with operationKey to browse enabled note summaries, or kind note_search with literal \
             query and/or repository paths. Follow nextPage with the same notebookRevision and a new operationKey. \
             ByteQuay only filters and paginates; you decide which notes are relevant. Read chosen notes with \

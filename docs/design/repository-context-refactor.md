@@ -262,8 +262,11 @@ Pagination binds the notebook revision and rejects stale continuation. Results
 retain task/run ownership and delivery receipts. A path match is a candidate,
 never an assertion of applicability. The agent can broaden search or list pages.
 
-Missing notes never block development/review. The agent researches the specific
-question needed using code, tests, and permitted sources. Fresh evidence is
+Agents search notes for an area before researching it, and go to primary
+sources, the code, tests, documentation or the web, when notes do not answer
+their question or a note's sources changed. Missing notes never block
+development/review. The agent researches the specific question needed using
+code, tests, and permitted sources. Fresh evidence is
 usable in that task immediately; saving it as a reusable note is optional.
 If required work exceeds allowed sources or run limits, request expansion;
 otherwise continue inside the existing task without a separate learning run.

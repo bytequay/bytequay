@@ -824,6 +824,7 @@ class TestReviewTools
     {
         preparationContext();
         assertThat(bridge.instruction()).isEqualTo(ReviewPrompts.INSTRUCTION + "\n\n" + ReviewPrompts.CONTEXT_INSTRUCTION);
+        assertThat(bridge.instruction()).contains("Before researching an area of the change, search its notes", "go to primary sources");
         assertThat(bridge.instruction()).doesNotContain("Frozen context");
         JsonNode schema = objectMapper.valueToTree(bridge.tool("review_save_investigation").orElseThrow().inputSchema());
         assertThat(schema.at("/properties/contextBrief/maxLength").asInt()).isEqualTo(8192);

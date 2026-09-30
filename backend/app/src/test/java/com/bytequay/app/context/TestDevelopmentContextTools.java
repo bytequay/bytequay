@@ -202,7 +202,8 @@ class TestDevelopmentContextTools
         assertThatThrownBy(() -> service.call(taskId.toString(), """
                 {"action":"ASK","question":"Why?","paths":["plugin/iceberg/"],"prompt":"Start a run"}
                 """)).hasMessageContaining("ASK needs question and paths");
-        assertThat(service.resolve(taskId.toString()).orElseThrow().instruction()).contains("ASK it", "Asking never starts a run");
+        assertThat(service.resolve(taskId.toString()).orElseThrow().instruction())
+                .contains("Before researching an area, SEARCH its notes", "Go to primary sources", "ASK it", "Asking never starts a run");
     }
 
     @Test

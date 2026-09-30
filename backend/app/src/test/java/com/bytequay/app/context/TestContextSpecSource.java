@@ -38,7 +38,7 @@ class TestContextSpecSource
     private final GitCommandRunner git = new GitCommandRunner();
 
     @Test
-    void groupsTheDocumentsATopicsCodeLinksMostLinkedFirstAndLeavesOutIssuesAndLicenses()
+    void listsTheSpecsATopicsCodeLinksFirstAndLeavesOutWhatIsNoSpec()
             throws IOException
     {
         command("init", "-q");
@@ -49,8 +49,14 @@ class TestContextSpecSource
                 // %1$s#add-file-and-remove-file.
                 // See https://github.com/trinodb/trino/issues/12011 and https://github.com/delta-io/delta
                 // Port of https://github.com/delta-io/delta/blob/f5ebfbb/spark/src/main/scala/Checkpoints.scala#L40
+                // Deletion vector ids are Z85 encoded: https://rfc.zeromq.org/spec/32/
+                // Discussed in https://delta-users.slack.com/archives/GKTUWT03T/p1585760533005400 and https://issues.apache.org/jira/browse/PARQUET-1246
                 """.formatted(PROTOCOL));
         Files.writeString(plugin.resolve("Features.java"), "// " + PROTOCOL + "#table-features\n// https://docs.delta.io/latest/delta-batch.html\n");
+        // Build files name XML namespaces and schemas, and READMEs link home and product pages; none is a spec.
+        Files.writeString(plugin.getParent().resolve("pom.xml"),
+                "<project xmlns=\"http://maven.apache.org/POM/4.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"/>\n");
+        Files.writeString(plugin.getParent().resolve("README.md"), "See https://delta.io/ and https://databricks.com/try-databricks\n");
         Files.writeString(repository.resolve("README.md"), PROTOCOL + "#outside-the-topic\n");
         command("add", ".");
         command("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "Fixture");
@@ -59,12 +65,25 @@ class TestContextSpecSource
         assertThat(ContextSpecSource.scan(git, workspace(), baseline, ImmutableList.of("plugin/delta/"), ImmutableList.of("https://docs.delta.io/latest/")))
                 .extracting(ContextSpecSource::url, ContextSpecSource::kind, ContextSpecSource::links, ContextSpecSource::sections, ContextSpecSource::approved)
                 .containsExactly(
-                        tuple(PROTOCOL, ContextSpecSource.Kind.DOCUMENT, 3, ImmutableList.of("action-reconciliation", "add-file-and-remove-file", "table-features"), false),
+                        tuple(PROTOCOL, ContextSpecSource.Kind.SPEC, 3, ImmutableList.of("action-reconciliation", "add-file-and-remove-file", "table-features"), false),
+                        tuple("https://rfc.zeromq.org/spec/32/", ContextSpecSource.Kind.SPEC, 1, ImmutableList.of(), false),
+                        tuple("https://docs.delta.io/latest/", ContextSpecSource.Kind.DOCUMENT, 0, ImmutableList.of(), true),
+                        tuple("https://databricks.com/try-databricks", ContextSpecSource.Kind.DOCUMENT, 1, ImmutableList.of(), false),
                         tuple("https://docs.delta.io/latest/delta-batch.html", ContextSpecSource.Kind.DOCUMENT, 1, ImmutableList.of(), false),
                         tuple("https://github.com/delta-io/delta/blob/f5ebfbb/spark/src/main/scala/Checkpoints.scala", ContextSpecSource.Kind.REFERENCE_CODE, 1,
-                                ImmutableList.of("L40"), false),
-                        tuple("https://docs.delta.io/latest/", ContextSpecSource.Kind.DOCUMENT, 0, ImmutableList.of(), true));
+                                ImmutableList.of("L40"), false));
         assertThat(ContextSpecSource.scan(git, workspace(), baseline, ImmutableList.of(), ImmutableList.of())).isEmpty();
+    }
+
+    @Test
+    void anAddressThatNamesASpecIsOne()
+    {
+        assertThat(ImmutableList.of("https://iceberg.apache.org/spec/", "https://github.com/apache/parquet-format/blob/master/Encodings.md",
+                "https://datatracker.ietf.org/doc/html/rfc8259", "https://hudi.apache.org/tech-specs/", "https://orc.apache.org/specification/ORCv1/"))
+                .allMatch(address -> ContextSpecSource.classify(address) == ContextSpecSource.Kind.SPEC);
+        assertThat(ImmutableList.of("https://trino.io/docs/current/connector/delta-lake.html", "https://docs.example.org/formatter/",
+                "https://github.com/delta-io/delta/blob/master/docs/source/delta-uniform.md"))
+                .allMatch(address -> ContextSpecSource.classify(address) == ContextSpecSource.Kind.DOCUMENT);
     }
 
     private WorkspaceRepositoryContext workspace()

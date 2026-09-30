@@ -61,7 +61,8 @@ describe('spec check links', () => {
     expect(codeLink('o/r', 'abc', 'core/A.java:7')).toBe('https://github.com/o/r/blob/abc/core/A.java#L7');
     expect(specAddress(' https://iceberg.apache.org/spec/#manifests ')).toBe('https://iceberg.apache.org/spec/');
     expect([specAddress('http://iceberg.apache.org/spec/'), specAddress('https://example.com/spec?v=2'), specAddress('not a url')]).toEqual([null, null, null]);
-    expect(defaultSpecs([{ url: 'https://example.com/spec', kind: 'DOCUMENT', links: 3, sections: [], approved: false },
+    expect(defaultSpecs([{ url: 'https://example.com/spec', kind: 'SPEC', links: 3, sections: [], approved: false },
+      { url: 'https://docs.example.com/guide.html', kind: 'DOCUMENT', links: 12, sections: [], approved: true },
       { url: 'https://github.com/o/r/blob/main/A.scala', kind: 'REFERENCE_CODE', links: 9, sections: [], approved: false }])).toEqual(['https://example.com/spec']);
   });
 });

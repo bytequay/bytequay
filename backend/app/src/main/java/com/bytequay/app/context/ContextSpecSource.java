@@ -35,8 +35,8 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * A document a topic's code implements, found by the links its code carries: a specification, protocol or reference page, or
- * another engine's source file, kept as a reference implementation to compare with and never as a rule.
+ * A document a topic's code links: a specification or protocol it implements, other documentation, or another engine's source
+ * file, kept as a reference implementation to compare with and never as a rule.
  */
 public record ContextSpecSource(String url, Kind kind, int links, List<String> sections, boolean approved)
 {
@@ -45,6 +45,11 @@ public record ContextSpecSource(String url, Kind kind, int links, List<String> s
     private static final String LINK = "https?://[A-Za-z0-9./_#%~+-]+";
     private static final Pattern SOURCE_FILE = Pattern.compile(".*\\.(java|scala|kt|py|go|rs|c|cc|cpp|h|hpp|js|ts)$");
     private static final Pattern REPOSITORY_NOISE = Pattern.compile("/[^/]+/[^/]+(/(issues|pull|pulls|commit|commits|compare|releases|actions|tree)(/.*)?)?/?");
+    // ponytail: the address must name what it is; a spec published under another name is listed as documentation, one click to select.
+    private static final Pattern SPEC_NAME = Pattern.compile("(?i)(^|[/._+-])(specs?|specifications?|protocols?|rfc\\d*|formats?|standards?)([/._+-]|$)");
+    private static final Pattern ISSUE_KEY = Pattern.compile(".*/browse/[A-Z][A-Z0-9_]+-[0-9]+/?");
+    private static final Set<String> DISCUSSIONS = ImmutableSet.of("discord.com", "discord.gg", "gitter.im", "groups.google.com", "stackoverflow.com",
+            "lists.apache.org", "www.mail-archive.com");
     private static final Duration SCAN_TIMEOUT = Duration.ofSeconds(10);
     private static final int SCAN_BYTES = 5 * 1024 * 1024;
 
@@ -56,14 +61,16 @@ public record ContextSpecSource(String url, Kind kind, int links, List<String> s
         sections = ImmutableList.copyOf(sections);
     }
 
+    /** Listed in this order; the check starts with the specs selected. */
     public enum Kind
     {
-        DOCUMENT, REFERENCE_CODE
+        SPEC, DOCUMENT, REFERENCE_CODE
     }
 
     /**
-     * Groups the links in the topic's paths at the frozen baseline by address, most-linked documents first, then reference code;
-     * issues, pull requests, repository pages and license links are left out. The topic's approved documentation follows.
+     * Groups the links in the topic's code and documentation at the frozen baseline by address: specs first, then other
+     * documentation and reference code, each approved and most-linked first. Build files' XML namespaces, issues, pull
+     * requests, discussions, site home pages and license links are left out.
      */
     static List<ContextSpecSource> scan(GitCommandRunner git, WorkspaceRepositoryContext workspace, String baseline, List<String> paths, List<String> approved)
     {
@@ -72,7 +79,8 @@ public record ContextSpecSource(String url, Kind kind, int links, List<String> s
         if (!paths.isEmpty()) {
             GitCommandRunner.Result output = git.runLocalBoundedStdout(workspace.repository(), SCAN_TIMEOUT, SCAN_BYTES,
                     ImmutableList.<String>builder().add("grep", "--no-color", "-I", "-h", "-o", "-E", "-e", LINK, baseline, "--")
-                            .addAll(paths.stream().map(path -> ":(literal)" + path).toList()).build());
+                            .addAll(paths.stream().map(path -> ":(literal)" + path).toList())
+                            .add(":(exclude,glob)**/*.xml", ":(exclude,glob)**/*.xsd").build());
             checkArgument((output.successful() || output.exitCode() == 1) && !output.truncated(), "The topic's code has too many links to scan");
             for (String line : output.output().split("\n")) {
                 // Pages are only read over HTTPS, which every spec host serves.
@@ -89,13 +97,21 @@ public record ContextSpecSource(String url, Kind kind, int links, List<String> s
             }
         }
         List<ContextSpecSource> found = new ArrayList<>();
-        counts.forEach((address, links) -> found.add(new ContextSpecSource(address, SOURCE_FILE.matcher(URI.create(address).getPath()).matches()
-                ? Kind.REFERENCE_CODE : Kind.DOCUMENT, links, sections.getOrDefault(address, ImmutableSet.of()).stream().limit(MAX_SECTIONS).toList(),
-                approved.contains(address))));
-        found.sort(Comparator.comparing(ContextSpecSource::kind).thenComparing(Comparator.comparingInt(ContextSpecSource::links).reversed())
-                .thenComparing(ContextSpecSource::url));
-        approved.stream().filter(url -> !counts.containsKey(url)).forEach(url -> found.add(new ContextSpecSource(url, Kind.DOCUMENT, 0, ImmutableList.of(), true)));
+        counts.forEach((address, links) -> found.add(new ContextSpecSource(address, classify(address), links,
+                sections.getOrDefault(address, ImmutableSet.of()).stream().limit(MAX_SECTIONS).toList(), approved.contains(address))));
+        approved.stream().filter(url -> !counts.containsKey(url)).forEach(url -> found.add(new ContextSpecSource(url, classify(url), 0, ImmutableList.of(), true)));
+        found.sort(Comparator.comparing(ContextSpecSource::kind).thenComparing(source -> !source.approved())
+                .thenComparing(Comparator.comparingInt(ContextSpecSource::links).reversed()).thenComparing(ContextSpecSource::url));
         return found.stream().limit(MAX_SOURCES).collect(ImmutableList.toImmutableList());
+    }
+
+    static Kind classify(String address)
+    {
+        URI uri = URI.create(address);
+        if (SOURCE_FILE.matcher(uri.getPath()).matches()) {
+            return Kind.REFERENCE_CODE;
+        }
+        return SPEC_NAME.matcher(uri.getHost() + uri.getPath()).find() ? Kind.SPEC : Kind.DOCUMENT;
     }
 
     private static boolean ignored(String address)
@@ -111,6 +127,10 @@ public record ContextSpecSource(String url, Kind kind, int links, List<String> s
         String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
         String path = uri.getPath() == null ? "" : uri.getPath();
         return host.isEmpty() || host.equals("localhost") || host.startsWith("127.") || host.matches("(.*\\.)?example\\.(com|org|net)")
-                || path.contains("/licenses/") || (host.equals("github.com") && REPOSITORY_NOISE.matcher(path).matches());
+                || path.isEmpty() || path.equals("/") || path.contains("/licenses/") || (host.equals("github.com") && REPOSITORY_NOISE.matcher(path).matches())
+                // XML namespaces and schemas, issue trackers and discussion threads are never a spec.
+                || (host.equals("www.w3.org") && path.matches("/[0-9]{4}/.*")) || (host.equals("maven.apache.org") && path.matches("/(POM|xsd)/.*"))
+                || path.matches(".*\\.(xsd|dtd)") || ISSUE_KEY.matcher(path).matches() || path.contains("/-/issues/") || host.startsWith("issues.")
+                || host.startsWith("jira.") || host.startsWith("bugs.") || host.equals("slack.com") || host.endsWith(".slack.com") || DISCUSSIONS.contains(host);
     }
 }

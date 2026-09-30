@@ -774,8 +774,8 @@ export function parseSaveRepositoryContextLessonRequest(value: unknown): SaveRep
 
 /* ── Spec checks ─────────────────────────────────────────────────────── */
 
-/** A document the topic's code links, how often and at which sections; reference code is another engine's source, for comparison only. */
-export type ContextSpecSourceDto = { url: string; kind: 'DOCUMENT' | 'REFERENCE_CODE'; links: number; sections: string[]; approved: boolean };
+/** A page the topic's code links, how often and at which sections: a spec it implements, other documentation, or another engine's source, for comparison only. */
+export type ContextSpecSourceDto = { url: string; kind: 'SPEC' | 'DOCUMENT' | 'REFERENCE_CODE'; links: number; sections: string[]; approved: boolean };
 export type ContextSpecCheckState = 'CHECKING' | 'REPRODUCING' | 'DONE' | 'STOPPED' | 'FAILED';
 export type ContextSpecCandidateType = 'BUG' | 'FEATURE_REQUEST' | 'IMPROVEMENT';
 export type ContextSpecCandidateStatus = 'PENDING' | 'REPRODUCING' | 'CONFIRMED' | 'REFUTED' | 'NOT_REPRODUCED' | 'ALREADY_REPORTED';
@@ -801,7 +801,7 @@ export type ContextSpecCheckStartedDto = { check: ContextSpecCheckDto; build: Co
 export function parseContextSpecSources(value: unknown): ContextSpecSourceDto[] {
   return array(object(value, 'spec sources').sources, 'spec sources', raw => {
     const item = object(raw, 'spec source');
-    return { url: text(item.url, 'spec address'), kind: oneOf(item.kind, ['DOCUMENT', 'REFERENCE_CODE'], 'spec kind'), links: count(item.links, 'spec links'),
+    return { url: text(item.url, 'spec address'), kind: oneOf(item.kind, ['SPEC', 'DOCUMENT', 'REFERENCE_CODE'], 'spec kind'), links: count(item.links, 'spec links'),
       sections: strings(item.sections, 'spec sections'), approved: flag(item.approved, 'approved spec') };
   });
 }

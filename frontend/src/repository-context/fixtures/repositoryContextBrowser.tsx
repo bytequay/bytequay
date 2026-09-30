@@ -342,7 +342,8 @@ function install() {
     getRepositoryContextDisputes: async () => clone(state.disputes),
     getRepositoryContextChangedPages: async () => ({ changed: clone(state.changedPages) }),
     getRepositoryContextSpecChecks: async () => clone(state.checks),
-    getRepositoryContextSpecSources: async () => [{ url: SPEC, kind: 'DOCUMENT', links: 14, sections: ['manifests', 'snapshots'], approved: false },
+    getRepositoryContextSpecSources: async () => [{ url: SPEC, kind: 'SPEC', links: 14, sections: ['manifests', 'snapshots'], approved: false },
+      { url: 'https://trino.io/docs/current/connector/iceberg.html', kind: 'DOCUMENT', links: 3, sections: [], approved: true },
       { url: 'https://github.com/apache/iceberg/blob/main/core/src/main/java/org/apache/iceberg/ManifestReader.java', kind: 'REFERENCE_CODE', links: 2, sections: [],
         approved: false }],
     startRepositoryContextSpecCheck: async (_workspaceId, request) => {

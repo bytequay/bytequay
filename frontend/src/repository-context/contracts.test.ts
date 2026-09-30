@@ -131,8 +131,8 @@ describe('spec check contracts', () => {
     expect(parseContextSpecChecks({ checks: [check] })).toEqual([check]);
     expect(() => parseContextSpecChecks({ checks: [{ ...check, state: 'PAUSED' }] })).toThrow('check state');
     expect(() => parseContextSpecChecks({ checks: [{ ...check, candidates: [{ ...finding, test: { ...finding.test, exitCode: 'failed' } }] }] })).toThrow('test exit code');
-    expect(parseContextSpecSources({ sources: [{ url: check.specs[0], kind: 'DOCUMENT', links: 25, sections: ['checkpoints'], approved: false }] }))
-      .toEqual([{ url: check.specs[0], kind: 'DOCUMENT', links: 25, sections: ['checkpoints'], approved: false }]);
+    expect(parseContextSpecSources({ sources: [{ url: check.specs[0], kind: 'SPEC', links: 25, sections: ['checkpoints'], approved: false }] }))
+      .toEqual([{ url: check.specs[0], kind: 'SPEC', links: 25, sections: ['checkpoints'], approved: false }]);
     const start = { requestKey: 'k', expectedRevision: 1, expectedBuildSequence: 2, planId: 'plan', topicId: 'topic:delta', specs: check.specs };
     expect(parseStartContextSpecCheckRequest(start)).toEqual(start);
     expect(() => parseStartContextSpecCheckRequest({ ...start, specs: ['http://example.com/spec'] })).toThrow('specs');

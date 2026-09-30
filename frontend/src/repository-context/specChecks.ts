@@ -51,9 +51,9 @@ export function checkSummary(check: ContextSpecCheckDto): string {
   return parts.join(' · ');
 }
 
-/** Specs the drawer selects at first: the documents the code links and the topic's approved documentation, never reference code. */
+/** Specs the drawer selects at first: the pages that name themselves a spec, never other documentation or reference code. */
 export function defaultSpecs(sources: ContextSpecSourceDto[]): string[] {
-  return sources.filter(source => source.kind === 'DOCUMENT').map(source => source.url).slice(0, MAX_SPECS);
+  return sources.filter(source => source.kind === 'SPEC').map(source => source.url).slice(0, MAX_SPECS);
 }
 
 /** A spec the user adds: a public HTTPS page without a query; its #section is dropped, since the check plans its own sections. */

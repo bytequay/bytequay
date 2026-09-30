@@ -14,9 +14,10 @@ and reads the result; nothing in between asks for a decision.
 ## 1. What the user does
 
 **Start.** A topic offers **Check against spec**, which opens its Spec check
-drawer. The drawer lists the spec documents found for the topic, each already
-selected, with how often the code links it: "Spec · 25 links from the topic's
-code · 20 sections". Reference code is listed unselected. The user may add a spec
+drawer. The drawer lists the specs found for the topic, each already selected,
+with how often the code links it: "Spec · 25 links from the topic's code · 20
+sections". The code's other links, documentation and reference code, are folded
+below and unselected. The user may add a spec
 address or clear one, but never picks sections: the check plans them. A new
 check of a topic starts from the specs its last check read. Usually the user just
 starts. The run line states what the click starts: one task for the topic, a
@@ -40,10 +41,12 @@ Nothing is filed, commented or pushed without the user's click.
 ByteQuay lists candidates without a model, strongest first:
 
 1. Links in the topic's own code. A text scan of the topic's paths groups links by
-   address without the `#section`, counts them and keeps their sections.
-   Specification and protocol documents are kept. Source files of another engine
-   are kept as reference implementations, used for comparison and never as rules.
-   Issues and license links are dropped.
+   address without the `#section`, counts them and keeps their sections. An
+   address that names a spec, specification, protocol, RFC, format or standard is
+   a spec. Source files of another engine are kept as reference implementations,
+   used for comparison and never as rules. Other pages are listed as
+   documentation. Build files' XML namespaces, issues, pull requests, discussion
+   threads, site home pages and license links are dropped.
 2. The topic's approved documentation sources and pages discovery suggested.
 3. A spec the model proposes, shown unselected until the user selects it.
 

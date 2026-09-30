@@ -58,18 +58,28 @@ function StartCheck({ data, actions, busy, topicId, previous }: {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [draft, setDraft] = useState('');
+  const [showOthers, setShowOthers] = useState(false);
   useEffect(() => {
     let live = true;
     void Promise.resolve().then(() => window.bridge.getRepositoryContextSpecSources(data.workspaceId, topicId)).then(found => {
       if (!live) return;
+      const chosen = previous !== null ? previous.specs : defaultSpecs(found);
       setSources(found);
-      setSelected(previous !== null ? previous.specs : defaultSpecs(found));
+      setSelected(chosen);
+      setShowOthers(found.some(source => source.kind !== 'SPEC' && chosen.includes(source.url)));
     }).catch(cause => { if (live) setError(cause instanceof Error ? cause.message : String(cause)); });
     return () => { live = false; };
   }, [data.workspaceId, previous, topicId]);
   const known = sources ?? [];
-  const listed = [...known, ...selected.filter(url => !known.some(source => source.url === url))
-    .map((url): ContextSpecSourceDto => ({ url, kind: 'DOCUMENT', links: 0, sections: [], approved: false }))];
+  // Documentation and reference code stay folded and unselected; the code links far more pages than it implements.
+  const specs = [...known.filter(source => source.kind === 'SPEC'), ...selected.filter(url => !known.some(source => source.url === url))
+    .map((url): ContextSpecSourceDto => ({ url, kind: 'SPEC', links: 0, sections: [], approved: false }))];
+  const others = known.filter(source => source.kind !== 'SPEC');
+  const row = (source: ContextSpecSourceDto) => <div className="rcp-src" key={source.url}>
+    <input type="checkbox" id={`rcp-spec-${source.url}`} checked={selected.includes(source.url)} onChange={() => toggle(source.url)} />
+    <label htmlFor={`rcp-spec-${source.url}`}><span className="rcp-src__target">{source.url}</span>
+      <span className="rcp-src__sub">{sourceLine(source)}</span></label>
+  </div>;
   const toggle = (url: string) => setSelected(value => value.includes(url) ? value.filter(item => item !== url) : [...value, url]);
   const address = specAddress(draft);
   const add = (event: FormEvent) => {
@@ -84,12 +94,14 @@ function StartCheck({ data, actions, busy, topicId, previous }: {
     <div className="rcp-drawer-label">{previous === null ? 'SPECS TO CHECK AGAINST' : 'CHECK AGAIN'}</div>
     {error !== null && <div className="rcp-drawer-error">The specs the code links could not be listed: {error}</div>}
     {sources === null && error === null && <div className="rcp-note-caption">Finding the specs the topic’s code links…</div>}
-    {sources !== null && listed.length === 0 && <div className="rcp-note-caption">The topic’s code links no spec. Add the address of the specification it implements.</div>}
-    {listed.map(source => <div className="rcp-src" key={source.url}>
-      <input type="checkbox" id={`rcp-spec-${source.url}`} checked={selected.includes(source.url)} onChange={() => toggle(source.url)} />
-      <label htmlFor={`rcp-spec-${source.url}`}><span className="rcp-src__target">{source.url}</span>
-        <span className="rcp-src__sub">{sourceLine(source)}</span></label>
-    </div>)}
+    {sources !== null && specs.length === 0 && <div className="rcp-note-caption">The topic’s code links no spec. Pick one of its other links or add the
+      specification’s address.</div>}
+    {specs.map(row)}
+    {others.length > 0 && <>
+      <button type="button" className="rcp-how" aria-expanded={showOthers} onClick={() => setShowOthers(value => !value)}>
+        <Chevron open={showOthers} size={11} />Other links in the topic’s code · {others.length}</button>
+      {showOthers && others.map(row)}
+    </>}
     <form className="rcp-q-add" onSubmit={add}>
       <input aria-label="Spec address" placeholder="Add a spec address · https://…" value={draft} maxLength={1400} onChange={event => setDraft(event.target.value)} />
       <button type="submit" className="rcp-btn rcp-btn--secondary" disabled={address === null}>Add spec</button>
@@ -110,9 +122,10 @@ function plan(data: ContextData): boolean {
 }
 
 function sourceLine(source: ContextSpecSourceDto): string {
-  const kind = source.kind === 'REFERENCE_CODE' ? 'Reference code · for comparison, never a rule' : source.approved ? 'Approved documentation' : 'Spec';
-  if (source.links === 0) return source.approved ? kind : 'Added by you';
-  return `${kind} · ${plural(source.links, 'link')} from the topic’s code${source.sections.length > 0 ? ` · ${plural(source.sections.length, 'section')}` : ''}`;
+  const kind = source.kind === 'REFERENCE_CODE' ? 'Reference code · for comparison, never a rule' : source.kind === 'SPEC' ? 'Spec' : 'Documentation';
+  const approved = source.approved ? ' · approved for this topic' : '';
+  if (source.links === 0) return source.approved ? kind + approved : 'Added by you';
+  return `${kind}${approved} · ${plural(source.links, 'link')} from the topic’s code${source.sections.length > 0 ? ` · ${plural(source.sections.length, 'section')}` : ''}`;
 }
 
 function Report({ data, actions, busy, check }: { data: ContextData; actions: ContextActions; busy: boolean; check: ContextSpecCheckDto }) {

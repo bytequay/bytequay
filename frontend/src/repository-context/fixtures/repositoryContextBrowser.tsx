@@ -180,7 +180,8 @@ function plan(): ContextLearningPlanDto {
     gaps: ['Delta Lake transaction-log behavior needs its own learning topic.'], documentationSources: [docs],
     documentInventory: { truncated: false,
       items: [{ sourceId: docs.id, resolvedUrl: docs.url, relativePage: null, depth: 0, status: 'READ', detail: '' }],
-      suggestions: [{ url: 'https://iceberg.apache.org/docs/latest/', parentUrl: docs.url, topicId: 'topic:iceberg', question: 2, taskId: 'task-run-4', foundAt: ago(21) }] } };
+      suggestions: [{ url: 'https://iceberg.apache.org/docs/latest/', parentUrl: docs.url, topicId: 'topic:iceberg', question: 2, taskId: 'task-run-4', foundAt: ago(21) }] },
+    batch: null };
 }
 
 function contextRun(sequence: number, outcome: ContextRunDto['outcome'], minutesAgo: number, question: number | null, patch: Partial<ContextRunDto> = {}): ContextRunDto {
@@ -573,10 +574,11 @@ const scenarios: Array<[string, () => Promise<void>]> = [
     assert(request.boundary === 'ROOT' && request.suggestedUrl === 'https://iceberg.apache.org/docs/latest/', 'The exact root is approved');
     assert(state.calls.starts.length === 0, 'Approving a source starts no run');
   }],
-  ['continuing learning starts one run on the saved next question', async () => {
+  ['one Continue learning click runs every open question, starting with the saved next one', async () => {
     await render('review');
     assert(text().includes('Run 4 reached its source limit'), 'Saved historical limit outcomes remain truthful');
-    assert(text().includes('Next: Iceberg connector · “How are delete files applied during reads?” · resumes saved progress'), 'The run line names the next question');
+    assert(text().includes('5 runs, one per open question, starting with Iceberg connector · “How are delete files applied during reads?” (resumes saved progress)')
+      && text().includes('Stop ends the batch'), 'The run line counts the batch and names the first question');
     await click('Continue learning');
     assert(state.calls.starts.length === 1 && state.calls.starts[0].kind === 'continue', 'Continue sends one request');
   }],

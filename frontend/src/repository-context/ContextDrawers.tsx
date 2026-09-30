@@ -19,7 +19,7 @@ import ContextNoteDrawer from './ContextNoteDrawer';
 import { NoteApplicability, QuestionLine } from './ContextOverview';
 import { Chevron, Icon } from './icons';
 import {
-  clock, currentRun, latestRun, DOCUMENT_LINK_HOPS, needsTopicReselection, nextQuestion, noteArea, OUTCOME, plural, questionRow, runOrigin, shortDate, shortSha, timeOfDay,
+  batchLine, batchRuns, clock, currentRun, latestRun, DOCUMENT_LINK_HOPS, needsTopicReselection, nextQuestion, noteArea, OUTCOME, plural, questionRow, runOrigin, shortDate, shortSha, timeOfDay,
 } from './model';
 import type { ContextActions, ContextData } from './RepositoryContextPage';
 
@@ -177,11 +177,12 @@ function PlanDrawer({ data, actions, busy, tab, onTab, onClose }: { data: Contex
     <div className="rcp-drawer__foot">
       {learning !== null ? <div className="rcp-foot-line">
         <button type="button" className="rcp-btn rcp-btn--danger" disabled={busy} onClick={() => void actions.stop(learning)}>Stop run</button>
-        <span className="rcp-foot-line__text">Run {learning.sequence} · {plural(learning.sourceOperations, 'source operation')} · the plan and saved notes are kept</span>
+        <span className="rcp-foot-line__text">Run {learning.sequence} · {plural(learning.sourceOperations, 'source operation')}
+          {plan?.batch ? ` · run ${plan.batch.started} of ${plan.batch.total} in this batch; Stop ends the batch` : ''} · the plan and saved notes are kept</span>
       </div> : needsReselection ? <span className="rcp-foot-line__text">Discard this earlier plan and reselect topics with explicit note targets. Saved notes are kept.</span>
         : next !== null ? <div className="rcp-foot-line">
         <button type="button" className="rcp-btn rcp-btn--secondary" disabled={!canRun} onClick={actions.continueLearning}><Icon name="bolt" size={13} />Continue learning</button>
-        <span className="rcp-foot-line__text">{data.model.blocker ?? `Next: ${next.topic.title} · “${next.text}” · 1 run · ${data.model.label}`}</span>
+        <span className="rcp-foot-line__text">{data.model.blocker ?? batchLine(batchRuns(plan), `${next.topic.title} · “${next.text}”`, data.model.label)}</span>
       </div> : <span className="rcp-foot-line__text">{plan === null ? 'Nothing to continue.' : 'Every planned question is answered.'}</span>}
     </div>
     {discarding && plan !== null && <ConfirmDialog title="Discard the remaining plan?" confirmLabel="Discard plan" destructive busy={busy} onCancel={() => setDiscarding(false)}

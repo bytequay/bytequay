@@ -565,7 +565,7 @@ class TestContextBuildService
                 ImmutableList.of(ContextLearningPlan.Question.open(assignment.question())));
         return new ContextLearningPlan(assignment.planId(), WORKSPACE, "report", "accept", "sha256:" + "b".repeat(64),
                 notebooks.getNotebook(WORKSPACE).revision(), 0, ImmutableList.of(topic.id()), 7, REPOSITORY, SHA,
-                ImmutableList.of(topic), selected, ContextDocumentInventory.initial(selected), ImmutableList.of(), NOW);
+                ImmutableList.of(topic), selected, ContextDocumentInventory.initial(selected), ImmutableList.of(), NOW, Optional.empty());
     }
 
     private ContextBuildService createService(AgentCompletionService completion)

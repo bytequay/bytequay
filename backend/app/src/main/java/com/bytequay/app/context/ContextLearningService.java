@@ -96,7 +96,7 @@ public class ContextLearningService
         if (existing.filter(plan -> plan.acceptedRequestKey().equals(request.requestKey())).isPresent()) {
             ContextLearningPlan replay = existing.orElseThrow();
             checkArgument(replay.acceptedRequestDigest().equals(digest), "Learning request key was reused with different topics");
-            return launch(replay, request.requestKey(), request.expectedBuildSequence(), replay.acceptedNotebookRevision(), true,
+            return startBatch(replay, request.requestKey(), request.expectedBuildSequence(), replay.acceptedNotebookRevision(), true,
                     Optional.of(new ContextLearningPlan.Target(replay.acceptedTopicIds().getFirst(), 0)));
         }
         ContextDiscoveryReport report = reports.find(workspaceId).filter(value -> value.id().equals(request.reportId()))
@@ -142,18 +142,18 @@ public class ContextLearningService
                 accepted = new ContextLearningPlan(current.id(), workspaceId, report.id(), request.requestKey(), digest, updated.revision(),
                         request.expectedBuildSequence(), request.topicIds(), current.repositoryId(), current.repository(), current.baselineSha(),
                         ImmutableList.<ContextLearningPlan.Topic>builder().addAll(current.topics()).addAll(prepared.topics()).build(),
-                        inventory.sources(), inventory, current.gaps(), Instant.now(clock));
+                        inventory.sources(), inventory, current.gaps(), Instant.now(clock), current.batch());
             }
             else {
                 accepted = new ContextLearningPlan(UUID.randomUUID().toString(), workspaceId, report.id(),
                         request.requestKey(), digest, updated.revision(), request.expectedBuildSequence(), request.topicIds(),
                         report.repositoryId(), report.repository(), report.baselineSha(), prepared.topics(),
                         prepared.documentation(), ContextDocumentInventory.initial(prepared.documentation()),
-                        report.gaps(), Instant.now(clock));
+                        report.gaps(), Instant.now(clock), Optional.empty());
             }
             return plans.save(existing, accepted);
         }));
-        return launch(plan, request.requestKey(), request.expectedBuildSequence(), plan.acceptedNotebookRevision(), true,
+        return startBatch(plan, request.requestKey(), request.expectedBuildSequence(), plan.acceptedNotebookRevision(), true,
                 Optional.of(new ContextLearningPlan.Target(request.topicIds().getFirst(), 0)));
     }
 
@@ -161,7 +161,75 @@ public class ContextLearningService
     {
         ContextLearningPlan plan = get(workspaceId).filter(value -> value.id().equals(request.planId()))
                 .orElseThrow(() -> new IllegalArgumentException("Learning plan changed; inspect current progress"));
-        return launch(plan, request.requestKey(), request.expectedBuildSequence(), request.expectedRevision(), false, Optional.empty());
+        return startBatch(plan, request.requestKey(), request.expectedBuildSequence(), request.expectedRevision(), false, Optional.empty());
+    }
+
+    /**
+     * Starts the batch's next question once the previous run has ended and its worktree is gone. A stopped or failed run,
+     * or a run the batch did not start, ends the batch; so does running out of questions.
+     */
+    public void continueBatch(String workspaceId)
+    {
+        if (plans.find(workspaceId).flatMap(ContextLearningPlan::batch).isEmpty()) {
+            return;
+        }
+        ContextBuildService.View view = builds.get(workspaceId);
+        if (!view.canStart()) {
+            return;
+        }
+        ContextLearningPlan plan = plans.find(workspaceId).orElseThrow();
+        ContextLearningPlan.Batch batch = plan.batch().orElseThrow();
+        Optional<ContextBuild> last = buildStore.find(workspaceId).filter(build -> batch.owns(build.requestKey()));
+        Optional<ContextRun.Outcome> outcome = last.flatMap(build -> view.runs().stream().filter(run -> run.taskId().equals(build.taskId())).findFirst())
+                .map(ContextRun::outcome);
+        if (outcome.isEmpty() || outcome.orElseThrow() == ContextRun.Outcome.STOPPED || outcome.orElseThrow() == ContextRun.Outcome.FAILED) {
+            plans.save(Optional.of(plan), plan.withBatch(Optional.empty()));
+            return;
+        }
+        List<ContextLearningPlan.Target> open = plan.open();
+        List<ContextLearningPlan.Target> queue = batch.queue().stream().dropWhile(target -> !open.contains(target)).toList();
+        if (queue.isEmpty()) {
+            plans.save(Optional.of(plan), plan.withBatch(Optional.empty()));
+            return;
+        }
+        int ordinal = batch.started() + 1;
+        ContextLearningPlan started = plans.save(Optional.of(plan), plan.withBatch(Optional.of(new ContextLearningPlan.Batch(batch.key(),
+                queue.subList(1, queue.size()).stream().filter(open::contains).toList(), batch.total(), ordinal))));
+        try {
+            launch(started, batch.runKey(ordinal), view.buildRequestSequence(), notebooks.getNotebook(workspaceId).revision(), false,
+                    Optional.of(queue.getFirst()));
+        }
+        catch (RuntimeException failure) {
+            plans.find(workspaceId).filter(current -> current.batch().isPresent())
+                    .ifPresent(current -> plans.save(Optional.of(current), current.withBatch(Optional.empty())));
+            throw failure;
+        }
+    }
+
+    /** One click runs each open question in turn, starting with the requested one; the coordinator starts the rest. */
+    private ContextBuildService.View startBatch(ContextLearningPlan plan, String requestKey, long expectedBuildSequence,
+            long expectedRevision, boolean accepted, Optional<ContextLearningPlan.Target> requested)
+    {
+        if (buildStore.find(plan.workspaceId()).filter(build -> build.requestKey().startsWith(requestKey + "#")).isPresent()) {
+            return builds.get(plan.workspaceId());
+        }
+        List<ContextLearningPlan.Target> open = plan.open();
+        Optional<ContextLearningPlan.Target> first = requested.or(() -> open.stream().findFirst());
+        if (first.isEmpty() || buildStore.find(plan.workspaceId()).filter(build -> build.requestKey().equals(requestKey)).isPresent()) {
+            return launch(plan, requestKey, expectedBuildSequence, expectedRevision, accepted, first);
+        }
+        checkArgument(requestKey.length() <= 90, "A learning request key is at most 90 characters");
+        List<ContextLearningPlan.Target> queue = open.stream().filter(target -> !target.equals(first.orElseThrow()))
+                .limit(ContextLearningPlan.Batch.MAX_RUNS - 1).toList();
+        ContextLearningPlan batched = plans.save(Optional.of(plan), plan.withBatch(Optional.of(new ContextLearningPlan.Batch(requestKey, queue, queue.size() + 1, 1))));
+        try {
+            return launch(batched, requestKey, expectedBuildSequence, expectedRevision, accepted, first);
+        }
+        catch (RuntimeException failure) {
+            // A refused click leaves the plan as it was, including a batch still running.
+            plans.find(plan.workspaceId()).filter(batched::equals).ifPresent(current -> plans.save(Optional.of(current), plan));
+            throw failure;
+        }
     }
 
     public void discard(String workspaceId, DiscardRequest request)

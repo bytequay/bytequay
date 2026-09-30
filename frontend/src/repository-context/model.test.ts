@@ -17,7 +17,7 @@ import type {
   ContextScopeDto, ContextTimesDto, ContextUsageOverviewDto, RepositoryNotebookDto,
 } from './contracts';
 import {
-  disputeSides, filterNotes, gradeLine, grader, latestReport, runOrigin, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pendingCounts, previousVersion,
+  batchLine, batchRuns, disputeSides, filterNotes, gradeLine, grader, latestReport, runOrigin, needsTopicReselection, noteDiff, notesSavedBy, openCandidates, openReports, pendingCounts, previousVersion,
   questionRow, reportsNeedingYou, reviewItems, runNotesToDisable, scopeForTopic, settledLine, statusCard, topicSummary, type StatusInput,
 } from './model';
 
@@ -37,7 +37,7 @@ const report: ContextDiscoveryReportDto = { id: 'report', workspaceId: 'w',
 const plan: ContextLearningPlanDto = { id: 'plan', workspaceId: 'w', reportId: 'report', baselineSha: report.baselineSha, topics: [{ id: 'topic:iceberg', title: 'Iceberg connector', scopeId: 'iceberg', paths: ['plugin/trino-iceberg/', 'plugin/trino-hive/'], notePaths: ['plugin/trino-iceberg/'],
     repositoryFiles: [], sourceIds: [], questions: [{ text: 'How is metadata refreshed?', status: 'COMPLETED', progress: 'Answered.' },
       { text: 'How are commits retried?', status: 'UNFINISHED', progress: 'Read the commit loop.' }] }],
-  gaps: [], documentationSources: [], documentInventory: { items: [], suggestions: [], truncated: false } };
+  gaps: [], documentationSources: [], documentInventory: { items: [], suggestions: [], truncated: false }, batch: null };
 const run = (sequence: number, outcome: ContextRunDto['outcome'], index: number, at: string, noteIds: string[] = []): ContextRunDto => ({
   sequence, taskId: `task-${sequence}`, mode: 'LEARN', requestedAt: at, endedAt: outcome === 'RUNNING' ? null : at,
   question: { planId: 'plan', topicId: 'topic:iceberg', topicTitle: 'Iceberg connector', index, text: plan.topics[0].questions[index].text },
@@ -137,6 +137,16 @@ describe('repository context status card', () => {
     expect(card).toMatchObject({ headline: 'Investigating · Iceberg metadata refresh', question: 'Later reads reuse the table.', stop: true,
       details: { label: 'View activity', action: 'run-activity' } });
     expect(runOrigin(investigation)).toBe('Investigation 4 · Iceberg metadata refresh');
+  });
+
+  it('counts one run per open question for a batch, capped, and shows batch progress while a run works', () => {
+    expect(batchRuns(plan)).toBe(1);
+    expect(batchRuns(plan, 40)).toBe(30);
+    expect(batchRuns(null)).toBe(0);
+    const batched: ContextLearningPlanDto = { ...plan, batch: { key: 'learn-key', queue: [], total: 3, started: 2 } };
+    const card = statusCard(input({ report, build: build([run(3, 'RUNNING', 1, '2026-09-29T11:59:00Z')]), planView: { plan: batched, next: null } }));
+    expect(card.body).toContain('run 2 of 3 in this batch');
+    expect(batchLine(3, null, 'Codex · 5.6')).toBe('3 runs, one per open question · Codex · 5.6 · Stop ends the batch');
   });
 
   it('keeps completed and failed source operations separate from the running agent', () => {

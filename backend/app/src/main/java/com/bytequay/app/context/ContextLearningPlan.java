@@ -35,7 +35,7 @@ public record ContextLearningPlan(
         long acceptedNotebookRevision, long acceptedBuildSequence, List<String> acceptedTopicIds,
         long repositoryId, RepoRef repository, String baselineSha, List<Topic> topics,
         List<RegisteredContextSource> documentationSources, ContextDocumentInventory documentInventory,
-        List<String> gaps, Instant acceptedAt)
+        List<String> gaps, Instant acceptedAt, Optional<Batch> batch)
 {
     public static final int MAX_TOPICS = 20;
 
@@ -70,27 +70,36 @@ public record ContextLearningPlan(
         checkArgument(gaps.size() <= 40, "Too many learning gaps");
         gaps.forEach(gap -> ContextLimits.text(gap, "learning gap", 1000));
         requireNonNull(acceptedAt, "acceptedAt is null");
+        requireNonNull(batch, "batch is null");
+        batch.ifPresent(value -> value.queue().forEach(target -> checkArgument(topicIds.contains(target.topicId()), "Batch names an unknown topic")));
     }
 
     public ContextLearningPlan withInventory(ContextDocumentInventory updated)
     {
         return new ContextLearningPlan(id, workspaceId, reportId, acceptedRequestKey, acceptedRequestDigest,
                 acceptedNotebookRevision, acceptedBuildSequence, acceptedTopicIds, repositoryId, repository, baselineSha,
-                topics, documentationSources, updated, gaps, acceptedAt);
+                topics, documentationSources, updated, gaps, acceptedAt, batch);
     }
 
     public ContextLearningPlan withProgress(List<Topic> updated, List<String> updatedGaps)
     {
         return new ContextLearningPlan(id, workspaceId, reportId, acceptedRequestKey, acceptedRequestDigest,
                 acceptedNotebookRevision, acceptedBuildSequence, acceptedTopicIds, repositoryId, repository, baselineSha,
-                updated, documentationSources, documentInventory, updatedGaps, acceptedAt);
+                updated, documentationSources, documentInventory, updatedGaps, acceptedAt, batch);
     }
 
     public ContextLearningPlan withSources(List<Topic> updated, ContextDocumentInventory inventory)
     {
         return new ContextLearningPlan(id, workspaceId, reportId, acceptedRequestKey, acceptedRequestDigest,
                 acceptedNotebookRevision, acceptedBuildSequence, acceptedTopicIds, repositoryId, repository, baselineSha,
-                updated, inventory.sources(), inventory, gaps, acceptedAt);
+                updated, inventory.sources(), inventory, gaps, acceptedAt, batch);
+    }
+
+    public ContextLearningPlan withBatch(Optional<Batch> replacement)
+    {
+        return new ContextLearningPlan(id, workspaceId, reportId, acceptedRequestKey, acceptedRequestDigest,
+                acceptedNotebookRevision, acceptedBuildSequence, acceptedTopicIds, repositoryId, repository, baselineSha,
+                topics, documentationSources, documentInventory, gaps, acceptedAt, replacement);
     }
 
     public Topic topic(String topicId)
@@ -99,13 +108,19 @@ public record ContextLearningPlan(
                 .orElseThrow(() -> new IllegalArgumentException("Learning topic changed"));
     }
 
-    /** Unfinished work resumes first; otherwise every topic's first open question comes before any topic's next one. */
     public Optional<Target> next()
     {
+        return open().stream().findFirst();
+    }
+
+    /** Questions runs still take, in order: unfinished work first, then every topic's next open question before any topic's following one. */
+    public List<Target> open()
+    {
+        ImmutableList.Builder<Target> open = ImmutableList.builder();
         for (Topic topic : topics) {
             for (int index = 0; index < topic.questions().size(); index++) {
                 if (topic.questions().get(index).status() == Status.UNFINISHED) {
-                    return Optional.of(new Target(topic.id(), index));
+                    open.add(new Target(topic.id(), index));
                 }
             }
         }
@@ -113,11 +128,38 @@ public record ContextLearningPlan(
         for (int index = 0; index < depth; index++) {
             for (Topic topic : topics) {
                 if (index < topic.questions().size() && topic.questions().get(index).status() == Status.PENDING) {
-                    return Optional.of(new Target(topic.id(), index));
+                    open.add(new Target(topic.id(), index));
                 }
             }
         }
-        return Optional.empty();
+        return open.build();
+    }
+
+    /**
+     * The questions one click authorized: the runs still to start, how many the click authorized, and how many have started.
+     * Batch runs use the click's key, then the key with {@code #} and their ordinal.
+     */
+    public record Batch(String key, List<Target> queue, int total, int started)
+    {
+        public static final int MAX_RUNS = 30;
+
+        public Batch
+        {
+            ContextLimits.text(key, "batch key", 90);
+            queue = ImmutableList.copyOf(queue);
+            checkArgument(total >= 1 && total <= MAX_RUNS && started >= 1 && started <= total && queue.size() <= total - started,
+                    "Invalid learning batch");
+        }
+
+        public boolean owns(String requestKey)
+        {
+            return requestKey.equals(key) || requestKey.startsWith(key + "#");
+        }
+
+        public String runKey(int ordinal)
+        {
+            return ordinal == 1 ? key : key + "#" + ordinal;
+        }
     }
 
     public enum Status

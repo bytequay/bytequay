@@ -20,7 +20,7 @@ import type { AgentRuntimeStopImpactDto } from '../types';
 import type { ContextDiscoveryReportDto } from './contracts';
 import { Chevron, Icon, Spinner } from './icons';
 import {
-  clock, currentRun, entryTimeKey, grader, kindLabel, latestReport, needsTopicReselection, nextQuestion, openCandidates, planCounts, plural, previousVersion,
+  BATCH_RUNS, batchLine, batchRuns, clock, currentRun, entryTimeKey, grader, kindLabel, latestReport, needsTopicReselection, nextQuestion, openCandidates, planCounts, plural, previousVersion,
   reportsNeedingYou, reviewItems, shortDate, shortSha, scopeForTopic, statusCard, topicSummary, topicsOutsidePlan, DOCUMENT_LINK_HOPS, type QuestionRow,
   type StatusAction,
 } from './model';
@@ -440,7 +440,7 @@ function SuggestedTopics({ data, actions, busy, report, topics }: { data: Contex
         <div className="rcp-bar__line"><Icon name="bolt" size={12} className="rcp-bolt" />
           <span>{needsReselection ? 'Discard the earlier plan and reselect topics; saved notes are kept'
             : newerDiscovery ? 'Finish or discard the current plan to learn from this newer discovery'
-            : data.model.blocker ?? `${plan === null ? 'Saves a learning plan, then starts 1 run on its first question' : 'Adds them to your plan, then starts 1 run on the first new question'} · ${data.model.label}`}</span>
+            : data.model.blocker ?? `${plan === null ? 'Saves a learning plan, then runs' : 'Adds them to your plan, then runs'} ${batchLine(batchRuns(plan, questions), null, data.model.label)}`}</span>
           <span className="rcp-sep">·</span>
           <button type="button" className="rcp-link" aria-expanded={limitsOpen} onClick={() => setLimitsOpen(value => !value)}>How runs work</button></div>
       </div>
@@ -450,7 +450,7 @@ function SuggestedTopics({ data, actions, busy, report, topics }: { data: Contex
         <div className="rcp-limits__title">Each learning run</div>
         <div>The agent chooses how many reads it needs within the approved sources.</div>
         <div>Links stay within approved documentation roots, up to {DOCUMENT_LINK_HOPS} hops.</div>
-        <div className="rcp-mt6">Each run uses the configured agent timeout. You can stop it; saved progress and notes are kept.</div>
+        <div className="rcp-mt6">Each run uses the configured agent timeout. One click runs each open question in turn, up to {BATCH_RUNS} runs; Stop ends the batch, and saved progress and notes are kept.</div>
       </div>}
     </div>
   </section>;

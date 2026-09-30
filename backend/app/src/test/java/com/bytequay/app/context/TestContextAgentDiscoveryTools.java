@@ -265,7 +265,7 @@ class TestContextAgentDiscoveryTools
                         ImmutableList.of(), Optional.empty(), ImmutableList.of(), ImmutableList.of(),
                         ImmutableList.of(ContextLearningPlan.Question.open("How are snapshots read?")))),
                 ImmutableList.of(), ContextDocumentInventory.initial(ImmutableList.of()),
-                ImmutableList.of("Investigate the other connector's write-conflict contract in a separate topic."), Instant.EPOCH);
+                ImmutableList.of("Investigate the other connector's write-conflict contract in a separate topic."), Instant.EPOCH, Optional.empty());
         plans.save(Optional.empty(), plan);
         ContextBuild before = current();
 

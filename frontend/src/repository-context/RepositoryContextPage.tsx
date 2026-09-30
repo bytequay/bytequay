@@ -263,7 +263,8 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
     stop: (run: ContextRunDto) => perform(async () => {
       setBuild(await window.bridge.stopRepositoryContextBuild(workspaceId, run.taskId));
       say(run.mode === 'DISCOVER' ? 'Discovery stopped · notes unchanged' : run.pullRequest !== null ? 'Run stopped · candidate kept'
-        : run.investigation !== null ? 'Investigation stopped · the note stays disputed' : 'Run stopped · plan and saved notes kept');
+        : run.investigation !== null ? 'Investigation stopped · the note stays disputed'
+          : planView?.plan?.batch ? 'Batch stopped · no more runs start · plan and saved notes kept' : 'Run stopped · plan and saved notes kept');
     }),
     openDrawer,
     openTab: (next: 'overview' | 'notes', area = 'all') => { setTab(next); setNotesArea(area); setDrawer(null); setPop(null); },

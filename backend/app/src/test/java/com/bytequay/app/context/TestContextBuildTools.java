@@ -391,7 +391,7 @@ class TestContextBuildTools
                         "sha256:" + "c".repeat(64), ImmutableList.of("plugin/trino-iceberg/"), Optional.of(ImmutableList.of()),
                         ImmutableList.of("pom.xml"), ImmutableList.of(DOC_ROOT.id()),
                         ImmutableList.of(ContextLearningPlan.Question.open("How does Iceberg read metadata?")))), ImmutableList.of(DOC_ROOT),
-                ContextDocumentInventory.initial(ImmutableList.of(DOC_ROOT)), ImmutableList.of(), Instant.EPOCH);
+                ContextDocumentInventory.initial(ImmutableList.of(DOC_ROOT)), ImmutableList.of(), Instant.EPOCH, Optional.empty());
         when(learning.require(any())).thenReturn(plan);
 
         assertThat(read("{\"kind\":\"DOCUMENT\",\"sourceId\":\"docs-root\",\"relativePage\":\"unobserved.html\"}")
@@ -411,7 +411,7 @@ class TestContextBuildTools
                 ImmutableList.of(new ContextLearningPlan.Topic("topic:1", "Iceberg metadata", "project",
                         "sha256:" + "c".repeat(64), ImmutableList.of("plugin/trino-iceberg/"), Optional.of(ImmutableList.of()), ImmutableList.of("pom.xml"), ImmutableList.of(),
                         ImmutableList.of(ContextLearningPlan.Question.open("How does Iceberg read metadata?")))), ImmutableList.of(),
-                ContextDocumentInventory.initial(ImmutableList.of()), ImmutableList.of(), Instant.EPOCH);
+                ContextDocumentInventory.initial(ImmutableList.of()), ImmutableList.of(), Instant.EPOCH, Optional.empty());
         when(learning.require(any())).thenReturn(plan);
         when(learning.progress(any(), anyString(), anyBoolean(), anyList())).thenReturn(plan);
         when(baseline.read(any(), eq(1L), eq(SHA), eq("pom.xml"), eq(1), eq(Optional.empty())))
@@ -461,7 +461,7 @@ class TestContextBuildTools
                 ImmutableList.of(new ContextLearningPlan.Topic("topic:1", "Iceberg metadata", "project",
                         "sha256:" + "c".repeat(64), ImmutableList.of("plugin/trino-iceberg/"), Optional.of(ImmutableList.of()), ImmutableList.of("pom.xml"), ImmutableList.of(),
                         ImmutableList.of(ContextLearningPlan.Question.open("How does Iceberg read metadata?")))), ImmutableList.of(),
-                ContextDocumentInventory.initial(ImmutableList.of()), ImmutableList.of(), Instant.EPOCH);
+                ContextDocumentInventory.initial(ImmutableList.of()), ImmutableList.of(), Instant.EPOCH, Optional.empty());
         when(learning.require(any())).thenReturn(accepted).thenThrow(new IllegalArgumentException("Learning plan was replaced"));
         Plan plan = new Plan(RepositoryNotebook.empty(), ImmutableList.of());
         when(preparation.plan(any(), anyList(), anyList())).thenReturn(plan);

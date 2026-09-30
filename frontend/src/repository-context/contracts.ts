@@ -98,6 +98,8 @@ export type ContextLearningPlanDto = {
   documentationSources: ContextSourceDto[];
   documentInventory: { items: Array<{ sourceId: string; resolvedUrl: string; relativePage: string | null; depth: number;
     status: 'PENDING' | 'READ' | 'FAILED'; detail: string }>; suggestions: ContextSuggestionDto[]; truncated: boolean };
+  /** The questions one click authorized: runs still to start, how many the click authorized, and how many have started. */
+  batch: null | { key: string; queue: ContextQuestionTarget[]; total: number; started: number };
 };
 export type ContextQuestionTarget = { topicId: string; question: number };
 /** The backend names the question Continue learning takes, so the page never re-derives the order. */
@@ -543,7 +545,14 @@ export function parseContextLearningPlanView(value: unknown, workspaceId: string
         return { url: text(item.url, 'suggestion URL'), parentUrl: text(item.parentUrl, 'suggestion parent'), topicId: text(item.topicId, 'suggestion topic'),
           question: count(item.question, 'suggestion question'), taskId: text(item.taskId, 'suggestion task'), foundAt: text(item.foundAt, 'suggestion time') }; }),
       truncated: flag(inventory.truncated, 'inventory truncation') },
+    batch: null,
   };
+  if (plan.batch != null) {
+    const batch = object(plan.batch, 'learning batch');
+    result.batch = { key: text(batch.key, 'batch key'), queue: array(batch.queue, 'batch queue', questionTarget),
+      total: count(batch.total, 'batch size', 1), started: count(batch.started, 'batch runs started', 1) };
+    if (result.batch.started > result.batch.total || result.batch.queue.length > result.batch.total - result.batch.started) malformed('learning batch');
+  }
   const topicIds = result.topics.map(item => item.id);
   if (result.workspaceId !== workspaceId || new Set(topicIds).size !== topicIds.length
     || result.documentInventory.suggestions.some(item => !topicIds.includes(item.topicId))) malformed('learning plan identity');

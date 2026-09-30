@@ -2197,7 +2197,7 @@ Behavior: [questions and batches](repository-context-refactor.md#questions-and-b
 [learning from work](repository-context-refactor.md#5-use-during-development-and-review)
 and [the user interface](repository-context-refactor.md#8-user-interface).
 
-- [ ] Run a batch from one Learn selected or Continue learning click: one run per
+- [x] Run a batch from one Learn selected or Continue learning click: one run per
   question open at the click, ended by Stop, a failure or another run.
 - [ ] Record each question's origin and state; let runs correct questions and add
   follow-ups; let the user add, edit and drop questions and Go deeper; allow 30
@@ -2205,6 +2205,14 @@ and [the user interface](repository-context-refactor.md#8-user-interface).
 - [ ] Let tasks and reviews file questions with a lead; let learning runs read
   one public page and cite it; show the pages web steps opened in transcripts.
 - [ ] Verify each step with the backend and desktop build gates.
+
+Batches passed JVM 25 `mvn verify` with 3,667 tests and no Checkstyle
+violations; frontend lint, TypeScript, all 1,421 tests and macOS packaging
+passed. Regressions cover the batch a click saves on the plan, the next
+question starting only after the previous run ends, Stop and another run ending
+the batch, answered questions skipped, a refused click leaving the plan
+unchanged, plans saved before batches, and the run lines that count the runs.
+No live model run was used.
 
 ## Save notes without approval
 

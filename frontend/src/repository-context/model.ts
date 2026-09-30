@@ -158,6 +158,20 @@ export function topicSummary(topic: ContextPlanTopicDto, runs: ContextRunDto[], 
   return { topic, rows, answered, unfinished, running: rows.some(row => row.state === 'RUNNING'), meta };
 }
 
+/** One click runs each open question in turn, at most this many. */
+export const BATCH_RUNS = 30;
+
+/** How many runs Continue learning or Learn selected starts: one per open or unfinished question, capped. */
+export function batchRuns(plan: ContextLearningPlanDto | null, adding = 0): number {
+  const open = plan?.topics.flatMap(topic => topic.questions).filter(question => question.status === 'PENDING' || question.status === 'UNFINISHED').length ?? 0;
+  return Math.min(BATCH_RUNS, open + adding);
+}
+
+/** The run line of a batch-starting action. */
+export function batchLine(runs: number, first: string | null, model: string): string {
+  return `${plural(runs, 'run')}, one per open question${first === null ? '' : `, starting with ${first}`} · ${model} · Stop ends the batch`;
+}
+
 export function planCounts(plan: ContextLearningPlanDto): { answered: number; total: number } {
   const questions = plan.topics.flatMap(topic => topic.questions);
   return { answered: questions.filter(question => question.status === 'COMPLETED').length, total: questions.length };
@@ -339,8 +353,10 @@ export function statusCard(input: StatusInput): StatusCard {
       const topic = plan?.topics.find(value => value.id === running.question?.topicId);
       const total = topic?.questions.length ?? running.question.index + 1;
       const resumed = topic?.questions[running.question.index]?.progress ? ' · resumed from saved progress' : '';
+      const batch = plan?.batch ?? null;
       return { ...card, headline: `Learning · ${running.question.topicTitle}`, question: running.question.text,
-        body: `Run ${running.sequence} · question ${running.question.index + 1} of ${total} in this topic${resumed}`,
+        body: `Run ${running.sequence} · question ${running.question.index + 1} of ${total} in this topic${resumed}`
+          + (batch === null ? '' : ` · run ${batch.started} of ${batch.total} in this batch`),
         details: { label: 'View details', action: 'plan-activity' },
         foot: { text: 'Notes are saved as they finish. Stopping keeps the plan and every saved note.', link: null } };
     }
@@ -420,7 +436,7 @@ export function statusCard(input: StatusInput): StatusCard {
   }
   if (next !== null) {
     card.primary = { label: 'Continue learning', bolt: true, action: 'continue' };
-    card.runLine = `Next: ${next.topic.title} · “${next.text}”${next.resumes ? ' · resumes saved progress' : ''} · 1 run · ${model}`;
+    card.runLine = batchLine(batchRuns(active), `${next.topic.title} · “${next.text}”${next.resumes ? ' (resumes saved progress)' : ''}`, model);
   }
   else {
     card = { ...card, icon: 'check', tone: 'green', headline: 'All planned questions answered',

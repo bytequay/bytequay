@@ -112,6 +112,6 @@ class TestContextLearningStorage
                         "How are files selected?", ContextLearningPlan.Status.UNFINISHED, "Read the metadata entry point.")));
         return new ContextLearningPlan("plan", WORKSPACE, "report", "accept", "sha256:" + "c".repeat(64), 0, 0, ImmutableList.of("topic:1"),
                 1, RepoRef.of("owner", "repository"), SHA, ImmutableList.of(topic), ImmutableList.of(), ContextDocumentInventory.initial(ImmutableList.of()),
-                ImmutableList.of(), Instant.EPOCH);
+                ImmutableList.of(), Instant.EPOCH, Optional.empty());
     }
 }

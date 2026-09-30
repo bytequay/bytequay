@@ -44,15 +44,18 @@ public class ContextBuildCoordinator
     private final WorkspaceStore workspaces;
     private final ContextBuildStore builds;
     private final ObjectProvider<ContextBuildService> service;
+    private final ObjectProvider<ContextLearningService> learning;
     private final Map<String, Flow.Subscription> subscriptions = new ConcurrentHashMap<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("context-build-reconcile-", 0).factory());
 
-    public ContextBuildCoordinator(AgentEventService events, WorkspaceStore workspaces, ContextBuildStore builds, ObjectProvider<ContextBuildService> service)
+    public ContextBuildCoordinator(AgentEventService events, WorkspaceStore workspaces, ContextBuildStore builds, ObjectProvider<ContextBuildService> service,
+            ObjectProvider<ContextLearningService> learning)
     {
         this.events = requireNonNull(events, "events is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.builds = requireNonNull(builds, "builds is null");
         this.service = requireNonNull(service, "service is null");
+        this.learning = requireNonNull(learning, "learning is null");
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -132,9 +135,18 @@ public class ContextBuildCoordinator
         }
     }
 
+    /** Settles the run, then lets its batch start the next question; one executor keeps both in order. */
     private void reconcileLater(ContextBuild build)
     {
-        executor.execute(() -> service.getObject().reconcile(build.workspaceId(), build.taskId()));
+        executor.execute(() -> {
+            service.getObject().reconcile(build.workspaceId(), build.taskId());
+            try {
+                learning.getObject().continueBatch(build.workspaceId());
+            }
+            catch (RuntimeException failure) {
+                log.warn("Repository learning batch for workspace {} stopped: {}", build.workspaceId(), failure.toString());
+            }
+        });
     }
 
     @PreDestroy

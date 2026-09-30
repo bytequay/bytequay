@@ -312,6 +312,24 @@ class TestSelectedDocumentationReader
         assertThat(missing.gaps()).contains("No anchor, heading or line of the captured text matches #appendix-z; this is the first page.");
     }
 
+    @Test
+    void aFirstReadReturnsTheHeadingsOfTheDocumentWithThePageEachStartsOn()
+    {
+        RegisteredContextSource page = SelectedDocumentationReader.page("https://iceberg.apache.org/spec/");
+        String contents = "Contents\nPartitioning\nManifests\n";
+        String text = contents + "Partitioning 🔗\nPartition specs\n" + "a".repeat(SelectedDocumentationReader.PAGE_BYTES) + "\nManifests\nManifest files\n";
+        int partitioning = contents.length();
+        int manifests = text.indexOf("\nManifests\n", partitioning) + 1;
+        when(http.read(page, Optional.empty())).thenReturn(new DocumentationHttpReader.Read(page.url(), text, Hashing.sha256().hashString(text, UTF_8).toString(),
+                READ_AT, false, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), false,
+                ImmutableMap.of("toc", 0, "partitioning", partitioning, "manifests", manifests, "manifests-1", manifests)));
+
+        SelectedDocumentationReader.Page first = reader.readPage(WORKSPACE, page, Optional.empty(), 1, Optional.empty());
+        assertThat(first.outline()).containsExactly(new SelectedDocumentationReader.Heading("partitioning", "Partitioning", 1),
+                new SelectedDocumentationReader.Heading("manifests", "Manifests", 2), new SelectedDocumentationReader.Heading("manifests-1", "Manifests", 2));
+        assertThat(reader.readPage(WORKSPACE, page, Optional.of(first.captureId()), 2, Optional.empty()).outline()).isEmpty();
+    }
+
     private static DocumentationHttpReader.Read capture(String text)
     {
         return new DocumentationHttpReader.Read(SOURCE.url() + RELATIVE_PAGE.orElseThrow(), text, Hashing.sha256().hashString(text, UTF_8).toString(),

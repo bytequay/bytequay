@@ -223,7 +223,8 @@ public class ContextBuildTools
                 + "SEARCH_PATHS finds names anywhere; SEARCH_TEXT finds up to two literal hits per file within approved paths. Search page starts at zero. "
                 + "DOCUMENT defaults to a fresh initial read; continuation uses returned captureId. Failures remain explicit limitations. "
                 + "A learning run can read one public page with PAGE and its url; pages start at one and continue with the returned captureId. "
-                + "Keep a link's #section: the first read opens at the page holding that section or line.",
+                + "Keep a link's #section: the first read opens at the page holding that section or line. A first read also returns the "
+                + "document's outline, each heading's anchor, title and page, to plan which sections to read.",
                 readSchema(), arguments -> call(task.id().toString(), turn, arguments, false));
     }
 
@@ -696,7 +697,11 @@ public class ContextBuildTools
             saveRead(build, turn, key, Optional.of(receipt), evidence(read.excerpt(), provenance), ImmutableMap.of(), gaps,
                     ImmutableList.of("Opened " + read.resolvedUrl() + section.map(value -> "#" + value).orElse("")),
                     ignored -> pages.record(build.workspaceId(), new ContextPageCaptures.Page(read.resolvedUrl(), read.contentHash(), read.readAt())));
-            return source(receipt, read.excerpt(), gaps).put("captureId", read.captureId()).put("page", read.page()).put("pages", read.totalPages());
+            ObjectNode response = source(receipt, read.excerpt(), gaps).put("captureId", read.captureId()).put("page", read.page()).put("pages", read.totalPages());
+            if (!read.outline().isEmpty()) {
+                response.set("outline", mapper.valueToTree(read.outline()));
+            }
+            return response;
         }
         catch (RuntimeException failure) {
             failed(build, turn, key, failure);

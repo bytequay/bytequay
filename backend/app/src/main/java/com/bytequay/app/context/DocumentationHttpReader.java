@@ -313,7 +313,7 @@ public class DocumentationHttpReader
         return sections;
     }
 
-    private static String slug(String heading)
+    static String slug(String heading)
     {
         StringBuilder slug = new StringBuilder();
         heading.strip().toLowerCase(Locale.ROOT).codePoints().forEach(character -> {

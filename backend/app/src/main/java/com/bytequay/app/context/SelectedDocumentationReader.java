@@ -31,6 +31,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.UUID;
@@ -49,6 +50,7 @@ public class SelectedDocumentationReader
     public static final int PAGE_BYTES = 16 * 1024;
     private static final int MAX_CAPTURES = 16;
     private static final Pattern LINE_ANCHOR = Pattern.compile("L(\\d{1,7})(-L\\d{1,7})?");
+    private static final int MAX_OUTLINE = 300;
     private static final Duration RETENTION = Duration.ofMinutes(10);
 
     private final RepositoryContextService notebooks;
@@ -196,7 +198,28 @@ public class SelectedDocumentationReader
         }
         return new Page(key.source(), notebookRevision, read.resolvedUrl(), captured.id(), read.contentHash(), read.readAt(), shown, pages.size(),
                 pages.get(shown - 1), read.truncated(), cacheHit, refreshFailed, gaps.build(), read.links(), read.suggestedExpansionUrls(),
-                read.linksTruncated());
+                read.linksTruncated(), captureId.isEmpty() ? outline(read, pages) : ImmutableList.of());
+    }
+
+    /**
+     * The captured text's headings, so a reader can plan which sections to read: anchors whose text starts with a heading that
+     * slugs to the anchor, in document order. Contents entries and menus link to anchors without being them, so they drop out.
+     */
+    private static List<Heading> outline(DocumentationHttpReader.Read read, List<String> pages)
+    {
+        return read.sections().entrySet().stream().sorted(Map.Entry.comparingByValue())
+                .flatMap(section -> heading(read.text(), section.getKey(), section.getValue(), pages).stream())
+                .limit(MAX_OUTLINE).collect(ImmutableList.toImmutableList());
+    }
+
+    private static Optional<Heading> heading(String text, String anchor, int start, List<String> pages)
+    {
+        int end = text.indexOf('\n', start);
+        String title = text.substring(start, end < 0 ? text.length() : end).strip().replaceFirst("^#{1,6}\\s+", "").replaceAll("[\\s#¶🔗]+$", "").strip();
+        String slug = DocumentationHttpReader.slug(title);
+        boolean named = !slug.isEmpty() && title.length() <= 150
+                && (anchor.equalsIgnoreCase(slug) || anchor.toLowerCase(Locale.ROOT).matches(Pattern.quote(slug) + "-\\d+"));
+        return named ? Optional.of(new Heading(anchor, title, pageAt(pages, start))) : Optional.empty();
     }
 
     /** Where a link's #section starts: an element id or Markdown heading anchor, or a GitHub line anchor such as L120 or L120-L140. */
@@ -268,16 +291,17 @@ public class SelectedDocumentationReader
         return pages.build();
     }
 
+    /** The outline is the capture's headings, returned with a first read only. */
     public record Page(
             RegisteredContextSource source, long notebookRevision, String resolvedUrl, String captureId, String contentHash, Instant readAt,
             int page, int totalPages, String excerpt, boolean truncated, boolean cacheHit, boolean refreshFailed, List<String> gaps,
-            List<DocumentationHttpReader.Link> links, List<String> suggestedExpansionUrls, boolean linksTruncated)
+            List<DocumentationHttpReader.Link> links, List<String> suggestedExpansionUrls, boolean linksTruncated, List<Heading> outline)
     {
         public Page(RegisteredContextSource source, long notebookRevision, String resolvedUrl, String captureId, String contentHash, Instant readAt,
                 int page, int totalPages, String excerpt, boolean truncated, boolean cacheHit, boolean refreshFailed, List<String> gaps)
         {
             this(source, notebookRevision, resolvedUrl, captureId, contentHash, readAt, page, totalPages, excerpt, truncated, cacheHit,
-                    refreshFailed, gaps, ImmutableList.of(), ImmutableList.of(), false);
+                    refreshFailed, gaps, ImmutableList.of(), ImmutableList.of(), false, ImmutableList.of());
         }
 
         public Page
@@ -285,8 +309,12 @@ public class SelectedDocumentationReader
             gaps = ImmutableList.copyOf(gaps);
             links = ImmutableList.copyOf(links);
             suggestedExpansionUrls = ImmutableList.copyOf(suggestedExpansionUrls);
+            outline = ImmutableList.copyOf(outline);
         }
     }
+
+    /** A section of a captured document: its anchor, heading and the page it starts on. */
+    public record Heading(String anchor, String title, int page) {}
 
     /** A registered source must still be configured when its capture returns; a page read by its address has no registration. */
     private record Key(String workspaceId, RegisteredContextSource source, String url, boolean registered) {}

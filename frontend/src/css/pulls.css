@@ -992,12 +992,10 @@
 .lrc-bot { display: inline-grid; width: 22px; height: 22px; flex: none; place-items: center; border-radius: 6px; background: #24292f; color: #fff; }
 .lrc__foot { display: flex; min-height: 50px; align-items: center; flex-wrap: wrap; gap: 6px; padding: 8px 12px 8px 16px; }
 .lrc__foot.is-composing { display: block; padding: 12px 16px; }
-/* The reply opener reads as the start of a reply, like the GitHub card's, so it takes the free width. */
-.lrc__ask { flex: 1 1 120px; min-width: 120px; border: 0; background: transparent; color: var(--text-1); padding: 6px 0; font: inherit; text-align: left; cursor: text; }
-.lrc__ask:disabled { color: #8c959f; cursor: default; }
-.lrc__action { flex: none; border: 0; border-radius: 6px; background: transparent; color: var(--text-1); padding: 6px 10px; font: inherit; font-weight: 500; white-space: nowrap; }
-.lrc__action:hover:not(:disabled) { background: var(--lrc-hover); }
-.lrc__action:disabled { color: #8c959f; cursor: default; }
+.lrc__ask { margin-right: auto; }
+.lrc__ask, .lrc__action { flex: none; border: 0; border-radius: 6px; background: transparent; color: var(--text-1); padding: 6px 10px; font: inherit; font-weight: 500; white-space: nowrap; }
+.lrc__ask:hover:not(:disabled), .lrc__action:hover:not(:disabled) { background: var(--lrc-hover); }
+.lrc__ask:disabled, .lrc__action:disabled { color: #8c959f; cursor: default; }
 /* Only the action that posts to GitHub is filled. */
 .lrc__action.is-primary { border: 1px solid rgba(31, 35, 40, 0.15); background: #1f883d; color: #fff; font-weight: 600; }
 .lrc__action.is-primary:hover:not(:disabled) { background: #1a7f37; }

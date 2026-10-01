@@ -158,6 +158,7 @@ class TestCodexCliDriver
         assertThat(startedThread.path("config").path("sandbox_workspace_write").path("network_access").asBoolean()).isTrue();
 
         JsonNode resumedThread = resumedServer.threadRequests().getFirst();
+        assertThat(resumedThread.path("excludeTurns").asBoolean()).isTrue();
         assertThat(resumedThread.path("model").asText()).isEqualTo("gpt-5");
         assertThat(resumedThread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
         assertThat(resumedThread.path("config").has("auto_review")).isFalse();

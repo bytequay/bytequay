@@ -986,8 +986,10 @@ public final class CodexCliDriver
             });
             Object params;
             if (existing.isPresent()) {
+                // Restore the conversation without returning its growing history in one protocol message.
                 params = new CodexProtocol.ThreadResumeParams(
                         existing.orElseThrow().providerValue(),
+                        true,
                         worktree.toString(),
                         modelProfile.id(),
                         approvalPolicy,

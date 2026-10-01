@@ -3102,6 +3102,13 @@
           "sample": "value"
         },
         {
+          "javaName": "excludeTurns",
+          "wireName": "excludeTurns",
+          "required": false,
+          "nullable": false,
+          "sample": false
+        },
+        {
           "javaName": "cwd",
           "wireName": "cwd",
           "required": false,

@@ -261,16 +261,20 @@ def main():
                 inspect(app, thread["id"], mode, mode + "-unsubscribed", "idle", turn_ids)
                 loaded = app.request("thread/loaded/list", {}, mode + "-unsubscribed")["result"]["data"]
                 require(thread["id"] in loaded, "Unsubscribe now unloads thread; review fixture")
-                app.request("thread/resume", {**thread_config, "threadId": thread["id"]}, mode + "-resume")
+                resumed = app.request("thread/resume", {**thread_config, "threadId": thread["id"], "excludeTurns": True}, mode + "-resume")["result"]
+                require(resumed["thread"]["turns"] == [], "Resume returned history despite excludeTurns")
                 run_turn(app, provider, thread["id"], mode, turn_ids)
         with AppServer(arguments, environment, output, "restarted") as app:
             require(app.request("thread/loaded/list", {}, "restart")["result"]["data"] == [], "Fresh App Server loaded unexpected threads")
             for mode, thread_id, turn_ids in saved_threads:
                 inspect(app, thread_id, mode, mode + "-before-resume", "notLoaded", turn_ids)
-                app.request("thread/resume", {**thread_config, "threadId": thread_id}, mode + "-restart-resume")
+                resumed = app.request("thread/resume", {**thread_config, "threadId": thread_id, "excludeTurns": True}, mode + "-restart-resume")["result"]
+                require(resumed["thread"]["turns"] == [], "Restart resume returned history despite excludeTurns")
                 inspect(app, thread_id, mode, mode + "-after-resume", "idle", turn_ids)
         require(len(provider.requests) == 4, "Expected exactly four requests to the local fake provider")
         require(all(item["body"]["model"] == "fixture-model" and not item["authorizationPresent"] for item in provider.requests), "Unexpected provider request")
+        for index in (1, 3):
+            require("Fixture completed." in json.dumps(provider.requests[index]["body"]["input"]), "Resume discarded the previous answer from model context")
     print("PASS: legacy and paginated active/completed history, pagination, unsubscribe, same-process resume, and fresh-process resume; four local fixture requests.", flush=True)
     print("notLoaded is load state; its background inventory returned an error, not a successful empty list.", flush=True)
 

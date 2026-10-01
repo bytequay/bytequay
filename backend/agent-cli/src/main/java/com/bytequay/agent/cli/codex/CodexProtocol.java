@@ -1235,6 +1235,7 @@ final class CodexProtocol
 
     record ThreadResumeParams(
             String threadId,
+            boolean excludeTurns,
             String cwd,
             String model,
             String approvalPolicy,

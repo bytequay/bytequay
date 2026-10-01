@@ -3632,12 +3632,15 @@ The connection and task sequence is:
    launch a new per-turn App Server in the same worktree under the matching
    child profile. A stale idle session must first close with a verified process
    stop. Start a new thread when no session reference exists; otherwise call
-   `thread/resume` with the stored `threadId`, the same config and sandbox ceiling, and
+   `thread/resume` with the stored `threadId`, `excludeTurns: true`, the same config and sandbox ceiling, and
    same selected `approvalsReviewer`. Repeat the
    effective-capability checks and never infer a session ID from provider
    files. Relaunching at the turn boundary is deliberate: changing the task
    default between turns cannot reuse a process configured for the previous
    model's V1/V2 protocol.
+   Excluding turns suppresses history in the response, not in the resumed conversation.
+   The caller needs only the thread ID; returning accumulated tool results can exceed
+   the 4 MiB protocol-message limit before a new turn starts.
 6. Start each user turn with `turn/start`. Its `input` is built only from the
    already-persisted user event: text plus model-gated
    `{"type": "localImage", "path": "<validated-task-blob>"}` items. App Server's `image`

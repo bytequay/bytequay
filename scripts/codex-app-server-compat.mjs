@@ -536,6 +536,7 @@ const referenceRecordBindings = [
     schemaSource("v2", "ThreadResumeParams"),
   ], [
     component("threadId"),
+    component("excludeTurns"),
     component("cwd"),
     component("model"),
     component("approvalPolicy", "approvalPolicy", "on-request"),

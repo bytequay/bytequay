@@ -635,6 +635,53 @@ class TestGitHubPullRequestOverviewClient
         fixture.verify();
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void readsSubmittedReviewCommentLocationsFromThreads(boolean outdated)
+    {
+        Fixture fixture = fixture();
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/reviews/5/comments?per_page=100&page=1"))
+                .andRespond(withSuccess("""
+                        [{"id":11,"pull_request_review_id":5,"path":"src/App.java","position":4,"original_position":4,
+                          "diff_hunk":"@@ -16,3 +16,3 @@\\n-old\\n+new","body":"Please verify this",
+                          "created_at":"2026-08-20T10:00:00Z","html_url":"https://github/comment/11",
+                          "user":{"login":"alice","avatar_url":"https://avatars/alice","type":"User"}}]
+                        """, MediaType.APPLICATION_JSON));
+        fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+                .andExpect(content().json("""
+                        {"variables":{"owner":"owner","repo":"repo","number":42,"after":null}}
+                        """))
+                .andRespond(withSuccess("""
+                        {"data":{"repository":{"pullRequest":{"reviewThreads":{
+                          "nodes":[{"id":"PRRT_1","isResolved":false,"isOutdated":%s,
+                            "path":"src/App.java","line":%s,"originalLine":18,"startLine":%s,
+                            "originalStartLine":16,"diffSide":"RIGHT","comments":{"nodes":[{"databaseId":11}]}}],
+                          "pageInfo":{"hasNextPage":false,"endCursor":null}
+                        }}}}}
+                        """.formatted(outdated, outdated ? "null" : "18", outdated ? "null" : "16"), MediaType.APPLICATION_JSON));
+
+        List<PrTimelineEvent> threads = fixture.client().fetchReviewComments("pat", PULL_REQUEST, 5);
+
+        assertThat(threads).singleElement().satisfies(thread -> {
+            assertThat(thread.githubId()).isEqualTo(11);
+            assertThat(thread.event()).isEqualTo("review_thread");
+            assertThat(thread.payload().outdated()).isEqualTo(outdated);
+            assertThat(thread.payload().resolved()).isFalse();
+            assertThat(thread.payload().path()).isEqualTo("src/App.java");
+            assertThat(thread.payload().line()).isEqualTo(outdated ? null : 18);
+            assertThat(thread.payload().startLine()).isEqualTo(outdated ? null : 16);
+            assertThat(thread.payload().originalLine()).isEqualTo(18);
+            assertThat(thread.payload().originalStartLine()).isEqualTo(16);
+            assertThat(thread.payload().side()).isEqualTo("RIGHT");
+            assertThat(thread.payload().diffHunk()).isEqualTo("@@ -16,3 +16,3 @@\n-old\n+new");
+            assertThat(thread.payload().comments()).singleElement().satisfies(comment -> {
+                assertThat(comment.reviewId()).isEqualTo(5);
+                assertThat(comment.body()).isEqualTo("Please verify this");
+            });
+        });
+        fixture.verify();
+    }
+
     @Test
     void conditionalDiffFilesReuseTheStoredCopyOnNotModified()
     {

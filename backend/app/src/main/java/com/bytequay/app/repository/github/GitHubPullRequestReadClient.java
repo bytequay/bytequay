@@ -1350,8 +1350,8 @@ public class GitHubPullRequestReadClient
     /**
      * The inline comments one review was submitted with. Submitting a review
      * returns the review alone, so the comments it carried have to be read
-     * back. They were created moments ago, so they are unresolved thread roots
-     * and need no thread-state query.
+     * back. That REST endpoint can omit line and side fields, so thread details
+     * supply the location and outdated status just as they do during refresh.
      */
     public List<PrTimelineEvent> fetchReviewComments(String pat, PullRequestRef pr, long reviewId)
     {
@@ -1364,7 +1364,7 @@ public class GitHubPullRequestReadClient
                         pr.repo(),
                         pr.number(),
                         reviewId),
-                ImmutableMap.of(),
+                fetchReviewThreadsByRoot(pat, pr),
                 ImmutableMap.of());
     }
 

@@ -28,6 +28,7 @@ public record GitHubTimelineEvent(
         Actor actor,
         User user,
         @JsonProperty("requested_reviewer") User requestedReviewer,
+        @JsonProperty("requested_team") Team requestedTeam,
         User assignee,
         String body,
         String state,
@@ -47,6 +48,9 @@ public record GitHubTimelineEvent(
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record User(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Team(String slug) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Author(String name, Instant date) {}

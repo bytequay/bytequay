@@ -1012,7 +1012,7 @@ public class GitHubPullRequestReadClient
                         pr.repo(),
                         pr.number())
                 .stream()
-                .map(GitHubPullRequestReadClient::toTimelineEvent)
+                .map(event -> toTimelineEvent(event, pr.owner()))
                 .collect(toImmutableList());
         if (timeline.stream().noneMatch(event -> "reviewed".equals(event.event()))) {
             return timeline;
@@ -1220,7 +1220,7 @@ public class GitHubPullRequestReadClient
                 Optional.empty());
     }
 
-    private static PrTimelineEvent toTimelineEvent(GitHubTimelineEvent event)
+    private static PrTimelineEvent toTimelineEvent(GitHubTimelineEvent event, String owner)
     {
         String type = Optional.ofNullable(event.event()).orElse("");
         String actor = switch (type) {
@@ -1269,7 +1269,9 @@ public class GitHubPullRequestReadClient
                         .actorBot(actorBot)
                         .state(event.state())
                         .htmlUrl(event.htmlUrl())
-                        .requestedReviewer(Optional.ofNullable(event.requestedReviewer()).map(GitHubTimelineEvent.User::login).orElse(null))
+                        .requestedReviewer(Optional.ofNullable(event.requestedReviewer()).map(GitHubTimelineEvent.User::login)
+                                .or(() -> Optional.ofNullable(event.requestedTeam()).map(GitHubTimelineEvent.Team::slug).filter(slug -> !slug.isBlank()).map(slug -> owner + "/" + slug))
+                                .orElse(null))
                         .assignee(Optional.ofNullable(event.assignee()).map(GitHubTimelineEvent.User::login).orElse(null))
                         .label(Optional.ofNullable(event.label()).map(GitHubTimelineEvent.Label::name).orElse(null))
                         .labelColor(Optional.ofNullable(event.label()).map(GitHubTimelineEvent.Label::color).orElse(null))

@@ -925,6 +925,8 @@
 .pr-review-group__marker { display: inline-grid; width: 24px; height: 24px; flex: 0 0 24px; place-items: center; margin-right: 6px; margin-left: 18px; border: 1px solid #d0d7de; border-radius: 50%; background: #f6f8fa; box-shadow: 0 0 0 4px #fff; color: #59636e; }
 .pr-review-group__summary > .user-avatar-trigger { margin-right: 2px; background: #fff; }
 .pr-review-group__summary strong { color: #24292f; font-size: var(--ui-font-size); font-weight: 500; }
+.pr-review-group__summary a { color: inherit; text-decoration: none; }
+.pr-review-group__summary a:hover { text-decoration: underline; }
 .pr-review-group__summary time { color: #59636e; text-decoration: underline; text-underline-offset: 3px; }
 .pr-label-event__marker { display: inline-grid; width: 24px; height: 24px; place-items: center; border: 1px solid #d0d7de; border-radius: 50%; background: #f6f8fa; box-shadow: 0 0 0 4px #fff; color: #59636e; }
 .pr-label-event__content { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 4px; }

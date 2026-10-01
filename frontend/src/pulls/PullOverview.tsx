@@ -18,6 +18,7 @@ import { Check, CircleCheck, CircleDot, CircleMinus, CircleSlash2, CircleX, Cloc
 import Avatar from '../Avatar';
 import CopyLinkButton from '../CopyLinkButton';
 import { parseUnifiedDiff } from '../diffParse';
+import { openWebLink } from '../githubReference';
 import RepoAvatar from '../RepoAvatar';
 import { relativeTime } from '../relativeTime';
 import UserAvatar from '../UserAvatar';
@@ -1430,9 +1431,14 @@ function eventText(activity: Activity, activities: Activity[]) {
         .filter((reviewer): reviewer is string => typeof reviewer === 'string' && reviewer.length > 0))]
         .sort((left, right) => left.localeCompare(right));
       if (reviewers.length === 0) return <>requested a review</>;
-      return <>requested review from {reviewers.slice(0, 3).map((reviewer, index) => (
-        <span key={reviewer}>{index === 0 ? '' : index === reviewers.length - 1 ? ' and ' : ', '}<strong>{reviewer}</strong></span>
-      ))}{reviewers.length > 3 && ` and ${reviewers.length - 3} other ${reviewers.length === 4 ? 'person' : 'people'}`}</>;
+      return <>requested a review from {reviewers.slice(0, 3).map((reviewer, index) => {
+        const [owner, team] = reviewer.split('/');
+        const href = team ? `https://github.com/orgs/${encodeURIComponent(owner)}/teams/${encodeURIComponent(team)}`
+          : `https://github.com/${encodeURIComponent(reviewer)}`;
+        return <span key={reviewer}>{index === 0 ? '' : index === reviewers.length - 1 ? ' and ' : ', '}
+          <a href={href} onClick={event => { event.preventDefault(); void openWebLink(href); }}><strong>{reviewer}</strong></a>
+        </span>;
+      })}{reviewers.length > 3 && ` and ${reviewers.length - 3} other ${reviewers.length === 4 ? 'reviewer' : 'reviewers'}`}</>;
     }
     case 'review_request_removed': return <>removed a review request</>;
     case 'assigned': return <>assigned{p.assignee ? <> <strong>{p.assignee}</strong></> : null}</>;

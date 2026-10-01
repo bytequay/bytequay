@@ -383,7 +383,7 @@ class TestGitHubPullRequestOverviewClient
     }
 
     @Test
-    void mapsRequestedReviewersFromTimelineEvents()
+    void mapsRequestedPeopleAndTeamsFromTimelineEvents()
     {
         Fixture fixture = fixture();
         fixture.api().expect(requestTo(
@@ -392,14 +392,20 @@ class TestGitHubPullRequestOverviewClient
                         [{"id":1,"event":"review_requested","created_at":"2026-08-20T10:00:00Z",
                           "actor":{"login":"alice"},"requested_reviewer":{"login":"bob"}},
                          {"id":2,"event":"review_requested","created_at":"2026-08-20T10:00:00Z",
-                          "actor":{"login":"alice"},"requested_reviewer":{"login":"carol"}}]
+                          "actor":{"login":"alice"},"requested_reviewer":{"login":"carol"}},
+                         {"id":3,"event":"review_requested","created_at":"2026-08-20T10:00:00Z",
+                          "actor":{"login":"alice"},"requested_team":{"name":"Connector engineers","slug":"connectors"}},
+                         {"id":4,"event":"review_requested","created_at":"2026-08-20T10:00:00Z",
+                          "actor":{"login":"alice"}},
+                         {"id":5,"event":"review_requested","created_at":"2026-08-20T10:00:00Z",
+                          "actor":{"login":"alice"},"requested_team":{"slug":""}}]
                         """, MediaType.APPLICATION_JSON));
 
         List<PrTimelineEvent> timeline = fixture.client().fetchPrTimeline("pat", PULL_REQUEST);
 
         assertThat(timeline)
                 .extracting(event -> event.githubId() + ":" + event.actor() + ":" + event.payload().requestedReviewer())
-                .containsExactly("1:alice:bob", "2:alice:carol");
+                .containsExactly("1:alice:bob", "2:alice:carol", "3:alice:owner/connectors", "4:alice:null", "5:alice:null");
         fixture.verify();
     }
 

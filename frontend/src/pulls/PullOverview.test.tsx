@@ -693,8 +693,8 @@ describe('PullOverview', () => {
 
     expect(groups).toHaveLength(1);
     expect(groups[0]).toHaveLength(4);
-    expect(html.match(/requested review from/g)).toHaveLength(1);
-    expect(html.replace(/<[^>]+>/g, '')).toContain('requested review from dale, ezra-b, mwade77 and 1 other person');
+    expect(html.match(/requested a review from/g)).toHaveLength(1);
+    expect(html.replace(/<[^>]+>/g, '')).toContain('requested a review from dale, ezra-b, mwade77 and 1 other reviewer');
     expect(html).not.toContain('wren-d');
     expect(html).toContain('class="pr-review-group__marker"');
     expect(html).toContain('<time dateTime="2026-09-02T12:03:15Z">15 hours ago</time>');
@@ -706,6 +706,37 @@ describe('PullOverview', () => {
       timestamp: '2026-09-02T13:16:10Z',
       payload: { ...emptyPayload, requestedReviewer: 'Prentice2112' },
     }])).toHaveLength(2);
+  });
+
+  it.each([
+    ['example/connectors', 'https://github.com/orgs/example/teams/connectors'],
+    ['wren-d', 'https://github.com/wren-d'],
+    [null, null],
+  ])('shows the requested reviewer %s with its GitHub link', (requestedReviewer, href) => {
+    const value = detail();
+    value.recentActivity = [{
+      actor: 'fion-path', eventType: 'review_requested', timestamp: '2026-09-02T12:03:15Z', body: null, githubId: 1,
+      payload: { ...emptyPayload, requestedReviewer },
+    }];
+
+    const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+
+    expect(html.replace(/<[^>]+>/g, '')).toContain(requestedReviewer ? `requested a review from ${requestedReviewer}` : 'requested a review');
+    if (href) expect(html).toContain(`<a href="${href}"><strong>${requestedReviewer}</strong></a>`);
+    else expect(html).not.toContain('requested a review from');
+  });
+
+  it('groups people and teams together without repeating a requested reviewer', () => {
+    const value = detail();
+    value.recentActivity = ['example/connectors', 'wren-d', 'example/connectors'].map<PullRequestDetailDto['recentActivity'][number]>((requestedReviewer, index) => ({
+      actor: 'fion-path', eventType: 'review_requested', timestamp: '2026-09-02T12:03:15Z', body: null, githubId: index + 1,
+      payload: { ...emptyPayload, requestedReviewer },
+    }));
+
+    const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+
+    expect(html.replace(/<[^>]+>/g, '')).toContain('requested a review from example/connectors and wren-d');
+    expect(html.match(/<strong>example\/connectors<\/strong>/g)).toHaveLength(1);
   });
 
   it('distinguishes queued and running checks and shows check times', () => {

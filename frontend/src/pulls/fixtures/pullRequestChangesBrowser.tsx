@@ -237,15 +237,16 @@ async function runDirectCommitSelection(): Promise<string[]> {
 async function runCommitMessages(): Promise<string> {
   const body = 'Three pipelines shared a custom collector.\n\n    stream.collect(toFragments())\n\nReplace it with toList().';
   const history: DiffCommitDto[] = [
-    { ...commits[0], message: `Simplify collectors\n\n${body}\n` },
-    { ...commits[1], message: 'Reuse the partition helper\n\nOne place builds the map.' },
+    { ...commits[0], author: 'alice', authoredAt: '2026-08-25T10:00:00Z', message: `Simplify collectors\n\n${body}\n` },
+    { ...commits[1], author: 'bob', message: 'Reuse the partition helper\n\nOne place builds the map.' },
     { sha: 'three', parentSha: 'two', message: 'Deduplicate fragments', author: null, authoredAt: null },
   ];
   function Picker() {
     const [range, setRange] = useState<CommitRange>(null);
-    return <DiffViewer files={[file('all')]} commits={history} commitRange={range} onCommitRangeChange={setRange} />;
+    return <DiffViewer files={['first.ts', 'second.ts', 'third.ts'].map(file)} commits={history} commitRange={range} onCommitRangeChange={setRange} />;
   }
   const host = document.createElement('div');
+  host.style.cssText = 'display: flex; height: 220px; width: 600px';
   document.body.append(host);
   const root = createRoot(host);
   const element = <T extends Element>(selector: string): T => {
@@ -269,8 +270,24 @@ async function runCommitMessages(): Promise<string> {
       'Each row must expand independently to its whole body with blank lines and indentation intact');
     assert(host.querySelector('[aria-label="Choose commits, 3 selected"]') !== null && !element<HTMLInputElement>('[aria-label="Select one: Simplify collectors"]').checked,
       'Showing a message must not change the commit selection');
+    const scroll = element<HTMLDivElement>('.pull-changes__scroll');
+    scroll.scrollTop = scroll.scrollHeight;
+    assert(scroll.scrollTop > 0, 'The fixture must start below the top of the diffs');
     element<HTMLInputElement>('[aria-label="Select one: Simplify collectors"]').click();
     await settle();
+    const message = element<HTMLElement>('.pull-commit-message');
+    assert(message.querySelector('h3')?.textContent === 'Simplify collectors' && message.querySelector('pre')?.textContent === body,
+      'Selecting one commit must show its title and full body above the diffs');
+    assert(scroll.firstElementChild === message && scroll.scrollTop === 0,
+      'Selecting a commit must scroll its message into view at the top of the diff pane');
+    assert(getComputedStyle(message).backgroundColor === getComputedStyle(element('.pull-diff-file__header')).backgroundColor
+      && getComputedStyle(element('.pull-commit-message pre')).whiteSpace === 'pre',
+    'The message card must use the shaded diff-header background and preserve authored line breaks');
+    const footer = element<HTMLElement>('.pull-commit-message footer');
+    assert(footer.querySelector('strong')?.textContent === 'alice' && footer.querySelector('time')?.dateTime === history[0].authoredAt
+      && footer.getBoundingClientRect().top >= element('.pull-commit-message__body').getBoundingClientRect().bottom
+      && getComputedStyle(footer).backgroundColor === 'rgb(255, 255, 255)',
+    'The author and timestamp must appear in a white footer beneath the shaded commit body');
     element<HTMLButtonElement>('[aria-label="Hide message"]').click();
     await settle();
     assert(element<HTMLInputElement>('[aria-label="Deselect one: Simplify collectors"]').checked && bodies().join('|') === 'One place builds the map.',
@@ -281,6 +298,19 @@ async function runCommitMessages(): Promise<string> {
     await settle();
     assert(bodies().length === 0 && host.querySelector('.pull-commit-picker__disclosure[aria-expanded="true"]') === null,
       'Closing the commit list must collapse every message');
+    element<HTMLInputElement>('[aria-label="Select two: Reuse the partition helper"]').click();
+    await settle();
+    assert(host.querySelector('.pull-commit-message') === null, 'A range must not show one commit message');
+    scroll.scrollTop = scroll.scrollHeight;
+    element<HTMLInputElement>('[aria-label="Deselect one: Simplify collectors"]').click();
+    await settle();
+    assert(element('.pull-commit-message h3').textContent === 'Reuse the partition helper'
+      && element('.pull-commit-message pre').textContent === 'One place builds the map.'
+      && element('.pull-commit-message footer strong').textContent === 'bob' && scroll.scrollTop === 0,
+    'Changing the single selection must replace the message and return to the top');
+    element<HTMLButtonElement>('.pull-commit-picker__all').click();
+    await settle();
+    assert(host.querySelector('.pull-commit-message') === null, 'All commits must clear the selected commit message');
     return 'Show commit messages without changing the selection';
   }
   finally {

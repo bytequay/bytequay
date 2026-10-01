@@ -228,6 +228,9 @@ export function DiffViewer({
   const headSha = commitRange === null
     ? commits[commits.length - 1]?.sha
     : commits[commitRange.end]?.sha;
+  const selectedCommit = commitRange !== null && commitRange.start === commitRange.end
+    ? commits[commitRange.start] : undefined;
+  const selectedMessage = selectedCommit ? splitCommitMessage(selectedCommit.message) : null;
   const isFileOpen = (filename: string) =>
     !closed.has(filename) && (allFilesOpen || !singleFileMode || selected === filename);
   const everyFileOpen = files.length > 0 && files.every(file => isFileOpen(file.filename));
@@ -241,6 +244,10 @@ export function DiffViewer({
     setClosed(new Set());
     setAllFilesOpen(false);
   }, [files]);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [baseSha, headSha]);
 
   // A saved finding's coordinates belong to its validated revision, including when a newer PR is shown.
   const requestedNavigation = agentReview?.navigation ?? null;
@@ -377,6 +384,20 @@ export function DiffViewer({
           />
         )}
         <div className="pull-changes__scroll" ref={scrollRef}>
+          {selectedCommit && selectedMessage && <article className="pull-commit-message" aria-label="Selected commit message">
+            <div className="pull-commit-message__body">
+              <h3>{selectedMessage.subject}</h3>
+              {selectedMessage.body !== '' && <pre>{selectedMessage.body}</pre>}
+            </div>
+            <footer>
+              <Avatar login={selectedCommit.author ?? ''} size={20} />
+              <span><strong>{selectedCommit.author || 'Unknown author'}</strong> authored
+                {selectedCommit.authoredAt && <> <time dateTime={selectedCommit.authoredAt} title={new Date(selectedCommit.authoredAt).toLocaleString()}>
+                  {relativeTime(selectedCommit.authoredAt, { style: 'long' })}
+                </time></>}
+              </span>
+            </footer>
+          </article>}
           {loading && <div className="pull-changes__loading">Loading selected commits…</div>}
           {!loading && requestedNavigation !== null && navigation === null && <p className="pull-diff-file__content-error" role="status">
             This finding does not match the displayed revision. Its saved location and discussion remain in Summary.{' '}
@@ -476,6 +497,12 @@ export function filenameTooltip(filename: string, contentWidth: number, visibleW
   return contentWidth > visibleWidth ? filename : undefined;
 }
 
+function splitCommitMessage(message: string | null): { subject: string; body: string } {
+  const [firstLine = '', ...rest] = (message ?? '').split(/\r?\n/);
+  // Drop Git's subject separator while preserving the body's indentation and blank lines.
+  return { subject: firstLine.trim() || 'Untitled commit', body: rest.join('\n').replace(/^\s*\n/, '').trimEnd() };
+}
+
 function CommitPicker({ commits, range, onChange }: {
   commits: DiffCommitDto[];
   range: CommitRange;
@@ -539,10 +566,7 @@ function CommitPicker({ commits, range, onChange }: {
           aria-label="Select a consecutive commit range; commits between selected endpoints are included">
           {commits.map((commit, index) => {
             const selected = range !== null && index >= range.start && index <= range.end;
-            const [firstLine = '', ...rest] = (commit.message ?? '').split(/\r?\n/);
-            const subject = firstLine.trim() || 'Untitled commit';
-            // Drop the blank line Git puts after the subject, but keep the body's own indentation and blank lines.
-            const body = rest.join('\n').replace(/^\s*\n/, '').trimEnd();
+            const { subject, body } = splitCommitMessage(commit.message);
             const open = body !== '' && expanded.has(commit.sha);
             const age = relativeTime(commit.authoredAt);
             return (

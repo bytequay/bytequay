@@ -101,6 +101,34 @@ const viewer: UserProfileDto = {
 };
 
 describe('DiffViewer', () => {
+  it('shows the selected commit title and full body above the file diffs', () => {
+    const selectedCommits = [{ ...commits[0], message: 'First\r\n\r\nWhy this exists.\r\n\r\n    keep indentation\r\n' }, commits[1]];
+    const render = (commitRange: DiffViewerProps['commitRange'], loading = false, message = selectedCommits[0].message) => renderToStaticMarkup(
+      <DiffViewer files={[file]} commits={[{ ...selectedCommits[0], message }, selectedCommits[1]]} commitRange={commitRange} loading={loading} />);
+    const html = render({ start: 0, end: 0 });
+
+    expect(html).toContain('<h3>First</h3><pre>Why this exists.\n\n    keep indentation</pre></div><footer>');
+    expect(html).toContain('src="https://github.com/alice.png?size=40" alt="alice"');
+    expect(html).toContain('<strong>alice</strong> authored <time dateTime="2026-08-25T10:00:00Z"');
+    expect(html.indexOf('class="pull-commit-message"')).toBeLessThan(html.indexOf('class="pull-diff-file"'));
+    expect(render({ start: 0, end: 0 }, true)).toContain('class="pull-commit-message"');
+    expect(render({ start: 0, end: 0 }, false, null)).toContain('<h3>Untitled commit</h3></div><footer>');
+    expect(render({ start: 1, end: 1 })).toContain('<h3>Second</h3></div><footer>');
+    for (const range of [null, { start: 0, end: 1 }, { start: 2, end: 2 }]) {
+      expect(render(range)).not.toContain('class="pull-commit-message"');
+    }
+  });
+
+  it('keeps the author footer readable when commit attribution is unavailable', () => {
+    const html = renderToStaticMarkup(<DiffViewer files={[file]} commits={[{ ...commits[0], author: null, authoredAt: null }]}
+      commitRange={{ start: 0, end: 0 }} />);
+
+    expect(html).toContain('<strong>Unknown author</strong> authored');
+    expect(html).toContain('aria-label="unknown user"');
+    expect(html).not.toContain('<time');
+    expect(html).not.toContain('<img');
+  });
+
   it('renders expandable unchanged regions and line-review controls', () => {
     const html = renderToStaticMarkup(<DiffViewer
       files={[file]}

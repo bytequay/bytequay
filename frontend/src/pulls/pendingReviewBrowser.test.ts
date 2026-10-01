@@ -15,7 +15,7 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
 
-it('keeps staged review comments across panel tabs in Chromium', async () => {
+it('keeps and edits staged review comments across panel tabs in Chromium', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
     prefix: 'bytequay-pending-review-',
     entry: 'src/pulls/fixtures/pendingReviewBrowser.tsx',
@@ -24,4 +24,13 @@ it('keeps staged review comments across panel tabs in Chromium', async () => {
     charset: true,
   });
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
+}, 40_000);
+
+it('edits saved review comments with validation, retry and explicit publication in Chromium', async () => {
+  const result = await runBrowserFixture<string>({
+    prefix: 'bytequay-review-comment-edit-', entry: 'src/pulls/fixtures/pendingReviewBrowser.tsx', global: 'PendingReviewTests',
+    styles: true, charset: true,
+    body: "const results = await window.webContents.executeJavaScript('PendingReviewTests.runDraftCommentEdit()');",
+  });
+  expect(result).toContain('Saved draft comments support editing');
 }, 40_000);

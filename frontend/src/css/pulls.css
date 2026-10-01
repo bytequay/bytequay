@@ -1376,7 +1376,12 @@
 .pr-review-sheet__pending .pull-diff-pending__badge { margin-left: 0; }
 /* The sheet unbolds its own labels; a comment card keeps the timeline's author weight. */
 .pr-review-sheet__pending .pr-thread-comment__author strong { font-weight: bold; }
-.pr-review-sheet__remove { border: 0; background: transparent; color: #cf222e; padding: 3px; }
+.pr-review-sheet__edit,
+.pr-review-sheet__remove { border: 0; background: transparent; padding: 3px; }
+.pr-review-sheet__edit { color: var(--accent); }
+.pr-review-sheet__remove { color: #cf222e; }
+.pr-review-sheet__edit:disabled,
+.pr-review-sheet__remove:disabled { opacity: 0.6; }
 
 @media (max-width: 1080px) {
   .pull-detail__header:not(.pull-detail__header--tabs) { padding-right: 24px; padding-left: 24px; }

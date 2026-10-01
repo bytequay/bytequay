@@ -29,8 +29,9 @@ import type { AgentReviewDto, ReviewDraftItemDto, ReviewEvent } from './agent-re
 import { draftCommentCommit, pendingDraftCount, reviewStatus } from './agent-review/model';
 import { useLocalReviewThreads } from './local-review/useLocalReviewThreads';
 import type { LocalReviewThreads } from './local-review/types';
-import PullChanges, { type CommitRange, type DiffAgentComment } from './PullChanges';
+import PullChanges, { updatePendingReviewComment, type CommitRange, type DiffAgentComment } from './PullChanges';
 import MarkdownBody from './MarkdownBody';
+import MarkdownEditor from './MarkdownEditor';
 import BetterWordsButton from './BetterWordsButton';
 import PullOverview, { commentedCodeLines, CommentedCodeLine, isQueued, mergePullRequestWriteDetail, remoteErrorMessage, useViewer, type PullDetailUpdater } from './PullOverview';
 import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
@@ -1556,6 +1557,7 @@ export function ReviewDialog({
   const [submitting, setSubmitting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [unsavedClose, setUnsavedClose] = useState(false);
+  const [commentEdit, setCommentEdit] = useState<{ key: string; body: string; version: number } | null>(null);
   const busy = submitting || saving;
   const [error, setError] = useState<string | null>(null);
   const promoted = review?.draft?.items.filter(item => item.included && !item.published) ?? [];
@@ -1581,6 +1583,10 @@ export function ReviewDialog({
 
   const close = useCallback(async () => {
     if (inFlight.current) return;
+    if (commentEdit !== null) {
+      setError('Save or cancel the comment edit before closing the review.');
+      return;
+    }
     const draft = savedDraft.current;
     if (draft === null || (body === draft.body && event === draft.event)) {
       onClose();
@@ -1604,7 +1610,7 @@ export function ReviewDialog({
       inFlight.current = false;
       setSaving(false);
     }
-  }, [body, event, detail.repo, detail.number, onClose, reloadReview, failed]);
+  }, [body, event, detail.repo, detail.number, onClose, reloadReview, failed, commentEdit]);
 
   const removePromoted = async (itemId: string) => {
     if (!review?.draft || inFlight.current) return;
@@ -1630,10 +1636,36 @@ export function ReviewDialog({
       key: `${comment.path}:${comment.side}:${comment.startLine ?? comment.line}:${comment.line}:${index}`,
       comment,
       remove: () => onPendingCommentsChange(pendingComments.filter((_, commentIndex) => commentIndex !== index)),
+      save: (text: string) => onPendingCommentsChange(updatePendingReviewComment(pendingComments, comment, text)),
     })),
     ...promoted.map(item => ({ key: item.id, comment: { ...item, commitId: draftCommentCommit(item, review?.findings ?? []) },
-      remove: () => { void removePromoted(item.id); } })),
+      remove: () => { void removePromoted(item.id); },
+      save: async (text: string, version: number) => {
+        if (review === null) return;
+        const updated = await window.bridge.editReviewDraftComment(detail.repo, detail.number, version, item.id, text, item.included);
+        if (updated.body === savedDraft.current?.body && updated.event === savedDraft.current.event) savedDraft.current = updated;
+        onReviewChange({ ...review, draft: updated });
+      } })),
   ];
+  const cancelCommentEdit = () => { setCommentEdit(null); setError(null); };
+  const saveComment = async (save: (text: string, version: number) => void | Promise<void>) => {
+    if (inFlight.current || commentEdit === null || !commentEdit.body.trim()) return;
+    inFlight.current = true;
+    setSaving(true);
+    setError(null);
+    try {
+      await save(commentEdit.body.trim(), commentEdit.version);
+      setCommentEdit(null);
+    }
+    catch (value) {
+      failed(value);
+      reloadReview();
+    }
+    finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
+  };
   const viewer = useViewer(outgoing.length > 0);
   const [snapshot, setSnapshot] = useState<{ files: DiffFileDto[]; headSha: string | null } | null>(null);
   const hasOutgoing = outgoing.length > 0;
@@ -1665,7 +1697,7 @@ export function ReviewDialog({
   }, [close]);
 
   const submit = async () => {
-    if (inFlight.current || detail.state?.toLowerCase() !== 'open' || (bodyRequired && !body.trim())) return;
+    if (inFlight.current || commentEdit !== null || detail.state?.toLowerCase() !== 'open' || (bodyRequired && !body.trim())) return;
     inFlight.current = true;
     setSubmitting(true);
     setError(null);
@@ -1756,7 +1788,7 @@ export function ReviewDialog({
           disabled={busy} onError={value => setError(value === null ? null : remoteErrorMessage(value))} />
         {outgoing.length > 0 && (
           <div className="pr-review-sheet__pending">
-            {outgoing.map(({ key, comment, remove }) => {
+            {outgoing.map(({ key, comment, remove, save }) => {
               const lines = codeLines(comment);
               return <ReviewThreadCard key={key} resolved={false} controls={null}
                 location={<><code title={comment.path}>{comment.path}</code>
@@ -1765,8 +1797,19 @@ export function ReviewDialog({
                 <ReviewThreadMessage timestamp={null}
                   author={<>{viewer && <UserAvatar login={viewer.login} avatarUrl={viewer.avatarUrl} size={22} showLogin />}
                     <span className="pull-diff-pending__badge">Pending</span></>}
-                  menu={<button className="pr-review-sheet__remove" type="button" disabled={busy} onClick={remove}>Remove</button>}>
-                  <MarkdownBody body={comment.body} repository={detail.repo} />
+                  menu={<>
+                    <button className="pr-review-sheet__edit" type="button" disabled={busy || commentEdit !== null}
+                      onClick={() => { setError(null); setCommentEdit({ key, body: comment.body, version: review?.draft?.version ?? 0 }); }}>Edit</button>
+                    <button className="pr-review-sheet__remove" type="button" disabled={busy || commentEdit !== null} onClick={remove}>Remove</button>
+                  </>}>
+                  {commentEdit?.key === key ? <MarkdownEditor
+                    value={commentEdit.body} onChange={text => setCommentEdit({ ...commentEdit, body: text })}
+                    ariaLabel="Edit pending review comment" repository={detail.repo} busy={busy} autoFocus
+                    onSubmit={() => { void saveComment(save); }} onCancel={cancelCommentEdit}>
+                    <button type="button" disabled={busy} onClick={cancelCommentEdit}>Cancel</button>
+                    <button type="button" className="is-primary" disabled={busy || !commentEdit.body.trim()}
+                      onClick={() => { void saveComment(save); }}>{saving ? 'Saving…' : 'Save'}</button>
+                  </MarkdownEditor> : <MarkdownBody body={comment.body} repository={detail.repo} />}
                 </ReviewThreadMessage>
               </ReviewThreadCard>;
             })}
@@ -1796,7 +1839,8 @@ export function ReviewDialog({
         {unsavedClose && <button type="button" disabled={busy} onClick={() => { reloadReview(); onClose(); }}>Close without saving</button>}
         <button type="button" disabled={busy} onClick={() => { void close(); }}>Cancel</button>
         <button className="is-primary" type="button"
-          disabled={busy || (bodyRequired && !body.trim())}
+          disabled={busy || commentEdit !== null || (bodyRequired && !body.trim())}
+          title={commentEdit !== null ? 'Save or cancel the comment edit before submitting.' : undefined}
           onClick={() => { void submit(); }}>
           {submitting ? 'Submitting…' : 'Submit review'}
         </button>

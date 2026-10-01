@@ -14,11 +14,12 @@
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { Bridge, DiffCommitDto, DiffFileDto, PullRequestDetailDto } from '../../types';
-import PullsScreen from '../PullsScreen';
+import PullsScreen, { remotePullRequest, ReviewDialog } from '../PullsScreen';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
 import { reviewFixture } from '../agent-review/fixtures/review';
 import '../../css/base.css';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle } from '../../fixtures/harness';
+import type { ReviewDraftDto } from '../agent-review/contracts';
 
 const review = reviewFixture({ id: 'pending-review', state: 'CLOSED', closedAt: '2026-09-07T00:00:00Z' });
 const stored: PullRequestDetailDto = {
@@ -170,13 +171,37 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     button('Submit review').click(); await settle();
     const submit = host.querySelector<HTMLButtonElement>('.pr-review-sheet__footer .is-primary');
     assert(submit !== null && !submit.disabled, 'WorkBench Summary must open the shared review dialog with the staged comment');
+    const card = host.querySelector('.pr-review-sheet__pending .pr-thread-comment');
+    assert(card !== null, 'The pending comment must appear in the review sheet');
+    const edit = card.querySelector<HTMLButtonElement>('.pr-review-sheet__edit');
+    assert(edit !== null, 'Pending comments must offer Edit beside Remove');
+    edit.click(); await settle();
+    let editor = card.querySelector<HTMLTextAreaElement>('[aria-label="Edit pending review comment"]');
+    assert(editor !== null && editor.value === 'Keep this pending review' && submit.disabled,
+      'Editing must start with the saved body and block submission of the old text');
+    changeInput(editor, 'Discard this edit'); await settle();
+    card.querySelector<HTMLButtonElement>('.pull-diff-review footer button')?.click(); await settle();
+    assert(card.textContent?.includes('Keep this pending review') && !submit.disabled, 'Cancel must keep the original comment');
+    edit.click(); await settle();
+    editor = card.querySelector<HTMLTextAreaElement>('[aria-label="Edit pending review comment"]');
+    assert(editor !== null, 'The comment editor must reopen');
+    changeInput(editor, ' \n '); await settle();
+    assert(card.querySelector<HTMLButtonElement>('.is-primary')?.disabled, 'Blank comment edits cannot be saved');
+    const editedBody = 'Updated pending review\n\n```suggestion\ntry (writer) { finish(); }\n```';
+    changeInput(editor, editedBody); await settle();
+    card.querySelector<HTMLButtonElement>('[role="tab"]:last-child')?.click(); await settle();
+    assert(card.querySelector('.pull-diff-review__preview')?.textContent?.includes('try (writer) { finish(); }'),
+      'Preview must preserve suggestion blocks');
+    card.querySelector<HTMLButtonElement>('.is-primary')?.click(); await settle();
+    assert(card.querySelector('textarea') === null && card.textContent?.includes('Updated pending review') && !submit.disabled,
+      'Save must update the pending card without leaving the sheet');
     assert(submissions.length === 0, 'Opening and staging review comments must not publish them');
     submit.click(); await settle();
     assert(Number(submissions.length) === 1, 'The explicit submit action must publish the review exactly once');
     const [, repo, number, event, , comments] = submissions[0];
     assert(repo === detail.repo && number === detail.number && event === 'APPROVE' && comments?.length === 1
       && comments[0].path === files[0].filename && comments[0].side === 'RIGHT' && comments[0].line === 1
-      && comments[0].commitId === 'two' && comments[0].body === 'Keep this pending review',
+      && comments[0].commitId === 'two' && comments[0].body === editedBody,
     'Submitting from WorkBench must preserve the PR, revision, line, and staged comment');
     assert(host.querySelector('.pr-review-sheet') === null && host.querySelector('[aria-label^="Submit review, 1 pending"]') === null,
       'Successful submission must close the dialog and clear the staged comment');
@@ -185,6 +210,88 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   catch (error) { return [{ name: 'A staged review lasts as long as the pull request page', error: error instanceof Error ? error.message : String(error) }]; }
   finally {
     window.setTimeout = originalTimeout;
+    flushSync(() => root.unmount());
+    host.remove();
+    Object.assign(window, { bridge: previous });
+  }
+}
+
+export async function runDraftCommentEdit(): Promise<string> {
+  let draft: ReviewDraftDto = { repo: stored.repo, number: stored.number, body: 'Review summary', event: 'COMMENT', version: 4,
+    updatedAt: '2026-09-07T00:00:00Z', items: [{ id: 'draft-comment', source: 'AGENT_FINDING', findingId: 'finding-1', findingRevision: 1,
+      path: files[0].filename, side: 'RIGHT', line: 1, startLine: null, commitId: 'two', body: 'Original finding', included: true,
+      published: false, publication: null }] };
+  let currentReview = reviewFixture({ draft });
+  const edits: Parameters<Bridge['editReviewDraftComment']>[] = [];
+  let saveError: string | null = 'The draft changed. Try again.';
+  let finishSave = () => {};
+  let published = 0;
+  let closed = false;
+  const bridge = {
+    getUserProfile: async () => null,
+    fetchPrDiffFiles: async () => files,
+    fetchPrDiffCommits: async () => commits,
+    getAgentReview: async () => currentReview,
+    editReviewDraftComment: async (...request) => {
+      edits.push(request);
+      await new Promise<void>(resolve => { finishSave = resolve; });
+      if (saveError !== null) throw new Error(saveError);
+      const [, , version, id, body, included] = request;
+      assert(version === draft.version, 'Editing must use the displayed draft version');
+      draft = { ...draft, version: version + 1, items: draft.items.map(item => item.id === id ? { ...item, body, included } : item) };
+      return draft;
+    },
+    saveReviewDraft: async (_repo, _number, version, body, event) => {
+      assert(version === draft.version, 'Submitting must use the version returned by the comment edit');
+      draft = { ...draft, body, event, version: version + 1 };
+      return draft;
+    },
+    submitReviewDraft: async (_repo, _number, version) => {
+      assert(version === draft.version && draft.items[0].body === 'Edited finding', 'Submission must use the saved comment');
+      published++;
+    },
+    fetchPullRequestDetailByRef: async () => stored,
+  } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'getAgentReview' | 'editReviewDraftComment'
+    | 'saveReviewDraft' | 'submitReviewDraft' | 'fetchPullRequestDetailByRef'>;
+  const previous = window.bridge;
+  Object.assign(window, { bridge });
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = () => root.render(<ReviewDialog pr={remotePullRequest(stored, 'bob')} detail={stored} review={currentReview}
+    onReviewChange={value => { currentReview = value; render(); }} onReviewSubmitted={() => {}} onClose={() => { closed = true; }} />);
+  const button = (selector: string) => {
+    const element = host.querySelector<HTMLButtonElement>(selector);
+    assert(element !== null, `Missing ${selector}`);
+    return element;
+  };
+  try {
+    flushSync(render); await settle();
+    button('.pr-review-sheet__edit').click(); await settle();
+    const input = host.querySelector<HTMLTextAreaElement>('[aria-label="Edit pending review comment"]');
+    assert(input !== null && input.value === draft.items[0].body, 'Saved draft comments must open in the same editor');
+    changeInput(input, 'Edited finding'); await settle();
+    button('[aria-label="Close review dialog"]').click(); await settle();
+    assert(!closed && input.value === 'Edited finding', 'Closing must not silently discard an active comment edit');
+    button('.pull-diff-review .is-primary').click(); await settle();
+    assert(input.disabled && button('.pr-review-sheet__footer .is-primary').disabled && edits.length === 1,
+      'Saving must block duplicate edits and review submission');
+    finishSave(); await settle();
+    assert(!input.disabled && input.value === 'Edited finding' && host.querySelector('[role="alert"]')?.textContent === saveError,
+      'A failed save must retain editable text and show the error');
+    saveError = null;
+    button('.pull-diff-review .is-primary').click(); await settle();
+    finishSave(); await settle();
+    assert(host.querySelector('[aria-label="Edit pending review comment"]') === null
+      && host.querySelector('.pr-review-sheet__pending')?.textContent?.includes('Edited finding') && published === 0,
+      'Saving a draft edit updates its card without publishing');
+    assert(draft.items[0].commitId === 'two' && draft.items[0].path === files[0].filename && draft.items[0].line === 1
+      && currentReview.findings[0].body !== 'Edited finding', 'Editing must preserve the anchor and leave the agent finding unchanged');
+    button('.pr-review-sheet__footer .is-primary').click(); await settle();
+    assert(Number(published) === 1 && closed && draft.body === 'Review summary', 'Explicit submission must publish the saved edit and preserve review prose');
+    return 'Saved draft comments support editing, retry and explicit submission';
+  }
+  finally {
     flushSync(() => root.unmount());
     host.remove();
     Object.assign(window, { bridge: previous });

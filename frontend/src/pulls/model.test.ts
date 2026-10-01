@@ -152,9 +152,10 @@ describe('rowsForTab', () => {
     expect(rowsForTab([updated], 'done')[0]?.kind).toBe('merged');
   });
 
-  it('projects optimistic labels and reviewers into the list row', () => {
+  it('projects edited titles, labels, and reviewers into the list row', () => {
     const current = pr({ labels: ['old'], origin: 'OTHER', requestedReviewers: [] });
     const updated = reconcilePullRequestDetail(current, {
+      title: 'Updated title',
       state: 'open',
       updatedAt: '2026-08-21T01:00:00Z',
       author: 'alice',
@@ -168,6 +169,8 @@ describe('rowsForTab', () => {
       reviewers: [],
     }, 'bob');
 
+    expect(updated.title).toBe('Updated title');
+    expect(removed.title).toBe('Updated title');
     expect(updated.labels).toEqual(['docs']);
     expect(updated.labelColors).toEqual({ docs: 'aabbcc' });
     expect(updated.requestedReviewers).toEqual(['bob']);

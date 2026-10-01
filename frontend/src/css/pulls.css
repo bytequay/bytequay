@@ -695,6 +695,13 @@
 .pr-task-spinner { animation: bq-spin 1s linear infinite; }
 .pr-copy-button { position: relative; overflow: visible; }
 .pr-overview__title .pr-copy-button.is-copied { background: #eff2f4; }
+.pr-title { flex: 1; min-width: 0; }
+.pr-overview__title .pr-title__edit { display: inline-flex; align-items: center; justify-content: center; margin-left: 8px; vertical-align: middle; }
+.pr-title-editor { display: grid; width: 100%; min-width: 0; gap: 10px; }
+.pr-title-editor textarea { width: 100%; min-width: 0; min-height: 84px; field-sizing: content; resize: vertical; border: 1px solid var(--accent); border-radius: 7px; background: #fff; color: #24292f; padding: 10px; font: inherit; font-size: 16px; font-weight: 500; line-height: 1.5; }
+.pr-overview__title .pr-title-editor button { display: block; width: auto; height: auto; }
+.pr-overview__title .pr-title-editor button:hover:not(:disabled) { filter: brightness(.95); }
+.pr-title-editor__error { color: #cf222e; font-size: var(--ui-font-size); }
 .pr-overview__number .pr-copy-button.is-copied { background: #eff2f4; }
 /* Below the button: every surface hosting it clips its overflow within a few pixels above. */
 .pr-copy-button__message { position: absolute; z-index: 1; top: calc(100% + 7px); left: 50%; border-radius: 7px; background: #24292f; color: #fff; padding: 6px 9px; font-size: 12px; font-weight: 500; line-height: 1; pointer-events: none; transform: translateX(-50%); animation: pr-copy-message-in 120ms ease-out; white-space: nowrap; }

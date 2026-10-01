@@ -196,11 +196,12 @@ export function filterPullRequests(prs: PullRequestDto[], search: PullSearch | n
 export function reconcilePullRequestDetail(
   pr: PullRequestDto,
   detail: Pick<PullRequestDetailDto, 'state' | 'updatedAt'>
-    & Partial<Pick<PullRequestDetailDto, 'author' | 'labels' | 'reviewers'>>,
+    & Partial<Pick<PullRequestDetailDto, 'title' | 'author' | 'labels' | 'reviewers'>>,
   viewerLogin?: string | null,
 ): PullRequestDto {
   if (detail.updatedAt !== null && Date.parse(detail.updatedAt) < Date.parse(pr.updatedAt)) return pr;
   const state = detail.state?.toLowerCase() ?? pr.state;
+  const title = detail.title ?? pr.title;
   const updatedAt = detail.updatedAt ?? pr.updatedAt;
   const labels = detail.labels?.map(label => label.name) ?? pr.labels;
   const labelColors = detail.labels === undefined
@@ -215,11 +216,11 @@ export function reconcilePullRequestDetail(
         ? 'REVIEW_REQUESTED'
         : 'OTHER'
     : pr.origin;
-  return state === pr.state && updatedAt === pr.updatedAt
+  return state === pr.state && title === pr.title && updatedAt === pr.updatedAt
       && labels === pr.labels && labelColors === pr.labelColors && requestedReviewers === pr.requestedReviewers
       && origin === pr.origin
     ? pr
-    : { ...pr, state, updatedAt, labels, labelColors, requestedReviewers, origin };
+    : { ...pr, state, title, updatedAt, labels, labelColors, requestedReviewers, origin };
 }
 
 export function reconcilePostedComment(

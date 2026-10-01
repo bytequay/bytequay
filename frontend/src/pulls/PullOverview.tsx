@@ -96,7 +96,6 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, loca
   const [quotedReply, setQuotedReply] = useState<QuoteRequest>();
   const viewerLogin = useViewer(true)?.login;
   const [repoOwner, repoName = ''] = detail.repo.split('/');
-  const title = detail.title ?? pr.title;
   const state = detail.state ?? pr.state;
   const displayState = state === 'merged'
     ? 'Merged'
@@ -123,7 +122,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, loca
     <div className="pr-overview pull-request-overview">
       <section className="pr-overview__summary">
         <div className="pr-overview__title">
-          <h1>{linkIssueNumbers(title, detail.repo, true)}</h1>
+          <PullTitle key={`${detail.repo.toLowerCase()}#${detail.number}`} pr={pr} detail={detail} onDetailUpdate={onDetailUpdate} />
           <div className="pr-overview__number">
             <span>#{detail.number}</span>
             <CopyLinkButton value={detail.htmlUrl ?? pr.htmlUrl} label="pull request link" />
@@ -196,6 +195,73 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, loca
       />
     </div>
   );
+}
+
+function PullTitle({ pr, detail, onDetailUpdate }: {
+  pr: PullRequestDto;
+  detail: PullRequestDetailDto;
+  onDetailUpdate: PullDetailUpdater;
+}) {
+  const title = detail.title ?? pr.title;
+  const canEdit = detail.viewerCanWrite || pr.origin === 'AUTHORED';
+  const [edit, setEdit] = useState<{ base: string; draft: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const writeInFlight = useRef(false);
+  const nextTitle = edit?.draft.trim() ?? '';
+
+  const cancel = () => {
+    if (writeInFlight.current) return;
+    setEdit(null);
+    setError(null);
+  };
+  const save = async () => {
+    if (!canEdit || edit === null || !nextTitle || nextTitle === title || writeInFlight.current) return;
+    if (title !== edit.base) {
+      setError('The title changed while you were editing. Reopen the editor to use the latest version.');
+      return;
+    }
+    writeInFlight.current = true;
+    setSaving(true);
+    setError(null);
+    try {
+      await window.bridge.updatePrTitle(detail.repo, detail.number, nextTitle);
+      onDetailUpdate(detail.repo, detail.number, current => ({ ...current, title: nextTitle }));
+      recordAttentionAction(`${detail.repo}#${detail.number}`, 'update');
+      setEdit(null);
+    }
+    catch (failure) {
+      setError(`Could not update title. ${remoteErrorMessage(failure)}`);
+    }
+    finally {
+      writeInFlight.current = false;
+      setSaving(false);
+    }
+  };
+
+  return <div className="pr-title">
+    {edit === null ? <h1>
+      <span className="pr-title__text">{linkIssueNumbers(title, detail.repo, true)}</span>
+      {canEdit && <button className="pr-title__edit" type="button" aria-label="Edit pull request title" title="Edit title" onClick={() => {
+        setEdit({ base: title, draft: title });
+        setError(null);
+      }}><Pencil size={15} /></button>}
+    </h1> : <form className="pr-title-editor" onSubmit={event => { event.preventDefault(); void save(); }}>
+      <textarea aria-label="Pull request title" value={edit.draft} disabled={saving} autoFocus required rows={3}
+        onChange={event => setEdit({ ...edit, draft: event.target.value.replace(/[\r\n]+/g, ' ') })}
+        onKeyDown={event => {
+          if (event.key === 'Escape') { event.preventDefault(); cancel(); }
+          if (event.key === 'Enter' && !event.nativeEvent.isComposing) { event.preventDefault(); void save(); }
+        }} />
+      <div className="pr-description-editor__actions">
+        <button type="button" disabled={saving} onClick={cancel}>Cancel</button>
+        <button className="is-primary" type="submit" disabled={saving || !canEdit || !nextTitle || nextTitle === title}>
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+      {error && <div className="pr-title-editor__error" role="alert">{error}</div>}
+    </form>}
+  </div>;
 }
 
 type PeoplePickerKind = 'reviewers' | 'assignees';
@@ -1959,6 +2025,7 @@ export function mergePullRequestWriteDetail(
   });
   let merged = {
     ...response,
+    title: current.title,
     body: current.body,
     labels: current.labels,
     assignees: current.assignees,

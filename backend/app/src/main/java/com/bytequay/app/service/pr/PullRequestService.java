@@ -963,6 +963,20 @@ public class PullRequestService
         }
     }
 
+    public void updateTitle(String repo, int number, String title)
+    {
+        requireNotBlank(title, "pull request title must not be blank");
+        String normalizedTitle = title.trim();
+        pullRequestWrites.updatePullRequestTitle(credentialService.resolveGitHubToken(), parseRef(repo, number), normalizedTitle);
+        store.findIdByRepoAndNumber(repo, number).ifPresent(prId -> {
+            snapshots.patchDetail(prId, cached -> new StoredPrDetail(cached.raw().withTitle(normalizedTitle), cached.reviews(), cached.timeline(),
+                    cached.checkRuns(), cached.unavailableSections(), cached.viewerCanWrite()));
+            store.updateTitle(prId, normalizedTitle);
+        });
+        recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
+        invalidatePullRequestDetail(repo, number);
+    }
+
     public void updateDescription(String repo, int number, String description)
     {
         pullRequestWrites.updatePullRequestDescription(

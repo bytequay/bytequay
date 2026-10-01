@@ -74,6 +74,8 @@ public interface PullRequestStore
 
     void updateDetails(long prId, PrRawDetail detail);
 
+    void updateTitle(long prId, String title);
+
     void updateEnrichment(
             long prId,
             Instant sourceUpdatedAt,

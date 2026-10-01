@@ -933,3 +933,108 @@ export async function runAssignedPrActions(): Promise<string> {
     window.bridge = original;
   }
 }
+
+export async function runTitleEdit(): Promise<string> {
+  const original = window.bridge;
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  let detail = { ...reviewDetail(reviewFixture()), viewerCanWrite: true,
+    title: 'Fix leaked temp tables on JDBC rollback (ENG-8689: TestPostgreSqlRollbacks.testRollbackMerge)' };
+  const writes: { repo: string; number: number; title: string; answer: ReturnType<typeof Promise.withResolvers<void>> }[] = [];
+  window.bridge = { ...original,
+    getUserProfile: async () => { throw new Error('No viewer in this fixture'); },
+    updatePrTitle: (repo, number, title) => {
+      const answer = Promise.withResolvers<void>();
+      writes.push({ repo, number, title, answer });
+      return answer.promise;
+    },
+  };
+  const render = () => flushSync(() => root.render(<PullOverview pr={remotePullRequest(detail, 'viewer')}
+    detail={detail} onRefresh={async () => {}} onDetailUpdate={(repo, number, update) => {
+      if (repo === detail.repo && number === detail.number) { detail = update(detail); render(); }
+    }} />));
+  const button = (label: string) => {
+    const found = [...host.querySelectorAll<HTMLButtonElement>('button')]
+      .find(value => value.getAttribute('aria-label') === label || value.textContent === label);
+    assert(found !== undefined, `Missing ${label}`);
+    return found;
+  };
+  const input = () => {
+    const found = host.querySelector<HTMLTextAreaElement>('[aria-label="Pull request title"]');
+    assert(found !== null, 'Title editor must be open');
+    return found;
+  };
+  const type = async (value: string) => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input(), value);
+    input().dispatchEvent(new Event('input', { bubbles: true }));
+    await settle();
+  };
+  try {
+    render(); await settle();
+    const titleLines = host.querySelector('.pr-title__text')?.getClientRects();
+    const lastLine = titleLines?.[titleLines.length - 1];
+    const editBounds = button('Edit pull request title').getBoundingClientRect();
+    assert(titleLines !== undefined && titleLines.length > 1 && lastLine !== undefined
+      && editBounds.left >= lastLine.right && editBounds.left - lastLine.right < 12
+      && Math.abs(editBounds.top - lastLine.top) < 8, 'The pencil must follow the last line of a wrapped title');
+    button('Edit pull request title').click(); await settle();
+    assert(input().value === detail.title && document.activeElement === input(), 'Editing must focus and prefill the current title');
+    const editorBounds = input().getBoundingClientRect();
+    const numberBounds = host.querySelector('.pr-overview__number')?.getBoundingClientRect();
+    assert(editorBounds.width > 200 && numberBounds !== undefined && editorBounds.right <= numberBounds.left,
+      'The inline editor must fit beside the PR number in a narrow pane');
+    assert(editorBounds.height >= 84 && getComputedStyle(input()).fontSize === '16px'
+      && input().scrollHeight <= input().clientHeight, 'The taller editor must show the whole title in a smaller font');
+    assert(button('Save').disabled, 'Unchanged titles must not write');
+    await type('A longer title '.repeat(20));
+    assert(input().getBoundingClientRect().height > editorBounds.height && input().scrollHeight <= input().clientHeight,
+      'The title editor must grow to show longer text');
+    await type(detail.title);
+    await type('   ');
+    assert(button('Save').disabled, 'Blank titles must not write');
+    await type('Cancel this edit');
+    input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle();
+    assert(host.querySelector('textarea[aria-label="Pull request title"]') === null && writes.length === 0, 'Escape must cancel without writing');
+    button('Edit pull request title').click(); await settle();
+    await type('  Updated\ntitle  ');
+    input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true }));
+    await settle();
+    assert(writes.length === 0, 'IME composition must not save the title');
+    input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await settle();
+    assert(Number(writes.length) === 1 && writes[0].title === 'Updated title' && writes[0].repo === detail.repo
+      && writes[0].number === detail.number && input().disabled, 'Save must trim and send one write for this PR');
+    writes[0].answer.reject(new Error('Permission denied'));
+    await settle();
+    assert(input().value === '  Updated title  ' && host.querySelector('[role="alert"]')?.textContent?.includes('Permission denied') === true,
+      'Rejected edits must retain the draft and show the failure');
+    button('Save').click(); await settle();
+    writes[1].answer.resolve(); await settle();
+    assert(detail.title === 'Updated title' && host.querySelector('h1')?.textContent === 'Updated title'
+      && host.querySelector('.pr-title-editor') === null, 'Successful saves must update the shared detail and close editing');
+    button('Edit pull request title').click(); await settle();
+    await type('Stale draft');
+    detail = { ...detail, title: 'Changed elsewhere' }; render();
+    button('Save').click(); await settle();
+    assert(Number(writes.length) === 2 && host.querySelector('[role="alert"]')?.textContent?.includes('changed while you were editing') === true,
+      'A refreshed title must not be overwritten by a stale edit');
+    button('Cancel').click(); await settle();
+    button('Edit pull request title').click(); await settle();
+    await type('Late save'); button('Save').click(); await settle();
+    detail = { ...detail, number: detail.number + 1, title: 'Another PR' }; render();
+    writes[2].answer.resolve(); await settle();
+    assert(host.querySelector('h1')?.textContent === 'Another PR' && host.querySelector('.pr-title-editor') === null,
+      'A late save must not affect another PR');
+    detail = { ...detail, viewerCanWrite: false }; render();
+    assert(host.querySelector('[aria-label="Edit pull request title"]') === null, 'Another author requires write permission');
+    return 'Inline title edits preserve drafts and scope writes to the selected PR';
+  }
+  finally {
+    flushSync(() => root.unmount());
+    host.remove();
+    window.bridge = original;
+  }
+}

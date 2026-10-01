@@ -1485,6 +1485,47 @@ class TestPullRequestService
     }
 
     @Test
+    void updatesTheTitleOnGitHubAndInBothCachedProjections()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        StoredPrDetail cached = stored();
+        PrRawDetail expected = cached.raw().withTitle("Updated title");
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(detailStore.find(12L)).thenReturn(Optional.of(cached));
+
+        service.updateTitle("owner/repo", 7, "  Updated title  ");
+
+        var order = inOrder(writes, detailStore, store);
+        order.verify(writes).updatePullRequestTitle("pat", ref, "Updated title");
+        order.verify(detailStore).saveCached(12L, new StoredPrDetail(expected, cached.reviews(), cached.timeline(), cached.checkRuns(),
+                cached.unavailableSections(), cached.viewerCanWrite()));
+        order.verify(store).updateTitle(12L, "Updated title");
+        verify(recent).pullRequestAction("owner/repo", 7, RecentReason.EDITED, 0);
+        verify(detailStore).updateEtag(12L, Optional.empty());
+        verifyNoInteractions(diffStore);
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"", "  "})
+    void rejectsEmptyTitlesBeforeWriting(String title)
+    {
+        assertThatThrownBy(() -> service.updateTitle("owner/repo", 7, title)).isInstanceOf(ResponseStatusException.class);
+        verifyNoInteractions(writes, store, detailStore, recent);
+    }
+
+    @Test
+    void preservesTheTitleWhenGitHubRejectsTheEdit()
+    {
+        ResponseStatusException failure = new ResponseStatusException(HttpStatus.FORBIDDEN);
+        doThrow(failure).when(writes).updatePullRequestTitle("pat", PullRequestRef.of("owner", "repo", 7), "Updated title");
+
+        assertThatThrownBy(() -> service.updateTitle("owner/repo", 7, "Updated title")).isSameAs(failure);
+
+        verifyNoInteractions(store, detailStore, recent);
+    }
+
+    @Test
     void updatesDescriptionAndMarksCachedDetailForRefresh()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);

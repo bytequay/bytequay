@@ -238,6 +238,20 @@ class TestSqlitePullRequestWorkspaceScope
     }
 
     @Test
+    void editingATitlePreservesOtherListFields()
+    {
+        PullRequest previous = store.saveObserved(pullRequest(1, "owner/project", 1));
+
+        store.updateTitle(previous.id(), "Edited title");
+
+        PullRequest updated = store.findById(previous.id()).orElseThrow();
+        assertThat(updated.title()).isEqualTo("Edited title");
+        assertThat(updated).usingRecursiveComparison().ignoringFields("title", "activityAt").isEqualTo(previous);
+        assertThat(updated.activityAt()).isAfter(previous.updatedAt());
+        assertThat(store.findPage(0, 50).pullRequests()).extracting(PullRequest::title).contains("Edited title");
+    }
+
+    @Test
     void staleEnrichmentCannotClearANewerReviewRequest()
     {
         Instant freshTime = Instant.parse("2026-08-22T00:00:00Z");

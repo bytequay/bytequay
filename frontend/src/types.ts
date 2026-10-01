@@ -1442,6 +1442,7 @@ export type Bridge = JiraBridge & {
     comment: InlineReviewCommentDto,
   ) => Promise<PullRequestDetailDto>;
   updatePrDescription: (repo: string, number: number, body: string) => Promise<void>;
+  updatePrTitle: (repo: string, number: number, title: string) => Promise<void>;
   commentPr: (repo: string, number: number, body: string) => Promise<PullRequestDetailDto>;
   setPrReaction: (
     repo: string,

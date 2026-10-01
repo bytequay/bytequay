@@ -330,6 +330,25 @@ class TestPullRequestRefreshControllers
     }
 
     @Test
+    void forwardsTitleEdits()
+            throws Exception
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestController controller = new PullRequestController(pullRequests, mock(PullRequestRefreshService.class));
+
+        standaloneSetup(controller).build().perform(patch("/prs/title")
+                        .queryParam("repo", "owner/repo")
+                        .queryParam("number", "7")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title":"Updated title"}
+                                """))
+                .andExpect(status().isNoContent());
+
+        verify(pullRequests).updateTitle("owner/repo", 7, "Updated title");
+    }
+
+    @Test
     void forwardsCommentEditsAndRejectsAMissingCommentIdBeforeTheService()
             throws Exception
     {

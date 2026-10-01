@@ -75,6 +75,14 @@ public record PrRawDetail(
                 mergeable, mergeableState, additions, deletions, changedFiles, requestedReviewerCount, requestedReviewers, headSha, headRef, baseRef, null);
     }
 
+    public PrRawDetail withTitle(String latestTitle)
+    {
+        return new PrRawDetail(
+                requireNonNull(latestTitle, "title is null"), htmlUrl, state, author, authorAvatarUrl, createdAt, updatedAt, mergedAt,
+                body, labels, labelColors, assignees, milestone, draft, mergeable, mergeableState, additions, deletions,
+                changedFiles, requestedReviewerCount, requestedReviewers, headSha, headRef, baseRef, baseSha);
+    }
+
     public PrRawDetail withMergeability(Boolean latestMergeable, String latestMergeableState)
     {
         return new PrRawDetail(

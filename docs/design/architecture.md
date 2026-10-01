@@ -518,7 +518,8 @@ Default PR diff files and commit metadata refresh when their base/head coordinat
 full file bodies refresh only after the user requests that range or expands that file, and are
 persisted before they are displayed.
 
-GitHub writes remain behind direct comment, approve, ready-for-review, failed-check rerun, or merge actions.
+GitHub writes remain behind direct title/description edit, comment, approve, ready-for-review, failed-check rerun, or merge actions.
+An accepted title edit patches the cached detail and list title; the existing detail ETag invalidation lets subsequent refreshes observe GitHub's metadata and rename activity.
 Merge and queue submission finishes when GitHub acknowledges the write; the dialog closes before
 the detail and list refresh completes. These writes invalidate the detail ETag while retaining
 the stored snapshot and diffs, so refresh can reuse unchanged patches and concurrent readers

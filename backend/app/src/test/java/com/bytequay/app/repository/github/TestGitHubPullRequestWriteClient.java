@@ -107,6 +107,24 @@ class TestGitHubPullRequestWriteClient
     }
 
     @Test
+    void updatesOnlyThePullRequestTitle()
+    {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
+                builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/12"))
+                .andExpect(method(HttpMethod.PATCH))
+                .andExpect(header("Authorization", "Bearer pat"))
+                .andExpect(content().json("{\"title\":\"Updated title\"}", true))
+                .andRespond(withSuccess());
+
+        client.updatePullRequestTitle("pat", PullRequestRef.of("upstream", "project", 12), "Updated title");
+
+        server.verify();
+    }
+
+    @Test
     void updatesPullRequestDescription()
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");

@@ -169,6 +169,13 @@ public class GitHubPullRequestWriteClient
                 .toBodilessEntity());
     }
 
+    public void updatePullRequestTitle(String pat, PullRequestRef pr, String title)
+    {
+        translating(() -> send(gitHubRestClient, HttpMethod.PATCH, pat, ImmutableMap.of("title", requireNonNull(title, "title is null")),
+                "/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
+                .toBodilessEntity());
+    }
+
     public void updatePullRequestDescription(String pat, PullRequestRef pr, String description)
     {
         translating(() -> send(gitHubRestClient, HttpMethod.PATCH, pat, ImmutableMap.of("body", requireNonNull(description, "description is null")),

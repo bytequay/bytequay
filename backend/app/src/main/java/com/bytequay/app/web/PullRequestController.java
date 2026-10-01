@@ -245,6 +245,8 @@ public class PullRequestController
 
     public record DescriptionRequest(String body) {}
 
+    public record TitleRequest(String title) {}
+
     public record ReviewRequest(String event, String body, List<InlineReviewComment> comments) {}
 
     public record ResolutionRequest(boolean resolved) {}
@@ -262,6 +264,16 @@ public class PullRequestController
     public record ReactionResponse(boolean viewerHasReacted) {}
 
     public record CommentEditRequest(String target, Long commentId, String body) {}
+
+    @PatchMapping("/prs/title")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void updateTitle(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestBody TitleRequest request)
+    {
+        pullRequests.updateTitle(repo, number, request.title());
+    }
 
     @PatchMapping("/prs/description")
     @ResponseStatus(HttpStatus.NO_CONTENT)

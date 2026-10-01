@@ -408,6 +408,17 @@ public class SqlitePullRequestStore
 
     @Override
     @Transactional
+    public void updateTitle(long prId, String title)
+    {
+        requireNonNull(title, "title is null");
+        jpaRepository.findById(prId).ifPresent(entity -> {
+            entity.setTitle(title);
+            entity.setActivityAt(Instant.now());
+        });
+    }
+
+    @Override
+    @Transactional
     public void updateEnrichment(
             long prId,
             Instant sourceUpdatedAt,

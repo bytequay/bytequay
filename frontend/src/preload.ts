@@ -130,6 +130,7 @@ const bridge: Bridge = {
     ipcRenderer.invoke('prs:review-comment:create', repo, number, comment),
   updatePrDescription: (repo, number, body) =>
     ipcRenderer.invoke('prs:description:update', repo, number, body),
+  updatePrTitle: (repo, number, title) => ipcRenderer.invoke('prs:title:update', repo, number, title),
   commentPr: (repo, number, body) => ipcRenderer.invoke('prs:comment', repo, number, body),
   setPrReaction: (repo, number, target, commentId, content, viewerHasReacted) =>
     ipcRenderer.invoke('prs:reaction:set', repo, number, target, commentId, content, viewerHasReacted),

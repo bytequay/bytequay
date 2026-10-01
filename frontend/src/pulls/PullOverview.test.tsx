@@ -256,6 +256,7 @@ describe('PullOverview', () => {
 
   it('merges a write response without discarding independent optimistic fields', () => {
     const current = updateReviewThreadResolution(detail(), 3, 99, false);
+    current.title = 'Edited title';
     current.body = 'Optimistic description';
     current.labels = [{ name: 'optimistic', color: 'abcdef' }];
     const reactions = [{ content: 'eyes' as const, count: 1, viewerHasReacted: true }];
@@ -268,6 +269,7 @@ describe('PullOverview', () => {
 
     const merged = mergePullRequestWriteDetail(optimistic, response);
 
+    expect(merged.title).toBe('Edited title');
     expect(merged.body).toBe('Optimistic description');
     expect(merged.labels).toEqual([{ name: 'optimistic', color: 'abcdef' }]);
     expect(merged.recentActivity.find(activity => activity.githubId === 3)?.payload.resolved).toBe(false);
@@ -581,7 +583,8 @@ describe('PullOverview', () => {
   it('renders the open header, chronological variants, resolved thread and grouped checks', () => {
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={detail()} onRefresh={async () => {}} />);
 
-    expect(html).toContain('<div class="pr-overview__title"><h1>Example pull request</h1><div class="pr-overview__number"><span>#42</span>');
+    expect(html).toContain('<div class="pr-overview__title"><div class="pr-title"><h1><span class="pr-title__text">Example pull request</span>');
+    expect(html).toContain('<div class="pr-overview__number"><span>#42</span>');
     expect(html).toContain(' Open</span>');
     expect(html).toContain('main');
     expect(html).toContain('feature/overview');
@@ -615,6 +618,7 @@ describe('PullOverview', () => {
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
 
     expect(html).toContain('>Edit description</button>');
+    expect(html).toContain('aria-label="Edit pull request title"');
     expect(html).toContain('data-markdown-task=""');
     expect(html).not.toContain('data-markdown-task="" disabled=""');
   });
@@ -627,6 +631,7 @@ describe('PullOverview', () => {
       pr={{ ...pullRequest(), origin: 'OTHER' }} detail={value} onRefresh={async () => {}} />);
 
     expect(html).not.toContain('>Edit description</button>');
+    expect(html).not.toContain('aria-label="Edit pull request title"');
     expect(html).toContain('disabled="" readOnly=""');
     expect(html).not.toContain('data-markdown-task=""');
   });

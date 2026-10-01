@@ -1704,6 +1704,8 @@ function registerIpc(): void {
   ) => backendJson(prUrl('/prs/review-comment', repo, number), jsonInit('POST', comment)));
   ipcMain.handle('prs:description:update', (_event, repo: string, number: number, body: string) =>
     backendVoid(prUrl('/prs/description', repo, number), jsonInit('PATCH', { body })));
+  ipcMain.handle('prs:title:update', (_event, repo: string, number: number, title: string) =>
+    backendVoid(prUrl('/prs/title', repo, number), jsonInit('PATCH', { title })));
   ipcMain.handle('prs:comment', (
     _event,
     repo: string,

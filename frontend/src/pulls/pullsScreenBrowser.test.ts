@@ -14,6 +14,15 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture } from '../fixtures/browserFixture';
 
+it('edits PR titles with cancellation, validation, retry, and selection isolation', async () => {
+  const result = await runBrowserFixture<string>({
+    prefix: 'bytequay-pr-title-', entry: 'src/pulls/fixtures/pullsScreenBrowser.tsx', global: 'PullTitleTests', styles: true,
+    width: 650, height: 700,
+    body: "const results = await window.webContents.executeJavaScript('PullTitleTests.runTitleEdit()');",
+  });
+  expect(result).toContain('Inline title edits');
+}, 30_000);
+
 it('acknowledges a viewed PR when leaving zoom without closing the regular detail pane', async () => {
   const result = await runBrowserFixture<string>({
     prefix: 'bytequay-pull-attention-', entry: 'src/pulls/fixtures/pullsScreenBrowser.tsx', global: 'PullAttentionTests', styles: true,

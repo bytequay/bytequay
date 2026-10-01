@@ -2054,6 +2054,7 @@ class TestReviewTools
         assertThat(call("review_get_context", ImmutableMap.of("kind", "summary", "target", RUN_ID + ":evidence")).path("body").asText())
                 .isEqualTo("Recorded evidence");
         String limitations = RUN_ID + ":limitations";
+        discussSummary(limitations);
         assertThat(call("review_reply", ImmutableMap.of("operationKey", "retained-reply", "target", limitations, "body", "Earlier discussion answer"))
                 .path("status").asText()).isEqualTo("accepted");
         assertThat(call("review_get_context", ImmutableMap.of("kind", "discussion", "target", limitations)).at("/messages/0/body").asText())
@@ -2224,13 +2225,16 @@ class TestReviewTools
                 .put("commits", ImmutableList.of(ImmutableMap.of("sha", COMMIT_SHA, "explanation", "Keep the parser snapshot"))).buildOrThrow();
         assertThat(call("review_save_summary", report).path("status").asText()).isEqualTo("accepted");
         assertThat(store.findRun(RUN_ID).orElseThrow().summary().orElseThrow().evidence()).isEmpty();
+        discussSummary("summary");
         assertThat(call("review_reply", ImmutableMap.of("operationKey", "old-summary", "target", "summary", "body", "Earlier summary answer"))
                 .path("status").asText()).isEqualTo("accepted");
         store.insertRun(run("newer-run", 2));
         String purposeCard = RUN_ID + ":purpose";
         String commitCard = RUN_ID + ":commit:" + COMMIT_SHA;
+        discussSummary(purposeCard);
         assertThat(call("review_reply", ImmutableMap.of("operationKey", "purpose-reply", "target", purposeCard, "body", "Purpose answer"))
                 .path("status").asText()).isEqualTo("accepted");
+        discussSummary(commitCard);
         assertThat(call("review_reply", ImmutableMap.of("operationKey", "commit-reply", "target", commitCard, "body", "Commit answer"))
                 .path("status").asText()).isEqualTo("accepted");
         assertThat(store.listMessages(REVIEW_ID)).extracting(ReviewMessage::runId).containsOnly(RUN_ID);
@@ -2243,8 +2247,41 @@ class TestReviewTools
         assertThat(context.path("body").asText()).contains("Add the beta line", "Keep the parser snapshot");
         assertThat(context.path("headSha").asText()).isEqualTo(HEAD_SHA);
         assertThat(call("review_reply", ImmutableMap.of("operationKey", "foreign", "target", "foreign-run:purpose", "body", "Wrong target"))
-                .path("error").path("field").asText()).isEqualTo("cardId");
+                .path("error").path("field").asText()).isEqualTo("target");
         assertThat(store.listMessages(REVIEW_ID)).hasSize(3);
+    }
+
+    @Test
+    void generalFollowUpCannotWriteSummaryCardsOrReplayTheirWrites()
+    {
+        call("review_save_summary", summary("summary", "Input change"));
+        store.updateRun(store.findRun(RUN_ID).orElseThrow().ended(ReviewRun.State.ACCEPTED, Optional.empty(), NOW));
+        ReviewSummary original = store.findRun(RUN_ID).orElseThrow().summary().orElseThrow();
+        when(assignments.resolve(REVIEW_ID, Optional.of(capturedTurn))).thenAnswer(_ ->
+                new ReviewToolAssignment.Binding(store.findRun(RUN_ID).orElseThrow(), Optional.empty(), Optional.empty()));
+        for (String target : ImmutableList.of("summary", "SUMMARY", RUN_ID + ":purpose", RUN_ID + ":commit:" + COMMIT_SHA)) {
+            assertThat(call("review_reply", ImmutableMap.of("operationKey", "reply", "target", target, "body", "A clarification"))
+                    .at("/error/message").asText()).contains("question sent from that card", "review_save_finding");
+        }
+        Map<String, Object> revision = summary("revise", "Clarified intention");
+        assertThat(call("review_save_summary", revision).at("/error/field").asText()).isEqualTo("target");
+        assertThat(store.findRun(RUN_ID).orElseThrow().summary()).contains(original);
+        assertThat(store.listMessages(REVIEW_ID)).isEmpty();
+
+        String purpose = RUN_ID + ":purpose";
+        Map<String, Object> reply = ImmutableMap.of("operationKey", "reply", "target", purpose, "body", "A clarification");
+        discussSummary(purpose);
+        JsonNode saved = call("review_reply", reply);
+        assertThat(saved.path("status").asText()).isEqualTo("accepted");
+        assertThat(call("review_reply", reply)).isEqualTo(saved);
+        assertThat(call("review_save_summary", revision).path("revision").asInt()).isEqualTo(2);
+
+        when(assignments.resolve(REVIEW_ID, Optional.of(capturedTurn))).thenAnswer(_ ->
+                new ReviewToolAssignment.Binding(store.findRun(RUN_ID).orElseThrow(), Optional.empty(), Optional.empty()));
+        assertThat(call("review_reply", reply).at("/error/field").asText()).isEqualTo("target");
+        assertThat(call("review_save_summary", revision).at("/error/field").asText()).isEqualTo("target");
+        assertThat(store.listMessages(REVIEW_ID)).hasSize(1);
+        assertThat(store.findRun(RUN_ID).orElseThrow().summary().orElseThrow().revision()).isEqualTo(2);
     }
 
     @Test
@@ -3066,6 +3103,67 @@ class TestReviewTools
         assertThat(store.findFinding(findingId).orElseThrow().evidence().getFirst().explanation()).contains("Validation:", "no caller guard");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"conversation", "purpose", "commit"})
+    void followUpSavesPrivateFindingsAtFrozenLines(String target)
+    {
+        call("review_save_summary", summary("summary", "Input change"));
+        readSource();
+        assertThat(call("review_finish", finish("finished", ImmutableList.of(assessment(1, "REJECTED")))).path("status").asText()).isEqualTo("accepted");
+        ReviewRun accepted = store.updateRun(store.findRun(RUN_ID).orElseThrow().ended(ReviewRun.State.ACCEPTED, Optional.empty(), NOW));
+        Optional<ReviewMessage> question = target.equals("conversation") ? Optional.empty() : Optional.of(new ReviewMessage(
+                "question", REVIEW_ID, Optional.empty(), Optional.of(RUN_ID + ":" + (target.equals("commit") ? "commit:" + COMMIT_SHA : target)),
+                ReviewMessage.Author.USER, "Review the tests and save private findings", 1, RUN_ID, Optional.of(capturedTurn.toString()), Optional.empty(), 0, NOW));
+        when(assignments.resolve(REVIEW_ID, Optional.of(capturedTurn))).thenAnswer(_ ->
+                new ReviewToolAssignment.Binding(store.findRun(RUN_ID).orElseThrow(), Optional.empty(), question));
+
+        Map<String, Object> finding = ImmutableMap.<String, Object>builder()
+                .putAll(finding("follow-up", "Suggestion: Simplify the input test", "A2", ImmutableList.of(evidence("E1"))))
+                .put("endAnchor", "A3").buildOrThrow();
+        assertThat(call("review_save_finding", with(finding, "bad-anchor", "startAnchor", "A99")).at("/error/field").asText()).isEqualTo("startAnchor");
+        assertThat(call("review_save_finding", with(finding, "bad-evidence", "evidence", ImmutableList.of(evidence("E99"))))
+                .at("/error/field").asText()).isEqualTo("evidence");
+        JsonNode saved = call("review_save_finding", finding);
+        assertThat(saved.path("status").asText()).isEqualTo("accepted");
+        assertThat(call("review_save_finding", finding)).isEqualTo(saved);
+        assertThat(store.listFindings(REVIEW_ID)).hasSize(1);
+        ReviewFinding stored = store.findFinding(saved.path("findingId").asText()).orElseThrow();
+        assertThat(stored.runId()).isEqualTo(RUN_ID);
+        assertThat(stored.validatedHeadSha()).isEqualTo(HEAD_SHA);
+        assertThat(stored.anchor().orElseThrow()).satisfies(anchor -> {
+            assertThat(anchor.path()).isEqualTo(DIFF_PATH);
+            assertThat(anchor.side()).isEqualTo("RIGHT");
+            assertThat(anchor.startLine()).isEqualTo(2);
+            assertThat(anchor.endLine()).isEqualTo(3);
+            assertThat(anchor.excerpt()).containsExactly("beta", "gamma");
+        });
+        assertThat(stored.severity()).isEmpty();
+        assertThat(stored.evidence().getFirst().explanation()).contains("Validation:");
+        assertThat(store.listMessages(REVIEW_ID)).isEmpty();
+        ReviewRun after = store.findRun(RUN_ID).orElseThrow();
+        assertThat(after.state()).isEqualTo(ReviewRun.State.ACCEPTED);
+        assertThat(after.summary()).isEqualTo(accepted.summary());
+        assertThat(after.steps()).isEqualTo(accepted.steps());
+        assertThat(after.coverage()).isEqualTo(accepted.coverage());
+        assertThat(call("review_finish", finish("discussion-finish", ImmutableList.of())).at("/error/field").asText()).isEqualTo("validation");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"RUNNING", "INCOMPLETE", "STOPPED", "FAILED"})
+    void discussionCannotAddFindingsBeforeReviewAcceptance(String state)
+    {
+        readSource();
+        ReviewRun.State status = ReviewRun.State.valueOf(state);
+        if (status.terminal()) {
+            store.updateRun(store.findRun(RUN_ID).orElseThrow().ended(status, Optional.empty(), NOW));
+        }
+        when(assignments.resolve(REVIEW_ID, Optional.of(capturedTurn))).thenAnswer(_ ->
+                new ReviewToolAssignment.Binding(store.findRun(RUN_ID).orElseThrow(), Optional.empty(), Optional.empty()));
+        JsonNode result = call("review_save_finding", finding("follow-up", "Unchecked input", "A2", ImmutableList.of(evidence("E1"))));
+        assertThat(result.at("/error/field").asText()).isEqualTo(status.terminal() ? "validation" : "assignment");
+        assertThat(store.listFindings(REVIEW_ID)).isEmpty();
+    }
+
     @Test
     void carriedFindingNeedsCurrentEvidenceAndAssessmentBeforeCompletion()
     {
@@ -3579,6 +3677,14 @@ class TestReviewTools
         JsonNode source = call("review_get_context", ImmutableMap.<String, Object>of("kind", "source", "path", DIFF_PATH, "startLine", 1, "endLine", 3));
         assertThat(source.path("totalLines").asInt()).isEqualTo(3);
         assertThat(source.path("evidenceRef").asText()).isEqualTo("E1");
+    }
+
+    private void discussSummary(String target)
+    {
+        ReviewMessage question = new ReviewMessage("question", REVIEW_ID, Optional.empty(), target.equals("summary") ? Optional.empty() : Optional.of(target),
+                ReviewMessage.Author.USER, "Explain this card", 1, RUN_ID, Optional.of(capturedTurn.toString()), Optional.empty(), 0, NOW);
+        when(assignments.resolve(REVIEW_ID, Optional.of(capturedTurn))).thenAnswer(_ ->
+                new ReviewToolAssignment.Binding(store.findRun(RUN_ID).orElseThrow(), Optional.empty(), Optional.of(question)));
     }
 
     private JsonNode call(String tool, Map<String, Object> arguments)

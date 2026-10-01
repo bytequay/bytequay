@@ -976,12 +976,17 @@ existing hypotheses, with `NEEDS_EVIDENCE` assessments. ByteQuay sends them to
 collection before another validation. Zero-candidate investigations still get
 validation to check the understanding, scope and relevant behavior.
 
-New findings are provisional and can be saved only by the assigned validator,
-with an explicit verification explanation and diff-bound evidence. Final
-validation accounts for every new non-withdrawn finding. Multiple candidates
-may map to the same finding for a shared root cause. Existing findings remain
-replyable and revisable in user discussions; those turns cannot advance a
-review assignment or declare a run complete.
+During an active run, new findings are provisional and can be saved only by the
+assigned validator, with an explicit verification explanation and diff-bound
+evidence. Final validation accounts for every new non-withdrawn finding. Multiple
+candidates may map to the same finding for a shared root cause. After a run is
+accepted, user follow-ups can save additional validated findings using the same
+tool, frozen anchors, evidence requirements, deduplication and per-run limit.
+These additions do not rewrite the sealed validation or claim another full pass.
+Stopped, failed and incomplete runs require Resume or Update before adding
+findings from discussion. Existing findings remain replyable and revisable in
+user discussions; those turns cannot advance a review assignment or declare a
+run complete.
 
 The summary contains:
 
@@ -1140,6 +1145,18 @@ not dump every PR comment into every prompt. Idle input starts a turn; busy
 input goes into the existing durable queue with a visible queued status.
 Route answers back to the selected discussion through `review_reply`; do not
 guess a target from prose or scatter one final response across all cards.
+When a follow-up requests review findings, save each supported code-specific
+claim as a private finding anchored to the relevant frozen diff lines, including
+optional code or test improvements. This also applies to requests entered in
+the main task composer or an intention/commit discussion. Keep the actual
+recommendations in Findings, with only a brief acknowledgment in the originating
+discussion; a summary reply is not a substitute for a finding.
+The backend permits summary-card replies only when the accepted turn is bound
+to a user question on that exact card. General task-composer turns cannot append
+summary replies or replace the intention/commit summary. They can save findings
+under the accepted-run rules above and answer in the task conversation. Summary
+edits require a review assignment or an explicit summary-card discussion. These
+checks use saved input identity, never keywords or inferred meaning in prose.
 
 Current summary card identities include the run ID and `purpose` or
 `commit:<full-sha>`. Retained discussions on `combined-result`,

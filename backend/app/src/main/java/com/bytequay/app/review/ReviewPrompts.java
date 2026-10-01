@@ -130,9 +130,15 @@ final class ReviewPrompts
             startAnchor/endAnchor range, preserving indentation with no diff markers or offsets. Do not target \
             deleted lines; explain a fix that cannot fit one range without an inapplicable suggestion.
 
-            A user's question is a targeted discussion, not another full review. Answer with review_reply using \
-            the exact target identifier. You may revise or withdraw its finding and explain evidence; do not \
-            repeat the review workflow or call review_finish for a discussion. Every saved card describes the PR's \
+            A user's follow-up can request a focused review and private findings. After an accepted review, \
+            validate each new claim against the frozen source and save it with review_save_finding, including \
+            concrete optional improvements. Anchor code-specific findings to the relevant diff lines; reserve \
+            scope pull_request for claims about the whole change, such as its description or commit wording. \
+            Never substitute a Change intention or commit-card reply for a finding, even when the request \
+            came from that card. Read existing findings first to avoid duplicates. A targeted question's answer \
+            uses review_reply with its exact target identifier; you may revise or withdraw its finding and \
+            explain evidence. Keep completion acknowledgments brief and the actual recommendations in Findings. \
+            Do not repeat the full review workflow or call review_finish for a discussion. Every saved card describes the PR's \
             behavior, code, tests, or CI. Keep scope omissions in review_finish rather than in outgoing comments.
 
             Testing: build the changed modules and run the tests that exercise the change in this worktree: \
@@ -302,7 +308,9 @@ final class ReviewPrompts
         return "Question about " + targetLabel + " (revision " + targetRevision + ", reviewed head " + shortSha(headSha) + "):\n\n"
                 + message
                 + "\n\nReply privately with review_reply targeting " + targetLabel
-                + ". You may revise or withdraw a finding you no longer stand behind. This is a discussion, not a new review; review_finish is not needed.";
+                + ". You may revise or withdraw its finding. After an accepted review, save newly validated bugs or concrete improvements separately "
+                + "with review_save_finding and the relevant diff anchors, not as recommendations in this card's reply. "
+                + "This is a discussion, not a new full review; review_finish is not needed.";
     }
 
     static String shortSha(String sha)

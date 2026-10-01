@@ -342,6 +342,7 @@ public class ReviewTools
                         arguments -> call("review_get_context", reviewId, turnId, arguments, this::getContext), true),
                 new ReviewTool("review_save_summary",
                         "Save only the pull request's intention and one design/implementation explanation per commit in scope. "
+                                + "Requires a review assignment or a question sent from a summary card. "
                                 + "Put bugs and concrete code improvements in inline findings. Saving again creates the next revision.",
                         schema(ImmutableMap.<String, Object>builder()
                                 .put("operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY))
@@ -376,7 +377,8 @@ public class ReviewTools
                                 ImmutableList.of("operationKey", "changeMap", "reviewedFiles", "contextEvidenceRefs", "candidates", "answers")),
                         arguments -> call("review_save_investigation", reviewId, turnId, arguments, this::saveInvestigation)),
                 new ReviewTool("review_save_finding",
-                        "During validation, create or revise an inline bug report or concrete code improvement, with evidence refs and diff anchors from review_get_context. "
+                        "During validation or a follow-up discussion of an accepted review, create or revise a private finding "
+                                + "with evidence refs and diff anchors from review_get_context. Save code-specific bugs and improvements here, not in summary replies. "
                                 + "Use severity for defects; mark optional improvements as suggestions and omit severity. "
                                 + "A nit, reported only when nothing else is supported, starts its title with Nit: and omits severity. "
                                 + "A finding about a commit message or the PR description has no lines: pass scope pull_request instead of anchors, "
@@ -403,7 +405,9 @@ public class ReviewTools
                                 .buildOrThrow(), ImmutableList.of("operationKey", "title", "body", "evidence", "validation")),
                         arguments -> call("review_save_finding", reviewId, turnId, arguments, this::saveFinding)),
                 new ReviewTool("review_reply",
-                        "Append your private answer to a discussion: target is \"summary\", a run-scoped cardId, or a findingId.",
+                        "Append your private answer to a discussion: target is \"summary\", a run-scoped cardId, or a findingId. "
+                                + "Summary/card replies require a question sent from that card; general follow-ups belong in the task conversation, "
+                                + "and code findings use review_save_finding.",
                         schema(ImmutableMap.of(
                                 "operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY),
                                 "target", ImmutableMap.of("type", "string", "minLength", 1),
@@ -813,6 +817,9 @@ public class ReviewTools
 
     private JsonNode saveSummary(Call call)
     {
+        if (call.step().isEmpty() && call.discussion().filter(message -> message.findingId().isEmpty()).isEmpty()) {
+            throw new ReviewInvalidRequestException("target: summary edits require a review assignment or a summary-card question; save findings with review_save_finding");
+        }
         Replay replay = replay(call, "review_save_summary");
         if (replay.result().isPresent()) {
             return replay.result().orElseThrow();
@@ -831,9 +838,6 @@ public class ReviewTools
         }
         if (commits.size() != commitShas.size() || commits.stream().map(ReviewSummary.CommitExplanation::sha).distinct().count() != commitShas.size()) {
             throw new ReviewInvalidRequestException("commits: include each actual commit exactly once");
-        }
-        if (call.discussion().flatMap(ReviewMessage::findingId).isPresent()) {
-            throw new ReviewInvalidRequestException("target: a finding discussion cannot replace the review summary");
         }
         Optional<ReviewSummary> previous = call.run().summary();
         int revision = previous.map(ReviewSummary::revision).orElse(0) + 1;
@@ -1047,7 +1051,9 @@ public class ReviewTools
             insert = false;
         }
         else {
-            assigned(call, VALIDATE);
+            if (!call.run().active() && call.run().state() != ReviewRun.State.ACCEPTED) {
+                throw new ReviewInvalidRequestException("validation: new discussion findings require an accepted review; resume or update the review first");
+            }
             if (findings.stream().filter(finding -> finding.runId().equals(call.run().id())).count() >= 10) {
                 throw new ReviewInvalidRequestException("finding: select at most ten distinct findings per round");
             }
@@ -1118,13 +1124,13 @@ public class ReviewTools
 
     private JsonNode reply(Call call)
     {
+        ObjectNode arguments = call.arguments();
+        String target = text(arguments, "target", 200, true);
+        discussionTarget(call, target);
         Replay replay = replay(call, "review_reply");
         if (replay.result().isPresent()) {
             return replay.result().orElseThrow();
         }
-        ObjectNode arguments = call.arguments();
-        String target = text(arguments, "target", 200, true);
-        discussionTarget(call, target);
         String body = text(arguments, "body", MAX_TEXT, true);
         Optional<String> findingId = Optional.empty();
         Optional<String> cardId = Optional.empty();
@@ -1382,6 +1388,9 @@ public class ReviewTools
 
     private static void discussionTarget(Call call, String target)
     {
+        if (call.discussion().isEmpty() && (target.equalsIgnoreCase("summary") || target.contains(":"))) {
+            throw new ReviewInvalidRequestException("target: summary replies require a question sent from that card; use review_save_finding for findings or answer in chat");
+        }
         call.discussion().ifPresent(message -> {
             String expected = message.findingId().or(() -> message.cardId()).orElse("summary");
             if (!expected.equals(target)) {

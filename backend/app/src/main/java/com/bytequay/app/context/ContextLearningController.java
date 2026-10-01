@@ -103,10 +103,16 @@ public class ContextLearningController
     }
 
     @PostMapping("/plan/deeper")
-    public ContextBuildService.View goDeeper(@PathVariable String workspaceId, @RequestBody DeeperRequest request)
+    public ContextBuildService.View goDeeper(@PathVariable String workspaceId, @RequestBody TopicRequest request)
     {
-        return learning.goDeeper(workspaceId, new ContextLearningService.DeeperRequest(request.requestKey(), request.expectedRevision(),
-                request.expectedBuildSequence(), request.planId(), request.topicId()));
+        return learning.goDeeper(workspaceId, request.toService());
+    }
+
+    /** Learns one topic's open questions now, ahead of the plan's order. */
+    @PostMapping("/plan/topic")
+    public ContextBuildService.View learnTopic(@PathVariable String workspaceId, @RequestBody TopicRequest request)
+    {
+        return learning.learnTopic(workspaceId, request.toService());
     }
 
     public record QuestionRequest(String planId, String topicId, String text)
@@ -137,13 +143,24 @@ public class ContextLearningController
         }
     }
 
-    public record DeeperRequest(String requestKey, Long expectedRevision, Long expectedBuildSequence, String planId, String topicId)
+    public record TopicRequest(String requestKey, Long expectedRevision, Long expectedBuildSequence, String planId, String topicId)
     {
-        public DeeperRequest
+        public TopicRequest
         {
             checkArgument(expectedRevision != null && expectedRevision >= 0 && expectedBuildSequence != null && expectedBuildSequence >= 0,
                     "Notebook revision and build sequence are required");
-            new ContextLearningService.DeeperRequest(requireNonNull(requestKey, "requestKey is null"), expectedRevision, expectedBuildSequence,
+            toService(requestKey, expectedRevision, expectedBuildSequence, planId, topicId);
+        }
+
+        ContextLearningService.TopicRequest toService()
+        {
+            return toService(requestKey, expectedRevision, expectedBuildSequence, planId, topicId);
+        }
+
+        private static ContextLearningService.TopicRequest toService(String requestKey, long expectedRevision, long expectedBuildSequence, String planId,
+                String topicId)
+        {
+            return new ContextLearningService.TopicRequest(requireNonNull(requestKey, "requestKey is null"), expectedRevision, expectedBuildSequence,
                     requireNonNull(planId, "planId is null"), requireNonNull(topicId, "topicId is null"));
         }
     }

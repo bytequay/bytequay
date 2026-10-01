@@ -345,7 +345,7 @@ class TestContextLearningService
         buildStore.save(Optional.empty(), first);
         view.set(finished(1, first, ContextRun.Outcome.ANSWERED));
 
-        learning.goDeeper(WORKSPACE, new ContextLearningService.DeeperRequest("deeper", 0, 1, plan.id(), "topic:1"));
+        learning.goDeeper(WORKSPACE, new ContextLearningService.TopicRequest("deeper", 0, 1, plan.id(), "topic:1"));
 
         ContextLearningPlan deeper = plans.find(WORKSPACE).orElseThrow();
         ContextLearningPlan.Question added = deeper.topic("topic:1").questions().get(2);
@@ -358,9 +358,37 @@ class TestContextLearningService
         assertThat(assignments.getValue().questionIndex()).isEqualTo(2);
 
         buildStore.save(Optional.of(first), task(deeper, "topic:1", 2, "deeper", "55555555-5555-4555-8555-555555555555"));
-        learning.goDeeper(WORKSPACE, new ContextLearningService.DeeperRequest("deeper", 0, 1, plan.id(), "topic:1"));
+        learning.goDeeper(WORKSPACE, new ContextLearningService.TopicRequest("deeper", 0, 1, plan.id(), "topic:1"));
         assertThat(plans.find(WORKSPACE).orElseThrow().topic("topic:1").questions()).hasSize(3);
         verify(builds, times(2)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), any());
+    }
+
+    @Test
+    void learnThisTopicRunsOnlyItsOpenQuestionsAheadOfThePlanOrder()
+    {
+        reports.save(Optional.empty(), report(ImmutableList.of(topic("topic:1", "Project structure", ImmutableList.of(), ImmutableList.of()),
+                topic("topic:2", "Delta transaction log", ImmutableList.of(), ImmutableList.of())), ImmutableList.of()));
+        learning.start(WORKSPACE, new ContextLearningService.StartRequest("accept", 0, 0, REPORT, ImmutableList.of("topic:1", "topic:2"), ImmutableList.of()));
+        ContextLearningPlan plan = plans.find(WORKSPACE).orElseThrow();
+        ContextBuild first = task(plan, "topic:1", 0);
+        buildStore.save(Optional.empty(), first);
+        view.set(finished(1, first, ContextRun.Outcome.ANSWERED));
+
+        learning.learnTopic(WORKSPACE, new ContextLearningService.TopicRequest("topic", 0, 1, plan.id(), "topic:2"));
+
+        // The plan's own order would run topic:1's second question first; this batch runs topic:2's questions, and only those.
+        assertThat(plans.find(WORKSPACE).orElseThrow().batch()).contains(new ContextLearningPlan.Batch("topic",
+                ImmutableList.of(new ContextLearningPlan.Target("topic:2", 1)), ImmutableList.of(new ContextLearningPlan.Target("topic:2", 0)), 2, true));
+        ArgumentCaptor<ContextBuild.Assignment> assignments = ArgumentCaptor.forClass(ContextBuild.Assignment.class);
+        verify(builds, times(2)).learn(eq(WORKSPACE), any(), eq(SHA), anyList(), assignments.capture());
+        assertThat(assignments.getValue()).extracting(ContextBuild.Assignment::topicId, ContextBuild.Assignment::questionIndex).containsExactly("topic:2", 0);
+
+        ContextLearningPlan current = plans.find(WORKSPACE).orElseThrow();
+        plans.save(Optional.of(current), current.withProgress(current.topics().stream().map(topic -> topic.id().equals("topic:1")
+                ? topic.withQuestions(topic.questions().stream().map(question -> question.closed(ContextLearningPlan.Status.COMPLETED, "Answered.", "")).toList())
+                : topic).toList(), current.gaps()).withBatch(Optional.empty()));
+        assertThatIllegalArgumentException().isThrownBy(() -> learning.learnTopic(WORKSPACE,
+                new ContextLearningService.TopicRequest("again", 0, 1, plan.id(), "topic:1"))).withMessageContaining("Project structure has no open question");
     }
 
     @Test

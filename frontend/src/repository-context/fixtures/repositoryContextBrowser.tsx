@@ -430,6 +430,7 @@ function install() {
     dropRepositoryContextQuestion: async (_workspaceId, request) => changeQuestions(request, questions => questions.map((value, index) =>
       index === request.question ? { ...value, status: 'DROPPED', note: 'Dropped by you' } : value)),
     goDeeperRepositoryContextTopic: async (_workspaceId, request) => start('deeper', request, 'LEARN'),
+    learnRepositoryContextTopic: async (_workspaceId, request) => start('topic', request, 'LEARN'),
     allowRepositoryContextLearningSource: async (_workspaceId, request) => {
       state.calls.allows.push(clone(request));
       const current = state.planView.plan;
@@ -701,6 +702,21 @@ const scenarios: Array<[string, () => Promise<void>]> = [
     await click('Go deeper', topic());
     assert(state.calls.starts.map(start => start.kind).join() === 'deeper'
       && (state.calls.starts[0].request as { topicId: string }).topicId === 'topic:iceberg', 'Go deeper starts one run for the topic');
+  }],
+  ['Learn this topic runs one topic’s open questions before the plan’s order reaches them', async () => {
+    await render('review');
+    const head = [...document.querySelectorAll<HTMLButtonElement>('.rcp-topic__head')]
+      .find(button => button.querySelector('.rcp-topic__title')?.textContent === 'Query planning and optimizer rules');
+    assert(head !== undefined, 'The planner topic is listed');
+    head.click();
+    await settle();
+    const topic = head.closest('.rcp-topic');
+    assert(topic !== null && text(topic).includes('Starts 4 runs · this topic’s open questions in one task, ahead of the plan’s order'),
+      'The topic says what Learn this topic starts');
+    assert(state.calls.starts.length === 0, 'Opening a topic starts nothing');
+    await click('Learn this topic', topic);
+    assert(state.calls.starts.map(start => start.kind).join() === 'topic'
+      && (state.calls.starts[0].request as { topicId: string }).topicId === 'topic:planner', 'Learn this topic starts the batch for that topic');
   }],
   ['a running learning question shows its question and can be stopped', async () => {
     await render('learning');

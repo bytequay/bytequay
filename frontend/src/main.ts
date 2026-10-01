@@ -69,6 +69,7 @@ import {
   parseEditContextLearningQuestionRequest,
   parseEditRepositoryContextEntryRequest,
   parseGoDeeperContextLearningRequest,
+  parseLearnContextTopicRequest,
   parseContextSpecCheck,
   parseContextSpecChecks,
   parseContextSpecCheckStarted,
@@ -1393,6 +1394,9 @@ function registerIpc(): void {
       .then(value => parseContextLearningPlanView(value, workspaceId)));
   ipcMain.handle('repository-context:build:plan:deeper', (_event, workspaceId: string, request: unknown) =>
     backendJson(contextBuildUrl(workspaceId) + '/plan/deeper', jsonInit('POST', parseGoDeeperContextLearningRequest(request), agentHeaders()))
+      .then(value => parseContextBuildView(value, workspaceId)));
+  ipcMain.handle('repository-context:build:plan:topic', (_event, workspaceId: string, request: unknown) =>
+    backendJson(contextBuildUrl(workspaceId) + '/plan/topic', jsonInit('POST', parseLearnContextTopicRequest(request), agentHeaders()))
       .then(value => parseContextBuildView(value, workspaceId)));
   const specCheckUrl = (workspaceId: string) => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/spec-checks`;
   ipcMain.handle('repository-context:spec-checks:get', (_event, workspaceId: string) =>

@@ -19,7 +19,7 @@ import type { ModelSettingsDto, WorkspaceDto } from '../types';
 import type {
   ContextBaselineDto, ContextBuildViewDto, ContextDiscoveryReportDto, ContextDisputesDto, ContextLearningPlanViewDto, ContextMergedCandidatesDto, ContextReportedNoteDto,
   ContextRunDto, ContextSpecCandidateDto, ContextSpecCheckDto, StartContextSpecCheckRequest,
-  ContextTimesDto, ContextUsageOverviewDto, ContinueContextLearningRequest, GoDeeperContextLearningRequest, InvestigateRepositoryContextNoteRequest,
+  ContextTimesDto, ContextUsageOverviewDto, ContinueContextLearningRequest, GoDeeperContextLearningRequest, InvestigateRepositoryContextNoteRequest, LearnContextTopicRequest,
   LearnContextMergedCandidateRequest,
   RepositoryNotebookDto, StartContextDiscoveryRequest,
   StartContextLearningRequest,
@@ -43,6 +43,7 @@ export type PendingStart =
   | { kind: 'candidate'; request: LearnContextMergedCandidateRequest }
   | { kind: 'investigate'; request: InvestigateRepositoryContextNoteRequest }
   | { kind: 'deeper'; request: GoDeeperContextLearningRequest }
+  | { kind: 'topic'; request: LearnContextTopicRequest }
   | { kind: 'spec'; request: StartContextSpecCheckRequest };
 
 const pendingKey = (workspaceId: string) => `repository-context-start:${workspaceId}`;
@@ -224,6 +225,7 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
         : next.kind === 'continue' ? await window.bridge.continueRepositoryContextLearning(workspaceId, next.request)
           : next.kind === 'candidate' ? await window.bridge.learnRepositoryContextMergedCandidate(workspaceId, next.request)
             : next.kind === 'deeper' ? await window.bridge.goDeeperRepositoryContextTopic(workspaceId, next.request)
+              : next.kind === 'topic' ? await window.bridge.learnRepositoryContextTopic(workspaceId, next.request)
               : next.kind === 'spec' ? (await window.bridge.startRepositoryContextSpecCheck(workspaceId, next.request)).build
                 : await window.bridge.investigateRepositoryContextNote(workspaceId, next.request);
     if (!mounted.current) return;
@@ -301,6 +303,7 @@ export default function RepositoryContextPage({ workspace, initialRunId = null }
     learnCandidate: (candidateId: string): void => void start({ kind: 'candidate', request: { ...fence(), candidateId } }),
     investigate: (entryId: string): void => void start({ kind: 'investigate', request: { ...fence(), entryId } }),
     goDeeper: (topicId: string) => { if (planView.plan !== null) void start({ kind: 'deeper', request: { ...fence(), planId: planView.plan.id, topicId } }); },
+    learnTopic: (topicId: string) => { if (planView.plan !== null) void start({ kind: 'topic', request: { ...fence(), planId: planView.plan.id, topicId } }); },
     checkSpec: (topicId: string, specs: string[]) => {
       if (planView.plan !== null) void start({ kind: 'spec', request: { ...fence(), planId: planView.plan.id, topicId, specs } });
     },
@@ -415,6 +418,7 @@ export type ContextActions = {
   learnCandidate: (candidateId: string) => void;
   investigate: (entryId: string) => void;
   goDeeper: (topicId: string) => void;
+  learnTopic: (topicId: string) => void;
   checkSpec: (topicId: string, specs: string[]) => void;
   dismissFinding: (check: ContextSpecCheckDto, candidateId: string, reason: string) => void;
   openIssue: (candidate: ContextSpecCandidateDto) => void;

@@ -44,6 +44,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.BiFunction;
 import java.util.function.UnaryOperator;
+import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -299,7 +300,7 @@ public class ContextLearningService
     }
 
     /** Adds a question asking what the topic should cover next and starts one run for it alone. */
-    public ContextBuildService.View goDeeper(String workspaceId, DeeperRequest request)
+    public ContextBuildService.View goDeeper(String workspaceId, TopicRequest request)
     {
         if (buildStore.find(workspaceId).filter(build -> build.requestKey().equals(request.requestKey())).isPresent()) {
             return builds.get(workspaceId);
@@ -317,7 +318,22 @@ public class ContextLearningService
             deeper = addQuestionAt(workspaceId, plan, topic, ContextLearningPlan.Question.added(text, ContextLearningPlan.Origin.USER, "Go deeper"));
         }
         return startBatch(deeper, request.requestKey(), request.expectedBuildSequence(), request.expectedRevision(), false,
-                Optional.of(new ContextLearningPlan.Target(topic.id(), index)), true);
+                ImmutableList.of(new ContextLearningPlan.Target(topic.id(), index)), true);
+    }
+
+    /**
+     * Runs one topic's open questions as one batch, unfinished first, so the topic is learned before the plan's order reaches it.
+     * Questions its runs add wait for the next batch.
+     */
+    public ContextBuildService.View learnTopic(String workspaceId, TopicRequest request)
+    {
+        ContextLearningPlan plan = get(workspaceId).filter(value -> value.id().equals(request.planId()))
+                .orElseThrow(() -> new IllegalArgumentException("Learning plan changed; inspect current progress"));
+        ContextLearningPlan.Topic topic = topic(plan, request.topicId());
+        List<ContextLearningPlan.Target> open = plan.open().stream().filter(target -> target.topicId().equals(topic.id())).toList();
+        checkArgument(!open.isEmpty() || buildStore.find(workspaceId).filter(build -> build.requestKey().equals(request.requestKey())).isPresent(),
+                "%s has no open question", topic.title());
+        return startBatch(plan, request.requestKey(), request.expectedBuildSequence(), request.expectedRevision(), false, open, true);
     }
 
     private ContextLearningPlan addQuestionAt(String workspaceId, ContextLearningPlan plan, ContextLearningPlan.Topic topic, ContextLearningPlan.Question question)
@@ -352,26 +368,29 @@ public class ContextLearningService
     }
 
     /** One click runs each open question in turn, starting with the requested one; the coordinator starts the rest. */
+    /** Every open question of the plan, the requested one first. */
     private ContextBuildService.View startBatch(ContextLearningPlan plan, String requestKey, long expectedBuildSequence,
             long expectedRevision, boolean accepted, Optional<ContextLearningPlan.Target> requested)
     {
-        return startBatch(plan, requestKey, expectedBuildSequence, expectedRevision, accepted, requested, false);
+        List<ContextLearningPlan.Target> open = plan.open();
+        List<ContextLearningPlan.Target> order = requested.map(first -> Stream.concat(Stream.of(first), open.stream().filter(target -> !target.equals(first)))
+                .toList()).orElse(open);
+        return startBatch(plan, requestKey, expectedBuildSequence, expectedRevision, accepted, order, false);
     }
 
+    /** The first question runs now and the others wait in order; alone, a question added meanwhile waits for another batch. */
     private ContextBuildService.View startBatch(ContextLearningPlan plan, String requestKey, long expectedBuildSequence,
-            long expectedRevision, boolean accepted, Optional<ContextLearningPlan.Target> requested, boolean alone)
+            long expectedRevision, boolean accepted, List<ContextLearningPlan.Target> order, boolean alone)
     {
         if (buildStore.find(plan.workspaceId()).filter(build -> build.requestKey().startsWith(requestKey + "#")).isPresent()) {
             return builds.get(plan.workspaceId());
         }
-        List<ContextLearningPlan.Target> open = plan.open();
-        Optional<ContextLearningPlan.Target> first = requested.or(() -> open.stream().findFirst());
+        Optional<ContextLearningPlan.Target> first = order.stream().findFirst();
         if (first.isEmpty() || buildStore.find(plan.workspaceId()).filter(build -> build.requestKey().equals(requestKey)).isPresent()) {
             return launch(plan, requestKey, expectedBuildSequence, expectedRevision, accepted, first);
         }
         checkArgument(requestKey.length() <= 90, "A learning request key is at most 90 characters");
-        List<ContextLearningPlan.Target> queue = alone ? ImmutableList.of() : open.stream().filter(target -> !target.equals(first.orElseThrow()))
-                .limit(ContextLearningPlan.Batch.MAX_RUNS - 1).toList();
+        List<ContextLearningPlan.Target> queue = order.stream().skip(1).limit(ContextLearningPlan.Batch.MAX_RUNS - 1).toList();
         ContextLearningPlan batched = plans.save(Optional.of(plan), plan.withBatch(Optional.of(new ContextLearningPlan.Batch(requestKey, queue,
                 ImmutableList.of(first.orElseThrow()), queue.size() + 1, alone))));
         try {
@@ -829,12 +848,13 @@ public class ContextLearningService
         }
     }
 
-    public record DeeperRequest(String requestKey, long expectedRevision, long expectedBuildSequence, String planId, String topicId)
+    /** A run of one topic's questions: Go deeper and Learn this topic. */
+    public record TopicRequest(String requestKey, long expectedRevision, long expectedBuildSequence, String planId, String topicId)
     {
-        public DeeperRequest
+        public TopicRequest
         {
             ContextLimits.text(requestKey, "requestKey", 90);
-            checkArgument(expectedRevision >= 0 && expectedBuildSequence >= 0, "Invalid Go deeper request");
+            checkArgument(expectedRevision >= 0 && expectedBuildSequence >= 0, "Invalid topic run request");
             ContextLimits.text(planId, "planId", 100);
             ContextLimits.text(topicId, "topicId", 100);
         }

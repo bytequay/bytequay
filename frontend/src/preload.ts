@@ -324,6 +324,7 @@ const bridge: Bridge = {
   editRepositoryContextQuestion: (workspaceId, request) => ipcRenderer.invoke('repository-context:build:plan:questions:edit', workspaceId, request),
   dropRepositoryContextQuestion: (workspaceId, request) => ipcRenderer.invoke('repository-context:build:plan:questions:drop', workspaceId, request),
   goDeeperRepositoryContextTopic: (workspaceId, request) => ipcRenderer.invoke('repository-context:build:plan:deeper', workspaceId, request),
+  learnRepositoryContextTopic: (workspaceId, request) => ipcRenderer.invoke('repository-context:build:plan:topic', workspaceId, request),
   getRepositoryContextSpecChecks: workspaceId => ipcRenderer.invoke('repository-context:spec-checks:get', workspaceId),
   getRepositoryContextSpecSources: (workspaceId, topicId) => ipcRenderer.invoke('repository-context:spec-checks:sources', workspaceId, topicId),
   startRepositoryContextSpecCheck: (workspaceId, request) => ipcRenderer.invoke('repository-context:spec-checks:start', workspaceId, request),

@@ -79,6 +79,8 @@ export type EditContextLearningQuestionRequest = { planId: string; topicId: stri
 export type DropContextLearningQuestionRequest = { planId: string; topicId: string; question: number };
 /** Go deeper adds a question asking what the topic should cover next and starts one run for it. */
 export type GoDeeperContextLearningRequest = ContextRunFence & { planId: string; topicId: string };
+/** Learn this topic runs the topic's open questions as one batch, ahead of the plan's order. */
+export type LearnContextTopicRequest = ContextRunFence & { planId: string; topicId: string };
 export type DiscardContextLearningPlanRequest = { planId: string; expectedRevision: number; expectedBuildSequence: number };
 export type ContextSourceBoundary = 'PAGE' | 'ROOT';
 export type AllowContextLearningSourceRequest = DiscardContextLearningPlanRequest & { suggestedUrl: string; boundary: ContextSourceBoundary };
@@ -447,6 +449,10 @@ export function parseDropContextLearningQuestionRequest(value: unknown): DropCon
 export function parseGoDeeperContextLearningRequest(value: unknown): GoDeeperContextLearningRequest {
   const item = request(value, ['requestKey', 'expectedRevision', 'expectedBuildSequence', 'planId', 'topicId']);
   return { ...runFence(item, 'go deeper'), planId: nonblank(item.planId, 'learning plan id'), topicId: nonblank(item.topicId, 'learning topic id') };
+}
+export function parseLearnContextTopicRequest(value: unknown): LearnContextTopicRequest {
+  const item = request(value, ['requestKey', 'expectedRevision', 'expectedBuildSequence', 'planId', 'topicId']);
+  return { ...runFence(item, 'learn topic'), planId: nonblank(item.planId, 'learning plan id'), topicId: nonblank(item.topicId, 'learning topic id') };
 }
 export function parseDiscardContextLearningPlanRequest(value: unknown): DiscardContextLearningPlanRequest {
   const item = request(value, ['planId', 'expectedRevision', 'expectedBuildSequence']);

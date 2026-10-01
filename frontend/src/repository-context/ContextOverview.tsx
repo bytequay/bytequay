@@ -270,6 +270,7 @@ function TopicQuestions({ data, actions, busy, topic, rows, openNote }: {
   const [draft, setDraft] = useState('');
   const [editing, setEditing] = useState<{ index: number; text: string } | null>(null);
   const check = data.planView.plan === null ? null : topicCheck(data.checks, data.planView.plan.id, topic.id);
+  const open = rows.filter(row => row.state === 'PENDING' || row.state === 'UNFINISHED').length;
   const canRun = data.build.canStart && !busy && data.model.blocker === null;
   const changes: QuestionChanges = { edit: row => setEditing({ index: row.index, text: row.text }), drop: row => actions.dropQuestion(topic.id, row.index) };
   const add = (event: FormEvent) => {
@@ -295,6 +296,12 @@ function TopicQuestions({ data, actions, busy, topic, rows, openNote }: {
         onChange={event => setDraft(event.target.value)} />
       <button type="submit" className="rcp-btn rcp-btn--secondary" disabled={busy || draft.trim() === ''}>Add question</button>
     </form>
+    {open > 0 && <div className="rcp-q-deeper">
+      <button type="button" className="rcp-btn rcp-btn--secondary" disabled={!canRun} onClick={() => actions.learnTopic(topic.id)}>
+        <Icon name="bolt" size={13} />Learn this topic</button>
+      <RunLine workspaceId={data.workspaceId} blocked={data.model.blocker !== null}>{data.model.blocker
+        ?? `Starts ${plural(open, 'run')} · this topic’s open ${open === 1 ? 'question' : 'questions'} in one task, ahead of the plan’s order · ${data.model.label}`}</RunLine>
+    </div>}
     <div className="rcp-q-deeper">
       <button type="button" className="rcp-btn rcp-btn--secondary" disabled={!canRun} onClick={() => actions.goDeeper(topic.id)}>
         <Icon name="bolt" size={13} />Go deeper</button>

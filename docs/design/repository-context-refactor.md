@@ -259,7 +259,9 @@ runs per click. It never runs a question twice, so a question it leaves
 unfinished waits for a later click. The run line shows how many runs the click
 starts. Each queued question carries its place in the batch as a number, the
 last one with a flag, and before a click the plan previews what one click
-would run. Go deeper runs only its own question.
+would run. Go deeper runs only its own question. **Learn this topic** runs one
+topic's open questions, unfinished first, ahead of the plan's order; questions its
+runs add wait for a later click.
 
 A batch asks a topic's questions as turns of one learning task, so each run
 starts from what the earlier ones in that conversation read; it still cites only
@@ -542,8 +544,8 @@ implementation extends its existing patterns rather than the old settings page.
   it and say that no agent runs.
 - **Learning plan.** Each question shows its state as a glyph and, when it did
   not come from discovery, its origin as an icon; why a question was corrected
-  or dropped, and a filed question's lead, show on hover. A topic offers adding a question, editing or dropping an open one, and
-  Go deeper. A running batch shows which of its questions it is on.
+  or dropped, and a filed question's lead, show on hover. A topic offers adding a question, editing or dropping an open one,
+  Learn this topic and Go deeper. A running batch shows which of its questions it is on.
 - **Counts.** Questions answered, pages opened and notes saved stay separate;
   there is no completion percentage. The plan, each topic and Notes show their
   counts as an icon and a number, with the sentence on hover. Run limits appear

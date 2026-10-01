@@ -26,6 +26,7 @@ import type {
   ContextUsageOverviewDto,
   ContextUsageWindow,
   GoDeeperContextLearningRequest,
+  LearnContextTopicRequest,
   ContextSpecCheckDto,
   ContextSpecCheckStartedDto,
   ContextSpecSourceDto,
@@ -1659,6 +1660,8 @@ export type Bridge = JiraBridge & {
   editRepositoryContextQuestion: (workspaceId: string, request: EditContextLearningQuestionRequest) => Promise<ContextLearningPlanViewDto>;
   dropRepositoryContextQuestion: (workspaceId: string, request: DropContextLearningQuestionRequest) => Promise<ContextLearningPlanViewDto>;
   goDeeperRepositoryContextTopic: (workspaceId: string, request: GoDeeperContextLearningRequest) => Promise<ContextBuildViewDto>;
+  /** Runs one topic's open questions as one batch, ahead of the plan's order. */
+  learnRepositoryContextTopic: (workspaceId: string, request: LearnContextTopicRequest) => Promise<ContextBuildViewDto>;
   /** The latest spec check of each plan topic, and the specs a topic's code links; reads only. */
   getRepositoryContextSpecChecks: (workspaceId: string) => Promise<ContextSpecCheckDto[]>;
   getRepositoryContextSpecSources: (workspaceId: string, topicId: string) => Promise<ContextSpecSourceDto[]>;

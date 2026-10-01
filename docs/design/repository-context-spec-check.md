@@ -14,19 +14,20 @@ and reads the result; nothing in between asks for a decision.
 ## 1. What the user does
 
 **Start.** A topic offers **Check against spec**, which opens its Spec check
-drawer. The drawer lists the specs found for the topic, each already selected,
-with how often the code links it: "Spec · 25 links from the topic's code · 20
-sections". The code's other links, documentation and reference code, are folded
-below and unselected. The user may add a spec
-address or clear one, but never picks sections: the check plans them. A new
-check of a topic starts from the specs its last check read. Usually the user just
-starts. The run line states what the click starts: one task for the topic, a
-check turn and up to eight reproduction turns, and the model.
+drawer. The drawer says what the check reads: every page the topic's code links,
+with how often the code cites it ("Linked page · cited 32 times · 20 sections"),
+and other engines' source files as reference code. The check decides which pages
+are specifications by reading them; the user does not pick them. The user may add
+a spec address the code doesn't link, and never picks sections: the check plans
+them. A new check of a topic is told which specs the last check used. Usually the
+user just starts. The run line states what the click starts: one task for the
+topic, a check turn and up to eight reproduction turns, and the model.
 
 **Finish.** The topic shows a report, and Needs you links to it. It says, for
 example: "2 bugs and 3 feature requests confirmed · 4 not reproduced · 1 already
-reported (#31252)", and what the check covered: "41 rules in 14 sections; the
-next check continues with Column Mapping and Domain Metadata". Each confirmed
+reported (#31252)", which specifications the check used, and what it covered:
+"41 rules in 14 sections; the next check continues with Column Mapping and Domain
+Metadata". Each confirmed
 finding has its type, title, the spec rule with its link, the code lines, the
 failing test, its output and a proposed change. **Open issue** opens GitHub's
 new-issue form in the in-app browser, pre-filled with that finding; the user
@@ -38,25 +39,31 @@ Nothing is filed, commented or pushed without the user's click.
 
 ## 2. Which specs
 
-ByteQuay lists candidates without a model, strongest first:
+ByteQuay lists the pages without a model, and the check decides which are
+specifications. An address cannot say that: a keyword rule missed the IETF
+cookie draft the Trino server code cites, and link counts rank a Snowflake user
+guide above the Iceberg spec. A page's text can: specifications state their rules
+with must, should and required, which guides and product pages rarely do.
 
 1. Links in the topic's own code. A text scan of the topic's paths groups links by
-   address without the `#section`, counts them and keeps their sections. An
-   address that names a spec, specification, protocol, RFC, format or standard is
-   a spec. Source files of another engine are kept as reference implementations,
-   used for comparison and never as rules. Other pages are listed as
-   documentation. Build files' XML namespaces, issues, pull requests, discussion
-   threads, site home pages and license links are dropped.
-2. The topic's approved documentation sources and pages discovery suggested.
-3. A spec the model proposes, shown unselected until the user selects it.
+   address without the `#section`, counts them and keeps their sections, most
+   cited sections first. Source files of another engine are kept as reference
+   implementations, used for comparison and never as rules. Only what never is a
+   specification is dropped: build files' XML, license links, site home pages,
+   and repository pages other than files, such as issues and pull requests.
+2. The topic's approved documentation sources.
+3. Pages the user adds that the code doesn't link.
 
-A topic whose code links no spec, like the Iceberg connector, starts with only
-the second and third kinds. The check reads each selected spec's text with PAGE
-and never relies on the model's memory of it.
+The check reads each page's text with PAGE and never relies on the model's
+memory of it.
 
 ## 3. The pipeline
 
-**Check turn.** The task plans which sections to read; the user does not.
+**Check turn.** The task first decides which listed pages are specifications:
+pages that state rules an implementation must follow, not guides, product pages
+or discussions. It opens a page when its address does not settle that, reports
+the specifications it used, and saves no candidates when none is one. Then it
+plans which sections to read; the user does not.
 
 1. Sections the code links, most-linked first, and the sections next to them.
 2. The sections of features the code declares, supported or refused, such as the

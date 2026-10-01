@@ -774,8 +774,8 @@ export function parseSaveRepositoryContextLessonRequest(value: unknown): SaveRep
 
 /* ── Spec checks ─────────────────────────────────────────────────────── */
 
-/** A page the topic's code links, how often and at which sections: a spec it implements, other documentation, or another engine's source, for comparison only. */
-export type ContextSpecSourceDto = { url: string; kind: 'SPEC' | 'DOCUMENT' | 'REFERENCE_CODE'; links: number; sections: string[]; approved: boolean };
+/** A page the topic's code links, how often and at which sections, or another engine's source file, for comparison only. The check decides which pages are specs. */
+export type ContextSpecSourceDto = { url: string; kind: 'PAGE' | 'REFERENCE_CODE'; links: number; sections: string[]; approved: boolean };
 export type ContextSpecCheckState = 'CHECKING' | 'REPRODUCING' | 'DONE' | 'STOPPED' | 'FAILED';
 export type ContextSpecCandidateType = 'BUG' | 'FEATURE_REQUEST' | 'IMPROVEMENT';
 export type ContextSpecCandidateStatus = 'PENDING' | 'REPRODUCING' | 'CONFIRMED' | 'REFUTED' | 'NOT_REPRODUCED' | 'ALREADY_REPORTED';
@@ -788,20 +788,20 @@ export type ContextSpecCandidateDto = {
   test: null | { path: string; command: string; exitCode: number; output: string; source: string };
   reason: string | null; draft: null | { title: string; body: string; labels: string[] }; dismissed: string | null;
 };
-/** The latest spec check of one plan topic. */
+/** The latest spec check of one plan topic: the pages it read to find specs, and the specs it checked against. */
 export type ContextSpecCheckDto = {
   id: string; planId: string; topicId: string; topicTitle: string; scopeId: string; paths: string[]; baselineSha: string; requestKey: string;
-  specs: string[]; labels: string[]; state: ContextSpecCheckState; candidates: ContextSpecCandidateDto[]; covered: string[]; next: string[];
+  specs: string[]; checkedAgainst: string[]; labels: string[]; state: ContextSpecCheckState; candidates: ContextSpecCandidateDto[]; covered: string[]; next: string[];
   reproductions: number; detail: string | null; startedAt: string; endedAt: string | null;
 };
-/** Starts one check of a topic against the selected specs; the check plans which sections to read. */
+/** Starts one check of a topic: the pages to find its specs among, and the sections, are the check's to choose. */
 export type StartContextSpecCheckRequest = ContextRunFence & { planId: string; topicId: string; specs: string[] };
 export type ContextSpecCheckStartedDto = { check: ContextSpecCheckDto; build: ContextBuildViewDto };
 
 export function parseContextSpecSources(value: unknown): ContextSpecSourceDto[] {
   return array(object(value, 'spec sources').sources, 'spec sources', raw => {
     const item = object(raw, 'spec source');
-    return { url: text(item.url, 'spec address'), kind: oneOf(item.kind, ['SPEC', 'DOCUMENT', 'REFERENCE_CODE'], 'spec kind'), links: count(item.links, 'spec links'),
+    return { url: text(item.url, 'spec address'), kind: oneOf(item.kind, ['PAGE', 'REFERENCE_CODE'], 'spec kind'), links: count(item.links, 'spec links'),
       sections: strings(item.sections, 'spec sections'), approved: flag(item.approved, 'approved spec') };
   });
 }
@@ -832,7 +832,7 @@ export function parseContextSpecCheck(value: unknown): ContextSpecCheckDto {
   return { id: text(item.id, 'check id'), planId: text(item.planId, 'check plan'), topicId: text(item.topicId, 'check topic'),
     topicTitle: text(item.topicTitle, 'check topic title'), scopeId: text(item.scopeId, 'check scope'), paths: strings(item.paths, 'check paths'),
     baselineSha: text(item.baselineSha, 'check baseline'), requestKey: text(item.requestKey, 'check request key'), specs: strings(item.specs, 'check specs'),
-    labels: strings(item.labels, 'repository labels'), state: oneOf(item.state, ['CHECKING', 'REPRODUCING', 'DONE', 'STOPPED', 'FAILED'], 'check state'),
+    checkedAgainst: strings(item.checkedAgainst, 'checked specs'), labels: strings(item.labels, 'repository labels'), state: oneOf(item.state, ['CHECKING', 'REPRODUCING', 'DONE', 'STOPPED', 'FAILED'], 'check state'),
     candidates: array(item.candidates, 'spec candidates', specCandidate), covered: strings(item.covered, 'covered sections'), next: strings(item.next, 'next sections'),
     reproductions: count(item.reproductions, 'reproductions'), detail: optionalText(item.detail, 'check detail'), startedAt: text(item.startedAt, 'check start'),
     endedAt: optionalText(item.endedAt, 'check end') };
@@ -848,7 +848,7 @@ export function parseStartContextSpecCheckRequest(value: unknown): StartContextS
   const item = request(value, ['requestKey', 'expectedRevision', 'expectedBuildSequence', 'planId', 'topicId', 'specs']);
   const result = { ...runFence(item, 'spec check'), planId: nonblank(item.planId, 'learning plan id'), topicId: nonblank(item.topicId, 'learning topic id'),
     specs: strings(item.specs, 'specs') };
-  if (result.specs.length === 0 || result.specs.length > 10 || result.specs.some(spec => !spec.startsWith('https://'))) malformed('specs');
+  if (result.specs.length === 0 || result.specs.length > 30 || result.specs.some(spec => !spec.startsWith('https://'))) malformed('specs');
   return result;
 }
 export function parseDismissContextSpecFindingRequest(value: unknown): { reason: string } {

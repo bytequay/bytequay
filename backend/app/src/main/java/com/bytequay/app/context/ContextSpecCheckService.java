@@ -149,13 +149,14 @@ public class ContextSpecCheckService
         Optional<ContextSpecCheck> previous = checks.find(workspaceId).stream().filter(check -> check.topicId().equals(topic.id())).findFirst();
         Optional<ContextSpecCheck> earlier = previous.filter(check -> check.planId().equals(plan.id()));
         ContextSpecCheck check = checks.save(workspaceId, previous, new ContextSpecCheck(UUID.randomUUID().toString(), plan.id(), topic.id(), topic.title(),
-                topic.scopeId(), topic.paths(), baseline.sha(), request.requestKey(), request.specs(), labels(plan.repository()), ContextSpecCheck.State.CHECKING,
+                topic.scopeId(), topic.paths(), baseline.sha(), request.requestKey(), request.specs(), ImmutableList.of(), labels(plan.repository()),
+                ContextSpecCheck.State.CHECKING,
                 earlier.map(ContextSpecCheck::kept).orElse(ImmutableList.of()), earlier.map(ContextSpecCheck::covered).orElse(ImmutableList.of()),
                 earlier.map(ContextSpecCheck::next).orElse(ImmutableList.of()), 0, Optional.empty(), Instant.now(clock), Optional.empty()));
         try {
             ContextBuildService.View view = builds.check(workspaceId, new ContextBuildService.Request(request.requestKey(), request.expectedRevision(),
                     request.expectedBuildSequence(), ImmutableList.of(check.scopeId()), ImmutableList.of()), check.baselineSha(),
-                    new ContextBuild.Check(check.id(), check.topicTitle(), Optional.empty(), planningBrief(check, found)));
+                    new ContextBuild.Check(check.id(), check.topicTitle(), Optional.empty(), planningBrief(check, earlier, found)));
             return new Started(checks.find(workspaceId, check.id()).orElseThrow(), view);
         }
         catch (RuntimeException failure) {
@@ -284,13 +285,16 @@ public class ContextSpecCheckService
     }
 
     /**
-     * Adds the planning turn's candidates, keeping each title once, and replaces the covered and next sections it passes. A duplicate
-     * must be a report this turn's search returned: an open one is already reported and never reproduced, a closed one is reproduced.
+     * Adds the planning turn's candidates, keeping each title once, and replaces the specs it read, and the covered and next sections,
+     * when it passes them. A duplicate must be a report this turn's search returned: an open one is already reported and never
+     * reproduced, a closed one is reproduced.
      */
-    public Saved saveCandidates(ContextBuild build, List<Found> found, List<String> covered, List<String> next, List<Question> questions,
-            IntFunction<Optional<Duplicate>> searched)
+    public Saved saveCandidates(ContextBuild build, List<Found> found, Optional<List<String>> checked, List<String> covered, List<String> next,
+            List<Question> questions, IntFunction<Optional<Duplicate>> searched)
     {
         ContextSpecCheck check = requireCheck(build, false);
+        checked.ifPresent(specs -> specs.forEach(spec -> checkArgument(check.specs().contains(spec) || build.capture().attempts().containsKey("page:" + spec),
+                "specs: %s is not a page of this check or a page read in this turn", spec)));
         checkArgument(found.size() <= 20, "Save at most 20 candidates per call");
         List<Candidate> candidates = new ArrayList<>(check.candidates());
         int number = candidates.stream().mapToInt(candidate -> Integer.parseInt(candidate.id().substring(1))).max().orElse(0);
@@ -318,7 +322,7 @@ public class ContextSpecCheckService
         }
         checkArgument(candidates.size() <= ContextSpecCheck.MAX_CANDIDATES, "A check keeps at most %s candidates; save the most severe",
                 ContextSpecCheck.MAX_CANDIDATES);
-        ContextSpecCheck updated = checks.save(build.workspaceId(), Optional.of(check), check.withCandidates(candidates,
+        ContextSpecCheck updated = checks.save(build.workspaceId(), Optional.of(check), check.withCandidates(candidates, checked.orElse(check.checkedAgainst()),
                 covered.isEmpty() ? check.covered() : covered, next.isEmpty() ? check.next() : next));
         List<String> asked = questions.stream().map(question -> {
             try {
@@ -517,18 +521,31 @@ public class ContextSpecCheckService
         return check;
     }
 
-    /** What a planning turn starts from: the specs, the topic's paths, where an earlier check stopped and what it kept. */
-    static String planningBrief(ContextSpecCheck check, List<ContextSpecSource> found)
+    /**
+     * What a planning turn starts from: the pages to find the specs among, the reference code, the topic's paths, and where an earlier
+     * check stopped, which specs it used and what it kept.
+     */
+    static String planningBrief(ContextSpecCheck check, Optional<ContextSpecCheck> earlier, List<ContextSpecSource> found)
     {
-        StringBuilder brief = new StringBuilder("Specs to check against (read them with PAGE):\n");
+        StringBuilder brief = new StringBuilder("Pages the topic's code links, most cited first; decide which are specifications the code implements:\n");
+        StringBuilder reference = new StringBuilder();
         for (String spec : check.specs()) {
             Optional<ContextSpecSource> scanned = found.stream().filter(source -> source.url().equals(spec)).findFirst();
-            brief.append("- ").append(spec).append(scanned.map(source -> (source.kind() == ContextSpecSource.Kind.REFERENCE_CODE
-                            ? " · reference implementation, for comparison only, never a rule" : "")
-                    + (source.links() > 0 ? " · linked " + source.links() + (source.links() == 1 ? " time" : " times") + " from the topic's code" : "")
-                    + (source.sections().isEmpty() ? "" : " · sections the code links: #" + String.join(", #", source.sections()))).orElse(" · added by the user"))
-                    .append('\n');
+            String line = "- " + spec + scanned.map(source -> (source.links() > 0 ? " · cited " + source.links() + (source.links() == 1 ? " time" : " times") : "")
+                    + (source.approved() ? " · approved documentation of the topic" : "")
+                    + (source.sections().isEmpty() ? "" : " · sections the code links: #" + String.join(", #", source.sections()))).orElse(" · added by the user") + "\n";
+            if (scanned.filter(source -> source.kind() == ContextSpecSource.Kind.REFERENCE_CODE).isPresent()) {
+                reference.append(line);
+            }
+            else {
+                brief.append(line);
+            }
         }
+        if (!reference.isEmpty()) {
+            brief.append("Reference implementations in another engine, for comparison only and never rules:\n").append(reference);
+        }
+        earlier.filter(value -> !value.checkedAgainst().isEmpty())
+                .ifPresent(value -> brief.append("The last check used these as specifications: ").append(String.join(", ", value.checkedAgainst())).append('\n'));
         brief.append("Topic paths: ").append(check.paths().isEmpty() ? "the whole repository" : String.join(", ", check.paths())).append('\n');
         if (!check.covered().isEmpty()) {
             brief.append("An earlier check covered: ").append(String.join("; ", check.covered())).append('\n');

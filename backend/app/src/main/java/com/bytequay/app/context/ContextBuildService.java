@@ -634,6 +634,11 @@ public class ContextBuildService
         if (check.reproduction().isEmpty()) {
             return "Check the code" + where + " against the specifications it implements, and save candidate gaps. Later turns reproduce each "
                     + "candidate with a test; this turn writes no files and runs no builds.\n\n" + check.brief() + "\n"
+                    + "First decide which of the listed pages are specifications. A specification states rules an implementation must follow: required "
+                    + "fields, formats, ordering, what readers and writers must and should do. User guides, product pages, issue and discussion threads "
+                    + "are not specifications, and reference implementations are only for comparison. Open a page with repository_context_read PAGE "
+                    + "when its address does not settle it; its first read returns the outline. Pass the pages you use as specifications in specs when "
+                    + "you save candidates. When none is a specification, save no candidates with empty specs, and end.\n"
                     + "Plan the sections yourself. Start with the sections the code links, most-linked first, and the sections next to them. Then read "
                     + "the sections of features the code declares, supported or refused, such as a table-features list, and the spec's feature table. "
                     + "Then read sections the spec's outline shows cover the same areas, although the code never links them; the first PAGE read of a "

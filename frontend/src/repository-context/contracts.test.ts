@@ -125,14 +125,16 @@ describe('spec check contracts', () => {
         exitCode: 1, output: 'expected: 2 but was: 1', source: 'class TestKeys {}' }, reason: 'fails', draft: { title: 'Removes keyed by path', body: 'body', labels: ['bug'] },
       dismissed: null as string | null };
     const check = { id: 'check-1', planId: 'plan', topicId: 'topic:delta', topicTitle: 'Delta Lake', scopeId: 'delta', paths: ['plugin/trino-delta-lake/'],
-      baselineSha: 'a'.repeat(40), requestKey: 'key', specs: ['https://github.com/delta-io/delta/blob/master/PROTOCOL.md'], labels: ['bug'], state: 'DONE',
+      baselineSha: 'a'.repeat(40), requestKey: 'key', specs: ['https://github.com/delta-io/delta/blob/master/PROTOCOL.md'],
+      checkedAgainst: ['https://github.com/delta-io/delta/blob/master/PROTOCOL.md'], labels: ['bug'], state: 'DONE',
       candidates: [finding, { ...finding, id: 'c2', status: 'NOT_REPRODUCED', test: null, draft: null, duplicate: null, reason: 'Needs a container' }],
       covered: ['Checkpoints'], next: ['Column Mapping'], reproductions: 2, detail: null as string | null, startedAt: '2026-10-01T00:00:00Z', endedAt: '2026-10-01T01:00:00Z' };
     expect(parseContextSpecChecks({ checks: [check] })).toEqual([check]);
     expect(() => parseContextSpecChecks({ checks: [{ ...check, state: 'PAUSED' }] })).toThrow('check state');
     expect(() => parseContextSpecChecks({ checks: [{ ...check, candidates: [{ ...finding, test: { ...finding.test, exitCode: 'failed' } }] }] })).toThrow('test exit code');
-    expect(parseContextSpecSources({ sources: [{ url: check.specs[0], kind: 'SPEC', links: 25, sections: ['checkpoints'], approved: false }] }))
-      .toEqual([{ url: check.specs[0], kind: 'SPEC', links: 25, sections: ['checkpoints'], approved: false }]);
+    expect(parseContextSpecSources({ sources: [{ url: check.specs[0], kind: 'PAGE', links: 25, sections: ['checkpoints'], approved: false }] }))
+      .toEqual([{ url: check.specs[0], kind: 'PAGE', links: 25, sections: ['checkpoints'], approved: false }]);
+    expect(() => parseContextSpecSources({ sources: [{ url: check.specs[0], kind: 'SPEC', links: 25, sections: [], approved: false }] })).toThrow('spec kind');
     const start = { requestKey: 'k', expectedRevision: 1, expectedBuildSequence: 2, planId: 'plan', topicId: 'topic:delta', specs: check.specs };
     expect(parseStartContextSpecCheckRequest(start)).toEqual(start);
     expect(() => parseStartContextSpecCheckRequest({ ...start, specs: ['http://example.com/spec'] })).toThrow('specs');

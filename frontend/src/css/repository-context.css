@@ -556,6 +556,7 @@
 /* Spec check */
 .rcp-spec-line { font-size: 12px; color: #57606a; line-height: 1.45; }
 .rcp-spec-summary { margin-top: 6px; font-size: 13px; color: #1f2328; line-height: 1.5; }
+.rcp-spec-page { padding: 5px 0; font-size: 12.5px; }
 .rcp-spec-toggle { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; }
 .rcp-spec-row { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; border-bottom: 1px solid #f0f1f3; font-size: 12.5px; }
 .rcp-spec-row__main { flex: 1; min-width: 0; }

@@ -18,7 +18,10 @@ import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.store.AppSettingsStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Component;
 
@@ -53,7 +56,15 @@ public class ContextSpecCheckStore
         return settings.get(PREFIX + workspaceId).map(json -> {
             try {
                 checkArgument(ContextLimits.bytes(json) <= MAX_STORED_BYTES, "Saved spec checks exceed 4 MiB");
-                return ImmutableList.copyOf(mapper.readValue(json, ContextSpecCheck[].class));
+                JsonNode saved = mapper.readTree(json);
+                checkArgument(saved instanceof ArrayNode, "Saved spec checks must be an array");
+                // Checks saved before the check chose its specs checked against the specs the user selected.
+                saved.forEach(check -> {
+                    if (check instanceof ObjectNode value && !value.has("checkedAgainst")) {
+                        value.set("checkedAgainst", value.path("specs").deepCopy());
+                    }
+                });
+                return ImmutableList.copyOf(mapper.treeToValue(saved, ContextSpecCheck[].class));
             }
             catch (JsonProcessingException | IllegalArgumentException | NullPointerException failure) {
                 throw new ContextStorageException("Saved spec checks cannot be read", failure);

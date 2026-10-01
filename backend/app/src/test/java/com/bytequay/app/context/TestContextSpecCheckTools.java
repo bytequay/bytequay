@@ -95,11 +95,12 @@ class TestContextSpecCheckTools
 
         assertThat(found.path("reports").get(0).path("number").intValue()).isEqualTo(31252);
         assertThat(current().capture().attempts()).containsKey("spec-report:31252");
-        when(checks.saveCandidates(any(), anyList(), anyList(), anyList(), anyList(), any())).thenAnswer(call -> {
+        when(checks.saveCandidates(any(), anyList(), any(), anyList(), anyList(), anyList(), any())).thenAnswer(call -> {
             ContextSpecCheckService.Found candidate = call.<List<ContextSpecCheckService.Found>>getArgument(1).getFirst();
             assertThat(candidate.predicted()).isEqualTo(Predicted.DIVERGES);
             assertThat(candidate.duplicate()).contains(31252);
-            IntFunction<Optional<ContextSpecCheck.Duplicate>> searched = call.getArgument(5);
+            assertThat(call.<Optional<List<String>>>getArgument(2)).contains(ImmutableList.of(SPEC));
+            IntFunction<Optional<ContextSpecCheck.Duplicate>> searched = call.getArgument(6);
             assertThat(searched.apply(31252)).map(ContextSpecCheck.Duplicate::open).contains(true);
             assertThat(searched.apply(7)).isEmpty();
             return new ContextSpecCheckService.Saved(ImmutableList.of("c1"), ImmutableList.of(), 0, 1, ImmutableList.of());
@@ -107,7 +108,7 @@ class TestContextSpecCheckTools
 
         JsonNode saved = call(bridge, "repository_context_spec_candidates", "{\"candidates\":[{\"predicted\":\"DIVERGES\",\"title\":\"Removes keyed by path\","
                 + "\"rule\":\"MUST key by path and deletion vector\",\"specUrl\":\"" + SPEC + "#checkpoints\",\"code\":[\"plugin/x/Writer.java:1-2\"],"
-                + "\"reasoning\":\"why\",\"severity\":3,\"duplicate\":31252}],\"covered\":[\"Checkpoints\"]}");
+                + "\"reasoning\":\"why\",\"severity\":3,\"duplicate\":31252}],\"specs\":[\"" + SPEC + "#checkpoints\",\"" + SPEC + "\"],\"covered\":[\"Checkpoints\"]}");
 
         assertThat(saved.path("saved").path("saved").get(0).textValue()).isEqualTo("c1");
         assertThat(current().capture().attempts()).containsKey(ContextRun.CHECKED);

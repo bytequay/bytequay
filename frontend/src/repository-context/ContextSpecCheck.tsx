@@ -18,7 +18,7 @@ import { Chevron, Icon } from './icons';
 import { activeCheck, CHECK_REPRODUCTIONS, checkActive, currentRun, plural, shortDate, shortSha } from './model';
 import type { ContextActions, ContextData } from './RepositoryContextPage';
 import {
-  CHECK_STATE, checkSummary, codeLink, defaultSpecs, DISMISS_REASONS, MAX_SPECS, openFindings, specAddress, topicCheck, TYPE_LABEL, TYPE_TONE,
+  CHECK_STATE, checkSummary, codeLink, DISMISS_REASONS, MAX_SPECS, openFindings, specAddress, topicCheck, TYPE_LABEL, TYPE_TONE,
 } from './specChecks';
 
 /** One topic's spec check: what to check it against, and the report of its latest check. */
@@ -50,66 +50,63 @@ export function SpecCheckDrawer({ data, actions, busy, topicId, onClose }: {
   </>;
 }
 
-/** The specs to check against, already selected; the check plans which sections to read. */
+/** What a check reads: every page the topic's code links, among which it finds the specs itself, and the specs the user adds. */
 function StartCheck({ data, actions, busy, topicId, previous }: {
   data: ContextData; actions: ContextActions; busy: boolean; topicId: string; previous: ContextSpecCheckDto | null;
 }) {
   const [sources, setSources] = useState<ContextSpecSourceDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string[]>([]);
+  const [added, setAdded] = useState<string[]>([]);
   const [draft, setDraft] = useState('');
-  const [showOthers, setShowOthers] = useState(false);
+  const [showPages, setShowPages] = useState(false);
   useEffect(() => {
     let live = true;
     void Promise.resolve().then(() => window.bridge.getRepositoryContextSpecSources(data.workspaceId, topicId)).then(found => {
       if (!live) return;
-      const chosen = previous !== null ? previous.specs : defaultSpecs(found);
       setSources(found);
-      setSelected(chosen);
-      setShowOthers(found.some(source => source.kind !== 'SPEC' && chosen.includes(source.url)));
+      // A spec the user added to the last check is not in the code's links; it is offered again.
+      setAdded(previous === null ? [] : previous.specs.filter(url => !found.some(source => source.url === url)));
     }).catch(cause => { if (live) setError(cause instanceof Error ? cause.message : String(cause)); });
     return () => { live = false; };
   }, [data.workspaceId, previous, topicId]);
   const known = sources ?? [];
-  // Documentation and reference code stay folded and unselected; the code links far more pages than it implements.
-  const specs = [...known.filter(source => source.kind === 'SPEC'), ...selected.filter(url => !known.some(source => source.url === url))
-    .map((url): ContextSpecSourceDto => ({ url, kind: 'SPEC', links: 0, sections: [], approved: false }))];
-  const others = known.filter(source => source.kind !== 'SPEC');
-  const row = (source: ContextSpecSourceDto) => <div className="rcp-src" key={source.url}>
-    <input type="checkbox" id={`rcp-spec-${source.url}`} checked={selected.includes(source.url)} onChange={() => toggle(source.url)} />
-    <label htmlFor={`rcp-spec-${source.url}`}><span className="rcp-src__target">{source.url}</span>
-      <span className="rcp-src__sub">{sourceLine(source)}</span></label>
-  </div>;
-  const toggle = (url: string) => setSelected(value => value.includes(url) ? value.filter(item => item !== url) : [...value, url]);
+  const pages = known.filter(source => source.kind === 'PAGE');
+  const reference = known.filter(source => source.kind === 'REFERENCE_CODE');
+  const specs = [...known.map(source => source.url), ...added];
   const address = specAddress(draft);
   const add = (event: FormEvent) => {
     event.preventDefault();
     if (address === null) return;
-    if (!selected.includes(address)) setSelected(value => [...value, address]);
+    if (!specs.includes(address)) setAdded(value => [...value, address]);
     setDraft('');
   };
   const blocked = data.model.blocker !== null;
-  const canStart = data.build.canStart && !busy && !blocked && plan(data) && selected.length > 0 && selected.length <= MAX_SPECS;
+  const canStart = data.build.canStart && !busy && !blocked && plan(data) && sources !== null && pages.length + added.length > 0 && specs.length <= MAX_SPECS;
   return <section aria-label="Check against spec">
-    <div className="rcp-drawer-label">{previous === null ? 'SPECS TO CHECK AGAINST' : 'CHECK AGAIN'}</div>
-    {error !== null && <div className="rcp-drawer-error">The specs the code links could not be listed: {error}</div>}
-    {sources === null && error === null && <div className="rcp-note-caption">Finding the specs the topic’s code links…</div>}
-    {sources !== null && specs.length === 0 && <div className="rcp-note-caption">The topic’s code links no spec. Pick one of its other links or add the
-      specification’s address.</div>}
-    {specs.map(row)}
-    {others.length > 0 && <>
-      <button type="button" className="rcp-how" aria-expanded={showOthers} onClick={() => setShowOthers(value => !value)}>
-        <Chevron open={showOthers} size={11} />Other links in the topic’s code · {others.length}</button>
-      {showOthers && others.map(row)}
+    <div className="rcp-drawer-label">{previous === null ? 'WHAT THE CHECK READS' : 'CHECK AGAIN'}</div>
+    {error !== null && <div className="rcp-drawer-error">The pages the code links could not be listed: {error}</div>}
+    {sources === null && error === null && <div className="rcp-note-caption">Finding the pages the topic’s code links…</div>}
+    {sources !== null && <div className="rcp-spec-summary">{readsLine(pages.length, reference.length, added.length)}</div>}
+    {previous !== null && previous.checkedAgainst.length > 0 && <div className="rcp-note-caption">The last check used {previous.checkedAgainst.join(', ')} as
+      {previous.checkedAgainst.length === 1 ? ' its specification' : ' specifications'}.</div>}
+    {known.length > 0 && <>
+      <button type="button" className="rcp-how" aria-expanded={showPages} onClick={() => setShowPages(value => !value)}>
+        <Chevron open={showPages} size={11} />Links in the topic’s code · {known.length}</button>
+      {showPages && [...pages, ...reference].map(source => <div className="rcp-spec-page" key={source.url}>
+        <span className="rcp-src__target">{source.url}</span><span className="rcp-src__sub">{sourceLine(source)}</span></div>)}
     </>}
+    {added.map(url => <div className="rcp-spec-page" key={url}><span className="rcp-src__target">{url}</span>
+      <span className="rcp-src__sub">Added by you · <button type="button" className="rcp-link" aria-label={`Remove ${url}`}
+        onClick={() => setAdded(value => value.filter(item => item !== url))}>Remove</button></span></div>)}
     <form className="rcp-q-add" onSubmit={add}>
-      <input aria-label="Spec address" placeholder="Add a spec address · https://…" value={draft} maxLength={1400} onChange={event => setDraft(event.target.value)} />
+      <input aria-label="Spec address" placeholder="Add a spec the code doesn’t link · https://…" value={draft} maxLength={1400}
+        onChange={event => setDraft(event.target.value)} />
       <button type="submit" className="rcp-btn rcp-btn--secondary" disabled={address === null}>Add spec</button>
     </form>
-    {selected.length > MAX_SPECS && <div className="rcp-drawer-error">Select at most {MAX_SPECS} specs.</div>}
+    {specs.length > MAX_SPECS && <div className="rcp-drawer-error">A check reads at most {MAX_SPECS} pages; remove one you added.</div>}
     {previous !== null && previous.next.length > 0 && <div className="rcp-note-caption">Continues where the last check stopped: {previous.next.join(', ')}.</div>}
     <div className="rcp-q-deeper">
-      <button type="button" className="rcp-btn rcp-btn--primary" disabled={!canStart} onClick={() => actions.checkSpec(topicId, selected)}>
+      <button type="button" className="rcp-btn rcp-btn--primary" disabled={!canStart} onClick={() => actions.checkSpec(topicId, specs)}>
         <Icon name="bolt" size={13} />Check against spec</button>
       <RunLine workspaceId={data.workspaceId} blocked={blocked}>{data.model.blocker
         ?? `Starts 1 task · a check turn, then up to ${CHECK_REPRODUCTIONS} reproduction turns that write and run tests in its worktree · ${data.model.label}`}</RunLine>
@@ -117,15 +114,22 @@ function StartCheck({ data, actions, busy, topicId, previous }: {
   </section>;
 }
 
+function readsLine(pages: number, reference: number, added: number): string {
+  if (pages + added === 0) return 'The topic’s code links no page. Add the address of the specification it implements.';
+  const read = [pages > 0 ? `the ${plural(pages, 'page')} the topic’s code links` : '', added > 0 ? `the ${plural(added, 'page')} you added` : '']
+    .filter(Boolean).join(' and ');
+  return `The check reads ${read} and checks the code against the specifications among them`
+    + `${reference > 0 ? `, comparing with ${plural(reference, 'source file')} of other engines` : ''}.`;
+}
+
 function plan(data: ContextData): boolean {
   return data.planView.plan !== null && data.planView.plan.batch === null;
 }
 
 function sourceLine(source: ContextSpecSourceDto): string {
-  const kind = source.kind === 'REFERENCE_CODE' ? 'Reference code · for comparison, never a rule' : source.kind === 'SPEC' ? 'Spec' : 'Documentation';
-  const approved = source.approved ? ' · approved for this topic' : '';
-  if (source.links === 0) return source.approved ? kind + approved : 'Added by you';
-  return `${kind}${approved} · ${plural(source.links, 'link')} from the topic’s code${source.sections.length > 0 ? ` · ${plural(source.sections.length, 'section')}` : ''}`;
+  const kind = source.kind === 'REFERENCE_CODE' ? 'Reference code · for comparison, never a rule' : source.approved ? 'Approved documentation' : 'Linked page';
+  if (source.links === 0) return kind;
+  return `${kind} · cited ${plural(source.links, 'time')}${source.sections.length > 0 ? ` · ${plural(source.sections.length, 'section')}` : ''}`;
 }
 
 function Report({ data, actions, busy, check }: { data: ContextData; actions: ContextActions; busy: boolean; check: ContextSpecCheckDto }) {
@@ -137,7 +141,11 @@ function Report({ data, actions, busy, check }: { data: ContextData; actions: Co
     <div className="rcp-drawer-label">LATEST CHECK</div>
     <div className="rcp-spec-summary">{checkSummary(check)}</div>
     <div className="rcp-note-caption">Code at {shortSha(check.baselineSha)} · started {shortDate(check.startedAt, data.now)}
-      {check.endedAt !== null && ` · ended ${shortDate(check.endedAt, data.now)}`} · {plural(check.specs.length, 'spec')}</div>
+      {check.endedAt !== null && ` · ended ${shortDate(check.endedAt, data.now)}`} · read {plural(check.specs.length, 'page')}</div>
+    {check.checkedAgainst.length > 0
+      ? <div className="rcp-note-caption">Checked against {check.checkedAgainst.join(', ')}.</div>
+      : !checkActive(check) && check.candidates.length === 0 && <div className="rcp-note-caption">None of the pages it read states rules the code
+        must follow. Add the address of the specification and check again.</div>}
     {check.detail !== null && check.state !== 'STOPPED' && <div className="rcp-drawer-error">{check.detail}</div>}
     {check.covered.length > 0 && <div className="rcp-note-caption">Covered: {check.covered.join(', ')}.</div>}
     {check.next.length > 0 && <div className="rcp-note-caption">The next check continues with: {check.next.join(', ')}.</div>}

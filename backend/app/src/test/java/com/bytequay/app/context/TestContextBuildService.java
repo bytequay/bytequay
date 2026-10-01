@@ -737,8 +737,8 @@ class TestContextBuildService
         ContextSpecCheck.Candidate candidate = new ContextSpecCheck.Candidate("c1", predicted.type(), predicted, "Gap", "MUST x", "https://example.com/spec#x",
                 ImmutableList.of("README.md:1-2"), "why", 2, Optional.empty(), status, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
         return new ContextSpecCheck("check-1", "plan", "topic:1", "Project", "project", ImmutableList.of(), SHA, "check",
-                ImmutableList.of("https://example.com/spec"), ImmutableList.of(), ContextSpecCheck.State.REPRODUCING, ImmutableList.of(candidate), ImmutableList.of(),
-                ImmutableList.of(), 1, Optional.empty(), NOW, Optional.empty());
+                ImmutableList.of("https://example.com/spec"), ImmutableList.of("https://example.com/spec"), ImmutableList.of(), ContextSpecCheck.State.REPRODUCING,
+                ImmutableList.of(candidate), ImmutableList.of(), ImmutableList.of(), 1, Optional.empty(), NOW, Optional.empty());
     }
 
     private void answer()

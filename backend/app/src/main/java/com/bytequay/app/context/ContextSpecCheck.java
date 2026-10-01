@@ -25,15 +25,17 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * The latest spec check of one plan topic: the specs it compares the code with, the candidate gaps its check turn found, and what
- * reproducing each with a test showed. Only a confirmed candidate is a finding. A later check of the topic keeps the findings.
+ * The latest spec check of one plan topic: the pages it read to find the specs the code implements, the specs it checked against,
+ * the candidate gaps its check turn found, and what reproducing each with a test showed. Only a confirmed candidate is a finding. A
+ * later check of the topic keeps the findings.
  */
 public record ContextSpecCheck(
         String id, String planId, String topicId, String topicTitle, String scopeId, List<String> paths, String baselineSha, String requestKey,
-        List<String> specs, List<String> labels, State state, List<Candidate> candidates, List<String> covered, List<String> next, int reproductions,
-        Optional<String> detail, Instant startedAt, Optional<Instant> endedAt)
+        List<String> specs, List<String> checkedAgainst, List<String> labels, State state, List<Candidate> candidates, List<String> covered, List<String> next,
+        int reproductions, Optional<String> detail, Instant startedAt, Optional<Instant> endedAt)
 {
-    public static final int MAX_SPECS = 10;
+    /** The pages a check may read as specs: every page the topic's code links, and the ones the user adds. */
+    public static final int MAX_SPECS = 30;
     public static final int MAX_CANDIDATES = 30;
     /** A check reproduces at most this many candidates, most severe first. */
     public static final int MAX_REPRODUCTIONS = 8;
@@ -54,6 +56,9 @@ public record ContextSpecCheck(
         checkArgument(!specs.isEmpty(), "Select at least one spec");
         ContextLimits.unique(specs, "specs", MAX_SPECS);
         specs.forEach(ContextLimits::documentationUrl);
+        checkedAgainst = ImmutableList.copyOf(checkedAgainst);
+        ContextLimits.unique(checkedAgainst, "checked specs", MAX_SPECS);
+        checkedAgainst.forEach(ContextLimits::documentationUrl);
         labels = ImmutableList.copyOf(labels);
         ContextLimits.unique(labels, "labels", 300);
         requireNonNull(state, "state is null");
@@ -94,26 +99,26 @@ public record ContextSpecCheck(
         };
         List<Candidate> settled = candidates.stream().map(candidate -> candidate.status() == Status.PENDING || candidate.status() == Status.REPRODUCING
                 ? candidate.withResult(Status.NOT_REPRODUCED, candidate.test(), Optional.of(reason), Optional.empty()) : candidate).toList();
-        return new ContextSpecCheck(id, planId, topicId, topicTitle, scopeId, paths, baselineSha, requestKey, specs, labels, replacement, settled, covered,
-                next, reproductions, why, startedAt, Optional.of(at));
+        return new ContextSpecCheck(id, planId, topicId, topicTitle, scopeId, paths, baselineSha, requestKey, specs, checkedAgainst, labels, replacement, settled,
+                covered, next, reproductions, why, startedAt, Optional.of(at));
     }
 
     public ContextSpecCheck reproducing(Candidate candidate)
     {
-        return new ContextSpecCheck(id, planId, topicId, topicTitle, scopeId, paths, baselineSha, requestKey, specs, labels, State.REPRODUCING,
+        return new ContextSpecCheck(id, planId, topicId, topicTitle, scopeId, paths, baselineSha, requestKey, specs, checkedAgainst, labels, State.REPRODUCING,
                 replace(candidate.withResult(Status.REPRODUCING, Optional.empty(), Optional.empty(), Optional.empty())), covered, next,
                 reproductions + 1, detail, startedAt, endedAt);
     }
 
-    public ContextSpecCheck withCandidates(List<Candidate> replacement, List<String> coveredSections, List<String> nextSections)
+    public ContextSpecCheck withCandidates(List<Candidate> replacement, List<String> checked, List<String> coveredSections, List<String> nextSections)
     {
-        return new ContextSpecCheck(id, planId, topicId, topicTitle, scopeId, paths, baselineSha, requestKey, specs, labels, state, replacement,
+        return new ContextSpecCheck(id, planId, topicId, topicTitle, scopeId, paths, baselineSha, requestKey, specs, checked, labels, state, replacement,
                 coveredSections, nextSections, reproductions, detail, startedAt, endedAt);
     }
 
     public ContextSpecCheck withCandidate(Candidate replacement)
     {
-        return withCandidates(replace(replacement), covered, next);
+        return withCandidates(replace(replacement), checkedAgainst, covered, next);
     }
 
     private List<Candidate> replace(Candidate replacement)

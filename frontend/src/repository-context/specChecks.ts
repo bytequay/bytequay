@@ -11,10 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { ContextSpecCandidateDto, ContextSpecCheckDto, ContextSpecSourceDto } from './contracts';
+import type { ContextSpecCandidateDto, ContextSpecCheckDto } from './contracts';
 import { plural } from './model';
 
-export const MAX_SPECS = 10;
+export const MAX_SPECS = 30;
 // ponytail: GitHub rejects very long addresses; a longer draft is cut in the form and copied whole to the clipboard.
 const MAX_ISSUE_URL = 7500;
 
@@ -49,11 +49,6 @@ export function checkSummary(check: ContextSpecCheckDto): string {
   if (of('REFUTED').length > 0) parts.push(`${of('REFUTED').length} refuted`);
   if (reported.length > 0) parts.push(`${reported.length} already reported (${reported.slice(0, 3).map(candidate => `#${candidate.duplicate?.number}`).join(', ')})`);
   return parts.join(' · ');
-}
-
-/** Specs the drawer selects at first: the pages that name themselves a spec, never other documentation or reference code. */
-export function defaultSpecs(sources: ContextSpecSourceDto[]): string[] {
-  return sources.filter(source => source.kind === 'SPEC').map(source => source.url).slice(0, MAX_SPECS);
 }
 
 /** A spec the user adds: a public HTTPS page without a query; its #section is dropped, since the check plans its own sections. */

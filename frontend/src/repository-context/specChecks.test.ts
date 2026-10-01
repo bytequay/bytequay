@@ -13,14 +13,15 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { ContextSpecCandidateDto, ContextSpecCheckDto } from './contracts';
-import { checkSummary, codeLink, defaultSpecs, issueUrl, openFindings, specAddress, topicCheck } from './specChecks';
+import { checkSummary, codeLink, issueUrl, openFindings, specAddress, topicCheck } from './specChecks';
 
 const candidate = (id: string, type: ContextSpecCandidateDto['type'], status: ContextSpecCandidateDto['status'],
   patch: Partial<ContextSpecCandidateDto> = {}): ContextSpecCandidateDto => ({ id, type, predicted: type === 'BUG' ? 'DIVERGES' : type === 'FEATURE_REQUEST' ? 'REFUSES' : 'SKIPS_SHOULD',
   title: `Gap ${id}`, rule: 'MUST x', specUrl: 'https://example.com/spec#x', code: ['a/B.java:1-2'], reasoning: 'why', severity: 2, duplicate: null, status, test: null,
   reason: null, draft: null, dismissed: null, ...patch });
 const check = (candidates: ContextSpecCandidateDto[]): ContextSpecCheckDto => ({ id: 'check-1', planId: 'plan', topicId: 'topic:delta', topicTitle: 'Delta Lake',
-  scopeId: 'delta', paths: ['plugin/trino-delta-lake/'], baselineSha: 'a'.repeat(40), requestKey: 'key', specs: ['https://example.com/spec'], labels: [],
+  scopeId: 'delta', paths: ['plugin/trino-delta-lake/'], baselineSha: 'a'.repeat(40), requestKey: 'key', specs: ['https://example.com/spec'],
+  checkedAgainst: ['https://example.com/spec'], labels: [],
   state: 'DONE', candidates, covered: [], next: [], reproductions: 2, detail: null, startedAt: '2026-10-01T00:00:00Z', endedAt: '2026-10-01T01:00:00Z' });
 
 describe('spec check report', () => {
@@ -61,8 +62,5 @@ describe('spec check links', () => {
     expect(codeLink('o/r', 'abc', 'core/A.java:7')).toBe('https://github.com/o/r/blob/abc/core/A.java#L7');
     expect(specAddress(' https://iceberg.apache.org/spec/#manifests ')).toBe('https://iceberg.apache.org/spec/');
     expect([specAddress('http://iceberg.apache.org/spec/'), specAddress('https://example.com/spec?v=2'), specAddress('not a url')]).toEqual([null, null, null]);
-    expect(defaultSpecs([{ url: 'https://example.com/spec', kind: 'SPEC', links: 3, sections: [], approved: false },
-      { url: 'https://docs.example.com/guide.html', kind: 'DOCUMENT', links: 12, sections: [], approved: true },
-      { url: 'https://github.com/o/r/blob/main/A.scala', kind: 'REFERENCE_CODE', links: 9, sections: [], approved: false }])).toEqual(['https://example.com/spec']);
   });
 });

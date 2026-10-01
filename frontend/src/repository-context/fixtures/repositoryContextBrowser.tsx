@@ -136,6 +136,8 @@ let changedDoc = false;
 let specFindings = false;
 
 const SPEC = 'https://iceberg.apache.org/spec/';
+const GUIDE = 'https://trino.io/docs/current/connector/iceberg.html';
+const REFERENCE = 'https://github.com/apache/iceberg/blob/main/core/src/main/java/org/apache/iceberg/ManifestReader.java';
 const SPEC_TEST = 'plugin/trino-iceberg/src/test/java/io/trino/plugin/iceberg/TestIcebergDeletedManifestEntries.java';
 const SPEC_COMMAND = './mvnw -pl plugin/trino-iceberg test -Dtest=TestIcebergDeletedManifestEntries';
 const FINDING = 'Deleted manifest entries are planned after a rewrite';
@@ -148,7 +150,7 @@ function specCheck(): ContextSpecCheckDto {
     code: ['plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergSplitSource.java:212-240'], reasoning: 'Split planning filters on the data file only.',
     severity: 3, duplicate: null, status, test: null, reason: null, draft: null, dismissed: null, ...patch });
   return { id: 'check-1', planId: 'plan-1', topicId: 'topic:iceberg', topicTitle: 'Iceberg connector', scopeId: ICEBERG, paths: ['plugin/trino-iceberg/'],
-    baselineSha: SHA, requestKey: 'check-key', specs: [SPEC], labels: ['bug', 'iceberg', 'enhancement'], state: 'DONE', candidates: [
+    baselineSha: SHA, requestKey: 'check-key', specs: [SPEC, REFERENCE], checkedAgainst: [SPEC], labels: ['bug', 'iceberg', 'enhancement'], state: 'DONE', candidates: [
       candidate('c1', 'BUG', 'DIVERGES', FINDING, 'CONFIRMED', { reason: 'The rewritten table still returns the deleted file’s rows.',
         test: { path: SPEC_TEST, command: SPEC_COMMAND, exitCode: 1, source: 'class TestIcebergDeletedManifestEntries\n{\n    @Test\n    void skipsDeletedEntries() {}\n}',
           output: '[ERROR] TestIcebergDeletedManifestEntries.skipsDeletedEntries:48 expected: 2 but was: 3\n[INFO] BUILD FAILURE' },
@@ -342,14 +344,13 @@ function install() {
     getRepositoryContextDisputes: async () => clone(state.disputes),
     getRepositoryContextChangedPages: async () => ({ changed: clone(state.changedPages) }),
     getRepositoryContextSpecChecks: async () => clone(state.checks),
-    getRepositoryContextSpecSources: async () => [{ url: SPEC, kind: 'SPEC', links: 14, sections: ['manifests', 'snapshots'], approved: false },
-      { url: 'https://trino.io/docs/current/connector/iceberg.html', kind: 'DOCUMENT', links: 3, sections: [], approved: true },
-      { url: 'https://github.com/apache/iceberg/blob/main/core/src/main/java/org/apache/iceberg/ManifestReader.java', kind: 'REFERENCE_CODE', links: 2, sections: [],
-        approved: false }],
+    getRepositoryContextSpecSources: async () => [{ url: GUIDE, kind: 'PAGE', links: 3, sections: [], approved: true },
+      { url: SPEC, kind: 'PAGE', links: 14, sections: ['manifests', 'snapshots'], approved: false },
+      { url: REFERENCE, kind: 'REFERENCE_CODE', links: 2, sections: [], approved: false }],
     startRepositoryContextSpecCheck: async (_workspaceId, request) => {
       const build = await start('spec', request, 'LEARN', { mode: 'CHECK', question: null,
         check: { checkId: 'check-2', topicTitle: 'Iceberg connector', reproduced: null } });
-      const check: ContextSpecCheckDto = { ...specCheck(), id: 'check-2', requestKey: request.requestKey, specs: request.specs, state: 'CHECKING',
+      const check: ContextSpecCheckDto = { ...specCheck(), id: 'check-2', requestKey: request.requestKey, specs: request.specs, checkedAgainst: [], state: 'CHECKING',
         candidates: specCheck().candidates.filter(value => value.status === 'CONFIRMED'), reproductions: 0, startedAt: new Date().toISOString(), endedAt: null };
       state.checks = [check];
       return { check: clone(check), build };
@@ -936,6 +937,8 @@ const scenarios: Array<[string, () => Promise<void>]> = [
       const report = drawer();
       assert(text(report).includes('1 bug and 1 feature request confirmed · 1 not reproduced · 1 already reported (#24112)'), 'The report summarizes the check');
       assert(text(report).includes('The next check continues with: Row lineage, Deletion vectors.'), 'The report says where a later check continues');
+      assert(text(report).includes(`Checked against ${SPEC}.`) && text(report).includes(`The last check used ${SPEC} as its specification.`),
+        'The report and the next check name the spec the check chose');
       assert(state.calls.starts.length === 0, 'Reading the report starts nothing');
       const finding = report.querySelector('.rcp-finding');
       assert(finding !== null && text(finding).includes(FINDING), 'The most severe finding is listed first');
@@ -954,7 +957,8 @@ const scenarios: Array<[string, () => Promise<void>]> = [
       const started = state.calls.starts[0];
       assert(started?.kind === 'spec', 'The drawer starts one spec check');
       const request = started.request as { topicId: string; specs: string[] };
-      assert(request.topicId === 'topic:iceberg' && request.specs.join() === SPEC, 'A new check reads the specs the last check read');
+      assert(request.topicId === 'topic:iceberg' && request.specs.join() === [GUIDE, SPEC, REFERENCE].join(),
+        'A new check reads every page the code links, and finds the specs among them itself');
       await waitFor(() => text().includes('Checking against spec · Iceberg connector'), 'The status card follows the check');
     }
     finally {
@@ -1043,7 +1047,8 @@ export async function show(mode: string) {
     case 'plan': await click('Plan details'); break;
     case 'questions': document.querySelector('.rcp-q-add')?.scrollIntoView({ block: 'center' }); break;
     case 'spec': await review('2 spec findings to file · Iceberg connector'); await click('Failing test · exit 1 · TestIcebergDeletedManifestEntries.java', drawer()); break;
-    case 'spec-start': await click('Check against spec'); await waitFor(() => drawer().querySelector('.rcp-src input') !== null, 'The linked specs are listed'); break;
+    case 'spec-start': await click('Check against spec'); await waitFor(() => drawer().querySelector('.rcp-spec-summary') !== null, 'What the check reads is listed');
+      await click('Links in the topic’s code · 3', drawer()); break;
     case 'sources': await review('https://iceberg.apache.org/docs/latest/'); break;
     case 'coverage': await click('See coverage'); break;
     case 'usage': await click('More options'); await click('Usage'); break;

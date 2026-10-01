@@ -56,7 +56,8 @@ const wrong: ContextGradeDto = { workspaceId: 'w', taskId: 'task-dev', reviewRun
 describe('repository context status card', () => {
   it('follows a spec check through its turns and between them', () => {
     const check: ContextSpecCheckDto = { id: 'check-1', planId: 'plan', topicId: 'topic:iceberg', topicTitle: 'Iceberg connector', scopeId: 'iceberg', paths: [],
-      baselineSha: 'a'.repeat(40), requestKey: 'key', specs: ['https://iceberg.apache.org/spec/'], labels: [], state: 'REPRODUCING', covered: [], next: [], reproductions: 1,
+      baselineSha: 'a'.repeat(40), requestKey: 'key', specs: ['https://iceberg.apache.org/spec/'], checkedAgainst: [], labels: [], state: 'REPRODUCING', covered: [],
+      next: [], reproductions: 1,
       detail: null, startedAt: '2026-09-29T11:00:00Z', endedAt: null, candidates: [] };
     const reproducing: ContextRunDto = { ...run(2, 'RUNNING', 0, '2026-09-29T11:30:00Z'), mode: 'CHECK', question: null,
       check: { checkId: 'check-1', topicTitle: 'Iceberg connector', reproduced: 'Deleted entries are planned' } };

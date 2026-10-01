@@ -11,18 +11,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Pin, PinOff } from 'lucide-react';
+import { Pin } from 'lucide-react';
 import { setPinned, usePinnedItems, type PinnedItem } from './pinned';
 
 export default function PinButton({ item, className = '' }: { item: PinnedItem; className?: string }) {
   const pinned = usePinnedItems().some(candidate => candidate.key === item.key);
   const label = `${pinned ? 'Unpin' : 'Pin'} ${item.title}`;
-  const Icon = pinned ? PinOff : Pin;
   return (
     <button type="button" className={`pin-button${pinned ? ' is-pinned' : ''}${className ? ` ${className}` : ''}`}
       aria-label={label} title={label} aria-pressed={pinned}
       onClick={event => { event.stopPropagation(); setPinned(item, !pinned); }}>
-      <Icon size={14} aria-hidden="true" />
+      <Pin size={14} fill={pinned ? 'currentColor' : 'none'} aria-hidden="true" />
     </button>
   );
 }

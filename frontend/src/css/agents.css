@@ -2423,7 +2423,7 @@
   background: #f0f1f3;
 }
 
-.agt-headbtn[aria-pressed="true"] {
+.agt-headbtn[aria-pressed="true"]:not(.pin-button) {
   background: #e4e4e8;
 }
 

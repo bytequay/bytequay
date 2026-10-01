@@ -905,7 +905,13 @@ Authentication, interruption, and local storage failures remain errors. Missing
 logs never imply passing CI or trigger a GitHub rerun.
 
 A shared deterministic filter selects contiguous diagnostic blocks. Failed-test
-markers and compiler errors take priority over generic error text. Stack frames,
+markers, compiler errors, and failed-command output take priority over generic error text. GitHub Actions
+`Run` groups contain echoed scripts and environment values, so their headers are
+excluded from diagnostic matching. A nonzero exit after such a header anchors
+the preceding output even when the check reports its reason without error keywords.
+Its context starts after the header and preserves whole exception chains;
+generic anchors are limited to failed-command output when these boundaries are known.
+Checkout output and earlier setup cannot consume that failure's context budget. Stack frames,
 Caused by, and Suppressed are anchors; passing-test summaries and a lone GitHub
 exit-status line are not. Selected blocks preserve all original lines, timestamps,
 formatting, repeated frames, long messages, and exception chains. Normalization

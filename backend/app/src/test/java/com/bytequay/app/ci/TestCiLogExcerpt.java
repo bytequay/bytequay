@@ -103,6 +103,10 @@ class TestCiLogExcerpt
             assertThat(matched.diagnosticsMatched()).isTrue();
             assertThat(matched.text()).startsWith(diagnostic);
         }
+        String command = "##[group]Run ./validate.sh\n  MAVEN_OPTS: -XX:+ExitOnOutOfMemoryError\n##[endgroup]\nValidation complete\n";
+        for (String ending : new String[] {"", "##[error]Process completed with exit code 0.\n", "##[error]Process completed with exit code 0\n"}) {
+            assertThat(CiLogExcerpt.from(command + ending, 32 * 1024, 32 * 1024).diagnosticsMatched()).isFalse();
+        }
     }
 
     @Test
@@ -112,6 +116,41 @@ class TestCiLogExcerpt
 
         assertThat(excerpt.text()).isEqualTo("error: invalid option\n  command: build --invalid");
         assertThat(excerpt.compacted()).isFalse();
+    }
+
+    @Test
+    void selectsFailedCommandOutputInsteadOfSetupOptionsAndEchoedScript()
+    {
+        String timestamp = "2026-10-01T06:18:41.0908244Z ";
+        String setup = timestamp + "##[group]Run actions/checkout@v7.0.1\n"
+                + timestamp + "env:\n"
+                + timestamp + "  MAVEN_OPTS: -Xmx512M -XX:+ExitOnOutOfMemoryError\n"
+                + timestamp + "##[endgroup]\n";
+        String checkout = timestamp + " * [new branch] vector-api-error-messages -> origin/vector-api-error-messages\n"
+                + (timestamp + " * [new tag] release -> release\n").repeat(1500);
+        String command = timestamp + "##[group]Run ./check-commit-messages.sh\n"
+                + timestamp + "\u001b[36;1mecho 'error: invalid base ref'\u001b[0m\n"
+                + timestamp + "env:\n"
+                + timestamp + "  MAVEN_OPTS: -XX:+ExitOnOutOfMemoryError\n"
+                + timestamp + "##[endgroup]\n";
+        String failure = timestamp + "Commit descriptions should wrap at 72 characters.\n"
+                + timestamp + "6405a0d6df6d Abort output stream on file writer rollback\n"
+                + timestamp + "  line 3: 89 characters\n"
+                + timestamp + "  Rollback discards the pending upload instead of publishing the file and then deleting it.\n"
+                + timestamp + "##[error]Process completed with exit code 1.\n";
+        String cleanup = timestamp + "##[end-action outcome=failure;conclusion=failure]\n"
+                + timestamp + "Post job cleanup.\n";
+
+        for (String noise : new String[] {"", checkout}) {
+            for (String compilerError : new String[] {"", timestamp + "[ERROR] Compilation failed.\n"}) {
+                CiLogExcerpt excerpt = CiLogExcerpt.from(setup + noise + command + compilerError + failure + cleanup, 32 * 1024, 1024 * 1024);
+
+                assertThat(excerpt.text()).contains(failure).doesNotContain("MAVEN_OPTS", "ExitOnOutOfMemoryError", "invalid base ref", "[new tag]");
+                assertThat(excerpt.text()).startsWith("[... log lines omitted ...]\n" + compilerError + timestamp + "Commit descriptions");
+                assertThat(excerpt.diagnosticsMatched()).isTrue();
+                assertThat(excerpt.compacted()).isTrue();
+            }
+        }
     }
 
     @Test

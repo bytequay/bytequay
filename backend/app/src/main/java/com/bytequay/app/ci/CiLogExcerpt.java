@@ -18,7 +18,9 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -36,7 +38,7 @@ public record CiLogExcerpt(String text, boolean compacted, boolean diagnosticsMa
             "(?i)(\\b(?:error|errors|failed|failure|fatal|panic|exception|traceback|assertion|assert|mismatch)\\b"
                     + "|\\b\\w*(?:Exception|Error)\\b|Caused by:|Suppressed:|timed out|segmentation fault|##\\[error\\]|^\\s*at\\s+\\S+\\([^\\n]*\\))");
     private static final Pattern PASSING_TEST = Pattern.compile("Tests run:.*\\bFailures: 0,\\s*Errors: 0\\b");
-    private static final Pattern EXIT_STATUS = Pattern.compile("^##\\[error]Process completed with exit code \\d+\\.?$");
+    private static final Pattern EXIT_STATUS = Pattern.compile("^##\\[error]Process completed with exit code (\\d+)\\.?$");
     private static final Pattern EXCEPTION = Pattern.compile("^(?:Caused by:|Suppressed:|[\\w.$]+(?:Exception|Error)(?::|$)|\\.\\.\\. \\d+ more)");
     private static final Pattern LEVEL_PREFIX = Pattern.compile("^\\[(?:INFO|WARN|ERROR|DEBUG|TRACE)] ?");
     private static final Pattern RECORD = Pattern.compile("^(?:\\[(?:INFO|WARN|ERROR|DEBUG|TRACE)]|##\\[)");
@@ -59,11 +61,38 @@ public record CiLogExcerpt(String text, boolean compacted, boolean diagnosticsMa
                 .map(line -> TIMESTAMP_PREFIX.matcher(ANSI_ESCAPE.matcher(line).replaceAll("")).replaceFirst("").stripTrailing())
                 .toList();
         List<Integer> diagnostics = new ArrayList<>();
+        Map<Integer, Integer> failedCommands = new HashMap<>();
+        boolean commandHeader = false;
+        int commandOutputStart = -1;
         for (int index = 0; index < lines.size(); index++) {
             String line = normalized.get(index);
-            if (!PASSING_TEST.matcher(line).find() && !EXIT_STATUS.matcher(line).matches() && ERROR.matcher(line).find()) {
+            if (line.startsWith("##[group]Run ")) {
+                commandHeader = true;
+                commandOutputStart = -1;
+            }
+            // Runner command headers echo scripts and environment values; neither proves an error occurred.
+            if (commandHeader) {
+                if (line.equals("##[endgroup]")) {
+                    commandHeader = false;
+                    commandOutputStart = index + 1;
+                }
+                continue;
+            }
+            var exitStatus = EXIT_STATUS.matcher(line);
+            if (exitStatus.matches()) {
+                if (commandOutputStart >= 0 && index > commandOutputStart && !exitStatus.group(1).equals("0")) {
+                    diagnostics.add(index);
+                    failedCommands.put(index, commandOutputStart);
+                }
+                commandOutputStart = -1;
+                continue;
+            }
+            if (!PASSING_TEST.matcher(line).find() && !line.startsWith("##[end-action ") && ERROR.matcher(line).find()) {
                 diagnostics.add(index);
             }
+        }
+        if (!failedCommands.isEmpty()) {
+            diagnostics.removeIf(index -> failedCommands.entrySet().stream().noneMatch(command -> index >= command.getValue() && index <= command.getKey()));
         }
         if (diagnostics.isEmpty()) {
             byte[] bytes = text.getBytes(UTF_8);
@@ -73,10 +102,10 @@ public record CiLogExcerpt(String text, boolean compacted, boolean diagnosticsMa
             }
             return new CiLogExcerpt(new String(bytes, start, bytes.length - start, UTF_8), start > 0, false);
         }
-        if (text.getBytes(UTF_8).length <= targetBytes) {
+        if (failedCommands.isEmpty() && text.getBytes(UTF_8).length <= targetBytes) {
             return new CiLogExcerpt(text, false, true);
         }
-        diagnostics.sort(Comparator.comparingInt(index -> priority(normalized.get(index))));
+        diagnostics.sort(Comparator.comparingInt(index -> failedCommands.containsKey(index) ? 0 : priority(normalized.get(index))));
         Selection selection = new Selection(lines, maximumBytes);
         BitSet considered = new BitSet();
         for (int anchor : diagnostics) {
@@ -86,11 +115,17 @@ public record CiLogExcerpt(String text, boolean compacted, boolean diagnosticsMa
             if (considered.get(anchor) || selection.selected.get(anchor)) {
                 continue;
             }
-            int start = blockStart(normalized, anchor);
+            int outputStart = failedCommands.entrySet().stream()
+                    .filter(command -> anchor >= command.getValue() && anchor <= command.getKey())
+                    .mapToInt(command -> command.getValue()).findFirst().orElse(0);
+            int start = Math.max(outputStart, blockStart(normalized, anchor));
+            if (failedCommands.containsKey(anchor)) {
+                start = Math.max(outputStart, blockStart(normalized, Math.max(outputStart, anchor - 20)));
+            }
             int end = blockEnd(normalized, anchor);
             considered.set(start, end);
             if (selection.range(start, end)) {
-                int before = blockStart(normalized, Math.max(0, start - 20));
+                int before = Math.max(outputStart, blockStart(normalized, Math.max(outputStart, start - 20)));
                 int after = Math.min(lines.size(), end + 20);
                 while (after < lines.size() && continuation(normalized.get(after))) {
                     after++;
@@ -102,13 +137,14 @@ public record CiLogExcerpt(String text, boolean compacted, boolean diagnosticsMa
         }
         // Keep the final command outcome, but never start halfway through its exception chain.
         int end = lines.size();
-        int tailStart = Math.max(0, end - 30);
+        int lastFailedOutputStart = failedCommands.values().stream().mapToInt(Integer::intValue).max().orElse(0);
+        int tailStart = Math.max(lastFailedOutputStart, end - 30);
         while (end > tailStart && selection.bytes < targetBytes) {
-            int start = blockStart(normalized, end - 1);
+            int start = Math.max(lastFailedOutputStart, blockStart(normalized, end - 1));
             selection.range(start, end);
             end = start;
         }
-        if (selection.bytes < targetBytes && !lines.isEmpty()) {
+        if (failedCommands.isEmpty() && selection.bytes < targetBytes && !lines.isEmpty()) {
             selection.range(0, blockEnd(normalized, 0));
         }
         String excerpt = selection.render();

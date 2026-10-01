@@ -124,6 +124,23 @@ describe('AttentionList', () => {
     expect(list([issueItem(99)])).toContain('aria-label="Start development for #99"');
   });
 
+  it('hides Jira Done categories in both Homes only while Open only is enabled', () => {
+    const tickets = jiraAttentionItems([
+      { ...jiraIssue, id: '1', key: 'ENG-1', status: { id: 'done', name: 'Done', category: 'done' } },
+      { ...jiraIssue, id: '2', key: 'ENG-2', status: { id: 'resolved', name: 'Resolved', category: 'done' } },
+      { ...jiraIssue, id: '3', key: 'ENG-3' },
+      { ...jiraIssue, id: '4', key: 'ENG-4', status: { id: 'reopened', name: 'Reopened', category: 'indeterminate' }, completedAt: jiraIssue.updatedAt },
+    ]);
+    for (const openOnly of [true, false]) {
+      vi.stubGlobal('window', { localStorage: { getItem: (key: string) => key === 'bytequay.attention.openOnly' ? String(openOnly) : null } });
+      for (const variant of ['home', 'workspace'] as const) {
+        const html = list(tickets, {}, variant);
+        expect([...html.matchAll(/class="card-key">(ENG-\d+)</g)].map(match => match[1]))
+          .toEqual(openOnly ? ['ENG-3', 'ENG-4'] : ['ENG-1', 'ENG-2', 'ENG-3', 'ENG-4']);
+      }
+    }
+  });
+
   it('draws a row with its source, where it stands, who it is from and the latest event', () => {
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-30T00:00:00Z'));
     const html = list([prItem(30920, 'review', {

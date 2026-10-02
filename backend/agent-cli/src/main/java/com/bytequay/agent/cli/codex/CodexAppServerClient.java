@@ -479,12 +479,29 @@ final class CodexAppServerClient
                 finally {
                     current.close();
                 }
+                acknowledgeVerifiedStop(current);
             }
             disconnect(new AgentUnavailableException("Codex App Server closed"));
             dispatcher.close();
         }
         finally {
             deepSeekLoopback.ifPresent(DeepSeekLoopback::close);
+        }
+    }
+
+    /**
+     * Drops the launch receipt once its tree is verified stopped. It has nothing left to prove:
+     * after a crash, startup interrupts a still-open turn and releases its claim without it, so
+     * keeping it would only replay it at the next restart.
+     */
+    private void acknowledgeVerifiedStop(ManagedProcess current)
+    {
+        try {
+            supervisor.acknowledge(current.launchId());
+        }
+        catch (RuntimeException failure) {
+            // The stop is still verified; the next startup replays the kept receipt instead.
+            log.warn("Unable to acknowledge Codex App Server launch {}", current.launchId(), failure);
         }
     }
 

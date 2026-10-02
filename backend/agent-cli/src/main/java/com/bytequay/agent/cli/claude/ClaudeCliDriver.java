@@ -1180,8 +1180,27 @@ public final class ClaudeCliDriver
                         exit == null ? Duration.between(startedAt, Instant.now()) : exit.duration(),
                         providerQuiescent);
             }
+            if (providerQuiescent) {
+                acknowledgeVerifiedStop();
+            }
             completion.complete(turnResult);
             session.finished(this);
+        }
+
+        /**
+         * Drops the launch receipt once its tree is verified stopped. It has nothing left to prove:
+         * after a crash, startup interrupts a still-open turn and releases its claim without it, so
+         * keeping it would only replay it at the next restart.
+         */
+        private void acknowledgeVerifiedStop()
+        {
+            try {
+                supervisor.acknowledge(process.launchId());
+            }
+            catch (RuntimeException failure) {
+                // The stop is still verified; the next startup replays the kept receipt instead.
+                log.warn("Unable to acknowledge Claude launch for task {} turn {}", session.context.taskId(), reference.value(), failure);
+            }
         }
 
         private AgentTurnResult classifyAuthenticationFailure(AgentTurnResult turnResult)

@@ -39,6 +39,7 @@ import java.util.List;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -54,6 +55,7 @@ class TestCodexAppServerClient
     {
         ObjectMapper objectMapper = new ObjectMapper();
         RetryingProcess process = new RetryingProcess(objectMapper);
+        List<String> acknowledged = new CopyOnWriteArrayList<>();
         ProcessSupervisor supervisor = new ProcessSupervisor()
         {
             @Override
@@ -86,7 +88,10 @@ class TestCodexAppServerClient
             }
 
             @Override
-            public void acknowledge(String launchId) {}
+            public void acknowledge(String launchId)
+            {
+                acknowledged.add(launchId);
+            }
         };
         ProcessSpec spec = new ProcessSpec(
                 new ProcessOwner(ProcessOwner.Kind.APP_SERVER, "task-1"),
@@ -103,6 +108,7 @@ class TestCodexAppServerClient
                 objectMapper,
                 SecretRedactor.fromEnvironment(ImmutableMap.of()));
         client.start();
+        assertThat(acknowledged).isEmpty();
         if (exitBeforeStop) {
             process.cancel();
             assertThat(client.processTreeVerifiedStopped()).contains(false);
@@ -112,6 +118,7 @@ class TestCodexAppServerClient
 
         assertThat(process.stopAttempts()).isOne();
         assertThat(client.processTreeVerifiedStopped()).contains(true);
+        assertThat(acknowledged).containsExactly("retrying");
     }
 
     private static final class RetryingProcess

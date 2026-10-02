@@ -2176,10 +2176,14 @@ Orphan prepared markers without an owning committed intent are removable only
 when their format proves no launcher was released.
 
 Tree stop changes the marker to `TERMINAL` and fsyncs the `ProcessExit`/result
-receipt; it does not delete it. For a task process, the owning core transaction
-first commits the turn terminal fact and tree proof, then calls
-`acknowledge(launchId)`. Probes and text-only helpers acknowledge after verified
-close. A crash on either side replays the terminal receipt or deletes an
+receipt; it does not delete it. A Claude turn or Codex App Server launch calls
+`acknowledge(launchId)` as soon as its tree is verified stopped: after a crash,
+startup interrupts a still-open turn and releases its turn claim without the
+receipt, so a verified receipt has nothing left to prove. A local run releases
+its claim first, then acknowledges, so a crash between them leaves a receipt
+rather than a stale claim. Probes and text-only helpers acknowledge after
+verified close. An unverified receipt is never acknowledged by its owner. A
+crash on either side replays the terminal receipt or deletes an
 already-acknowledged marker idempotently. Task App Server markers name their
 task, Claude turn markers name their turn, and local-run markers name
 `<taskId>/<runId>`; model-catalog, probe, and helper markers instead carry

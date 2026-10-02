@@ -180,6 +180,7 @@ class TestClaudeCliDriver
         DefaultProcessSupervisor realSupervisor = new DefaultProcessSupervisor(launches, recorder);
         List<ManagedProcess> turnProcesses = new CopyOnWriteArrayList<>();
         List<ProcessSpec> turnSpecs = new CopyOnWriteArrayList<>();
+        Map<String, JsonNode> acknowledgedReceipts = new ConcurrentHashMap<>();
         ProcessSupervisor supervisor = new ProcessSupervisor()
         {
             @Override
@@ -235,6 +236,12 @@ class TestClaudeCliDriver
             @Override
             public void acknowledge(String launchId)
             {
+                try {
+                    acknowledgedReceipts.put(launchId, objectMapper.readTree(launches.resolve(launchId + ".json").toFile()));
+                }
+                catch (IOException failure) {
+                    throw new AssertionError(failure);
+                }
                 realSupervisor.acknowledge(launchId);
             }
         };
@@ -267,7 +274,10 @@ class TestClaudeCliDriver
                 ProcessExit originalExit = process.exit().toCompletableFuture().get(5, TimeUnit.SECONDS);
                 assertThat(originalExit.exitCode()).isEqualTo(failed ? 1 : 0);
                 assertThat(originalExit.treeTermination()).isEqualTo(ProcessExit.TreeTermination.UNVERIFIABLE);
-                JsonNode receipt = objectMapper.readTree(launches.resolve(process.launchId() + ".json").toFile());
+                // A verified stop drops the receipt with the turn, so no later startup replays it.
+                assertThat(launches.resolve(process.launchId() + ".json")).doesNotExist();
+                assertThat(recorder.committedLaunches()).doesNotContainKey(process.launchId());
+                JsonNode receipt = acknowledgedReceipts.get(process.launchId());
                 assertThat(receipt.path("descendantTrackingIncomplete").asBoolean()).isTrue();
                 assertThat(receipt.path("workFinished").asBoolean()).isTrue();
                 assertThat(receipt.path("treeTermination").asText()).isEqualTo("VERIFIED_STOPPED");

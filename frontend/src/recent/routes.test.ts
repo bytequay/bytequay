@@ -13,31 +13,37 @@
  */
 import { describe, expect, it } from 'vitest';
 import { workspaceLocationFromRoute } from '../workspaces/model';
-import { recentItemRoute } from './routes';
+import { recentItemTarget } from './routes';
 
 describe('Recent navigation', () => {
   it('opens the exact task conversation from its item key and workspace', () => {
     const taskId = '622f3ef2-b16a-4b86-9ac7-92e3f80bbc81';
-    const route = recentItemRoute({ type: 'TASK', itemKey: `task:${taskId}`, workspaceId: 'workspace/one' });
-    expect(workspaceLocationFromRoute(route ?? '')).toMatchObject({
+    const route = recentItemTarget({ type: 'TASK', itemKey: `task:${taskId}`, workspaceId: 'workspace/one' });
+    expect(typeof route).toBe('string');
+    expect(workspaceLocationFromRoute(typeof route === 'string' ? route : '')).toMatchObject({
       workspaceId: 'workspace/one', tab: 'tasks', agentTaskId: taskId,
     });
   });
 
-  it('preserves pull-request, issue and commit destinations', () => {
-    expect(recentItemRoute({ type: 'PULL_REQUEST', itemKey: 'pr:trinodb/trino#42', workspaceId: null }))
-      .toBe('#/pulls/trinodb/trino/42');
-    expect(recentItemRoute({ type: 'PULL_REQUEST', itemKey: 'pr:trinodb/trino#42', workspaceId: 'workspace-1' }))
-      .toBe('#/workspaces/workspace-1/prs/42');
-    expect(recentItemRoute({ type: 'ISSUE', itemKey: 'issue:trinodb/trino#42', workspaceId: 'workspace-1' }))
-      .toBe('#/workspaces/workspace-1/issues/42');
-    expect(recentItemRoute({ type: 'COMMIT', itemKey: 'commit:trinodb/trino@abc123', workspaceId: 'workspace-1' }))
+  it('zooms pull requests and issues over the page instead of leaving Recent', () => {
+    expect(recentItemTarget({ type: 'PULL_REQUEST', itemKey: 'pr:trinodb/trino#42', workspaceId: null }))
+      .toEqual({ kind: 'pull', repo: 'trinodb/trino', number: 42, workspaceId: undefined });
+    expect(recentItemTarget({ type: 'PULL_REQUEST', itemKey: 'pr:trinodb/trino#42', workspaceId: 'workspace-1' }))
+      .toEqual({ kind: 'pull', repo: 'trinodb/trino', number: 42, workspaceId: 'workspace-1' });
+    expect(recentItemTarget({ type: 'ISSUE', itemKey: 'issue:trinodb/trino#42', workspaceId: 'workspace-1' }))
+      .toEqual({ kind: 'issue', repo: 'trinodb/trino', number: 42, workspaceId: 'workspace-1' });
+    // Only a watched repository's issue has a view to zoom.
+    expect(recentItemTarget({ type: 'ISSUE', itemKey: 'issue:trinodb/trino#42', workspaceId: null })).toBeNull();
+  });
+
+  it('keeps commits on their workspace page', () => {
+    expect(recentItemTarget({ type: 'COMMIT', itemKey: 'commit:trinodb/trino@abc123', workspaceId: 'workspace-1' }))
       .toBe('#/workspaces/workspace-1/commits');
   });
 
   it('does not send unavailable or malformed tasks to an unrelated task list', () => {
-    expect(recentItemRoute({ type: 'TASK', itemKey: 'task:deleted', workspaceId: null })).toBeNull();
-    expect(recentItemRoute({ type: 'TASK', itemKey: 'task:', workspaceId: 'workspace-1' })).toBeNull();
-    expect(recentItemRoute({ type: 'TASK', itemKey: 'pr:trinodb/trino#42', workspaceId: 'workspace-1' })).toBeNull();
+    expect(recentItemTarget({ type: 'TASK', itemKey: 'task:deleted', workspaceId: null })).toBeNull();
+    expect(recentItemTarget({ type: 'TASK', itemKey: 'task:', workspaceId: 'workspace-1' })).toBeNull();
+    expect(recentItemTarget({ type: 'TASK', itemKey: 'pr:trinodb/trino#42', workspaceId: 'workspace-1' })).toBeNull();
   });
 });

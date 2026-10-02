@@ -39,7 +39,7 @@ import OnboardingScreen from './OnboardingScreen';
 import PullsScreen from './pulls/PullsScreen';
 import RecentPage from './recent/RecentPage';
 import RecentPalette, { scrollToWrittenText } from './recent/RecentPalette';
-import { recentItemRoute } from './recent/routes';
+import { recentItemTarget } from './recent/routes';
 import SettingsWindow from './settings/SettingsWindow';
 import {
   isWorkspaceSection,
@@ -359,21 +359,16 @@ export default function App() {
     if (current) navigateTo(workspaceIssueRoute(current.id, number), mode);
   }, [navigateTo]);
 
-  const openRecentRow = (row: RecentRowDto) => {
+  const openRecentItem = (item: Pick<RecentRowDto, 'type' | 'itemKey' | 'workspaceId'>, textId: string | null) => {
     setPaletteOpen(false);
-    const route = recentItemRoute(row);
-    if (route === null) return;
-    window.location.hash = route;
-    if (row.type === 'PULL_REQUEST') scrollToWrittenText(row.textId);
+    const target = recentItemTarget(item);
+    if (target === null) return;
+    if (typeof target === 'string') window.location.hash = target;
+    else zoomReference(target);
+    if (item.type === 'PULL_REQUEST') scrollToWrittenText(textId);
   };
-
-  const openRecentWordHit = (hit: RecentWordHitDto) => {
-    setPaletteOpen(false);
-    const route = recentItemRoute(hit);
-    if (route === null) return;
-    window.location.hash = route;
-    if (hit.type === 'PULL_REQUEST') scrollToWrittenText(hit.id);
-  };
+  const openRecentRow = (row: RecentRowDto) => openRecentItem(row, row.textId);
+  const openRecentWordHit = (hit: RecentWordHitDto) => openRecentItem(hit, hit.id);
 
   // A bare `#/settings` reopens whichever page was last open.
   const settingsPage = page === 'settings' ? settingsSection ?? readLastSection() : null;

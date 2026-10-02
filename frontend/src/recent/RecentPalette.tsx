@@ -24,15 +24,17 @@ const PAGE_LIMIT = 10;
 
 /**
  * Scrolls the pull-request view to the comment the user last wrote in. The
- * detail loads asynchronously after the route changes, so this waits for the
- * node rather than threading a focus prop through the whole detail tree.
+ * detail loads asynchronously after it zooms in, so this waits for the node
+ * rather than threading a focus prop through the whole detail tree.
  */
 export function scrollToWrittenText(textId: string | null) {
   const githubId = textId?.match(/(\d+)$/)?.[1];
   if (!githubId) return;
   const deadline = Date.now() + 4000;
   const attempt = () => {
-    const anchor = document.getElementById(`pr-activity-${githubId}`);
+    // The zoomed pull request can sit over a page showing the same one; the top layer comes last.
+    const anchors = document.querySelectorAll(`#pr-activity-${githubId}`);
+    const anchor = anchors[anchors.length - 1];
     if (anchor) {
       anchor.scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;

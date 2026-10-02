@@ -229,7 +229,7 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
           secondary={started && thread !== undefined ? <button type="button" disabled={sending}
             onClick={() => { void run(() => threads.resolve(thread, true)).then(done => { if (done) threads.setForward(null); }); }}>
             Resolve locally</button> : undefined}
-          onChange={setDraft} onSubmit={() => { void send(); }} onCancel={cancel} />
+          onChange={setDraft} onSubmit={send} onCancel={cancel} />
         {errorNote}
       </footer>;
 

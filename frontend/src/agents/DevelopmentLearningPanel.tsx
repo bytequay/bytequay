@@ -55,7 +55,7 @@ function LearningCard({ card, sha, turn, repository, disabledReason, onAsk }: {
     controls={<footer className={`lrc__foot${composing ? ' is-composing' : ''}`}>
       {composing ? <ReviewComposer repository={repository} value={body} autoFocus busy={busy} disabledReason={disabledReason}
         ariaLabel={`Ask the agent about ${card.title.toLowerCase()}`} placeholder="Ask for an explanation or confirmation…"
-        primaryLabel="Ask agent" onChange={setBody} onSubmit={() => { void send(); }} onCancel={close} />
+        primaryLabel="Ask agent" onChange={setBody} onSubmit={send} onCancel={close} />
         : <button type="button" className="lrc__ask" disabled={disabledReason !== null} title={disabledReason ?? undefined}
           onClick={() => setComposing(true)}>Ask agent</button>}
       {error !== null && <span className="lrc__error" role="alert">{error}</span>}

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import type { SuggestionBase } from '../MarkdownBody';
 import MarkdownEditor from '../MarkdownEditor';
 
@@ -49,10 +49,27 @@ export default function ReviewComposer({
   /** Takes the Cancel button's place; Escape still cancels. */
   secondary?: ReactNode;
   onChange: (value: string) => void;
-  onSubmit: () => void;
+  /** The host closes or clears on success and presents errors; keep its draft until this settles. */
+  onSubmit: () => void | Promise<void>;
   onCancel: () => void;
 }) {
+  const [submitting, setSubmitting] = useState(false);
+  const inFlight = useRef(false);
   const ready = (allowEmpty || value.trim() !== '') && !busy && disabledReason === null;
+  const submit = async () => {
+    if (!ready || inFlight.current) return;
+    inFlight.current = true;
+    try {
+      const pending = onSubmit();
+      if (pending !== undefined) {
+        setSubmitting(true);
+        await pending;
+      }
+    }
+    finally { inFlight.current = false; setSubmitting(false); }
+  };
+
+  if (submitting) return <p className="pr-local-review__note" role="status">Sending…</p>;
 
   return (
     <MarkdownEditor
@@ -68,10 +85,10 @@ export default function ReviewComposer({
       statusMessage={disabledReason}
       busy={busy}
       autoFocus={autoFocus}
-      onSubmit={() => { if (ready) onSubmit(); }}
-      onCancel={onCancel}>
+      onSubmit={() => { void submit(); }}
+      onCancel={() => { if (!inFlight.current) onCancel(); }}>
       {secondary ?? <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>}
-      <button type="button" className="is-primary" disabled={!ready} title={disabledReason ?? undefined} onClick={onSubmit}>
+      <button type="button" className="is-primary" disabled={!ready} title={disabledReason ?? undefined} onClick={() => { void submit(); }}>
         {primaryLabel}
       </button>
     </MarkdownEditor>

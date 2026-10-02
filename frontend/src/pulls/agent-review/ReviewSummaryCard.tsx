@@ -59,7 +59,7 @@ function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, b
         {composing ? <ReviewComposer repository={review.repo} value={text} autoFocus busy={busy}
           placeholder={`Ask the reviewer about ${card.title.toLowerCase()}…`}
           ariaLabel={`Ask the reviewer about ${card.title.toLowerCase()}`} primaryLabel={askLabel(review)}
-          onChange={setText} onSubmit={() => { void submit(); }} onCancel={close} />
+          onChange={setText} onSubmit={submit} onCancel={close} />
           : <><button type="button" className="lrc__ask" disabled={busy || review.state === 'CLOSED'}
             onClick={() => setComposing(true)}>Ask reviewer</button>
           {askQueues(review) && <span className="pr-local-review__note">Agent is busy — your question will queue</span>}</>}

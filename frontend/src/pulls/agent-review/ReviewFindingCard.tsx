@@ -162,7 +162,7 @@ export default function ReviewFindingCard({
                   ? `Posts to GitHub on ${shortPath(lines.path, 28)} ${lines.range} at reviewed commit ${shortSha(finding.validatedHeadSha)}`
                   : 'Your outgoing text; the agent never sees these edits'}
               onChange={setText}
-              onSubmit={() => { void submit(); }}
+              onSubmit={composer === 'ask' ? submit : () => { void submit(); }}
               onCancel={close} />
           )}
 

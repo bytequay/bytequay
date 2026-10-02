@@ -21,6 +21,7 @@ import { previewTask } from '../../../agents/fixtures/previewBridge';
 import type { AgentTurnDto, Bridge, DevelopmentLearningSummaryDto } from '../../../types';
 import { DiffViewer } from '../../PullChanges';
 import ReviewSummaryCard from '../../agent-review/ReviewSummaryCard';
+import ReviewFindingCard from '../../agent-review/ReviewFindingCard';
 import ReviewComposer from '../../agent-review/ReviewComposer';
 import '../../../css/base.css';
 import '../../../css/markdown-editor.css';
@@ -546,6 +547,62 @@ async function sharedReviewEditor(): Promise<void> {
   }
 }
 
+async function pendingReviewerQuestion(): Promise<void> {
+  const draft = Array.from({ length: 100 }, (_, index) => `Question ${index + 1}: please explain the previous and current partition statistics.`).join('\n');
+  for (const kind of ['summary', 'finding']) {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const requests: Array<{ resolve: () => void; reject: (error: Error) => void; publish: () => void }> = [];
+    const Surface = () => {
+      const [review, setReview] = useState(() => reviewFixture({ messages: [] }));
+      const ask = (body: string) => new Promise<void>((resolve, reject) => {
+        assert(body === draft, 'Sending must retain the entire large question');
+        requests.push({ resolve, reject, publish: () => setReview(current => ({ ...current, messages: [{
+          ...reviewFixture().messages[0], id: 'new-question', author: 'USER', body,
+          findingId: kind === 'finding' ? review.findings[0].id : null,
+          cardId: kind === 'summary' ? `${review.runs[0].id}:purpose` : null,
+          runId: review.runs[0].id,
+        }] })) });
+      });
+      return kind === 'summary'
+        ? <ReviewSummaryCard review={review} run={review.runs[0]} findings={review.findings} viewerLogin="me" viewerAvatarUrl={null}
+            busy={false} onAsk={ask} onSelectFinding={() => {}} />
+        : <ReviewFindingCard review={review} finding={review.findings[0]} viewerLogin="me" viewerAvatarUrl={null} projection="review"
+            actions={{ onAsk: (_finding, body) => ask(body), onResolve: async () => {}, onReopen: async () => {},
+              onAddToReview: async () => {}, onPostNow: async () => {}, onEditDraft: async () => {}, onRemoveFromReview: async () => {} }} />;
+    };
+    try {
+      flushSync(() => root.render(<Surface />));
+      button(host, 'Ask reviewer').click(); await settle();
+      const input = host.querySelector('textarea');
+      assert(input !== null, 'The question editor must open');
+      changeInput(input, draft); await settle();
+      const submit = button(host.querySelector('.agr-composer') as HTMLElement, 'Ask reviewer');
+      submit.click(); submit.click(); await settle();
+      assert(requests.length === 1, 'Repeated clicks must not send a question twice');
+      assert(host.querySelector('textarea') === null && host.querySelector('[role="status"]')?.textContent === 'Sending…',
+        'A slow send must immediately replace the large editor with a compact status');
+
+      requests[0].reject(new Error('Could not send the question')); await settle();
+      const restored = host.querySelector('textarea');
+      assert(restored?.value === draft && !restored.disabled && host.querySelector('[role="alert"]')?.textContent === 'Could not send the question',
+        'Failure must restore the editable draft and show the error');
+      restored.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true })); await settle();
+      assert(Number(requests.length) === 2 && host.querySelector('textarea') === null, 'Keyboard retry must use the same sending state');
+      requests[1].publish(); await settle();
+      assert(host.querySelectorAll('.agr-thread .lrc-message').length === 1 && host.querySelector('textarea') === null,
+        'A saved question arriving before the send response must not reappear in the editor');
+      requests[1].resolve(); await settle();
+      assert(host.querySelector('.agr-composer, [role="status"], [role="alert"]') === null,
+        'Success must close the editor and remove the sending status and error');
+      button(host, 'Ask reviewer').click(); await settle();
+      assert(host.querySelector('textarea')?.value === '', 'The next question must start with an empty draft');
+    }
+    finally { flushSync(() => root.unmount()); host.remove(); }
+  }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const cases: Array<[string, () => Promise<void>]> = [
     ['Local discussion reply, resolution and remount', replyAndResolve],
@@ -555,6 +612,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['Review-owned private replies use the fresh task version', reviewOwnedLocalDiscussion],
     ['Development learning refreshes and retains source-bound discussions', developmentLearningRefresh],
     ['Review editor reuses diff presentation and preserves private and outgoing behavior', sharedReviewEditor],
+    ['Slow reviewer questions clear the editor immediately and restore failed drafts', pendingReviewerQuestion],
   ];
   const results: { name: string; error?: string }[] = [];
   for (const [name, scenario] of cases) {

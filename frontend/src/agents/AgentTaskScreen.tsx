@@ -13,6 +13,7 @@
  */
 
 import { LinkedWorkRequest, LinkedWorkCard, useLinkedWorkspaceWork } from './LinkedWorkspaceWork';
+import { BackportChainCard, useBackportChains } from './BackportChains';
 import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
 import {
 Archive,
@@ -1182,6 +1183,7 @@ export function AgentTaskBody({
   onCleanup?: () => void;
 }): React.JSX.Element {
   const linkedWork = useLinkedWorkspaceWork(state.task?.workspaceId, state.task?.id);
+  const backports = useBackportChains(state.task?.workspaceId);
   const sidePanel = useTaskPane();
   const before = historyBefore(state);
   const after = historyAfter(state);
@@ -1374,8 +1376,10 @@ export function AgentTaskBody({
 
       <AgentConversation
         turnRequest={turnId => linkedWork.incoming?.turnId === turnId ? <LinkedWorkRequest work={linkedWork.incoming} /> : null}
-        turnFooter={turnId => linkedWork.links.filter(work => work.sourceTaskId === state.task?.id && work.sourceTurnId === turnId)
+        turnFooter={turnId => <>{linkedWork.links.filter(work => work.sourceTaskId === state.task?.id && work.sourceTurnId === turnId)
           .map(work => <LinkedWorkCard key={`${work.createdAt}:${work.targetWorkspaceId}`} work={work} />)}
+          {backports.chains.filter(view => view.chain.requestingTaskId === state.task?.id && view.chain.acceptances[0]?.turnId === turnId)
+            .map(view => <BackportChainCard key={view.chain.id} view={view} />)}</>}
         turns={turns} repository={repository} durableTurns={state.turns} models={models} now={now} scroll={scroll} workspaceId={state.task?.workspaceId}
         localReview={localReview} onOpenReview={onOpenReview} issueSource={state.task?.issueSource} jiraSource={state.task?.jiraSource}
         discussions={discussions?.discussions} discussionBusy={discussions?.busy} onSelectPassage={onSelectPassage} onOpenDiscussion={onOpenDiscussion}

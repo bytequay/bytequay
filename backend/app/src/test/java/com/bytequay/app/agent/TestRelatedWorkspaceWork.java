@@ -314,7 +314,10 @@ class TestRelatedWorkspaceWork
         var service = service();
         ObjectProvider<RelatedWorkspaceWork> provider = mock(ObjectProvider.class);
         when(provider.getObject()).thenReturn(service);
-        var resolver = new RelatedWorkspaceBridgeResolverImpl(provider, turns, new ObjectMapper().findAndRegisterModules());
+        ObjectProvider<com.bytequay.app.backport.BackportChainService> chainProvider = mock(ObjectProvider.class);
+        var chainService = mock(com.bytequay.app.backport.BackportChainService.class);
+        when(chainProvider.getObject()).thenReturn(chainService);
+        var resolver = new RelatedWorkspaceBridgeResolverImpl(provider, turns, new ObjectMapper().findAndRegisterModules(), chainProvider);
         var bridge = resolver.resolve(source.id().toString()).orElseThrow();
         assertThat(bridge.call().apply("""
                 {"action":"START","operationKey":"bridge","workspaceId":"iceberg","purpose":"INVESTIGATE",
@@ -322,6 +325,9 @@ class TestRelatedWorkspaceWork
                 """.formatted(oldCommit))).contains("RUNNING", oldCommit);
         assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"READ\",\"operationKey\":\"bridge\",\"workspaceId\":\"other\"}"))
                 .isInstanceOf(IllegalArgumentException.class);
+        bridge.call().apply("{\"action\":\"SAVE_CHAIN\",\"operationKey\":\"backport\",\"destinations\":[\"test/internal-trino\"]}");
+        verify(chainService).save(source.id().toString(), sourceTurn.id(), new com.bytequay.app.backport.BackportChainService.Request(
+                "backport", source.id().toString(), Optional.empty(), ImmutableList.of("test/internal-trino")));
         when(turns.findActive(source.id())).thenReturn(Optional.of(accepted(source.id(), "later-user-turn")));
         assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"READ\",\"operationKey\":\"bridge\"}"))
                 .isInstanceOf(AgentConflictException.class);

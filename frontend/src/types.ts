@@ -1131,6 +1131,23 @@ export type WorkspaceCommitsTargetDto = {
   overridden: boolean;
 };
 
+export type BackportChainRouteDto = {
+  workspaceId: string; repository: { owner: string; repo: string }; remote: string; branch: string;
+};
+export type BackportChainPrDto = { owner: string; repo: string; number: number };
+export type BackportChainViewDto = {
+  chain: {
+    id: string; workspaceId: string; requestingTaskId: string; sourceTaskId: string; source: BackportChainRouteDto;
+    sourcePullRequest: BackportChainPrDto | null; sourceMerged: boolean;
+    acceptances: { operationKey: string; turnId: string; destinations: string[] }[];
+    hops: { route: BackportChainRouteDto; executionId: string | null; pullRequest: BackportChainPrDto | null;
+      selection: { commits: string[]; tipSha: string } | null; landedSource: { commits: string[]; mergeSha: string } | null; completed: boolean; noOp: boolean }[];
+    state: 'ACTIVE' | 'BLOCKED' | 'STOPPING' | 'STOPPED' | 'COMPLETED'; reason: string | null; createdAt: string; updatedAt: string; version: number;
+  };
+  title: string; requestingRepository: string; archived: boolean;
+  progress: { taskId: string | null; ciRunId: string | null; status: string; summary: string | null }[];
+};
+
 export type LinkedWorkspaceWorkDto = {
   sourceWorkspaceId: string; sourceRepository: string; sourceTaskId: string; sourceTitle: string; sourceTurnId: string;
   targetTaskId: string | null; targetWorkspaceId: string; targetTitle: string; repository: string;
@@ -1437,6 +1454,10 @@ export type Bridge = JiraBridge & {
   previewWatch: (selectedRepositoryId: number) => Promise<WatchRepositoryPreviewDto>;
   watchRepository: (command: WatchRepositoryCommand) => Promise<WorkspaceDto>;
   listWorkspaces: () => Promise<WorkspaceDto[]>;
+  getBackportChains: (workspaceId: string) => Promise<BackportChainViewDto[]>;
+  selectBackportSource: (workspaceId: string, id: string, selection: { version: number; oldest: string; newest: string }) => Promise<BackportChainViewDto>;
+  stopBackportChain: (workspaceId: string, id: string) => Promise<BackportChainViewDto>;
+  resumeBackportChain: (workspaceId: string, id: string) => Promise<BackportChainViewDto>;
   getLinkedWorkspaceWork: (workspaceId: string) => Promise<LinkedWorkspaceWorkDto[]>;
   getRelatedWorkspaceRequest: (workspaceId: string, taskId: string) => Promise<LinkedWorkspaceWorkDto | null>;
   getWorkspaceRelationships: (workspaceId: string) => Promise<WorkspaceRelationshipDto[]>;

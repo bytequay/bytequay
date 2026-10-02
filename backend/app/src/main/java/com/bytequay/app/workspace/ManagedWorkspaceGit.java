@@ -120,6 +120,27 @@ class ManagedWorkspaceGit
         requireGitSuccess(pushed, "push generated branch to origin");
     }
 
+    Optional<String> remoteBranchSha(Workspace workspace, String branch)
+    {
+        validateRouting(workspace);
+        Path repository = requireOwnedCheckout(workspace);
+        if (!remoteUrl(repository, "origin").filter(workspace.originCloneUrl()::equals).isPresent()) {
+            throw remoteMismatch("origin remote does not match persisted push routing");
+        }
+        String ref = "refs/heads/" + branch;
+        Result result = git.run(repository, PROBE_TIMEOUT, authenticationEnvironment(workspace),
+                ImmutableList.of("ls-remote", "--exit-code", "--refs", "--", workspace.originCloneUrl(), ref));
+        if (result.exitCode() == 2 && !result.truncated() && result.output().isBlank()) {
+            return Optional.empty();
+        }
+        requireGitSuccess(result, "verify published backport branch");
+        String[] values = result.output().strip().split("\\s+", -1);
+        if (result.truncated() || values.length != 2 || !values[1].equals(ref) || !values[0].matches("[0-9a-f]{40}|[0-9a-f]{64}")) {
+            throw new Failure("Remote result is unclear. Inspect the branch before continuing.", "Invalid ls-remote result");
+        }
+        return Optional.of(values[0]);
+    }
+
     private Path prepareOwnedWorkspace(Workspace workspace)
     {
         Path root = paths.root();

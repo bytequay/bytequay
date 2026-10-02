@@ -93,6 +93,10 @@ public class CherryPickExecutionEntity
     @Column(nullable = false)
     private String laneId;
 
+    private String model;
+
+    private String effort;
+
     private String pullRequestTitle;
 
     @Column(columnDefinition = "TEXT")
@@ -195,6 +199,8 @@ public class CherryPickExecutionEntity
         workBranch = workspace.workBranch();
         worktree = workspace.worktree().toString();
         laneId = workspace.laneId();
+        model = workspace.model().orElse(null);
+        effort = workspace.effort().orElse(null);
         pullRequestTitle = execution.pullRequestDraft().map(PullRequestDraft::title).orElse(null);
         pullRequestBody = execution.pullRequestDraft().map(PullRequestDraft::body).orElse(null);
         pushedRemote = execution.delivery().map(Delivery::pushRemote).orElse(null);
@@ -237,7 +243,9 @@ public class CherryPickExecutionEntity
                         workBranch,
                         Path.of(worktree),
                         laneId,
-                        Optional.ofNullable(sourceRepositoryOwner).map(owner -> RepoRef.of(owner, sourceRepositoryName))),
+                        Optional.ofNullable(sourceRepositoryOwner).map(owner -> RepoRef.of(owner, sourceRepositoryName)),
+                        Optional.ofNullable(model),
+                        Optional.ofNullable(effort)),
                 Optional.ofNullable(pullRequestTitle)
                         .map(title -> new PullRequestDraft(title, Optional.ofNullable(pullRequestBody).orElse(""))),
                 Optional.ofNullable(pushedRemote).map(remote -> new Delivery(

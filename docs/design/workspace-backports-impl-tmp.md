@@ -1,7 +1,7 @@
 # Workspace Relationships Implementation Checklist
 
-Status: checkpoints 1–3 implemented and checked.
-Checkpoints 4–5 are not started.
+Status: checkpoints 1–4 implemented and checked.
+Checkpoint 5 is not started.
 The [design](workspace-backports.md) is canonical.
 This file tracks implementation, not another runtime workflow.
 Checkpoint order replaces the earlier chain-first plan.
@@ -101,27 +101,27 @@ UI: compact route, current result/block, and Stop/Resume in the conversation.
 Starting points: cherry-pick execution, workspace PR delivery, CI Autofix,
 Branch Rebase, `MonitorLoop`, and current core/SQLite storage patterns.
 
-- [ ] Add one chain record/store/coordinator and root-bound save/append operation.
+- [x] Add one chain record/store/coordinator and root-bound save/append operation.
   Save source conversation/PR, ordered frozen destinations, accepted authority,
   stable keys, landed sources, child IDs, stop/block facts, and record version.
-- [ ] Validate destination-to-source Fork relationships per hop. Bind a source
+- [x] Validate destination-to-source Fork relationships per hop. Bind a source
   conversation only to its verified PR. Reuse remote-source registration,
   preview, execution, and delivery without replacing origin/upstream or adding
   another development conversation around each cherry-pick.
-- [ ] Extend existing delivery admission to specific saved chain authority.
+- [x] Extend existing delivery admission to specific saved chain authority.
   Complete linked-upstream CI activation/status with the existing stable CI
   key and fork checks. Keep CI, rebase, and publication in their owning services.
-- [ ] Persist before dispatch and serialize each chain. Reuse child IDs/keys on
+- [x] Persist before dispatch and serialize each chain. Reuse child IDs/keys on
   repeated ticks and restart. Stop/recheck before new actions; adopt uncertain
   publication only with exact evidence. Preserve work on missing workspaces,
   changed relationships/routing, failed children, or closed-unmerged PRs.
-- [ ] Wait for each PR's merge, including the final PR, without automatic merge.
+- [x] Wait for each PR's merge, including the final PR, without automatic merge.
   Show existing child progress and Stop/Resume. Handle no-op final hops without
   empty PRs; intermediate hops require a proven destination source to continue.
 
 Gate:
 
-- [ ] P4 -> P3 -> P2 creates one necessary backport PR per destination using
+- [x] P4 -> P3 -> P2 creates one necessary backport PR per destination using
   P3's actual landed changes. Tests cover concurrent dispatch, lost responses,
   restart around child creation, relation changes, Stop races, and no-op hops.
   No duplicate publication or revival of failed development/CI occurs.
@@ -244,3 +244,39 @@ Checkpoint 3 verification:
   links resolve except the design index's pre-existing missing review checklist.
 - Frontend files were unchanged. No live provider sessions or GitHub writes
   were used.
+
+
+Checkpoint 4 adds one saved chain and coordinator around the existing preview,
+cherry-pick, PR delivery, CI and rebase services. The root tool saves/appends the
+route under its accepted turn. The source defaults to the requesting conversation
+or can be its linked FIX conversation. Destination names resolve without adding
+reverse code or memory access.
+
+Fixtures prove sequential P4 -> P3 -> P2 delivery from each repository's landed
+result, waiting for the final merge, exact child recovery after a lost response,
+uncertain publication adoption without repeated writes, route removal, closed
+source PRs, unavailable destinations, concurrent monitor calls, and Stop during
+push/PR creation. Final no-op hops create no PR; an intermediate no-op holds for
+explicit destination commits. A selected range must be landed and bound to the
+current chain version, and selection alone leaves the chain paused. Failed CI
+is not revived by Resume. SQLite round-trips authority, merge evidence, plans,
+child references and Stop, rejects stale updates, and prevents deleting an
+active chain's workspace. Cherry-pick recovery retains its model and effort.
+
+The UI follows the approved prototype: conversation cards and Tasks -> Backport
+chains, grouped as Needs you / Active / Stopped / Completed. It links existing
+conversations, executions and PR views, reuses the commit picker, and provides
+Stop/Resume. Chromium fixtures and a manual browser check verified these paths;
+no new task-creation flow was added. No live provider or GitHub writes were used.
+
+Verification:
+
+- Full backend `mvn verify`: 3,332 tests, no failures, errors or skips.
+- Final focused backend verification: 29 tests passed, including stopped-CI,
+  real Git remote-branch checks, and root tool dispatch.
+- Full frontend suite: 140 files and 1,388 tests passed. The final chain/navigation
+  rerun passed 14 tests. Lint, TypeScript and desktop packaging passed.
+- `git diff --check` and new local documentation links passed. The design index's
+  pre-existing `agent-review-impl-tmp.md` link is still absent; it is unrelated to
+  this checkpoint. Checkpoint 5 retains final cross-feature verification and
+  broader contract reconciliation.

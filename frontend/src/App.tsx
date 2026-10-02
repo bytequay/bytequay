@@ -93,6 +93,7 @@ export default function App() {
   const [initialIssueNumber, setInitialIssueNumber] = useState<number | null>(null);
   const [sourceIssueNumber, setSourceIssueNumber] = useState<number | null>(null);
   const [initialAgentTaskId, setInitialAgentTaskId] = useState<string | null>(null);
+  const [initialCherryPickId, setInitialCherryPickId] = useState<string | null>(null);
   const [initialAgentReviewId, setInitialAgentReviewId] = useState<string | null>(null);
   const [browser, setBrowser] = useState<InAppBrowserState>({ tabs: [], activeTabId: null });
   const [browserError, setBrowserError] = useState<string | null>(null);
@@ -238,6 +239,7 @@ export default function App() {
         setSourceIssueNumber(null);
         setInitialAgentTaskId(null);
         setInitialAgentReviewId(null);
+        setInitialCherryPickId(null);
         const pullRequest = pullRequestFromRoute(window.location.hash);
         setInitialPr(pullRequest ?? undefined);
         setPage(pullRequest ? 'pulls' : pageFromRoute(window.location.hash));
@@ -252,6 +254,7 @@ export default function App() {
       setSourceIssueNumber(workspaceLocation.sourceIssueNumber ?? null);
       setInitialAgentTaskId(workspaceLocation.agentTaskId);
       setInitialAgentReviewId(workspaceLocation.reviewId ?? null);
+      setInitialCherryPickId(workspaceLocation.cherryPickId ?? null);
       if (workspaceRef.current?.id === workspaceLocation.workspaceId) return;
       updateWorkspace(null);
       void window.bridge.getWorkspace(workspaceLocation.workspaceId)
@@ -267,6 +270,7 @@ export default function App() {
             setSourceIssueNumber(null);
             setInitialAgentTaskId(null);
             setInitialAgentReviewId(null);
+            setInitialCherryPickId(null);
             replaceCurrentRoute('#/workspaces');
           }
         });
@@ -522,6 +526,7 @@ export default function App() {
               sourceIssueNumber={sourceIssueNumber}
               initialAgentTaskId={initialAgentTaskId}
               initialAgentReviewId={initialAgentReviewId}
+              initialCherryPickId={initialCherryPickId}
               browserOpen={browserOpen}
               onSelectPullRequest={selectWorkspacePullRequest}
               onSelectAgentTask={selectAgentTask}

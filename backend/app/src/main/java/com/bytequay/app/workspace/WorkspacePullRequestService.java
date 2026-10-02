@@ -25,6 +25,9 @@ import static java.util.Objects.requireNonNull;
 /** Explicit remote-delivery boundary for completed workspace cherry-pick executions. */
 public interface WorkspacePullRequestService
 {
+    /** Publishes only the execution named by an active, accepted chain; uncertain writes are inspected, never repeated. */
+    PullRequestResult deliverChain(String chainId, int hop, boolean uncertain);
+
     /**
      * Reads delivery state and the current write permission without changing local or remote state.
      *

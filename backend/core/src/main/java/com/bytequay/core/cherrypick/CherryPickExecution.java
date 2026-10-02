@@ -454,8 +454,17 @@ public record CherryPickExecution(
             String workBranch,
             Path worktree,
             String laneId,
-            Optional<RepoRef> sourceRepository)
+            Optional<RepoRef> sourceRepository,
+            Optional<String> model,
+            Optional<String> effort)
     {
+        public Workspace(String workspaceId, RepoRef repository, RepoRef physicalRepository, String sourceRemote, String targetRemote, String targetBranch,
+                String localTargetBranch, String workBranch, Path worktree, String laneId, Optional<RepoRef> sourceRepository)
+        {
+            this(workspaceId, repository, physicalRepository, sourceRemote, targetRemote, targetBranch, localTargetBranch, workBranch, worktree, laneId,
+                    sourceRepository, Optional.empty(), Optional.empty());
+        }
+
         public Workspace
         {
             checkText(workspaceId, "workspaceId", 100);
@@ -466,6 +475,9 @@ public record CherryPickExecution(
             checkText(physicalRepository.owner(), "physical repository owner", 100);
             checkText(physicalRepository.repo(), "physical repository name", 100);
             requireNonNull(sourceRepository, "sourceRepository is null");
+            checkOptionalText(model, "model", 255);
+            checkOptionalText(effort, "effort", 100);
+            checkArgument(effort.isEmpty() || model.isPresent(), "effort requires a model");
             checkText(sourceRemote, "sourceRemote", 100);
             checkText(targetRemote, "targetRemote", 100);
             checkText(targetBranch, "targetBranch", 255);

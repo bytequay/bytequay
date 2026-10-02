@@ -1000,5 +1000,4 @@ change origin, upstream, PR routing or the destination's settings. The sidebar
 links to their existing Commits and Memory pages. Development turns receive
 local paths and captured commits, with memory reads on demand. Dependency pairs
 cannot transfer commits through cherry-pick or delivery. See
-[workspace relationships](workspace-backports.md) for the implemented reading
-checkpoint and the planned handoff/chain checkpoints.
+[workspace relationships](workspace-backports.md) for implemented reading, conversation handoffs, and saved backport chains.

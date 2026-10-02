@@ -209,7 +209,7 @@ public class CherryPickExecutionService
                         branch,
                         plannedWorktree(workspaceId, taskId),
                         command.laneId(),
-                        Optional.of(preview.sourceRepository())),
+                        Optional.of(preview.sourceRepository()), command.model(), command.effort()),
                 Optional.of(command.pullRequestDraft()),
                 new Range(preview.sourceBaseSha(), preview.sourceTipSha(), preview.targetSha()),
                 items,
@@ -219,8 +219,7 @@ public class CherryPickExecutionService
         CherryPickExecution execution = store.createOrGet(proposed);
         requireWorkspace(execution.workspace().workspaceId(), workspaceId);
         if (execution.status() != Status.FINISHED) {
-            ensureAgentTask(execution, new AgentTaskDefaults(
-                    command.model(), command.effort(), AgentPermissionPolicy.CHERRY_PICK));
+            ensureAgentTask(execution);
         }
         return execution;
     }
@@ -914,13 +913,7 @@ public class CherryPickExecutionService
 
     private AgentTask ensureAgentTask(CherryPickExecution execution)
     {
-        // Only the start call knows what the reader chose; every other path is a
-        // recovery for a task that should already exist, so the lane's own default stands.
-        return ensureAgentTask(execution, AgentTaskDefaults.forPermission(AgentPermissionPolicy.CHERRY_PICK));
-    }
-
-    private AgentTask ensureAgentTask(CherryPickExecution execution, AgentTaskDefaults defaults)
-    {
+        AgentTaskDefaults defaults = new AgentTaskDefaults(execution.workspace().model(), execution.workspace().effort(), AgentPermissionPolicy.CHERRY_PICK);
         TaskId taskId = TaskId.valueOf(execution.agentTaskId().orElseThrow());
         String workspaceId = execution.workspace().workspaceId();
         RepositoryIdentity selectedRepository = repositoryIdentity(

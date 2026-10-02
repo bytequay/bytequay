@@ -26,6 +26,7 @@ import { recordAttentionAction } from '../home/useAttentionVisit';
 import { notifyIssueDevelopmentChanged, type DevelopmentIssue } from '../workspaces/issueDevelopment';
 import { workspaceAgentTaskRoute } from '../workspaces/model';
 import { LinkedWorkList, useLinkedWorkspaceWork } from './LinkedWorkspaceWork';
+import { BackportChainList, useBackportChains } from './BackportChains';
 import { IssueAttachment } from './IssueAttachment';
 import { AutomationControl } from './AutomationControl';
 import { automationForSubmission } from './developmentAutomation';
@@ -950,8 +951,8 @@ export function changesLabel({ uncommitted, commits }: AgentTaskChangesDto): str
 type ToastState = { id: number; text: string; undo?: () => void };
 
 /** The type tabs across the Tasks page, each filtering the whole page. */
-type TypeTab = 'all' | TaskType | 'linked';
-const TYPE_TABS: TypeTab[] = ['all', 'dev', 'review', 'cherry', 'ci', 'linked'];
+type TypeTab = 'all' | TaskType | 'linked' | 'backports';
+const TYPE_TABS: TypeTab[] = ['all', 'dev', 'review', 'cherry', 'ci', 'backports', 'linked'];
 
 function inType(item: TaskListItem, type: TypeTab): boolean {
   return type === 'all' || item.type === type;
@@ -1018,6 +1019,7 @@ export function AgentTaskList({
   changes?: Record<string, AgentTaskChangesDto>;
 }): React.JSX.Element {
   const linked = useLinkedWorkspaceWork(workspaceId);
+  const backports = useBackportChains(workspaceId);
   const [tab, setTab] = useState<TaskTab>(initialTab);
   const [type, setType] = useState<TypeTab>(initialType);
   const [selected, setSelected] = useState<string[]>([]);
@@ -1037,6 +1039,7 @@ export function AgentTaskList({
   if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup, headerAction }} />;
 
   const active = tab === 'active';
+  const chainShelf = backports.chains.filter(view => view.archived === !active);
   const linkedShelf = linked.links.filter(work => work.archived === !active);
   const archivedCount = tasks.filter(taskArchived).length;
   // Only agent tasks archive; reviews, cherry-picks and CI fixes stay on the active shelf.
@@ -1122,7 +1125,7 @@ export function AgentTaskList({
     if (type === 'all' || type === 'dev') {
       event.currentTarget.closest('.agt-page')?.querySelector<HTMLTextAreaElement>('.agt-compose__input')?.focus();
     }
-    else if (type !== 'linked') onNewItem?.(type);
+    else if (type !== 'linked' && type !== 'backports') onNewItem?.(type);
   };
 
   return (
@@ -1162,14 +1165,14 @@ export function AgentTaskList({
                 className={`agt-type-tab${type === key ? ' is-active' : ''}`}
                 onClick={() => switchType(key)}
               >
-                <span className={`agt-type-tab__icon is-${key}`}>{key === 'linked' ? <Link2 size={14} /> : <TaskTypeIcon type={key} />}</span>
-                {key === 'linked' ? 'Linked work' : key === 'all' ? 'All' : TASK_TYPES[key].label}
-                <span className="agt-type-tab__count">{key === 'linked' ? linkedShelf.length : shelf.filter((item) => inType(item, key)).length}</span>
+                <span className={`agt-type-tab__icon is-${key}`}>{(key === 'linked' || key === 'backports') ? <Link2 size={14} /> : <TaskTypeIcon type={key} />}</span>
+                {key === 'backports' ? 'Backport chains' : key === 'linked' ? 'Linked work' : key === 'all' ? 'All' : TASK_TYPES[key].label}
+                <span className="agt-type-tab__count">{key === 'backports' ? chainShelf.length : key === 'linked' ? linkedShelf.length : shelf.filter((item) => inType(item, key)).length}</span>
                 {shelf.some((item) => inType(item, key) && item.state.label === 'Needs you') && <span className="agt-type-tab__needs" title="Needs you" />}
               </button>
             ))}
           </div>
-          {active && type !== 'linked' && (
+          {active && type !== 'linked' && type !== 'backports' && (
             <button type="button" className="agt-type-new" onClick={startNew}>
               + {TASK_TYPES[type === 'all' ? 'dev' : type].newLabel}
             </button>
@@ -1199,8 +1202,9 @@ export function AgentTaskList({
         )}
         {error !== null && <div className="cmt-error" role="alert">{error}</div>}
         {loading && <div className="agt-loading">Loading agent tasks…</div>}
+        {type === 'backports' && <BackportChainList chains={chainShelf} error={backports.error} />}
         {type === 'linked' && <LinkedWorkList links={linkedShelf} error={linked.error} />}
-        {type !== 'linked' && !loading && visible.length === 0 && (active ? (
+        {type !== 'linked' && type !== 'backports' && !loading && visible.length === 0 && (active ? (
           <div className="agt-items-empty">{type === 'all' ? 'No tasks yet.' : 'No tasks of this type yet.'}</div>
         ) : (
           <div className="agt-empty-hero">

@@ -13,9 +13,11 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
+import com.bytequay.core.backport.BackportChain;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.persistence.sqlite.entity.BackportChainEntity;
 import com.bytequay.persistence.sqlite.entity.RemoteSourceEntity;
 import com.bytequay.persistence.sqlite.entity.WorkspaceEntity;
 import com.google.common.collect.ImmutableList;
@@ -46,6 +48,11 @@ final class SqliteWorkspacePurge
 
     boolean hasActiveWorkflows(String workspaceId)
     {
+        if (entities.createQuery("FROM BackportChainEntity", BackportChainEntity.class).getResultList().stream()
+                .map(BackportChainEntity::toDomain).anyMatch(chain -> chain.involves(workspaceId)
+                        && chain.state() != BackportChain.State.STOPPED && chain.state() != BackportChain.State.COMPLETED)) {
+            return true;
+        }
         Map<String, Object> parameters = ImmutableMap.of("workspaceId", workspaceId);
         String tasks = workspaceTaskIds();
         String query = """

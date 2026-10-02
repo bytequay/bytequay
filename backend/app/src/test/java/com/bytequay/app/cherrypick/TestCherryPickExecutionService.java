@@ -358,7 +358,11 @@ class TestCherryPickExecutionService
             throw new AssertionError("simulated process death");
         });
 
-        assertThatThrownBy(() -> start(base, ImmutableList.of()))
+        var preview = preview(base);
+        var command = new StartCherryPickExecutionCommand(preview.previewId(), preview.sourceBaseSha(), preview.sourceTipSha(), preview.targetSha(),
+                ImmutableList.of(), "claude", Optional.of("saved-model"), Optional.of("high"), "model-recovery",
+                new PullRequestDraft("Backport", "Saved draft"));
+        assertThatThrownBy(() -> service.start(command, WORKSPACE_ID, clone, PHYSICAL_REPOSITORY))
                 .isInstanceOf(AssertionError.class)
                 .hasMessageContaining("simulated process death");
 
@@ -370,6 +374,8 @@ class TestCherryPickExecutionService
 
         CherryPickExecution recovered = service.advance(persisted.id());
 
+        assertThat(agent.get(taskId).defaults().model()).contains("saved-model");
+        assertThat(agent.get(taskId).defaults().effort()).contains("high");
         assertThat(agent.get(taskId).taskWorktree().orElseThrow().canonicalWorktree())
                 .isEqualTo(persisted.workspace().worktree());
         assertThat(agent.get(taskId).taskWorktree().orElseThrow().generatedBranch()).isEqualTo(persisted.workspace().workBranch());

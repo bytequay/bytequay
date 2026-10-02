@@ -47,7 +47,7 @@ import {
 } from './model';
 import '../css/workspaces.css';
 
-export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, sourceIssueNumber = null, initialAgentTaskId, initialAgentReviewId = null, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onSelectIssue }: {
+export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, sourceIssueNumber = null, initialAgentTaskId, initialAgentReviewId = null, initialCherryPickId = null, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onSelectIssue }: {
   workspace: WorkspaceDto;
   tab: WorkspaceTab;
   onSelectTab: (tab: WorkspaceTab) => void;
@@ -58,6 +58,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   /** Route-owned: which agent task is open, so a reload reopens the same one. */
   initialAgentTaskId: string | null;
   initialAgentReviewId?: string | null;
+  initialCherryPickId?: string | null;
   browserOpen?: boolean;
   onSelectAgentTask: (taskId: string | null, mode: NavigationMode) => void;
   onSelectPullRequest: (number: number, mode: NavigationMode) => void;
@@ -236,6 +237,11 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       return <MemoryPage workspace={workspace} />;
     }
     if (tab === 'tasks') {
+      if (initialCherryPickId !== null) return <div className="cmt-root"><ProgressView
+        key={initialCherryPickId} executionId={initialCherryPickId} workspaceId={workspace.id}
+        upstreamSlug={workspace.upstreamRepositoryId === null ? null : monitoredRepository}
+        onBackToTasks={() => onSelectAgentTask(null, 'push')}
+        onStartAnotherRange={() => onSelectTab('commits')} /></div>;
       if (initialAgentReviewId !== null) return stage(<ReviewTaskScreen
         key={initialAgentReviewId}
         workspaceId={workspace.id}

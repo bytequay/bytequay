@@ -1330,6 +1330,14 @@ function registerIpc(): void {
   ipcMain.handle('settings:app:save', (_event, preferences: unknown) =>
     backendJson(`${backendBase()}/api/settings/app`, jsonInit('PUT', preferences)));
 
+  ipcMain.handle('backport-chains:list', (_event, workspaceId: string) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/backport-chains`));
+  ipcMain.handle('backport-chains:source', (_event, workspaceId: string, id: string, selection: { version: number; oldest: string; newest: string }) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/backport-chains/${encodeURIComponent(id)}/source`, jsonInit('POST', selection)));
+  for (const action of ['stop', 'resume'] as const) {
+    ipcMain.handle(`backport-chains:${action}`, (_event, workspaceId: string, id: string) =>
+      backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/backport-chains/${encodeURIComponent(id)}/${action}`, { method: 'POST' }));
+  }
   ipcMain.handle('workspaces:linked-work', (_event, workspaceId: string) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/linked-work`));
   ipcMain.handle('workspaces:related-request', (_event, workspaceId: string, taskId: string) =>

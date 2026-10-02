@@ -1082,13 +1082,17 @@ public final class PermissionBroker
         context.relatedWork().ifPresent(ignored -> tools.add(new ToolDefinition(RelatedWorkspaceBridge.TOOL_NAME,
                 "Start explicitly requested work in a related workspace, or read the linked conversation's result; root agent only",
                 ImmutableMap.of("type", "object", "properties", ImmutableMap.<String, Object>builder()
-                        .put("action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("START", "READ")))
+                        .put("action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("START", "READ", "SAVE_CHAIN", "READ_CHAIN")))
                         .put("operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))
                         .put("workspaceId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))
                         .put("purpose", ImmutableMap.of("type", "string", "enum", ImmutableList.of("INVESTIGATE", "FIX")))
                         .put("question", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 16000))
                         .put("commit", ImmutableMap.of("type", "string", "pattern", "^([0-9a-f]{40}|[0-9a-f]{64})$"))
-                        .put("revision", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 200)).buildOrThrow(),
+                        .put("revision", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 200))
+                        .put("sourceTaskId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))
+                        .put("chainId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))
+                        .put("destinations", ImmutableMap.of("type", "array", "minItems", 1, "maxItems", 20,
+                                "items", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))).buildOrThrow(),
                         "required", ImmutableList.of("action", "operationKey"), "additionalProperties", false))));
         context.memory().ifPresent(ignored -> tools.add(new ToolDefinition(
                 MemoryBridge.TOOL_NAME,

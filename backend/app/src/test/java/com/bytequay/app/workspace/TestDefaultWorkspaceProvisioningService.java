@@ -125,6 +125,23 @@ class TestDefaultWorkspaceProvisioningService
     }
 
     @Test
+    void verifiesPublishedBranchWithoutChangingEitherRepository()
+            throws IOException
+    {
+        Remote origin = remote("origin");
+        GitCommandRunner routed = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare()), temporary.resolve("remote-read.log"));
+        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
+        Workspace workspace = store.createOrGet(workspace("remote-read", false));
+        assertThat(service(store, routed).synchronizeCode(workspace.id()).successful()).isTrue();
+        var managed = new ManagedWorkspaceGit(new WorkspacePaths(temporary.resolve("workspaces").toString()), routed,
+                mock(CredentialService.class), new InMemoryRemoteSourceStore());
+        assertThat(managed.remoteBranchSha(workspace, "main")).contains(git(origin.bare(), "rev-parse", "refs/heads/main"));
+        assertThat(managed.remoteBranchSha(workspace, "absent")).isEmpty();
+        git(directPath(workspace), "remote", "set-url", "origin", CUSTOM_URL);
+        assertThatThrownBy(() -> managed.remoteBranchSha(workspace, "main")).hasMessageContaining("origin remote");
+    }
+
+    @Test
     void concurrentProvisioningClonesOnceAndRetryReusesCheckout()
             throws Exception
     {

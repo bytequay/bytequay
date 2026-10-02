@@ -24,12 +24,19 @@ import {
   workspaceMetadataState,
   workspacePullRequestRoute,
   workspaceAgentTaskRoute,
+  workspaceCherryPickRoute,
   workspaceReviewTaskRoute,
   workspaceRoute,
   workspaceSyncState,
 } from './model';
 
 describe('workspace model', () => {
+  it('opens a saved chain hop in its destination cherry-pick view', () => {
+    const route = workspaceCherryPickRoute('fork/workspace', 'execution-1');
+    expect(workspaceLocationFromRoute(route)).toEqual({ workspaceId: 'fork/workspace', tab: 'tasks',
+      agentTaskId: null, pullRequestNumber: null, issueNumber: null, cherryPickId: 'execution-1' });
+    expect(workspaceLocationFromRoute('#/workspaces/w/prs/cherry/execution-1')).toBeNull();
+  });
   it('routes an issue to the existing composer without inventing an execution task', () => {
     const route = workspaceIssueTaskRoute('fork/workspace', 42);
     expect(route).toBe('#/workspaces/fork%2Fworkspace/tasks/issue/42');

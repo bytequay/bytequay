@@ -1,7 +1,7 @@
 # Workspace relationships and backport chains
 
-Status: relationships, conversation handoffs, and merged-source resolution are
-implemented. Saved backport chains remain planned.
+Status: relationships, conversation handoffs, merged-source resolution, and saved
+backport chains are implemented. Final end-to-end verification remains.
 The [temporary checklist](workspace-backports-impl-tmp.md) tracks five checkpoints.
 
 Keep one workspace per repository. Add two relationship kinds, let a
@@ -293,6 +293,19 @@ chain operation saves/appends the route under the accepted user request. Append
 only unstarted work; do not rewrite completed steps. Freeze destinations when
 the request is accepted, and reject changed fields on a reused key.
 
+The existing root-only `related_workspace_work` tool now accepts `SAVE_CHAIN`
+and `READ_CHAIN`. Omit `sourceTaskId` to use this conversation; supply the linked
+FIX conversation ID for an upstream fix. Destinations accept watched workspace
+IDs or unambiguous `owner/repository` names, so a P4 conversation needs no reverse
+memory or code access to name its downstream route. Appending uses the saved
+chain ID and a new operation key.
+
+`BackportChainService` coordinates one step per monitor tick. The SQLite record
+stores accepted requests and frozen routing/model choices, plus the exact target
+SHA and PR draft before child dispatch. The existing cherry-pick record also
+retains its model and effort so recovery can create a missing child with the
+same choices. The coordinator never starts a wrapper development conversation.
+
 ### How it advances
 
 1. Recheck the direct Fork relationship, saved authority, and destination routing.
@@ -337,7 +350,7 @@ Git could rebase it cleanly.
 
 `MergedPullRequestRange` captures repository ID, PR, base branch, merge time,
 landed SHA, original commits and the exact landed range as one serializable
-value. Chain persistence belongs to checkpoint 4. The existing preview accepts
+value. The chain stores this evidence before starting its child. The existing preview accepts
 this value and verifies its repository and complete commit sequence; refreshing
 a preview cannot substitute the old PR head or widen the range.
 
@@ -366,7 +379,16 @@ Before retrying an uncertain push/PR creation, verify the exact branch, commit,
 and PR through existing readers. Adopt a proven result or pause. Stop records
 its flag before further dispatch and uses existing cancellation for chain-owned
 work; it does not close PRs, discard work, or stop the independent source chat.
-Resume is explicit and revalidates current facts.
+Resume is explicit and revalidates current facts. Failed or cancelled children
+remain stopped; Resume does not revive them. A publication whose outcome cannot
+be proven remains blocked and keeps its branch and execution for inspection.
+
+For an ambiguous source, the existing range picker saves a version-bound explicit
+selection. The backend checks that the source PR merged (or the preceding hop
+was a no-op), the source route is unchanged, and the selected tip is on its source
+branch. Selection alone stays paused; Resume starts the saved cherry-pick.
+Tasks → Backport chains and the requesting turn show the same compact card,
+with source/child/PR links and Stop/Resume. No separate Create task flow is added.
 
 Recheck relationships and routing before every new step and publication. Removal,
 change to Dependency, a closed-unmerged PR, or a missing workspace pauses the

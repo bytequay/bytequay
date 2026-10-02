@@ -110,21 +110,23 @@ export function workspaceLocationFromRoute(hash: string): {
   issueNumber: number | null;
   agentTaskId: string | null;
   reviewId?: string;
+  cherryPickId?: string;
   sourceIssueNumber?: number;
 } | null {
-  const match = /^#\/workspaces\/([^/?]+)(?:\/(home|tasks|prs|issues|jira|commits|context)(?:\/(?:agent\/([^/?]+)|(\d+)|review\/([^/?]+)|issue\/(\d+)))?)?(?:\?[^#]*)?$/
+  const match = /^#\/workspaces\/([^/?]+)(?:\/(home|tasks|prs|issues|jira|commits|context)(?:\/(?:agent\/([^/?]+)|(\d+)|review\/([^/?]+)|issue\/(\d+)|cherry\/([^/?]+)))?)?(?:\?[^#]*)?$/
     .exec(hash);
   if (!match) return null;
   const tab = match[2] as WorkspaceTab | undefined;
   if (hash.includes('?') && tab !== 'jira') return null;
   const agentTaskId = match[3];
   const reviewId = match[5];
+  const cherryPickId = match[7];
   const sourceIssueNumber = match[6] === undefined ? undefined : Number(match[6]);
   if (sourceIssueNumber !== undefined && (tab !== 'tasks' || !Number.isSafeInteger(sourceIssueNumber) || sourceIssueNumber < 1)) return null;
   const number = match[4] ? Number(match[4]) : null;
   if (number !== null && (number < 1 || tab !== 'prs' && tab !== 'issues')) return null;
   // Only the tasks tab owns an agent task, so `prs/agent/x` is not a route at all.
-  if ((agentTaskId !== undefined || reviewId !== undefined) && tab !== 'tasks') return null;
+  if ((agentTaskId !== undefined || reviewId !== undefined || cherryPickId !== undefined) && tab !== 'tasks') return null;
   try {
     return {
       workspaceId: decodeURIComponent(match[1]),
@@ -133,6 +135,7 @@ export function workspaceLocationFromRoute(hash: string): {
       issueNumber: tab === 'issues' ? number : null,
       agentTaskId: agentTaskId === undefined ? null : decodeURIComponent(agentTaskId),
       ...(reviewId === undefined ? {} : { reviewId: decodeURIComponent(reviewId) }),
+      ...(cherryPickId === undefined ? {} : { cherryPickId: decodeURIComponent(cherryPickId) }),
       ...(sourceIssueNumber === undefined ? {} : { sourceIssueNumber }),
     };
   }
@@ -145,4 +148,8 @@ export function workspaceLocationFromRoute(hash: string): {
 export function githubSlug(url: string): string | null {
   const match = /github\.com[:/]+([^/]+)\/([^/]+?)(?:\.git)?\/?$/.exec(url.trim());
   return match ? `${match[1]}/${match[2]}` : null;
+}
+
+export function workspaceCherryPickRoute(workspaceId: string, executionId: string): string {
+  return `${workspaceRoute(workspaceId, 'tasks')}/cherry/${encodeURIComponent(executionId)}`;
 }

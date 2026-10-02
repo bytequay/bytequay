@@ -58,7 +58,10 @@ read and never stored as state:
   replaces it, keeping both sources.
 - A COMMAND source is flagged when a later run of the same command in this
   repository failed. At the end of each turn ByteQuay compares the turn's
-  finished commands with recipe commands, without a model.
+  finished commands with recipe commands, by text and directory, without a
+  model. Task logs end with their retention window, so this is the one check
+  stored: a report, "Its command failed with exit N in a later run", once per
+  task and exit code, which Keep or Edit clears like any other.
 - A PAGE source is flagged when its cited text is no longer on the page, using
   the existing page captures.
 - A FILE source is flagged when its cited lines are gone at the reader's commit,

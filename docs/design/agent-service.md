@@ -281,7 +281,9 @@ started, so its first turn gets only repository-wide memories. Path matches come
 first, longest scope first, then memories with more sources, newest first. Core
 records the delivered lines on AgentTurn beside the guideline paths, the turn
 receipt lists them, and the deliveries are counted once the provider acknowledges
-the input. A memory read that fails leaves the block out.
+the input. A memory read that fails leaves the block out. Once a turn has ended
+and its events are in the task log, the port's `finished` call hands it to the
+recipe check off the provider's thread; it never fails or delays settlement.
 
 ## Repository memory tool
 

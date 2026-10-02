@@ -76,6 +76,7 @@ import com.bytequay.app.ci.GitHubActionsClient;
 import com.bytequay.app.ci.ReadCiMemoryCommand;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.memory.MemoryDelivery;
+import com.bytequay.app.memory.RecipeChecks;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -363,6 +364,7 @@ public class AgentConfiguration
             AgentSkillService skills,
             RepositoryGuidelineReader guidelineReader,
             MemoryDelivery memoryDelivery,
+            RecipeChecks recipeChecks,
             Clock agentClock,
             AgentProperties properties,
             AgentReviewStore reviews,
@@ -410,6 +412,12 @@ public class AgentConfiguration
                     public void delivered(AgentTask task, AgentTurn turn)
                     {
                         memoryDelivery.delivered(turn);
+                    }
+
+                    @Override
+                    public void finished(AgentTask task, AgentTurn turn)
+                    {
+                        recipeChecks.finished(task, turn);
                     }
                 },
                 agentClock,

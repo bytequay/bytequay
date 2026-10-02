@@ -50,6 +50,9 @@ public interface ReviewTurnInputResolver
     /** Called after the provider acknowledged the exact prepared input; usage bookkeeping must not affect the running turn. */
     default void delivered(AgentTask task, AgentTurn turn) {}
 
+    /** Called once a turn has ended and its events are in the task log; it must neither fail nor delay the turn's settlement. */
+    default void finished(AgentTask task, AgentTurn turn) {}
+
     /**
      * Reads the reference data that goes with every accepted turn's provider input: the repository's guideline files at a commit the
      * turn cannot change, then the repository memories that match the turn. It runs before {@link #prepare} and never fails the turn:

@@ -1305,6 +1305,35 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void tellsTheResolverOnceATurnHasEndedWithItsEventsLogged()
+    {
+        List<AgentTurn> finished = new ArrayList<>();
+        reviewTurnInput = new ReviewTurnInputResolver()
+        {
+            @Override
+            public String prepare(AgentTask acceptedTask, AgentTurn turn, String message)
+            {
+                return message;
+            }
+
+            @Override
+            public void finished(AgentTask endedTask, AgentTurn turn)
+            {
+                finished.add(turn);
+            }
+        };
+
+        AgentTurn accepted = service.start(command("Fix the flaky test", "finished-input"));
+        assertThat(finished).isEmpty();
+        driver.complete("done");
+
+        assertThat(finished).singleElement().satisfies(turn -> {
+            assertThat(turn.id()).isEqualTo(accepted.id());
+            assertThat(turn.state()).isEqualTo(TurnState.COMPLETED);
+        });
+    }
+
+    @Test
     void reviewPreparationFailureSettlesAsKnownUnsentBeforeOpeningTheProvider()
     {
         reviewTurnInput = (acceptedTask, turn, message) -> {
@@ -3618,6 +3647,12 @@ class TestDefaultAgentTurnService
                     public Reference reference(AgentTask acceptedTask, AgentTurn turn)
                     {
                         return reviewTurnInput.reference(acceptedTask, turn);
+                    }
+
+                    @Override
+                    public void finished(AgentTask endedTask, AgentTurn turn)
+                    {
+                        reviewTurnInput.finished(endedTask, turn);
                     }
                 },
                 clock,

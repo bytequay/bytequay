@@ -2083,6 +2083,9 @@ public final class DefaultAgentTurnService
         catch (RuntimeException failure) {
             cleanupFailure = failure;
         }
+        if (cleanupFailure == null) {
+            finished(observedTurn);
+        }
         if (liveCompletion && (notifyDevelopment || observedTurn.developmentOrigin().isPresent())) {
             notifyDevelopmentCompletion(observedTurn.id(), Optional.ofNullable(cleanupFailure).map(AgentFailures::failureMessage));
         }
@@ -2091,6 +2094,17 @@ public final class DefaultAgentTurnService
         }
         if (queueMayStart(observedTurn)) {
             queueStarter.execute(() -> startQueuedHead(observedTurn.taskId()));
+        }
+    }
+
+    /** Tells the reference resolver a turn ended, now that its events are in the log; what it does there never changes the settlement. */
+    private void finished(AgentTurn observedTurn)
+    {
+        try {
+            reviewTurnInput.finished(taskStore.require(observedTurn.taskId()), turnStore.require(observedTurn.id()));
+        }
+        catch (RuntimeException failure) {
+            log.log(System.Logger.Level.WARNING, "The end of turn " + observedTurn.id() + " was not reported to the reference resolver", failure);
         }
     }
 

@@ -203,7 +203,11 @@ class TestRelatedWorkspaceWork
     void startsOldAndNewInvestigationsWithFrozenLocalOnlySettingsAndNoSourceContext()
     {
         var service = service();
-        var old = service.start(source.id().toString(), sourceTurn.id(), request("old", oldCommit));
+        command("tag", "v1", oldCommit);
+        var oldRequest = request("old", command("rev-parse", "v1^{commit}"));
+        var old = service.start(source.id().toString(), sourceTurn.id(), oldRequest);
+        command("tag", "-f", "v1", newCommit);
+        assertThat(service().start(source.id().toString(), sourceTurn.id(), oldRequest).commit()).contains(oldCommit);
         var next = service.start(source.id().toString(), sourceTurn.id(), request("new", newCommit));
         assertThat(old.targetTaskId()).isNotEqualTo(next.targetTaskId());
         assertThat(old.commit()).contains(oldCommit);
@@ -290,7 +294,7 @@ class TestRelatedWorkspaceWork
         AgentTurn requested = dispatched.get(key).markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("provider-turn"), Optional.empty())
                 .finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), Instant.EPOCH);
         dispatched.put(key, requested);
-        var finalAnswer = event(requested, AgentEventSource.root(), MessagePhase.FINAL, "Revision " + oldCommit + ": test passed");
+        var finalAnswer = event(requested, AgentEventSource.root(), MessagePhase.FINAL, "Revision " + oldCommit + ": upstream issue not reproduced; no fix needed");
         var child = new AgentEventSource(Optional.of("child"), Optional.of("root"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
         when(logs.findLatest(eq(requested.taskId()), any(), eq(10_000))).thenAnswer(call -> {
             Predicate<AgentEventEnvelope> predicate = call.getArgument(1);
@@ -303,6 +307,8 @@ class TestRelatedWorkspaceWork
         var answer = service.read(source.id().toString(), sourceTurn.id(), "result");
         assertThat(answer.state()).isEqualTo("FINISHED");
         assertThat(answer.result()).contains(finalAnswer.payload() instanceof AgentEventPayload.AssistantMessage message ? message.text() : "");
+        verify(taskService).createInteractive(any());
+        verify(turnService).start(any());
         doReturn(Optional.empty()).when(logs).findLatest(eq(requested.taskId()), any(), eq(10_000));
         assertThat(service.read(source.id().toString(), sourceTurn.id(), "result").limitation()).get().asString().contains("missing");
     }

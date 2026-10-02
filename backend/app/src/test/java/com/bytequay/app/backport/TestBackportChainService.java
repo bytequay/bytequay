@@ -67,6 +67,8 @@ import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -207,15 +209,21 @@ class TestBackportChainService
         });
     }
 
-    @Test
-    void waitsForEveryMergeAndUsesP3LandedChangesForP2()
+    @ParameterizedTest
+    @CsvSource({"false", "true"})
+    void waitsForEveryMergeAndUsesP3LandedChangesForP2(boolean alreadyMerged)
     {
         var service = service();
+        if (alreadyMerged) {
+            merge(4);
+        }
         var chain = save(service, "p3", "p2");
         service.advance(chain.id()); // binds the source's actual PR
-        service.advance(chain.id());
-        assertThat(children).isEmpty();
-        merge(4);
+        if (!alreadyMerged) {
+            service.advance(chain.id());
+            assertThat(children).isEmpty();
+            merge(4);
+        }
         service.advance(chain.id()); // saves landed source
         service.advance(chain.id()); // starts child
         service.advance(chain.id()); // publishes
@@ -239,6 +247,88 @@ class TestBackportChainService
             assertThat(child.range().sourceTipSha()).isEqualTo(P3_SHA);
         });
         verify(delivery, times(2)).deliverChain(anyString(), anyInt(), eq(false));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"p3,false", "p3,true", "p2,false", "p2,true"})
+    void directRoutesCanBeRequestedBeforePublicationOrAfterMerge(String destination, boolean alreadyMerged)
+    {
+        when(relationships.list(destination)).thenReturn(ImmutableList.of(new WorkspaceRelationships.Relationship("p4", WorkspaceRelationships.Kind.FORK, "Direct fork")));
+        var service = service();
+        if (alreadyMerged) {
+            merge(4);
+        }
+        else {
+            when(prs.fetchPullRequestIdentities(anyString(), any(), any(), anyString())).thenReturn(ImmutableList.of());
+        }
+        var chain = save(service, destination);
+        service.advance(chain.id());
+        if (!alreadyMerged) {
+            assertThat(current(chain).sourcePullRequest()).isEmpty();
+            assertThat(children).isEmpty();
+            merge(4);
+            when(prs.fetchPullRequestIdentities(anyString(), any(), any(), anyString())).thenReturn(ImmutableList.of(remote.get(4)));
+        }
+        for (int tick = 0; tick < 5; tick++) {
+            service.advance(chain.id());
+        }
+        assertThat(current(chain).state()).isEqualTo(State.ACTIVE);
+        assertThat(current(chain).hops().getFirst().pullRequest()).isPresent();
+        merge(destination.equals("p3") ? 3 : 2);
+        service.advance(chain.id());
+        service.advance(chain.id());
+        assertThat(current(chain).state()).isEqualTo(State.COMPLETED);
+        assertThat(children).hasSize(1);
+        verify(delivery).deliverChain(chain.id(), 0, false);
+    }
+
+    @Test
+    void p2UsesOnlyItsLinkedP4FixAndNeverItsInvestigationOrOwnPr()
+    {
+        var id = TaskId.random();
+        var owner = AgentTask.created(id, true, "Private request", TitleSource.USER, AgentLaneId.CODEX_CLI,
+                new TaskWorktree(id, "p2", new RepositoryIdentity("test", "p2"), Path.of("/tmp", id.toString()), "bytequay/task/" + id, BASE),
+                source.defaults(), NOW);
+        var accepted = AgentTurn.accepted(TurnId.random(), id, "user", turn.settings().orElseThrow(), NOW);
+        when(related.eligible(id.toString())).thenReturn(Optional.of(owner));
+        when(turns.findActive(id)).thenReturn(Optional.of(accepted));
+        when(related.list("p2")).thenReturn(ImmutableList.of(linked(owner, accepted, "INVESTIGATE")));
+        var service = service();
+        var request = new Request("linked-fix", source.id().toString(), Optional.empty(), ImmutableList.of("p3", "p2"));
+        assertThatThrownBy(() -> service.save(id.toString(), accepted.id(), request)).hasMessageContaining("linked fix");
+        assertThat(saved).isEmpty();
+        when(related.list("p2")).thenReturn(ImmutableList.of(linked(owner, accepted, "FIX")));
+        var chain = service.save(id.toString(), accepted.id(), request);
+        assertThat(chain.workspaceId()).isEqualTo("p2");
+        assertThat(chain.source().workspaceId()).isEqualTo("p4");
+        assertThat(chain.sourceBranch()).isEqualTo(source.taskWorktree().orElseThrow().generatedBranch());
+        service.advance(chain.id());
+        assertThat(current(chain).sourcePullRequest()).contains(remote.get(4).pullRequest());
+        assertThat(service.list("p4")).isEmpty();
+        verify(relationships).requireRelated("p2", "p4");
+        verify(relationships, never()).requireRelated("p4", "p2");
+        merge(4);
+        for (int tick = 0; tick < 3; tick++) {
+            service.advance(chain.id());
+        }
+        assertThat(children).hasSize(1);
+        merge(3);
+        for (int tick = 0; tick < 4; tick++) {
+            service.advance(chain.id());
+        }
+        assertThat(current(chain).hops().get(1).landedSource().orElseThrow().mergeSha()).isEqualTo(P3_SHA);
+        merge(2);
+        service.advance(chain.id());
+        service.advance(chain.id());
+        assertThat(current(chain).state()).isEqualTo(State.COMPLETED);
+        assertThat(children).hasSize(2);
+    }
+
+    private RelatedWorkspaceWork.View linked(AgentTask owner, AgentTurn accepted, String purpose)
+    {
+        return new RelatedWorkspaceWork.View("p2", "test/p2", owner.id().toString(), owner.title(), accepted.id().toString(), source.id().toString(),
+                "p4", source.title(), "test/p4", "FORK", purpose, "Check upstream", "main", Optional.of(P4_SHA), "FINISHED",
+                Optional.empty(), Optional.of("Finding and reproduction"), Optional.empty(), NOW, false);
     }
 
     @Test
@@ -475,11 +565,11 @@ class TestBackportChainService
         var repo = RepoRef.of("test", workspace);
         var item = CherryPickItem.planned(1, sourceSha, BASE, "Fix", Optional.empty(), CherryPickItem.Disposition.TO_CHERRY_PICK);
         var result = CherryPickExecution.create(CherryPickExecutionId.random(), key,
-                new CherryPickExecution.Workspace(workspace, repo, repo, workspace.equals("p3") ? "p4" : "p3", "origin", "main", "origin-main",
+                new CherryPickExecution.Workspace(workspace, repo, repo, sourceSha.equals(P4_SHA) ? "p4" : "p3", "origin", "main", "origin-main",
                         "backport-" + workspace, Path.of("/tmp", workspace, "work"), "codex",
-                        Optional.of(RepoRef.of("test", workspace.equals("p3") ? "p4" : "p3")), Optional.of("model"), Optional.of("high")),
-                Optional.of(new CherryPickExecution.PullRequestDraft("Backport test/" + (workspace.equals("p3") ? "p4#4" : "p3#3"),
-                        "Backport of test/" + (workspace.equals("p3") ? "p4#4" : "p3#3") + "\n\nLanded source: " + sourceSha)),
+                        Optional.of(RepoRef.of("test", sourceSha.equals(P4_SHA) ? "p4" : "p3")), Optional.of("model"), Optional.of("high")),
+                Optional.of(new CherryPickExecution.PullRequestDraft("Backport test/" + (sourceSha.equals(P4_SHA) ? "p4#4" : "p3#3"),
+                        "Backport of test/" + (sourceSha.equals(P4_SHA) ? "p4#4" : "p3#3") + "\n\nLanded source: " + sourceSha)),
                 new Range(BASE, sourceSha, BASE), ImmutableList.of(item), NOW);
         result = empty ? result.recordEmptySkipped(sourceSha, NOW) : result.recordApplied(sourceSha, TARGET, NOW);
         return result.finish(FinishReason.COMPLETED, empty ? "Already present" : "Complete", NOW);

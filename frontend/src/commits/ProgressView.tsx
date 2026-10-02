@@ -258,7 +258,7 @@ export default function ProgressView({
   // Cancelling and every GitHub write is a deliberate step, so each one is asked first.
   const askCancel = () => setAsk({
     title: 'Cancel this cherry-pick?',
-    body: <p>Its generated work branch is removed.</p>,
+    body: <p>The execution stops. Existing work and the generated branch are kept.</p>,
     label: 'Cancel execution',
     act: () => { void cancel(); },
   });
@@ -283,7 +283,7 @@ export default function ProgressView({
       body: <>
         {!delivery.pullRequest && <p>From {delivery.head} into {base}. This is a separate GitHub write.</p>}
         <p>
-          For supported same-repository pull requests, ByteQuay will also monitor CI and may rerun
+          ByteQuay will also monitor CI for this pull request and may rerun
           failed jobs, rewrite fixup history, and force-push with an exact lease.
         </p>
       </>,
@@ -464,7 +464,7 @@ export default function ProgressView({
                   Open pull request ↗
                 </button>
               )}
-              {delivery.pullRequest && !delivery.ciAutofix && !delivery.head.includes(':') && (
+              {delivery.pullRequest && !delivery.ciAutofix && (
                 <button
                   type="button"
                   disabled={deliveryBusy}

@@ -601,8 +601,8 @@ public interface WorkspacePullRequestService
      *
      * <p>The base repository and branch are resolved from persisted routing. A linked
      * workspace targets upstream; an unlinked workspace targets the selected repository.
-     * This is an explicit GitHub write and requires user confirmation. For a direct
-     * same-repository PR, that confirmation also authorizes the bounded CI Autofix watch.</p>
+     * This is an explicit GitHub write and requires user confirmation. That confirmation
+     * also authorizes the bounded CI Autofix watch, including linked-fork PRs.</p>
      *
      * @param command workspace ID, execution ID, and a second explicit confirmation
      * @return provider identity and URL of the created pull request
@@ -615,11 +615,18 @@ The write commands do not accept a renderer-provided remote, branch, base, title
 service loads the completed execution and workspace, rechecks the selected repository by stable
 GitHub ID, then derives every write parameter from persisted routing and the saved PR draft. The
 created PR is exact-fetched and saved through the repository-sync projection instead of waiting for
-GitHub search indexing. A direct PR starts CI Autofix with a stable idempotency key; a linked-fork
-delivery does not because CI Autofix is intentionally same-repository only. The
+GitHub search indexing. Direct and linked-fork PRs start CI Autofix with the same
+stable idempotency key and existing head-ownership checks. The
 read-only delivery status endpoint supports an actionable disabled state without turning execution
 polling into repeated GitHub permission requests. If the workspace has no successful code timestamp,
 delivery first attempts the same synchronous provisioning path used by code refresh.
+
+[Workspace relationships](workspace-backports.md) add direct Fork/Dependency
+context without changing contribution routing. Dependency pairs reject transfers
+at preview, execution admission/retry, and push/PR delivery, using actual repository
+identities. A saved backport chain is a separate delivery authority tied to its
+accepted request, frozen route and exact execution. It uses these same delivery
+services, adopts uncertain writes only with exact evidence, and never merges PRs.
 
 ## Application orchestration
 

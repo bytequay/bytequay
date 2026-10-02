@@ -312,8 +312,24 @@ turn preparation: relationship kind, guidance, backend-resolved path and exact
 locally available monitored commit. This is separate from guideline/memory
 receipts. The memory tool accepts optional `workspaceId` for SEARCH/READ, checks
 current direct membership and both development switches, and is offered when
-only a related workspace has memories. REPORT remains local; review/replay
+only a related workspace has memories. REPORT and REMEMBER remain local; review/replay
 scope is unchanged. See [workspace relationships](workspace-backports.md).
+
+Eligible development roots also receive `related_workspace_work`. START creates
+a destination-owned conversation through the existing task creator; READ returns
+only that requested turn's final answer. Investigations pin an exact commit and
+disable automatic PR, CI and review-summary publication while keeping local
+commits enabled. Fixes use destination development settings. Only the focused
+request crosses the link; source transcripts, memory and issue associations do not.
+The bridge binds the active accepted user turn, and generated related-work turns
+cannot hand off again. Older Codex sessions without this tool retain their existing
+capabilities and need a fresh conversation to use it.
+
+SAVE_CHAIN/READ_CHAIN use the same root-bound bridge. A source must be this
+conversation or its linked FIX conversation. The saved route runs through existing
+cherry-pick, delivery and CI services; it waits for each PR to merge without keeping
+an agent turn open. Destination Fork relationships authorize the route, without
+giving the source conversation reverse code or memory discovery.
 
 ## Development-agent CI evidence
 

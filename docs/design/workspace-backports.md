@@ -1,7 +1,7 @@
 # Workspace relationships and backport chains
 
-Status: relationships, conversation handoffs, merged-source resolution, and saved
-backport chains are implemented. Final end-to-end verification remains.
+Status: implemented and verified with local Git, provider and browser fixtures.
+All five checkpoints are complete; no live GitHub writes or merges were used.
 The [temporary checklist](workspace-backports-impl-tmp.md) tracks five checkpoints.
 
 Keep one workspace per repository. Add two relationship kinds, let a
@@ -73,11 +73,10 @@ workspace's knowledge" now means read its code, docs, guidelines, and saved
 | `DevelopmentFollowupCoordinator` | Keep development, publication, and its existing restart behavior |
 | Cherry-pick preview/execution, workspace PR delivery, CI Autofix, Branch Rebase | Run each backport hop; add only the missing chain coordination |
 
-The memory store and SEARCH/READ/REPORT tool exist. Memory UI, enable switches,
-and capture are also changing in concurrent work. Reuse their current contracts;
-do not assume the whole memory roadmap is implemented or duplicate it. The
-current tool's availability check requires memories in the owning workspace;
-extend it to eligible related workspaces while respecting memory switches.
+The memory store and SEARCH/READ/REPORT/REMEMBER tool exist. Enabled development
+conversations can use the tool even before local memory exists, so REMEMBER can
+save their first rule or recipe. Related SEARCH/READ use the same tool and honor
+both workspaces' memory switches. Reuse the current memory UI and capture contracts.
 
 The current conversation creator resolves the default branch, although the
 worktree service already accepts an exact commit. Backport delivery still skips
@@ -123,7 +122,7 @@ reuse it instead of adding LIST. Return the source workspace, memory ID,
 version, sources, and reports. Expose all saved kinds and scopes in that
 workspace, not just a preselected topic.
 
-Related access is read-only. REPORT and any future memory-writing actions
+Related access is read-only. REPORT, REMEMBER and any future memory-writing actions
 remain bound to the owning workspace; passing another workspace must be
 rejected. Update the existing tool schema and bindings for both providers.
 Keep memory's own enablement and receipt rules as they are implemented. A
@@ -320,6 +319,12 @@ P2 receives P3's landed result, including its adaptations and conflict fixups,
 not the original P4 commits or an old PR head. The final step also waits for
 merge. The chain never merges a PR automatically or keeps an agent running to
 wait for a merge.
+
+The executor checks the last `-x` origin line that Git appended, preserving
+earlier origins as provenance. Its existing conflict-marker guard stays in place:
+raw marker-bearing snapshots in landed history pause for attention, even when
+a later fixup removes them. Clean source histories and clean squash results
+follow the ordinary path.
 
 Add one narrow merged-PR source resolver. GitHub merge facts plus fetched Git
 history must establish the exact landed range. Squash/rebase merges can rewrite

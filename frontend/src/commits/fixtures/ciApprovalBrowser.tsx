@@ -38,22 +38,23 @@ const approval: AgentPendingApprovalDto = {
   availableDecisions: ['ALLOW_ONCE', 'DENY'], actionable: true,
 };
 
+const ciRun: CiAutofixRunDto = {
+  id: 'run-1', workspaceId: 'workspace-1', repository: 'acme/demo', pullRequestNumber: 17, headRef: 'ci-branch',
+  status: 'ACTIVE', activity: 'FIXING', version: 1, authorization: { maxAttempts: 3, expiresAt: '2099-01-01T12:00:00Z' },
+  attemptsUsed: 1, rerunsUsed: 0, agentTaskId: approval.taskId, currentTurnId: approval.turnId, parentTaskId: null,
+  canMessage: false, summary: null, pauseReason: null, finishReason: null, createdAt: '2026-01-01T12:00:00Z', updatedAt: '2026-01-01T12:00:00Z',
+};
+
 async function scenario(parentTaskId: string | null): Promise<{ name: string; error?: string }> {
   const name = parentTaskId === null ? 'Standalone CI approval is answerable in Commits' : 'Linked CI approval is hidden from Commits';
   const original = Object.getOwnPropertyDescriptor(window, 'bridge');
   let reads = 0;
   const decisions: Array<[string, string]> = [];
-  const run: CiAutofixRunDto = {
-    id: 'run-1', workspaceId: 'workspace-1', repository: 'acme/demo', pullRequestNumber: 17, headRef: 'ci-branch',
-    status: 'ACTIVE', activity: 'FIXING', version: 1, authorization: { maxAttempts: 3, expiresAt: '2099-01-01T12:00:00Z' },
-    attemptsUsed: 1, rerunsUsed: 0, agentTaskId: approval.taskId, currentTurnId: approval.turnId, parentTaskId,
-    canMessage: false, summary: null, pauseReason: null, finishReason: null, createdAt: '2026-01-01T12:00:00Z', updatedAt: '2026-01-01T12:00:00Z',
-  };
   Object.defineProperty(window, 'bridge', { configurable: true, value: {
     getUserProfile: async (): Promise<null> => null,
     getCherryPickExecution: async () => execution,
     getWorkspaceDeliveryStatus: async () => delivery,
-    getCiAutofixRun: async () => run,
+    getCiAutofixRun: async () => ({ ...ciRun, parentTaskId }),
     readAgentPendingApprovals: async (taskId: string, turnId: string) => {
       reads++;
       assert(taskId === approval.taskId && turnId === approval.turnId, 'Only the verified CI turn may supply approvals');
@@ -92,6 +93,53 @@ async function scenario(parentTaskId: string | null): Promise<{ name: string; er
   }
 }
 
+async function forkDeliveryRetry(): Promise<{ name: string; error?: string }> {
+  const name = 'Fork delivery retains confirmed CI retry after a lost activation';
+  const original = Object.getOwnPropertyDescriptor(window, 'bridge');
+  let writes = 0;
+  let active = false;
+  Object.defineProperty(window, 'bridge', { configurable: true, value: {
+    getUserProfile: async (): Promise<null> => null,
+    getCherryPickExecution: async () => execution,
+    getWorkspaceDeliveryStatus: async (): Promise<WorkspaceDeliveryStatus> => ({
+      ...delivery, head: 'contributor:ci-branch', ciAutofix: active ? delivery.ciAutofix : undefined,
+      pullRequest: { providerId: 17, number: 17, url: 'https://github.com/acme/demo/pull/17', baseRepository: delivery.baseRepository,
+        baseBranch: 'main', head: 'contributor:ci-branch' },
+    }),
+    getCiAutofixRun: async () => ciRun,
+    readAgentPendingApprovals: async (): Promise<AgentPendingApprovalDto[]> => [],
+    fetchPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
+    refreshPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
+    createWorkspacePullRequest: async () => { writes++; active = true; },
+  } });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  flushSync(() => root.render(<ProgressView executionId="range-1" workspaceId="workspace-1" upstreamSlug="acme/demo"
+    onBackToTasks={() => {}} onStartAnotherRange={() => {}} />));
+  try {
+    await settle();
+    const retry = [...host.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Start CI monitor');
+    assert(retry !== undefined, `A fork PR must offer the existing CI retry action: ${host.textContent}`);
+    retry.click(); await settle();
+    const dialog = host.querySelector('dialog');
+    assert(dialog !== null, 'CI retry requires confirmation');
+    assert(dialog.textContent?.includes('force-push with an exact lease'), 'Confirmation describes CI write authority');
+    assert(!dialog.textContent?.includes('same-repository'), 'Forks receive the same confirmation');
+    assert(writes === 0, 'Opening confirmation must not start CI');
+    const confirm = [...dialog.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Start CI monitor');
+    assert(confirm !== undefined, 'Confirmation offers the named action');
+    confirm.click(); await settle();
+    assert(Number(writes) === 1 && host.textContent?.includes('CI monitor active'), 'Confirmed retry starts existing CI and refreshes status');
+    return { name };
+  } catch (failure) { return { name, error: failure instanceof Error ? failure.message : String(failure) }; }
+  finally {
+    flushSync(() => root.unmount()); host.remove();
+    if (original === undefined) delete (window as { bridge?: unknown }).bridge;
+    else Object.defineProperty(window, 'bridge', original);
+  }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  return [await scenario(null), await scenario('source-task')];
+  return [await scenario(null), await scenario('source-task'), await forkDeliveryRetry()];
 }

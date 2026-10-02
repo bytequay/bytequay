@@ -112,9 +112,9 @@ historical checkpoint evidence and explicitly deferred future work.
 - [Workspace relationships and backport chains](workspace-backports.md) defines
   direct Fork/Dependency context, fresh conversation handoffs, and sequential
   backports through existing cherry-pick, PR, CI, and rebase services.
-  Relationships, handoffs, merged-source resolution and saved chains are implemented;
-  final end-to-end verification remains. Its
-  [temporary checklist](workspace-backports-impl-tmp.md) tracks five checkpoints.
+  All five checkpoints are implemented and verified with local Git, provider and
+  browser fixtures. Its [temporary checklist](workspace-backports-impl-tmp.md)
+  records the checks and live-provider limits.
 - [Branch Rebase Service](rebase-service.md) specifies a program-owned rebase
   of one local branch onto another with agent-assisted conflict resolution,
   intended for explicit branch rebases and to replace CI Autofix's unverified

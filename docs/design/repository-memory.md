@@ -197,7 +197,11 @@ Development conversations may SEARCH/READ the memory of a directly related
 workspace using the existing tool's optional `workspaceId`. Both workspaces'
 development-memory switches apply, and every call rechecks membership. Related
 memory is read on demand; it is not copied into local memory or automatic turn
-receipts. Results identify workspace and memory version. REPORT stays local.
+receipts. Results identify workspace, memory version and sources; existing
+pagination exposes the complete saved collection. Memory is current advice, not
+a release snapshot: the agent checks its sources against the selected code commit
+and states missing or mismatched evidence. Related guidelines apply to their own
+code. REPORT and REMEMBER stay local.
 See [workspace relationships](workspace-backports.md).
 
 ## 4. Guidelines

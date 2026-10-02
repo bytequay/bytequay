@@ -15,13 +15,13 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
 
-it('shows standalone CI approvals on the Commits delivery view in Chromium', async () => {
+it('shows standalone CI approvals and confirmed fork retry in Chromium', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
     prefix: 'bytequay-commits-ci-approval-',
     entry: 'src/commits/fixtures/ciApprovalBrowser.tsx',
     global: 'CiApprovalTests',
     styles: true,
   });
-  expect(results).toHaveLength(2);
+  expect(results).toHaveLength(3);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, 20_000);

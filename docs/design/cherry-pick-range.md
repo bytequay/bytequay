@@ -77,6 +77,20 @@ separate service and a separate user decision.
   local result and removes its worktree. Delivery pushes that branch from the
   managed repository; CI Autofix creates a fresh worktree at the PR head.
 
+[Saved backport chains](workspace-backports.md) reuse this executor. The chain
+freezes an accepted route and resolves each source PR's actual landed commits
+before preview; Dependency relationships reject transfer at every write boundary.
+The execution retains the source repository, conflict-resolver model and effort,
+so retry/recovery cannot substitute new defaults. Chain publication uses separate
+saved authority through workspace delivery; manual range confirmation stays local.
+
+For a repeated backport, the immediate source is the last standard `-x` origin
+line, appended by Git after any inherited origins. P3 -> P2 therefore verifies P3's
+commit while keeping P4's provenance. The normal conflict-marker guard still applies:
+a landed history containing a raw conflict snapshot pauses even if a later fixup
+removes its markers. Source histories cleaned by CI, or squash merges with a clean
+result, use the ordinary executor without special replay logic.
+
 ## 3. Preview and target-presence detection
 
 The preview input names:

@@ -527,7 +527,8 @@ public class CherryPickExecutionService
 
     private static Optional<String> originSha(String message)
     {
-        for (String line : message.split("\n")) {
+        // Git appends the immediate source after any origin lines inherited from earlier backports.
+        for (String line : message.lines().toList().reversed()) {
             String value = line.strip();
             if (value.startsWith(ORIGIN_PREFIX) && value.endsWith(")")) {
                 String sha = value.substring(ORIGIN_PREFIX.length(), value.length() - 1).strip();

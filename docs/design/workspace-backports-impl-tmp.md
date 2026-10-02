@@ -1,7 +1,6 @@
 # Workspace Relationships Implementation Checklist
 
-Status: checkpoints 1–4 implemented and checked.
-Checkpoint 5 is not started.
+Status: all five checkpoints implemented and checked with local/provider fixtures.
 The [design](workspace-backports.md) is canonical.
 This file tracks implementation, not another runtime workflow.
 Checkpoint order replaces the earlier chain-first plan.
@@ -29,7 +28,7 @@ Starting points: `AppSettingsStore`, `MemoryBridgeResolverImpl`, `MemoryService`
 - [x] Add optional workspace selection to memory SEARCH/READ on both providers.
   Offer the tool when only a related workspace has memory; expose all its saved
   memory through existing pagination. Label workspace/ID/version/sources.
-- [x] Validate direct membership on every call. Keep REPORT and future writes
+- [x] Validate direct membership on every call. Keep REPORT, REMEMBER and future writes
   local, respect memory's own controls, and leave source guidelines scoped.
   Do not rebuild deleted notebooks, note receipts, or version-check machinery.
 - [x] Add the small settings list and existing-view links. Add shared dependency
@@ -130,21 +129,21 @@ Gate:
 
 UI: verification only.
 
-- [ ] Verify starting from P2 investigation -> P4 fix -> P3 -> P2, and starting
+- [x] Verify starting from P2 investigation -> P4 fix -> P3 -> P2, and starting
   from a P4 conversation with the route added before/after its PR merges.
   Also cover direct P4 -> P2/P3 and a negative upstream finding.
-- [ ] Verify Trino -> Iceberg investigation independently of chains: version
+- [x] Verify Trino -> Iceberg investigation independently of chains: version
   mapping, moving tags, memory source limitations, result return, local-only
   publication settings, and dependency transfer rejection through every entry.
-- [ ] Run `mvn verify` in `backend/`; run frontend lint, `npx tsc --noEmit`,
+- [x] Run `mvn verify` in `backend/`; run frontend lint, `npx tsc --noEmit`,
   tests, and package. Run `git diff --check` and changed-document link checks.
-- [ ] Reconcile workspace, memory, agent, cherry-pick, and CI contracts with the
+- [x] Reconcile workspace, memory, agent, cherry-pick, and CI contracts with the
   actual implementation. Keep unrelated Memory UI/harvest/capture work separate
   and report fixture versus live-provider evidence honestly.
 
 Gate:
 
-- [ ] All requested fork and dependency flows work through the existing services;
+- [x] All requested fork and dependency flows work through the existing services;
   every completed box has evidence and remaining work is explicit.
 
 ## Evidence
@@ -280,3 +279,61 @@ Verification:
   pre-existing `agent-review-impl-tmp.md` link is still absent; it is unrelated to
   this checkpoint. Checkpoint 5 retains final cross-feature verification and
   broader contract reconciliation.
+
+Checkpoint 5 exercises the workflows as composed service fixtures. Related-work
+fixtures use the real conversation creator and disposable Git history with
+scripted task/provider boundaries; chain fixtures use real coordination with
+scripted child services. These verify both requesting-workspace paths, without
+claiming a live model/Jira/GitHub session:
+
+- P2 accepts only its linked P4 FIX as the chain source, rejects an investigation
+  as that source, and owns the P4 -> P3 -> P2 route without reverse discovery.
+- P4 can save a two-hop route before or after its PR merges; direct P4 -> P3/P2
+  routes can wait for a not-yet-published PR or use an already merged PR. Each
+  route waits for its final merge and publishes once per necessary destination.
+- A negative investigation returns the requested root turn's answer without
+  starting another conversation. Separate fixes retain destination settings.
+- Trino -> Iceberg investigations retain exact commits when a tag moves, use
+  local-only publication settings, and return commands/findings/limitations.
+  Context instructions distinguish version mappings and current memory advice.
+  Existing memory fixtures cover complete pagination, source/version labels,
+  read switches and direct membership; transfer fixtures cover preview, new and
+  replayed execution, push/PR delivery, and chain admission/revalidation.
+
+The landed-PR fixtures now run the real preview, sequencer and cherry-pick
+executor against native Git worktrees. Linear, squash and rewritten histories
+preserve P3's adaptations and exclude unrelated base/later changes. This exposed
+and fixed inherited `-x` handling: final accounting now uses Git's last appended
+origin, so a P3 -> P2 pick does not mistake its older P4 origin for the source.
+Raw marker-bearing snapshots remain blocked by the existing executor guard;
+their worktrees are preserved. Clean squash results and clean source histories
+complete normally. No special replay or new workflow engine was added.
+
+The Commits browser fixture verifies confirmed CI retry for linked-fork PRs.
+The retry action and confirmation now match the backend's existing fork support;
+Cancel correctly explains that work and the generated branch are preserved.
+Workspace, memory, agent, cherry-pick, CI and architecture docs now describe the
+implemented boundaries. The approved relationship/chain layout remains unchanged.
+No live provider sessions, GitHub writes or merges were performed.
+
+Final verification:
+
+- Full backend `mvn verify`: 3,343 tests across 292 suites, with no failures,
+  errors or skips. Checkstyle, licenses and backend packaging passed.
+- Full frontend suite: 140 files and 1,388 tests passed, including the new fork
+  CI retry scenario. Lint, TypeScript and Electron packaging passed.
+- `git diff --check` and new/changed local documentation links passed. The
+  design index still has its pre-existing missing review-checklist link; no new
+  broken link was introduced.
+- All five checkpoints are complete. Live model quality, live GitHub permissions
+  and a live GitHub PR merge remain outside this fixture-based verification.
+
+Integration with current main keeps its REMEMBER action and source binding, while
+related workspaces accept only SEARCH/READ. The combined memory fixture rejects
+foreign REMEMBER, and the conversation retains both local memory controls and
+related-work/backport cards. Full backend verification passed 3,375 tests across
+294 suites. The full frontend run passed 1,407 tests across 140 files; lint,
+types and packaging also passed before the final independent review-layout update.
+After that UI update, all 233 tests across the ten affected review, conversation
+and backport suites passed; lint, types and final packaging passed again. The
+backend tree was unchanged by that update, retaining its full verification result.

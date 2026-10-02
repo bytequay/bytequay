@@ -101,6 +101,14 @@ The existing attempt stores the exact proposal and write/verification facts in
 
 ## 1. Architecture decision
 
+[Workspace relationships and backport chains](workspace-backports.md) reuse the
+same modules. Direct Fork/Dependency settings and focused conversation links use
+the existing application-settings store; discovery, memory reads and handoffs use
+the shared provider bridges. A single versioned chain value/store in `core` and
+`persistence-sqlite` records accepted routes and child identities. Its application
+coordinator advances through the existing monitor, cherry-pick, delivery, CI and
+rebase services. No additional agent or workflow engine waits for PR merges.
+
 The backend is a small six-module Maven reactor. Every listed module contains
 implemented behavior; no empty extension or connector modules are reserved for
 future work.

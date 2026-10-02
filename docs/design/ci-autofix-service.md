@@ -114,8 +114,11 @@ CI Autofix is available for an open pull request authored by the authenticated
 GitHub user, with its head repository matching the workspace selected repository
 or its monitored upstream repository. Nothing starts until that user explicitly
 enables CI Autofix for the PR and allows ByteQuay to update its head branch.
-Creating a direct cherry-pick delivery PR is one enable path: its confirmation
-discloses failed-job reruns, history rewrites, and exact-lease pushes. The run
+Creating a cherry-pick delivery PR, either direct or from a linked fork, is one
+enable path: its confirmation discloses failed-job reruns, history rewrites, and
+exact-lease pushes. A [saved backport chain](workspace-backports.md) supplies the
+same bounded authority from its accepted request and frozen destination; it reuses
+the delivery CI key and never starts a second repair loop. The run
 may start while checks are pending or before any failure exists; it consumes no
 fix attempt until an actionable failure appears.
 

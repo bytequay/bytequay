@@ -79,7 +79,12 @@ class TestRelatedWorkspaceContext
                 new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Optional.empty(), Optional.empty()), Instant.EPOCH);
         String input = context.append(task, "Investigate the upgrade");
         assertThat(input).startsWith("Investigate the upgrade").contains(repository.toString(), next, "Version in pom.xml", "apache/iceberg",
-                "NOT the version this project uses", "unknown mappings", "SEARCH/READ", "DEPENDENCY");
+                "NOT the version this project uses", "unknown mappings", "SEARCH/READ", "DEPENDENCY", "Memory is current advice", "verify its sources");
+        String mappedVersion = command(git, "rev-parse", "v1^{commit}");
+        command(git, "tag", "-f", "v1", next);
+        assertThat(command(git, "rev-parse", "v1^{commit}")).isEqualTo(next);
+        assertThat(mappedVersion).isEqualTo(old);
+        assertThat(command(git, "show", mappedVersion + ":API.txt")).isEqualTo("old API");
         assertThat(command(git, "diff", old, next, "--", "API.txt")).contains("-old API", "+new API");
         assertThat(command(git, "rev-parse", "HEAD")).isEqualTo(next);
         command(git, "update-ref", "-d", "refs/remotes/origin/main");

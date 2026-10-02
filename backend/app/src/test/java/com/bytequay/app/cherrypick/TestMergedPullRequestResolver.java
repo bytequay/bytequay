@@ -13,29 +13,45 @@
  */
 package com.bytequay.app.cherrypick;
 
+import com.bytequay.agent.core.ProvisionWorktreeCommand;
+import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.TaskWorktree;
+import com.bytequay.agent.core.WorktreeService;
+import com.bytequay.agent.core.WorktreeSnapshot;
+import com.bytequay.agent.spi.AgentCapabilities;
+import com.bytequay.agent.spi.AgentDriver;
+import com.bytequay.agent.spi.AgentDriverRegistry;
+import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.GitSequencerDriver;
 import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote.Role;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.cherrypick.MergedPullRequestRange;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.UserProfile;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -47,6 +63,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalLong;
 
 import static com.bytequay.app.git.GitTestSupport.commit;
@@ -57,8 +74,10 @@ import static com.bytequay.app.git.GitTestSupport.write;
 import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -130,10 +149,22 @@ class TestMergedPullRequestResolver
     }
 
     @ParameterizedTest
-    @EnumSource(Shape.class)
-    void resolvesLandedP3ChangesAndFeedsExistingP2Preview(Shape shape)
+    @CsvSource({"LINEAR,false", "SQUASH,false", "REBASE,false", "LINEAR,true", "SQUASH,true", "REBASE,true"})
+    void resolvesLandedP3ChangesAndFeedsExistingP2Preview(Shape shape, boolean conflictSnapshot)
             throws Exception
     {
+        if (!conflictSnapshot) {
+            git(source, "checkout", "--quiet", "feature");
+            git(source, "reset", "--hard", seed);
+            write(source, "feature.txt", "P4 change\n");
+            commit(source, "Apply P4 change\n\n(cherry picked from commit " + "4".repeat(40) + ")");
+            String applied = head(source);
+            write(source, "feature.txt", "P3 adaptation of the P4 change\n");
+            commit(source, "fixup! Adapt P4 change");
+            original = ImmutableList.of(applied, head(source));
+            git(source, "update-ref", "refs/pull/7/head", head(source));
+            git(source, "checkout", "--quiet", "main");
+        }
         String base = seed;
         if (shape != Shape.LINEAR) {
             write(source, "unrelated-base.txt", "Base moved while the PR was open\n");
@@ -180,6 +211,63 @@ class TestMergedPullRequestResolver
         assertThatThrownBy(() -> previews.preview(command(range.commits().getFirst(), range.mergeSha()), range))
                 .isInstanceOf(CherryPickInvalidRequestException.class).hasMessageContaining("saved merged pull request");
         server.verify();
+        executeLandedRange(previews, preview, conflictSnapshot && shape != Shape.SQUASH);
+    }
+
+    private void executeLandedRange(CherryPickPreviewService previews, CherryPickPreview preview, boolean containsConflictSnapshot)
+            throws IOException
+    {
+        var paths = new WorkspacePaths(temporaryDirectory.resolve("executions").toString());
+        Files.createDirectories(paths.worktrees(WORKSPACE));
+        var worktrees = mock(WorktreeService.class);
+        when(worktrees.provision(any())).thenAnswer(call -> {
+            ProvisionWorktreeCommand command = call.getArgument(0);
+            Path path = paths.canonicalTaskWorktree(WORKSPACE, command.taskId().toString());
+            git(clone, "worktree", "add", "-b", command.generatedBranch(), path.toString(), command.startCommit());
+            return new TaskWorktree(command.taskId(), WORKSPACE, command.physicalRepository(), path.toRealPath(), command.generatedBranch(), command.startCommit());
+        });
+        when(worktrees.inspect(any())).thenAnswer(call -> {
+            TaskWorktree worktree = call.getArgument(0);
+            boolean dirty = !git(worktree.canonicalWorktree(), "status", "--porcelain").isBlank();
+            return new WorktreeSnapshot(worktree, head(worktree.canonicalWorktree()), dirty, false, dirty);
+        });
+        doAnswer(call -> {
+            TaskWorktree worktree = call.getArgument(0);
+            git(clone, "worktree", "remove", worktree.canonicalWorktree().toString());
+            return null;
+        }).when(worktrees).cleanup(any());
+        var agent = new ScriptedCherryPickAgent(worktrees);
+        var capabilities = new AgentCapabilities(false, false, false, ImmutableSet.of(AgentPermissionPolicy.CHERRY_PICK), ImmutableSet.of());
+        var driver = mock(AgentDriver.class);
+        when(driver.capabilities()).thenReturn(capabilities);
+        when(driver.probe()).thenReturn(new AgentProviderStatus(AgentLaneId.CLAUDE_CLI, AgentProviderStatus.Readiness.READY, Optional.of("fixture"), "Ready", capabilities));
+        var drivers = mock(AgentDriverRegistry.class);
+        when(drivers.require(AgentLaneId.CLAUDE_CLI)).thenReturn(driver);
+        when(credentials.resolveGitHubCredential()).thenReturn(new CredentialService.GitHubCredential(
+                "fixture", new UserProfile("test", "", "", "", 0, 0, 0, "", "", "", "")));
+        var store = new InMemoryCherryPickExecutionStore();
+        var service = new CherryPickExecutionService(previews, store, new GitSequencerDriver(GIT), GIT, agent, agent, agent, drivers,
+                credentials, workspaces, paths, Clock.systemUTC());
+        var execution = service.start(new StartCherryPickExecutionCommand(preview.previewId(), preview.sourceBaseSha(), preview.sourceTipSha(), preview.targetSha(),
+                ImmutableList.of(), "claude", Optional.empty(), Optional.empty(), "landed-range",
+                new CherryPickExecution.PullRequestDraft("Backport P3", "Use the landed P3 result")), WORKSPACE, clone, new RepositoryIdentity("internal", "p2"));
+        for (int tick = 0; tick < 10 && execution.status() == CherryPickExecution.Status.RUNNING; tick++) {
+            execution = service.advance(execution.id());
+        }
+        if (containsConflictSnapshot) {
+            assertThat(execution.status()).isEqualTo(CherryPickExecution.Status.PAUSED);
+            assertThat(execution.summary()).get().asString().contains("conflict marker");
+            assertThat(execution.workspace().worktree()).exists();
+            assertThat(agent.taskCompleted()).isFalse();
+            return;
+        }
+        assertThat(execution.finishReason()).as(execution.summary().orElse("No summary")).contains(CherryPickExecution.FinishReason.COMPLETED);
+        assertThat(git(clone, "show", execution.workspace().workBranch() + ":feature.txt")).isEqualTo("P3 adaptation of the P4 change");
+        assertThat(git(clone, "diff", "--name-only", seed, execution.workspace().workBranch())).isEqualTo("feature.txt");
+        assertThat(execution.items()).extracting(item -> item.sourceSha())
+                .containsExactlyElementsOf(preview.commits().stream().map(CherryPickCommitPreview::sourceSha).toList());
+        assertThat(execution.workspace().worktree()).doesNotExist();
+        assertThat(agent.turnsStarted()).isZero();
     }
 
     @Test

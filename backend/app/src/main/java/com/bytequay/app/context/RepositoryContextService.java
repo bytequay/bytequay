@@ -456,6 +456,7 @@ public class RepositoryContextService
             settings.delete(DISPUTES_PREFIX + workspaceId);
             settings.delete(ContextPageCaptures.PREFIX + workspaceId);
             settings.delete(ContextWebLookups.PREFIX + workspaceId);
+            settings.delete(ContextSpecCheckStore.PREFIX + workspaceId);
         });
     }
 

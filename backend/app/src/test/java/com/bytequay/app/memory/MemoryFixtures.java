@@ -24,13 +24,13 @@ import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
-final class MemoryFixtures
+public final class MemoryFixtures
 {
-    static final Instant NOW = Instant.parse("2026-10-02T10:00:00Z");
+    public static final Instant NOW = Instant.parse("2026-10-02T10:00:00Z");
 
     private MemoryFixtures() {}
 
-    static Memory rule(String id, String workspaceId, String text, List<String> scope, int... pullRequests)
+    public static Memory rule(String id, String workspaceId, String text, List<String> scope, int... pullRequests)
     {
         List<MemorySource> sources = Arrays.stream(pullRequests.length == 0 ? new int[] {31201} : pullRequests)
                 .mapToObj(number -> pullRequestSource(number, "alice")).collect(toImmutableList());
@@ -38,7 +38,7 @@ final class MemoryFixtures
                 Optional.empty(), 0, 0, ImmutableList.of(), NOW.plusSeconds(Long.parseLong(id.substring(1))), NOW);
     }
 
-    static MemorySource pullRequestSource(int number, String author)
+    public static MemorySource pullRequestSource(int number, String author)
     {
         return new MemorySource(MemorySource.Kind.PULL_REQUEST, "https://github.com/trinodb/trino/pull/" + number + "#discussion_r" + number,
                 "Please document the new property.", NOW, Optional.of(new MemorySource.PullRequestPart(number, MemorySource.Part.REVIEW_COMMENT,

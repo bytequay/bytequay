@@ -71,6 +71,7 @@ export default function ReviewFindingCard({
   defaultOpen?: boolean;
 }) {
   const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
   const [composer, setComposer] = useState<'ask' | 'resolve' | 'post' | 'draft' | 'fix' | null>(null);
   const [fixSent, setFixSent] = useState(false);
   const [text, setText] = useState('');
@@ -219,6 +220,19 @@ export default function ReviewFindingCard({
                   </div>
                   <pre className="agr-evidence__excerpt">{evidence.excerpt}</pre>
                   <div className="agr-evidence__why">{evidence.explanation}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {finding.memories.length > 0 && (
+            <div className="agr-evidence">
+              <button type="button" className="agr-evidence__toggle" aria-expanded={memoryOpen} onClick={() => setMemoryOpen(value => !value)}>
+                <Chevron open={memoryOpen} />Memory used · {finding.memories.length}
+              </button>
+              {memoryOpen && finding.memories.map(memory => (
+                <div className="agr-evidence__item" key={memory.id}>
+                  <div className="agr-evidence__head"><span className="agr-evidence__source">{memory.id}</span></div>
+                  <div className="agr-evidence__why">{memory.line}</div>
                 </div>
               ))}
             </div>

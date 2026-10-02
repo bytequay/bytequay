@@ -138,7 +138,8 @@ final class ReviewHttpModels
                 finding.outdated(),
                 finding.validatedHeadSha(),
                 finding.version(),
-                finding.updatedAt());
+                finding.updatedAt(),
+                finding.memories());
     }
 
     private static EvidenceResponse evidence(ReviewEvidence evidence)
@@ -299,7 +300,8 @@ final class ReviewHttpModels
             boolean outdated,
             String validatedHeadSha,
             long version,
-            Instant updatedAt) {}
+            Instant updatedAt,
+            List<ReviewFinding.MemoryCitation> memories) {}
 
     record EvidenceResponse(String ref, String source, String provenance, String excerpt, String explanation) {}
 

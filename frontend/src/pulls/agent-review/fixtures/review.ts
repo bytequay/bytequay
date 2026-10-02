@@ -117,6 +117,7 @@ const FINDINGS: ReviewFindingDto[] = [
     validatedHeadSha: 'd9a0c41a1b2c3d4e5f60718293a4b5c6d7e8f904',
     version: 0,
     updatedAt: '2026-09-06T16:06:00Z',
+    memories: [],
   },
   {
     id: 'finding-2',
@@ -146,6 +147,7 @@ const FINDINGS: ReviewFindingDto[] = [
     validatedHeadSha: 'd9a0c41a1b2c3d4e5f60718293a4b5c6d7e8f904',
     version: 0,
     updatedAt: '2026-09-06T16:09:00Z',
+    memories: [],
   },
   {
     id: 'finding-3',
@@ -175,6 +177,7 @@ const FINDINGS: ReviewFindingDto[] = [
     validatedHeadSha: 'd9a0c41a1b2c3d4e5f60718293a4b5c6d7e8f904',
     version: 0,
     updatedAt: '2026-09-06T16:13:00Z',
+    memories: [],
   },
 ];
 

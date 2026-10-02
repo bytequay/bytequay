@@ -18,6 +18,7 @@ import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.google.common.collect.ImmutableList;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -41,6 +42,7 @@ public class AgentReviewFindingEntity
         extends AssignedIdEntity<String>
 {
     private static final TypeReference<List<ReviewEvidence>> EVIDENCE = new TypeReference<>() {};
+    private static final TypeReference<List<ReviewFinding.MemoryCitation>> MEMORIES = new TypeReference<>() {};
 
     @Id
     @Getter(onMethod_ = @Override)
@@ -68,6 +70,9 @@ public class AgentReviewFindingEntity
 
     @Column(name = "evidence_json", nullable = false, columnDefinition = "TEXT")
     private String evidenceJson;
+
+    @Column(name = "memories_json", columnDefinition = "TEXT")
+    private String memoriesJson;
 
     @Column(nullable = false)
     private int revision;
@@ -118,6 +123,7 @@ public class AgentReviewFindingEntity
         severity = finding.severity().orElse(null);
         anchorJson = REVIEW.write(finding.anchor().orElse(null), "finding anchor");
         evidenceJson = REVIEW.write(finding.evidence(), "finding evidence");
+        memoriesJson = finding.memories().isEmpty() ? null : REVIEW.write(finding.memories(), "finding memories");
         revision = finding.revision();
         state = finding.state();
         stateReason = finding.stateReason().orElse(null);
@@ -146,6 +152,7 @@ public class AgentReviewFindingEntity
                 outdated,
                 version,
                 createdAt,
-                updatedAt);
+                updatedAt,
+                Optional.ofNullable(memoriesJson).map(json -> REVIEW.read(json, MEMORIES, "finding memories")).orElse(ImmutableList.of()));
     }
 }

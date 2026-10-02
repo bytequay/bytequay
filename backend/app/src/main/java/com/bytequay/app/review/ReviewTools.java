@@ -23,6 +23,7 @@ import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.context.ContextHistoryReader;
 import com.bytequay.app.context.SelectedCommitPullRequestReader;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.repository.github.GitHubIssuePreview;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -37,6 +38,8 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
+import com.bytequay.core.memory.Memory;
+import com.bytequay.core.memory.MemoryStore;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewAnchor;
@@ -94,6 +97,7 @@ import static com.bytequay.core.review.ReviewStep.Kind.COLLECT_EVIDENCE;
 import static com.bytequay.core.review.ReviewStep.Kind.INVESTIGATE;
 import static com.bytequay.core.review.ReviewStep.Kind.VALIDATE;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -108,6 +112,7 @@ public class ReviewTools
     private static final int MAX_TITLE = 200;
     private static final int MAX_KEY = 100;
     private static final int MAX_EVIDENCE = 8;
+    private static final int MAX_CITED_MEMORIES = 8;
     /** Marks evidence captured from a command the agent ran, which is the only proof a warning accepts. */
     private static final String COMMAND_EVIDENCE_SOURCE = "command output: ";
     private static final int MAX_EVIDENCE_REF = 200;
@@ -142,6 +147,9 @@ public class ReviewTools
     private final ReviewLocks locks;
     private final ReviewToolAssignment assignments;
 
+    private final MemoryService memories;
+    private final MemoryStore memoryStore;
+
     public ReviewTools(
             AgentReviewStore store,
             PullRequestService pullRequests,
@@ -158,6 +166,8 @@ public class ReviewTools
             ObjectMapper objectMapper,
             ReviewLocks locks,
             ReviewToolAssignment assignments,
+            MemoryService memories,
+            MemoryStore memoryStore,
             Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
@@ -173,6 +183,8 @@ public class ReviewTools
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.git = requireNonNull(git, "git is null");
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null");
+        this.memories = requireNonNull(memories, "memories is null");
+        this.memoryStore = requireNonNull(memoryStore, "memoryStore is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.locks = requireNonNull(locks, "locks is null");
         this.assignments = requireNonNull(assignments, "assignments is null");
@@ -267,7 +279,8 @@ public class ReviewTools
                                 + "Polish before saving: at most 120 prose words, or 35 for a Nit:, excluding fenced code. Preserve the trigger, consequence and uncertainty. "
                                 + "Keep the example brief; retain full reproduction code, commands and results in captured evidence. For an exact replacement, "
                                 + "include one GitHub ```suggestion block replacing the complete RIGHT-side startAnchor/endAnchor range. "
-                                + "Revisions require findingId and expectedRevision; nothing is published.",
+                                + "Revisions require findingId and expectedRevision; nothing is published. "
+                                + "Pass memoryIds for the repository memories, such as m12, that shaped the finding.",
                         schema(ImmutableMap.<String, Object>builder()
                                 .put("operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY))
                                 .put("findingId", ImmutableMap.of("type", "string"))
@@ -283,6 +296,8 @@ public class ReviewTools
                                                 "ref", ImmutableMap.of("type", "string", "maxLength", MAX_EVIDENCE_REF),
                                                 "explanation", ImmutableMap.of("type", "string", "maxLength", 800)), "required", ImmutableList.of("ref", "explanation"))))
                                 .put("scope", ImmutableMap.of("type", "string", "enum", ImmutableList.of("lines", "pull_request")))
+                                .put("memoryIds", ImmutableMap.of("type", "array", "maxItems", MAX_CITED_MEMORIES,
+                                        "items", ImmutableMap.of("type", "string", "pattern", "^m[1-9][0-9]*$")))
                                 .buildOrThrow(), ImmutableList.of("operationKey", "title", "body", "evidence", "validation")),
                         arguments -> call("review_save_finding", reviewId, turnId, arguments, this::saveFinding)),
                 new ReviewTool("review_reply",
@@ -649,6 +664,10 @@ public class ReviewTools
                 throw new ReviewInvalidRequestException("body: use a plain suggestion fence and startAnchor/endAnchor for the exact replacement range");
             }
         }
+        Set<String> citedBefore = saved.memories().stream().map(ReviewFinding.MemoryCitation::id).collect(toImmutableSet());
+        if (arguments.hasNonNull("memoryIds")) {
+            saved = saved.withMemories(citedMemories(call, arguments));
+        }
         ObjectNode result = objectMapper.createObjectNode()
                 .put("findingId", saved.id())
                 .put("label", saved.label())
@@ -656,7 +675,28 @@ public class ReviewTools
                 .put("location", ReviewPrompts.location(saved))
                 .put("status", "accepted");
         store.saveFinding(saved, insert, call.run().withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
+        memoryStore.countCited(saved.memories().stream().map(ReviewFinding.MemoryCitation::id).filter(id -> !citedBefore.contains(id)).collect(toImmutableSet()));
         return result;
+    }
+
+    /** The cited memories as the reviewer received them; each must be a memory of the review's workspace. */
+    private List<ReviewFinding.MemoryCitation> citedMemories(Call call, ObjectNode arguments)
+    {
+        List<ReviewFinding.MemoryCitation> cited = new ArrayList<>();
+        for (JsonNode value : array(arguments, "memoryIds", MAX_CITED_MEMORIES)) {
+            String id = value.asText("");
+            Memory memory;
+            try {
+                memory = memories.get(call.review().workspaceId(), id);
+            }
+            catch (ResponseStatusException missing) {
+                throw new ReviewInvalidRequestException("memoryIds: " + id + " is not a memory of this workspace");
+            }
+            if (cited.stream().noneMatch(citation -> citation.id().equals(id))) {
+                cited.add(new ReviewFinding.MemoryCitation(id, memory.text() + " (" + MemoryService.sourceLabel(memory) + ")"));
+            }
+        }
+        return ImmutableList.copyOf(cited);
     }
 
     private JsonNode reply(Call call)

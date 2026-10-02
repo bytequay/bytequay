@@ -27,7 +27,11 @@ import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.context.ContextHistoryReader;
 import com.bytequay.app.context.SelectedCommitPullRequestReader;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.memory.InMemoryMemoryStore;
+import com.bytequay.app.memory.MemoryFixtures;
+import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.repository.github.GitHubIssuePreview;
+import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.pr.SelectedPullRequestDiffReader;
@@ -160,6 +164,7 @@ class TestReviewTools
     private WorkspaceIssueRefreshService issueRefresh;
     private WorkspaceRepositoryService workspaces;
     private ReviewLocks locks;
+    private InMemoryMemoryStore memoryStore;
 
     @BeforeEach
     void setUp()
@@ -189,8 +194,11 @@ class TestReviewTools
             ReviewRun current = store.listRuns(REVIEW_ID).getLast();
             return new ReviewToolAssignment.Binding(current, current.currentStep(), Optional.empty());
         });
+        memoryStore = new InMemoryMemoryStore();
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         tools = new ReviewTools(store, pullRequests, selectedPullRequests, selectedPullRequestDiffs, selectedCommitPullRequests, historySources,
-                repositories, issues, issueRefresh, events, workspaces, git, objectMapper, locks, assignments, Clock.fixed(NOW, ZoneOffset.UTC));
+                repositories, issues, issueRefresh, events, workspaces, git, objectMapper, locks, assignments,
+                new MemoryService(memoryStore, new InMemoryAppSettingsStore(), objectMapper, clock), memoryStore, clock);
 
         when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
         when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
@@ -881,6 +889,32 @@ class TestReviewTools
         assertThat(stored.anchor()).contains(new ReviewAnchor(DIFF_PATH, "RIGHT", 2, 2, ImmutableList.of("beta")));
         assertThat(stored.evidence()).extracting(ReviewEvidence::ref).containsExactly("E1");
         assertThat(store.findRun(RUN_ID).orElseThrow().version()).isPositive();
+    }
+
+    @Test
+    void findingsKeepTheMemoriesTheyCiteAndCountEachCitationOnce()
+    {
+        readSource();
+        memoryStore.save(MemoryFixtures.rule("m12", WORKSPACE_ID, "Validate input at the boundary.", ImmutableList.of()));
+        memoryStore.save(MemoryFixtures.rule("m13", "another-workspace", "Elsewhere.", ImmutableList.of()));
+
+        String findingId = call("review_save_finding", with(finding("first", "Missing null check", "A2", ImmutableList.of(evidence("E1"))), "first", "memoryIds",
+                ImmutableList.of("m12", "m12"))).path("findingId").asText();
+        assertThat(store.listFindings(REVIEW_ID).getFirst().memories())
+                .containsExactly(new ReviewFinding.MemoryCitation("m12", "Validate input at the boundary. (PR #31201 @alice)"));
+        assertThat(memoryStore.list(WORKSPACE_ID).getFirst().cited()).isEqualTo(1);
+
+        Map<String, Object> revision = ImmutableMap.<String, Object>builder()
+                .putAll(finding("revised", "Reachable unchecked input", "A2", ImmutableList.of(evidence("E1"))))
+                .put("findingId", findingId).put("expectedRevision", 1).buildOrThrow();
+        assertThat(call("review_save_finding", revision).path("revision").asInt()).isEqualTo(2);
+        assertThat(store.listFindings(REVIEW_ID).getFirst().memories()).extracting(ReviewFinding.MemoryCitation::id).containsExactly("m12");
+        assertThat(memoryStore.list(WORKSPACE_ID).getFirst().cited()).isEqualTo(1);
+
+        JsonNode elsewhere = call("review_save_finding", with(finding("other", "Unchecked widget name", "A2", ImmutableList.of(evidence("E1"))), "other", "memoryIds",
+                ImmutableList.of("m13")));
+        assertThat(elsewhere.at("/error/field").asText()).isEqualTo("memoryIds");
+        assertThat(elsewhere.at("/error/message").asText()).isEqualTo("m13 is not a memory of this workspace");
     }
 
     @Test

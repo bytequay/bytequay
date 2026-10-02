@@ -175,11 +175,13 @@ class TestSqliteReviewStores
         assertThat(store.listFindings("review-1")).containsExactly(finding);
         assertThat(store.listMessages("review-1")).containsExactly(question, answer);
 
-        // A finding about the whole pull request has no lines, and keeps none through storage.
+        // A finding about the whole pull request has no lines, and keeps none through storage; the memories it cites survive.
         ReviewFinding whole = new ReviewFinding("finding-whole", "review-1", "run-1", 2, "Nit: commit subject", "Commit message: name the behavior.", Optional.empty(),
-                Optional.empty(), ImmutableList.of(CONTEXT_EVIDENCE), 1, ReviewFinding.State.OPEN, Optional.empty(), finding.validatedHeadSha(), false, 0, NOW, NOW);
+                Optional.empty(), ImmutableList.of(CONTEXT_EVIDENCE), 1, ReviewFinding.State.OPEN, Optional.empty(), finding.validatedHeadSha(), false, 0, NOW, NOW)
+                .withMemories(ImmutableList.of(new ReviewFinding.MemoryCitation("m12", "Name the behavior in commit subjects. (PR #31201 @alice)")));
         store.insertFinding(whole);
         entityManager.clear();
+        assertThat(store.findFinding("finding-whole")).contains(whole);
         assertThat(store.findFinding("finding-whole")).map(ReviewFinding::anchor).contains(Optional.empty());
     }
 

@@ -49,6 +49,13 @@ describe('finding suggestions', () => {
     expect(html).not.toContain('<span>suggestion</span>');
   });
 
+  it('folds the repository memories the reviewer cited', () => {
+    expect(render()).not.toContain('Memory used');
+    const html = render({ ...finding, memories: [{ id: 'm12', line: 'Document every new table property. (PR #31188 @alice)' }] });
+    expect(html).not.toContain('Document every new table property');
+    expect(html).toContain('Memory used · 1</button>');
+  });
+
   it('publishes an accepted earlier finding at the recorded code and commit', () => {
     const html = render({ ...finding, outdated: true });
     expect(html).toContain('Recorded code');

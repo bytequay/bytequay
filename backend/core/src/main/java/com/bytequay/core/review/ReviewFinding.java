@@ -49,7 +49,8 @@ public record ReviewFinding(
         boolean outdated,
         long version,
         Instant createdAt,
-        Instant updatedAt)
+        Instant updatedAt,
+        List<MemoryCitation> memories)
 {
     public ReviewFinding
     {
@@ -69,12 +70,43 @@ public record ReviewFinding(
         checkArgument(version >= 0, "version is negative");
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
+        memories = ImmutableList.copyOf(memories);
+    }
+
+    public ReviewFinding(
+            String id,
+            String reviewId,
+            String runId,
+            int ordinal,
+            String title,
+            String body,
+            Optional<String> severity,
+            Optional<ReviewAnchor> anchor,
+            List<ReviewEvidence> evidence,
+            int revision,
+            State state,
+            Optional<String> stateReason,
+            String validatedHeadSha,
+            boolean outdated,
+            long version,
+            Instant createdAt,
+            Instant updatedAt)
+    {
+        this(id, reviewId, runId, ordinal, title, body, severity, anchor, evidence, revision, state, stateReason, validatedHeadSha, outdated, version, createdAt,
+                updatedAt, ImmutableList.of());
     }
 
     /** The label shown on cards, derived from the review-local ordinal. */
     public String label()
     {
         return "F-" + ordinal;
+    }
+
+    /** The memories the reviewer cited when it saved this revision. */
+    public ReviewFinding withMemories(List<MemoryCitation> cited)
+    {
+        return new ReviewFinding(id, reviewId, runId, ordinal, title, body, severity, anchor, evidence, revision, state, stateReason, validatedHeadSha, outdated,
+                version, createdAt, updatedAt, cited);
     }
 
     public ReviewFinding withVersion(long updatedVersion)
@@ -96,7 +128,8 @@ public record ReviewFinding(
                 outdated,
                 updatedVersion,
                 createdAt,
-                updatedAt);
+                updatedAt,
+                memories);
     }
 
     /** An evidence-backed agent revision at the current reviewed scope clears pending reassessment. */
@@ -126,7 +159,8 @@ public record ReviewFinding(
                 false,
                 version,
                 createdAt,
-                now);
+                now,
+                memories);
     }
 
     public ReviewFinding withState(State updatedState, Optional<String> reason, Instant now)
@@ -148,7 +182,8 @@ public record ReviewFinding(
                 outdated,
                 version,
                 createdAt,
-                now);
+                now,
+                memories);
     }
 
     /** A new source scope requires another conclusion even when the location maps exactly. */
@@ -171,7 +206,8 @@ public record ReviewFinding(
                 true,
                 version,
                 createdAt,
-                now);
+                now,
+                memories);
     }
 
     public enum State
@@ -181,5 +217,19 @@ public record ReviewFinding(
         RESOLVED,
         /** Withdrawn by the agent with an explanation; never publishable again. */
         WITHDRAWN
+    }
+
+    /**
+     * A repository memory the finding cites, as the reviewer received it, so the card shows the rule even after it changes.
+     *
+     * @param line the memory's text and source, as delivered
+     */
+    public record MemoryCitation(String id, String line)
+    {
+        public MemoryCitation
+        {
+            requireNonNull(id, "id is null");
+            requireNonNull(line, "line is null");
+        }
     }
 }

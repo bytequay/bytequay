@@ -1,7 +1,8 @@
 # Repository memory
 
 Status: approved; phases 0 to 3 are implemented: the store with the memory tool,
-the Memory page, turn-start delivery with receipts, and harvest runs. It replaces the knowledge-learning design of Repository context
+the Memory page, turn-start delivery with receipts, harvest runs, and finding
+citations. Development answers are asked to cite memories but are not counted yet. It replaces the knowledge-learning design of Repository context
 and the documents it built on, which phase 2 deleted, and revises the
 [spec check](spec-check.md) to start from a directory instead of a plan topic. The user chose the direction: remove the learning system, its
 note code and the note data built so far in one step, save memory without
@@ -239,9 +240,11 @@ workspace has memories, replaces
 | REMEMBER | Saves a memory (section 3.2 and 3.3) |
 | REPORT | Flags a memory as wrong, with a reason and a quote |
 
-**Citations.** Review findings get an optional `memoryIds`. A development task's
-final answer cites `[m12]` when a memory changed what it did. ByteQuay counts
-citations from both.
+**Citations.** Review findings get an optional `memoryIds`. Each revision keeps
+the cited rules as the reviewer received them, and a memory counts once per
+finding. A development task's final answer cites `[m12]` when a memory changed
+what it did; ByteQuay does not count those yet, since a turn keeps no answer
+text.
 
 **Receipts.**
 - A finding shows "Memory used", folded, with each rule and its source.

@@ -119,6 +119,8 @@ export type ReviewFindingDto = {
   validatedHeadSha: string;
   version: number;
   updatedAt: string;
+  /** Repository memories the reviewer cited, each as it received the rule. */
+  memories: { id: string; line: string }[];
 };
 
 /** Where a finding sits in the diff, or null for a finding about the whole pull request. */
@@ -406,6 +408,10 @@ function parseFinding(value: unknown): ReviewFindingDto {
     validatedHeadSha: text(finding.validatedHeadSha, 'finding head'),
     version: count(finding.version, 'finding version'),
     updatedAt: text(finding.updatedAt, 'finding time'),
+    memories: finding.memories == null ? [] : list(finding.memories).map(value => {
+      const memory = object(value, 'finding memory');
+      return { id: text(memory.id, 'finding memory id'), line: text(memory.line, 'finding memory line') };
+    }),
   };
 }
 

@@ -287,6 +287,24 @@ and does not restart work. A failed task retains explicit cleanup; uncertain inp
 is never automatically resent. Missing-task allocation failure remains visible and
 permits an explicit new request. There is no new job engine or learning scheduler.
 
+## Repository guideline input
+
+Before review preparation, the same ReviewTurnInputResolver port's guidelines
+read gives every accepted turn the repository's guideline files as delimited,
+untrusted reference data on both lanes, as [Repository memory](repository-memory.md)
+specifies: `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md` and `DEVELOPMENT.md` at
+the root and under `.github/`, plus, for a review, `CLAUDE.md` or `AGENTS.md`
+in each directory above a changed path. Git reads them at a commit the turn
+cannot change: a review's base branch tip from its latest run, never the head
+under review, and every other task's worktree start commit. Each file is cut at
+16 KiB and all of them at 32 KiB, with the cut stated; symlinked files are
+skipped. A read that fails leaves the input unchanged and never fails the turn.
+Core records the paths on AgentTurn when delivery starts, and the turn footer
+counts them. Generated follow-up turns, steering and helper sessions resume a
+thread that already has them and get none. Codex's own `AGENTS.md` loading is
+off and Claude keeps `--setting-sources=`, so both lanes read the same text.
+Guidelines never enter managed instructions or process arguments.
+
 ## Review reference input
 
 [Repository Context](repository-context.md) extends accepted review turn input
@@ -309,7 +327,7 @@ launch appends a separately retained local discussion capture (up to 8 KiB and
 six excerpts) from same-target private messages and the current PR cache. No
 remote refresh runs in this launch path; cache freshness and selection gaps are
 explicit. Replays reuse the saved capture. Off, absent historical context
-and ordinary non-review tasks add no reference input. Source bodies travel in
+and ordinary non-review tasks add no review reference input. Source bodies travel in
 message/tool-result transport, never managed instructions or process arguments;
 only the small trusted policy is added to enabled review bridge instructions.
 
@@ -3594,7 +3612,10 @@ The connection and task sequence is:
    multi-agent feature, and all other unapproved optional capabilities, and
    applies the same minimal command environment. Ordinary tasks enable native
    `web_search: "live"` for public documentation reads independently of shell
-   networking. Text-only helpers keep web search disabled. The separate
+   networking. Text-only helpers keep web search disabled. Every profile sets
+   `project_doc_max_bytes=0` in its process flags and per-thread config, so
+   Codex never loads `AGENTS.md` itself; repository guidelines arrive as turn
+   input instead. The separate
    `--live-children` fixture proved the bounded root/child/grandchild V1/V2
    contract with a persistent fixture profile signed in directly with ChatGPT;
    production now applies that model-advertised profile at each turn boundary.
@@ -4141,7 +4162,7 @@ The output flags have distinct purposes:
 | `--include-hook-events` | Adds hook start, progress, output, and response events when hooks run |
 | `--forward-subagent-text` | Adds forwarded text with `parent_tool_use_id`; this is retained as provider activity context, but is not a direct thread edge and therefore does not by itself enable the nested-agent capability |
 | `--strict-mcp-config` | Loads only the task-scoped MCP servers named by ByteQuay |
-| `--setting-sources=` | Disables inherited user/project setting sources for the agent process |
+| `--setting-sources=` | Disables inherited user/project setting sources, including the repository's `CLAUDE.md`, for the agent process; repository guidelines arrive as turn input instead |
 | `--settings <file>` | Applies the generated task sandbox and deny-write boundary |
 
 `--include-partial-messages` produces both deltas and later completed assistant

@@ -637,6 +637,8 @@ function TurnFooter({ turn, durable, models }: {
   if (counters) {
     parts.push(`Tools ${counters.toolCalls} · Explored ${counters.exploreActions}${counters.codegraphCalls > 0 ? ` · ${codeGraphText(counters, true)}` : ''}`);
   }
+  const guidelines = durable?.guidelines ?? [];
+  if (guidelines.length > 0) parts.push(`Guidelines ${guidelines.length}`);
   if (turn.endedAt !== null) parts.push(clock(turn.endedAt));
   return (
     <div className="agt-usage">

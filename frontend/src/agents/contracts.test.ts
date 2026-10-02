@@ -154,6 +154,10 @@ describe('agent contract parsing', () => {
 
     expect(turn.id).toBe(fixture.turn.id);
     expect(turn.settings?.attachments).toEqual([]);
+    // The guideline files that went with the turn's input, by path; a turn without any reads as an empty list.
+    expect(parseAgentTurn({ ...fixture.turn, guidelines: undefined }).guidelines).toEqual([]);
+    expect(parseAgentTurn({ ...fixture.turn, guidelines: ['CONTRIBUTING.md'] }).guidelines).toEqual(['CONTRIBUTING.md']);
+    expect(() => parseAgentTurn({ ...fixture.turn, guidelines: [3] })).toThrow(/guidelines\[0\]/);
 
     // A turn that ran with an image names it the way the backend does: a reference, not a bare id.
     const reference = { id: 'attachment-1', name: 'red-square.png', mediaType: 'image/png' };

@@ -364,6 +364,7 @@ public class AgentConfiguration
             AgentSkillService skills,
             ObjectProvider<ReviewTurnInputResolver> reviewTurnInput,
             DevelopmentContextTools developmentContext,
+            RepositoryGuidelineReader guidelineReader,
             Clock agentClock,
             AgentProperties properties,
             AgentReviewStore reviews,
@@ -406,6 +407,12 @@ public class AgentConfiguration
                     {
                         reviewTurnInput.getObject().delivered(task, turn);
                         developmentContext.delivered(task, turn);
+                    }
+
+                    @Override
+                    public Guidelines guidelines(AgentTask task, AgentTurn turn)
+                    {
+                        return guidelineReader.read(task);
                     }
                 },
                 agentClock,

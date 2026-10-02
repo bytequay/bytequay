@@ -188,7 +188,8 @@ class TestInteractiveAgentHttpContract
                         "metrics",
                         "developmentResult",
                         "developmentOrigin",
-                        "plan");
+                        "plan",
+                        "guidelines");
         assertThat(InteractiveAgentHttpContract.TaskSummaryResponse.class.getRecordComponents())
                 .extracting(component -> component.getName())
                 .containsExactly(

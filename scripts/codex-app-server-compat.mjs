@@ -2400,6 +2400,7 @@ function assertLaunchPolicy(response, launchProfile) {
   assert.equal(config.web_search, "live", "native web search was not enabled");
   assert.equal(config.approval_policy, "on-request", "native approval policy changed");
   assert.equal(config.approvals_reviewer, "auto_review", "native automatic review was not selected");
+  assert.equal(config.project_doc_max_bytes, 0, "Codex still loads AGENTS.md itself");
   assert.equal(config.features?.guardian_approval, true, "native automatic review was disabled");
   if (launchProfile.codeGraph === undefined) {
     assert.deepEqual(config.mcp_servers, {}, "isolated launch inherited MCP servers");
@@ -2478,6 +2479,7 @@ function assertLaunchPolicy(response, launchProfile) {
   assert.equal(sessionFlags.web_search, "live", "session flags omitted web-search policy");
   assert.equal(sessionFlags.approval_policy, "on-request", "session flags omitted approval policy");
   assert.equal(sessionFlags.approvals_reviewer, "auto_review", "session flags omitted native automatic review");
+  assert.equal(sessionFlags.project_doc_max_bytes, 0, "session flags omitted the project-doc override");
   assert.equal(sessionFlags.features?.guardian_approval, true, "session flags disabled native automatic review");
   assert.equal(
     sessionFlags.features?.skip_host_skill_discovery,
@@ -3089,6 +3091,8 @@ function appServerArguments(launchProfile) {
     'approval_policy="on-request"',
     "-c",
     'approvals_reviewer="auto_review"',
+    "-c",
+    "project_doc_max_bytes=0",
     "-c",
     'shell_environment_policy.inherit="core"',
     "-c",

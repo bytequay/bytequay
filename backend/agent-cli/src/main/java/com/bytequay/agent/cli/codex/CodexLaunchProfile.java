@@ -155,7 +155,10 @@ final class CodexLaunchProfile
                 "-c",
                 "approval_policy=" + tomlString(textOnly ? "never" : "on-request"),
                 "-c",
-                "approvals_reviewer=\"auto_review\"");
+                "approvals_reviewer=\"auto_review\"",
+                // ByteQuay hands both lanes the same guideline files, read at a commit the task cannot change.
+                "-c",
+                "project_doc_max_bytes=0");
         DISABLED_FEATURES.forEach(feature -> arguments.add("--disable", feature));
         arguments.add(reviewChildren ? "--enable" : "--disable", "hooks");
         arguments.add(textOnly ? "--disable" : "--enable", "guardian_approval");
@@ -228,7 +231,8 @@ final class CodexLaunchProfile
         ImmutableMap.Builder<String, Object> config = ImmutableMap.<String, Object>builder()
                 .put("web_search", textOnly || ci ? "disabled" : "live")
                 .put("features", expectedFeatures(childProfile, textOnly, review))
-                .put("shell_environment_policy", expectedShellEnvironmentPolicy());
+                .put("shell_environment_policy", expectedShellEnvironmentPolicy())
+                .put("project_doc_max_bytes", 0);
         if (review && childProfile != ChildProfile.NONE) {
             // App Server applies hook trust to each thread, not to its process flags.
             config.put("bypass_hook_trust", true);

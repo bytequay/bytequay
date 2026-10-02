@@ -1270,6 +1270,36 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void sendsTheRepositoryGuidelinesOnlyToTheProviderAndRecordsThemOnTheTurn()
+    {
+        reviewTurnInput = new ReviewTurnInputResolver()
+        {
+            @Override
+            public String prepare(AgentTask acceptedTask, AgentTurn turn, String message)
+            {
+                return message + "\n<review-reference/>";
+            }
+
+            @Override
+            public Guidelines guidelines(AgentTask acceptedTask, AgentTurn turn)
+            {
+                return new Guidelines(ImmutableList.of("CONTRIBUTING.md"), "Repository guidelines: keep commits small.");
+            }
+        };
+
+        AgentTurn accepted = service.start(command("Fix the flaky test", "guided-input"));
+
+        // The guidelines precede the review reference; the transcript keeps the user's own words.
+        assertThat(driver.commands()).extracting(AgentTurnCommand::message)
+                .containsExactly("Fix the flaky test\n\nRepository guidelines: keep commits small.\n<review-reference/>");
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.type() == AgentEventPayload.Kind.USER_MESSAGE)
+                .extracting(event -> ((AgentEventPayload.UserMessage) event.payload()).text())
+                .containsExactly("Fix the flaky test");
+        assertThat(stores.find(accepted.id()).orElseThrow().guidelines()).containsExactly("CONTRIBUTING.md");
+    }
+
+    @Test
     void reviewPreparationFailureSettlesAsKnownUnsentBeforeOpeningTheProvider()
     {
         reviewTurnInput = (acceptedTask, turn, message) -> {
@@ -3499,7 +3529,20 @@ class TestDefaultAgentTurnService
                     instructionTasks.add(instructionTask);
                     return managedInstructions.get();
                 },
-                (acceptedTask, turn, message) -> reviewTurnInput.prepare(acceptedTask, turn, message),
+                new ReviewTurnInputResolver()
+                {
+                    @Override
+                    public String prepare(AgentTask acceptedTask, AgentTurn turn, String message)
+                    {
+                        return reviewTurnInput.prepare(acceptedTask, turn, message);
+                    }
+
+                    @Override
+                    public Guidelines guidelines(AgentTask acceptedTask, AgentTurn turn)
+                    {
+                        return reviewTurnInput.guidelines(acceptedTask, turn);
+                    }
+                },
                 clock,
                 Duration.ofMinutes(5),
                 queueStarter,

@@ -13,7 +13,14 @@
  */
 package com.bytequay.agent.core;
 
-/** Supplies frozen review reference data at an accepted turn's provider launch boundary. */
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
+
+/** Supplies frozen reference data, repository guidelines and review context, at an accepted turn's provider launch boundary. */
 @FunctionalInterface
 public interface ReviewTurnInputResolver
 {
@@ -42,4 +49,32 @@ public interface ReviewTurnInputResolver
 
     /** Called after the provider acknowledged the exact prepared input; usage bookkeeping must not affect the running turn. */
     default void delivered(AgentTask task, AgentTurn turn) {}
+
+    /**
+     * Reads the repository guideline files that go with every accepted turn's provider input as reference data, at a commit
+     * the turn cannot change. It runs before {@link #prepare} and never fails the turn: a read that cannot complete returns
+     * {@link Guidelines#NONE}.
+     */
+    default Guidelines guidelines(AgentTask task, AgentTurn turn)
+    {
+        return Guidelines.NONE;
+    }
+
+    /** The guideline files read, by repository path, and the delimited reference text that carries them. */
+    record Guidelines(List<String> paths, String text)
+    {
+        public static final Guidelines NONE = new Guidelines(ImmutableList.of(), "");
+
+        public Guidelines
+        {
+            paths = ImmutableList.copyOf(paths);
+            requireNonNull(text, "text is null");
+            checkArgument(paths.isEmpty() == text.isEmpty(), "guideline paths and text disagree");
+        }
+
+        public String append(String message)
+        {
+            return text.isEmpty() ? message : message + "\n\n" + text;
+        }
+    }
 }

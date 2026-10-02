@@ -33,6 +33,7 @@ import com.bytequay.persistence.sqlite.converter.DevelopmentAutomationConverter;
 import com.bytequay.persistence.sqlite.converter.DevelopmentResultReportConverter;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.google.common.collect.ImmutableList;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -62,6 +63,7 @@ public class AgentTurnEntity
 {
     private static final TypeReference<List<AgentAttachmentReference>> ATTACHMENTS = new TypeReference<>() {};
     private static final TypeReference<List<PlanItem>> PLAN = new TypeReference<>() {};
+    private static final TypeReference<List<String>> GUIDELINES = new TypeReference<>() {};
 
     @Id
     @Getter(onMethod_ = @Override)
@@ -144,6 +146,9 @@ public class AgentTurnEntity
     @Column(columnDefinition = "TEXT")
     private String planJson;
 
+    @Column(columnDefinition = "TEXT")
+    private String guidelinesJson;
+
     @Enumerated(EnumType.STRING)
     private DevelopmentTurnOrigin.Kind developmentOriginKind;
 
@@ -225,6 +230,7 @@ public class AgentTurnEntity
         terminalReason = turn.terminalReason().orElse(null);
         developmentResult = turn.developmentResult().orElse(null);
         planJson = turn.plan().map(plan -> AGENT.write(plan, "turn plan")).orElse(null);
+        guidelinesJson = turn.guidelines().isEmpty() ? null : AGENT.write(turn.guidelines(), "turn guidelines");
         Optional<DevelopmentTurnOrigin> deliveryOrigin = turn.developmentOrigin().filter(origin -> origin.kind() != DevelopmentTurnOrigin.Kind.REFINE_SUMMARY);
         developmentOriginKind = deliveryOrigin.map(DevelopmentTurnOrigin::kind).orElse(null);
         parentUserTurnId = deliveryOrigin.map(DevelopmentTurnOrigin::parentUserTurnId).map(TurnId::toString).orElse(null);
@@ -280,7 +286,8 @@ public class AgentTurnEntity
                         counters()),
                 Optional.ofNullable(developmentResult),
                 developmentOrigin(),
-                Optional.ofNullable(planJson).map(json -> AGENT.read(json, PLAN, "turn plan")));
+                Optional.ofNullable(planJson).map(json -> AGENT.read(json, PLAN, "turn plan")),
+                Optional.ofNullable(guidelinesJson).map(json -> AGENT.read(json, GUIDELINES, "turn guidelines")).orElse(ImmutableList.of()));
     }
 
     private Optional<DevelopmentTurnOrigin> developmentOrigin()

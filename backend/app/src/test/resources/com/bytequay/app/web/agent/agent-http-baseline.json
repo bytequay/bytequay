@@ -124,7 +124,8 @@
           "learningSummary": null
         },
         "developmentOrigin": null,
-        "plan": null
+        "plan": null,
+        "guidelines": []
       },
       "terminalResponse": {
         "id": "<turn-1>",
@@ -173,7 +174,8 @@
           "learningSummary": null
         },
         "developmentOrigin": null,
-        "plan": null
+        "plan": null,
+        "guidelines": []
       }
     },
     {
@@ -228,7 +230,8 @@
           "learningSummary": null
         },
         "developmentOrigin": null,
-        "plan": null
+        "plan": null,
+        "guidelines": []
       },
       "terminalResponse": {
         "id": "<turn-1>",
@@ -277,7 +280,8 @@
           "learningSummary": null
         },
         "developmentOrigin": null,
-        "plan": null
+        "plan": null,
+        "guidelines": []
       }
     },
     {
@@ -332,7 +336,8 @@
           "learningSummary": null
         },
         "developmentOrigin": null,
-        "plan": null
+        "plan": null,
+        "guidelines": []
       },
       "terminalResponse": {
         "id": "<turn-2>",
@@ -381,7 +386,8 @@
           "learningSummary": null
         },
         "developmentOrigin": null,
-        "plan": null
+        "plan": null,
+        "guidelines": []
       }
     }
   ],

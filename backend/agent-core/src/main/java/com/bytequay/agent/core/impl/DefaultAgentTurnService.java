@@ -767,7 +767,8 @@ public final class DefaultAgentTurnService
                 // the accepted message first so the transcript shows it while Send is still waiting.
                 eventService.drain(acceptance.deliveryEventId());
             }
-            String message = reviewTurnInput.prepare(task, turn, acceptance.message());
+            ReviewTurnInputResolver.Guidelines guidelines = reviewTurnInput.guidelines(task, turn);
+            String message = reviewTurnInput.prepare(task, turn, guidelines.append(acceptance.message()));
             checkNotBlank(message, "prepared review input");
             if (developmentTurnEligible(task, turn)) {
                 developmentAccepted.accept(task, turn);
@@ -778,7 +779,7 @@ public final class DefaultAgentTurnService
                     task = taskStore.update(task.withDevelopmentContinuation(false, Instant.now(clock)));
                 }
                 launchAttempted = true;
-                launch = launchLocked(task, new TurnAcceptance(turn, acceptance.deliveryEventId(), message, acceptance.attachments()));
+                launch = launchLocked(task, new TurnAcceptance(turn, acceptance.deliveryEventId(), message, acceptance.attachments(), guidelines.paths()));
             }
         }
         catch (RuntimeException failure) {
@@ -839,7 +840,7 @@ public final class DefaultAgentTurnService
             AgentTurnSettings settings = accepted.settings().orElseThrow();
             eventService.drain(acceptance.deliveryEventId());
             session = session(task, accepted.id(), settings);
-            markDeliveryStarted(accepted);
+            markDeliveryStarted(accepted, acceptance.guidelines());
             deliveryAttempted = true;
             RunningTurn runningTurn = session.start(new AgentTurnCommand(
                     accepted.id().toString(),
@@ -1563,7 +1564,7 @@ public final class DefaultAgentTurnService
         });
     }
 
-    private void markDeliveryStarted(AgentTurn accepted)
+    private void markDeliveryStarted(AgentTurn accepted, List<String> guidelines)
     {
         Instant startedAt = Instant.now(clock);
         eventCommitter.commit(
@@ -1574,7 +1575,7 @@ public final class DefaultAgentTurnService
                         AgentEventPayload.LifecyclePhase.TURN_STARTED,
                         "Turn started",
                         startedAt),
-                () -> turnStore.update(turnStore.require(accepted.id()).markDeliveryStarted(startedAt)));
+                () -> turnStore.update(turnStore.require(accepted.id()).markDeliveryStarted(startedAt).withGuidelines(guidelines)));
     }
 
     @Override
@@ -2401,7 +2402,8 @@ public final class DefaultAgentTurnService
             AgentTurn turn,
             EventId deliveryEventId,
             String message,
-            List<AgentAttachment> attachments)
+            List<AgentAttachment> attachments,
+            List<String> guidelines)
     {
         private TurnAcceptance
         {
@@ -2409,6 +2411,12 @@ public final class DefaultAgentTurnService
             requireNonNull(deliveryEventId, "deliveryEventId is null");
             requireNonNull(message, "message is null");
             attachments = ImmutableList.copyOf(attachments);
+            guidelines = ImmutableList.copyOf(guidelines);
+        }
+
+        private TurnAcceptance(AgentTurn turn, EventId deliveryEventId, String message, List<AgentAttachment> attachments)
+        {
+            this(turn, deliveryEventId, message, attachments, ImmutableList.of());
         }
     }
 

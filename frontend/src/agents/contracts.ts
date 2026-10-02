@@ -479,6 +479,9 @@ export function parseAgentTurn(value: unknown, path = 'turn'): AgentTurnDto {
       : enumText(source.failureKind, ['AUTHENTICATION_REQUIRED'] as const, `${path}.failureKind`),
     terminalReason: optionalText(source.terminalReason, `${path}.terminalReason`),
     metrics: metrics(source.metrics, `${path}.metrics`),
+    guidelines: source.guidelines === null || source.guidelines === undefined
+      ? []
+      : list(source.guidelines, `${path}.guidelines`).map((value, index) => text(value, `${path}.guidelines[${index}]`)),
   };
 }
 

@@ -1445,6 +1445,10 @@ describe('agent task detail', () => {
     // The snapshot the turn recorded, not the defaults: a later change must not rewrite history.
     expect(markup).toContain('5.6 Terra medium \u00b7 Approve for me');
     expect(body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open' })).not.toContain('5.6 Terra medium');
+    // The repository guideline files that went with the turn's input are counted; a turn without any says nothing.
+    expect(markup).not.toContain('Guidelines');
+    const guided = body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open', turns: { [firstTurn]: { ...ran, guidelines: ['CONTRIBUTING.md', '.github/DEVELOPMENT.md'] } } });
+    expect(guided).toContain('Guidelines 2');
   });
 
   it('folds a finished turn to its final answer and keeps the totals under the composer', () => {

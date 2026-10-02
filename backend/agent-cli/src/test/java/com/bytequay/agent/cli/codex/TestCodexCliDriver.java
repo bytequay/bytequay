@@ -149,6 +149,7 @@ class TestCodexCliDriver
         assertThat(startedThread.path("model").asText()).isEqualTo("gpt-5");
         assertThat(startedThread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
         assertThat(startedThread.path("config").path("web_search").asText()).isEqualTo("live");
+        assertThat(startedThread.path("config").path("project_doc_max_bytes").asInt(-1)).isZero();
         assertThat(startedThread.path("config").has("auto_review")).isFalse();
         assertThat(startedThread.path("ephemeral").asBoolean()).isFalse();
         assertThat(startedThread.path("dynamicTools")).isEmpty();
@@ -162,6 +163,7 @@ class TestCodexCliDriver
         assertThat(resumedThread.path("model").asText()).isEqualTo("gpt-5");
         assertThat(resumedThread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
         assertThat(resumedThread.path("config").has("auto_review")).isFalse();
+        assertThat(resumedThread.path("config").path("project_doc_max_bytes").asInt(-1)).isZero();
         assertThat(resumedThread.path("config").path("sandbox_workspace_write").path("network_access").asBoolean()).isTrue();
         assertThat(resumedThread.path("config").path("mcp_servers")).isEmpty();
 

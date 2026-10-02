@@ -284,6 +284,7 @@ class TestCodexLaunchProfile
                     .containsEntry("approvals_reviewer", "auto_review")
                     .containsEntry("web_search", "disabled")
                     .containsEntry("sandbox_workspace_write", CodexLaunchProfile.ciSandboxConfig(roots))
+                    .containsEntry("project_doc_max_bytes", 0)
                     .doesNotContainKey("auto_review");
             assertThat(CodexLaunchProfile.expectedFeatures(childProfile, false)).containsEntry("guardian_approval", true);
         }
@@ -343,6 +344,8 @@ class TestCodexLaunchProfile
         assertThat(arguments).containsSequence("--disable", "guardianv2");
         assertThat(arguments).containsSequence("--disable", "guardian_ext");
         assertThat(arguments).containsSequence("-c", "web_search=\"live\"");
+        // ByteQuay supplies the repository's guideline files itself, so Codex must not load AGENTS.md from the worktree.
+        assertThat(arguments).containsSequence("-c", "project_doc_max_bytes=0");
         assertThat(arguments).contains(
                 "shell_environment_policy.include_only=[\"HOME\",\"LANG\",\"LC_ALL\",\"LOGNAME\","
                         + "\"PATH\",\"SHELL\",\"TERM\",\"TMPDIR\",\"USER\"]");

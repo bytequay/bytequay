@@ -750,6 +750,8 @@ export type AgentTurnDto = {
   failureKind?: 'AUTHENTICATION_REQUIRED' | null;
   terminalReason: string | null;
   metrics: AgentMetricsDto;
+  /** Repository guideline files that went with the turn's input, by path; empty when none were read. */
+  guidelines?: string[];
 };
 
 export type AgentDevelopmentCiDto = {

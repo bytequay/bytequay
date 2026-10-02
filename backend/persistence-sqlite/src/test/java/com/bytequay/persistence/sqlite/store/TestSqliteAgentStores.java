@@ -629,12 +629,15 @@ class TestSqliteAgentStores
         turnStore.insert(turn);
         entityManager.clear();
         assertThat(turnStore.find(turn.id()).orElseThrow().plan()).isEmpty();
+        assertThat(turnStore.find(turn.id()).orElseThrow().guidelines()).isEmpty();
 
         List<ProviderAgentEvent.PlanItem> items = ImmutableList.of(new ProviderAgentEvent.PlanItem("Verify", ProviderAgentEvent.PlanItemState.IN_PROGRESS));
-        AgentTurn running = turnStore.update(turnStore.find(turn.id()).orElseThrow().markDeliveryStarted(now)
+        AgentTurn running = turnStore.update(turnStore.find(turn.id()).orElseThrow().markDeliveryStarted(now).withGuidelines(ImmutableList.of("CONTRIBUTING.md"))
                 .running(new ProviderTurnRef("provider-plan"), Optional.of("model")).withPlan(items));
         entityManager.clear();
         assertThat(turnStore.find(turn.id()).orElseThrow().plan()).contains(items);
+        // The guideline files that went with the input stay with the turn through later updates.
+        assertThat(turnStore.find(turn.id()).orElseThrow().guidelines()).containsExactly("CONTRIBUTING.md");
         AgentTurn cleared = turnStore.update(running.withPlan(ImmutableList.of()));
         entityManager.clear();
         assertThat(turnStore.find(turn.id()).orElseThrow().plan()).contains(ImmutableList.of());

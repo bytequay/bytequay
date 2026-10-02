@@ -150,7 +150,8 @@ final class InteractiveAgentHttpContract
                 turn.metrics(),
                 turn.developmentResult(),
                 turn.developmentOrigin().map(origin -> new DevelopmentOrigin(origin.kind().name(), origin.parentUserTurnId().toString())),
-                turn.plan());
+                turn.plan(),
+                turn.guidelines());
     }
 
     static QueuedInputResponse queuedInput(QueuedAgentInput input)
@@ -415,7 +416,8 @@ final class InteractiveAgentHttpContract
             AgentMetrics metrics,
             Optional<DevelopmentResultReport> developmentResult,
             Optional<DevelopmentOrigin> developmentOrigin,
-            Optional<List<PlanItem>> plan) {}
+            Optional<List<PlanItem>> plan,
+            List<String> guidelines) {}
 
     record DevelopmentOrigin(String kind, String parentUserTurnId) {}
 

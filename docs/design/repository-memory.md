@@ -183,25 +183,28 @@ as CodeRabbit lists "Code guidelines".
 
 - **Files:** `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md` and `DEVELOPMENT.md` at
   the root and under `.github/`.
-- **Reviews also get** any `CLAUDE.md` or `AGENTS.md` in a directory that holds a
-  changed path. The workspace can add paths.
+- **Reviews also get** any `CLAUDE.md` or `AGENTS.md` in a directory above a
+  changed path. The Memory page can add paths.
+- **Symlinks:** a symlinked file is skipped; it usually points at one already
+  read.
 - **Size:** up to 32 KiB, each file up to 16 KiB, with truncation stated.
 
-**Read at the base.** Reviews read the monitored baseline, never the pull
-request head, so a pull request cannot rewrite the agent's guidance. Development
-tasks read their base commit.
+**Read at the base.** A review reads its pull request's base branch tip, never
+the head under review, so a pull request cannot rewrite the agent's guidance; a
+backport reads its target branch's rules. Every other task reads the commit its
+worktree started from. A read that fails leaves the turn's input unchanged.
 
 **Both lanes get the same text.**
 - Codex's own `AGENTS.md` loading is turned off (`project_doc_max_bytes=0`), so
   the file is read once and from the base.
 - The Claude lane keeps `--setting-sources=`, which also keeps the
-  repository's Claude settings and hooks out. Today Claude receives no guideline
-  file and Codex probably receives only `AGENTS.md`.
+  repository's Claude settings and hooks out.
 
 **Trust.** Guidelines are reference data under ByteQuay's managed instructions:
 follow them where they don't conflict.
 
-**Receipt.** The turn receipt shows "Guidelines: 3 files".
+**Receipt.** Each turn records the files it carried, and its footer shows
+"Guidelines 2".
 
 ## 5. Delivery and receipts
 

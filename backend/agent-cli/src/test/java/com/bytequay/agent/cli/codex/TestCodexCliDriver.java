@@ -50,6 +50,7 @@ import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.PullRequestCiBridge;
+import com.bytequay.agent.spi.RelatedWorkspaceBridge;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.RunningTurn;
@@ -2965,6 +2966,61 @@ class TestCodexCliDriver
                         + "\"startedAtMs\":1786884871461}}");
                 awaitCondition(() -> server.error(204) != null);
                 assertThat(approval.get()).isNull();
+                reference = Optional.of(session.reference());
+            }
+        }
+    }
+
+    @Test
+    void relatedWorkUsesRootToolsAcrossResumeAndRejectsChildAndStaleTurnCalls()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.156.1", false);
+        supervisor.reportModelVersion(Optional.of("v2"));
+        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
+        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
+        AtomicInteger calls = new AtomicInteger();
+        var related = new RelatedWorkspaceBridge(arguments -> {
+            calls.incrementAndGet();
+            return "linked";
+        });
+        PermissionBroker broker = new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
+                BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE, BridgeResolver.none(), BridgeResolver.none(),
+                BridgeResolver.none(), BridgeResolver.none(), taskId -> Optional.of(related));
+        CodexHome.prepare(codexHome());
+        CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
+                ImmutableMap.of("HOME", worktree.toString()), codexHome(), broker, Duration.ofSeconds(30));
+        Optional<AgentSessionRef> reference = Optional.empty();
+        for (int index = 0; index < 2; index++) {
+            try (AgentSession session = driver.open(context(reference, new AtomicReference<>()), event -> {})) {
+                assertThat(session.reference().contractVersion()).isEqualTo(2);
+                AppServerProcess server = supervisor.servers().getLast();
+                JsonNode thread = server.threadRequests().getFirst();
+                if (index == 0) {
+                    assertThat(thread.path("dynamicTools").findValuesAsText("name")).containsExactly(RelatedWorkspaceBridge.TOOL_NAME);
+                }
+                else {
+                    assertThat(thread.path("dynamicTools").isMissingNode()).isTrue();
+                }
+                session.start(command("Investigate in Iceberg"));
+                server.emit("""
+                        {"id":301,"method":"item/tool/call","params":{"threadId":"thread-1","turnId":"%s",
+                        "callId":"root","tool":"related_workspace_work","namespace":null,"arguments":{}}}
+                        """.formatted(server.activeTurn()));
+                awaitCondition(() -> server.result(301) != null);
+                assertThat(server.result(301).path("success").asBoolean()).isTrue();
+                server.emit("""
+                        {"id":302,"method":"item/tool/call","params":{"threadId":"thread-1","turnId":"stale",
+                        "callId":"stale","tool":"related_workspace_work","namespace":null,"arguments":{}}}
+                        """);
+                awaitCondition(() -> server.error(302) != null);
+                server.emitV2Started("child-thread", "/fixture-child");
+                server.emit("""
+                        {"id":303,"method":"item/tool/call","params":{"threadId":"child-thread","turnId":"child-turn",
+                        "callId":"child","tool":"related_workspace_work","namespace":null,"arguments":{}}}
+                        """);
+                awaitCondition(() -> server.error(303) != null);
+                assertThat(calls).hasValue(index + 1);
                 reference = Optional.of(session.reference());
             }
         }

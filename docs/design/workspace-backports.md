@@ -223,6 +223,37 @@ controls, and root/turn checks. A plain investigation never creates a backport
 chain. Starting a conversation remains the user entry point; no Create task
 button is added.
 
+### Implemented handoff
+
+`related_workspace_work` accepts START and READ on the requesting root turn.
+`RelatedWorkspaceWork` stores request links in application settings, freezes the
+destination model and automation settings, and reuses `InteractiveAgentTaskCreator`
+and `AgentTurnService`. A generated related-work turn cannot start another
+handoff. A later explicit user turn can make a new request.
+
+Investigations require a full locally available commit SHA. The ordinary creator
+synchronizes the destination and verifies that same SHA before creating its
+worktree. It never falls back to the default branch. START retries compare the
+saved request, recheck the direct relationship and repository identity, and adopt
+an already accepted first turn after a lost response. READ is limited to that
+source conversation's saved link and current direct relationship.
+
+Results come from the requested turn's root final answer in retained task logs,
+not a second result store. Missing history is explicit. Large answers are shortened
+with a link to the original conversation. The UI follows the approved prototype:
+inline cards, a destination ByteQuay request bubble, and Tasks → Linked work groups.
+Commands and limitations use a disclosure when the answer supplies that heading;
+other answers remain readable as ordinary Markdown. Stop uses the existing
+runtime stop action and its generation check.
+
+Codex uses the existing root dynamic-tool channel; children cannot call it through
+the shared MCP token. New conversations retain it across resume. Older Codex
+conversations created without dynamic tools keep working but cannot gain this
+operation on resume: start a new conversation for a handoff. Claude uses the
+existing child-identity hook; older releases without verified child identity keep
+native helper agents disabled while this operation is available. Neither path
+adds a filesystem isolation model.
+
 ## 5. Put a saved chain above cherry-pick
 
 The two fork flows share one route:

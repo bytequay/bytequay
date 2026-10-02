@@ -1330,6 +1330,10 @@ function registerIpc(): void {
   ipcMain.handle('settings:app:save', (_event, preferences: unknown) =>
     backendJson(`${backendBase()}/api/settings/app`, jsonInit('PUT', preferences)));
 
+  ipcMain.handle('workspaces:linked-work', (_event, workspaceId: string) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/linked-work`));
+  ipcMain.handle('workspaces:related-request', (_event, workspaceId: string, taskId: string) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/tasks/${encodeURIComponent(taskId)}/related-request`));
   ipcMain.handle('workspaces:relationships', (_event, workspaceId: string) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/relationships`));
   ipcMain.handle('workspaces:relationships:save', (_event, workspaceId: string, relationship: import('./types').WorkspaceRelationshipDto) =>

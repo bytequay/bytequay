@@ -46,6 +46,7 @@ import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.agent.spi.RelatedWorkspaceBridge;
 import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -455,6 +456,10 @@ public final class ClaudeCliDriver
             // children the broker's gate admits, in an attended review on a release where that gate was verified.
             argv.add("--disable-slash-commands", "--tools", "Bash,Glob,Grep,Read,Edit,Write,NotebookEdit,WebFetch,WebSearch,TodoWrite,TaskOutput,TaskStop"
                     + (reviewChildAgents && !permissionScope.unattended() ? ",Agent" : ""));
+        }
+        if (registration.toolNames().contains(RelatedWorkspaceBridge.TOOL_NAME) && !reviewChildAgents) {
+            // Older releases lack verified child identity in hooks; keep the related-work tool with the only agent.
+            argv.add("--disallowedTools", "Agent,Task,Skill,Workflow,SendMessage");
         }
         if (!attachments.isEmpty()) {
             argv.add("--add-dir");

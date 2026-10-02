@@ -696,7 +696,7 @@ function TurnFooter({ turn, durable, models }: {
   );
 }
 
-export function TurnView({ turn, repository, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, localReview, discussions, reviewRequests, issueSource, jiraSource, onOpenReview, onOpenDiscussion, onSelectPassage, discussionBusy = false, focusedDiscussion, onHoverDiscussion, latest = false, children }: {
+export function TurnView({ turn, repository, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, turnRequest, localReview, discussions, reviewRequests, issueSource, jiraSource, onOpenReview, onOpenDiscussion, onSelectPassage, discussionBusy = false, focusedDiscussion, onHoverDiscussion, latest = false, children }: {
   localReview?: LocalReviewThreads;
   discussions?: TaskDiscussionDto[];
   onOpenDiscussion?: (discussionId: string) => void;
@@ -705,6 +705,7 @@ export function TurnView({ turn, repository, first, open, now, models, durableTu
   onSelectPassage?: (passage: SelectedPassage, question: string) => Promise<unknown>;
   /** Another discussion on the task is being answered. */
   discussionBusy?: boolean;
+  turnRequest?: React.ReactNode;
   reviewRequests?: readonly ReviewRequest[];
   issueSource?: AgentIssueSourceDto | null;
   jiraSource?: JiraTaskSource | null;
@@ -763,7 +764,7 @@ export function TurnView({ turn, repository, first, open, now, models, durableTu
               </ReviewRequestCard>
             </div>
           ) : <div className="agt-user" data-history-anchor={user.id}>
-            {index === 0 && user.delivery === 'TURN' && jiraRequest && jiraSource != null
+            {index === 0 && user.delivery === 'TURN' && turnRequest ? turnRequest : index === 0 && user.delivery === 'TURN' && jiraRequest && jiraSource != null
               ? <JiraRequestCard source={jiraSource} attachments={user.attachments.length > 0 && <div className="agt-user__files">
                 {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
               </div>} />
@@ -1074,7 +1075,7 @@ export function AgentConversation({
   turns, repository, durableTurns, models, now, scroll, connection, running, activeTurn, activeTurnId = activeTurn?.id, waiting, gap = false, pendingMessage = null,
   activityChoice, turnChoice, onToggleTurn, onToggleActivity, onDecide,
   previews = {}, agentLabels = {}, pendingApprovals = [], generatedTurnIds, generatedBranch,
-  onOpenAgent, children, transcriptFooter, localReview, discussions, reviewRequests, issueSource, jiraSource, onOpenReview, onOpenDiscussion, onSelectPassage, discussionBusy, focusedDiscussion, onHoverDiscussion, label = 'Task transcript',
+  onOpenAgent, children, transcriptFooter, turnFooter, turnRequest, localReview, discussions, reviewRequests, issueSource, jiraSource, onOpenReview, onOpenDiscussion, onSelectPassage, discussionBusy, focusedDiscussion, onHoverDiscussion, label = 'Task transcript',
   workspaceId,
 }: {
   turns: TranscriptTurn[];
@@ -1105,6 +1106,8 @@ export function AgentConversation({
   onOpenAgent?: (threadId: string) => void;
   children: React.ReactNode;
   transcriptFooter?: React.ReactNode;
+  turnFooter?: (turnId: string) => React.ReactNode;
+  turnRequest?: (turnId: string) => React.ReactNode;
   localReview?: LocalReviewThreads;
   discussions?: TaskDiscussionDto[];
   onOpenDiscussion?: (discussionId: string) => void;
@@ -1177,8 +1180,10 @@ export function AgentConversation({
               onToggleActivity={onToggleActivity} onDecide={onDecide} onOpenAgent={onOpenAgent}
               localReview={localReview} discussions={discussions} onOpenDiscussion={onOpenDiscussion} onSelectPassage={onSelectPassage}
               discussionBusy={discussionBusy} focusedDiscussion={focusedDiscussion} onHoverDiscussion={onHoverDiscussion}
+              turnRequest={turn.turnId !== null ? turnRequest?.(turn.turnId) : undefined}
               reviewRequests={reviewRequests} issueSource={issueSource} jiraSource={jiraSource} onOpenReview={onOpenReview} latest={reserve}
               generatedRequest={turn.turnId !== null && generatedTurnIds?.has(turn.turnId)} generatedBranch={generatedBranch}>
+              {turn.turnId !== null && turnFooter?.(turn.turnId)}
               {latest && liveActivity}
             </TurnView>;
           })}

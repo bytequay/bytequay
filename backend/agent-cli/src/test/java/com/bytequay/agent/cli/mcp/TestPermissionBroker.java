@@ -27,6 +27,7 @@ import com.bytequay.agent.spi.MemoryBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.PullRequestCiBridge;
+import com.bytequay.agent.spi.RelatedWorkspaceBridge;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.SessionAccess;
@@ -738,7 +739,7 @@ class TestPermissionBroker
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret")), Optional.empty()).orElseThrow()) {
             token = registration.token();
-            PermissionBroker.CodexReviewTools guarded = broker.guardCodexReviewToken(registration);
+            PermissionBroker.CodexRootTools guarded = broker.guardCodexRootTools(registration);
             assertThat(guarded.mcpNames()).containsExactly("review_get_context");
             assertThat(guarded.rootNames()).containsExactly("review_finish");
             assertThat(guarded.rootTools()).singleElement().satisfies(tool ->
@@ -756,23 +757,62 @@ class TestPermissionBroker
                     """)).body().orElseThrow();
             assertThat(blocked.at("/error/code").asInt()).isEqualTo(-32602);
             assertThat(writes).hasValue(0);
-            assertThat(broker.callCodexReviewRootTool(token, "review_finish", objectMapper.readTree("[]"))
+            assertThat(broker.callCodexRootTool(token, "review_finish", objectMapper.readTree("[]"))
                     .body().orElseThrow().at("/error/code").asInt()).isEqualTo(-32602);
-            assertThat(broker.callCodexReviewRootTool(token, "unknown", objectMapper.createObjectNode())
+            assertThat(broker.callCodexRootTool(token, "unknown", objectMapper.createObjectNode())
                     .body().orElseThrow().at("/error/code").asInt()).isEqualTo(-32602);
-            assertThat(broker.callCodexReviewRootTool(token, "review_get_context", objectMapper.createObjectNode())
+            assertThat(broker.callCodexRootTool(token, "review_get_context", objectMapper.createObjectNode())
                     .body().orElseThrow().at("/error/code").asInt()).isEqualTo(-32602);
             assertThat(writes).hasValue(0);
-            JsonNode saved = broker.callCodexReviewRootTool(token, "review_finish", objectMapper.createObjectNode())
+            JsonNode saved = broker.callCodexRootTool(token, "review_finish", objectMapper.createObjectNode())
                     .body().orElseThrow();
             assertThat(saved.at("/result/content/0/text").asText()).isEqualTo("saved [REDACTED]");
             assertThat(reads).hasValue(1);
             assertThat(writes).hasValue(1);
         }
         assertThat(broker.handle(token, objectMapper.readTree("{}")).status()).isEqualTo(401);
-        assertThat(broker.callCodexReviewRootTool(token, "review_finish", objectMapper.createObjectNode())
+        assertThat(broker.callCodexRootTool(token, "review_finish", objectMapper.createObjectNode())
                 .body().orElseThrow().at("/error/code").asInt()).isEqualTo(-32602);
         assertThat(writes).hasValue(1);
+    }
+
+    @Test
+    @EnabledOnOs(OS.MAC)
+    void relatedWorkIsRootBoundOnBothProvidersWithoutRestrictingOrdinaryDevelopmentTools()
+            throws Exception
+    {
+        AtomicInteger starts = new AtomicInteger();
+        var bridge = new RelatedWorkspaceBridge(arguments -> {
+            starts.incrementAndGet();
+            return "linked known-secret";
+        });
+        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/mcp"), objectMapper, (taskId, query) -> "memory",
+                BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE, BridgeResolver.none(), BridgeResolver.none(),
+                BridgeResolver.none(), BridgeResolver.none(), taskId -> Optional.of(bridge));
+        var redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
+        try (var registration = broker.registerTools("task-related", temporaryDirectory, AgentPermissionPolicy.AUTO,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow()) {
+            var guard = broker.guardCodexRootTools(registration);
+            assertThat(guard.rootNames()).containsExactly(RelatedWorkspaceBridge.TOOL_NAME);
+            assertThat(guard.mcpNames()).doesNotContain(RelatedWorkspaceBridge.TOOL_NAME);
+            assertThat(localReviewCall(broker, registration.token(), RelatedWorkspaceBridge.TOOL_NAME, "{}").at("/error/code").asInt()).isEqualTo(-32602);
+            assertThat(starts).hasValue(0);
+            assertThat(broker.callCodexRootTool(registration.token(), RelatedWorkspaceBridge.TOOL_NAME, objectMapper.createObjectNode())
+                    .body().orElseThrow().at("/result/content/0/text").asText()).isEqualTo("linked [REDACTED]");
+            assertThat(starts).hasValue(1);
+        }
+        Path runtime = Files.createDirectories(temporaryDirectory.resolve("related runtime"));
+        try (var registration = broker.register("task-related", temporaryDirectory, runtime, runtime.resolve("provider"), AgentPermissionPolicy.AUTO,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor)) {
+            String hook = objectMapper.readTree(Files.readString(registration.settingsFile().orElseThrow())).at("/hooks/PreToolUse/0/hooks/0/command").asText();
+            assertThat(gate(hook, "{\"tool_name\":\"mcp__bytequay__related_workspace_work\",\"tool_input\":{}}")).isZero();
+            assertThat(gate(hook, "{\"agent_id\":\"child\",\"tool_name\":\"mcp__bytequay__related_workspace_work\",\"tool_input\":{}}")).isEqualTo(2);
+            assertThat(gate(hook, "{\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"general-purpose\"}}")).isZero();
+            assertThat(gate(hook, "broken JSON")).isEqualTo(2);
+            assertThat(localReviewCall(broker, registration.token(), RelatedWorkspaceBridge.TOOL_NAME, "{}").at("/result/content/0/text").asText())
+                    .isEqualTo("linked [REDACTED]");
+            assertThat(starts).hasValue(2);
+        }
     }
 
     @Test

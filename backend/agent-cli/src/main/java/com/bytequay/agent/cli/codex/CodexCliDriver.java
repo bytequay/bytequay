@@ -49,6 +49,7 @@ import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderModel;
 import com.bytequay.agent.spi.ProviderServiceTier;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.agent.spi.RelatedWorkspaceBridge;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
@@ -330,7 +331,7 @@ public final class CodexCliDriver
             List<String> ciWritableRoots,
             boolean allowGitHubCommands,
             boolean review,
-            Optional<PermissionBroker.CodexReviewTools> guardedReviewTools,
+            Optional<PermissionBroker.CodexRootTools> guardedReviewTools,
             Map<String, String> sessionEnvironment)
     {
         Optional<String> key = requireNonNull(savedKey, "savedKey is null");
@@ -351,7 +352,7 @@ public final class CodexCliDriver
                     ? Optional.of(CodexReviewGate.install(codexHome)) : Optional.empty();
             Optional<CodexLaunchProfile.CodeGraphLaunch> tools = registration.map(value -> new CodexLaunchProfile.CodeGraphLaunch(
                     loopback.map(DeepSeekLoopback::mcpEndpoint).orElse(value.endpoint()), value.instruction().orElse(""),
-                    guardedReviewTools.map(PermissionBroker.CodexReviewTools::mcpNames).orElse(value.toolNames()),
+                    guardedReviewTools.map(PermissionBroker.CodexRootTools::mcpNames).orElse(value.toolNames()),
                     deepSeekSecret.isEmpty(), reviewGate));
             Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek = loopback.map(value ->
                     new CodexLaunchProfile.DeepSeekProfile(deepSeekCatalog.orElseThrow(), value.baseUrl()));
@@ -637,10 +638,10 @@ public final class CodexCliDriver
         boolean dynamicReview = review && (childProfile != CodexLaunchProfile.ChildProfile.NONE
                 || context.sessionReference().stream().anyMatch(reference -> reference.contractVersion() == REVIEW_DYNAMIC_CONTRACT_VERSION));
         ClientLaunch launch;
-        Optional<PermissionBroker.CodexReviewTools> guardedReviewTools;
+        Optional<PermissionBroker.CodexRootTools> guardedReviewTools;
         try {
-            guardedReviewTools = dynamicReview
-                    ? codeGraph.map(permissions::guardCodexReviewToken) : Optional.empty();
+            guardedReviewTools = (dynamicReview || codeGraph.stream().anyMatch(registration -> registration.toolNames().contains(RelatedWorkspaceBridge.TOOL_NAME)))
+                    ? codeGraph.map(permissions::guardCodexRootTools) : Optional.empty();
             launch = appServerClient(
                     context.taskId(),
                     context.worktree(),
@@ -856,7 +857,7 @@ public final class CodexCliDriver
         private final CodexEventMapper eventMapper;
         private final CodexIsolationGuard isolation;
         private final Optional<McpRegistration> codeGraph;
-        private final Optional<PermissionBroker.CodexReviewTools> guardedReviewTools;
+        private final Optional<PermissionBroker.CodexRootTools> guardedReviewTools;
         private final AgentSessionRef reference;
         private final ModelProfile modelProfile;
         private final CodexLaunchProfile.ChildProfile childProfile;
@@ -904,7 +905,7 @@ public final class CodexCliDriver
                 ModelProfile modelProfile,
                 CodexLaunchProfile.ChildProfile childProfile,
                 Optional<McpRegistration> codeGraph,
-                Optional<PermissionBroker.CodexReviewTools> guardedReviewTools,
+                Optional<PermissionBroker.CodexRootTools> guardedReviewTools,
                 List<String> ciWritableRoots,
                 AgentPermissionScope permissionScope,
                 Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek,
@@ -1904,11 +1905,11 @@ public final class CodexCliDriver
             if (serverRequest instanceof CodexProtocol.DynamicToolCallRequest dynamic) {
                 if (guardedReviewTools.isEmpty() || !dynamic.threadId().equals(reference.providerValue())
                         || !dynamic.params().namespace().isEmpty()) {
-                    return CompletableFuture.failedFuture(new AgentUnavailableException("Review tool caller is not the root turn"));
+                    return CompletableFuture.failedFuture(new AgentUnavailableException("Tool caller is not the root turn"));
                 }
                 return callReviewRootTool(dynamic, expectedTurn);
             }
-            if (guardedReviewTools.isPresent() && !serverRequest.threadId().equals(reference.providerValue())) {
+            if (permissionScope.review() && guardedReviewTools.isPresent() && !serverRequest.threadId().equals(reference.providerValue())) {
                 return CompletableFuture.failedFuture(new AgentUnavailableException("Review children cannot approve tool access"));
             }
             // Approval registration crosses into agent-core and may take the task lock.
@@ -1929,7 +1930,7 @@ public final class CodexCliDriver
                             return;
                         }
                     }
-                    JsonNode body = permissions.callCodexReviewRootTool(codeGraph.orElseThrow().token(),
+                    JsonNode body = permissions.callCodexRootTool(codeGraph.orElseThrow().token(),
                             request.params().tool(), request.params().arguments()).body().orElseThrow();
                     JsonNode tool = body.path("result");
                     boolean success = !tool.isMissingNode() && !tool.path("isError").asBoolean(false);

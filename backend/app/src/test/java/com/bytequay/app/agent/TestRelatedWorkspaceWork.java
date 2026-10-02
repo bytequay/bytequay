@@ -1,0 +1,407 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.agent;
+
+import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentEventSource;
+import com.bytequay.agent.core.AgentMetrics;
+import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
+import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.AgentTaskTitleService;
+import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.AgentTurnService;
+import com.bytequay.agent.core.AgentTurnSettings;
+import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
+import com.bytequay.agent.core.DevelopmentAutomation;
+import com.bytequay.agent.core.EventId;
+import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.StartAgentTurnCommand;
+import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskWorktree;
+import com.bytequay.agent.core.TitleSource;
+import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.TurnState;
+import com.bytequay.agent.core.store.AgentApprovalStore;
+import com.bytequay.agent.core.store.AgentTaskStore;
+import com.bytequay.agent.core.store.AgentTurnStore;
+import com.bytequay.agent.core.store.TaskLogStore;
+import com.bytequay.agent.spi.AgentCapabilities;
+import com.bytequay.agent.spi.AgentDriver;
+import com.bytequay.agent.spi.AgentDriverRegistry;
+import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentProviderStatus;
+import com.bytequay.agent.spi.AgentSessionRef;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
+import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.settings.AgentModelSetting;
+import com.bytequay.app.service.settings.AgentModelType;
+import com.bytequay.app.service.settings.AppSettingsService;
+import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
+import com.bytequay.app.workspace.WorkspaceProvisioningService;
+import com.bytequay.app.workspace.WorkspaceRelationships;
+import com.bytequay.app.workspace.WorkspaceRepositoryContext;
+import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.UserProfile;
+import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.review.AgentReviewStore;
+import com.bytequay.core.store.AppSettingsStore;
+import com.bytequay.core.store.PullRequestStore;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
+import org.springframework.beans.factory.ObjectProvider;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Predicate;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class TestRelatedWorkspaceWork
+{
+    @TempDir
+    Path repository;
+    private final AppSettingsStore settings = mock(AppSettingsStore.class);
+    private final WorkspaceRelationships relationships = mock(WorkspaceRelationships.class);
+    private final WorkspaceRepositoryService repositories = mock(WorkspaceRepositoryService.class);
+    private final AgentTaskStore tasks = mock(AgentTaskStore.class);
+    private final AgentTurnStore turns = mock(AgentTurnStore.class);
+    private final TaskLogStore logs = mock(TaskLogStore.class);
+    private InteractiveAgentTaskCreator creator;
+    private final AgentTaskService taskService = mock(AgentTaskService.class);
+    private final AgentTurnService turnService = mock(AgentTurnService.class);
+    private final ModelSettingsService models = mock(ModelSettingsService.class);
+    private final AppSettingsService appSettings = mock(AppSettingsService.class);
+    private final GitCommandRunner git = new GitCommandRunner();
+    private final Map<String, AgentTurn> dispatched = new ConcurrentHashMap<>();
+    private final Map<TaskId, AgentTask> taskData = new ConcurrentHashMap<>();
+    private AgentTask source;
+    private AgentTurn sourceTurn;
+    private String oldCommit;
+    private String newCommit;
+
+    @BeforeEach
+    void setUp()
+            throws Exception
+    {
+        command("init", "-q");
+        command("config", "user.name", "Test");
+        command("config", "user.email", "test@example.com");
+        Files.writeString(repository.resolve("API.txt"), "old API");
+        command("add", ".");
+        command("commit", "-qm", "Old API");
+        oldCommit = command("rev-parse", "HEAD");
+        Files.writeString(repository.resolve("API.txt"), "new API");
+        command("commit", "-qam", "New API");
+        newCommit = command("rev-parse", "HEAD");
+        command("update-ref", "refs/remotes/origin/main", newCommit);
+        Map<String, String> saved = new ConcurrentHashMap<>();
+        when(settings.get(anyString())).thenAnswer(call -> Optional.ofNullable(saved.get(call.getArgument(0))));
+        doAnswer(call -> {
+            saved.put(call.getArgument(0), call.getArgument(1));
+            return null;
+        }).when(settings).put(anyString(), anyString());
+        source = task(TaskId.random(), "trino", new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO));
+        sourceTurn = accepted(source.id(), "human-request");
+        taskData.put(source.id(), source);
+        when(tasks.find(any())).thenAnswer(call -> Optional.ofNullable(taskData.get(call.getArgument(0))));
+        when(turns.findActive(source.id())).thenReturn(Optional.of(sourceTurn));
+        when(turns.findByIdempotencyKey(any(), anyString())).thenAnswer(call -> Optional.ofNullable(dispatched.get(call.getArgument(1))));
+        Workspace destination = new Workspace("iceberg", "Iceberg", 2, RepoRef.of("apache", "iceberg"), Optional.empty(), Optional.empty(),
+                2, RepoRef.of("apache", "iceberg"), Workspace.Topology.DIRECT, "main", "https://github.com/apache/iceberg.git",
+                Optional.empty(), Optional.empty(), repository.toString(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH);
+        when(relationships.requireRelated("trino", "iceberg")).thenReturn(destination);
+        when(relationships.list("trino")).thenReturn(ImmutableList.of(new WorkspaceRelationships.Relationship("iceberg", WorkspaceRelationships.Kind.DEPENDENCY, "Read core")));
+        when(repositories.requireLocalRepository("iceberg")).thenReturn(new WorkspaceRepositoryContext("iceberg", repository, 2,
+                RepoRef.of("apache", "iceberg"), OptionalLong.empty(), RepoRef.of("apache", "iceberg"), "origin", "origin", "main", ImmutableList.of()));
+        when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("iceberg"))).thenReturn(new AgentModelSetting(
+                AgentModelType.DEVELOPMENT, true, "claude", "Claude", "destination-model", "Destination model", Optional.of("high")));
+        when(appSettings.developmentAutomation()).thenReturn(new DevelopmentAutomation(true, true, true, Optional.empty(), true));
+        var driver = mock(AgentDriver.class);
+        var drivers = mock(AgentDriverRegistry.class);
+        when(drivers.require(AgentLaneId.CLAUDE_CLI)).thenReturn(driver);
+        when(driver.capabilities()).thenReturn(AgentCapabilities.none());
+        var ready = new AgentProviderStatus(AgentLaneId.CLAUDE_CLI, AgentProviderStatus.Readiness.READY,
+                Optional.of("test"), "Ready", AgentCapabilities.none());
+        when(driver.probe()).thenReturn(ready);
+        when(driver.probe(any())).thenReturn(ready);
+        var provisioning = mock(WorkspaceProvisioningService.class);
+        when(provisioning.synchronizeCode("iceberg")).thenReturn(new WorkspaceCodeSyncResult("iceberg", true, Optional.of(Instant.EPOCH)));
+        var localRepository = repositories.requireLocalRepository("iceberg");
+        when(repositories.requireReadyRepository("iceberg")).thenReturn(localRepository);
+        var credentials = mock(CredentialService.class);
+        when(credentials.resolveGitHubCredential()).thenReturn(new CredentialService.GitHubCredential("test-token",
+                new UserProfile("tester", "", "", "", 0, 0, 0, "", "", "", "")));
+        when(taskService.getInteractive(anyString(), any())).thenAnswer(call -> {
+            AgentTask task = taskData.get(call.getArgument(1));
+            if (task == null) {
+                throw new AgentTaskNotFoundException(call.getArgument(1));
+            }
+            return task;
+        });
+        when(taskService.createInteractive(any())).thenAnswer(call -> {
+            CreateInteractiveAgentTaskCommand command = call.getArgument(0);
+            AgentTask target = AgentTask.created(command.taskId(), true, Optional.of(command.creationFingerprint()), "Investigation", TitleSource.USER,
+                    command.laneId(), new TaskWorktree(command.taskId(), command.workspaceId(), command.physicalRepository(),
+                            repository.resolve(command.taskId().toString()), command.generatedBranch(), command.startCommit()), command.defaults(), Instant.EPOCH);
+            taskData.put(target.id(), target);
+            return target;
+        });
+        creator = new InteractiveAgentTaskCreator(taskService, turnService, drivers, models, repositories, provisioning, git, appSettings,
+                new AgentTaskStartupProgress(), mock(AgentTaskTitleService.class), mock(PullRequestStore.class), credentials);
+        when(turnService.start(any())).thenAnswer(call -> {
+            StartAgentTurnCommand request = call.getArgument(0);
+            AgentTurn turn = accepted(request.taskId(), request.idempotencyKey());
+            dispatched.put(request.idempotencyKey(), turn);
+            return turn;
+        });
+    }
+
+    @Test
+    void startsOldAndNewInvestigationsWithFrozenLocalOnlySettingsAndNoSourceContext()
+    {
+        var service = service();
+        var old = service.start(source.id().toString(), sourceTurn.id(), request("old", oldCommit));
+        var next = service.start(source.id().toString(), sourceTurn.id(), request("new", newCommit));
+        assertThat(old.targetTaskId()).isNotEqualTo(next.targetTaskId());
+        assertThat(old.commit()).contains(oldCommit);
+        assertThat(next.commit()).contains(newCommit);
+        assertThat(command("rev-parse", "HEAD")).isEqualTo(newCommit);
+        var created = ArgumentCaptor.forClass(CreateInteractiveAgentTaskCommand.class);
+        verify(taskService, times(2)).createInteractive(created.capture());
+        assertThat(created.getAllValues()).extracting(CreateInteractiveAgentTaskCommand::startCommit).containsExactly(oldCommit, newCommit);
+        assertThat(created.getAllValues()).allSatisfy(value -> {
+            assertThat(value.workspaceId()).isEqualTo("iceberg");
+            assertThat(value.laneId()).isEqualTo(AgentLaneId.CLAUDE_CLI);
+            assertThat(value.defaults().model()).contains("destination-model");
+            assertThat(value.defaults().developmentAutomation()).contains(new DevelopmentAutomation(true, false, false, Optional.empty(), false));
+            assertThat(value.message()).contains("Check API behavior", "commands and limitations").doesNotContain("Secret source title", "trino");
+        });
+        ArgumentCaptor<StartAgentTurnCommand> initial = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
+        verify(turnService, times(2)).start(initial.capture());
+        assertThat(initial.getAllValues()).allSatisfy(value -> {
+            assertThat(value.developmentAutomation()).isEqualTo(created.getValue().defaults().developmentAutomation());
+            assertThat(value.attachments()).isEmpty();
+        });
+    }
+
+    @Test
+    void replaysOneTargetAcrossConcurrentCallsAndServiceRestartButRejectsChangedRequests()
+    {
+        var service = service();
+        var request = request("same", oldCommit);
+        var first = CompletableFuture.supplyAsync(() -> service.start(source.id().toString(), sourceTurn.id(), request));
+        var second = CompletableFuture.supplyAsync(() -> service.start(source.id().toString(), sourceTurn.id(), request));
+        assertThat(first.join().targetTaskId()).isEqualTo(second.join().targetTaskId());
+        assertThat(service().start(source.id().toString(), sourceTurn.id(), request).targetTaskId()).isEqualTo(first.join().targetTaskId());
+        verify(taskService).createInteractive(any());
+        verify(turnService).start(any());
+        assertThatThrownBy(() -> service.start(source.id().toString(), sourceTurn.id(), request("same", newCommit)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("changed");
+        when(relationships.requireRelated("trino", "iceberg")).thenThrow(new IllegalArgumentException("Not directly related"));
+        assertThatThrownBy(() -> service.start(source.id().toString(), sourceTurn.id(), request)).hasMessageContaining("Not directly related");
+        assertThatThrownBy(() -> service.read(source.id().toString(), sourceTurn.id(), "same")).hasMessageContaining("Not directly related");
+    }
+
+    @Test
+    void adoptsAnAcceptedTurnAfterItsResponseWasLost()
+    {
+        doAnswer(call -> {
+            StartAgentTurnCommand command = call.getArgument(0);
+            dispatched.put(command.idempotencyKey(), accepted(command.taskId(), command.idempotencyKey()));
+            throw new IllegalStateException("Lost response");
+        }).when(turnService).start(any());
+        var request = request("uncertain", oldCommit);
+        var first = service().start(source.id().toString(), sourceTurn.id(), request);
+        assertThat(first.limitation()).contains("Lost response");
+        var replay = service().start(source.id().toString(), sourceTurn.id(), request);
+        assertThat(replay.targetTaskId()).isEqualTo(first.targetTaskId());
+        assertThat(replay.state()).isEqualTo("RUNNING");
+        assertThat(replay.limitation()).isEmpty();
+        verify(taskService).createInteractive(any());
+        verify(turnService).start(any());
+    }
+
+    @Test
+    void missingRevisionDoesNotFallBackAndStaleTurnsCannotStartWork()
+    {
+        var service = service();
+        var view = service.start(source.id().toString(), sourceTurn.id(), request("missing", "a".repeat(40)));
+        assertThat(view.state()).isEqualTo("UNAVAILABLE");
+        assertThat(view.limitation()).get().asString().contains("unavailable locally");
+        verify(taskService, never()).createInteractive(any());
+        assertThatThrownBy(() -> service.start(source.id().toString(), TurnId.random(), request("stale", oldCommit)))
+                .isInstanceOf(AgentConflictException.class);
+        assertThatThrownBy(() -> service.read(TaskId.random().toString(), sourceTurn.id(), "missing"))
+                .isInstanceOf(AgentConflictException.class);
+        when(relationships.requireRelated("trino", "iceberg")).thenThrow(new IllegalArgumentException("Not directly related"));
+        assertThatThrownBy(() -> service.start(source.id().toString(), sourceTurn.id(), request("new", oldCommit)))
+                .hasMessageContaining("Not directly related");
+    }
+
+    @Test
+    void readsOnlyTheRequestedRootTurnAnswerWithoutWaitingForTaskCompletion()
+    {
+        var service = service();
+        var view = service.start(source.id().toString(), sourceTurn.id(), request("result", oldCommit));
+        String key = "related-work:" + view.targetTaskId();
+        AgentTurn requested = dispatched.get(key).markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("provider-turn"), Optional.empty())
+                .finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), Instant.EPOCH);
+        dispatched.put(key, requested);
+        var finalAnswer = event(requested, AgentEventSource.root(), MessagePhase.FINAL, "Revision " + oldCommit + ": test passed");
+        var child = new AgentEventSource(Optional.of("child"), Optional.of("root"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        when(logs.findLatest(eq(requested.taskId()), any(), eq(10_000))).thenAnswer(call -> {
+            Predicate<AgentEventEnvelope> predicate = call.getArgument(1);
+            assertThat(predicate.test(event(accepted(requested.taskId(), "later"), AgentEventSource.root(), MessagePhase.FINAL, "Wrong turn"))).isFalse();
+            assertThat(predicate.test(event(requested, child, MessagePhase.FINAL, "Child answer"))).isFalse();
+            assertThat(predicate.test(event(requested, AgentEventSource.root(), MessagePhase.PARTIAL, "Still working"))).isFalse();
+            assertThat(predicate.test(finalAnswer)).isTrue();
+            return Optional.of(finalAnswer);
+        });
+        var answer = service.read(source.id().toString(), sourceTurn.id(), "result");
+        assertThat(answer.state()).isEqualTo("FINISHED");
+        assertThat(answer.result()).contains(finalAnswer.payload() instanceof AgentEventPayload.AssistantMessage message ? message.text() : "");
+        doReturn(Optional.empty()).when(logs).findLatest(eq(requested.taskId()), any(), eq(10_000));
+        assertThat(service.read(source.id().toString(), sourceTurn.id(), "result").limitation()).get().asString().contains("missing");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void providerBridgeBindsTheAcceptedTurnAndPreservesOlderCodexThreads()
+    {
+        var service = service();
+        ObjectProvider<RelatedWorkspaceWork> provider = mock(ObjectProvider.class);
+        when(provider.getObject()).thenReturn(service);
+        var resolver = new RelatedWorkspaceBridgeResolverImpl(provider, turns, new ObjectMapper().findAndRegisterModules());
+        var bridge = resolver.resolve(source.id().toString()).orElseThrow();
+        assertThat(bridge.call().apply("""
+                {"action":"START","operationKey":"bridge","workspaceId":"iceberg","purpose":"INVESTIGATE",
+                 "question":"Check API behavior","commit":"%s","revision":"v1"}
+                """.formatted(oldCommit))).contains("RUNNING", oldCommit);
+        assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"READ\",\"operationKey\":\"bridge\",\"workspaceId\":\"other\"}"))
+                .isInstanceOf(IllegalArgumentException.class);
+        when(turns.findActive(source.id())).thenReturn(Optional.of(accepted(source.id(), "later-user-turn")));
+        assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"READ\",\"operationKey\":\"bridge\"}"))
+                .isInstanceOf(AgentConflictException.class);
+        taskData.put(source.id(), source.withSessionReference(new AgentSessionRef(AgentLaneId.CODEX_CLI, 1, "old-thread"), Instant.EPOCH));
+        assertThat(resolver.resolve(source.id().toString())).isEmpty();
+        taskData.put(source.id(), source.withSessionReference(new AgentSessionRef(AgentLaneId.CODEX_CLI, 2, "new-thread"), Instant.EPOCH));
+        assertThat(resolver.resolve(source.id().toString())).isPresent();
+    }
+
+    @Test
+    void deletedDestinationIsUnavailableInsteadOfPermanentlyStarting()
+    {
+        var service = service();
+        var view = service.start(source.id().toString(), sourceTurn.id(), request("deleted", oldCommit));
+        taskData.remove(TaskId.valueOf(view.targetTaskId()));
+        dispatched.clear();
+        when(turns.findActive(source.id())).thenReturn(Optional.empty());
+        assertThat(service.list("trino")).singleElement().satisfies(work -> {
+            assertThat(work.state()).isEqualTo("UNAVAILABLE");
+            assertThat(work.targetTaskId()).isNull();
+            assertThat(work.limitation()).get().asString().contains("unavailable");
+        });
+    }
+
+    @Test
+    void generatedRelatedRequestCannotStartAnotherHandoff()
+    {
+        var generated = accepted(source.id(), "related-work:" + source.id());
+        when(turns.findActive(source.id())).thenReturn(Optional.of(generated));
+        assertThatThrownBy(() -> service().start(source.id().toString(), generated.id(), request("recursive", oldCommit)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("automated turn");
+        verify(turnService, never()).start(any());
+    }
+
+    @Test
+    void separatelyRequestedFixUsesDestinationDefaultsWithoutACommitOverride()
+    {
+        var request = new RelatedWorkspaceWork.Request("fix", "iceberg", RelatedWorkspaceWork.Purpose.FIX, "Fix this upstream issue", Optional.empty(), Optional.empty());
+        var view = service().start(source.id().toString(), sourceTurn.id(), request);
+        assertThat(view.state()).isEqualTo("RUNNING");
+        var created = ArgumentCaptor.forClass(CreateInteractiveAgentTaskCommand.class);
+        verify(taskService).createInteractive(created.capture());
+        assertThat(created.getValue().startCommit()).isEqualTo(newCommit);
+        assertThat(created.getValue().defaults().developmentAutomation()).contains(appSettings.developmentAutomation());
+    }
+
+    private RelatedWorkspaceWork service()
+    {
+        return new RelatedWorkspaceWork(settings, new ObjectMapper().findAndRegisterModules(), relationships, repositories, tasks, turns,
+                mock(AgentApprovalStore.class), logs, mock(AgentReviewStore.class), creator, turnService, taskService, models, appSettings, git);
+    }
+
+    private RelatedWorkspaceWork.Request request(String key, String commit)
+    {
+        return new RelatedWorkspaceWork.Request(key, "iceberg", RelatedWorkspaceWork.Purpose.INVESTIGATE, "Check API behavior",
+                Optional.of(commit), Optional.of("v1"));
+    }
+
+    private AgentTask task(TaskId id, String workspaceId, AgentTaskDefaults defaults)
+    {
+        return AgentTask.created(id, Optional.of(workspaceId), true, "Secret source title", AgentLaneId.CODEX_CLI,
+                new RepositoryIdentity("owner", workspaceId), repository, defaults, Instant.EPOCH);
+    }
+
+    private static AgentTurn accepted(TaskId taskId, String key)
+    {
+        return AgentTurn.accepted(TurnId.random(), taskId, key, new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO,
+                Duration.ofMinutes(5), ImmutableList.of()), Instant.EPOCH);
+    }
+
+    private static AgentEventEnvelope event(AgentTurn turn, AgentEventSource source, MessagePhase phase, String text)
+    {
+        return new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), 1, turn.taskId(), Optional.of(turn.id()), source,
+                Instant.EPOCH, new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, phase, text));
+    }
+
+    private String command(String... args)
+    {
+        var result = git.run(repository, args);
+        assertThat(result.successful()).as(result.output()).isTrue();
+        return result.output().strip();
+    }
+}

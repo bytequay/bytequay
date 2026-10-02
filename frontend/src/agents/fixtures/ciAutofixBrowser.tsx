@@ -23,7 +23,7 @@ import { assert, changeInput, settle } from '../../fixtures/harness';
 
 function pressEnter(input: HTMLTextAreaElement) { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); }
 
-/** Only advance CI's five-second reads; ordinary rendering and stream coalescing use real timers. */
+/** Advance five-second polling; ordinary rendering and stream coalescing use real timers. */
 function ciTimers() {
   const originalSet = window.setTimeout;
   const originalClear = window.clearTimeout;
@@ -37,7 +37,6 @@ function ciTimers() {
   } });
   Object.defineProperty(window, 'clearTimeout', { configurable: true, writable: true, value: (key?: number) => { if (key !== undefined && timers.delete(key)) return; originalClear(key); } });
   return {
-    size: () => timers.size,
     tick: () => { const due = [...timers.values()]; timers.clear(); due.forEach(run => run()); },
     restore: () => { window.setTimeout = originalSet; window.clearTimeout = originalClear; timers.clear(); },
   };
@@ -55,7 +54,8 @@ async function ciReplyAndOwnership(): Promise<{ name: string; error?: string }> 
   let sourceNotify: (message: AgentStreamMessage) => void = () => {};
   let failReply = true;
   const replies: { runId: string; message: string; key: string }[] = [];
-  bridge.getAgentTask = async id => { assert(id === task.id, 'CI child must never use the generic interactive task endpoint'); return task; };
+  let sourceReads = 0;
+  bridge.getAgentTask = async id => { sourceReads++; assert(id === task.id, 'CI child must never use the generic interactive task endpoint'); return task; };
   bridge.getAgentTurn = async () => sourceTurn;
   bridge.readAgentHistory = async id => {
     assert(id === task.id, 'The source screen must not load a separate CI conversation');
@@ -133,7 +133,9 @@ async function ciReplyAndOwnership(): Promise<{ name: string; error?: string }> 
     sourceNotify({ subscriptionId: task.id, taskId: task.id, kind: 'events', events: [{ ...sourceEvent, eventId: 'source-stopped', sequence: 2,
       turnId: null, type: 'lifecycle', payload: { phase: 'DEVELOPMENT_AUTOMATION_UPDATED', message: 'Stopped' } }] });
     await settle();
-    assert(timers.size() === 0, 'Terminal parent must stop CI polling');
+    const terminalReads = sourceReads;
+    timers.tick(); await settle();
+    assert(sourceReads === terminalReads, 'Terminal parent must stop CI polling');
     return { name: '@ci routes composer messages, preserves retry identity, and honors revoked CI authority' };
   } catch (error) { return { name: 'CI mention routing and ownership', error: error instanceof Error ? error.message : String(error) }; }
   finally { flushSync(() => root.unmount()); host.remove(); timers.restore(); }
@@ -166,13 +168,15 @@ async function sourcePolling(): Promise<{ name: string; error?: string }> {
     pauseRead = true;
     timers.tick();
     await settle();
-    assert(reads === before + 1 && timers.size() === 0, 'A pending source read must not schedule an overlapping poll');
+    timers.tick(); await settle();
+    assert(reads === before + 1, 'A pending source read must not schedule an overlapping poll');
     assert(resolveRead !== null, 'Polling read must be pending');
     (resolveRead as (value: AgentTaskDto) => void)({ ...task, developmentCi: { ...CI_PROJECTION, status: 'ACTIVE', activity: 'FIXING', attemptsUsed: 2 } });
     await settle();
     assert(host.textContent?.includes('Fixing CI 2/3') === true, 'Cheap task projection must update CI activity');
     assert(bridge.commands.filter(command => command.name === 'listAgentTaskPullRequests').length === lookups, 'CI polling must not re-read GitHub pull requests');
-    assert(timers.size() === 1, 'The next poll starts only after the previous read settles');
+    timers.tick(); await settle();
+    assert(reads === before + 2, 'The next poll starts only after the previous read settles');
     return { name: 'Source CI polling is sequential and does not poll GitHub' };
   } catch (error) { return { name: 'Source CI polling', error: error instanceof Error ? error.message : String(error) }; }
   finally { flushSync(() => root.unmount()); host.remove(); timers.restore(); }

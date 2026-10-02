@@ -15,7 +15,7 @@
 import { notifyJiraChanged, type JiraIssue } from '../jira/contracts';
 import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArchiveRestore, Check, Circle, LoaderCircle, Trash2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, Check, Circle, Link2, LoaderCircle, Trash2, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import RepoAvatar from '../RepoAvatar';
 import { INTERACTIVE_LANE_ID, displayModelName, isDeepSeekKeyLane, laneLabel, providerAvailable, providerRemedy, remedyCommand } from '../settings/model';
@@ -25,6 +25,7 @@ import Toast from '../Toast';
 import { recordAttentionAction } from '../home/useAttentionVisit';
 import { notifyIssueDevelopmentChanged, type DevelopmentIssue } from '../workspaces/issueDevelopment';
 import { workspaceAgentTaskRoute } from '../workspaces/model';
+import { LinkedWorkList, useLinkedWorkspaceWork } from './LinkedWorkspaceWork';
 import { IssueAttachment } from './IssueAttachment';
 import { AutomationControl } from './AutomationControl';
 import { automationForSubmission } from './developmentAutomation';
@@ -745,6 +746,7 @@ export default function AgentTasksView({
   const error = creation.error ?? (work.failed.length === 0 ? null : `Could not read ${work.failed.join(', ')}; trying again.`);
   return (
     <AgentTaskList
+      workspaceId={workspaceId}
       headerAction={headerAction}
       repository={repository}
       {...creation.composer}
@@ -948,19 +950,20 @@ export function changesLabel({ uncommitted, commits }: AgentTaskChangesDto): str
 type ToastState = { id: number; text: string; undo?: () => void };
 
 /** The type tabs across the Tasks page, each filtering the whole page. */
-type TypeTab = 'all' | TaskType;
-const TYPE_TABS: TypeTab[] = ['all', 'dev', 'review', 'cherry', 'ci'];
+type TypeTab = 'all' | TaskType | 'linked';
+const TYPE_TABS: TypeTab[] = ['all', 'dev', 'review', 'cherry', 'ci', 'linked'];
 
 function inType(item: TaskListItem, type: TypeTab): boolean {
   return type === 'all' || item.type === type;
 }
 
 export function AgentTaskList({
-  tasks, items = [], activity = {}, loading, error, laneId, providers, models, selection, draft, blocker, headerAction, repository,
+  workspaceId, tasks, items = [], activity = {}, loading, error, laneId, providers, models, selection, draft, blocker, headerAction, repository,
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenItem, onOpenReviewWorkspace, onNewItem, inGoal, onOpenSettings, onArchive, onDelete,
   images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, automation, issueAttachment,
   now = Date.now(), initialTab = 'active', initialType = 'all', changes = {},
 }: {
+  workspaceId?: string;
   tasks: AgentTaskDto[];
   /** The workspace's reviews, cherry-picks and CI fixes, listed beside its agent tasks. */
   items?: TaskListItem[];
@@ -1014,6 +1017,7 @@ export function AgentTaskList({
   /** What each task's checkout holds, by task id, for tasks without a pull request to name. */
   changes?: Record<string, AgentTaskChangesDto>;
 }): React.JSX.Element {
+  const linked = useLinkedWorkspaceWork(workspaceId);
   const [tab, setTab] = useState<TaskTab>(initialTab);
   const [type, setType] = useState<TypeTab>(initialType);
   const [selected, setSelected] = useState<string[]>([]);
@@ -1033,6 +1037,7 @@ export function AgentTaskList({
   if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup, headerAction }} />;
 
   const active = tab === 'active';
+  const linkedShelf = linked.links.filter(work => work.archived === !active);
   const archivedCount = tasks.filter(taskArchived).length;
   // Only agent tasks archive; reviews, cherry-picks and CI fixes stay on the active shelf.
   const shelf = [
@@ -1117,7 +1122,7 @@ export function AgentTaskList({
     if (type === 'all' || type === 'dev') {
       event.currentTarget.closest('.agt-page')?.querySelector<HTMLTextAreaElement>('.agt-compose__input')?.focus();
     }
-    else onNewItem?.(type);
+    else if (type !== 'linked') onNewItem?.(type);
   };
 
   return (
@@ -1157,14 +1162,14 @@ export function AgentTaskList({
                 className={`agt-type-tab${type === key ? ' is-active' : ''}`}
                 onClick={() => switchType(key)}
               >
-                <span className={`agt-type-tab__icon is-${key}`}><TaskTypeIcon type={key} /></span>
-                {key === 'all' ? 'All' : TASK_TYPES[key].label}
-                <span className="agt-type-tab__count">{shelf.filter((item) => inType(item, key)).length}</span>
+                <span className={`agt-type-tab__icon is-${key}`}>{key === 'linked' ? <Link2 size={14} /> : <TaskTypeIcon type={key} />}</span>
+                {key === 'linked' ? 'Linked work' : key === 'all' ? 'All' : TASK_TYPES[key].label}
+                <span className="agt-type-tab__count">{key === 'linked' ? linkedShelf.length : shelf.filter((item) => inType(item, key)).length}</span>
                 {shelf.some((item) => inType(item, key) && item.state.label === 'Needs you') && <span className="agt-type-tab__needs" title="Needs you" />}
               </button>
             ))}
           </div>
-          {active && (
+          {active && type !== 'linked' && (
             <button type="button" className="agt-type-new" onClick={startNew}>
               + {TASK_TYPES[type === 'all' ? 'dev' : type].newLabel}
             </button>
@@ -1194,7 +1199,8 @@ export function AgentTaskList({
         )}
         {error !== null && <div className="cmt-error" role="alert">{error}</div>}
         {loading && <div className="agt-loading">Loading agent tasks…</div>}
-        {!loading && visible.length === 0 && (active ? (
+        {type === 'linked' && <LinkedWorkList links={linkedShelf} error={linked.error} />}
+        {type !== 'linked' && !loading && visible.length === 0 && (active ? (
           <div className="agt-items-empty">{type === 'all' ? 'No tasks yet.' : 'No tasks of this type yet.'}</div>
         ) : (
           <div className="agt-empty-hero">

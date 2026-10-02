@@ -133,6 +133,26 @@ public final class InteractiveAgentTaskCreator
             Optional<JiraIssueSource> jiraSource,
             Optional<Consumer<AgentTask>> persistTask)
     {
+        return create(taskId, workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation, issueSource, jiraSource, persistTask, Optional.empty());
+    }
+
+    public AgentTask createRelated(TaskId taskId, String workspaceId, String message, AgentLaneId laneId, AgentTaskDefaults defaults,
+            String idempotencyKey, Optional<String> startCommit)
+    {
+        startCommit.ifPresent(value -> checkArgument(value.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Investigation requires a full commit SHA"));
+        try {
+            return create(taskId, workspaceId, message, laneId, defaults, idempotencyKey, Optional.empty(), defaults.developmentAutomation(),
+                    Optional.empty(), Optional.empty(), Optional.empty(), startCommit);
+        }
+        finally {
+            progress.clear(taskId);
+        }
+    }
+
+    private AgentTask create(TaskId taskId, String workspaceId, String message, AgentLaneId laneId, AgentTaskDefaults defaults,
+            String idempotencyKey, Optional<String> attachmentDigest, Optional<DevelopmentAutomation> initialAutomation,
+            Optional<GitHubIssueSource> issueSource, Optional<JiraIssueSource> jiraSource, Optional<Consumer<AgentTask>> persistTask, Optional<String> startCommit)
+    {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(persistTask, "persistTask is null");
         requireNonNull(issueSource, "issueSource is null");
@@ -143,7 +163,8 @@ public final class InteractiveAgentTaskCreator
         Lock lock = creationLocks.get(taskId);
         lock.lock();
         try {
-            return createLocked(taskId, workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation, issueSource, jiraSource, persistTask);
+            return createLocked(taskId, workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation,
+                    issueSource, jiraSource, persistTask, startCommit);
         }
         finally {
             lock.unlock();
@@ -161,15 +182,18 @@ public final class InteractiveAgentTaskCreator
             Optional<DevelopmentAutomation> initialAutomation,
             Optional<GitHubIssueSource> issueSource,
             Optional<JiraIssueSource> jiraSource,
-            Optional<Consumer<AgentTask>> persistTask)
+            Optional<Consumer<AgentTask>> persistTask,
+            Optional<String> startCommit)
     {
         checkNotBlank(workspaceId, "workspaceId");
         checkNotBlank(message, "message");
         requireNonNull(laneId, "laneId is null");
         requireNonNull(defaults, "defaults is null");
         checkNotBlank(idempotencyKey, "idempotencyKey");
-        String fingerprint = fingerprint(workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation,
+        String baseFingerprint = fingerprint(workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation,
                 issueSource.map(source -> source.host() + ":" + source.issueId()).or(() -> jiraSource.map(source -> "jira:" + source.identity())));
+        String fingerprint = startCommit
+                .map(commit -> Hashing.sha256().hashString(baseFingerprint + ":commit=" + commit, StandardCharsets.UTF_8).toString()).orElse(baseFingerprint);
         Optional<AgentTask> replay = interactiveTask(workspaceId, taskId);
         if (replay.isPresent()) {
             AgentTask task = requireReplay(replay.orElseThrow(), fingerprint);
@@ -194,9 +218,9 @@ public final class InteractiveAgentTaskCreator
                     "Cannot start task: workspace repository synchronization failed. Check repository access and connectivity, then retry.");
         }
         WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(workspaceId);
-        String startRef = "refs/remotes/" + workspace.sourceRemote() + "/" + workspace.defaultBranch() + "^{commit}";
+        String startRef = startCommit.orElse("refs/remotes/" + workspace.sourceRemote() + "/" + workspace.defaultBranch()) + "^{commit}";
         Result head = git.run(workspace.repository(), "rev-parse", "--verify", startRef);
-        if (!head.successful() || head.truncated() || head.output().isBlank()) {
+        if (!head.successful() || head.truncated() || head.output().isBlank() || startCommit.filter(commit -> !commit.equals(head.output().strip())).isPresent()) {
             throw new AgentStorageException("Cannot resolve the workspace start commit");
         }
         progress.record(taskId, Phase.NAMING);

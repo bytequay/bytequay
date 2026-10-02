@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import { LinkedWorkRequest, LinkedWorkCard, useLinkedWorkspaceWork } from './LinkedWorkspaceWork';
 import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
 import {
 Archive,
@@ -1180,6 +1181,7 @@ export function AgentTaskBody({
   /** Retries safe checkout removal for a terminal task whose first attempt failed. */
   onCleanup?: () => void;
 }): React.JSX.Element {
+  const linkedWork = useLinkedWorkspaceWork(state.task?.workspaceId, state.task?.id);
   const sidePanel = useTaskPane();
   const before = historyBefore(state);
   const after = historyAfter(state);
@@ -1371,6 +1373,9 @@ export function AgentTaskBody({
       {state.notice !== null && <div className="agt-notice" role="alert">{state.notice}</div>}
 
       <AgentConversation
+        turnRequest={turnId => linkedWork.incoming?.turnId === turnId ? <LinkedWorkRequest work={linkedWork.incoming} /> : null}
+        turnFooter={turnId => linkedWork.links.filter(work => work.sourceTaskId === state.task?.id && work.sourceTurnId === turnId)
+          .map(work => <LinkedWorkCard key={`${work.createdAt}:${work.targetWorkspaceId}`} work={work} />)}
         turns={turns} repository={repository} durableTurns={state.turns} models={models} now={now} scroll={scroll} workspaceId={state.task?.workspaceId}
         localReview={localReview} onOpenReview={onOpenReview} issueSource={state.task?.issueSource} jiraSource={state.task?.jiraSource}
         discussions={discussions?.discussions} discussionBusy={discussions?.busy} onSelectPassage={onSelectPassage} onOpenDiscussion={onOpenDiscussion}

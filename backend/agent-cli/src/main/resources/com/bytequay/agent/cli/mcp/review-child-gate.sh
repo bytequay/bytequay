@@ -14,6 +14,7 @@ name=$(printf '%s' "$payload" | /usr/bin/plutil -extract tool_name raw -o - - 2>
 }
 case "$name" in
   Agent|Task)
+    [ "@REVIEW_ONLY@" = "false" ] && exit 0
     kind=$(printf '%s' "$payload" | /usr/bin/plutil -extract tool_input.subagent_type raw -o - - 2>/dev/null)
     [ "$kind" = "Explore" ] && exit 0
     echo "A review may start only read-only Explore subagents, for searching and exploring." >&2

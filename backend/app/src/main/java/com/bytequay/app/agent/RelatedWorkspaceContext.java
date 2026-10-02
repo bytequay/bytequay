@@ -88,7 +88,8 @@ public class RelatedWorkspaceContext
                 do not substitute another revision. Ask to synchronize missing history through the existing workspace sync.
                 If repository_memory is available, SEARCH/READ with the related workspaceId reads its saved memory; omit query to page through all entries.
                 REPORT stays in this workspace. Related guidelines apply to their code only. Memory is current advice, not a release snapshot;
-                verify its sources against the chosen revision. Reading here grants no test worktree or destination conversation yet.
+                verify its sources against the chosen revision. When related_workspace_work is available, use it for explicitly requested tests or fixes
+                in a destination-owned conversation/worktree. If this older provider session lacks the tool, report that limitation.
                 Related entries:
                 """ + entries;
     }

@@ -1,6 +1,7 @@
 # Workspace Relationships Implementation Checklist
 
-Status: checkpoint 1 implemented and checked. Checkpoints 2–5 are not started.
+Status: checkpoints 1 and 2 implemented and checked.
+Checkpoints 3–5 are not started.
 The [design](workspace-backports.md) is canonical.
 This file tracks implementation, not another runtime workflow.
 Checkpoint order replaces the earlier chain-first plan.
@@ -49,28 +50,29 @@ Tasks → Linked work sub-tab from the approved prototype.
 Starting points: `InteractiveAgentTaskCreator`, `WorktreeService`, existing
 provider tool transport, accepted turns, task logs, and development settings.
 
-- [ ] Add one root-bound handoff with start and status/result reads, restricted
+- [x] Add one root-bound handoff with start and status/result reads, restricted
   to direct related destinations and the accepted user request. Save only the
   source/request -> target task/first-turn link; reuse normal task lifecycle.
-- [ ] Extend base selection for an exact investigation commit. Bind destination,
+- [x] Extend base selection for an exact investigation commit. Bind destination,
   purpose, revision, and settings in the replay fingerprint; repeated requests
   reuse one task, while changed requests on the same key fail.
-- [ ] Start investigation with ordinary local commits and draft/CI/review-summary
+- [x] Start investigation with ordinary local commits and draft/CI/review-summary
   automation off in saved defaults and accepted/queued turns. Keep fix requests
   on existing authorized development delivery. Reuse destination model settings.
-- [ ] Pass a focused question and selected evidence. Keep source history/memory
+- [x] Pass a focused question and selected evidence. Keep source history/memory
   and the original issue association in the source. Read the requested work's
   completed-turn answer and status without requiring task completion.
-- [ ] Show tested revisions, commands, outcomes, and limitations through existing
+- [x] Show tested revisions, commands, outcomes, and limitations through existing
   conversation results. Keep tests in destination-owned worktrees, one per
   requested revision; use existing Stop and preservation rules.
 
 Gate:
 
-- [ ] Both providers pass P1 -> P2 investigation/result-return fixtures at old
+- [x] Both providers pass P1 -> P2 investigation/result-return fixtures at old
   and new revisions, including retry, restart, wrong root/turn, missing result,
-  and destination defaults that normally publish. No automatic PR or backport
-  starts. A separately authorized fork fix produces its normal PR.
+  and destination defaults that normally publish. An investigation starts no automatic PR or backport. A separately requested
+  fix enters normal development with its existing delivery settings. PR creation
+  itself remains covered by the existing delivery fixtures.
 
 ## Checkpoint 3 — Resolve merged changes
 
@@ -181,3 +183,36 @@ Verification:
 
 This evidence covers checkpoint 1 fixtures and the browser preview, not live
 Claude/Codex sessions or the planned cross-workspace handoffs and chains.
+
+
+Checkpoint 2 saves one request link, freezes destination settings, and uses the
+ordinary creator and turn service. Tests use real local Git revisions and the
+real conversation creator with fixture task storage/provider readiness. They
+cover old/new commits, local-only investigation settings, normal fix defaults,
+concurrent replay, service restart, lost acceptance responses, changed requests,
+removed relationships, stale turns, generated-request recursion, deleted targets,
+and the requested root turn's final answer versus missing history. Workspace
+purge removes owned request settings.
+
+Provider fixtures cover Claude's child-identity hook and Codex's dynamic root
+channel, including initial/resumed threads, wrong roots and stale turns. Older
+Codex threads without dynamic tools cannot gain this operation on resume; use a
+new conversation. This is recorded in the canonical design. No live model calls,
+GitHub writes, PRs or merges were used for this checkpoint.
+
+The Chromium fixture verifies Linked work groups, source/destination navigation,
+exact revision display, Markdown results, the ByteQuay destination request bubble,
+and Stop with the destination runtime generation. Manual browser review checked
+card width and the commands/limitations disclosure against the approved prototype.
+The existing CI fixture now checks actual CI reads rather than counting every
+five-second timer, because Linked work has its own independent polling.
+
+Checkpoint 2 verification:
+
+- Full backend `mvn verify`: 3,292 tests, zero failures, errors or skips. Existing
+  socket/process fixtures required an unsandboxed rerun; that full run passed.
+- Frontend full suite: 138 files passed, with one CI timer-assumption failure.
+  After correcting that fixture, it and the Linked work browser fixture passed:
+  all 139 files and 1,386 tests have passed across the full run and focused rerun.
+- TypeScript, lint and Electron packaging passed with the final UI layout.
+- Changed design links and `git diff --check` passed.

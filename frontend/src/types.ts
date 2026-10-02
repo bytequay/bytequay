@@ -1131,6 +1131,14 @@ export type WorkspaceCommitsTargetDto = {
   overridden: boolean;
 };
 
+export type LinkedWorkspaceWorkDto = {
+  sourceWorkspaceId: string; sourceRepository: string; sourceTaskId: string; sourceTitle: string; sourceTurnId: string;
+  targetTaskId: string | null; targetWorkspaceId: string; targetTitle: string; repository: string;
+  kind: 'FORK' | 'DEPENDENCY'; purpose: 'INVESTIGATE' | 'FIX'; question: string;
+  revision: string; commit: string | null; state: string; turnId: string | null;
+  result: string | null; limitation: string | null; createdAt: string; archived: boolean;
+};
+
 export type WorkspaceRelationshipDto = {
   unavailableReason?: string | null;
   workspaceId: string;
@@ -1429,6 +1437,8 @@ export type Bridge = JiraBridge & {
   previewWatch: (selectedRepositoryId: number) => Promise<WatchRepositoryPreviewDto>;
   watchRepository: (command: WatchRepositoryCommand) => Promise<WorkspaceDto>;
   listWorkspaces: () => Promise<WorkspaceDto[]>;
+  getLinkedWorkspaceWork: (workspaceId: string) => Promise<LinkedWorkspaceWorkDto[]>;
+  getRelatedWorkspaceRequest: (workspaceId: string, taskId: string) => Promise<LinkedWorkspaceWorkDto | null>;
   getWorkspaceRelationships: (workspaceId: string) => Promise<WorkspaceRelationshipDto[]>;
   saveWorkspaceRelationship: (workspaceId: string, relationship: WorkspaceRelationshipDto) => Promise<WorkspaceRelationshipDto[]>;
   removeWorkspaceRelationship: (workspaceId: string, destinationId: string) => Promise<WorkspaceRelationshipDto[]>;

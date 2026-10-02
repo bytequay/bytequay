@@ -35,6 +35,7 @@ import com.bytequay.agent.spi.MemoryBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.PullRequestCiBridge;
+import com.bytequay.agent.spi.RelatedWorkspaceBridge;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.SessionAccess;
@@ -131,6 +132,7 @@ public final class PermissionBroker
     private final BridgeResolver<PullRequestCiBridge> pullRequestChecks;
     private final BridgeResolver<IssueContextBridge> issueContexts;
     private final BridgeResolver<MemoryBridge> memories;
+    private final BridgeResolver<RelatedWorkspaceBridge> relatedWork;
     private final Map<String, PermissionContext> contexts = new ConcurrentHashMap<>();
 
     public PermissionBroker(
@@ -222,6 +224,16 @@ public final class PermissionBroker
             BridgeResolver<IssueContextBridge> issueContexts,
             BridgeResolver<MemoryBridge> memories)
     {
+        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks, issueContexts, memories, BridgeResolver.none());
+    }
+
+    public PermissionBroker(Supplier<URI> endpoint, ObjectMapper objectMapper, CiMemoryReader ciMemoryReader,
+            BridgeResolver<ReviewBridge> reviews, BridgeResolver<DevelopmentResultBridge> developments,
+            DraftPullRequestPublisher draftPullRequests, BridgeResolver<LocalReviewBridge> localReviews,
+            BridgeResolver<PullRequestCiBridge> pullRequestChecks, BridgeResolver<IssueContextBridge> issueContexts,
+            BridgeResolver<MemoryBridge> memories, BridgeResolver<RelatedWorkspaceBridge> relatedWork)
+    {
+        this.relatedWork = requireNonNull(relatedWork, "relatedWork is null");
         this.endpoint = requireNonNull(endpoint, "endpoint is null");
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null")
                 .copy()
@@ -299,7 +311,7 @@ public final class PermissionBroker
         requireNonNull(codeGraph, "codeGraph is null");
         PermissionContext context = resolveContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeGraph, access, true, environment);
         contexts.put(token, context);
-        Optional<Path> childGate = context.reviewChildren() ? Optional.of(childGateFile) : Optional.empty();
+        Optional<Path> childGate = (context.reviewChildren() || context.relatedWork().isPresent()) ? Optional.of(childGateFile) : Optional.empty();
         try {
             Files.createDirectories(providerDirectory);
             URI uri = requireNonNull(endpoint.get(), "endpoint URI is null");
@@ -382,34 +394,40 @@ public final class PermissionBroker
     }
 
     /** Keeps a review child's shared MCP token read-only; the root receives other tools through App Server. */
-    public CodexReviewTools guardCodexReviewToken(McpRegistration registration)
+    public CodexRootTools guardCodexRootTools(McpRegistration registration)
     {
         requireNonNull(registration, "registration is null");
         PermissionContext context = requireNonNull(contexts.get(registration.token()), "review token is not registered");
-        checkArgument(context.review().isPresent(), "Only a review token may use the Codex child gate");
+        checkArgument(context.review().isPresent() || context.relatedWork().isPresent(), "No root-bound tools on this task");
         Set<String> readable = Stream.concat(
-                        context.review().orElseThrow().tools().stream().filter(ReviewTool::childCallable).map(ReviewTool::name),
+                        context.review().stream().flatMap(review -> review.tools().stream()).filter(ReviewTool::childCallable).map(ReviewTool::name),
                         context.codeGraph().stream().map(ignored -> CodeGraphBridge.TOOL_NAME))
                 .filter(name -> name.equals("review_get_context") || name.equals(CodeGraphBridge.TOOL_NAME))
                 .collect(ImmutableSet.toImmutableSet());
-        checkArgument(readable.contains("review_get_context"), "Review children need readable context");
+        if (context.review().isPresent()) {
+            checkArgument(readable.contains("review_get_context"), "Review children need readable context");
+        }
+        else {
+            readable = tools(context).stream().map(ToolDefinition::name).filter(name -> !name.equals(RelatedWorkspaceBridge.TOOL_NAME)).collect(ImmutableSet.toImmutableSet());
+        }
+        Set<String> childTools = readable;
         List<ToolDefinition> all = tools(context);
-        List<String> mcpNames = all.stream().map(ToolDefinition::name).filter(readable::contains).collect(toImmutableList());
-        List<Map<String, Object>> rootTools = all.stream().filter(tool -> !readable.contains(tool.name()))
+        List<String> mcpNames = all.stream().map(ToolDefinition::name).filter(childTools::contains).collect(toImmutableList());
+        List<Map<String, Object>> rootTools = all.stream().filter(tool -> !childTools.contains(tool.name()))
                 .map(tool -> ImmutableMap.<String, Object>of(
                         "type", "function", "name", tool.name(), "description", tool.description(), "inputSchema", tool.inputSchema()))
                 .collect(toImmutableList());
-        CodexReviewTools guarded = new CodexReviewTools(mcpNames, rootTools,
-                all.stream().map(ToolDefinition::name).filter(name -> !readable.contains(name)).collect(ImmutableSet.toImmutableSet()));
+        CodexRootTools guarded = new CodexRootTools(mcpNames, rootTools,
+                all.stream().map(ToolDefinition::name).filter(name -> !childTools.contains(name)).collect(ImmutableSet.toImmutableSet()));
         context.codexReviewTools().set(guarded);
         return guarded;
     }
 
     /** Calls one withheld task tool after App Server has proven its caller is the root review turn. */
-    public McpHttpResponse callCodexReviewRootTool(String token, String name, JsonNode arguments)
+    public McpHttpResponse callCodexRootTool(String token, String name, JsonNode arguments)
     {
         PermissionContext context = contexts.get(requireNonNull(token, "token is null"));
-        CodexReviewTools guarded = context == null ? null : context.codexReviewTools().get();
+        CodexRootTools guarded = context == null ? null : context.codexReviewTools().get();
         if (guarded == null || context == null || !guarded.rootNames().contains(name) || arguments == null || !arguments.isObject()) {
             return error(null, -32602, "Unknown tool or invalid arguments");
         }
@@ -422,9 +440,9 @@ public final class PermissionBroker
         }
     }
 
-    public record CodexReviewTools(List<String> mcpNames, List<Map<String, Object>> rootTools, Set<String> rootNames)
+    public record CodexRootTools(List<String> mcpNames, List<Map<String, Object>> rootTools, Set<String> rootNames)
     {
-        public CodexReviewTools
+        public CodexRootTools
         {
             mcpNames = ImmutableList.copyOf(mcpNames);
             rootTools = ImmutableList.copyOf(rootTools);
@@ -456,6 +474,7 @@ public final class PermissionBroker
                 ? pullRequestChecks.resolve(taskId) : Optional.empty();
         Optional<IssueContextBridge> issueContext = restricted ? Optional.empty() : issueContexts.resolve(taskId);
         Optional<MemoryBridge> memory = restricted ? Optional.empty() : memories.resolve(taskId);
+        Optional<RelatedWorkspaceBridge> related = restricted || review.isPresent() ? Optional.empty() : relatedWork.resolve(taskId);
         // Claude's attended review gate uses this flag. Codex registers no permission tools and
         // gates its children through its own launch-time PreToolUse hook.
         boolean reviewChildren = permissionTools && scope.reviewReads();
@@ -463,7 +482,7 @@ public final class PermissionBroker
                 .map(home -> ImmutableMap.of("HOME", home)).orElse(ImmutableMap.of());
         return new PermissionContext(
                 taskId, worktree, scope, fileWriteEnvironment, approvals, redactor, permissionTools,
-                codeGraph, review, development, localReview, pullRequestCi, issueContext, memory,
+                codeGraph, review, development, localReview, pullRequestCi, issueContext, memory, related,
                 reviewChildren, new AtomicReference<>());
     }
 
@@ -477,7 +496,8 @@ public final class PermissionBroker
                         context.localReview().map(LocalReviewBridge::instruction),
                         context.pullRequestCi().map(PullRequestCiBridge::instruction),
                         context.issueContext().map(IssueContextBridge::instruction),
-                        context.memory().map(ignored -> MemoryBridge.INSTRUCTION))
+                        context.memory().map(ignored -> MemoryBridge.INSTRUCTION),
+                        context.relatedWork().map(ignored -> RelatedWorkspaceBridge.INSTRUCTION))
                 .flatMap(Optional::stream)
                 .collect(Collectors.joining("\n\n"));
         return joined.isBlank() ? Optional.empty() : Optional.of(joined);
@@ -498,7 +518,7 @@ public final class PermissionBroker
         if (context == null) {
             return new McpHttpResponse(401, Optional.empty());
         }
-        CodexReviewTools guarded = context.codexReviewTools().get();
+        CodexRootTools guarded = context.codexReviewTools().get();
         try {
             McpRequest request = objectMapper.treeToValue(body, McpRequest.class);
             return switch (request.method()) {
@@ -530,6 +550,7 @@ public final class PermissionBroker
             case "read_ci_memory" -> readCiMemory(request.id(), params.arguments(), context);
             case CodeGraphBridge.TOOL_NAME -> codeGraphExplore(request.id(), params.arguments(), context);
             case IssueContextBridge.TOOL_NAME -> readIssueContext(request.id(), params.arguments(), context);
+            case RelatedWorkspaceBridge.TOOL_NAME -> relatedWork(request.id(), params.arguments(), context);
             case MemoryBridge.TOOL_NAME -> memory(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.TOOL_NAME -> developmentResult(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.PUBLISH_TOOL_NAME -> createDraftPullRequest(request.id(), params.arguments(), context);
@@ -559,6 +580,21 @@ public final class PermissionBroker
             String reason = Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
             return response(id, new ToolResult(
                     ImmutableList.of(new TextContent("text", "Unable to read local issue context: " + context.redactor().redact(reason))), true));
+        }
+    }
+
+    private McpHttpResponse relatedWork(JsonNode id, JsonNode arguments, PermissionContext context)
+    {
+        if (context.relatedWork().isEmpty()) {
+            return error(id, -32602, "Unknown tool");
+        }
+        try {
+            String result = context.relatedWork().orElseThrow().call().apply(objectMapper.writeValueAsString(arguments));
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(result))), false));
+        }
+        catch (JsonProcessingException | RuntimeException failure) {
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(
+                    "Related work failed: " + Optional.ofNullable(failure.getMessage()).orElse("Request rejected")))), true));
         }
     }
 
@@ -1043,6 +1079,17 @@ public final class PermissionBroker
                 IssueContextBridge.TOOL_NAME,
                 "Read the accepted issue snapshot and locally cached source observations for this task; missing or stale context is marked. Read-only; no remote fetch",
                 ImmutableMap.of("type", "object", "properties", ImmutableMap.of(), "additionalProperties", false))));
+        context.relatedWork().ifPresent(ignored -> tools.add(new ToolDefinition(RelatedWorkspaceBridge.TOOL_NAME,
+                "Start explicitly requested work in a related workspace, or read the linked conversation's result; root agent only",
+                ImmutableMap.of("type", "object", "properties", ImmutableMap.<String, Object>builder()
+                        .put("action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("START", "READ")))
+                        .put("operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))
+                        .put("workspaceId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))
+                        .put("purpose", ImmutableMap.of("type", "string", "enum", ImmutableList.of("INVESTIGATE", "FIX")))
+                        .put("question", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 16000))
+                        .put("commit", ImmutableMap.of("type", "string", "pattern", "^([0-9a-f]{40}|[0-9a-f]{64})$"))
+                        .put("revision", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 200)).buildOrThrow(),
+                        "required", ImmutableList.of("action", "operationKey"), "additionalProperties", false))));
         context.memory().ifPresent(ignored -> tools.add(new ToolDefinition(
                 MemoryBridge.TOOL_NAME,
                 MemoryBridge.DESCRIPTION,
@@ -1345,7 +1392,12 @@ public final class PermissionBroker
                 .filter(name -> SHELL_SAFE_TOOL_NAME.matcher(name).matches())
                 .map(name -> "mcp__bytequay__" + name)
                 .collect(toImmutableList());
-        return CHILD_GATE_SCRIPT.replace("@CHILD_TOOLS@", readable.isEmpty() ? "mcp__bytequay__none" : String.join("|", readable));
+        if (context.review().isEmpty()) {
+            readable = tools(context).stream().map(ToolDefinition::name).filter(name -> !name.equals(RelatedWorkspaceBridge.TOOL_NAME))
+                    .filter(name -> SHELL_SAFE_TOOL_NAME.matcher(name).matches()).map(name -> "mcp__bytequay__" + name).collect(toImmutableList());
+        }
+        return CHILD_GATE_SCRIPT.replace("@REVIEW_ONLY@", String.valueOf(context.review().isPresent()))
+                .replace("@CHILD_TOOLS@", readable.isEmpty() ? "mcp__bytequay__none" : String.join("|", readable));
     }
 
     private static String readChildGateScript()
@@ -1416,8 +1468,9 @@ public final class PermissionBroker
             Optional<PullRequestCiBridge> pullRequestCi,
             Optional<IssueContextBridge> issueContext,
             Optional<MemoryBridge> memory,
+            Optional<RelatedWorkspaceBridge> relatedWork,
             boolean reviewChildren,
-            AtomicReference<CodexReviewTools> codexReviewTools)
+            AtomicReference<CodexRootTools> codexReviewTools)
     {
         private PermissionContext
         {
@@ -1435,6 +1488,7 @@ public final class PermissionBroker
             requireNonNull(pullRequestCi, "pullRequestCi is null");
             requireNonNull(issueContext, "issueContext is null");
             requireNonNull(memory, "memory is null");
+            requireNonNull(relatedWork, "relatedWork is null");
         }
     }
 

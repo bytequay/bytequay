@@ -148,6 +148,29 @@ class TestInteractiveAgentTaskCreator
     }
 
     @Test
+    void relatedInvestigationUsesExactCommitAndPreservesLocalOnlyAutomation()
+    {
+        Path repository = temporaryDirectory.resolve("repository");
+        when(workspaces.requireReadyRepository("workspace-1")).thenReturn(workspace(repository));
+        when(git.run(repository, "rev-parse", "--verify", START_COMMIT + "^{commit}"))
+                .thenReturn(new GitCommandRunner.Result(0, START_COMMIT + "\n", false));
+        var automation = new DevelopmentAutomation(true, false, false, Optional.empty(), false);
+        var defaults = new AgentTaskDefaults(Optional.of("model-a"), Optional.empty(), AgentPermissionPolicy.AUTO).withDevelopmentAutomation(automation);
+        creator.createRelated(TASK_ID, "workspace-1", "Investigate", AgentLaneId.CODEX_CLI, defaults, "request-1", Optional.of(START_COMMIT));
+        var command = ArgumentCaptor.forClass(CreateInteractiveAgentTaskCommand.class);
+        verify(tasks).createInteractive(command.capture());
+        assertThat(command.getValue().startCommit()).isEqualTo(START_COMMIT);
+        assertThat(command.getValue().defaults().developmentAutomation()).contains(automation);
+        assertThat(progress.current(TASK_ID)).isEmpty();
+        verify(git, never()).run(repository, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}");
+        when(git.run(repository, "rev-parse", "--verify", START_COMMIT + "^{commit}"))
+                .thenReturn(new GitCommandRunner.Result(0, "f".repeat(40), false));
+        assertThatThrownBy(() -> creator.createRelated(TASK_ID, "workspace-1", "Investigate", AgentLaneId.CODEX_CLI, defaults, "request-1", Optional.of(START_COMMIT)))
+                .isInstanceOf(RuntimeException.class);
+        verify(tasks).createInteractive(any());
+    }
+
+    @Test
     void resolvesSelectedOriginDefaultBranchAndCreatesManagedTask()
     {
         Path repository = temporaryDirectory.resolve("repository");

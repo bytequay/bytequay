@@ -231,6 +231,8 @@ class TestSqliteWorkspaceStore
                         delivered, cited, reports_json, created_at, updated_at) VALUES (?, ?, 'RULE', 'Rule', '[]', '[]', 1, 'You', 1, 0, 0, '[]', ?, ?)
                     """, workspace == removed ? "m1" : "m2", workspace.id(), NOW.toString(), NOW.toString());
         }
+        settings.put("workspace.linked-work." + removed.id(), "[]");
+        settings.put("linked-work.source.target-task", removed.id());
         for (long repositoryId : ImmutableList.of(200L, 201L, 300L)) {
             jdbc.update("INSERT INTO repository_issue_sync (repository_id, synced_at) VALUES (?, ?)", repositoryId, NOW.toString());
             jdbc.update("INSERT INTO commit_enrichment (repository_id, sha, last_seen_at) VALUES (?, 'sha', ?)", repositoryId, NOW.toString());

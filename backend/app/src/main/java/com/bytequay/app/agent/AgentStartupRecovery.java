@@ -230,7 +230,8 @@ public final class AgentStartupRecovery
      * agent operation, because something may still be writing somewhere nobody can name. The only
      * exception is a launch durably identified as non-worktree control work or the model-catalog
      * App Server: none receives a task worktree, so its retained receipt cannot represent a stray writer.
-     * An unverifiable launch marker is never acknowledged, so the evidence survives a restart.
+     * An unverifiable launch marker is never acknowledged, so the evidence survives a restart. A
+     * control-only launch whose marker is gone is dropped, because nothing is left to verify.
      *
      * <p>Classification runs before any write. A task can leak more than one launch and can hold
      * only one claim, so deciding per launch as it is read would release a block that another
@@ -249,6 +250,7 @@ public final class AgentStartupRecovery
 
         Map<TaskId, String> blockedTasks = new LinkedHashMap<>();
         List<String> resolved = new ArrayList<>();
+        List<String> dropped = new ArrayList<>();
         boolean attributable = true;
         for (OwnedProcessRecovery recovery : supervisor.recoverOwnedProcesses()) {
             AgentProcessLaunch launch = launches.get(recovery.launchId());
@@ -264,6 +266,14 @@ public final class AgentStartupRecovery
                 log.info("Owned provider process {} recovered as {}: {}",
                         recovery.launchId(), recovery.outcome(), recovery.detail());
                 resolved.add(recovery.launchId());
+                continue;
+            }
+            if (knownControlOnly(recovery.owner(), launch) && recovery.owner().isEmpty()) {
+                // Without a marker there is no process identity left to check, so no later startup
+                // could ever resolve it, and the launch never had a task worktree to protect.
+                log.warn("Owned control-only provider process {} has no usable launch marker; its launch record is dropped: {}",
+                        recovery.launchId(), recovery.detail());
+                dropped.add(recovery.launchId());
                 continue;
             }
             if (knownControlOnly(recovery.owner(), launch)) {
@@ -290,6 +300,7 @@ public final class AgentStartupRecovery
                 ImmutableSet.copyOf(resolved),
                 attributable);
         resolved.forEach(supervisor::acknowledge);
+        dropped.forEach(supervisor::acknowledge);
         return attributable;
     }
 

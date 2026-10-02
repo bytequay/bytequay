@@ -355,7 +355,7 @@ class TestAgentStartupRecovery
     }
 
     @Test
-    void opensTheGateForUnverifiableControlOnlyLaunchRowsAndKeepsTheirEvidence()
+    void opensTheGateAndDropsControlOnlyLaunchRowsWhoseMarkerIsGone()
     {
         AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
         AgentEventService eventService = mock(AgentEventService.class);
@@ -382,9 +382,9 @@ class TestAgentStartupRecovery
                 .afterSingletonsInstantiated();
 
         assertThat(servingGate.isReady()).isTrue();
-        verify(supervisor, never()).acknowledge("claude-probe");
-        verify(supervisor, never()).acknowledge("title-helper");
-        verify(supervisor, never()).acknowledge("model-catalog");
+        verify(supervisor).acknowledge("claude-probe");
+        verify(supervisor).acknowledge("title-helper");
+        verify(supervisor).acknowledge("model-catalog");
     }
 
     @Test

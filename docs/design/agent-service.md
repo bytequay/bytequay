@@ -2196,7 +2196,9 @@ durable claim and task worktree untouched instead of assuming the launch never h
 When marker and launch-row owners both exist, they must agree. An unverifiable
 task-capable launch blocks its task; an unknown or conflicting owner blocks the
 agent gate globally. A recognized control-only receipt is retained for later
-recovery but does not block task worktrees it could never access.
+recovery but does not block task worktrees it could never access; a
+control-only launch row whose marker is gone is dropped, because no process
+identity is left to verify.
 
 ### 5.2 ManagedProcess
 
@@ -4752,7 +4754,8 @@ requires a separate explicit user action and design decision.
   a known task owner retains its claim and
   projects recovery required; an unknown or conflicting owner closes the global
   agent gate. Recognized control-only evidence is retained but does not close
-  that gate because the launch could not access a task worktree.
+  that gate because the launch could not access a task worktree; a control-only
+  launch row without its marker is dropped.
 - Durable launch phase distinguishes a known pre-launch crash from an uncertain
   process result. `NOT_ATTEMPTED` and an intact `PREPARED` marker before
   `PreparedProcess.start()` prove no payload ran; a missing/corrupt marker after

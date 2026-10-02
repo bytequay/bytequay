@@ -1140,6 +1140,6 @@ class TestReviewCodeService
     {
         return new ReviewRun("run-" + headSha, REVIEW_ID, 1, ReviewRun.Scope.FULL, "main", baseSha, mergeBaseSha, headSha, Optional.empty(), ImmutableList.of(), diff,
                 ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false,
-                ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
+                ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.empty());
     }
 }

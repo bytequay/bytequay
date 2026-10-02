@@ -37,13 +37,8 @@ import com.bytequay.core.context.ContextSourceEvidence;
 import com.bytequay.core.context.ContextSourceRead;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
-import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.review.AgentReview;
-import com.bytequay.core.review.AgentReviewStore;
-import com.bytequay.core.review.ReviewEvidence;
-import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
@@ -60,7 +55,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.stream.IntStream;
@@ -87,14 +81,12 @@ class TestRepositoryContextPreparation
     private static final String DIGEST = "sha256:" + "b".repeat(64);
     private static final String READ_ID = "context-read:" + UUID.randomUUID();
     private static final RepoRef REPOSITORY = RepoRef.of("example", "repository");
-    private static final AgentReview REVIEW = new AgentReview("review", "workspace", REPOSITORY.fullName(), OptionalInt.of(1), OptionalLong.empty(), "task", Optional.empty(),
-            AgentReview.State.OPEN, false, Optional.empty(), Optional.of(SHA), Optional.of(SHA), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
 
     private final WorkspaceStore workspaceStore = mock(WorkspaceStore.class);
     private final ContextInputReader inputs = mock(ContextInputReader.class);
     private final WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
     private final RepositoryContextService notebooks = new RepositoryContextService(new InMemoryAppSettingsStore(),
-            new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new JavaTimeModule()), workspaceStore, mock(AgentReviewStore.class), Clock.systemUTC());
+            new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new JavaTimeModule()), workspaceStore, Clock.systemUTC());
     private final ContextSourceChecker checker = mock(ContextSourceChecker.class);
     private final RepositoryContextPreparation preparation = new RepositoryContextPreparation(notebooks, inputs, workspaces, checker);
 
@@ -590,15 +582,10 @@ class TestRepositoryContextPreparation
 
     private static Execution execution(String turn, boolean blank, String sourceCommit)
     {
-        ReviewContextSnapshot snapshot = new ReviewContextSnapshot("snapshot", true, 0, 1, Optional.of(SHA), Optional.of(ContextPacket.create("Initial context")),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
-        ReviewRun run = new ReviewRun("run", REVIEW.id(), 1, ReviewRun.Scope.FULL, "main", SHA, SHA, SHA, Optional.empty(), ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableMap.of(),
-                ImmutableMap.of(), Optional.of(snapshot), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
         ContextRepositoryRead read = new ContextRepositoryRead(READ_ID, new ContextReference.RepositoryFile(1, REPOSITORY, "README.md", sourceCommit), SHA,
                 Instant.EPOCH, 1, blank ? 0 : 1, blank ? 0 : 1, blank ? 0 : 6, false, blank ? Optional.empty() : Optional.of("E1"));
-        return new Execution(REVIEW, run.withContextSourceRead(read, blank ? Optional.empty()
-                : Optional.of(new ReviewEvidence("E1", "Baseline source", "Retained baseline README", "source", "Original source")), Instant.EPOCH), turn, "step-key");
+        return new Execution("workspace", REPOSITORY.fullName(), 1, SHA, "task", turn, "step-key", Optional.empty(), Optional.empty(), ImmutableList.of(read),
+                blank ? ImmutableMap.of() : ImmutableMap.of("E1", new RepositoryContextPreparation.CapturedSource("Retained baseline README", "source")));
     }
 
     private static Execution repositoryExecution(int count, boolean blank)

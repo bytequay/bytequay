@@ -23,12 +23,17 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hashing;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.joining;
 
 /** Reads exact note versions. A frozen selection keeps its captured applicability; an enabled read checks cited lines at the reader's commit. */
 @Component
@@ -95,15 +100,15 @@ public class ContextNoteReader
     {
         return entry.sourceIds().stream().collect(toImmutableMap(id -> id, id -> dynamic
                 ? "context-source:" + Hashing.sha256().hashString(entry.id() + "\n" + entry.version() + "\n" + id, UTF_8)
-                : ReviewContextService.evidenceRef(id)));
+                : evidenceRef(id)));
     }
 
     private static Read capture(Map<String, ContextSourceEvidence> sources, ContextEntry entry, Map<String, String> refs,
             ContextSelectedEntry.Applicability applicability, Optional<ContextSourceCheck> check)
     {
         ImmutableMap.Builder<String, ReviewEvidence> captured = ImmutableMap.builder();
-        refs.forEach((sourceId, ref) -> captured.put(ref, ReviewContextService.capture(sources.get(sourceId), ref)));
-        return new Read(ReviewContextService.renderEntry(entry, refs, applicability, check), refs, captured.buildOrThrow());
+        refs.forEach((sourceId, ref) -> captured.put(ref, capture(sources.get(sourceId), ref)));
+        return new Read(renderEntry(entry, refs, applicability, check), refs, captured.buildOrThrow());
     }
 
     public record EnabledRead(long notebookRevision, ContextEntry entry, Read read, ContextSourceCheck sourceCheck) {}
@@ -116,5 +121,50 @@ public class ContextNoteReader
             sourceEvidenceRefs = ImmutableMap.copyOf(sourceEvidenceRefs);
             evidence = ImmutableMap.copyOf(evidence);
         }
+    }
+
+    private static String renderEntry(ContextEntry entry, Map<String, String> refs, ContextSelectedEntry.Applicability applicability, Optional<ContextSourceCheck> check)
+    {
+        Set<String> stale = check.stream().flatMap(found -> found.sources().stream()).filter(ContextSourceCheck.Source::stale)
+                .map(ContextSourceCheck.Source::ref).collect(toImmutableSet());
+        StringBuilder text = new StringBuilder("\nNote ").append(entry.id()).append(" v").append(entry.version()).append(": ").append(entry.title())
+                .append("\nApplicability: ").append(applicability).append(" (source/input identity only; claims and effective dependencies remain UNVERIFIED)")
+                .append("; kind: ").append(entry.kind()).append("; origin: ").append(entry.origin())
+                .append('\n').append(entry.summary()).append('\n').append(entry.body()).append('\n');
+        entry.claims().forEach(claim -> {
+            List<String> evidence = claim.sourceIds().stream().map(refs::get).toList();
+            text.append("Claim [").append(claim.basis()).append("]: ").append(claim.text()).append("; evidence: ").append(evidence)
+                    .append(evidence.stream().anyMatch(stale::contains) ? "; cites a changed source" : "").append('\n');
+        });
+        text.append("Source references: ").append(refs.values()).append('\n');
+        check.ifPresent(found -> text.append(renderCheck(found)));
+        return text.toString();
+    }
+
+    private static String renderCheck(ContextSourceCheck check)
+    {
+        String sources = check.sources().stream()
+                .map(source -> source.ref() + " " + source.path().map(path -> path + source.lines().map(lines -> " lines " + lines).orElse("")).orElse(source.kind())
+                        + ": " + source.status() + source.currentLines().map(lines -> " (now lines " + lines + ")").orElse(""))
+                .collect(joining("; "));
+        return check.commit().map(commit -> "Cited lines compared with " + commit + ": ").orElse("Cited lines were not compared: ") + sources + '\n'
+                + (check.gaps().isEmpty() ? "" : "Source check gaps: " + String.join(" ", check.gaps()) + '\n');
+    }
+
+    private static String evidenceRef(String sourceId)
+    {
+        return "context-source:" + Hashing.sha256().hashString(sourceId, UTF_8);
+    }
+
+    private static ReviewEvidence capture(ContextSourceEvidence source, String ref)
+    {
+        String provenance = source.provenance() + "; capture=" + source.capture()
+                + "; retrievedAt=" + source.retrievedAt().map(Instant::toString).orElse("unknown")
+                + "; contentHash=" + source.contentHash().orElse("unknown") + "; version=" + source.version().orElse("unknown")
+                + "; truncated=" + source.truncated();
+        return new ReviewEvidence(ref, source.reference().toString(), provenance, source.excerpt(),
+                source.capture() == ContextSourceEvidence.Capture.AGENT_REPORTED
+                        ? "Agent-reported excerpt; ByteQuay has not independently captured the original source. Claims and applicability remain unverified."
+                        : "ByteQuay-captured excerpt of the referenced source. An identity comparison does not verify claims or effective dependency applicability.");
     }
 }

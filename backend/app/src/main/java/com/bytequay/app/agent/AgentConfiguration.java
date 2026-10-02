@@ -362,7 +362,6 @@ public class AgentConfiguration
             AgentRuntimeRegistry runtimeRegistry,
             CodeGraphService codeGraph,
             AgentSkillService skills,
-            ObjectProvider<ReviewTurnInputResolver> reviewTurnInput,
             DevelopmentContextTools developmentContext,
             RepositoryGuidelineReader guidelineReader,
             Clock agentClock,
@@ -399,13 +398,12 @@ public class AgentConfiguration
                     @Override
                     public String prepare(AgentTask task, AgentTurn turn, String message)
                     {
-                        return developmentContext.prepare(task, turn, reviewTurnInput.getObject().prepare(task, turn, message));
+                        return developmentContext.prepare(task, turn, message);
                     }
 
                     @Override
                     public void delivered(AgentTask task, AgentTurn turn)
                     {
-                        reviewTurnInput.getObject().delivered(task, turn);
                         developmentContext.delivered(task, turn);
                     }
 

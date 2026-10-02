@@ -152,7 +152,7 @@ class TestRepositoryContextSqlite
 
         RepositoryNotebook saved = context.registerDiscovered(workspaceId, 0, ImmutableList.of(scope), ImmutableList.of(source), ImmutableList.of(proof));
         workspaces.setWatched(workspaceId, false);
-        RepositoryContextService recreated = new RepositoryContextService(settings, mapper, workspaces, reviews, Clock.systemUTC());
+        RepositoryContextService recreated = new RepositoryContextService(settings, mapper, workspaces, Clock.systemUTC());
 
         assertThat(recreated.getNotebook(workspaceId)).isEqualTo(saved);
         RepositoryNotebook disabled = recreated.configure(workspaceId, saved.revision(), new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty()));
@@ -175,7 +175,7 @@ class TestRepositoryContextSqlite
                 ImmutableList.of(new ContextClaim("Which snapshot is visible?", ContextClaim.Basis.QUESTION, ImmutableList.of())), ImmutableList.of()));
 
         workspaces.setWatched(workspaceId, false);
-        RepositoryContextService recreated = new RepositoryContextService(settings, mapper, workspaces, reviews, Clock.systemUTC());
+        RepositoryContextService recreated = new RepositoryContextService(settings, mapper, workspaces, Clock.systemUTC());
 
         assertThat(recreated.getNotebook(workspaceId)).isEqualTo(saved);
         assertThat(recreated.getNotebook(workspaceId).useInReviews()).isFalse();
@@ -200,7 +200,7 @@ class TestRepositoryContextSqlite
         RepositoryNotebook empty = context.getNotebook(workspaceId);
         RepositoryNotebook saved = context.savePreparation(workspaceId, empty, new RepositoryNotebook(1, 2, true, true,
                 empty.sources(), empty.scopes(), ImmutableList.of(current), ImmutableList.of(earlier), ImmutableList.of(source), Optional.empty()));
-        RepositoryContextService recreated = new RepositoryContextService(settings, mapper, workspaces, reviews, Clock.systemUTC());
+        RepositoryContextService recreated = new RepositoryContextService(settings, mapper, workspaces, Clock.systemUTC());
         assertThat(recreated.getNotebook(workspaceId)).isEqualTo(saved);
 
         RepositoryNotebook restored = recreated.restoreEntry(workspaceId, saved.revision(), earlier.id());
@@ -234,7 +234,7 @@ class TestRepositoryContextSqlite
                 ImmutableList.of(evidence), Optional.of(active));
         settings.put(key(), mapper.writeValueAsString(notebook));
 
-        RepositoryContextService recreated = new RepositoryContextService(settings, mapper, workspaces, reviews, Clock.systemUTC());
+        RepositoryContextService recreated = new RepositoryContextService(settings, mapper, workspaces, Clock.systemUTC());
         assertThat(recreated.getNotebook(workspaceId)).isEqualTo(notebook);
         RepositoryNotebook disabled = recreated.configure(workspaceId, 0, new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty()));
         assertThat(disabled.revision()).isEqualTo(1);
@@ -249,7 +249,7 @@ class TestRepositoryContextSqlite
         String sha = "a".repeat(40);
         ReviewRun run = reviews.insertRun(new ReviewRun(UUID.randomUUID().toString(), UUID.randomUUID().toString(), 1, ReviewRun.Scope.FULL,
                 "main", sha, sha, sha, Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ReviewRun.State.RUNNING,
-                Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableMap.of(), ImmutableMap.of(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableMap.of(), ImmutableMap.of(),
                 Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty()));
         ContextInputFingerprint input = ContextInputFingerprint.create("project", ImmutableMap.of("git:README.md", "100644 blob " + sha), ImmutableList.of());
         ActiveContextPreparation active = new ActiveContextPreparation("attempt", "request", "sha256:" + "a".repeat(64),

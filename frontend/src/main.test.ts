@@ -315,15 +315,13 @@ it('routes notebook actions through authenticated workspace-scoped endpoints wit
     { action: 'restore', path: '/entries/restore', method: 'POST', request: { expectedRevision: 7, entryId: 'knowledge:project' } },
     { action: 'keep', path: '/entries/keep', method: 'POST', request: { expectedRevision: 7, entryId: 'knowledge:project' } },
     { action: 'run-notes:disable', path: '/runs/disable-notes', method: 'POST', request: { expectedRevision: 7, taskId: 'learn-task', noteIds: ['knowledge:project'] } },
-    { action: 'lesson', path: '/lessons', method: 'POST', request: { expectedRevision: 7, scopeId: 'project',
-      title: 'Lesson', summary: 'Summary', body: 'Conditional lesson', reviewId: 'review', runId: 'old-run', evidenceRefs: ['E2'], messageId: 'old-message' } },
   ];
   for (const { action, path, method, request } of actions) {
     await expect(desktop.handlers.get(`repository-context:${action}`)?.({}, 'workspace/one', request)).resolves.toEqual(emptyNotebook);
     expect(fetch).toHaveBeenLastCalledWith(base + path, expect.objectContaining({ method, body: JSON.stringify(request),
       headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
   }
-  expect(fetch).toHaveBeenCalledTimes(9);
+  expect(fetch).toHaveBeenCalledTimes(8);
 });
 
 it('reads open reports and sends the user’s report of an exact version, showing the backend’s refusal', async () => {

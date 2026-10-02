@@ -16,8 +16,6 @@ package com.bytequay.app.review;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.Locale;
-import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 
 /** The line a review tool returns about what a call read or saved; the task log shows it in place of the tool's name. */
 final class ReviewToolActivity
@@ -36,9 +34,6 @@ final class ReviewToolActivity
             case "review_reply" -> "Replied in discussion";
             case "review_withdraw_finding" -> "Withdrew finding";
             case "review_finish" -> "Finished review";
-            case "review_grade_note" -> "Graded note " + arguments.path("grade").asText("") + " · " + arguments.path("entryId").asText("");
-            case "review_ask_question" -> "Asked" + quoted(" ", arguments.path("question").asText(""));
-            case "repository_context_prepare" -> arguments.path("operation").asText("").equals("SUBMIT") ? "Submitted notes" : "Began note preparation";
             default -> tool;
         };
         String single = line.replaceAll("\\s+", " ").strip();
@@ -52,25 +47,11 @@ final class ReviewToolActivity
                 : result.path("number").isInt() ? " #" + result.path("number").asInt() : "";
         String page = arguments.path("page").isInt() && arguments.path("page").asInt() > 1 ? " · page " + arguments.path("page").asInt() : "";
         return switch (kind) {
-            case "note_search" -> {
-                int hits = result.path("hits").isArray() ? result.path("hits").size() : result.path("result").path("hits").size();
-                String query = arguments.path("query").asText("");
-                String paths = StreamSupport.stream(arguments.path("paths").spliterator(), false).map(JsonNode::asText).collect(Collectors.joining(", "));
-                yield "Searched notes" + (query.isBlank() ? "" : " for “" + query + "”") + (paths.isEmpty() ? "" : " in " + paths)
-                        + " · " + (hits == 0 ? "no match" : hits + (hits == 1 ? " note" : " notes")) + page;
-            }
-            case "note_list" -> "Listed notes" + page;
-            case "note" -> result.path("status").asText("").equals("VERSION_UNAVAILABLE")
-                    ? "Note version unavailable · " + arguments.path("entryId").asText("")
-                    : "Read note · " + result.path("title").asText(arguments.path("entryId").asText(result.path("entryId").asText("")));
             case "source" -> "Read " + arguments.path("path").asText("") + (result.path("startLine").isInt()
                     ? " · lines " + result.path("startLine").asInt() + "–" + result.path("endLine").asInt() : "")
                     + (arguments.path("revision").asText("head").matches("head|") ? "" : " (" + arguments.path("revision").asText() + ")");
             case "diff" -> "Read diff" + (arguments.path("path").asText("").isBlank() ? "" : " · " + arguments.path("path").asText()) + page;
             case "command_output" -> "Read output of " + result.path("commands").size() + (result.path("commands").size() == 1 ? " command" : " commands");
-            case "document" -> "Read document · " + result.path("url").asText(result.path("resolvedUrl").asText(arguments.path("sourceId").asText("")))
-                    + (arguments.path("relativePage").isTextual() && !result.has("url") && !result.has("resolvedUrl") ? "/" + arguments.path("relativePage").asText() : "")
-                    + page;
             case "history" -> "Read " + (arguments.path("sourceKind").asText("").equals("ISSUE") ? "issue" : "PR") + number + " history";
             case "pr" -> "Read PR" + number;
             case "timeline" -> "Read PR" + number + " timeline" + page;

@@ -50,7 +50,6 @@ import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -639,8 +638,7 @@ class TestContextBuildTools
         when(workspaceStore.findById(WORKSPACE)).thenReturn(Optional.of(new Workspace(WORKSPACE, "Repository", 1, REPO, Optional.empty(), Optional.empty(), 1,
                 REPO, Workspace.Topology.DIRECT, "main", "https://github.com/owner/repository.git", Optional.empty(), Optional.empty(), "/tmp/repository",
                 Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH)));
-        RepositoryContextService actualNotebooks = new RepositoryContextService(new InMemoryAppSettingsStore(), mapper, workspaceStore, mock(AgentReviewStore.class),
-                Clock.systemUTC());
+        RepositoryContextService actualNotebooks = new RepositoryContextService(new InMemoryAppSettingsStore(), mapper, workspaceStore, Clock.systemUTC());
         actualNotebooks.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty()));
         ContextInputReader inputs = mock(ContextInputReader.class);
         when(inputs.capture(any(), any(), any(), anyList())).thenAnswer(call -> {

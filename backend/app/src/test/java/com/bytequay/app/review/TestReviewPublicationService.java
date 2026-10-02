@@ -598,7 +598,7 @@ class TestReviewPublicationService
     {
         return new ReviewRun(RUN_ID, REVIEW_ID, 1, ReviewRun.Scope.FULL, "main", CURRENT_HEAD, CURRENT_HEAD, REVIEWED_HEAD,
                 Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), state, Optional.empty(), Optional.empty(), Optional.empty(),
-                ImmutableList.of(), false, Map.of(), Map.of(), Optional.empty(), Optional.empty(), 0, NOW, NOW,
+                ImmutableList.of(), false, Map.of(), Map.of(), Optional.empty(), 0, NOW, NOW,
                 state.terminal() ? Optional.of(NOW) : Optional.empty());
     }
 

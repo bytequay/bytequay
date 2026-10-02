@@ -42,19 +42,9 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.review.AgentReviewProjection;
-import com.bytequay.app.review.AgentReviewProjection.ContextDeliveryState;
-import com.bytequay.app.review.AgentReviewProjection.ContextNoteRead;
-import com.bytequay.app.review.AgentReviewProjection.ContextPreparationActivity;
-import com.bytequay.app.review.AgentReviewProjection.PreparationScope;
-import com.bytequay.app.review.AgentReviewProjection.RunView;
 import com.bytequay.app.review.AgentReviewService;
 import com.bytequay.app.review.ReviewPublicationService;
 import com.bytequay.app.web.agent.AgentStreamRegistry;
-import com.bytequay.core.context.ContextDelivery;
-import com.bytequay.core.context.ContextPacket;
-import com.bytequay.core.context.ContextSelectedEntry;
-import com.bytequay.core.context.ReviewContextSnapshot;
-import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewNotFoundException;
@@ -63,7 +53,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
@@ -73,7 +62,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
@@ -221,7 +209,6 @@ class TestReviewRuntimeRecovery
         verify(supervisor).acknowledge("launch-1");
         verify(taskStore).update(argThat(task -> task.worktreeMutationClaim().isEmpty() && task.state() == blocked.state()));
         verify(reviews).task(REVIEW_ID);
-        verify(reviews).reconcilePreparation(REVIEW_ID);
         verify(reviews).get(REVIEW_ID);
         verifyNoMoreInteractions(reviews);
         verifyNoInteractions(turns);
@@ -237,7 +224,6 @@ class TestReviewRuntimeRecovery
         controller.stopRuntime(REVIEW_ID, new ReviewHttpModels.StopRuntimeRequest("task:8"));
 
         verify(turns).stopRuntime(TASK_ID, "task:8");
-        verify(reviews).reconcilePreparation(REVIEW_ID);
         verifyNoInteractions(supervisor, taskStore, turnStore, launchStore);
     }
 
@@ -267,73 +253,11 @@ class TestReviewRuntimeRecovery
         verifyNoInteractions(turns, supervisor, taskStore, turnStore, launchStore);
     }
 
-    @Test
-    void reviewHttpResponseRetainsFrozenContextAndItsTypedReceipts()
-            throws Exception
-    {
-        ContextPacket packet = ContextPacket.create("Frozen repository reference data");
-        ContextSelectedEntry selected = new ContextSelectedEntry("knowledge:project", 3, "Project", Optional.empty(), ImmutableMap.of(),
-                ImmutableList.of("Project scope"), ContextSelectedEntry.Applicability.UNVERIFIED, ContextSelectedEntry.Inclusion.DEFERRED);
-        ContextDelivery delivery = new ContextDelivery("turn-1", packet.digest(), packet.utf8Bytes(), 0, packet.digest(), packet.utf8Bytes(),
-                Optional.empty(), Optional.empty(), NOW);
-        ReviewContextSnapshot snapshot = new ReviewContextSnapshot("context:run-1", true, 4, 1, Optional.of("a".repeat(40)), Optional.of(packet),
-                ImmutableList.of(selected), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(delivery),
-                ImmutableList.of("External dependency applicability is unverified"));
-        Map<String, ContextDeliveryState> deliveries = ImmutableMap.of("turn-1", new ContextDeliveryState(ContextDeliveryState.Outcome.CONFIRMED, Optional.empty()));
-        List<ContextPreparationActivity> activities = ImmutableList.of(new ContextPreparationActivity("prepare-1", ContextPreparationActivity.Status.REUSED,
-                Optional.empty(), Optional.of(NOW), Optional.of(7L), ImmutableList.of(new PreparationScope("project", Optional.of("READY"),
-                        "Saved source identities match", ImmutableList.of("knowledge:project"), ImmutableList.of("source-1"))), ImmutableList.of()));
-        List<ContextNoteRead> reads = ImmutableList.of(new ContextNoteRead("knowledge:project", 3, ContextNoteRead.Status.AVAILABLE,
-                Optional.of("Exact saved note text"), Optional.of("context-note:receipt"), ImmutableMap.of("source-1", "evidence-1")));
-        when(reviews.get("review-1")).thenReturn(projection(ImmutableList.of(run(Optional.of(snapshot), deliveries, activities, reads))));
-
-        JsonNode actual = getReview().required("runs").get(0);
-
-        assertThat(actual.required("context")).isEqualTo(mapper.readTree(mapper.writeValueAsBytes(snapshot)));
-        assertThat(actual.required("contextDeliveryStates")).isEqualTo(mapper.readTree(mapper.writeValueAsBytes(deliveries)));
-        assertThat(actual.required("contextPreparationActivities")).isEqualTo(mapper.readTree(mapper.writeValueAsBytes(activities)));
-        assertThat(actual.required("contextNoteReads")).isEqualTo(mapper.readTree(mapper.writeValueAsBytes(reads)));
-        assertThat(actual.at("/context/bootstrap/digest").asText()).isEqualTo(packet.digest());
-        assertThat(actual.at("/contextPreparationActivities/0/recordedAt").asText()).isEqualTo(NOW.toString());
-        assertThat(actual.at("/contextNoteReads/0/text").asText()).isEqualTo("Exact saved note text");
-    }
-
-    @Test
-    void historicalAndDisabledRunsStillExposeRequiredEmptyContextCollections()
-            throws Exception
-    {
-        ReviewContextSnapshot disabled = new ReviewContextSnapshot("context:run-1", false, 4, 1, Optional.empty(), Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
-        when(reviews.get("review-1")).thenReturn(projection(ImmutableList.of(
-                run(Optional.empty(), ImmutableMap.of(), ImmutableList.of(), ImmutableList.of()),
-                run(Optional.of(disabled), ImmutableMap.of(), ImmutableList.of(), ImmutableList.of()))));
-
-        JsonNode runs = getReview().required("runs");
-
-        assertThat(runs.get(0).required("context").isNull()).isTrue();
-        assertThat(runs.get(1).required("context")).isEqualTo(mapper.readTree(mapper.writeValueAsBytes(disabled)));
-        for (JsonNode run : runs) {
-            assertThat(run.required("contextDeliveryStates")).isEqualTo(mapper.createObjectNode());
-            assertThat(run.required("contextPreparationActivities")).isEqualTo(mapper.createArrayNode());
-            assertThat(run.required("contextNoteReads")).isEqualTo(mapper.createArrayNode());
-        }
-    }
-
     private JsonNode getReview()
             throws Exception
     {
         MockMvc mvc = standaloneSetup(controller).setMessageConverters(new MappingJackson2HttpMessageConverter(mapper)).build();
         return mapper.readTree(mvc.perform(get("/api/agent-review/review-1")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
-    }
-
-    private static RunView run(Optional<ReviewContextSnapshot> context, Map<String, ContextDeliveryState> deliveries,
-            List<ContextPreparationActivity> activities, List<ContextNoteRead> reads)
-    {
-        ReviewRun run = new ReviewRun("run-1", REVIEW_ID, 1, ReviewRun.Scope.FULL, "main", "a".repeat(40), "a".repeat(40), "b".repeat(40), Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(new DiffFile("src/App.java", "modified", 1, 0, "@@ -1 +1 @@")), ImmutableList.of("turn-1"), ReviewRun.State.RUNNING,
-                Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableMap.of(), ImmutableMap.of(), context, Optional.empty(), 0,
-                NOW, NOW, Optional.empty());
-        return new RunView(run, deliveries, activities, reads, ImmutableList.of());
     }
 
     private AgentMaintenance maintenance()
@@ -356,7 +280,7 @@ class TestReviewRuntimeRecovery
         return projection(ImmutableList.of());
     }
 
-    private static AgentReviewProjection projection(List<RunView> runs)
+    private static AgentReviewProjection projection(List<ReviewRun> runs)
     {
         AgentReview review = new AgentReview(
                 REVIEW_ID, "workspace-1", "owner/repo", OptionalInt.of(7), OptionalLong.empty(), TASK_ID.toString(), Optional.empty(), AgentReview.State.OPEN, true,

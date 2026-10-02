@@ -18,7 +18,6 @@ import { projectTranscript, withApprovalAuthority } from '../../agents/transcrip
 import type { AgentEventEnvelope } from '../../agents/events';
 import type { PendingMessage } from '../../agents/model';
 import type { AgentPendingApprovalDto, AgentStreamConnectionState, AgentTurnDto, ModelOptionDto } from '../../types';
-import ReviewPreparationActivity from './ReviewPreparationActivity';
 import type { AgentReviewDto } from './contracts';
 import type { LocalReviewThreads } from '../local-review/types';
 import { reviewRecoveryRequired, reviewRequests, reviewRunning } from './model';
@@ -77,7 +76,6 @@ export default function ReviewActivity({
       onToggleTurn={(id, open) => setTurnChoice(choices => ({ ...choices, [id]: open }))}
       onToggleActivity={(id, open) => setActivityChoice(choices => ({ ...choices, [id]: open }))}
       onDecide={onDecide}>
-      {review.runs.filter(run => run.contextPreparationActivities.length > 0).map(run => <ReviewPreparationActivity key={run.id} run={run} />)}
       <ConversationQueue
         queue={review.queuedInputIds.map((id): ConversationQueuedInput => ({
           id, state: null,

@@ -23,12 +23,10 @@ import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextReference;
-import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.RepositoryIssueDetail;
-import com.bytequay.core.review.ReviewRun;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;
 import org.springframework.stereotype.Service;
@@ -81,7 +79,7 @@ public class ContextHistoryReader
     }
 
     /**
-     * Reads a selected history source in the context-enabled run's frozen repository identity.
+     * Reads a selected history source of the workspace's monitored repository.
      * PR state requires an observed merge timestamp. Issues require an exact closed, non-PR preview;
      * the existing local issue projection contains only open issues and cannot establish closure.
      * Existing selected caches and refresh paths supply activity and optional PR patches. Failed
@@ -90,15 +88,10 @@ public class ContextHistoryReader
      * @return an immutable UTF-8 excerpt of at most 16 KiB, hashed with its source observations and
      *         limitations; terminal state does not establish correctness or applicability
      */
-    public Read read(WorkspaceRepositoryContext workspace, ReviewRun run, SourceKind kind, int number)
+    public Read read(WorkspaceRepositoryContext workspace, SourceKind kind, int number)
     {
         requireNonNull(workspace, "workspace is null");
-        requireNonNull(run, "run is null");
-        requireNonNull(kind, "kind is null");
-        checkArgument(number > 0, "The history number must be positive");
-        ReviewContextSnapshot snapshot = run.context().filter(ReviewContextSnapshot::enabled)
-                .orElseThrow(() -> new IllegalArgumentException("Repository context was not enabled for this run"));
-        return read(workspace, snapshot.repositoryId(), kind, number);
+        return read(workspace, RepositoryContextReader.repositoryId(workspace), kind, number);
     }
 
     /** Captures the same selected history for an explicit learning task using its frozen monitored repository identity. */

@@ -157,7 +157,7 @@ class TestContextBuildService
     private final ContextSpecCheckStore checks = mock(ContextSpecCheckStore.class);
     private final WorktreeService worktrees = mock(WorktreeService.class);
     private final GitCommandRunner git = mock(GitCommandRunner.class);
-    private final RepositoryContextService notebooks = new RepositoryContextService(settings, mapper, workspaceStore, reviews, Clock.systemUTC());
+    private final RepositoryContextService notebooks = new RepositoryContextService(settings, mapper, workspaceStore, Clock.systemUTC());
     private final ContextLearningPlanStore plans = mock(ContextLearningPlanStore.class);
     private final ContextDiscoveryReportStore reports = new ContextDiscoveryReportStore(settings, mapper);
     private final ContextBuildStore builds = new ContextBuildStore(settings, taskStore, mapper);

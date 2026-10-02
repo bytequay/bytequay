@@ -209,10 +209,6 @@ export type KeepRepositoryContextEntryRequest = RestoreRepositoryContextEntryReq
 export type ReportRepositoryContextNoteRequest = { taskId: string; entryId: string; entryVersion: number; reason: string };
 /** Disables the notes the run's task added that nobody changed since. */
 export type DisableRepositoryContextRunNotesRequest = { expectedRevision: number; taskId: string; noteIds: string[] };
-export type SaveRepositoryContextLessonRequest = {
-  expectedRevision: number; scopeId: string; title: string; summary: string; body: string; reviewId: string; runId: string;
-  evidenceRefs: string[]; messageId?: string | null;
-};
 
 function malformed(field: string): never { throw new Error(`Malformed repository context: ${field}`); }
 function object(value: unknown, field: string): Record<string, unknown> {
@@ -769,13 +765,6 @@ export function parseReportRepositoryContextNoteRequest(value: unknown): ReportR
 export function parseDisableRepositoryContextRunNotesRequest(value: unknown): DisableRepositoryContextRunNotesRequest {
   const item = request(value, ['expectedRevision', 'taskId', 'noteIds']);
   return { expectedRevision: count(item.expectedRevision, 'expected revision'), taskId: nonblank(item.taskId, 'run task'), noteIds: strings(item.noteIds, 'run notes') };
-}
-export function parseSaveRepositoryContextLessonRequest(value: unknown): SaveRepositoryContextLessonRequest {
-  const item = request(value, ['expectedRevision', 'scopeId', 'title', 'summary', 'body', 'reviewId', 'runId', 'evidenceRefs', 'messageId']);
-  return { expectedRevision: count(item.expectedRevision, 'expected revision'), scopeId: text(item.scopeId, 'lesson scope'),
-    title: text(item.title, 'lesson title'), summary: text(item.summary, 'lesson summary'), body: text(item.body, 'lesson body'),
-    reviewId: text(item.reviewId, 'lesson review'), runId: text(item.runId, 'lesson run'), evidenceRefs: strings(item.evidenceRefs, 'lesson evidence'),
-    messageId: optionalText(item.messageId, 'lesson message') };
 }
 
 /* ── Spec checks ─────────────────────────────────────────────────────── */

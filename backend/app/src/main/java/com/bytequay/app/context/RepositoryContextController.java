@@ -125,14 +125,6 @@ public class RepositoryContextController
         return context.setEntryEnabled(workspaceId, request.expectedRevision(), request.entryId(), request.enabled());
     }
 
-    @PostMapping("/lessons")
-    public RepositoryNotebook saveLesson(@PathVariable String workspaceId, @RequestBody LessonRequest request)
-    {
-        SaveContextLesson lesson = new SaveContextLesson(request.scopeId(), request.title(), request.summary(), request.body(),
-                request.reviewId(), request.runId(), request.evidenceRefs(), request.messageId());
-        return context.saveLesson(workspaceId, request.expectedRevision(), lesson);
-    }
-
     public record ChangedPages(Map<String, Instant> changed)
     {
         public ChangedPages
@@ -214,24 +206,6 @@ public class RepositoryContextController
             requireRevision(expectedRevision);
             requireNonNull(taskId, "taskId is null");
             noteIds = ImmutableList.copyOf(noteIds);
-        }
-    }
-
-    public record LessonRequest(
-            Long expectedRevision, String scopeId, String title, String summary, String body, String reviewId, String runId,
-            List<String> evidenceRefs, Optional<String> messageId)
-    {
-        public LessonRequest
-        {
-            requireRevision(expectedRevision);
-            requireNonNull(scopeId, "scopeId is null");
-            requireNonNull(title, "title is null");
-            requireNonNull(summary, "summary is null");
-            requireNonNull(body, "body is null");
-            requireNonNull(reviewId, "reviewId is null");
-            requireNonNull(runId, "runId is null");
-            evidenceRefs = ImmutableList.copyOf(evidenceRefs);
-            requireNonNull(messageId, "messageId is null");
         }
     }
 

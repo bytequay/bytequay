@@ -13,36 +13,26 @@
  */
 package com.bytequay.core.review;
 
-import com.bytequay.core.context.ContextContribution;
-import com.bytequay.core.context.ContextDelivery;
-import com.bytequay.core.context.ContextHistoryRead;
-import com.bytequay.core.context.ContextLimits;
-import com.bytequay.core.context.ContextSourceRead;
-import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.domain.DiffFile;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 /**
- * One attempt to review one frozen head. The diff is frozen with the run so anchors, snapshots and
- * context reads keep resolving after the pull request cache moves on.
+ * One attempt to review one frozen head. The diff is frozen with the run so anchors and snapshots keep
+ * resolving after the pull request cache moves on.
  *
  * @param turnIds the review-request turns ByteQuay started for this run, in order; the transcript
  *        labels their input as ByteQuay's, not the user's
  * @param operations replay results by assignment, tool and operation key, committed with the write they name
- * @param evidence retained source excerpts by reference; preparation alone does not establish provider delivery
- * @param context prepared repository context; absence means no snapshot was captured, including historical runs
+ * @param evidence retained source excerpts by reference
  */
 public record ReviewRun(
         String id,
@@ -65,7 +55,6 @@ public record ReviewRun(
         boolean completionRepairUsed,
         Map<String, ReviewOperation> operations,
         Map<String, ReviewEvidence> evidence,
-        Optional<ReviewContextSnapshot> context,
         Optional<String> outcome,
         long version,
         Instant createdAt,
@@ -96,22 +85,6 @@ public record ReviewRun(
         }
         operations = ImmutableMap.copyOf(operations);
         evidence = ImmutableMap.copyOf(evidence);
-        requireNonNull(context, "context is null");
-        Set<String> operationKeys = operations.keySet();
-        checkArgument(context.stream().flatMap(snapshot -> snapshot.contributions().stream())
-                .allMatch(contribution -> operationKeys.containsAll(contribution.preparationRefs())), "Context references missing preparation receipts");
-        Set<String> evidenceIds = evidence.keySet();
-        checkArgument(context.stream().allMatch(snapshot -> evidenceIds.containsAll(snapshot.evidenceRefs())), "Context references missing run evidence");
-        for (ContextSourceRead read : context.stream().flatMap(snapshot -> snapshot.sourceReads().stream()).toList()) {
-            if (read.evidenceRef().isPresent()) {
-                ReviewEvidence item = evidence.get(read.evidenceRef().orElseThrow());
-                checkArgument(read.evidenceRef().orElseThrow().equals(item.ref()), "Source read evidence reference differs");
-                checkArgument(!item.excerpt().isBlank() && ContextLimits.bytes(item.excerpt()) == read.utf8Bytes(), "Source read excerpt byte count or content differs");
-                if (read instanceof ContextHistoryRead history) {
-                    history.checkExcerpt(item.excerpt());
-                }
-            }
-        }
         requireNonNull(outcome, "outcome is null");
         checkArgument(version >= 0, "version is negative");
         requireNonNull(createdAt, "createdAt is null");
@@ -200,102 +173,9 @@ public record ReviewRun(
         return copy(turnIds, state, summary, coverage, investigation, steps, completionRepairUsed, operations, nextEvidence, outcome, version, now, endedAt);
     }
 
-    /**
-     * Captures prepared context once and merges its retained evidence atomically in the returned run.
-     *
-     * @param snapshot immutable selection and packet, without a provider-delivery claim
-     * @param capturedEvidence new or identical evidence records referenced by the snapshot
-     * @param now time of local capture
-     * @return updated run, or this run when an identical capture is replayed
-     * @throws IllegalStateException when context or existing evidence would be replaced
-     * @throws IllegalArgumentException when a snapshot source does not resolve in the resulting evidence
-     */
-    public ReviewRun withContext(ReviewContextSnapshot snapshot, Map<String, ReviewEvidence> capturedEvidence, Instant now)
-    {
-        requireNonNull(snapshot, "snapshot is null");
-        requireNonNull(now, "now is null");
-        checkState(context.isEmpty() || context.orElseThrow().equals(snapshot), "Review context is already captured");
-        Map<String, ReviewEvidence> merged = new HashMap<>(evidence);
-        ImmutableMap.copyOf(capturedEvidence).forEach((ref, item) -> {
-            checkState(!merged.containsKey(ref) || merged.get(ref).equals(item), "Run evidence cannot be replaced: %s", ref);
-            checkArgument(ref.equals(item.ref()), "Evidence key does not match its reference");
-            merged.putIfAbsent(ref, item);
-        });
-        if (context.isPresent() && merged.equals(evidence)) {
-            return this;
-        }
-        return new ReviewRun(
-                id, reviewId, ordinal, scope, baseRef, baseSha, mergeBaseSha, headSha, priorHeadSha, commits, diff,
-                turnIds, state, summary, coverage, investigation, steps, completionRepairUsed, operations, merged, Optional.of(snapshot),
-                outcome, version, createdAt, now, endedAt);
-    }
-
     public ReviewRun withCompletionRepairUsed(Instant now)
     {
         return copy(turnIds, state, summary, coverage, investigation, steps, true, operations, evidence, outcome, version, now, endedAt);
-    }
-
-    /** Retains the brief with the sealed investigation in the caller's existing atomic run update. */
-    public ReviewRun withContextContribution(ContextContribution contribution, Instant now)
-    {
-        requireNonNull(contribution, "contribution is null");
-        requireNonNull(now, "now is null");
-        checkState(context.isPresent(), "Review context is absent");
-        checkArgument(steps.stream().anyMatch(step -> step.number() == contribution.investigationStep() && step.investigation().isPresent()),
-                "Context contribution requires its sealed investigation");
-        ReviewContextSnapshot snapshot = context.orElseThrow().withContribution(contribution);
-        if (snapshot.equals(context.orElseThrow())) {
-            return this;
-        }
-        return new ReviewRun(id, reviewId, ordinal, scope, baseRef, baseSha, mergeBaseSha, headSha, priorHeadSha, commits, diff,
-                turnIds, state, summary, coverage, investigation, steps, completionRepairUsed, operations, evidence, Optional.of(snapshot),
-                outcome, version, createdAt, now, endedAt);
-    }
-
-    /** Records the exact packet bound to an accepted turn before provider submission. */
-    public ReviewRun withContextDelivery(ContextDelivery delivery, Instant now)
-    {
-        requireNonNull(now, "now is null");
-        checkState(context.isPresent(), "Review context is absent");
-        ReviewContextSnapshot snapshot = context.orElseThrow().withDelivery(delivery);
-        if (snapshot.equals(context.orElseThrow())) {
-            return this;
-        }
-        return new ReviewRun(id, reviewId, ordinal, scope, baseRef, baseSha, mergeBaseSha, headSha, priorHeadSha, commits, diff,
-                turnIds, state, summary, coverage, investigation, steps, completionRepairUsed, operations, evidence, Optional.of(snapshot),
-                outcome, version, createdAt, now, endedAt);
-    }
-
-    /**
-     * Retains an application-observed source receipt and its optional exact returned excerpt in one run value.
-     *
-     * @param read bounded receipt; successful blank reads have no evidence reference
-     * @param capturedEvidence returned nonblank excerpt, with the exact reference and UTF-8 byte count recorded by the receipt
-     * @param now local retention time; the receipt retains the source's original read time
-     * @return updated run, or this run for an identical retry; frozen bootstrap and selection remain unchanged
-     * @throws IllegalStateException when context is absent/disabled or existing receipt/evidence would be replaced
-     * @throws IllegalArgumentException when evidence identity, byte count, or retention bounds differ
-     */
-    public ReviewRun withContextSourceRead(ContextSourceRead read, Optional<ReviewEvidence> capturedEvidence, Instant now)
-    {
-        requireNonNull(read, "read is null");
-        requireNonNull(capturedEvidence, "capturedEvidence is null");
-        requireNonNull(now, "now is null");
-        checkState(context.isPresent(), "Review context is absent");
-        checkArgument(read.evidenceRef().equals(capturedEvidence.map(ReviewEvidence::ref)), "Source read evidence reference differs");
-        capturedEvidence.ifPresent(item -> checkArgument(ContextLimits.bytes(item.excerpt()) == read.utf8Bytes(), "Source read excerpt byte count differs"));
-        ReviewContextSnapshot snapshot = context.orElseThrow().withSourceRead(read);
-        Map<String, ReviewEvidence> merged = new HashMap<>(evidence);
-        capturedEvidence.ifPresent(item -> {
-            checkState(!merged.containsKey(item.ref()) || merged.get(item.ref()).equals(item), "Run evidence cannot be replaced: %s", item.ref());
-            merged.putIfAbsent(item.ref(), item);
-        });
-        if (snapshot.equals(context.orElseThrow()) && merged.equals(evidence)) {
-            return this;
-        }
-        return new ReviewRun(id, reviewId, ordinal, scope, baseRef, baseSha, mergeBaseSha, headSha, priorHeadSha, commits, diff,
-                turnIds, state, summary, coverage, investigation, steps, completionRepairUsed, operations, merged, Optional.of(snapshot),
-                outcome, version, createdAt, now, endedAt);
     }
 
     public ReviewRun ended(State terminalState, Optional<String> terminalOutcome, Instant now)
@@ -324,7 +204,7 @@ public record ReviewRun(
     {
         return new ReviewRun(
                 id, reviewId, ordinal, scope, baseRef, baseSha, mergeBaseSha, headSha, priorHeadSha, commits, diff,
-                nextTurnIds, nextState, nextSummary, nextCoverage, nextInvestigation, nextSteps, nextCompletionRepairUsed, nextOperations, nextEvidence, context,
+                nextTurnIds, nextState, nextSummary, nextCoverage, nextInvestigation, nextSteps, nextCompletionRepairUsed, nextOperations, nextEvidence,
                 nextOutcome, nextVersion, createdAt, now, nextEndedAt);
     }
 

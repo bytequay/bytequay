@@ -12,9 +12,8 @@
  * limitations under the License.
  */
 import MarkdownBody from '../MarkdownBody';
-import ReviewContextDetails from './ReviewContextDetails';
 import { evidenceTarget, validationTarget, ReviewEvidenceLink } from './ReviewEvidenceLinks';
-import type { ReviewCandidateValidationDto, ReviewFindingDto, ReviewInvestigationDto, ReviewRunDto } from './contracts';
+import type { ReviewCandidateValidationDto, ReviewInvestigationDto, ReviewRunDto } from './contracts';
 import { shortSha } from './model';
 
 const OUTCOMES = { SUPPORTED: 'Supported', REJECTED: 'Rejected', NEEDS_EVIDENCE: 'Needs evidence', UNRESOLVED: 'Unresolved' } as const;
@@ -49,7 +48,7 @@ function EvidenceAnswers({ answers, repository }: { answers: ReviewInvestigation
   </li>)}</ol>;
 }
 
-export default function ReviewDetails({ run, repository, findings = [] }: { run: ReviewRunDto; repository: string; findings?: ReviewFindingDto[] }) {
+export default function ReviewDetails({ run, repository }: { run: ReviewRunDto; repository: string }) {
   const investigation = run.investigation;
   const validations = investigation?.validations ?? [];
   const evidence = run.evidence;
@@ -61,7 +60,6 @@ export default function ReviewDetails({ run, repository, findings = [] }: { run:
       <p className="agr-learning-cards__scope">
         {run.scope === 'FULL' ? 'Full review' : 'Incremental review'} · {run.priorHeadSha === null ? run.baseRef : shortSha(run.priorHeadSha)} → {shortSha(run.headSha)}
       </p>
-      <ReviewContextDetails run={run} findings={findings} />
       {investigation !== null && <>
         <h3>Change understanding</h3>
         <MarkdownBody body={investigation.changeMap} repository={repository} />

@@ -22,15 +22,11 @@ import com.bytequay.core.context.ContextGrade;
 import com.bytequay.core.context.ContextGradeStore;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextReference;
-import com.bytequay.core.context.ContextSelectedEntry;
 import com.bytequay.core.context.ContextSourceEvidence;
 import com.bytequay.core.context.ContextUsageEvent;
 import com.bytequay.core.context.DevelopmentContextReceiptStore;
 import com.bytequay.core.context.RepositoryNotebook;
-import com.bytequay.core.context.ReviewContextSnapshot;
-import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
-import com.bytequay.core.review.ReviewRun;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -215,32 +211,6 @@ public class ContextGradeService
         return notebook.replaced().stream().filter(entry -> entry.id().equals(entryId)).findFirst();
     }
 
-    /**
-     * Saves a review's grade of an exact version its run received or opened; the caller captured the cited lines at the
-     * run's monitored baseline. Reviews cannot change notes, so a Wrong stays an open report.
-     */
-    public ContextGrade gradeByReview(String workspaceId, String taskId, String runId, String baseline, String entryId, long version, ContextGrade.Grade grade,
-            String reason, Optional<String> quote, List<ContextGrade.Citation> citations)
-    {
-        RepositoryNotebook notebook = notebooks.getNotebook(workspaceId);
-        ContextEntry graded;
-        if (quote.isPresent()) {
-            graded = requireStatement(workspaceId, notebook, entryId, version, grade, quote.orElseThrow());
-            Set<String> cited = ImmutableSet.copyOf(graded.sourceIds());
-            checkArgument(!checker.newerThan(workspaceId, baseline, notebook.sourceEvidence().stream().filter(source -> cited.contains(source.id())).toList()),
-                    "This note was saved from code newer than the review's baseline; don't dispute it from older code");
-        }
-        else {
-            graded = Stream.concat(notebook.entries().stream(), notebook.replaced().stream())
-                    .filter(value -> value.id().equals(entryId) && value.version() == version).findFirst()
-                    .orElseThrow(() -> new IllegalArgumentException("That note version is no longer kept; grade the version you read now"));
-        }
-        ContextGrade saved = new ContextGrade(workspaceId, taskId, Optional.of(runId), ContextUsageEvent.TaskKind.PR_REVIEW, ContextGrade.Grader.AGENT, grade,
-                ContextUsageEvent.Note.from(graded), reason, quote, citations, Optional.empty(), Instant.now(clock));
-        save(saved);
-        return saved;
-    }
-
     static String text(ContextEntry entry)
     {
         StringBuilder text = new StringBuilder(entry.title()).append('\n').append(entry.summary()).append('\n').append(entry.body());
@@ -262,19 +232,6 @@ public class ContextGradeService
                 default -> false;
             };
         });
-    }
-
-    /** Whether a review run received this exact note version in its captured packet or opened it with an exact read. */
-    public boolean receivedByReview(ReviewRun run, String entryId, long version)
-    {
-        return run.context().filter(ReviewContextSnapshot::enabled).map(snapshot -> snapshot.selectedEntries().stream()
-                        .anyMatch(entry -> entry.entryId().equals(entryId) && entry.entryVersion() == version && entry.inclusion() == ContextSelectedEntry.Inclusion.INCLUDED))
-                .orElse(false)
-                || run.operations().entrySet().stream().filter(operation -> operation.getKey().startsWith(NOTE_READ_PREFIX)).anyMatch(operation -> {
-                    JsonNode result = tree(operation.getValue().result());
-                    return result.path("status").asText().equals("AVAILABLE") && result.path("entryId").asText().equals(entryId)
-                            && result.path("entryVersion").asLong() == version;
-                });
     }
 
     /**
@@ -317,29 +274,17 @@ public class ContextGradeService
                 .map(entry -> reportsFor(workspaceId, entry)).orElse(ImmutableList.of());
     }
 
-    /** The user reports a note version one of the workspace's tasks or reviews received or opened as wrong. */
+    /** The user reports a note version one of the workspace's tasks received or opened as wrong. */
     public ContextGrade report(String workspaceId, String taskId, String entryId, long version, String reason)
     {
-        Optional<AgentReview> review = reviews.findReviewByTask(taskId);
-        Optional<String> runId;
-        if (review.isPresent()) {
-            checkArgument(review.orElseThrow().workspaceId().equals(workspaceId), "The review belongs to another workspace");
-            runId = reviews.listRuns(review.orElseThrow().id()).stream().filter(run -> receivedByReview(run, entryId, version)).map(ReviewRun::id)
-                    .reduce((earlier, later) -> later);
-            checkArgument(runId.isPresent(), "Report only a note version this review received or opened");
-        }
-        else {
-            AgentTask task = tasks.find(TaskId.valueOf(taskId)).orElseThrow(() -> new ContextNotFoundException("Task not found"));
-            checkArgument(task.workspaceId().filter(workspaceId::equals).isPresent(), "The task belongs to another workspace");
-            checkArgument(received(taskId, entryId, version), "Report only a note version this task received or opened");
-            runId = Optional.empty();
-        }
+        AgentTask task = tasks.find(TaskId.valueOf(taskId)).orElseThrow(() -> new ContextNotFoundException("Task not found"));
+        checkArgument(task.workspaceId().filter(workspaceId::equals).isPresent(), "The task belongs to another workspace");
+        checkArgument(received(taskId, entryId, version), "Report only a note version this task received or opened");
         RepositoryNotebook notebook = notebooks.getNotebook(workspaceId);
         ContextEntry entry = Stream.concat(notebook.entries().stream(), notebook.replaced().stream())
                 .filter(value -> value.id().equals(entryId) && value.version() == version).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("That note version is no longer kept; open the note to report its current version"));
-        ContextGrade grade = new ContextGrade(workspaceId, taskId, runId,
-                runId.isPresent() ? ContextUsageEvent.TaskKind.PR_REVIEW : ContextUsageEvent.TaskKind.DEVELOPMENT, ContextGrade.Grader.USER,
+        ContextGrade grade = new ContextGrade(workspaceId, taskId, Optional.empty(), ContextUsageEvent.TaskKind.DEVELOPMENT, ContextGrade.Grader.USER,
                 ContextGrade.Grade.WRONG, ContextUsageEvent.Note.from(entry), reason.strip(), Optional.empty(), ImmutableList.of(), Optional.empty(), Instant.now(clock));
         grades.save(grade);
         return grade;

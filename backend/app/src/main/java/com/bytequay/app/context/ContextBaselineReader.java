@@ -17,8 +17,6 @@ import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextReference;
-import com.bytequay.core.context.ReviewContextSnapshot;
-import com.bytequay.core.review.ReviewRun;
 import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Service;
 
@@ -55,31 +53,6 @@ public class ContextBaselineReader
     {
         this.git = requireNonNull(git, "git is null");
         this.clock = requireNonNull(clock, "clock is null");
-    }
-
-    /**
-     * Captures an exact source window from a regular blob at the run's immutable monitored baseline.
-     *
-     * @param workspace trusted local repository routing, resolved by the application
-     * @param run owning context-enabled run; its captured baseline is the only accepted revision
-     * @param path literal repository-relative file path
-     * @param startLine first one-based line; an empty file accepts only line one
-     * @param endLine optional inclusive last line; omission defaults to 200 lines from the start
-     * @return backend-observed source identity and a line-numbered UTF-8 excerpt of at most 16 KiB
-     * @throws IllegalArgumentException for unavailable context, mismatched repository identity, invalid ranges,
-     *         non-regular files, incomplete Git output or unsupported binary/non-UTF-8 content
-     *
-     * No worktree/index content, replacement object, lazy fetch or model-provided revision participates.
-     * A complete blob must fit within 2 MiB before line counts or excerpts are reported.
-     */
-    public Read read(WorkspaceRepositoryContext workspace, ReviewRun run, String path, int startLine, Optional<Integer> endLine)
-    {
-        requireNonNull(workspace, "workspace is null");
-        requireNonNull(run, "run is null");
-        ReviewContextSnapshot snapshot = run.context().filter(ReviewContextSnapshot::enabled)
-                .orElseThrow(() -> new IllegalArgumentException("Repository context was not enabled for this run"));
-        String baseline = snapshot.baselineSha().orElseThrow(() -> new IllegalArgumentException("The frozen monitored baseline is unavailable"));
-        return read(workspace, snapshot.repositoryId(), baseline, path, startLine, endLine);
     }
 
     /** Reads the same bounded evidence for an application-owned learning task without requiring a PR or review run. */

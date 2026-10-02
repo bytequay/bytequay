@@ -33,9 +33,6 @@ import com.bytequay.core.context.ContextSourceEvidence;
 import com.bytequay.core.context.ContextSourceRead;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
-import com.bytequay.core.context.ReviewContextSnapshot;
-import com.bytequay.core.review.AgentReview;
-import com.bytequay.core.review.ReviewRun;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -490,25 +487,6 @@ public class RepositoryContextPreparation
                     }
                 }
             }
-        }
-
-        /** Resolves the existing review's captured baseline and sources without manufacturing a review for standalone work. */
-        public Execution(AgentReview review, ReviewRun run, String turnId, String turnKey)
-        {
-            this(review.workspaceId(), review.repo(), context(review, run).repositoryId(), context(review, run).baselineSha().orElseThrow(),
-                    review.taskId(), turnId, turnKey, Optional.of(review.id()), Optional.of(run.id()), context(review, run).sourceReads(),
-                    run.evidence().entrySet().stream()
-                            .filter(entry -> context(review, run).sourceReads().stream().anyMatch(read -> read.evidenceRef().equals(Optional.of(entry.getKey()))))
-                            .collect(toImmutableMap(Map.Entry::getKey,
-                                    entry -> new CapturedSource(entry.getValue().provenance(), entry.getValue().excerpt()))));
-        }
-
-        private static ReviewContextSnapshot context(AgentReview review, ReviewRun run)
-        {
-            checkArgument(review.id().equals(run.reviewId()), "Preparation run belongs to another review");
-            ReviewContextSnapshot snapshot = run.context().orElseThrow(() -> new IllegalArgumentException("Run has no captured repository context"));
-            checkArgument(snapshot.enabled() && snapshot.baselineSha().isPresent(), "Preparation requires enabled context and a captured baseline");
-            return snapshot;
         }
     }
 

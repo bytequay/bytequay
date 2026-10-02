@@ -30,14 +30,8 @@ import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.ContextSourceEvidence;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
-import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.review.AgentReview;
-import com.bytequay.core.review.AgentReviewStore;
-import com.bytequay.core.review.ReviewEvidence;
-import com.bytequay.core.review.ReviewMessage;
-import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -53,10 +47,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalInt;
-import java.util.OptionalLong;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.stream.IntStream;
@@ -70,7 +61,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestRepositoryContextService
@@ -84,8 +74,7 @@ class TestRepositoryContextService
     private final InMemoryAppSettingsStore settings = new InMemoryAppSettingsStore();
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new JavaTimeModule());
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
-    private final AgentReviewStore reviews = mock(AgentReviewStore.class);
-    private final RepositoryContextService service = new RepositoryContextService(settings, mapper, workspaces, reviews, Clock.systemUTC());
+    private final RepositoryContextService service = new RepositoryContextService(settings, mapper, workspaces, Clock.systemUTC());
 
     @BeforeEach
     void workspaceExists()
@@ -106,11 +95,10 @@ class TestRepositoryContextService
         assertThat(settings.get(KEY)).isEmpty();
         RepositoryNotebook saved = service.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.empty()));
         String json = settings.get(KEY).orElseThrow();
-        assertThat(new RepositoryContextService(settings, mapper, workspaces, reviews, Clock.systemUTC()).getNotebook(WORKSPACE)).isEqualTo(saved);
+        assertThat(new RepositoryContextService(settings, mapper, workspaces, Clock.systemUTC()).getNotebook(WORKSPACE)).isEqualTo(saved);
         assertThat(saved.useInReviews()).isFalse();
         assertThat(saved.revision()).isEqualTo(1);
         assertThat(settings.get(KEY)).contains(json);
-        verifyNoInteractions(reviews);
     }
 
     @Test
@@ -190,7 +178,7 @@ class TestRepositoryContextService
         assertThat(saved.scopes()).containsExactly(project, scope);
         assertThat(saved.sources()).containsExactly(source);
         assertThat(saved.sourceEvidence()).containsExactly(module, readme);
-        assertThat(new RepositoryContextService(settings, mapper, workspaces, reviews, Clock.systemUTC()).getNotebook(WORKSPACE)).isEqualTo(saved);
+        assertThat(new RepositoryContextService(settings, mapper, workspaces, Clock.systemUTC()).getNotebook(WORKSPACE)).isEqualTo(saved);
         assertThatThrownBy(() -> service.registerDiscovered(WORKSPACE, before.revision(), ImmutableList.of(scope), ImmutableList.of(), ImmutableList.of()))
                 .isInstanceOf(ContextConflictException.class);
         assertThatThrownBy(() -> service.registerDiscovered(WORKSPACE, saved.revision(), ImmutableList.of(scope), ImmutableList.of(), ImmutableList.of()))
@@ -198,7 +186,6 @@ class TestRepositoryContextService
         assertThatThrownBy(() -> service.registerDiscovered(WORKSPACE, saved.revision(), ImmutableList.of(), ImmutableList.of(source), ImmutableList.of()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("source identity already exists");
         assertThat(service.getNotebook(WORKSPACE)).isEqualTo(saved);
-        verifyNoInteractions(reviews);
     }
 
     @Test
@@ -294,7 +281,7 @@ class TestRepositoryContextService
     void staleConcurrentEditorsCannotOverwriteEachOther()
             throws Exception
     {
-        RepositoryContextService other = new RepositoryContextService(settings, mapper, workspaces, reviews, Clock.systemUTC());
+        RepositoryContextService other = new RepositoryContextService(settings, mapper, workspaces, Clock.systemUTC());
         CountDownLatch start = new CountDownLatch(1);
         try (var executor = Executors.newFixedThreadPool(2)) {
             var first = executor.submit(() -> {
@@ -518,7 +505,7 @@ class TestRepositoryContextService
         assertThat(edited.replaced()).hasSize(250);
         assertThat(edited.scopes()).hasSize(256);
         assertThat(edited.scopes().stream().flatMap(scope -> scope.preparation().stream()).mapToLong(result -> result.inputFingerprint().inputBytes()).sum())
-                .isGreaterThan(ReviewContextSnapshot.MAXIMUM_INPUT_BYTES).isLessThanOrEqualTo(ContextLimits.MAX_STORED_INPUT_BYTES);
+                .isGreaterThan(ActiveContextPreparation.MAXIMUM_INPUT_BYTES).isLessThanOrEqualTo(ContextLimits.MAX_STORED_INPUT_BYTES);
         assertThat(edited.sources()).hasSize(200);
         assertThat(edited.sourceEvidence()).hasSize(4000);
         List<ContextEntry> tooMany = ImmutableList.<ContextEntry>builder().addAll(accumulated.entries())
@@ -541,41 +528,6 @@ class TestRepositoryContextService
         settings.put(KEY, settings.get(KEY).orElseThrow() + " ".repeat(ContextLimits.MAX_STORED_NOTEBOOK_BYTES));
         assertThatThrownBy(() -> service.getNotebook(WORKSPACE)).isInstanceOf(ContextStorageException.class)
                 .hasRootCauseMessage("Saved notebook exceeds UTF-8 limit");
-    }
-
-    @Test
-    void savedLessonCopiesOnlySameWorkspaceRunEvidenceAndRetainsItAfterSourceDisappears()
-    {
-        when(reviews.findReview("review")).thenReturn(Optional.of(review(WORKSPACE)));
-        ReviewRun run = run(ImmutableMap.of("e1",
-                new ReviewEvidence("e1", "base source " + "b".repeat(40), "Frozen source read", "Actual retained contract", "Explanation")));
-        when(reviews.findRun("run")).thenReturn(Optional.of(run));
-        RepositoryNotebook saved = service.saveLesson(WORKSPACE, 0, lesson("review", "run", "e1"));
-        assertThat(saved.entries().getFirst().origin()).isEqualTo(USER);
-        assertThat(saved.sourceEvidence().getFirst().excerpt()).isEqualTo("Actual retained contract");
-        assertThat(saved.sourceEvidence().getFirst().provenance())
-                .contains("Copied stored review evidence", "b".repeat(40), "Frozen source read", "Explanation", "Reviewed head", HEAD);
-        assertThat(saved.sourceEvidence().getFirst().version()).isEmpty();
-        assertThat(saved.sourceEvidence().getFirst().reference()).isEqualTo(new ContextReference.Review("review", "run", Optional.of("e1"), Optional.empty()));
-        when(reviews.findRun("run")).thenReturn(Optional.empty());
-        assertThat(new RepositoryContextService(settings, mapper, workspaces, reviews, Clock.systemUTC()).getNotebook(WORKSPACE)).isEqualTo(saved);
-        when(reviews.findReview("review")).thenReturn(Optional.of(review("another-workspace")));
-        assertThatThrownBy(() -> service.saveLesson(WORKSPACE, 1, lesson("review", "run", "e1")))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("another workspace");
-        assertThat(service.getNotebook(WORKSPACE)).isEqualTo(saved);
-    }
-
-    @Test
-    void discussionSourceMustBelongToSelectedRun()
-    {
-        when(reviews.findReview("review")).thenReturn(Optional.of(review(WORKSPACE)));
-        when(reviews.findRun("run")).thenReturn(Optional.of(run(ImmutableMap.of())));
-        ReviewMessage message = new ReviewMessage("message", "review", Optional.empty(), Optional.empty(), ReviewMessage.Author.USER,
-                "Discussion", 1, "different-run", Optional.empty(), Optional.empty(), 0, Instant.EPOCH);
-        when(reviews.listMessages("review")).thenReturn(ImmutableList.of(message));
-        SaveContextLesson lesson = new SaveContextLesson("project", "Lesson", "Summary", "Body", "review", "run", ImmutableList.of(), Optional.of("message"));
-        assertThatThrownBy(() -> service.saveLesson(WORKSPACE, 0, lesson)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("another run");
-        assertThat(settings.get(KEY)).isEmpty();
     }
 
     @Test
@@ -688,19 +640,6 @@ class TestRepositoryContextService
         assertThat(settings.get(KEY)).isEmpty();
     }
 
-    private static AgentReview review(String workspaceId)
-    {
-        return new AgentReview("review", workspaceId, "example/repository", OptionalInt.of(1), OptionalLong.empty(), "task", Optional.empty(), AgentReview.State.OPEN,
-                false, Optional.empty(), Optional.of(HEAD), Optional.of(HEAD), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
-    }
-
-    private static ReviewRun run(Map<String, ReviewEvidence> evidence)
-    {
-        return new ReviewRun("run", "review", 1, ReviewRun.Scope.FULL, "main", "b".repeat(40), "b".repeat(40), HEAD, Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(),
-                ImmutableList.of(), false, ImmutableMap.of(), evidence, Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
-    }
-
     private void seedGenerated()
             throws Exception
     {
@@ -770,11 +709,6 @@ class TestRepositoryContextService
     {
         return new ContextEntry("knowledge:project:" + index, KNOWLEDGE, "project", "Note " + index, "Summary", body,
                 ImmutableList.of(), sourceIds, USER, true, 1);
-    }
-
-    private static SaveContextLesson lesson(String review, String run, String evidence)
-    {
-        return new SaveContextLesson("project", "Lesson", "Summary", "Conditional lesson", review, run, ImmutableList.of(evidence), Optional.empty());
     }
 
     private static String attemptEdit(RepositoryContextService service, String text)

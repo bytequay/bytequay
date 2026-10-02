@@ -22,18 +22,14 @@ import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextLimits;
-import com.bytequay.core.context.ContextPacket;
 import com.bytequay.core.context.ContextReference;
-import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssueDetail;
-import com.bytequay.core.review.ReviewRun;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.Test;
 
@@ -83,7 +79,7 @@ class TestContextHistoryReader
         when(diffs.read(REPO.fullName(), NUMBER, Optional.empty(), false)).thenReturn(diff(ImmutableList.of(
                 new DiffFile("src/File.java", "modified", 1, 1, "@@ -1 +1 @@\n-old\n+new"))));
 
-        ContextHistoryReader.Read read = reader.read(WORKSPACE, run(true, 9), PR, NUMBER);
+        ContextHistoryReader.Read read = reader.read(WORKSPACE, PR, NUMBER);
 
         assertThat(read.reference()).isEqualTo(new ContextReference.PullRequest(9, REPO, NUMBER, Optional.empty()));
         assertThat(read.state()).isEqualTo(ContextHistoryRead.State.MERGED);
@@ -105,11 +101,11 @@ class TestContextHistoryReader
     void requiresActualMergedAtAndMatchingSelectedPrIdentity()
     {
         selected(detail(null, UPDATED, "Closed without merge", ImmutableList.of()), false);
-        assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, run(true, 9), PR, NUMBER)).withMessageContaining("merge timestamp");
+        assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, PR, NUMBER)).withMessageContaining("merge timestamp");
         when(pullRequests.read(REPO.fullName(), NUMBER + 1, SelectedPullRequestReader.Section.TIMELINE))
                 .thenReturn(new SelectedPullRequestReader.Read(detail(NOW, UPDATED, "Wrong number", ImmutableList.of()), Optional.of(UPDATED), Optional.of(NOW),
                         Optional.of(SHA), false, false, false, false));
-        assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, run(true, 9), PR, NUMBER + 1)).withMessageContaining("identity");
+        assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, PR, NUMBER + 1)).withMessageContaining("identity");
         verifyNoInteractions(diffs);
     }
 
@@ -119,7 +115,7 @@ class TestContextHistoryReader
         selected(detail(NOW, UPDATED, "Cached rationale", ImmutableList.of()), true);
         when(diffs.read(REPO.fullName(), NUMBER, Optional.empty(), false)).thenThrow(new IllegalStateException("Provider unavailable"));
 
-        ContextHistoryReader.Read read = reader.read(WORKSPACE, run(true, 9), PR, NUMBER);
+        ContextHistoryReader.Read read = reader.read(WORKSPACE, PR, NUMBER);
 
         assertThat(read.refreshFailed()).isTrue();
         assertThat(read.excerpt()).contains("Cached rationale", "refreshFailed=true", "Original cached data", "default diff could not be read");
@@ -135,7 +131,7 @@ class TestContextHistoryReader
         RepositoryIssueDetail detail = issueDetail(NOW, "Closed as duplicate; no fix established");
         when(issues.detail("workspace", NUMBER)).thenReturn(detail);
 
-        ContextHistoryReader.Read read = reader.read(WORKSPACE, run(true, 9), ISSUE, NUMBER);
+        ContextHistoryReader.Read read = reader.read(WORKSPACE, ISSUE, NUMBER);
 
         assertThat(read.reference()).isEqualTo(new ContextReference.Issue(9, REPO, NUMBER, Optional.empty()));
         assertThat(read.state()).isEqualTo(ContextHistoryRead.State.CLOSED);
@@ -157,7 +153,7 @@ class TestContextHistoryReader
         when(issues.detail("workspace", NUMBER)).thenReturn(RepositoryIssueDetail.empty(9, NUMBER));
         when(issueRefresh.refreshDetail("workspace", NUMBER)).thenReturn(issueDetail(NOW, "Closure activity"));
 
-        ContextHistoryReader.Read read = reader.read(WORKSPACE, run(true, 9), ISSUE, NUMBER);
+        ContextHistoryReader.Read read = reader.read(WORKSPACE, ISSUE, NUMBER);
 
         assertThat(read.excerpt()).contains("Closure activity");
         assertThat(read.provenance()).contains("activityRefreshAttempted=true", "activityRefreshedAt=" + NOW);
@@ -174,7 +170,7 @@ class TestContextHistoryReader
         when(issues.detail("workspace", NUMBER)).thenReturn(issueDetail(cachedAt, "Original cached discussion"));
         when(issueRefresh.refreshDetail("workspace", NUMBER)).thenThrow(new IllegalStateException("Unavailable"));
 
-        ContextHistoryReader.Read read = reader.read(WORKSPACE, run(true, 9), ISSUE, NUMBER);
+        ContextHistoryReader.Read read = reader.read(WORKSPACE, ISSUE, NUMBER);
 
         assertThat(read.refreshFailed()).isTrue();
         assertThat(read.excerpt()).contains("Original cached discussion", "original cached activity and timestamps", "may omit the closure");
@@ -186,11 +182,11 @@ class TestContextHistoryReader
     void rejectsOpenIssuesPullRequestsAndFailedTerminalProofWithoutReadingActivity()
     {
         preview("open", false, UPDATED);
-        assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, run(true, 9), ISSUE, NUMBER)).withMessageContaining("closed issue");
+        assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, ISSUE, NUMBER)).withMessageContaining("closed issue");
         preview("closed", true, UPDATED);
-        assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, run(true, 9), ISSUE, NUMBER)).withMessageContaining("closed issue");
+        assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, ISSUE, NUMBER)).withMessageContaining("closed issue");
         when(repositories.getIssuePreview("owner", "repo", NUMBER)).thenThrow(new IllegalStateException("Preview unavailable"));
-        assertThatThrownBy(() -> reader.read(WORKSPACE, run(true, 9), ISSUE, NUMBER)).isInstanceOf(IllegalStateException.class).hasMessage("Preview unavailable");
+        assertThatThrownBy(() -> reader.read(WORKSPACE, ISSUE, NUMBER)).isInstanceOf(IllegalStateException.class).hasMessage("Preview unavailable");
         verifyNoInteractions(issues, issueRefresh, pullRequests, diffs);
     }
 
@@ -199,10 +195,10 @@ class TestContextHistoryReader
     {
         preview("closed", false, UPDATED);
         when(issues.detail("workspace", NUMBER)).thenReturn(RepositoryIssueDetail.empty(1, NUMBER));
-        assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, run(true, 9), ISSUE, NUMBER)).withMessageContaining("identity");
+        assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, ISSUE, NUMBER)).withMessageContaining("identity");
         when(issues.detail("workspace", NUMBER)).thenReturn(issueDetail(UPDATED.minusSeconds(1), "Original"));
         when(issueRefresh.refreshDetail("workspace", NUMBER)).thenReturn(RepositoryIssueDetail.empty(1, NUMBER));
-        ContextHistoryReader.Read read = reader.read(WORKSPACE, run(true, 9), ISSUE, NUMBER);
+        ContextHistoryReader.Read read = reader.read(WORKSPACE, ISSUE, NUMBER);
         assertThat(read.refreshFailed()).isTrue();
         assertThat(read.excerpt()).contains("Original");
     }
@@ -215,7 +211,7 @@ class TestContextHistoryReader
         when(diffs.read(REPO.fullName(), NUMBER, Optional.empty(), false)).thenReturn(diff(IntStream.range(0, 4)
                 .mapToObj(index -> new DiffFile("file-" + index, "modified", 1, 0, "😀".repeat(500))).collect(toImmutableList())));
 
-        ContextHistoryReader.Read read = reader.read(WORKSPACE, run(true, 9), PR, NUMBER);
+        ContextHistoryReader.Read read = reader.read(WORKSPACE, PR, NUMBER);
 
         assertThat(read.truncated()).isTrue();
         assertThat(ContextLimits.bytes(read.excerpt())).isBetween(1, 16 * 1024);
@@ -236,7 +232,7 @@ class TestContextHistoryReader
         selected(detail(NOW, UPDATED, "Rationale", activity), false);
         when(diffs.read(REPO.fullName(), NUMBER, Optional.empty(), false)).thenReturn(diff(ImmutableList.of()));
 
-        ContextHistoryReader.Read read = reader.read(WORKSPACE, run(true, 9), PR, NUMBER);
+        ContextHistoryReader.Read read = reader.read(WORKSPACE, PR, NUMBER);
 
         assertThat(read.excerpt()).contains("Final merge explanation", "Earlier PR discussion 2\n", "Earlier PR discussion 20\n")
                 .doesNotContain("Earlier PR discussion 0\n", "Earlier PR discussion 1\n", "Undated PR discussion");
@@ -260,7 +256,7 @@ class TestContextHistoryReader
                 .build();
         when(issues.detail("workspace", NUMBER)).thenReturn(new RepositoryIssueDetail(9, NUMBER, timeline, null, ImmutableList.of(), Optional.of(NOW)));
 
-        ContextHistoryReader.Read read = reader.read(WORKSPACE, run(true, 9), ISSUE, NUMBER);
+        ContextHistoryReader.Read read = reader.read(WORKSPACE, ISSUE, NUMBER);
 
         assertThat(read.excerpt()).contains("Closure explanation", "Closure follow-up", "Same-time event without ID", "Earlier issue discussion 4\n")
                 .doesNotContain("Earlier issue discussion 0\n", "Earlier issue discussion 3\n", "Undated issue discussion");
@@ -276,11 +272,11 @@ class TestContextHistoryReader
     {
         preview("closed", false, UPDATED);
         when(issues.detail("workspace", NUMBER)).thenReturn(issueDetail(NOW, "Same discussion"));
-        ContextHistoryReader.Read first = reader.read(WORKSPACE, run(true, 9), ISSUE, NUMBER);
+        ContextHistoryReader.Read first = reader.read(WORKSPACE, ISSUE, NUMBER);
         ContextHistoryReader later = new ContextHistoryReader(pullRequests, diffs, repositories, issues, issueRefresh, Clock.fixed(NOW.plusSeconds(60), ZoneOffset.UTC));
-        assertThat(later.read(WORKSPACE, run(true, 9), ISSUE, NUMBER).contentHash()).isEqualTo(first.contentHash());
+        assertThat(later.read(WORKSPACE, ISSUE, NUMBER).contentHash()).isEqualTo(first.contentHash());
         preview("closed", false, UPDATED.plusSeconds(1));
-        assertThat(reader.read(WORKSPACE, run(true, 9), ISSUE, NUMBER).contentHash()).isNotEqualTo(first.contentHash());
+        assertThat(reader.read(WORKSPACE, ISSUE, NUMBER).contentHash()).isNotEqualTo(first.contentHash());
     }
 
     @Test
@@ -290,8 +286,8 @@ class TestContextHistoryReader
         RepositoryIssueDetail detail = issueDetail(NOW, "Same closed discussion");
         when(issues.detail("workspace", NUMBER)).thenReturn(RepositoryIssueDetail.empty(9, NUMBER), detail);
         when(issueRefresh.refreshDetail("workspace", NUMBER)).thenReturn(detail);
-        ContextHistoryReader.Read refreshedIssue = reader.read(WORKSPACE, run(true, 9), ISSUE, NUMBER);
-        ContextHistoryReader.Read cachedIssue = reader.read(WORKSPACE, run(true, 9), ISSUE, NUMBER);
+        ContextHistoryReader.Read refreshedIssue = reader.read(WORKSPACE, ISSUE, NUMBER);
+        ContextHistoryReader.Read cachedIssue = reader.read(WORKSPACE, ISSUE, NUMBER);
         assertThat(refreshedIssue.provenance()).contains("activityRefreshAttempted=true");
         assertThat(cachedIssue.provenance()).contains("activityRefreshAttempted=false");
         assertThat(cachedIssue.contentHash()).isEqualTo(refreshedIssue.contentHash());
@@ -301,20 +297,17 @@ class TestContextHistoryReader
                 new SelectedPullRequestReader.Read(pr, Optional.of(UPDATED), Optional.of(NOW), Optional.of(SHA), true, false, false, false),
                 new SelectedPullRequestReader.Read(pr, Optional.of(UPDATED), Optional.of(NOW.plusSeconds(1)), Optional.of(SHA), false, false, false, false));
         when(diffs.read(REPO.fullName(), NUMBER, Optional.empty(), false)).thenReturn(diff(ImmutableList.of()));
-        ContextHistoryReader.Read refreshedPr = reader.read(WORKSPACE, run(true, 9), PR, NUMBER);
-        ContextHistoryReader.Read cachedPr = reader.read(WORKSPACE, run(true, 9), PR, NUMBER);
+        ContextHistoryReader.Read refreshedPr = reader.read(WORKSPACE, PR, NUMBER);
+        ContextHistoryReader.Read cachedPr = reader.read(WORKSPACE, PR, NUMBER);
         assertThat(refreshedPr.provenance()).contains("refreshAttempted=true");
         assertThat(cachedPr.provenance()).contains("refreshAttempted=false");
         assertThat(cachedPr.contentHash()).isEqualTo(refreshedPr.contentHash());
     }
 
     @Test
-    void rejectsOffAbsentDifferentRepositoryAndInvalidNumberBeforeSourceReads()
+    void rejectsAnInvalidNumberBeforeSourceReads()
     {
-        for (ReviewRun run : ImmutableList.of(runWithoutContext(), run(false, 9), run(true, 1))) {
-            assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, run, PR, NUMBER));
-        }
-        assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, run(true, 9), ISSUE, 0));
+        assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, ISSUE, 0));
         verifyNoInteractions(pullRequests, diffs, repositories, issues, issueRefresh);
     }
 
@@ -360,20 +353,5 @@ class TestContextHistoryReader
         ContextHistoryRead receipt = new ContextHistoryRead("context-read:test", read.reference(), read.state(), read.sourceUpdatedAt(), read.sourceRevision(),
                 read.contentHash(), read.readAt(), ContextLimits.bytes(read.excerpt()), read.truncated(), read.refreshFailed(), read.gaps(), Optional.of("E1"));
         receipt.checkExcerpt(read.excerpt());
-    }
-
-    private static ReviewRun run(boolean enabled, long repositoryId)
-    {
-        ReviewContextSnapshot snapshot = new ReviewContextSnapshot("context:run", enabled, 0, repositoryId, Optional.of(SHA),
-                enabled ? Optional.of(ContextPacket.create("Prepared context")) : Optional.empty(), ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
-        return runWithoutContext().withContext(snapshot, ImmutableMap.of(), NOW);
-    }
-
-    private static ReviewRun runWithoutContext()
-    {
-        return new ReviewRun("run", "review", 1, ReviewRun.Scope.FULL, "main", SHA, SHA, "c".repeat(40), Optional.empty(), ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableMap.of(),
-                ImmutableMap.of(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
     }
 }

@@ -19,12 +19,9 @@ import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
-import com.bytequay.app.context.ContextUsageRecorder;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
-import com.bytequay.core.context.ContextUsageEvent;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
-import com.google.common.collect.ImmutableSet;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,8 +38,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Flow;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import static java.util.Objects.requireNonNull;
 
@@ -58,9 +53,6 @@ import static java.util.Objects.requireNonNull;
 public class ReviewTaskObserver
 {
     private static final Logger log = LoggerFactory.getLogger(ReviewTaskObserver.class);
-    private static final long USAGE_REPLAY_EVENTS = 5000;
-    private static final Pattern CONTEXT_RECEIPT = Pattern.compile("^context-receipt:(context-(search|note):[0-9a-f-]{36,64})$");
-    private static final Set<String> REVIEW_CONTEXT_TOOLS = ImmutableSet.of("bytequay/review_get_context", "mcp__bytequay__review_get_context");
     private static final Set<AgentEventPayload.LifecyclePhase> SETTLING = EnumSet.of(
             AgentEventPayload.LifecyclePhase.TURN_COMPLETED,
             AgentEventPayload.LifecyclePhase.INTERRUPTED,
@@ -80,7 +72,6 @@ public class ReviewTaskObserver
     private final ObjectProvider<AgentReviewService> reviews;
     private final ObjectProvider<PullRequestRefreshService> refresh;
     private final ObjectProvider<LocalRunService> localRuns;
-    private final ContextUsageRecorder usage;
     private final Map<String, Flow.Subscription> subscriptions = new ConcurrentHashMap<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("review-reconcile-", 0).factory());
 
@@ -90,8 +81,7 @@ public class ReviewTaskObserver
             AgentTurnStore turns,
             ObjectProvider<AgentReviewService> reviews,
             ObjectProvider<PullRequestRefreshService> refresh,
-            ObjectProvider<LocalRunService> localRuns,
-            ContextUsageRecorder usage)
+            ObjectProvider<LocalRunService> localRuns)
     {
         this.events = requireNonNull(events, "events is null");
         this.store = requireNonNull(store, "store is null");
@@ -99,7 +89,6 @@ public class ReviewTaskObserver
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.refresh = requireNonNull(refresh, "refresh is null");
         this.localRuns = requireNonNull(localRuns, "localRuns is null");
-        this.usage = requireNonNull(usage, "usage is null");
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -107,14 +96,6 @@ public class ReviewTaskObserver
     {
         for (AgentReview review : store.listOpenReviews()) {
             watch(review);
-            executor.execute(() -> {
-                try {
-                    replayUsage(review);
-                }
-                catch (RuntimeException failure) {
-                    log.debug("Review {} could not replay context usage: {}", review.id(), failure.toString());
-                }
-            });
             reconcileLater(review.id());
         }
     }
@@ -182,12 +163,6 @@ public class ReviewTaskObserver
         }
     }
 
-    /** Replays retained receipts before a closed review loses startup recovery. */
-    public void confirmRetainedUsage(AgentReview review)
-    {
-        replayUsage(requireNonNull(review, "review is null"));
-    }
-
     public void reconcileLater(String reviewId)
     {
         executor.execute(() -> {
@@ -233,48 +208,6 @@ public class ReviewTaskObserver
         }
     }
 
-    private void replayUsage(AgentReview review)
-    {
-        TaskId taskId = TaskId.valueOf(review.taskId());
-        Set<String> acceptedTurns = turns.list(taskId).stream()
-                .filter(turn -> turn.providerTurnReference().isPresent()).map(turn -> turn.id().toString())
-                .collect(java.util.stream.Collectors.toSet());
-        store.listRuns(review.id()).stream().flatMap(run -> run.context().stream())
-                .filter(snapshot -> snapshot.deliveries().stream().anyMatch(delivery -> delivery.contributionCount() == 0
-                        && acceptedTurns.contains(delivery.turnId())))
-                .forEach(snapshot -> usage.confirm(review.workspaceId(), snapshot.id(), ContextUsageEvent.Stage.PROVIDED));
-        long latest = events.readHistory(taskId, OptionalLong.empty(), OptionalLong.empty()).latestSequence();
-        long cursor = Math.max(0, latest - USAGE_REPLAY_EVENTS);
-        for (int page = 0; page < 25; page++) {
-            var eventsPage = events.readAfter(taskId, cursor, 200);
-            eventsPage.forEach(event -> confirmUsage(review, event));
-            if (eventsPage.size() < 200) {
-                return;
-            }
-            cursor = eventsPage.getLast().sequence();
-        }
-        log.debug("Review {} has more retained activity than the 5000-event usage replay bound; older unconfirmed context remains prepared", review.id());
-    }
-
-    private void confirmUsage(AgentReview review, AgentEventEnvelope event)
-    {
-        if (!(event.payload() instanceof AgentEventPayload.ToolActivity tool) || tool.state() != ActivityState.COMPLETED
-                || !REVIEW_CONTEXT_TOOLS.contains(tool.name())) {
-            return;
-        }
-        Matcher receipt = CONTEXT_RECEIPT.matcher(tool.summary());
-        if (receipt.matches()) {
-            if (receipt.group(2).equals("search")) {
-                usage.confirm(review.workspaceId(), receipt.group(1), ContextUsageEvent.Stage.FOUND);
-                usage.confirm(review.workspaceId(), receipt.group(1), ContextUsageEvent.Stage.SCOPE_DEMAND);
-                usage.confirm(review.workspaceId(), receipt.group(1), ContextUsageEvent.Stage.NO_MATCH);
-            }
-            else {
-                usage.confirm(review.workspaceId(), receipt.group(1), ContextUsageEvent.Stage.OPENED);
-            }
-        }
-    }
-
     @PreDestroy
     public void close()
     {
@@ -303,18 +236,7 @@ public class ReviewTaskObserver
         @Override
         public void onNext(AgentEventEnvelope item)
         {
-            if (item.payload() instanceof AgentEventPayload.ToolActivity tool && tool.state() == ActivityState.COMPLETED
-                    && REVIEW_CONTEXT_TOOLS.contains(tool.name()) && CONTEXT_RECEIPT.matcher(tool.summary()).matches()) {
-                executor.execute(() -> {
-                    try {
-                        confirmUsage(review, item);
-                    }
-                    catch (RuntimeException failure) {
-                        log.debug("Review {} could not confirm context usage: {}", review.id(), failure.toString());
-                    }
-                });
-            }
-            else if (mirrorsAgentCommand(item)) {
+            if (mirrorsAgentCommand(item)) {
                 mirrorLater(review.id(), item);
             }
             if (item.payload() instanceof AgentEventPayload.Lifecycle lifecycle && SETTLING.contains(lifecycle.phase())) {

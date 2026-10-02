@@ -520,8 +520,7 @@ A summary request over N comments is answered with exactly one JSON object:
 | `plan` | text, about 200 characters | one or two lines; empty when `do` is `no` |
 | `size` | `trivial`, `small`, `big` | the work involved; empty when `do` is `no` |
 
-Validation works in the manner of `ReviewLessonDraftService.parse`. One
-surrounding code fence is removed first. The answer then fails when:
+Validation is strict. One surrounding code fence is removed first. The answer then fails when:
 
 - it is not one JSON object, repeats a key, or has trailing text;
 - the top level has anything but `items`, `items` does not hold exactly N
@@ -711,8 +710,7 @@ button works on the draft.
 
 Review body and issue comment cards have no thread reply editor, so their
 private threads offer no Draft with agent. The design's **Save lesson** link is
-not rendered: lessons are saved from Agent Review messages, whose review and
-run identities a private thread does not have.
+not rendered.
 
 ### 8.7 Passage surfaces
 

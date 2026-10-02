@@ -13,7 +13,6 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
-import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.review.ReviewCommit;
 import com.bytequay.core.review.ReviewCoverage;
@@ -119,9 +118,6 @@ public class AgentReviewRunEntity
     @Column(name = "evidence_json", nullable = false, columnDefinition = "TEXT")
     private String evidenceJson;
 
-    @Column(name = "context_json", columnDefinition = "TEXT")
-    private String contextJson;
-
     @Column(columnDefinition = "TEXT")
     private String outcome;
 
@@ -172,7 +168,6 @@ public class AgentReviewRunEntity
         completionRepairUsed = run.completionRepairUsed();
         operationsJson = REVIEW.write(run.operations(), "review operations");
         evidenceJson = REVIEW.write(run.evidence(), "review evidence");
-        contextJson = run.context().map(value -> REVIEW.write(value, "review context")).orElse(null);
         outcome = run.outcome().orElse(null);
         createdAt = run.createdAt();
         updatedAt = run.updatedAt();
@@ -202,7 +197,6 @@ public class AgentReviewRunEntity
                 completionRepairUsed,
                 REVIEW.read(operationsJson, OPERATIONS, "review operations"),
                 REVIEW.read(evidenceJson, EVIDENCE, "review evidence"),
-                Optional.ofNullable(contextJson).map(json -> REVIEW.read(json, ReviewContextSnapshot.class, "review context")),
                 Optional.ofNullable(outcome),
                 version,
                 createdAt,

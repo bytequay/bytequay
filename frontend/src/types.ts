@@ -48,7 +48,6 @@ import type {
   ReportRepositoryContextNoteRequest,
   RepositoryNotebookDto,
   RestoreRepositoryContextEntryRequest,
-  SaveRepositoryContextLessonRequest,
   SetRepositoryContextEntryEnabledRequest,
   StartContextDiscoveryRequest,
   StartContextLearningRequest,
@@ -62,7 +61,6 @@ import type {
   AgentReviewDto,
   ReviewDraftDto,
   ReviewEvent,
-  ReviewLessonDraftDto,
   ReviewSide,
 } from './pulls/agent-review/contracts';
 import type { WorktreeChangesDto, WorktreeChangesRequest, CodeHostRef, LocalRunDto, LocalRunOutputDto, ReviewCodeFileDto, ReviewCodeFilesDto, ReviewCodeSymbolsDto, RunRefusalDto, SaveConflictDto } from './pulls/code-tests/contracts';
@@ -1691,7 +1689,6 @@ export type Bridge = JiraBridge & {
   getRepositoryContextChangedPages: (workspaceId: string) => Promise<ContextChangedPagesDto>;
   reportRepositoryContextNote: (workspaceId: string, request: ReportRepositoryContextNoteRequest) => Promise<ContextReportedNoteDto[]>;
   disableRepositoryContextRunNotes: (workspaceId: string, request: DisableRepositoryContextRunNotesRequest) => Promise<RepositoryNotebookDto>;
-  saveRepositoryContextLesson: (workspaceId: string, request: SaveRepositoryContextLessonRequest) => Promise<RepositoryNotebookDto>;
   setWorkspaceCommitsTarget: (workspaceId: string, branch: string) => Promise<WorkspaceCommitsTargetDto>;
   clearWorkspaceCommitsTarget: (workspaceId: string) => Promise<WorkspaceCommitsTargetDto>;
   renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceDto>;
@@ -1808,7 +1805,6 @@ export type Bridge = JiraBridge & {
   findTaskAgentReview: (workspaceId: string, taskId: string) => Promise<AgentReviewDto | null>;
   startTaskAgentReview: (workspaceId: string, taskId: string) => Promise<AgentReviewDto>;
   getAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
-  draftReviewLesson: (reviewId: string, messageId: string) => Promise<ReviewLessonDraftDto>;
   stopAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
   getAgentReviewRuntimeStopImpact: (reviewId: string) => Promise<AgentRuntimeStopImpactDto>;
   /** Verifies only this review's retained runtime, keeping its conversation and worktree. */

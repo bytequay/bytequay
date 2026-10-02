@@ -289,9 +289,12 @@ permits an explicit new request. There is no new job engine or learning schedule
 
 ## Repository guideline input
 
-Before review preparation, the same ReviewTurnInputResolver port's guidelines
-read gives every accepted turn the repository's guideline files as delimited,
-untrusted reference data on both lanes, as [Repository memory](repository-memory.md)
+Agent core reads guidelines through the narrow framework-free
+ReviewTurnInputResolver port, outside the task monitor, after the accepted
+message is saved and its transcript event drained and before the provider
+session opens; core then rechecks cancellation and worktree ownership. Every
+accepted turn gets the repository's guideline files as delimited, untrusted
+reference data on both lanes, as [Repository memory](repository-memory.md)
 specifies: `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md` and `DEVELOPMENT.md` at
 the root and under `.github/`, plus, for a review, `CLAUDE.md` or `AGENTS.md`
 in each directory above a changed path. Git reads them at a commit the turn
@@ -304,45 +307,6 @@ counts them. Generated follow-up turns, steering and helper sessions resume a
 thread that already has them and get none. Codex's own `AGENTS.md` loading is
 off and Claude keeps `--setting-sources=`, so both lanes read the same text.
 Guidelines never enter managed instructions or process arguments.
-
-## Review reference input
-
-[Repository Context](repository-context.md) extends accepted review turn input
-through the narrow framework-free ReviewTurnInputResolver port. Agent core calls
-it outside the task monitor, before opening the provider session, after the
-original accepted message is saved and its transcript event drained. The app's
-RepositoryContextTurnInput resolves the current accepted assignment with the
-existing review fence and retains the exact saved packet binding on its source
-run. It returns the original message plus delimited untrusted reference data.
-Core then rechecks cancellation and worktree ownership and supplies that message
-through AgentTurnCommand. A preparation error fails the accepted turn as known
-unsent; no provider session starts. The accepted message/transcript stays unchanged.
-
-Direct starts and queued/resumed turns share this launch path. Initial enabled
-investigation receives the captured bootstrap; validation and collection require
-a sealed brief and receive its immutable contribution prefix. Old-card questions
-resolve the original run's snapshot and saved setting at execution, including
-when queued, without reading today's notebook or moving the worktree. The first
-launch appends a separately retained local discussion capture (up to 8 KiB and
-six excerpts) from same-target private messages and the current PR cache. No
-remote refresh runs in this launch path; cache freshness and selection gaps are
-explicit. Replays reuse the saved capture. Off, absent historical context
-and ordinary non-review tasks add no review reference input. Source bodies travel in
-message/tool-result transport, never managed instructions or process arguments;
-only the small trusted policy is added to enabled review bridge instructions.
-
-Existing turn facts remain the transport authority. Context bindings store turn
-ID, packet prefix/digest/bytes, composed-input digest/bytes and optional discussion
-message identity plus its optional exact discussion supplement/evidence references.
-The review projection derives delivery state from AgentTurn's
-provider reference, startedAt and knownUnsent; a missing receipt is uncertain.
-There is no second delivery status store, acknowledgment turn or automatic resend
-of uncertain input. Packets are bounded to 32 KiB UTF-8, complete composed message
-text to 256 KiB, and bindings to 128 per run. Each completed context contribution
-fits 8 KiB including references/limitations, with one original brief and at most
-two collection supplements. The existing report operation and run update seal
-these values together. Transport fixtures and live provider/quality measurements
-retain their own acceptance gates; stored context does not prove comprehension.
 
 ## Development-agent CI evidence
 
@@ -3228,7 +3192,7 @@ coordinates the narrower interfaces shown in the last column.
 | 1. Create and send | `POST /agent/tasks` with `workspaceId`, first `message`, and idempotency key, never a path | `InteractiveAgentTaskCreator.create(...)` calls `AgentTaskTitleService.generate(...)` before provisioning, then the controller calls `AgentTurnService.start(...)` | `app` verifies readiness, resolves the exact starting commit, and uses a bounded isolated text-only helper to infer intent from the full request and accepted issue context. It freezes a validated clean branch and persists the generated title as `AGENT` with the task. Failure uses a neutral `<login>/bytequay/task-<short-id>` branch and a 36-character provisional label. Replays reuse recorded names; no background rename races with a user rename |
 | 2. Attach | Optional authenticated image upload | `AgentResourceService.storeAttachment(...)` | Validates content and limits, writes a task-owned blob, and returns an opaque `AttachmentRef`; arbitrary renderer paths are rejected |
 | 3. Observe | Open a recent page, scroll for adjacent pages, and subscribe at the latest sequence | `AgentEventService.readHistory(...)`, `subscribe(TaskId, afterSequence)`, and `AgentApprovalService.listPending(TurnId)` | Reads a bounded history window and streams later events under demand; current approvals remain available independently of unloaded history |
-| 4. Start turn | `POST /agent/tasks/{taskId}/turns` | `AgentTurnService.start(StartAgentTurnCommand)` | Rechecks lane readiness before accepting input and writes the bounded message blob. One short `AgentUnitOfWork` reserves the idempotency key and worktree-mutation claim as `ACCEPTED` with the user-message outbox entry. The event drains before provider send; the review-input resolver prepares a saved reference binding outside the task monitor, then core rechecks ownership/cancellation, opens/resumes the session, persists its reference, begins metrics, persists `startedAt`, starts the run, and records `RUNNING` with its provider reference. Failed readiness creates no turn |
+| 4. Start turn | `POST /agent/tasks/{taskId}/turns` | `AgentTurnService.start(StartAgentTurnCommand)` | Rechecks lane readiness before accepting input and writes the bounded message blob. One short `AgentUnitOfWork` reserves the idempotency key and worktree-mutation claim as `ACCEPTED` with the user-message outbox entry. The event drains before provider send; the turn-input resolver reads repository guidelines outside the task monitor, then core rechecks ownership/cancellation, opens/resumes the session, persists its reference, begins metrics, persists `startedAt`, starts the run, and records `RUNNING` with its provider reference. Failed readiness creates no turn |
 | 5. Run | Keep SSE open; steer, queue, cancel, or resolve approvals | `AgentTurnService` and `AgentApprovalService` operations | Display-only provider events pass through `AgentEventService.append(...)`; any provider observation coupled to SQLite state uses `AgentUnitOfWork` plus the event outbox; steer persists and drains its input event before delivery; enqueue conditionally updates the task version with its row/event so it cannot race Complete and does not call the provider; approval resolution and its event commit and drain before the provider callback completes |
 | 6. Finish turn | Read turn state as needed | `AgentTurnService.get(TurnId)` | The root answer remains visible while recursive native status, latest-turn status, child inventory, and background checks verify work has finished. The driver durably records that fact before closing the per-turn App Server. Verified cleanup releases the claim; failed cleanup preserves a proven provider result and retains the claim. A failed provider check supplies no proof and triggers conservative shutdown. Core atomically finalizes metrics/state and terminal events; only a quiescent success may claim the FIFO head |
 | 7. Continue | Send or resume queued input on the same task | `AgentTurnService.start(...)` or `resumeQueued(...)` | Reuses the stored `AgentSessionRef`, creates one new `TurnId`, and launches a new matching-profile process; non-success leaves queued work paused |

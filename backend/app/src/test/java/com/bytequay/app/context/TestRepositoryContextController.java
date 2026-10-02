@@ -54,10 +54,6 @@ class TestRepositoryContextController
             "id":"knowledge:path:plugin/trino-iceberg/","scopeId":"path:plugin/trino-iceberg/",
             "title":"Iceberg","summary":"Connector overview","body":"Read table metadata before planning.","claims":[],"sourceIds":[]
             """;
-    private static final String LESSON_FIELDS = """
-            "scopeId":"project","title":"Metadata checks","summary":"Check the snapshot","body":"Validate the current table snapshot.",
-            "reviewId":"review","runId":"run","evidenceRefs":["E1"],"messageId":"message"
-            """;
 
     private final RepositoryContextService service = mock(RepositoryContextService.class);
     private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
@@ -193,20 +189,6 @@ class TestRepositoryContextController
     }
 
     @Test
-    void lessonUsesOnlyExplicitUserFields()
-            throws Exception
-    {
-        when(service.saveLesson(eq(WORKSPACE), eq(7L), any())).thenReturn(RepositoryNotebook.empty());
-
-        mvc.perform(post(ROOT + "/lessons").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"expectedRevision\":7," + LESSON_FIELDS + ",\"excerpt\":\"Invented source text\",\"origin\":\"GENERATED\",\"id\":\"chosen-id\"}"))
-                .andExpect(status().isOk());
-
-        verify(service).saveLesson(WORKSPACE, 7, new SaveContextLesson("project", "Metadata checks", "Check the snapshot", "Validate the current table snapshot.",
-                "review", "run", ImmutableList.of("E1"), Optional.of("message")));
-    }
-
-    @Test
     void everyMutationRequiresANonnegativeRevision()
             throws Exception
     {
@@ -216,8 +198,7 @@ class TestRepositoryContextController
                 new Mutation(HttpMethod.POST, "/entries/restore", "\"entryId\":\"knowledge:project\""),
                 new Mutation(HttpMethod.POST, "/runs/disable-notes", "\"taskId\":\"task-1\",\"noteIds\":[]"),
                 new Mutation(HttpMethod.POST, "/entries/keep", "\"entryId\":\"knowledge:project\""),
-                new Mutation(HttpMethod.PUT, "/entries/enabled", "\"entryId\":\"knowledge:project\",\"enabled\":false"),
-                new Mutation(HttpMethod.POST, "/lessons", LESSON_FIELDS))) {
+                new Mutation(HttpMethod.PUT, "/entries/enabled", "\"entryId\":\"knowledge:project\",\"enabled\":false"))) {
             for (String revision : ImmutableList.of("", "\"expectedRevision\":null,", "\"expectedRevision\":-1,")) {
                 mvc.perform(request(mutation.method(), ROOT + mutation.route()).contentType(MediaType.APPLICATION_JSON)
                                 .content("{" + revision + mutation.fields() + "}"))
@@ -245,9 +226,6 @@ class TestRepositoryContextController
                 .andExpect(status().isBadRequest());
         mvc.perform(put(ROOT + "/entries").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"expectedRevision\":0,\"id\":\"knowledge:project\",\"claims\":[],\"sourceIds\":[]}"))
-                .andExpect(status().isBadRequest());
-        mvc.perform(post(ROOT + "/lessons").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"expectedRevision\":0,\"evidenceRefs\":[\"E1\"]}"))
                 .andExpect(status().isBadRequest());
         verifyNoInteractions(service);
     }

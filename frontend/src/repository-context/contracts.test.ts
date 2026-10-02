@@ -12,8 +12,6 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { parseAgentReview, type ContextNoteReadDto, type ContextNoteSearchDto, type ContextPreparationActivityDto, type ContextDeliveryStateDto } from '../pulls/agent-review/contracts';
-import { reviewFixture } from '../pulls/agent-review/fixtures/review';
 import {
   parseConfigureRepositoryContextRequest,
   parseContextBuildView,
@@ -35,8 +33,6 @@ import {
   parseReportRepositoryContextNoteRequest,
   parseRepositoryNotebook,
   parseRestoreRepositoryContextEntryRequest,
-  parseReviewContextSnapshot,
-  parseSaveRepositoryContextLessonRequest,
   parseStartContextDiscoveryRequest,
   parseStartContextLearningRequest,
   parseContinueContextLearningRequest,
@@ -54,16 +50,13 @@ import {
   type ContextDiscoveryReportDto,
   type ContextLearningPlanDto,
   type ContextMergedCandidateDto,
-  type ContextDeliveryDto,
   type ContextGradeDto,
-  type ContextHistoryReadDto,
   type ContextReportedNoteDto,
   type ContextRunDto,
   type ContextTimesDto,
   type ContextUsageOverviewDto,
   type ContextSourceDto,
   type RepositoryNotebookDto,
-  type ReviewContextSnapshotDto,
 } from './contracts';
 
 const source: ContextSourceDto = { id: 'docs', kind: 'DOCUMENTATION_ROOT', url: 'https://example.com/docs/', origin: 'USER', discoveryEvidenceRef: null };
@@ -90,31 +83,6 @@ const userReport: ContextGradeDto = { ...wrong, taskId: 'task-other', grader: 'U
 const holds: ContextGradeDto = { ...wrong, taskId: 'review-task', reviewRunId: 'run-1', taskKind: 'PR_REVIEW', grade: 'HOLDS', gradedAt: '2026-09-29T12:00:00Z' };
 const reported: ContextReportedNoteDto = { entryId: 'knowledge:project', entryVersion: 2, title: 'Project', userWritten: true, grades: [holds, userReport, wrong],
   contested: null, settlement: null };
-const snapshot: ReviewContextSnapshotDto = {
-  id: 'snapshot', enabled: true, notebookRevision: 7, repositoryId: 42, baselineSha: 'a'.repeat(40),
-  bootstrap: { text: 'Prepared only', digest: 'sha256:packet', utf8Bytes: 13 },
-  selectedEntries: [{ entryId: 'knowledge:project', entryVersion: 2, title: 'Project', text: null, sourceEvidenceRefs: {},
-    matchReasons: ['Repository scope'], applicability: 'UNVERIFIED', inclusion: 'DEFERRED' }],
-  relatedItems: [{ sourceId: 'review:old', matchReasons: ['Changed path'], presentInReviewedBase: null }],
-  inputFingerprints: [{ scopeId: 'project', inputs: { 'git:README.md': 'ABSENT' }, digest: null, gaps: ['Incomplete source inventory'] }],
-  sourceReads: [
-    { kind: 'REPOSITORY_FILE', id: 'context-read:file', reference: { kind: 'REPOSITORY_FILE', repositoryId: 42,
-      repository: { owner: 'example', repo: 'repository' }, path: 'empty.txt', commit: 'a'.repeat(40) },
-      blobId: 'b'.repeat(40), readAt: '2026-09-01T00:00:00Z', startLine: 1, endLine: 0, totalLines: 0, utf8Bytes: 0, truncated: false, evidenceRef: null },
-    { kind: 'DOCUMENT', id: 'context-read:document', reference: { kind: 'DOCUMENT', sourceId: 'docs', url: 'https://example.com/docs/page' },
-      registration: source, notebookRevision: 7, captureId: 'capture', contentHash: 'a'.repeat(64), readAt: '2026-09-01T00:00:00Z',
-      page: 2, totalPages: 2, utf8Bytes: 2, blank: true, truncated: true, refreshFailed: true, evidenceRef: null },
-  ],
-  gaps: ['Source applicability has not been verified.'], contributions: [], deliveries: [],
-};
-const merged: ContextHistoryReadDto = { kind: 'HISTORY', id: 'context-read:merged-pr',
-  reference: { kind: 'PR', repositoryId: 42, repository: { owner: 'example', repo: 'repository' }, number: 18, commentId: null },
-  state: 'MERGED', sourceUpdatedAt: '2026-09-01T00:00:00Z', sourceRevision: 'a'.repeat(40), contentHash: 'b'.repeat(64),
-  readAt: '2026-09-02T00:00:00Z', utf8Bytes: 120, truncated: true, refreshFailed: true,
-  gaps: ['Stored reviews may be incomplete.'], evidenceRef: 'history:pr:18' };
-const closed: ContextHistoryReadDto = { ...merged, id: 'context-read:closed-issue',
-  reference: { ...merged.reference, kind: 'ISSUE', number: 9 }, state: 'CLOSED', sourceUpdatedAt: null, sourceRevision: null,
-  truncated: false, refreshFailed: false, gaps: ['Closure reason is unknown.'], evidenceRef: 'history:issue:9' };
 
 describe('spec check contracts', () => {
   it('reads checks with their findings and sends only HTTPS specs', () => {
@@ -251,124 +219,6 @@ describe('repository context contracts', () => {
       { ...notebook, revision: 1.5 }, { ...notebook, entries: null }, { ...notebook, entries: [{ ...notebook.entries[0], origin: 'VERIFIED' }] }]) {
       expect(() => parseRepositoryNotebook(value)).toThrow('Malformed repository context');
     }
-  });
-
-  it('preserves receipt types, blank reads, unknown ancestry and deferred unverified notes', () => {
-    expect(parseReviewContextSnapshot(snapshot)).toEqual(snapshot);
-    const review = reviewFixture();
-    const parsed = parseAgentReview({ ...review, runs: [{ ...review.runs[0], context: snapshot }] });
-    expect(parsed.runs[0].context).toEqual(snapshot);
-    expect(parseReviewContextSnapshot(null)).toBeNull();
-    expect(parseReviewContextSnapshot(undefined)).toBeNull();
-    const off: ReviewContextSnapshotDto = {
-      ...snapshot, enabled: false, bootstrap: null, selectedEntries: [], relatedItems: [], inputFingerprints: [], sourceReads: [], gaps: [],
-    };
-    expect(parseReviewContextSnapshot(off)?.enabled).toBe(false);
-  });
-
-  it('rejects malformed context rather than claiming a disabled or successfully supplied packet', () => {
-    for (const value of [{ ...snapshot, enabled: false }, { ...snapshot, enabled: 'true' }, { ...snapshot, bootstrap: null },
-      { ...snapshot, sourceReads: [{ ...snapshot.sourceReads[0], kind: 'DOCUMENT' }] },
-      { ...snapshot, selectedEntries: [{ ...snapshot.selectedEntries[0], inclusion: 'INCLUDED' }] },
-      { ...snapshot, relatedItems: [{ ...snapshot.relatedItems[0], presentInReviewedBase: 'unknown' }] }]) {
-      expect(() => parseReviewContextSnapshot(value)).toThrow('Malformed repository context');
-    }
-  });
-
-  it('retains merged PR and closed issue receipts in the run', () => {
-    const sourceReads = [merged, closed];
-    expect(parseReviewContextSnapshot({ ...snapshot, sourceReads })?.sourceReads).toEqual(sourceReads);
-  });
-
-  it('rejects history receipts whose reference, state or retained evidence disagree', () => {
-    for (const read of [
-      { ...merged, state: 'OPEN' }, { ...merged, state: 'CLOSED' }, { ...closed, state: 'MERGED' },
-      { ...closed, sourceRevision: 'a'.repeat(40) }, { ...merged, reference: { ...merged.reference, commentId: 'comment-1' } },
-      { ...merged, reference: snapshot.sourceReads[1].reference }, { ...merged, gaps: 'unknown' },
-      { ...merged, refreshFailed: 'false' }, { ...merged, sourceUpdatedAt: 12 }, { ...merged, utf8Bytes: -1 },
-      { ...merged, evidenceRef: null }, { ...merged, evidenceRef: '' },
-    ]) expect(() => parseReviewContextSnapshot({ ...snapshot, sourceReads: [read] })).toThrow('Malformed repository context');
-  });
-
-  it('retains completed brief contributions and exact delivery identities with receipt-derived state', () => {
-    const contribution = { investigationStep: 1, text: 'Conditional contracts.', evidenceRefs: ['E1'], preparationRefs: ['prepared:project'], limitations: ['Unverified version'] };
-    const delivery: ContextDeliveryDto = { turnId: 'turn-1', packetDigest: 'sha256:brief', utf8Bytes: 210, contributionCount: 1,
-      inputDigest: 'sha256:input', inputUtf8Bytes: 500, discussionMessageId: null, discussionSupplement: null, preparedAt: '2026-09-01T00:00:00Z' };
-    const context = { ...snapshot, contributions: [contribution], deliveries: [delivery] };
-    const review = reviewFixture();
-    const contextDeliveryStates: Record<string, ContextDeliveryStateDto> = { 'turn-1': { outcome: 'CONFIRMED', detail: null } };
-    const parsed = parseAgentReview({ ...review, runs: [{ ...review.runs[0], context, contextDeliveryStates }] });
-    expect(parsed.runs[0].context).toEqual(context);
-    expect(parsed.runs[0].contextDeliveryStates).toEqual(contextDeliveryStates);
-    for (const bad of [
-      { ...context, contributions: undefined }, { ...context, deliveries: undefined },
-      { ...context, contributions: [{ ...contribution, investigationStep: 0 }] },
-      { ...context, contributions: [{ ...contribution, limitations: 'missing' }] },
-      { ...context, deliveries: [{ ...delivery, contributionCount: 2 }] },
-      { ...context, deliveries: [{ ...delivery, utf8Bytes: -1 }] },
-      { ...context, deliveries: [{ ...delivery, inputUtf8Bytes: '500' }] },
-    ]) expect(() => parseReviewContextSnapshot(bad)).toThrow('Malformed repository context');
-    for (const badState of [{ outcome: 'UNDERSTOOD', detail: null }, { outcome: 'CONFIRMED', detail: 1 }, null]) {
-      expect(() => parseAgentReview({ ...review, runs: [{ ...review.runs[0], context, contextDeliveryStates: { 'turn-1': badState } }] }))
-        .toThrow('Malformed context delivery');
-    }
-    expect(() => parseAgentReview({ ...review, runs: [{ ...review.runs[0], contextDeliveryStates: undefined }] })).toThrow('context delivery states');
-  });
-
-  it('requires bounded discussion supplements on discussion deliveries and preserves exact packet text', () => {
-    const supplement = { packet: { text: 'later source', digest: 'sha256:discussion', utf8Bytes: 12 }, evidenceRefs: ['E1'],
-      capturedAt: '2026-09-01T00:00:00Z', gaps: ['Local cache only'] };
-    const delivery: ContextDeliveryDto = { turnId: 'discussion', packetDigest: 'sha256:base', utf8Bytes: 120, contributionCount: 0,
-      inputDigest: 'sha256:input', inputUtf8Bytes: 220, discussionMessageId: 'message', discussionSupplement: supplement, preparedAt: '2026-09-01T00:00:00Z' };
-    const context = { ...snapshot, deliveries: [delivery] };
-    expect(parseReviewContextSnapshot(context)?.deliveries[0].discussionSupplement).toEqual(supplement);
-    for (const bad of [
-      { ...delivery, discussionSupplement: undefined }, { ...delivery, discussionMessageId: null },
-      { ...delivery, discussionSupplement: { ...supplement, packet: { ...supplement.packet, utf8Bytes: 8193 } } },
-      { ...delivery, discussionSupplement: { ...supplement, evidenceRefs: Array(7).fill('E1') } },
-      { ...delivery, discussionSupplement: { ...supplement, gaps: Array(11).fill('gap') } },
-    ]) expect(() => parseReviewContextSnapshot({ ...context, deliveries: [bad] })).toThrow('Malformed repository context');
-  });
-
-  it('parses preparation observations strictly without inferring missing timings', () => {
-    const review = reviewFixture();
-    const activity: ContextPreparationActivityDto = { operationRef: 'context-activity:1', status: 'JOINED', attemptId: 'attempt', recordedAt: null, elapsedMillis: null,
-      scopes: [{ scopeId: 'project', outcome: null, explanation: '', noteIds: [], checkedSourceIds: [] }], gaps: ['Shared preparation is owned by another agent.'] };
-    const parse = (contextPreparationActivities: unknown) => parseAgentReview({ ...review, runs: [{ ...review.runs[0], contextPreparationActivities }] });
-    expect(parse([activity]).runs[0].contextPreparationActivities).toEqual([activity]);
-    for (const bad of [undefined, null, [{ ...activity, status: 'UNDERSTOOD' }], [{ ...activity, elapsedMillis: -1 }],
-      [{ ...activity, elapsedMillis: '10' }], [{ ...activity, elapsedMillis: 0.5 }], [{ ...activity, scopes: 'unknown' }],
-      [{ ...activity, recordedAt: 123 }], [{ ...activity, scopes: [{ ...activity.scopes[0], outcome: 'UNKNOWN' }] }]]) expect(() => parse(bad)).toThrow();
-  });
-
-  it('retains exact note-read identity and refuses ambiguous receipt content', () => {
-    const review = reviewFixture();
-    const read: ContextNoteReadDto = { entryId: 'knowledge:project', entryVersion: 3, status: 'AVAILABLE', text: 'exact note',
-      evidenceRef: 'note:3', sourceEvidenceRefs: { source: 'E1' } };
-    const parse = (contextNoteReads: unknown) => parseAgentReview({ ...review, runs: [{ ...review.runs[0], contextNoteReads }] });
-    expect(parse([read]).runs[0].contextNoteReads).toEqual([read]);
-    for (const bad of [undefined, [{ ...read, status: 'VERSION_UNAVAILABLE' }], [{ ...read, entryVersion: 0 }],
-      [{ ...read, text: null }], [{ ...read, evidenceRef: undefined }], [{ ...read, sourceEvidenceRefs: ['invalid'] }],
-      [{ ...read, status: 'RECEIPT_UNAVAILABLE' }]]) expect(() => parse(bad)).toThrow();
-  });
-
-  it('parses later search receipts without inventing provider delivery or note reads', () => {
-    const review = reviewFixture();
-    const search: ContextNoteSearchDto = { searchRef: 'context-search:1', status: 'AVAILABLE', notebookRevision: 5,
-      originalNotebookRevision: 2, newerThanSnapshot: true, contextState: 'MATCHES', query: 'retry', paths: ['plugin/iceberg/'],
-      omittedPathHints: 0, pathHintCount: 1, frozenPathHints: 1, omittedCount: 0, delivery: 'PREPARED', hits: [
-        { entryId: 'memory:retry', entryVersion: 2, kind: 'MEMORY', scopeId: 'iceberg', title: 'Retry lesson', summary: 'Check retry state',
-          matchReasons: ['Search text'], applicability: 'UNVERIFIED', initiallySelected: false, read: null },
-      ] };
-    const parse = (contextNoteSearches: unknown) => parseAgentReview({ ...review, runs: [{ ...review.runs[0], contextNoteSearches }] });
-    expect(parse([search]).runs[0].contextNoteSearches).toEqual([search]);
-    for (const bad of [undefined, null, [{ ...search, delivery: 'OPENED' }], [{ ...search, contextState: 'FIXED' }],
-      [{ ...search, notebookRevision: -1 }], [{ ...search, paths: 'plugin/iceberg/' }], [{ ...search, omittedCount: -1 }],
-      [{ ...search, hits: [{ ...search.hits[0], initiallySelected: 'yes' }] }],
-      [{ ...search, hits: [{ ...search.hits[0], read: { status: 'AVAILABLE', evidenceRef: 'E1', sourceEvidenceRefs: {},
-        delivery: 'CONFIRMED' } }] }],
-      [{ ...search, hits: [{ ...search.hits[0], read: { status: 'AVAILABLE', evidenceRef: null as string | null, sourceEvidenceRefs: {},
-        delivery: 'CONFIRMED', receiptRef: 'context-note:1' } }] }]]) expect(() => parse(bad)).toThrow();
   });
 
   it('keeps optimistic revisions and absent configuration fields unchanged', () => {
@@ -533,10 +383,4 @@ describe('repository context contracts', () => {
     expect(() => parseInvestigateRepositoryContextNoteRequest({ ...request, entryId: ' ' })).toThrow('Malformed repository context');
   });
 
-  it('preserves the selected discussion run and evidence rather than substituting the latest run', () => {
-    const request = { expectedRevision: 7, scopeId: 'project', title: 'Lesson', summary: 'Conditional lesson', body: 'Only under these conditions.',
-      reviewId: 'review', runId: 'older-run', evidenceRefs: ['E3'], messageId: 'old-message' };
-    expect(parseSaveRepositoryContextLessonRequest(request)).toEqual(request);
-    expect(() => parseSaveRepositoryContextLessonRequest({ ...request, sourceEvidence: [] })).toThrow('unsupported request field');
-  });
 });

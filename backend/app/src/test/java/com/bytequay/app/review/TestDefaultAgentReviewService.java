@@ -54,9 +54,6 @@ import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.ProviderTurnRef;
-import com.bytequay.app.context.ContextDiscussionReader;
-import com.bytequay.app.context.ContextUsageRecorder;
-import com.bytequay.app.context.ReviewContextService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.ReviewExperiments;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -68,8 +65,6 @@ import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
-import com.bytequay.core.context.ContextPacket;
-import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PullRequest;
@@ -97,11 +92,9 @@ import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
 import com.bytequay.core.review.ReviewValidation;
-import com.bytequay.core.store.ContextUsageStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -198,9 +191,9 @@ class TestDefaultAgentReviewService
         assertThat(result.review().taskId()).isEqualTo(TASK_ID.toString()).isNotEqualTo(source.id().toString());
         assertThat(result.review().number()).isEmpty();
         assertThat(result.review().pullRequestId()).isEmpty();
-        assertThat(result.runs().getFirst().run().baseSha()).isEqualTo(BASE_SHA);
-        assertThat(result.runs().getFirst().run().headSha()).isEqualTo(HEAD);
-        assertThat(result.runs().getFirst().run().commits()).extracting(commit -> commit.sha()).containsExactly(HEAD);
+        assertThat(result.runs().getFirst().baseSha()).isEqualTo(BASE_SHA);
+        assertThat(result.runs().getFirst().headSha()).isEqualTo(HEAD);
+        assertThat(result.runs().getFirst().commits()).extracting(commit -> commit.sha()).containsExactly(HEAD);
         assertThat(fixture.service.findForTask(WORKSPACE, source.id().toString()).orElseThrow().review().id()).isEqualTo(result.review().id());
         assertThat(fixture.service.startForTask(WORKSPACE, source.id().toString()).review().id()).isEqualTo(result.review().id());
         verify(fixture.models).agentModel(AgentModelType.REVIEW, Optional.of(WORKSPACE));
@@ -225,9 +218,9 @@ class TestDefaultAgentReviewService
         AgentReviewProjection result = fixture.service.startForTask(WORKSPACE, source.id().toString());
 
         assertThat(result.review().number()).hasValue(NUMBER);
-        assertThat(result.runs().getFirst().run().baseRef()).isEqualTo("main");
-        assertThat(result.runs().getFirst().run().baseSha()).isEqualTo(BASE_SHA);
-        assertThat(result.runs().getFirst().run().commits()).hasSize(1);
+        assertThat(result.runs().getFirst().baseRef()).isEqualTo("main");
+        assertThat(result.runs().getFirst().baseSha()).isEqualTo(BASE_SHA);
+        assertThat(result.runs().getFirst().commits()).hasSize(1);
         verify(fixture.refresh, never()).refreshAllDetail(anyString(), anyInt());
         verify(fixture.pullRequests, never()).getPullRequestDetail(anyString(), anyInt());
     }
@@ -251,7 +244,7 @@ class TestDefaultAgentReviewService
 
         assertThat(updated.review().taskId()).isEqualTo(first.review().taskId());
         assertThat(updated.runs()).hasSize(2);
-        assertThat(updated.runs().getLast().run().headSha()).isEqualTo(NEW_HEAD);
+        assertThat(updated.runs().getLast().headSha()).isEqualTo(NEW_HEAD);
         verify(fixture.tasks, times(1)).create(any(CreateAgentTaskCommand.class));
         verify(fixture.refresh, never()).refreshAllDetail(anyString(), anyInt());
         verify(fixture.turns, never()).synchronizeWorktree(eq(source.id()), anyLong(), any());
@@ -403,71 +396,6 @@ class TestDefaultAgentReviewService
                 .thenReturn(new WorktreeDiffReader.Diff(ImmutableList.of(new DiffFile("src/App.java", "modified", 1, 0, "@@ -1 +1,2 @@\n context\n+added\n")), false));
     }
 
-    @Test
-    void contextSnapshotIsStoredBeforeSynchronousProviderLaunch()
-    {
-        Fixture fixture = new Fixture();
-        ReviewContextSnapshot snapshot = contextSnapshot();
-        doAnswer(invocation -> {
-            ReviewRun run = invocation.getArgument(1);
-            return fixture.store.updateRun(run.withContext(snapshot, ImmutableMap.of(), NOW));
-        }).when(fixture.context).prepareRun(any(AgentReview.class), any(ReviewRun.class), any(WorkspaceRepositoryContext.class), any());
-        doAnswer(invocation -> {
-            StartAgentTurnCommand command = invocation.getArgument(0);
-            AgentReview review = fixture.store.findOpenReview(WORKSPACE, REPO, NUMBER).orElseThrow();
-            ReviewRun saved = fixture.store.listRuns(review.id()).getLast();
-            assertThat(saved.context()).contains(snapshot);
-            assertThat(saved.turnIds()).isEmpty();
-            assertThat(command.idempotencyKey()).isEqualTo(saved.currentStep().orElseThrow().key(saved.id()));
-            assertThat(command.message()).doesNotContain(snapshot.bootstrap().orElseThrow().text());
-            AgentTurn accepted = AgentTurn.accepted(TURN_ONE, TASK_ID, command.idempotencyKey(), SETTINGS, NOW);
-            when(fixture.turnStore.findActive(TASK_ID)).thenReturn(Optional.of(accepted));
-            RepositoryContextTurnInput input = new RepositoryContextTurnInput(fixture.store,
-                    new ReviewToolAssignment(fixture.turnStore, fixture.queueStore, fixture.store), new ReviewLocks(), CLOCK,
-                    mock(ContextDiscussionReader.class), mock(ContextUsageRecorder.class));
-            assertThat(input.prepare(idleTask(), accepted, command.message())).contains(snapshot.bootstrap().orElseThrow().text());
-            AgentTurn running = accepted.markDeliveryStarted(NOW).running(new ProviderTurnRef("provider-turn"), Optional.empty());
-            when(fixture.turnStore.find(TURN_ONE)).thenReturn(Optional.of(running));
-            fixture.acceptedTurns.put(command.idempotencyKey(), running);
-            return running;
-        }).when(fixture.turns).start(any(StartAgentTurnCommand.class));
-
-        AgentReviewProjection projection = fixture.service.start(WORKSPACE, REPO, NUMBER);
-
-        ReviewContextSnapshot captured = projection.runs().getFirst().run().context().orElseThrow();
-        assertThat(captured.bootstrap()).isEqualTo(snapshot.bootstrap());
-        assertThat(captured.deliveries()).hasSize(1);
-        assertThat(projection.runs().getFirst().contextDeliveryStates().get(TURN_ONE.toString()).outcome())
-                .isEqualTo(AgentReviewProjection.ContextDeliveryState.Outcome.CONFIRMED);
-        assertThat(projection.byteQuayTurnIds()).containsExactly(TURN_ONE.toString());
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void failedContextPreparationStopsBeforeProviderLaunchAndPreservesSavedContext(boolean saved)
-    {
-        Fixture fixture = new Fixture();
-        ReviewContextSnapshot snapshot = contextSnapshot();
-        ReviewConflictException failure = new ReviewConflictException("Context preparation failed");
-        doAnswer(invocation -> {
-            if (saved) {
-                ReviewRun run = invocation.getArgument(1);
-                fixture.store.updateRun(run.withContext(snapshot, ImmutableMap.of(), NOW));
-            }
-            throw failure;
-        }).when(fixture.context).prepareRun(any(AgentReview.class), any(ReviewRun.class), any(WorkspaceRepositoryContext.class), any());
-
-        assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER)).isSameAs(failure);
-
-        AgentReview review = fixture.store.findOpenReview(WORKSPACE, REPO, NUMBER).orElseThrow();
-        ReviewRun run = fixture.store.listRuns(review.id()).getLast();
-        assertThat(run.state()).isEqualTo(ReviewRun.State.FAILED);
-        assertThat(run.context()).isEqualTo(saved ? Optional.of(snapshot) : Optional.empty());
-        assertThat(run.outcome()).hasValueSatisfying(outcome -> assertThat(outcome).contains("Context preparation failed"));
-        assertThat(review.followUpPaused()).isTrue();
-        verify(fixture.turns, never()).start(any(StartAgentTurnCommand.class));
-    }
-
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void startCreatesOneTaskAndOneRunningRunDrivenByAByteQuayRequest(boolean children)
@@ -489,8 +417,8 @@ class TestDefaultAgentReviewService
         assertThat(projection.review().observedHeadSha()).contains(HEAD);
         assertThat(projection.review().state()).isEqualTo(AgentReview.State.OPEN);
         assertThat(projection.runs()).hasSize(1);
-        assertThat(projection.runs().getFirst().run().state()).isEqualTo(ReviewRun.State.RUNNING);
-        assertThat(projection.runs().getFirst().run().scope()).isEqualTo(ReviewRun.Scope.FULL);
+        assertThat(projection.runs().getFirst().state()).isEqualTo(ReviewRun.State.RUNNING);
+        assertThat(projection.runs().getFirst().scope()).isEqualTo(ReviewRun.Scope.FULL);
         assertThat(projection.byteQuayTurnIds()).containsExactly(TURN_ONE.toString());
 
         ArgumentCaptor<CreateAgentTaskCommand> created = ArgumentCaptor.forClass(CreateAgentTaskCommand.class);
@@ -530,14 +458,14 @@ class TestDefaultAgentReviewService
     void projectionKeepsValidationEvidenceOutsideTheInitialContextSelection()
     {
         Fixture fixture = new Fixture();
-        ReviewRun run = fixture.store.findRun(fixture.service.start(WORKSPACE, REPO, NUMBER).runs().getFirst().run().id()).orElseThrow();
+        ReviewRun run = fixture.store.findRun(fixture.service.start(WORKSPACE, REPO, NUMBER).runs().getFirst().id()).orElseThrow();
         ReviewEvidence context = new ReviewEvidence("E1", "src/App.java", "frozen head", "parse(input)", "");
         ReviewEvidence validation = new ReviewEvidence("E2", "command output: regression test", "validation turn", "HEAD passed; old condition failed", "");
         ReviewInvestigation investigation = new ReviewInvestigation("Parser behavior", ImmutableList.of("src/App.java"),
                 ImmutableList.of("E1"), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
         fixture.store.updateRun(run.withInvestigation(investigation, NOW).withEvidence("E1", context, NOW).withEvidence("E2", validation, NOW));
 
-        assertThat(fixture.service.get(run.reviewId()).runs().getFirst().run().evidence().values()).containsExactly(context, validation);
+        assertThat(fixture.service.get(run.reviewId()).runs().getFirst().evidence().values()).containsExactly(context, validation);
     }
 
     @Test
@@ -612,69 +540,6 @@ class TestDefaultAgentReviewService
     }
 
     @Test
-    void recoveredStartupCapturesContextBeforeAdmissionAndReusesIt()
-    {
-        Fixture fixture = new Fixture();
-        ReviewContextSnapshot snapshot = contextSnapshot();
-        doAnswer(invocation -> {
-            throw new NoClassDefFoundError("Interrupted context preparation");
-        }).doAnswer(invocation -> {
-            ReviewRun run = invocation.getArgument(1);
-            assertThat(invocation.<Optional<ReviewRun>>getArgument(3)).isEmpty();
-            return fixture.store.updateRun(run.withContext(snapshot, ImmutableMap.of(), NOW));
-        }).when(fixture.context).prepareRun(any(AgentReview.class), any(ReviewRun.class), any(WorkspaceRepositoryContext.class), any());
-        assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER)).isInstanceOf(NoClassDefFoundError.class);
-        String reviewId = fixture.store.findOpenReview(WORKSPACE, REPO, NUMBER).orElseThrow().id();
-        doAnswer(invocation -> {
-            StartAgentTurnCommand command = invocation.getArgument(0);
-            ReviewRun saved = fixture.store.listRuns(reviewId).getLast();
-            assertThat(saved.context()).contains(snapshot);
-            assertThat(saved.turnIds()).isEmpty();
-            AgentTurn accepted = AgentTurn.accepted(TURN_ONE, TASK_ID, command.idempotencyKey(), SETTINGS, NOW);
-            fixture.acceptedTurns.put(command.idempotencyKey(), accepted);
-            return accepted;
-        }).when(fixture.turns).start(any(StartAgentTurnCommand.class));
-
-        fixture.service.reconcile(reviewId);
-        fixture.service.reconcile(reviewId);
-
-        ReviewRun run = fixture.store.listRuns(reviewId).getLast();
-        assertThat(run.context()).contains(snapshot);
-        assertThat(run.turnIds()).containsExactly(TURN_ONE.toString());
-        verify(fixture.context, times(2)).prepareRun(any(AgentReview.class), any(ReviewRun.class), any(WorkspaceRepositoryContext.class), any());
-        verify(fixture.turns, times(1)).start(any(StartAgentTurnCommand.class));
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void failedRecoveredContextPreparationPausesTheUnacceptedRun(boolean saved)
-    {
-        Fixture fixture = new Fixture();
-        ReviewContextSnapshot snapshot = contextSnapshot();
-        ReviewConflictException failure = new ReviewConflictException("Context preparation failed");
-        doAnswer(invocation -> {
-            throw new NoClassDefFoundError("Interrupted context preparation");
-        }).doAnswer(invocation -> {
-            if (saved) {
-                ReviewRun run = invocation.getArgument(1);
-                fixture.store.updateRun(run.withContext(snapshot, ImmutableMap.of(), NOW));
-            }
-            throw failure;
-        }).when(fixture.context).prepareRun(any(AgentReview.class), any(ReviewRun.class), any(WorkspaceRepositoryContext.class), any());
-        assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER)).isInstanceOf(NoClassDefFoundError.class);
-        String reviewId = fixture.store.findOpenReview(WORKSPACE, REPO, NUMBER).orElseThrow().id();
-
-        assertThatThrownBy(() -> fixture.service.reconcile(reviewId)).isSameAs(failure);
-
-        ReviewRun run = fixture.store.listRuns(reviewId).getLast();
-        assertThat(run.state()).isEqualTo(ReviewRun.State.FAILED);
-        assertThat(run.context()).isEqualTo(saved ? Optional.of(snapshot) : Optional.empty());
-        assertThat(run.outcome()).hasValueSatisfying(outcome -> assertThat(outcome).contains("Context preparation failed"));
-        assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isTrue();
-        verify(fixture.turns, never()).start(any(StartAgentTurnCommand.class));
-    }
-
-    @Test
     void acceptedHistoricalTurnsAndLaterAssignmentsKeepTheirOriginalContext()
     {
         Fixture fixture = new Fixture();
@@ -682,9 +547,7 @@ class TestDefaultAgentReviewService
         fixture.service.reconcile(reviewId);
         ReviewRun validating = beginValidation(fixture, fixture.store.listRuns(reviewId).getLast());
 
-        assertThat(validating.context()).isEmpty();
         assertThat(validating.currentStep().orElseThrow().kind()).isEqualTo(ReviewStep.Kind.VALIDATE);
-        verify(fixture.context, times(1)).prepareRun(any(AgentReview.class), any(ReviewRun.class), any(WorkspaceRepositoryContext.class), any());
         verify(fixture.workspaces, never()).requireReadableRepository(anyString());
     }
 
@@ -797,7 +660,7 @@ class TestDefaultAgentReviewService
                 var localComment = executor.submit(() -> fixture.service.sendMessage(reviewId, 0, "Explain this line", "local-comment", false));
                 assertThatThrownBy(() -> localComment.get(100, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
                 continueStartup.countDown();
-                assertThat(started.get(5, TimeUnit.SECONDS).runs().getLast().run().state()).isEqualTo(ReviewRun.State.RUNNING);
+                assertThat(started.get(5, TimeUnit.SECONDS).runs().getLast().state()).isEqualTo(ReviewRun.State.RUNNING);
                 reconciled.get(5, TimeUnit.SECONDS);
                 localComment.get(5, TimeUnit.SECONDS);
                 ArgumentCaptor<StartAgentTurnCommand> startedTurns = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
@@ -849,7 +712,7 @@ class TestDefaultAgentReviewService
         fixture.store.updateRun(original.withSummary(summary(), NOW));
         fixture.store.insertRun(new ReviewRun("newer-run", reviewId, 2, original.scope(), original.baseRef(), original.baseSha(), original.mergeBaseSha(), NEW_HEAD,
                 Optional.of(HEAD), original.commits(), original.diff(), ImmutableList.of(), original.state(), Optional.empty(), Optional.empty(), Optional.empty(),
-                original.steps(), false, original.operations(), original.evidence(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty()));
+                original.steps(), false, original.operations(), original.evidence(), Optional.empty(), 0, NOW, NOW, Optional.empty()));
         String cardId = original.id() + ":purpose";
         AgentTurnStore turnStore = mock(AgentTurnStore.class);
         ReviewToolAssignment assignments = new ReviewToolAssignment(turnStore, fixture.queueStore, fixture.store);
@@ -2004,21 +1867,6 @@ class TestDefaultAgentReviewService
     }
 
     @Test
-    void runtimePreparationCleanupDoesNotAdvanceOrRestartTheReview()
-    {
-        Fixture fixture = new Fixture();
-        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
-        AgentReview review = fixture.store.findReview(reviewId).orElseThrow();
-        ReviewRun run = fixture.store.listRuns(reviewId).getLast();
-
-        fixture.service.reconcilePreparation(reviewId);
-
-        verify(fixture.preparationCleanup).reconcile(review);
-        assertThat(fixture.store.listRuns(reviewId)).containsExactly(run);
-        verify(fixture.turns, times(1)).start(any(StartAgentTurnCommand.class));
-    }
-
-    @Test
     void stopCancelsTheActiveTurnAndPausesFollowUp()
     {
         Fixture fixture = new Fixture();
@@ -2077,7 +1925,6 @@ class TestDefaultAgentReviewService
         assertThat(stopped.outcome()).contains("Review ended");
 
         InOrder order = inOrder(fixture.observer, fixture.completions, fixture.store);
-        order.verify(fixture.observer).confirmRetainedUsage(argThat(review -> review.id().equals(reviewId)));
         order.verify(fixture.observer).unwatch(reviewId);
         order.verify(fixture.completions).complete(new CompleteAgentTaskCommand(TASK_ID, Optional.of("Agent review ended by the user")));
         order.verify(fixture.store).updateReview(argThat(review -> review.state() == AgentReview.State.CLOSED));
@@ -2163,19 +2010,6 @@ class TestDefaultAgentReviewService
         // Ignored build output alone is not a saved edit.
         when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, false, false));
         assertThat(fixture.service.end(reviewId).review().state()).isEqualTo(AgentReview.State.CLOSED);
-    }
-
-    @Test
-    void endClosesReviewWhenRetainedUsageCannotBeReplayed()
-    {
-        Fixture fixture = new Fixture();
-        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
-        doThrow(new IllegalStateException("Task log unavailable")).when(fixture.observer).confirmRetainedUsage(any(AgentReview.class));
-
-        AgentReviewProjection projection = fixture.service.end(reviewId);
-
-        assertThat(projection.review().state()).isEqualTo(AgentReview.State.CLOSED);
-        verify(fixture.observer).unwatch(reviewId);
     }
 
     @Test
@@ -2912,12 +2746,6 @@ class TestDefaultAgentReviewService
         return new GitCommandRunner.Result(0, output, false);
     }
 
-    private static ReviewContextSnapshot contextSnapshot()
-    {
-        return new ReviewContextSnapshot("context", true, 7, 1, Optional.of(BASE_SHA), Optional.of(ContextPacket.create("Prepared reference packet")),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
-    }
-
     private static final class AutoCheckout
     {
         private String head = HEAD;
@@ -2970,9 +2798,6 @@ class TestDefaultAgentReviewService
         private final PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         private final CredentialService credentials = mock(CredentialService.class);
         private final ReviewTaskObserver observer = mock(ReviewTaskObserver.class);
-        private final ReviewContextService context = mock(ReviewContextService.class);
-        private final ReviewContextPreparationCleanup preparationCleanup = mock(ReviewContextPreparationCleanup.class);
-        private final ContextUsageStore contextUsage = mock(ContextUsageStore.class);
         private final Map<String, AgentTurn> acceptedTurns = new LinkedHashMap<>();
         private final DefaultAgentReviewService service;
 
@@ -3003,12 +2828,7 @@ class TestDefaultAgentReviewService
                     credentials,
                     observer,
                     new ReviewLocks(),
-                    context,
-                    preparationCleanup,
-                    contextUsage,
                     CLOCK);
-            when(context.prepareRun(any(AgentReview.class), any(ReviewRun.class), any(WorkspaceRepositoryContext.class), any()))
-                    .thenAnswer(invocation -> invocation.getArgument(1));
             when(drivers.require(LANE)).thenReturn(driver);
             doAnswer(invocation -> {
                 Consumer<AgentTask> action = invocation.getArgument(2);

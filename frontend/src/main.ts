@@ -80,7 +80,6 @@ import {
   parseReportRepositoryContextNoteRequest,
   parseRepositoryNotebook,
   parseRestoreRepositoryContextEntryRequest,
-  parseSaveRepositoryContextLessonRequest,
   parseSetRepositoryContextEntryEnabledRequest,
   parseStartContextDiscoveryRequest,
   parseStartContextLearningRequest,
@@ -93,7 +92,6 @@ import {
 import {
   parseAgentReview,
   parseAgentReviews,
-  parseReviewLessonDraft,
   parseReviewDraft,
 } from './pulls/agent-review/contracts';
 import { parseWorktreeChanges, codeHostKey, parseCodeHost, parseLocalRun, parseLocalRunOutput, parseLocalRuns, parseReviewCodeFile, parseReviewCodeFiles, parseReviewCodeSymbols } from './pulls/code-tests/contracts';
@@ -969,10 +967,6 @@ function registerIpc(): void {
   ipcMain.handle('review:task:start', (_event, workspaceId: string, taskId: string) =>
     review(`/tasks/${encodeURIComponent(taskId)}`, { workspaceId }, { method: 'POST', signal: AbortSignal.timeout(15 * 60_000) }));
   ipcMain.handle('review:get', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}`));
-  ipcMain.handle('review:lesson-draft', (_event, reviewId: string, messageId: string) =>
-    backendJson(reviewUrl(`/${encodeURIComponent(reviewId)}/lesson-draft`), {
-      ...jsonInit('POST', { messageId }, agentHeaders()), signal: AbortSignal.timeout(120_000),
-    }).then(parseReviewLessonDraft));
   ipcMain.handle('review:stop', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}/stop`, {}, { method: 'POST' }));
   ipcMain.handle('review:runtime:stop-impact', (_event, reviewId: string) =>
     backendJson(reviewUrl(`/${encodeURIComponent(reviewId)}/runtime/stop-impact`), { headers: agentHeaders() })
@@ -1476,9 +1470,6 @@ function registerIpc(): void {
   ipcMain.handle('repository-context:run-notes:disable', (_event, workspaceId: string, request: unknown) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/runs/disable-notes`,
       jsonInit('POST', parseDisableRepositoryContextRunNotesRequest(request), agentHeaders())).then(parseRepositoryNotebook));
-  ipcMain.handle('repository-context:lesson', (_event, workspaceId: string, request: unknown) =>
-    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/lessons`,
-      jsonInit('POST', parseSaveRepositoryContextLessonRequest(request), agentHeaders())).then(parseRepositoryNotebook));
   ipcMain.handle('workspaces:commits-target:set', (_event, workspaceId: string, branch: string) =>
     backendJson(
       `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/commits-target`,

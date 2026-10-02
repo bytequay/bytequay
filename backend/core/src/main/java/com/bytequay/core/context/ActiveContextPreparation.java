@@ -34,6 +34,8 @@ public record ActiveContextPreparation(
         long baseContentRevision,
         List<ContextInputFingerprint> inputs)
 {
+    public static final int MAXIMUM_INPUT_BYTES = 256 * 1024;
+
     public ActiveContextPreparation
     {
         ContextLimits.text(attemptId, "preparation attempt id", 200);
@@ -53,7 +55,7 @@ public record ActiveContextPreparation(
         ContextLimits.unique(inputs.stream().map(ContextInputFingerprint::scopeId).toList(), "preparation input scopes", 100);
         checkArgument(!inputs.isEmpty(), "Preparation needs selected scopes");
         checkArgument(inputs.stream().allMatch(input -> input.digest().isPresent()), "Preparation needs complete input identities");
-        checkArgument(inputs.stream().mapToLong(ContextInputFingerprint::inputBytes).sum() <= ReviewContextSnapshot.MAXIMUM_INPUT_BYTES,
+        checkArgument(inputs.stream().mapToLong(ContextInputFingerprint::inputBytes).sum() <= MAXIMUM_INPUT_BYTES,
                 "Preparation input identities exceed UTF-8 budget");
     }
 }

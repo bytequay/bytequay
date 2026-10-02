@@ -16,13 +16,9 @@ package com.bytequay.app.context;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.context.ContextLimits;
-import com.bytequay.core.context.ContextPacket;
 import com.bytequay.core.context.ContextReference;
-import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.review.ReviewRun;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -219,7 +215,7 @@ class TestContextBaselineReader
         assertThat(repository.resolve(path).toFile().setExecutable(true)).isTrue();
         String baseline = commit();
 
-        assertThat(read(git, run(Optional.of(baseline)), path, 1, Optional.empty()).excerpt()).isEqualTo("1  literal source\n");
+        assertThat(read(git, baseline, path, 1, Optional.empty()).excerpt()).isEqualTo("1  literal source\n");
     }
 
     @Test
@@ -230,7 +226,7 @@ class TestContextBaselineReader
         Files.createDirectories(repository.resolve("docs"));
         Files.writeString(repository.resolve("docs/source.md"), "source");
         Files.createSymbolicLink(repository.resolve("link.md"), Path.of("docs/source.md"));
-        ReviewRun run = run(Optional.of(commit()));
+        String run = commit();
 
         for (String path : ImmutableList.of("docs", "link.md", "missing.md")) {
             assertThatIllegalArgumentException().isThrownBy(() -> read(git, run, path, 1, Optional.empty()));
@@ -243,7 +239,7 @@ class TestContextBaselineReader
     {
         initialize();
         Files.writeString(repository.resolve(PATH), "");
-        ReviewRun run = run(Optional.of(commit()));
+        String run = commit();
 
         ContextBaselineReader.Read empty = read(git, run, PATH, 1, Optional.empty());
 
@@ -261,7 +257,7 @@ class TestContextBaselineReader
     {
         initialize();
         Files.writeString(repository.resolve(PATH), IntStream.rangeClosed(1, 1000).mapToObj(value -> "line " + value).collect(joining("\n")));
-        ReviewRun run = run(Optional.of(commit()));
+        String run = commit();
 
         ContextBaselineReader.Read read = read(git, run, PATH, 50, Optional.of(Integer.MAX_VALUE));
         assertThat(read.totalLines()).isEqualTo(1000);
@@ -285,7 +281,7 @@ class TestContextBaselineReader
         initialize();
         String content = "x".repeat(100);
         Files.writeString(repository.resolve(PATH), (content + "\n").repeat(1000));
-        ReviewRun run = run(Optional.of(commit()));
+        String run = commit();
 
         ContextBaselineReader.Read first = read(git, run, PATH, 1, Optional.of(1000)).limitedTo(maximumBytes);
         ContextBaselineReader.Read next = read(git, run, PATH, first.endLine() + 1, Optional.of(1000)).limitedTo(maximumBytes);
@@ -305,7 +301,7 @@ class TestContextBaselineReader
     {
         initialize();
         Files.writeString(repository.resolve(PATH), "😀".repeat(6000) + "\nsecond\n");
-        ContextBaselineReader.Read read = read(git, run(Optional.of(commit())), PATH, 1, Optional.empty());
+        ContextBaselineReader.Read read = read(git, commit(), PATH, 1, Optional.empty());
 
         assertThat(read.truncated()).isTrue();
         assertThat(ContextLimits.bytes(read.excerpt())).isEqualTo(16 * 1024 - 1);
@@ -340,7 +336,7 @@ class TestContextBaselineReader
         Files.writeString(repository.resolve("large.md"), "x".repeat(2 * 1024 * 1024 + 1));
         Files.write(repository.resolve("binary"), new byte[] {1, 0, 2});
         Files.write(repository.resolve("invalid"), new byte[] {(byte) 0xC3});
-        ReviewRun run = run(Optional.of(commit()));
+        String run = commit();
 
         for (String path : ImmutableList.of("large.md", "binary", "invalid")) {
             assertThatIllegalArgumentException().isThrownBy(() -> read(git, run, path, 1, Optional.empty()));
@@ -355,7 +351,7 @@ class TestContextBaselineReader
         GitCommandRunner local = mock(GitCommandRunner.class);
         when(local.runLocalBounded(eq(repository), eq(TIMEOUT), eq(8 * 1024), anyList())).thenReturn(new GitCommandRunner.Result(0, output.formatted(BLOB), false));
 
-        assertThatIllegalArgumentException().isThrownBy(() -> read(local, run(Optional.of(SHA)), PATH, 1, Optional.empty()));
+        assertThatIllegalArgumentException().isThrownBy(() -> read(local, SHA, PATH, 1, Optional.empty()));
     }
 
     @Test
@@ -365,28 +361,14 @@ class TestContextBaselineReader
                 new GitCommandRunner.Result(128, "fatal", false), new GitCommandRunner.Result(0, "partial", true))) {
             GitCommandRunner local = mock(GitCommandRunner.class);
             when(local.runLocalBounded(eq(repository), eq(TIMEOUT), anyInt(), anyList())).thenReturn(failure);
-            assertThatIllegalArgumentException().isThrownBy(() -> read(local, run(Optional.of(SHA)), PATH, 1, Optional.empty()));
+            assertThatIllegalArgumentException().isThrownBy(() -> read(local, SHA, PATH, 1, Optional.empty()));
 
             when(local.runLocalBounded(eq(repository), eq(TIMEOUT), eq(8 * 1024), anyList()))
                     .thenReturn(new GitCommandRunner.Result(0, "100644 blob " + BLOB + "\t" + PATH + "\0", false));
-            assertThatIllegalArgumentException().isThrownBy(() -> read(local, run(Optional.of(SHA)), PATH, 1, Optional.empty()))
+            assertThatIllegalArgumentException().isThrownBy(() -> read(local, SHA, PATH, 1, Optional.empty()))
                     .withMessageContaining("2 MiB");
             verify(local).runLocalBounded(repository, TIMEOUT, 2 * 1024 * 1024, ImmutableList.of("cat-file", "blob", BLOB));
         }
-    }
-
-    @Test
-    void requiresEnabledContextMatchingRepositoryAndAnAvailableBaseline()
-    {
-        GitCommandRunner local = mock(GitCommandRunner.class);
-        ReviewRun absent = runWithoutContext();
-        ReviewRun disabled = run(false, 7, Optional.empty());
-        ReviewRun different = run(true, 1, Optional.of(SHA));
-
-        for (ReviewRun run : ImmutableList.of(absent, disabled, different, run(Optional.empty()))) {
-            assertThatIllegalArgumentException().isThrownBy(() -> read(local, run, PATH, 1, Optional.empty()));
-        }
-        verifyNoInteractions(local);
     }
 
     @ParameterizedTest
@@ -395,7 +377,7 @@ class TestContextBaselineReader
     void rejectsInvalidPathsBeforeGit(String path)
     {
         GitCommandRunner local = mock(GitCommandRunner.class);
-        assertThatIllegalArgumentException().isThrownBy(() -> read(local, run(Optional.of(SHA)), path, 1, Optional.empty()));
+        assertThatIllegalArgumentException().isThrownBy(() -> read(local, SHA, path, 1, Optional.empty()));
         ContextBaselineReader reader = new ContextBaselineReader(local, CLOCK);
         assertThatIllegalArgumentException().isThrownBy(() -> reader.read(workspace(), 7, SHA, path, 1, Optional.empty()));
         assertThatIllegalArgumentException().isThrownBy(() -> reader.directory(workspace(), 7, SHA, path, 0));
@@ -444,36 +426,15 @@ class TestContextBaselineReader
         assertThatIllegalArgumentException().isThrownBy(() -> new ContextBaselineReader(local, CLOCK).directory(workspace(), 7, SHA, "", 0));
     }
 
-    private ContextBaselineReader.Read read(GitCommandRunner runner, ReviewRun run, String path, int start, Optional<Integer> end)
+    private ContextBaselineReader.Read read(GitCommandRunner runner, String baseline, String path, int start, Optional<Integer> end)
     {
-        return new ContextBaselineReader(runner, CLOCK).read(workspace(), run, path, start, end);
+        return new ContextBaselineReader(runner, CLOCK).read(workspace(), 7, baseline, path, start, end);
     }
 
     private WorkspaceRepositoryContext workspace()
     {
         return new WorkspaceRepositoryContext("workspace", repository, 1, RepoRef.of("fork", "trino"), OptionalLong.of(7), MONITORED,
                 "upstream", "origin", "main", ImmutableList.of());
-    }
-
-    private static ReviewRun run(Optional<String> baseline)
-    {
-        return run(true, 7, baseline);
-    }
-
-    private static ReviewRun run(boolean enabled, long repositoryId, Optional<String> baseline)
-    {
-        ReviewContextSnapshot snapshot = new ReviewContextSnapshot("context:run", enabled, 0, repositoryId, baseline,
-                enabled ? Optional.of(ContextPacket.create("Prepared context")) : Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
-                enabled && baseline.isEmpty() ? ImmutableList.of("Baseline unavailable") : ImmutableList.of());
-        return runWithoutContext().withContext(snapshot, ImmutableMap.of(), NOW);
-    }
-
-    private static ReviewRun runWithoutContext()
-    {
-        return new ReviewRun("run", "review", 1, ReviewRun.Scope.FULL, "main", SHA, SHA, "c".repeat(40), Optional.empty(), ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableMap.of(),
-                ImmutableMap.of(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
     }
 
     private void initialize()

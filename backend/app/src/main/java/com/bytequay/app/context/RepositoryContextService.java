@@ -15,7 +15,6 @@ package com.bytequay.app.context;
 
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.core.context.ActiveContextPreparation;
-import com.bytequay.core.context.ContextClaim;
 import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextEntryKind;
@@ -31,11 +30,6 @@ import com.bytequay.core.context.ContextSourceRead;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.review.AgentReview;
-import com.bytequay.core.review.AgentReviewStore;
-import com.bytequay.core.review.ReviewEvidence;
-import com.bytequay.core.review.ReviewMessage;
-import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
@@ -46,30 +40,25 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
-import com.google.common.hash.Hashing;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.function.BiConsumer;
 import java.util.function.UnaryOperator;
 import java.util.stream.Stream;
 
 import static com.bytequay.core.context.ContextEntryKind.KNOWLEDGE;
-import static com.bytequay.core.context.ContextEntryKind.MEMORY;
 import static com.bytequay.core.context.ContextEntryOrigin.GENERATED;
 import static com.bytequay.core.context.ContextEntryOrigin.USER;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.toSet;
 
@@ -84,10 +73,9 @@ public class RepositoryContextService
     private final AppSettingsStore settings;
     private final ObjectMapper mapper;
     private final WorkspaceStore workspaces;
-    private final AgentReviewStore reviews;
     private final Clock clock;
 
-    public RepositoryContextService(AppSettingsStore settings, ObjectMapper mapper, WorkspaceStore workspaces, AgentReviewStore reviews, Clock clock)
+    public RepositoryContextService(AppSettingsStore settings, ObjectMapper mapper, WorkspaceStore workspaces, Clock clock)
     {
         this.settings = requireNonNull(settings, "settings is null");
         this.mapper = requireNonNull(mapper, "mapper is null").copy()
@@ -98,7 +86,6 @@ public class RepositoryContextService
                 .enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
                 .enable(DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES);
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
-        this.reviews = requireNonNull(reviews, "reviews is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -389,55 +376,6 @@ public class RepositoryContextService
                             entry.sourceIds(), entry.origin(), false, Math.addExact(current.revision(), 1))
                     : entry).collect(toImmutableList());
             return content(current, current.useInReviews(), current.sources(), current.scopes(), entries, current.sourceEvidence());
-        });
-    }
-
-    /**
-     * Saves an explicitly accepted lesson and copies its supporting local evidence before retention can remove it.
-     *
-     * @param workspaceId owning workspace; review and run must belong to it
-     * @param expectedRevision displayed content revision
-     * @param lesson edited prose and existing review evidence/discussion IDs
-     * @return notebook containing a newly assigned USER-owned MEMORY entry and retained excerpts
-     * @throws IllegalArgumentException for cross-workspace/run references, missing evidence, or byte limits
-     * @throws ContextConflictException for stale content
-     *
-     * This local user-action method is never exposed as an autonomous model-write tool.
-     */
-    public RepositoryNotebook saveLesson(String workspaceId, long expectedRevision, SaveContextLesson lesson)
-    {
-        requireNonNull(lesson, "lesson is null");
-        ContextLimits.unique(lesson.evidenceRefs(), "lesson sources", ContextLimits.MAX_SOURCES);
-        checkArgument(lesson.evidenceRefs().size() + lesson.messageId().stream().count() > 0, "Select supporting review evidence or a discussion message");
-        checkArgument(lesson.evidenceRefs().size() + lesson.messageId().stream().count() <= ContextLimits.MAX_SOURCES, "Too many lesson sources");
-        return mutate(workspaceId, expectedRevision, current -> {
-            AgentReview review = reviews.findReview(lesson.reviewId()).orElseThrow(() -> new ContextNotFoundException("Review not found"));
-            checkArgument(review.workspaceId().equals(workspaceId), "Review belongs to another workspace");
-            ReviewRun run = reviews.findRun(lesson.runId()).orElseThrow(() -> new ContextNotFoundException("Review run not found"));
-            checkArgument(run.reviewId().equals(review.id()), "Run belongs to another review");
-            List<ContextSourceEvidence> captured = new ArrayList<>();
-            for (String ref : lesson.evidenceRefs()) {
-                ReviewEvidence evidence = Optional.ofNullable(run.evidence().get(ref)).orElseThrow(() -> new IllegalArgumentException("Unknown evidence reference"));
-                ContextReference reference = new ContextReference.Review(review.id(), run.id(), Optional.of(ref), Optional.empty());
-                String provenance = "Copied stored review evidence; original source: " + evidence.source()
-                        + "\nRecorded provenance: " + evidence.provenance() + "\nRecorded explanation: " + evidence.explanation();
-                captured.add(capture("review:" + run.id() + ":" + ref, reference, provenance, evidence.excerpt(), run.headSha()));
-            }
-            lesson.messageId().ifPresent(id -> {
-                ReviewMessage message = reviews.listMessages(review.id()).stream().filter(value -> value.id().equals(id)).findFirst()
-                        .orElseThrow(() -> new ContextNotFoundException("Review message not found"));
-                checkArgument(message.runId().equals(run.id()), "Message belongs to another run");
-                ContextReference reference = new ContextReference.Review(review.id(), run.id(), Optional.empty(), Optional.of(id));
-                captured.add(capture("message:" + id + ":" + message.version(), reference, "Saved local review discussion by " + message.author(), message.body(), run.headSha()));
-            });
-            List<String> sourceIds = captured.stream().map(ContextSourceEvidence::id).collect(toImmutableList());
-            ContextEntry entry = new ContextEntry("lesson:" + UUID.randomUUID(), MEMORY, lesson.scopeId(), lesson.title(), lesson.summary(), lesson.body(),
-                    ImmutableList.of(new ContextClaim(lesson.summary(), ContextClaim.Basis.USER_LESSON, sourceIds)), sourceIds, USER, true, Math.addExact(current.revision(), 1));
-            // Preserve the first captured version when another lesson cites the same immutable source identity.
-            Set<String> existing = current.sourceEvidence().stream().map(ContextSourceEvidence::id).collect(toSet());
-            List<ContextSourceEvidence> evidence = ImmutableList.<ContextSourceEvidence>builder().addAll(current.sourceEvidence())
-                    .addAll(captured.stream().filter(value -> !existing.contains(value.id())).collect(toImmutableList())).build();
-            return content(current, current.useInReviews(), current.sources(), current.scopes(), replaceEntry(current, entry, false), evidence);
         });
     }
 
@@ -854,13 +792,6 @@ public class RepositoryContextService
         catch (JsonProcessingException failure) {
             throw new ContextStorageException("Repository context could not be encoded", failure);
         }
-    }
-
-    private static ContextSourceEvidence capture(String id, ContextReference reference, String provenance, String excerpt, String head)
-    {
-        return new ContextSourceEvidence(id, reference, provenance + "\nReviewed head (not necessarily the source revision): " + head,
-                excerpt, ContextSourceEvidence.Capture.BYTEQUAY_READ,
-                Optional.of(Instant.now()), Optional.of("sha256:" + Hashing.sha256().hashString(excerpt, UTF_8)), Optional.empty(), false);
     }
 
     private static String key(String workspaceId)

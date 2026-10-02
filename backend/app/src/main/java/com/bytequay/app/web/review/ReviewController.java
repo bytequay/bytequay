@@ -173,7 +173,6 @@ public class ReviewController
         else {
             turns.stopRuntime(task.id(), request.generation());
         }
-        reviews.reconcilePreparation(reviewId);
         return ReviewHttpModels.review(reviews.get(reviewId));
     }
 

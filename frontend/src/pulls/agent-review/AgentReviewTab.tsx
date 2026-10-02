@@ -568,7 +568,7 @@ export default function AgentReviewTab({
             </div>
           )}
 
-          {!timeline && run !== null && <ReviewDetails run={run} repository={review.repo} findings={review.findings} />}
+          {!timeline && run !== null && <ReviewDetails run={run} repository={review.repo} />}
           {!timeline && <ReviewSummaryCard
             review={review}
             run={run}

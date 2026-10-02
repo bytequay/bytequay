@@ -590,6 +590,6 @@ class TestRepositoryContextReader
     {
         return new ReviewRun(id, reviewId, 1, ReviewRun.Scope.FULL, "main", TARGET_BASE, DIFF_BASE, HEAD, Optional.empty(), ImmutableList.of(),
                 ImmutableList.of(new DiffFile(file, "modified", 1, 0, "patch")), ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(),
-                ImmutableList.of(), false, ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, updated, Optional.empty());
+                ImmutableList.of(), false, ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, Instant.EPOCH, updated, Optional.empty());
     }
 }

@@ -101,8 +101,8 @@ commit under the workspace ownership fence after external reads. Note approval
 checks notebook and target versions; it does not prove current applicability.
 Generated lessons need supporting evidence just like knowledge. Development and
 Explore may propose bounded drafts from server-read task HEAD files through the
-existing context tool. Review investigation and validation share the existing
-preparation path. Off denies new context access for the affected task/review flow.
+existing context tool. Reviews read no notes. Off denies new context access for
+the affected task.
 
 Verified development publication links and explicit imported-task PR mappings
 produce merged-work candidates from local caches. Merely listing them does not
@@ -114,8 +114,8 @@ baseline code. No branch-name inference or automatic generation is introduced.
 ContextBuildCoordinator observes existing task events and reconciles terminal,
 quiescent research tasks. It never resends uncertain input. Failed tasks retain
 explicit cleanup controls, and a replacement request needs recorded worktree
-removal. Existing exact-version usage receipts, review input bindings and private
-discussion provenance remain the source of usage reporting. Prepared, opened,
+removal. Existing exact-version usage receipts remain the source of usage
+reporting. Prepared, opened,
 delivered and cited are distinct facts, not evidence of model comprehension.
 
 [Development delivery](development-delivery.md) extends the current agent core

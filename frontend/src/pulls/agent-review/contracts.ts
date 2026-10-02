@@ -12,7 +12,6 @@
  * limitations under the License.
  */
 /** Wire shapes for the Agent review tab. Parsed once, so a malformed field never reaches a card. */
-import { parseReviewContextSnapshot, type ReviewContextSnapshotDto } from '../../repository-context/contracts';
 
 import { count, object, oneOf, optionalCount, optionalText, text } from '../wireParse';
 
@@ -67,34 +66,6 @@ export type ReviewStepDto = {
   validation: { investigationStep: number; candidates: ReviewCandidateValidationDto[]; coverage: ReviewCoverageDto; newCandidates: string[] } | null;
 };
 
-export type ContextDeliveryStateDto = { outcome: 'PREPARED' | 'SUBMITTED' | 'CONFIRMED' | 'UNCERTAIN'; detail: string | null };
-
-export type ContextPreparationActivityDto = {
-  operationRef: string; status: 'OWNED' | 'REUSED' | 'JOINED' | 'DEFERRED' | 'APPLIED' | 'UNAVAILABLE';
-  attemptId: string | null; recordedAt: string | null; elapsedMillis: number | null;
-  scopes: Array<{ scopeId: string; outcome: 'READY' | 'EMPTY' | 'FAILED' | null; explanation: string; noteIds: string[]; checkedSourceIds: string[] }>;
-  gaps: string[];
-};
-
-export type ContextNoteReadDto = {
-  entryId: string; entryVersion: number; status: 'AVAILABLE' | 'RECEIPT_UNAVAILABLE'; text: string | null;
-  evidenceRef: string | null; sourceEvidenceRefs: Record<string, string>;
-};
-
-type ContextNoteToolDeliveryDto = 'PREPARED' | 'CONFIRMED' | 'UNCERTAIN' | 'UNKNOWN';
-type ContextNoteSearchReadDto = { status: 'AVAILABLE' | 'RECEIPT_UNAVAILABLE'; evidenceRef: string | null;
-  sourceEvidenceRefs: Record<string, string>; delivery: ContextNoteToolDeliveryDto; receiptRef: string };
-
-export type ContextNoteSearchDto = {
-  searchRef: string; status: 'AVAILABLE' | 'RECEIPT_UNAVAILABLE'; notebookRevision: number | null;
-  originalNotebookRevision: number | null; newerThanSnapshot: boolean; contextState: 'MATCHES' | 'NO_MATCH' | 'UNKNOWN'; query: string; paths: string[];
-  omittedPathHints: number; pathHintCount: number; frozenPathHints: number; omittedCount: number;
-  delivery: ContextNoteToolDeliveryDto;
-  hits: Array<{ entryId: string; entryVersion: number; kind: 'KNOWLEDGE' | 'MEMORY'; scopeId: string;
-    title: string; summary: string; matchReasons: string[]; applicability: 'UNVERIFIED';
-    initiallySelected: boolean; read: ContextNoteSearchReadDto | null }>;
-};
-
 export type ReviewRunDto = {
   id: string;
   ordinal: number;
@@ -113,11 +84,6 @@ export type ReviewRunDto = {
   investigation: ReviewInvestigationDto | null;
   steps: ReviewStepDto[];
   evidence: ReviewEvidenceDto[];
-  context: ReviewContextSnapshotDto | null;
-  contextDeliveryStates: Record<string, ContextDeliveryStateDto>;
-  contextPreparationActivities: ContextPreparationActivityDto[];
-  contextNoteReads: ContextNoteReadDto[];
-  contextNoteSearches: ContextNoteSearchDto[];
   outcome: string | null;
   createdAt: string;
   endedAt: string | null;
@@ -179,7 +145,6 @@ export type ReviewMessageDto = {
   createdAt: string;
 };
 
-export type ReviewLessonDraftDto = { title: string; summary: string; body: string };
 
 type ReviewTaskDto = {
   id: string;
@@ -385,111 +350,8 @@ function parseEvidence(value: unknown): ReviewEvidenceDto {
   };
 }
 
-function parseContextDeliveryStates(value: unknown): Record<string, ContextDeliveryStateDto> {
-  return Object.fromEntries(Object.entries(object(value, 'context delivery states')).map(([turnId, value]) => {
-    const state = object(value, 'context delivery state');
-    return [turnId, { outcome: oneOf(state.outcome, ['PREPARED', 'SUBMITTED', 'CONFIRMED', 'UNCERTAIN'] as const, 'context delivery outcome'),
-      detail: state.detail == null ? null : text(state.detail, 'context delivery detail') }];
-  }));
-}
-
-function parsePreparationActivity(value: unknown): ContextPreparationActivityDto {
-  const item = object(value, 'context preparation activity');
-  const elapsedMillis = item.elapsedMillis;
-  if (elapsedMillis !== null && (typeof elapsedMillis !== 'number' || !Number.isSafeInteger(elapsedMillis) || elapsedMillis < 0)) {
-    throw new Error('Invalid context preparation elapsed time');
-  }
-  if (!Array.isArray(item.scopes) || !Array.isArray(item.gaps) || item.gaps.some(gap => typeof gap !== 'string')) throw new Error('Malformed preparation lists');
-  return { operationRef: text(item.operationRef, 'context preparation reference'),
-    status: oneOf(item.status, ['OWNED', 'REUSED', 'JOINED', 'DEFERRED', 'APPLIED', 'UNAVAILABLE'] as const, 'context preparation status'),
-    attemptId: item.attemptId === null ? null : text(item.attemptId, 'preparation attempt'),
-    recordedAt: item.recordedAt === null ? null : text(item.recordedAt, 'preparation recorded time'),
-    elapsedMillis: elapsedMillis === null ? null : count(elapsedMillis, 'preparation elapsed time'),
-    scopes: list(item.scopes).map(value => {
-      const scope = object(value, 'context preparation scope');
-      for (const values of [scope.noteIds, scope.checkedSourceIds]) {
-        if (!Array.isArray(values) || values.some(value => typeof value !== 'string')) throw new Error('Malformed preparation scope references');
-      }
-      return { scopeId: text(scope.scopeId, 'preparation scope'), outcome: scope.outcome === null ? null : oneOf(scope.outcome, ['READY', 'EMPTY', 'FAILED'] as const, 'preparation outcome'),
-        explanation: text(scope.explanation, 'preparation explanation'), noteIds: strings(scope.noteIds), checkedSourceIds: strings(scope.checkedSourceIds) };
-    }), gaps: strings(item.gaps) };
-}
-
-function parseNoteRead(value: unknown): ContextNoteReadDto {
-  const item = object(value, 'saved context note read');
-  const entryVersion = count(item.entryVersion, 'saved note version');
-  if (!Number.isSafeInteger(entryVersion) || entryVersion < 1) throw new Error('Malformed saved note version');
-  const result: ContextNoteReadDto = { entryId: text(item.entryId, 'saved note id'), entryVersion,
-    status: oneOf(item.status, ['AVAILABLE', 'RECEIPT_UNAVAILABLE'] as const, 'saved note status'),
-    text: item.text === null ? null : text(item.text, 'saved note text'), evidenceRef: item.evidenceRef === null ? null : text(item.evidenceRef, 'saved note evidence'),
-    sourceEvidenceRefs: Object.fromEntries(Object.entries(object(item.sourceEvidenceRefs, 'saved note source references')).map(([id, value]) => [id, text(value, 'saved note source reference')])) };
-  if ((result.status === 'AVAILABLE') !== (result.text !== null && result.evidenceRef !== null)
-    || (result.status === 'RECEIPT_UNAVAILABLE' && (result.text !== null || result.evidenceRef !== null || Object.keys(result.sourceEvidenceRefs).length > 0))) {
-    throw new Error('Malformed saved note status and content');
-  }
-  return result;
-}
-
-function parseNoteSearchRead(value: unknown): ContextNoteSearchReadDto {
-  const read = object(value, 'context note search read');
-  const result: ContextNoteSearchReadDto = { status: oneOf(read.status, ['AVAILABLE', 'RECEIPT_UNAVAILABLE'] as const, 'found note read status'),
-    receiptRef: text(read.receiptRef, 'found note read reference'),
-    evidenceRef: read.evidenceRef === null ? null : text(read.evidenceRef, 'found note evidence'),
-    sourceEvidenceRefs: Object.fromEntries(Object.entries(object(read.sourceEvidenceRefs, 'found note source references'))
-      .map(([id, source]) => [id, text(source, 'found note source reference')])),
-    delivery: oneOf(read.delivery, ['PREPARED', 'CONFIRMED', 'UNCERTAIN', 'UNKNOWN'] as const, 'context note tool delivery') };
-  if ((result.status === 'AVAILABLE') !== (result.evidenceRef !== null)
-    || (result.status === 'RECEIPT_UNAVAILABLE' && Object.keys(result.sourceEvidenceRefs).length > 0)) {
-    throw new Error('Malformed found note read status and evidence');
-  }
-  return result;
-}
-
-function parseNoteSearch(value: unknown): ContextNoteSearchDto {
-  const item = object(value, 'saved context note search');
-  const integer = (value: unknown, what: string, minimum = 0) => {
-    const parsed = count(value, what);
-    if (!Number.isSafeInteger(parsed) || parsed < minimum) throw new Error(`Malformed ${what} from the review service`);
-    return parsed;
-  };
-  const revision = (value: unknown, what: string) => value === null ? null : integer(value, what);
-  const stringList = (value: unknown, what: string) => {
-    if (!Array.isArray(value) || value.some(part => typeof part !== 'string')) throw new Error(`Malformed ${what} from the review service`);
-    return value as string[];
-  };
-  const delivery = (value: unknown) => oneOf(value, ['PREPARED', 'CONFIRMED', 'UNCERTAIN', 'UNKNOWN'] as const, 'context note tool delivery');
-  if (typeof item.newerThanSnapshot !== 'boolean' || !Array.isArray(item.hits)) throw new Error('Malformed saved context note search');
-  return { searchRef: text(item.searchRef, 'context note search reference'),
-    status: oneOf(item.status, ['AVAILABLE', 'RECEIPT_UNAVAILABLE'] as const, 'context note search status'),
-    notebookRevision: revision(item.notebookRevision, 'context note notebook revision'),
-    originalNotebookRevision: revision(item.originalNotebookRevision, 'original context note notebook revision'),
-    newerThanSnapshot: item.newerThanSnapshot,
-    contextState: oneOf(item.contextState, ['MATCHES', 'NO_MATCH', 'UNKNOWN'] as const, 'context note search state'),
-    query: text(item.query, 'context note query'), paths: stringList(item.paths, 'context note paths'),
-    omittedPathHints: integer(item.omittedPathHints, 'omitted context note paths'),
-    pathHintCount: integer(item.pathHintCount, 'context note path count'),
-    frozenPathHints: integer(item.frozenPathHints, 'frozen context note paths'),
-    omittedCount: integer(item.omittedCount, 'omitted context note hits'), delivery: delivery(item.delivery),
-    hits: item.hits.map(value => {
-      const hit = object(value, 'context note search hit');
-      if (typeof hit.initiallySelected !== 'boolean') throw new Error('Malformed found note initial selection');
-      return { entryId: text(hit.entryId, 'found note id'), entryVersion: integer(hit.entryVersion, 'found note version', 1),
-        kind: oneOf(hit.kind, ['KNOWLEDGE', 'MEMORY'] as const, 'found note kind'), scopeId: text(hit.scopeId, 'found note scope'),
-        title: text(hit.title, 'found note title'), summary: text(hit.summary, 'found note summary'),
-        matchReasons: stringList(hit.matchReasons, 'found note reasons'),
-        applicability: oneOf(hit.applicability, ['UNVERIFIED'] as const, 'found note applicability'),
-        initiallySelected: hit.initiallySelected,
-        read: hit.read === null ? null : parseNoteSearchRead(hit.read),
-      };
-    }),
-  };
-}
-
 function parseRun(value: unknown): ReviewRunDto {
   const run = object(value, 'review run');
-  if (!Array.isArray(run.contextPreparationActivities)) throw new Error('Malformed context preparation activities');
-  if (!Array.isArray(run.contextNoteReads)) throw new Error('Malformed saved context note reads');
-  if (!Array.isArray(run.contextNoteSearches)) throw new Error('Malformed saved context note searches');
   return {
     id: text(run.id, 'run id'),
     ordinal: count(run.ordinal, 'run ordinal'),
@@ -511,11 +373,6 @@ function parseRun(value: unknown): ReviewRunDto {
     investigation: parseInvestigation(run.investigation),
     steps: list(run.steps).map(parseStep),
     evidence: list(run.evidence).map(parseEvidence),
-    context: parseReviewContextSnapshot(run.context),
-    contextDeliveryStates: parseContextDeliveryStates(run.contextDeliveryStates),
-    contextPreparationActivities: list(run.contextPreparationActivities).map(parsePreparationActivity),
-    contextNoteReads: list(run.contextNoteReads).map(parseNoteRead),
-    contextNoteSearches: list(run.contextNoteSearches).map(parseNoteSearch),
     outcome: optionalText(run.outcome),
     createdAt: text(run.createdAt, 'run time'),
     endedAt: optionalText(run.endedAt),
@@ -566,15 +423,6 @@ function parseMessage(value: unknown): ReviewMessageDto {
     queuedInputId: optionalText(message.queuedInputId),
     messageEventId: optionalText(message.messageEventId),
     createdAt: text(message.createdAt, 'message time'),
-  };
-}
-
-export function parseReviewLessonDraft(value: unknown): ReviewLessonDraftDto {
-  const draft = object(value, 'lesson draft');
-  return {
-    title: text(draft.title, 'lesson title'),
-    summary: text(draft.summary, 'lesson summary'),
-    body: text(draft.body, 'lesson details'),
   };
 }
 

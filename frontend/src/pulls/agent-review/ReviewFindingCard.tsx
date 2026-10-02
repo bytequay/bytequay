@@ -83,15 +83,13 @@ export default function ReviewFindingCard({
   const messages = messagesFor(review, finding.id);
   const item = draftItemFor(review.draft, finding.id);
   const itemCommit = item === null ? null : draftCommentCommit(item, review.findings);
-  const reviewText = finding.path === null && review.draft?.body.includes(finding.body.trim()) ? review.draft.body : null;
+  const reviewText = item === null && finding.path === null && review.draft?.body.includes(finding.body.trim()) ? review.draft.body : null;
   const outgoingBody = reviewText ?? (item !== null && !item.published ? item.body : null);
   // Null for a finding about the whole pull request, such as a commit message: it has no code, no suggestion and no line to post on.
   const lines = findingLines(finding);
   const suggestion: SuggestionBase | undefined = lines !== null && lines.side === 'RIGHT'
     ? { startLine: lines.startLine, lines: finding.excerpt }
     : undefined;
-  const draftSuggestion = item !== null && lines !== null && item.findingRevision === finding.revision && item.path === lines.path
-    && item.side === lines.side && (item.startLine ?? item.line) === lines.startLine && item.line === lines.endLine ? suggestion : undefined;
   const withdrawn = finding.state === 'WITHDRAWN';
   // Deleted ranges can omit intervening context; do not invent their individual line numbers.
   const completeExcerpt = lines !== null && finding.excerpt.length === lines.endLine - lines.startLine + 1;
@@ -151,7 +149,7 @@ export default function ReviewFindingCard({
             <ReviewComposer
               repository={review.repo}
               value={text}
-              suggestion={composer === 'post' ? suggestion : composer === 'draft' ? draftSuggestion : undefined}
+              suggestion={composer === 'post' ? suggestion : undefined}
               autoFocus
               busy={busy}
               allowEmpty={(composer === 'resolve' && !remember) || (composer === 'draft' && reviewText !== null)}
@@ -250,7 +248,7 @@ export default function ReviewFindingCard({
               <span>
                 Resolved locally by you
                 {finding.stateReason ? ` · “${finding.stateReason}”` : ''}
-                {' · excluded from publication, draft text kept'}
+                {outgoingBody !== null ? ' · your saved review is unchanged' : ''}
               </span>
               <button type="button" className="agr-action" disabled={busy}
                 onClick={() => { void actions.onReopen(finding); }}>Reopen</button>
@@ -259,7 +257,8 @@ export default function ReviewFindingCard({
           {withdrawn && (
             <div className="agr-notice is-withdrawn">
               <span aria-hidden="true">⌫</span>
-              <span>The agent withdrew this finding{finding.stateReason ? ` · “${finding.stateReason}”` : ''}. It can no longer be published.</span>
+              <span>The agent withdrew this finding{finding.stateReason ? ` · “${finding.stateReason}”` : ''}.
+                {outgoingBody !== null ? ' Your saved review is unchanged.' : ' It can no longer be added to your review.'}</span>
             </div>
           )}
           {finding.outdated && (
@@ -284,7 +283,7 @@ export default function ReviewFindingCard({
                 <button type="button" disabled={busy} title={reviewText !== null ? "Remove this finding's text from your review summary" : undefined}
                   onClick={() => { void remove(); }}>Remove</button>
               </div>
-              <div className="agr-draft__body"><MarkdownBody body={outgoingBody} repository={review.repo} suggestion={draftSuggestion} /></div>
+              <div className="agr-draft__body"><MarkdownBody body={outgoingBody} repository={review.repo} /></div>
             </div>
           )}
           {item !== null && item.published && (

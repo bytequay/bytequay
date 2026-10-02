@@ -493,7 +493,7 @@ describe('the finding card', () => {
     const html = card(reviewFixture({ findings: [resolved] }), resolved);
     expect(html).toContain('Resolved locally by you');
     expect(html).toContain('Known limitation, tracked in #29981');
-    expect(html).toContain('excluded from publication, draft text kept');
+    expect(html).not.toContain('draft text kept');
     expect(html).toContain('>Reopen</button>');
     expect(html).not.toContain('Post comment now');
     expect(html).not.toContain('Add to my review');
@@ -513,7 +513,7 @@ describe('the finding card', () => {
     const withdrawn = { ...finding, state: 'WITHDRAWN' as const, stateReason: 'The fallback only runs for single-segment paths' };
     const html = card(reviewFixture({ findings: [withdrawn] }), withdrawn);
     expect(html).toContain('The agent withdrew this finding');
-    expect(html).toContain('can no longer be published');
+    expect(html).toContain('can no longer be added to your review');
     expect(html).not.toContain('Ask reviewer');
     expect(html).not.toContain('Add to my review');
   });

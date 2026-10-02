@@ -287,6 +287,13 @@ export async function runDraftCommentEdit(): Promise<string> {
       'Saving a draft edit updates its card without publishing');
     assert(draft.items[0].commitId === 'two' && draft.items[0].path === files[0].filename && draft.items[0].line === 1
       && currentReview.findings[0].body !== 'Edited finding', 'Editing must preserve the anchor and leave the agent finding unchanged');
+    currentReview = { ...currentReview, findings: currentReview.findings.map(finding => ({ ...finding,
+      state: 'RESOLVED', revision: finding.revision + 1, body: 'The agent changed its conclusion', stateReason: 'Discussed locally' })) };
+    flushSync(render); await settle();
+    assert(host.querySelector('.pr-review-sheet__pending')?.textContent?.includes('Edited finding')
+      && !host.querySelector('.pr-review-sheet__pending')?.textContent?.includes('The agent changed its conclusion')
+      && !button('.pr-review-sheet__footer .is-primary').disabled,
+      'Resolving or revising the agent finding must not change the saved comment or block submission');
     button('.pr-review-sheet__footer .is-primary').click(); await settle();
     assert(Number(published) === 1 && closed && draft.body === 'Review summary', 'Explicit submission must publish the saved edit and preserve review prose');
     return 'Saved draft comments support editing, retry and explicit submission';

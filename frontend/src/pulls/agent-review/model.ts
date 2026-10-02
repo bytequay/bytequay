@@ -300,9 +300,9 @@ export function findingPublication(review: AgentReviewDto, finding: ReviewFindin
   if (review.number === null) return { kind: 'blocked', reason: 'Private local review' };
   const item = draftItemFor(review.draft, finding.id);
   if (item !== null && item.published) return { kind: 'published', item };
+  if (item !== null) return { kind: 'draft', item };
   if (finding.state === 'WITHDRAWN') return { kind: 'blocked', reason: 'The agent withdrew this finding' };
   if (finding.state === 'RESOLVED') return { kind: 'blocked', reason: 'Excluded from publication' };
-  if (item !== null) return { kind: 'draft', item };
   const accepted = review.runs.some(run => run.state === 'ACCEPTED' && completeCoverage(run) && run.headSha === finding.validatedHeadSha
     && (run.id === finding.runId || run.steps.some(step => step.validation?.candidates.some(candidate => candidate.outcome === 'SUPPORTED'
       && candidate.findingId === finding.id && candidate.findingRevision === finding.revision))));

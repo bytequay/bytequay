@@ -102,12 +102,19 @@ describe('finding suggestions', () => {
     expect(inSummary).not.toContain('Add to my review');
   });
 
-  it('previews outgoing suggestions only against the same finding revision and anchor', () => {
-    expect(render(finding, draftItem).match(/class="md-suggestion"/g)).toHaveLength(2);
-    for (const stale of [{ ...draftItem, findingRevision: finding.revision - 1 }, { ...draftItem, startLine: 119, line: 120 }]) {
-      const html = render(finding, stale);
-      expect(html.match(/class="md-suggestion"/g)).toHaveLength(1);
-      expect(html).toContain('<span>suggestion</span>');
+  it('renders the saved outgoing text independently of later finding revisions and resolution', () => {
+    const original = render(finding, draftItem).match(/<div class="agr-draft__body">([\s\S]*?)<\/div>/)?.[1];
+    expect(original).toContain('Guard the empty value.');
+    expect(original).toContain('orElseThrow');
+    for (const state of ['OPEN', 'RESOLVED', 'WITHDRAWN'] as const) {
+      const changed = { ...finding, state, revision: 2, body: 'The agent changed its conclusion',
+        path: 'src/Other.java', startLine: 1, endLine: 1, range: 'R1', excerpt: ['Different code'] };
+      const html = render(changed, draftItem);
+      expect(html.match(/<div class="agr-draft__body">([\s\S]*?)<\/div>/)?.[1]).toBe(original);
+      expect(html).toContain('Outgoing comment · in your pending review');
+      expect(html).not.toContain('Excluded from publication');
+      expect(html).not.toContain('can no longer be published');
+      if (state !== 'OPEN') expect(html.toLowerCase()).toContain('your saved review is unchanged');
     }
   });
 });

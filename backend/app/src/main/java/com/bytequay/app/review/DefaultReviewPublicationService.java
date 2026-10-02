@@ -215,8 +215,7 @@ public class DefaultReviewPublicationService
         Reservation reservation = locked(repo, number, () -> {
             ReviewDraft draft = expect(repo, number, expectedVersion);
             ReviewDraftItem item = requireItem(draft, itemId);
-            requireSendable(repo, number, ImmutableList.of(item));
-            item = bindCommit(repo, number, item);
+            requireSendable(ImmutableList.of(item));
             String attemptId = UUID.randomUUID().toString();
             ReviewDraft reserved = drafts.save(draft.withItems(replace(draft.items(), reserve(item, attemptId)), now()));
             return new Reservation(attemptId, reserved, ImmutableList.of(item));
@@ -242,8 +241,7 @@ public class DefaultReviewPublicationService
                 throw new ReviewConflictException("An earlier send is in flight or has an unknown outcome; check it on GitHub before submitting again");
             }
             List<ReviewDraftItem> sending = draft.items().stream().filter(item -> item.included() && !item.published()).collect(toImmutableList());
-            requireSendable(repo, number, sending);
-            sending = sending.stream().map(item -> bindCommit(repo, number, item)).collect(toImmutableList());
+            requireSendable(sending);
             if (sending.isEmpty() && text.isEmpty() && !chosen.equals("APPROVE")) {
                 throw new ReviewInvalidRequestException("Add a comment or review text before submitting");
             }
@@ -324,7 +322,7 @@ public class DefaultReviewPublicationService
             if (item.published()) {
                 continue;
             }
-            reason(repo, number, item).ifPresent(reason -> blocked.add(new Ineligible(item.id(), reason)));
+            reason(item).ifPresent(reason -> blocked.add(new Ineligible(item.id(), reason)));
         }
         return ImmutableList.copyOf(blocked);
     }
@@ -419,10 +417,10 @@ public class DefaultReviewPublicationService
                 .orElse(OptionalLong.empty());
     }
 
-    private void requireSendable(String repo, int number, List<ReviewDraftItem> items)
+    private static void requireSendable(List<ReviewDraftItem> items)
     {
         for (ReviewDraftItem item : items) {
-            reason(repo, number, item).ifPresent(reason -> {
+            reason(item).ifPresent(reason -> {
                 throw new ReviewConflictException(reason);
             });
         }
@@ -437,31 +435,12 @@ public class DefaultReviewPublicationService
         }
     }
 
-    /** Why one item is not publishable, from the finding it was promoted from. */
-    private Optional<String> reason(String repo, int number, ReviewDraftItem item)
+    /** A saved comment belongs to the user; its source finding no longer controls publication. */
+    private static Optional<String> reason(ReviewDraftItem item)
     {
-        if (item.findingId().isEmpty()) {
-            return Optional.empty();
-        }
-        Optional<ReviewFinding> finding = reviews.findFinding(item.findingId().orElseThrow());
-        if (finding.isEmpty()) {
-            return Optional.of("The finding behind this comment is gone");
-        }
-        ReviewFinding value = finding.orElseThrow();
-        if (value.state() == ReviewFinding.State.RESOLVED) {
-            return Optional.of("You resolved this finding locally, so it is excluded from publication");
-        }
-        if (value.state() == ReviewFinding.State.WITHDRAWN) {
-            return Optional.of("The agent withdrew this finding");
-        }
-        Optional<String> reviewProblem = acceptedReviewProblem(repo, number, value, item.commitId().orElse(value.validatedHeadSha()));
-        if (reviewProblem.isPresent()) {
-            return reviewProblem;
-        }
-        if (item.commitId().isEmpty() && item.findingRevision().isPresent() && item.findingRevision().getAsInt() != value.revision()) {
-            return Optional.of("The agent revised this finding after you added it; recheck the comment text before sending");
-        }
-        return Optional.empty();
+        return item.commitId().isEmpty()
+                ? Optional.of("The comment's original commit is unknown; reopen the review preview before submitting")
+                : Optional.empty();
     }
 
     private static void requirePromotable(ReviewFinding finding)
@@ -484,14 +463,6 @@ public class DefaultReviewPublicationService
                 item.startLine().isPresent() ? item.startLine().getAsInt() : null,
                 item.startLine().isPresent() ? item.side() : null,
                 item.commitId().orElseThrow());
-    }
-
-    private ReviewDraftItem bindCommit(String repo, int number, ReviewDraftItem item)
-    {
-        if (item.commitId().isPresent()) {
-            return item;
-        }
-        throw new ReviewConflictException("The comment's original commit is unknown; reopen the review preview before submitting");
     }
 
     private long prId(String repo, int number)

@@ -47,7 +47,6 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 
-import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -188,7 +187,7 @@ class TestReviewPublicationService
     }
 
     @Test
-    void aProvisionalFindingCannotBeAddedOrSent()
+    void aProvisionalFindingCannotBeAddedButAnExistingSnapshotCanBeSent()
     {
         reviews.put(finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case"));
         ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
@@ -196,9 +195,10 @@ class TestReviewPublicationService
 
         assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, draft.version(), REVIEW_ID, FINDING_ID))
                 .isInstanceOf(ReviewConflictException.class).hasMessageContaining("accepted review");
-        assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft)))
-                .isInstanceOf(ReviewConflictException.class).hasMessageContaining("accepted review");
         verifyNoInteractions(pullRequests);
+
+        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(detail());
+        assertThat(service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft)).publishedItemIds()).containsExactly(lastItemId(draft));
     }
 
     @Test
@@ -240,37 +240,40 @@ class TestReviewPublicationService
     }
 
     @Test
-    void ineligibleExplainsEveryItemWhoseFindingMovedOn()
+    void savedCommentsStayUnchangedAndEligibleAfterTheirFindingsMoveOn()
     {
         ReviewFinding resolved = finding("f-resolved", 1, "src/A.java", 10, 10, "Resolved later");
         ReviewFinding withdrawn = finding("f-withdrawn", 2, "src/B.java", 20, 20, "Withdrawn later");
         ReviewFinding outdated = finding("f-outdated", 3, "src/C.java", 30, 30, "Outdated later");
         ReviewFinding revised = finding("f-revised", 4, "src/D.java", 40, 40, "Revised later");
-        ImmutableList.of(resolved, withdrawn, outdated, revised).forEach(reviews::put);
+        ReviewFinding removed = finding("f-removed", 5, "src/E.java", 50, 50, "Removed later");
+        ImmutableList.of(resolved, withdrawn, outdated, revised, removed).forEach(reviews::put);
 
         ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/Main.java", 12, "Still fine"));
-        String manualItem = lastItemId(draft);
         draft = service.addFinding(REPO, NUMBER, draft.version(), REVIEW_ID, "f-resolved");
-        String resolvedItem = lastItemId(draft);
         draft = service.addFinding(REPO, NUMBER, draft.version(), REVIEW_ID, "f-withdrawn");
-        String withdrawnItem = lastItemId(draft);
         draft = service.addFinding(REPO, NUMBER, draft.version(), REVIEW_ID, "f-outdated");
-        String outdatedItem = lastItemId(draft);
         draft = service.addFinding(REPO, NUMBER, draft.version(), REVIEW_ID, "f-revised");
-        String revisedItem = lastItemId(draft);
+        draft = service.addFinding(REPO, NUMBER, draft.version(), REVIEW_ID, "f-removed");
 
         reviews.put(resolved.withState(ReviewFinding.State.RESOLVED, Optional.of("fixed it"), NOW));
         reviews.put(withdrawn.withState(ReviewFinding.State.WITHDRAWN, Optional.of("misread the diff"), NOW));
         reviews.put(outdated.pendingReassessment(NOW));
         reviews.put(revised.revised("Revised title", "Rewritten body", Optional.empty(), revised.anchor(), ImmutableList.of(), REVIEWED_HEAD, NOW));
+        reviews.findings.remove(removed.id());
 
-        Map<String, String> reasons = service.ineligible(REPO, NUMBER).stream()
-                .collect(toImmutableMap(ReviewPublicationService.Ineligible::itemId, ReviewPublicationService.Ineligible::reason));
-
-        assertThat(reasons).hasSize(2).doesNotContainKeys(manualItem, outdatedItem, revisedItem);
-        assertThat(reasons.get(resolvedItem)).contains("You resolved this finding locally");
-        assertThat(reasons.get(withdrawnItem)).contains("The agent withdrew this finding");
+        assertThat(service.ineligible(REPO, NUMBER)).isEmpty();
+        assertThat(service.draft(REPO, NUMBER)).isEqualTo(draft);
         verifyNoInteractions(pullRequests);
+
+        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq(""), any())).thenReturn(detail());
+        service.submit(REPO, NUMBER, draft.version(), "", "COMMENT");
+
+        ArgumentCaptor<List<InlineReviewComment>> sent = ArgumentCaptor.captor();
+        verify(pullRequests).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq(""), sent.capture());
+        assertThat(sent.getValue()).extracting(InlineReviewComment::body)
+                .containsExactly("Still fine", "Resolved later", "Withdrawn later", "Outdated later", "Revised later", "Removed later");
     }
 
     @Test
@@ -408,19 +411,40 @@ class TestReviewPublicationService
     }
 
     @Test
-    void submitRefusesAResolvedFindingBeforeAnythingIsSent()
+    void submitSendsTheEditedSnapshotAfterTheFindingIsResolved()
     {
         ReviewFinding open = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case");
         reviews.put(open);
         ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
+        draft = service.editItem(REPO, NUMBER, draft.version(), lastItemId(draft), "My own review comment", true);
         reviews.put(open.withState(ReviewFinding.State.RESOLVED, Optional.of("fixed it"), NOW));
 
-        when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(REVIEWED_HEAD));
-        assertThatThrownBy(() -> service.submit(REPO, NUMBER, draft.version(), "Please fix these", "COMMENT"))
-                .isInstanceOf(ReviewConflictException.class)
-                .hasMessageContaining("You resolved this finding locally");
+        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Please fix these"), any())).thenReturn(detail());
 
-        verifyNoInteractions(pullRequests);
+        ReviewPublicationService.Publication result = service.submit(REPO, NUMBER, draft.version(), "Please fix these", "COMMENT");
+
+        ArgumentCaptor<List<InlineReviewComment>> sent = ArgumentCaptor.captor();
+        verify(pullRequests).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Please fix these"), sent.capture());
+        assertThat(sent.getValue()).containsExactly(new InlineReviewComment("src/Service.java", "My own review comment", 131, "RIGHT", 118, "RIGHT", REVIEWED_HEAD));
+        assertThat(result.publishedItemIds()).containsExactly(lastItemId(draft));
+        assertThat(reviews.findFinding(FINDING_ID)).contains(open.withState(ReviewFinding.State.RESOLVED, Optional.of("fixed it"), NOW));
+    }
+
+    @Test
+    void publishItemSendsTheEditedSnapshotAfterTheFindingIsWithdrawn()
+    {
+        ReviewFinding open = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case");
+        reviews.put(open);
+        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
+        draft = service.editItem(REPO, NUMBER, draft.version(), lastItemId(draft), "My own review comment", true);
+        reviews.put(open.withState(ReviewFinding.State.WITHDRAWN, Optional.of("misread the diff"), NOW));
+        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(detail());
+
+        ReviewPublicationService.Publication result = service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft));
+
+        verify(pullRequests).createReviewComment(REPO, NUMBER, new InlineReviewComment("src/Service.java", "My own review comment", 131, "RIGHT", 118, "RIGHT", REVIEWED_HEAD));
+        assertThat(result.publishedItemIds()).containsExactly(lastItemId(draft));
     }
 
     @Test

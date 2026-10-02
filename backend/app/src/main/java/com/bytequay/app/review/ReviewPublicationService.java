@@ -23,7 +23,7 @@ import java.util.Optional;
  * The user's local pending review for one pull request, and the only path from it to GitHub.
  *
  * <p>Nothing here publishes by itself: every send is one explicit user action that revalidates the
- * pull request, its current head, and the exact item payload before ByteQuay's existing GitHub
+ * pull request and the exact saved item payload before ByteQuay's existing GitHub
  * write path is called.
  */
 public interface ReviewPublicationService
@@ -35,7 +35,7 @@ public interface ReviewPublicationService
 
     /**
      * Snapshots a finding into the draft as an editable outgoing comment. The finding keeps its own
-     * identity and body; editing the item never writes back to it.
+     * identity and body; edits and resolution on either side never change the other.
      */
     ReviewDraft addFinding(String repo, int number, long expectedVersion, String reviewId, String findingId);
 

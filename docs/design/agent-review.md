@@ -1130,8 +1130,8 @@ Advancing a review never overwrites the previous version's discussion.
 All finding/discussion tools are local-only. Publication is available only
 through explicit desktop actions using ByteQuay's existing GitHub write path:
 
-- **Resolve locally** excludes the finding and any linked draft from future
-  publication while retaining the user's edited draft text.
+- **Resolve locally** changes only the private finding. A comment already
+  copied into the user's review remains unchanged and eligible for publication.
 - **Add to my review** snapshots the selected finding into the user's local,
   editable pending review. It is not a GitHub pending review creation.
 - **Post comment now** publishes only the selected, previewed comment.
@@ -1139,10 +1139,11 @@ through explicit desktop actions using ByteQuay's existing GitHub write path:
   eligible draft comments and the review text/event the user selected.
 
 Never include private replies, summary discussions, activity, or an agent
-summary automatically. Agent revisions do not silently rewrite drafts; flag
-a changed source finding for the user's recheck. A withdrawn/resolved finding
-must be excluded even if it was previously added to a draft. The agent cannot
-re-include it or invoke publication.
+summary automatically. Adding a finding copies its body, location, and reviewed
+commit into a user-owned snapshot. Later agent revisions, withdrawal, or local
+resolution cannot change its displayed text, inclusion, or publication
+eligibility. The user edits or removes the saved comment separately. The agent
+cannot include draft items or invoke publication.
 
 The finding/discussion has one stable identity; its outgoing draft snapshot
 has a separate stable item identity and body. Editing the draft never edits
@@ -1161,7 +1162,8 @@ those identities; it never substitutes today's PR head for an older comment.
 A merge into the target branch, a new PR head, an ongoing later review, or an
 outdated finding flag does not impose a publication gate on that snapshot.
 Source revisions may be shown for the user's recheck without silently rewriting
-or blocking their frozen comment. Resolved/withdrawn findings remain excluded.
+or blocking their frozen comment. Resolved/withdrawn findings cannot be newly
+added; comments already saved from them remain independent.
 Adding a new finding still requires an accepted review at its validated commit;
 an unfinished later review cannot authorize a new provisional finding.
 
@@ -1186,11 +1188,10 @@ Manual comments from a selected commit-range view keep that selected commit
 and its line numbers. Never hoist one item's commit SHA over another item's
 snapshot or move the line numbers onto the current head.
 
-Atomically reserve the exact local publication payload before sending. Resolve,
-withdraw, edits, and duplicate clicks must not race that reservation. A
-finding resolved before reservation is never eligible; while a send is in
-flight, show that fact instead of falsely promising that resolution can undo
-it. Store returned remote IDs. An uncertain result requires reconciliation,
+Atomically reserve the exact local publication payload before sending. Draft
+edits, removals, and duplicate clicks must not race that reservation. Private
+finding changes do not affect the reserved payload; local resolution cannot
+undo a send. Store returned remote IDs. An uncertain result requires reconciliation,
 not automatic reposting. Once actually published, local resolution does not
 delete or resolve the GitHub thread; remote changes require a separate user
 action.
@@ -1200,7 +1201,7 @@ the exact payload to be reserved: destination PR/account, review body and event,
 included item bodies, and frozen commits and locations. Bind the user's
 Submit review or Post comment now action to that preview and its draft version.
 Immediately before reservation, recheck the local draft version, destination
-ownership and user resolution state. If the selected body, commit or location
+ownership and draft publication state. If the selected body, commit or location
 differs from the prepared preview, refuse the send, show the updated preview,
 and require a new direct user action. Remote head/base advancement alone does
 not change a frozen payload. Saving a draft or approving an earlier version
@@ -1334,9 +1335,9 @@ details screenshot and access to the current frontend when available.
 > availability from remote publication eligibility on authored or closed PRs.
 >
 > Make private versus outgoing content unmistakable using the existing visual
-> language. Local resolution/withdrawal excludes a linked draft but preserves
-> user edits. Publishing requires an explicit user action and never includes
-> private discussion. Show running, queued question, approval needed, ready
+> language. Saved outgoing comments stay independent of local finding
+> resolution, withdrawal, and revisions. Publishing requires an explicit user
+> action and never includes private discussion. Show running, queued question, approval needed, ready
 > with findings, explicit no findings, incomplete/error, resolved/withdrawn,
 > draft added, and new-commits/outdated states. Label sample findings and
 > commits illustrative; do not fabricate review results for a real PR.

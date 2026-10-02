@@ -380,6 +380,14 @@ describe('publication eligibility', () => {
     expect(findingPublication(carrying, changed)).toEqual({ kind: 'draft', item });
   });
 
+  it.each(['RESOLVED', 'WITHDRAWN'] as const)('keeps a saved comment pending after its source finding is %s', state => {
+    const changed = { ...finding, state, revision: 2, body: 'The agent changed its conclusion' };
+    const item = draftItem({ body: 'My saved comment' });
+    const carrying = reviewFixture({ findings: [changed], draft: draft([item]) });
+    expect(findingPublication(carrying, changed)).toEqual({ kind: 'draft', item });
+    expect(pendingDraftCount(carrying.draft)).toBe(1);
+  });
+
   it('keeps an accepted earlier finding publishable while a newer run is active or incomplete', () => {
     for (const state of ['RUNNING', 'INCOMPLETE'] as const) {
       const latest: AgentReviewDto['runs'][number] = { ...review.runs[0], id: 'run-2', state, summary: null, coverage: null };

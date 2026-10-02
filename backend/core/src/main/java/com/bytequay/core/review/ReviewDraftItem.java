@@ -22,7 +22,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * One outgoing inline comment in the user's local pending review. A promoted finding keeps the
  * finding identity and revision it was snapshotted from; its body is the user's to edit and never
- * writes back to the finding.
+ * writes back to the finding. Later finding changes do not affect this snapshot or its publication.
  */
 public record ReviewDraftItem(
         String id,

@@ -19,6 +19,7 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.app.context.ContextSpecCheckTools;
+import com.bytequay.app.memory.MemoryHarvestTools;
 import com.google.common.collect.ImmutableList;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -37,12 +38,15 @@ public class ReviewBridgeResolverImpl
 {
     private final ObjectProvider<ReviewTools> tools;
     private final ObjectProvider<ContextSpecCheckTools> checks;
+    private final ObjectProvider<MemoryHarvestTools> harvests;
     private final AgentTaskStore tasks;
 
-    public ReviewBridgeResolverImpl(ObjectProvider<ReviewTools> tools, ObjectProvider<ContextSpecCheckTools> checks, AgentTaskStore tasks)
+    public ReviewBridgeResolverImpl(ObjectProvider<ReviewTools> tools, ObjectProvider<ContextSpecCheckTools> checks, ObjectProvider<MemoryHarvestTools> harvests,
+            AgentTaskStore tasks)
     {
         this.tools = requireNonNull(tools, "tools is null");
         this.checks = requireNonNull(checks, "checks is null");
+        this.harvests = requireNonNull(harvests, "harvests is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
     }
 
@@ -50,6 +54,7 @@ public class ReviewBridgeResolverImpl
     public Optional<ReviewBridge> resolve(String taskId)
     {
         return checks.getObject().bridge(taskId)
+                .or(() -> harvests.getObject().bridge(taskId))
                 .or(() -> tools.getObject().bridge(taskId))
                 .or(() -> tasks.find(TaskId.valueOf(taskId))
                 .filter(task -> task.interactive() && task.state() == TaskState.OPEN)

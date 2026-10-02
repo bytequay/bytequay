@@ -38,6 +38,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.agent.WorkflowAgentTasks;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.memory.MemoryHarvestService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
@@ -69,8 +70,9 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Runs one explicitly requested spec check using the existing agent lifecycle: its planning turn, then each reproduction as a new
- * turn of the same task, starting from a worktree without the earlier turn's test.
+ * Runs one explicitly requested restricted run at a time per workspace using the existing agent lifecycle: a spec check, its planning
+ * turn and then each reproduction as a new turn of the same task, starting from a worktree without the earlier turn's test; or a memory
+ * harvest, one turn over the maintainer threads it was given.
  */
 @Service
 public class ContextBuildService
@@ -94,6 +96,7 @@ public class ContextBuildService
     private final ContextSpecCheckStore checks;
     private final WorktreeService worktrees;
     private final ObjectProvider<ContextBuildCoordinator> coordinator;
+    private final ObjectProvider<MemoryHarvestService> harvests;
     private final GitCommandRunner git;
     private final ObjectMapper mapper;
     private final Clock clock;
@@ -103,7 +106,7 @@ public class ContextBuildService
             ContextBuildStore builds, WorkspaceRepositoryService workspaces, ModelSettingsService models, CredentialService credentials,
             AgentDriverRegistry drivers, AgentTaskService tasks, AgentTaskStore taskStore, AgentTurnService turns, AgentTurnStore turnStore,
             AgentCompletionService completions, AgentApprovalService approvals, ContextSpecCheckStore checks, WorktreeService worktrees,
-            ObjectProvider<ContextBuildCoordinator> coordinator, GitCommandRunner git, ObjectMapper mapper, Clock clock)
+            ObjectProvider<ContextBuildCoordinator> coordinator, ObjectProvider<MemoryHarvestService> harvests, GitCommandRunner git, ObjectMapper mapper, Clock clock)
     {
         this.builds = requireNonNull(builds, "builds is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
@@ -119,6 +122,7 @@ public class ContextBuildService
         this.checks = requireNonNull(checks, "checks is null");
         this.worktrees = requireNonNull(worktrees, "worktrees is null");
         this.coordinator = requireNonNull(coordinator, "coordinator is null");
+        this.harvests = requireNonNull(harvests, "harvests is null");
         this.git = requireNonNull(git, "git is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -136,22 +140,34 @@ public class ContextBuildService
      */
     public View check(String workspaceId, Request request, String baselineSha, ContextBuild.Check check)
     {
-        checkArgument(baselineSha.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Invalid check baseline");
+        return run(workspaceId, request, baselineSha, Optional.of(check), Optional.empty());
+    }
+
+    /** One harvest turn over the maintainer threads it carries, at the monitored head. It never continues an earlier task. */
+    public View harvest(String workspaceId, Request request, String baselineSha, ContextBuild.Harvest harvest)
+    {
+        return run(workspaceId, request, baselineSha, Optional.empty(), Optional.of(harvest));
+    }
+
+    private View run(String workspaceId, Request request, String baselineSha, Optional<ContextBuild.Check> check, Optional<ContextBuild.Harvest> harvest)
+    {
+        checkArgument(baselineSha.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Invalid run baseline");
         Lock lock = locks.get(workspaceId);
         lock.lock();
         try {
-            String digest = digest(ImmutableList.of(request, baselineSha, check));
+            String digest = digest(ImmutableList.of(request, baselineSha, check.<Object>map(value -> value).orElseGet(() -> harvest.orElseThrow().harvestId())));
             Optional<ContextBuild> previous = builds.find(workspaceId);
             if (previous.filter(build -> build.requestKey().equals(request.requestKey())).isPresent()) {
-                checkArgument(previous.orElseThrow().requestDigest().equals(digest), "Request key was reused with different check inputs");
+                checkArgument(previous.orElseThrow().requestDigest().equals(digest), "Request key was reused with different run inputs");
                 return view(workspaceId);
             }
             checkArgument(previous.map(ContextBuild::sequence).orElse(0L) == request.expectedBuildSequence(), "Build request sequence changed; inspect the latest build");
-            Optional<ContextBuild> continued = previous.filter(build -> build.check().checkId().equals(check.checkId())
+            Optional<ContextBuild> continued = previous.filter(build -> check.isPresent() && build.check().map(ContextBuild.Check::checkId)
+                    .filter(check.orElseThrow().checkId()::equals).isPresent()
                     && taskStore.find(TaskId.valueOf(build.taskId()))
                             .filter(task -> reusable(build, task, turns.findTurnByIdempotencyKey(task.id(), build.turnKey()))).isPresent());
             checkArgument(continued.isPresent() || previous.map(this::canStartAfter).orElse(true),
-                    "The previous check task must finish and its worktree must be cleaned up before another check");
+                    "The workspace's last spec check or harvest must finish and its worktree must be cleaned up before another one starts");
             AgentModelSetting model = models.agentModel(AgentModelType.REVIEW, Optional.of(workspaceId));
             AgentLaneId lane = new AgentLaneId(model.configId());
             WorkflowAgentTasks.requireReady(drivers, lane, AgentPermissionPolicy.AUTO);
@@ -161,11 +177,11 @@ public class ContextBuildService
             checkArgument(resolved.successful() && !resolved.truncated() && resolved.output().strip().matches("[0-9a-f]{40}|[0-9a-f]{64}"),
                     "The check's baseline is unavailable");
             TaskId id = continued.map(build -> TaskId.valueOf(build.taskId())).orElseGet(TaskId::random);
-            String title = "Check " + workspace.monitoredRepository().fullName();
+            String title = (check.isPresent() ? "Check " : "Learn from ") + workspace.monitoredRepository().fullName();
             String branch = continued.map(ContextBuild::branch).orElseGet(() -> TaskBranches.generate(id, credentials.resolveGitHubCredential().profile().login(), title));
             ContextBuild build = new ContextBuild(Math.addExact(request.expectedBuildSequence(), 1), request.requestKey(), digest, workspaceId, id.toString(),
                     WorkflowAgentTasks.repositoryIdentity(workspace.selectedRepository()), workspace.monitoredRepositoryId(), workspace.monitoredRepository(),
-                    resolved.output().strip(), branch, lane.value(), defaults(model), Instant.now(clock), ContextBuild.Capture.empty(), check);
+                    resolved.output().strip(), branch, lane.value(), defaults(model), Instant.now(clock), ContextBuild.Capture.empty(), check, harvest);
             builds.save(previous, build);
             try {
                 if (continued.isEmpty()) {
@@ -178,7 +194,7 @@ public class ContextBuildService
                 turns.start(new StartAgentTurnCommand(id, prompt(build), ImmutableList.of(), build.turnKey()));
             }
             catch (RuntimeException failure) {
-                recordGap(workspaceId, build.taskId(), "The check could not start or its response was interrupted: " + failure.getClass().getSimpleName());
+                recordGap(workspaceId, build.taskId(), "The run could not start or its response was interrupted: " + failure.getClass().getSimpleName());
                 reconcile(workspaceId, build.taskId());
             }
             return view(workspaceId);
@@ -209,7 +225,7 @@ public class ContextBuildService
         AgentTask task = task(workspaceId, taskId);
         ContextBuild build = builds.find(workspaceId).orElseThrow();
         WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            checks.find(workspaceId, build.check().checkId()).filter(check -> check.state().active())
+            build.check().flatMap(bound -> checks.find(workspaceId, bound.checkId())).filter(check -> check.state().active())
                     .ifPresent(check -> checks.save(workspaceId, Optional.of(check), check.ended(ContextSpecCheck.State.STOPPED, Optional.of("Stopped"),
                             Instant.now(clock))));
             return null;
@@ -277,14 +293,18 @@ public class ContextBuildService
                 }
             }
             if (task.orElseThrow().state() == TaskState.OPEN) {
-                if (kept.isEmpty() && turn.filter(value -> value.state() == TurnState.COMPLETED).isPresent() && build.capture().attempts().containsKey(CHECKED)) {
-                    completions.complete(new CompleteAgentTaskCommand(task.orElseThrow().id(), Optional.of("The spec check finished; its report keeps the results.")));
+                boolean completed = turn.filter(value -> value.state() == TurnState.COMPLETED && value.cancellationRequestedAt().isEmpty()).isPresent();
+                if (kept.isEmpty() && completed && (build.harvest().isPresent() || build.capture().attempts().containsKey(CHECKED))) {
+                    completions.complete(new CompleteAgentTaskCommand(task.orElseThrow().id(), Optional.of(build.harvest().isPresent()
+                            ? "The harvest finished; Memory keeps what it saved." : "The spec check finished; its report keeps the results.")));
+                    build.harvest().ifPresent(ignored -> harvests.getObject().finish(build, true));
                 }
                 else {
-                    String reason = kept.orElseGet(() -> "The check turn ended without saving its result."
+                    String reason = kept.orElseGet(() -> (build.harvest().isPresent() ? "The harvest turn did not finish." : "The check turn ended without saving its result.")
                             + turn.map(value -> " Turn outcome: " + value.state()).orElse(" No turn was accepted."));
                     recordGap(workspaceId, taskId, reason);
                     completions.abandon(task.orElseThrow().id(), reason);
+                    build.harvest().ifPresent(ignored -> harvests.getObject().finish(build, false));
                 }
             }
             completions.cleanupWorktree(task.orElseThrow().id());
@@ -302,7 +322,7 @@ public class ContextBuildService
     /** A spec check reproduces its next candidate as a new turn of this task. */
     private boolean continuesCheck(String workspaceId, ContextBuild build, AgentTask task, Optional<AgentTurn> turn)
     {
-        return reusable(build, task, turn) && checks.find(workspaceId, build.check().checkId())
+        return reusable(build, task, turn) && build.check().flatMap(bound -> checks.find(workspaceId, bound.checkId()))
                 .filter(check -> check.state().active()).flatMap(ContextSpecCheck::nextToReproduce).isPresent();
     }
 
@@ -378,8 +398,8 @@ public class ContextBuildService
             Outcome outcome = outcome(value, task, task.flatMap(owner -> turns.findTurnByIdempotencyKey(owner.id(), value.turnKey())));
             Optional<String> detail = task.flatMap(AgentTask::terminalReason).or(() -> value.capture().gaps().stream().findFirst())
                     .filter(ignored -> outcome == Outcome.FAILED).map(text -> ContextText.excerpt(text, 1000));
-            return new BuildView(value.requestKey(), value.taskId(), value.check().checkId(), task.map(TaskView::of), active.map(TurnView::of),
-                    active.map(turn -> approvals.listPending(turn.id()).size()).orElse(0), outcome, detail, value.capture().activity());
+            return new BuildView(value.check().isPresent() ? "CHECK" : "HARVEST", value.requestKey(), value.taskId(), value.workId(), task.map(TaskView::of),
+                    active.map(TurnView::of), active.map(turn -> approvals.listPending(turn.id()).size()).orElse(0), outcome, detail, value.capture().activity());
         });
         return new View(found.map(ContextBuild::sequence).orElse(0L), found.map(this::canStartAfter).orElse(true), build);
     }
@@ -395,6 +415,9 @@ public class ContextBuildService
         }
         if (turn.flatMap(AgentTurn::cancellationRequestedAt).isPresent()) {
             return Outcome.STOPPED;
+        }
+        if (build.harvest().isPresent()) {
+            return turn.filter(value -> value.state() == TurnState.COMPLETED).isPresent() ? Outcome.SAVED : Outcome.FAILED;
         }
         return build.capture().attempts().containsKey(CHECKED) ? Outcome.SAVED : Outcome.FAILED;
     }
@@ -425,7 +448,10 @@ public class ContextBuildService
     /** A planning turn saves candidate gaps without writing files; a reproduction turn writes and runs one test. */
     private static String prompt(ContextBuild build)
     {
-        ContextBuild.Check check = build.check();
+        if (build.harvest().isPresent()) {
+            return MemoryHarvestService.prompt(build);
+        }
+        ContextBuild.Check check = build.check().orElseThrow();
         String where = " in directory " + check.directory() + " of " + build.repository().fullName() + " at " + build.baselineSha();
         if (check.reproduction().isEmpty()) {
             return "Check the code" + where + " against the specifications it implements, and save candidate gaps. Later turns reproduce each "
@@ -483,8 +509,13 @@ public class ContextBuildService
 
     public record Baseline(String branch, String sha) {}
 
-    /** What the page needs to follow the current check turn and to offer its recovery actions. */
-    public record BuildView(String requestKey, String taskId, String checkId, Optional<TaskView> task, Optional<TurnView> activeTurn, int pendingApprovals,
+    /**
+     * What the page needs to follow the current run and to offer its recovery actions.
+     *
+     * @param kind CHECK for a spec check turn, HARVEST for a memory harvest
+     * @param checkId the spec check's or the harvest's id
+     */
+    public record BuildView(String kind, String requestKey, String taskId, String checkId, Optional<TaskView> task, Optional<TurnView> activeTurn, int pendingApprovals,
             Outcome outcome, Optional<String> detail, List<ContextBuild.Activity> activity)
     {
         public BuildView

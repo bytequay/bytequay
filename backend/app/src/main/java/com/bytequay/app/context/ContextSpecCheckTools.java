@@ -84,7 +84,7 @@ public class ContextSpecCheckTools
 
     public Optional<ReviewBridge> bridge(String taskId)
     {
-        return builds.findByTask(taskId)
+        return builds.findByTask(taskId).filter(build -> build.check().isPresent())
                 .flatMap(build -> tasks.find(TaskId.valueOf(taskId)).filter(task -> task.state() == TaskState.OPEN).map(task -> bridge(task, build)));
     }
 
@@ -94,7 +94,7 @@ public class ContextSpecCheckTools
                 .map(claim -> TurnId.valueOf(claim.ownerId()));
         String taskId = task.id().toString();
         ReviewTool read = readTool(taskId, turn);
-        return new ReviewBridge(build.check().reproduction().isEmpty()
+        return new ReviewBridge(build.check().orElseThrow().reproduction().isEmpty()
                 ? ImmutableList.of(read, searchTool(taskId, turn), candidatesTool(taskId, turn))
                 : ImmutableList.of(read, resultTool(taskId, turn)), POLICY);
     }
@@ -117,7 +117,7 @@ public class ContextSpecCheckTools
         if (kind.equals("SELECTION")) {
             fields(args, "kind");
             return mapper.createObjectNode().put("repository", build.repository().fullName()).put("baselineSha", build.baselineSha())
-                    .putPOJO("check", build.check()).putPOJO("gaps", build.capture().gaps());
+                    .putPOJO("check", build.check().orElseThrow()).putPOJO("gaps", build.capture().gaps());
         }
         checkArgument(kind.equals("PAGE"), "kind: use SELECTION or PAGE");
         fields(args, "kind", "url", "captureId", "page");

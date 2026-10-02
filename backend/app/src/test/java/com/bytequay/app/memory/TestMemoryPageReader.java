@@ -23,6 +23,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.review.AgentReviewStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -47,7 +48,15 @@ class TestMemoryPageReader
     private final MemoryService memories = new MemoryService(store, new InMemoryAppSettingsStore(), new ObjectMapper(), Clock.fixed(NOW, ZoneOffset.UTC));
     private final ContextBuildService builds = mock(ContextBuildService.class);
     private final WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
-    private final MemoryPageReader reader = new MemoryPageReader(memories, builds, workspaces, git, new RepositoryGuidelineReader(git, mock(AgentReviewStore.class)));
+    private final MemoryHarvestService harvests = mock(MemoryHarvestService.class);
+    private final MemoryPageReader reader = new MemoryPageReader(memories, builds, workspaces, git, new RepositoryGuidelineReader(git, mock(AgentReviewStore.class)),
+            harvests);
+
+    @BeforeEach
+    void harvests()
+    {
+        when(harvests.state("workspace")).thenReturn(MemoryHarvestService.HarvestState.EMPTY);
+    }
 
     @TempDir
     private Path repository;

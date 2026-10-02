@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { count, object, oneOf, optionalText, text } from '../pulls/wireParse';
+import { parseContextBuildView, type ContextBuildViewDto } from '../repository-context/contracts';
 
 export type MemoryKind = 'RULE' | 'SPEC';
 export type MemoryPart = 'REVIEW_COMMENT' | 'REVIEW' | 'COMMENT' | 'CLOSE';
@@ -32,7 +33,18 @@ export type MemoryDto = {
 export type MemorySwitchesDto = { reviews: boolean; development: boolean };
 /** A guideline file every agent turn reads, at the monitored branch head. */
 export type GuidelineFileDto = { path: string; bytes: number; cut: boolean; url: string };
-export type MemoryPageDto = { memories: MemoryDto[]; switches: MemorySwitchesDto; guidelines: GuidelineFileDto[]; head: string | null };
+/** The latest harvest: what it read, and the memories it saved, saw again or replaced. */
+export type HarvestLastRunDto = {
+  harvestId: string; label: string; startedAt: string; endedAt: string | null; pulls: number; threads: number; saved: string[]; seenAgain: number;
+  replaced: number; outcome: 'RUNNING' | 'DONE' | 'FAILED' | 'NOTHING';
+};
+/** How far Learn from my PRs has read, and the latest harvest. */
+export type MemoryHarvestDto = { cursor: { number: number; closedAt: string } | null; last: HarvestLastRunDto | null };
+export type MemoryPageDto = { memories: MemoryDto[]; switches: MemorySwitchesDto; guidelines: GuidelineFileDto[]; head: string | null; harvest: MemoryHarvestDto };
+/** Learn from my PRs, or Learn from this PR with the pull request and its repository. */
+export type StartMemoryHarvestRequest = { requestKey: string; expectedBuildSequence: number; pull: number | null; repo: string | null };
+/** Whether a run started, and how many pull requests and new maintainer threads it found. */
+export type MemoryHarvestStartedDto = { started: boolean; pulls: number; threads: number; view: ContextBuildViewDto };
 
 function flag(value: unknown, what: string): boolean {
   if (typeof value !== 'boolean') throw new Error(`Malformed ${what}`);
@@ -94,7 +106,43 @@ export function parseMemoryPage(value: unknown): MemoryPageDto {
         url: text(found.url, 'guideline address') };
     }),
     head: optionalText(item.head),
+    harvest: harvest(item.harvest),
   };
+}
+
+function harvest(value: unknown): MemoryHarvestDto {
+  const item = object(value, 'harvest');
+  const cursor = item.cursor == null ? null : object(item.cursor, 'harvest cursor');
+  const last = item.last == null ? null : object(item.last, 'last harvest');
+  return {
+    cursor: cursor === null ? null : { number: count(cursor.number, 'harvest cursor'), closedAt: text(cursor.closedAt, 'harvest cursor time') },
+    last: last === null ? null : {
+      harvestId: text(last.harvestId, 'harvest id'), label: text(last.label, 'harvest label'), startedAt: text(last.startedAt, 'harvest start'),
+      endedAt: optionalText(last.endedAt), pulls: count(last.pulls, 'harvest pulls'), threads: count(last.threads, 'harvest threads'),
+      saved: strings(last.saved, 'harvest saves'), seenAgain: count(last.seenAgain, 'harvest repeats'), replaced: count(last.replaced, 'harvest replacements'),
+      outcome: oneOf(last.outcome, ['RUNNING', 'DONE', 'FAILED', 'NOTHING'], 'harvest outcome'),
+    },
+  };
+}
+
+export function parseMemoryHarvestStarted(value: unknown, workspaceId: string): MemoryHarvestStartedDto {
+  const item = object(value, 'harvest start');
+  return { started: flag(item.started, 'harvest start'), pulls: count(item.pulls, 'harvest pulls'), threads: count(item.threads, 'harvest threads'),
+    view: parseContextBuildView(item.view, workspaceId) };
+}
+
+export function parseStartMemoryHarvestRequest(value: unknown): StartMemoryHarvestRequest {
+  const item = object(value, 'harvest request');
+  for (const key of Object.keys(item)) if (!['requestKey', 'expectedBuildSequence', 'pull', 'repo'].includes(key)) throw new Error(`Malformed harvest request: ${key}`);
+  const requestKey = text(item.requestKey, 'harvest request key');
+  const sequence = count(item.expectedBuildSequence, 'harvest request sequence');
+  const pull = item.pull == null ? null : count(item.pull, 'harvest pull request');
+  const repo = item.repo == null ? null : text(item.repo, 'harvest repository');
+  if (requestKey.trim() === '' || !Number.isSafeInteger(sequence) || sequence < 0 || (pull !== null && (!Number.isSafeInteger(pull) || pull < 1))
+    || (pull === null) !== (repo === null) || (repo !== null && !/^[A-Za-z0-9-]+\/(?!\.\.?$)[\w.-]+$/.test(repo))) {
+    throw new Error('Malformed harvest request');
+  }
+  return { requestKey, expectedBuildSequence: sequence, pull, repo };
 }
 
 /** Request values the main process checks before calling the backend. */

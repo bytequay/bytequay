@@ -27,7 +27,7 @@ import type {
   ContextSpecSourceDto,
   StartContextSpecCheckRequest,
 } from './repository-context/contracts';
-import type { MemoryPageDto, MemorySwitchesDto } from './memory/contracts';
+import type { MemoryHarvestStartedDto, MemoryPageDto, MemorySwitchesDto, StartMemoryHarvestRequest } from './memory/contracts';
 import type {
   AgentReviewDto,
   ReviewDraftDto,
@@ -1615,6 +1615,8 @@ export type Bridge = JiraBridge & {
   deleteMemory: (workspaceId: string, memoryId: string) => Promise<MemoryPageDto>;
   undoDeleteMemory: (workspaceId: string, memoryId: string) => Promise<MemoryPageDto>;
   saveMemorySwitches: (workspaceId: string, switches: MemorySwitchesDto) => Promise<MemoryPageDto>;
+  /** Learn from my PRs, or Learn from this PR: reads maintainer threads on GitHub and starts one harvest run over the new ones; GitHub is only read. */
+  startMemoryHarvest: (workspaceId: string, request: StartMemoryHarvestRequest) => Promise<MemoryHarvestStartedDto>;
   setWorkspaceCommitsTarget: (workspaceId: string, branch: string) => Promise<WorkspaceCommitsTargetDto>;
   clearWorkspaceCommitsTarget: (workspaceId: string) => Promise<WorkspaceCommitsTargetDto>;
   renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceDto>;

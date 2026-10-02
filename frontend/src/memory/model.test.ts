@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { parseMemoryPage, parseMemoryId } from './contracts';
+import { parseMemoryHarvestStarted, parseMemoryId, parseMemoryPage, parseStartMemoryHarvestRequest } from './contracts';
 import type { MemoryDto, MemorySourceDto } from './contracts';
 import { age, flagged, kilobytes, matches, memoryFlags, pageLabel, sourceChip, sourceHead } from './model';
 
@@ -77,12 +77,27 @@ describe('memory contracts', () => {
     const stored: Record<string, unknown> = { id: 'm12', workspaceId: 'w', kind: 'RULE', text: 'Rule', scope: [], sources: [source], origin: { user: false, description: 'Learn', taskId: null },
       version: 1, previous: { text: 'Old', scope: ['plugin/'] }, delivered: 0, cited: 0, reports: [], createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z' };
     const page = parseMemoryPage({ memories: [{ memory: stored, missingScope: ['plugin/'] }], switches: { reviews: true, development: false },
-      guidelines: [{ path: 'CONTRIBUTING.md', bytes: 5120, cut: false, url: 'https://github.com/trinodb/trino/blob/a/CONTRIBUTING.md' }], head: null });
+      guidelines: [{ path: 'CONTRIBUTING.md', bytes: 5120, cut: false, url: 'https://github.com/trinodb/trino/blob/a/CONTRIBUTING.md' }], head: null,
+      harvest: { cursor: { number: 31201, closedAt: '2026-10-01T00:00:00Z' }, last: { harvestId: 'h', label: 'Learn from my PRs', startedAt: '2026-10-02T00:00:00Z',
+        endedAt: null, pulls: 3, threads: 7, saved: ['m12'], seenAgain: 1, replaced: 0, outcome: 'RUNNING' } } });
     expect(page.memories[0]).toMatchObject({ id: 'm12', missingScope: ['plugin/'], previous: { text: 'Old', scope: ['plugin/'] } });
     expect(page.switches).toEqual({ reviews: true, development: false });
     expect(page.head).toBeNull();
+    expect(page.harvest.cursor?.number).toBe(31201);
+    expect(page.harvest.last?.saved).toEqual(['m12']);
     expect(() => parseMemoryPage({ ...page, memories: [{ memory: { ...stored, kind: 'NOTE' }, missingScope: [] }] })).toThrow('Malformed memory kind');
     expect(() => parseMemoryId('m0')).toThrow('Malformed memory id');
     expect(parseMemoryId('m12')).toBe('m12');
+  });
+
+  it('checks a harvest request before it leaves the renderer and reads what started', () => {
+    expect(parseStartMemoryHarvestRequest({ requestKey: 'k', expectedBuildSequence: 2, pull: null, repo: null }))
+      .toEqual({ requestKey: 'k', expectedBuildSequence: 2, pull: null, repo: null });
+    expect(parseStartMemoryHarvestRequest({ requestKey: 'k', expectedBuildSequence: 2, pull: 31240, repo: 'trinodb/trino' }).pull).toBe(31240);
+    expect(() => parseStartMemoryHarvestRequest({ requestKey: 'k', expectedBuildSequence: 2, pull: 31240, repo: null })).toThrow('Malformed harvest request');
+    expect(() => parseStartMemoryHarvestRequest({ requestKey: 'k', expectedBuildSequence: 2, pull: null, repo: null, token: 'x' })).toThrow('Malformed harvest request');
+    expect(() => parseStartMemoryHarvestRequest({ requestKey: 'k', expectedBuildSequence: 2, pull: 1, repo: '../x' })).toThrow('Malformed harvest request');
+    const started = parseMemoryHarvestStarted({ started: true, pulls: 12, threads: 31, view: { buildRequestSequence: 4, canStart: false, build: null } }, 'w');
+    expect(started).toEqual({ started: true, pulls: 12, threads: 31, view: { buildRequestSequence: 4, canStart: false, build: null } });
   });
 });

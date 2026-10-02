@@ -60,7 +60,7 @@ import {
   parseSpecCheckDirectory,
   parseStartContextSpecCheckRequest,
 } from './repository-context/contracts';
-import { parseMemoryId, parseMemoryPage, parseMemorySwitches, parseMemoryText, parseMemoryVersion } from './memory/contracts';
+import { parseMemoryHarvestStarted, parseMemoryId, parseMemoryPage, parseMemorySwitches, parseMemoryText, parseMemoryVersion, parseStartMemoryHarvestRequest } from './memory/contracts';
 import {
   parseAgentReview,
   parseAgentReviews,
@@ -1358,6 +1358,8 @@ function registerIpc(): void {
     backendJson(memoryUrl(workspaceId, `/${parseMemoryId(memoryId)}/undo-delete`), { method: 'POST' }).then(parseMemoryPage));
   ipcMain.handle('memory:switches', (_event, workspaceId: string, switches: unknown) =>
     backendJson(memoryUrl(workspaceId, '/switches'), jsonInit('PUT', parseMemorySwitches(switches))).then(parseMemoryPage));
+  ipcMain.handle('memory:harvest', (_event, workspaceId: string, request: unknown) =>
+    backendJson(memoryUrl(workspaceId, '/harvest'), jsonInit('POST', parseStartMemoryHarvestRequest(request))).then(value => parseMemoryHarvestStarted(value, workspaceId)));
   ipcMain.handle('repository-context:build:stop', (_event, workspaceId: string, taskId: string) =>
     backendJson(contextBuildUrl(workspaceId) + '/stop', jsonInit('POST', { taskId }, agentHeaders())).then(value => parseContextBuildView(value, workspaceId)));
   ipcMain.handle('repository-context:build:stop-impact', (_event, workspaceId: string, taskId: string) =>

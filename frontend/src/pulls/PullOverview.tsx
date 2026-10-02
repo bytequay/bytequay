@@ -37,6 +37,7 @@ import type {
   RepoUserDto,
   UserProfileDto,
 } from '../types';
+import LearnFromPullButton from '../memory/LearnFromPullButton';
 import BetterWordsButton from './BetterWordsButton';
 import MarkdownBody, { GitHubReferenceLink, linkIssueNumbers, toggleMarkdownTask, type SuggestionBase } from './MarkdownBody';
 import { EMPTY_TIMELINE_PAYLOAD } from './model';
@@ -146,6 +147,8 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, loca
             onClick={() => { void window.bridge.openInAppBrowser(detail.htmlUrl ?? pr.htmlUrl); }}>
             <Avatar login="github" size={18} />
           </button>
+          {contributorsWorkspaceId !== undefined && (displayState === 'Merged' || displayState === 'Closed')
+            && <LearnFromPullButton workspaceId={contributorsWorkspaceId} repo={detail.repo} number={detail.number} />}
           {taskActions}
         </div>
       </section>

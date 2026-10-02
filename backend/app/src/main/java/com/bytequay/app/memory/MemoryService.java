@@ -128,6 +128,35 @@ public class MemoryService
         }
     }
 
+    /** A harvest saw the rule again; a memory the user owns stays as it is. */
+    public Memory addSources(String workspaceId, String memoryId, List<MemorySource> sources)
+    {
+        synchronized (lock) {
+            Memory sourced = agentOwned(workspaceId, memoryId).withSources(sources, clock.instant());
+            store.save(sourced);
+            return sourced;
+        }
+    }
+
+    /** A harvest found a newer pull request that overrides the rule; the replaced text and scope stay as the previous version. */
+    public Memory replace(String workspaceId, String memoryId, String text, List<String> scope, List<MemorySource> sources)
+    {
+        synchronized (lock) {
+            Memory replaced = agentOwned(workspaceId, memoryId).replaced(text, scope, sources, clock.instant());
+            store.save(replaced);
+            return replaced;
+        }
+    }
+
+    private Memory agentOwned(String workspaceId, String memoryId)
+    {
+        Memory memory = get(workspaceId, memoryId);
+        if (memory.origin().user()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Memory " + memoryId + " is the user's; agents never change it");
+        }
+        return memory;
+    }
+
     /** The user's words replace the text; line breaks become spaces, since a memory is one paragraph. */
     public Memory edit(String workspaceId, String memoryId, long expectedVersion, String text)
     {

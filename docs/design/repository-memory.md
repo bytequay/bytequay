@@ -1,7 +1,7 @@
 # Repository memory
 
-Status: approved; phases 0 to 2, the store with the memory tool, the Memory page
-and turn-start delivery with receipts are implemented. It replaces the knowledge-learning design of Repository context
+Status: approved; phases 0 to 3 are implemented: the store with the memory tool,
+the Memory page, turn-start delivery with receipts, and harvest runs. It replaces the knowledge-learning design of Repository context
 and the documents it built on, which phase 2 deleted, and revises the
 [spec check](spec-check.md) to start from a directory instead of a plan topic. The user chose the direction: remove the learning system, its
 note code and the note data built so far in one step, save memory without
@@ -79,9 +79,13 @@ code.
 
 - **Learn from my PRs** on the Memory page reads the pull requests in this
   repository the user authored or reviewed, merged or closed, newest first,
-  after the last one harvested, at most 30 per click.
+  after the last one harvested, at most 30 per click. The cursor is the newest
+  pull request a finished run read; with more than 30 newer, the older ones are
+  left to Learn from this PR. A click that finds no new maintainer thread starts
+  no run and moves the cursor past what it read.
 - **Learn from this PR** on any merged or closed pull request's page reads that
-  one.
+  one, when it belongs to the repository the workspace monitors. It never moves
+  the cursor.
 
 **Fetch, without a model.** For each pull request ByteQuay reads its review
 threads with their resolved and outdated flags, review bodies, issue comments,
@@ -116,7 +120,10 @@ setting.
   why; never save how code works.
 
 **What is kept:** the memories with their quotes and links, the harvest cursor,
-and the IDs of threads already read. The fetched threads are not stored.
+the IDs of threads already read, at most 5,000, and the last run's counts. The
+fetched threads live only in the run's binding until the next run replaces it.
+A run that does not finish leaves the cursor and the read threads as they were.
+A harvest and a spec check share the workspace's one run slot.
 
 ### 3.2 Corrections and preferences in tasks and reviews
 
@@ -255,8 +262,10 @@ memories.
 **Memory page:**
 - **Header:** chips with an icon and a count, the sentence on hover, for recipes,
   rules and specs, and for memories from you, from pull requests and from tasks.
-- **Actions:** Learn from my PRs, showing how far the cursor is ("through #31201 ·
-  12 newer"), and Check against spec, with a directory picker.
+- **Actions:** Learn from my PRs, showing how far the cursor is ("Learned
+  through #31201"), with the last run's counts and the rules it saved, each with
+  Delete; and Check against spec, with a directory picker. Opening the page reads
+  no GitHub data, so the count of newer pull requests comes with the run.
 - **Needs you:** flagged memories with the reason.
 - **List:**
   - **Grouping and filters:** grouped by kind, with source and path filters and a

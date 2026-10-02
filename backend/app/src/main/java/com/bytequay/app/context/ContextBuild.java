@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.memory.MemorySource;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
@@ -29,11 +30,14 @@ import java.util.Optional;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** The latest spec check turn and what its tools recorded; execution state belongs to its agent task. */
+/**
+ * The workspace's latest restricted run, a spec check turn or a memory harvest, and what its tools recorded; execution state belongs to
+ * its agent task. One run at a time per workspace.
+ */
 public record ContextBuild(
         long sequence, String requestKey, String requestDigest, String workspaceId, String taskId,
         RepositoryIdentity physicalRepository, long repositoryId, RepoRef repository, String baselineSha, String branch,
-        String laneId, AgentTaskDefaults defaults, Instant requestedAt, Capture capture, Check check)
+        String laneId, AgentTaskDefaults defaults, Instant requestedAt, Capture capture, Optional<Check> check, Optional<Harvest> harvest)
 {
     public ContextBuild
     {
@@ -51,6 +55,14 @@ public record ContextBuild(
         requireNonNull(requestedAt, "requestedAt is null");
         requireNonNull(capture, "capture is null");
         requireNonNull(check, "check is null");
+        requireNonNull(harvest, "harvest is null");
+        checkArgument(check.isPresent() != harvest.isPresent(), "A run is a spec check or a harvest");
+    }
+
+    /** The spec check or harvest this run works for. */
+    public String workId()
+    {
+        return check.map(Check::checkId).orElseGet(() -> harvest.orElseThrow().harvestId());
     }
 
     /** Keyed by sequence as well: one task takes a check's planning turn and then a turn per reproduction. */
@@ -62,7 +74,7 @@ public record ContextBuild(
     public ContextBuild withCapture(Capture replacement)
     {
         return new ContextBuild(sequence, requestKey, requestDigest, workspaceId, taskId, physicalRepository, repositoryId, repository, baselineSha, branch,
-                laneId, defaults, requestedAt, replacement, check);
+                laneId, defaults, requestedAt, replacement, check, harvest);
     }
 
     /**
@@ -79,6 +91,80 @@ public record ContextBuild(
             ContextLimits.pathPrefix(directory);
             requireNonNull(reproduction, "reproduction is null");
             ContextLimits.text(brief, "check brief", MAX_BRIEF_BYTES);
+        }
+    }
+
+    /**
+     * A harvest run: the closed pull requests it reads and their maintainer threads, each note under a short key the run's saves cite.
+     *
+     * @param mine whether it reads the user's own and reviewed pull requests after the cursor, rather than one chosen pull request
+     */
+    public record Harvest(String harvestId, String label, boolean mine, List<HarvestPull> pulls, List<HarvestThread> threads)
+    {
+        public Harvest
+        {
+            ContextLimits.text(harvestId, "harvest id", 100);
+            ContextLimits.text(label, "harvest label", 200);
+            pulls = ImmutableList.copyOf(pulls);
+            threads = ImmutableList.copyOf(threads);
+            checkArgument(!pulls.isEmpty() && !threads.isEmpty(), "A harvest reads at least one thread");
+        }
+
+        public Optional<HarvestNote> note(String key)
+        {
+            return threads.stream().flatMap(thread -> thread.notes().stream()).filter(note -> note.key().equals(key)).findFirst();
+        }
+
+        public HarvestThread thread(HarvestNote note)
+        {
+            return threads.stream().filter(thread -> thread.notes().contains(note)).findFirst().orElseThrow();
+        }
+
+        public HarvestPull pull(int number)
+        {
+            return pulls.stream().filter(pull -> pull.number() == number).findFirst().orElseThrow();
+        }
+    }
+
+    public record HarvestPull(int number, String title, String url, boolean merged, Instant closedAt)
+    {
+        public HarvestPull
+        {
+            checkArgument(number > 0, "Invalid pull request number");
+            requireNonNull(title, "title is null");
+            requireNonNull(url, "url is null");
+            requireNonNull(closedAt, "closedAt is null");
+        }
+    }
+
+    /**
+     * A review thread, or a review body or comment standing alone.
+     *
+     * @param githubId GitHub's id of the thread or note, remembered once the harvest finishes so a later harvest skips it
+     */
+    public record HarvestThread(String githubId, int pull, MemorySource.Part part, Optional<String> path, boolean resolved, boolean outdated,
+            List<HarvestNote> notes)
+    {
+        public HarvestThread
+        {
+            requireNonNull(githubId, "githubId is null");
+            requireNonNull(part, "part is null");
+            requireNonNull(path, "path is null");
+            notes = ImmutableList.copyOf(notes);
+            checkArgument(!notes.isEmpty(), "A thread has at least one note");
+        }
+    }
+
+    public record HarvestNote(String key, String githubId, String author, boolean maintainer, String body, String url, Instant at)
+    {
+        public HarvestNote
+        {
+            ContextLimits.text(key, "note key", 20);
+            requireNonNull(githubId, "githubId is null");
+            requireNonNull(author, "author is null");
+            requireNonNull(body, "body is null");
+            requireNonNull(url, "url is null");
+            requireNonNull(at, "at is null");
         }
     }
 

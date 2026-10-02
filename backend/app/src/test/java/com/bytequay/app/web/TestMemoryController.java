@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.memory.MemoryHarvestService;
 import com.bytequay.app.memory.MemoryPageReader;
 import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.memory.MemorySwitches;
@@ -48,11 +49,12 @@ class TestMemoryController
     private static final MemoryPageReader.MemoryPage PAGE = new MemoryPageReader.MemoryPage(
             ImmutableList.of(new MemoryPageReader.Entry(MEMORY, ImmutableList.of("plugin/"))), new MemorySwitches(true, false),
             ImmutableList.of(new MemoryPageReader.GuidelineView("CONTRIBUTING.md", 5120, false, "https://github.com/trinodb/trino/blob/abc/CONTRIBUTING.md")),
-            Optional.of("abc"));
+            Optional.of("abc"), new MemoryPageReader.HarvestView(Optional.of(new MemoryHarvestService.Cursor(31201, NOW)), Optional.empty()));
 
     private final MemoryService memories = mock(MemoryService.class);
     private final MemoryPageReader pages = mock(MemoryPageReader.class);
-    private final MockMvc mvc = standaloneSetup(new MemoryController(memories, pages)).build();
+    private final MemoryHarvestService harvests = mock(MemoryHarvestService.class);
+    private final MockMvc mvc = standaloneSetup(new MemoryController(memories, pages, harvests)).build();
 
     @Test
     void readsThePageWithItsMemoriesSwitchesAndGuidelines()

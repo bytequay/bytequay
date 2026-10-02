@@ -186,7 +186,7 @@ public class ContextSpecCheckService
             return;
         }
         ContextSpecCheck check = active.orElseThrow();
-        Optional<ContextBuild> build = buildStore.find(workspaceId).filter(value -> value.check().checkId().equals(check.id()));
+        Optional<ContextBuild> build = buildStore.find(workspaceId).filter(value -> value.check().map(ContextBuild.Check::checkId).filter(check.id()::equals).isPresent());
         if (build.isEmpty()) {
             end(workspaceId, check, ContextSpecCheck.State.FAILED, Optional.of("Another check replaced this check's task"));
             return;
@@ -205,7 +205,7 @@ public class ContextSpecCheckService
             end(workspaceId, current, ContextSpecCheck.State.STOPPED, Optional.of("Stopped"));
             return;
         }
-        Optional<ContextBuild.Reproduction> reproduced = build.orElseThrow().check().reproduction();
+        Optional<ContextBuild.Reproduction> reproduced = build.orElseThrow().check().orElseThrow().reproduction();
         if (reproduced.isEmpty() && ended.outcome() != ContextBuildService.Outcome.SAVED) {
             end(workspaceId, current, ContextSpecCheck.State.FAILED, Optional.of(ContextText.excerpt("The check turn ended without saving candidates"
                     + ended.detail().map(detail -> ": " + detail).orElse("."), 1000)));
@@ -339,7 +339,7 @@ public class ContextSpecCheckService
     public Candidate saveResult(ContextBuild build, TurnId turn, Result result)
     {
         ContextSpecCheck check = requireCheck(build, true);
-        Candidate candidate = check.candidate(build.check().reproduction().orElseThrow().candidateId());
+        Candidate candidate = check.candidate(build.check().orElseThrow().reproduction().orElseThrow().candidateId());
         checkArgument(candidate.status() == Status.REPRODUCING, "This candidate already has its result");
         checkArgument(result.outcome() == Status.CONFIRMED || result.outcome() == Status.REFUTED || result.outcome() == Status.NOT_REPRODUCED,
                 "outcome: use CONFIRMED, REFUTED or NOT_REPRODUCED");
@@ -495,7 +495,7 @@ public class ContextSpecCheckService
     /** The check a turn works for, which must still be running; a planning turn reproduces nothing and a reproduction turn plans nothing. */
     private ContextSpecCheck requireCheck(ContextBuild build, boolean reproduction)
     {
-        ContextBuild.Check bound = build.check();
+        ContextBuild.Check bound = build.check().orElseThrow(() -> new IllegalArgumentException("This run is not a spec check"));
         checkArgument(bound.reproduction().isPresent() == reproduction, reproduction ? "This turn plans the check; it reproduces nothing"
                 : "This turn reproduces one candidate; it saves no candidates or searches");
         ContextSpecCheck check = checks.find(build.workspaceId(), bound.checkId()).orElseThrow(() -> new IllegalArgumentException("The spec check was removed"));

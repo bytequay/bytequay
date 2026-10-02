@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -144,6 +145,23 @@ public record Memory(
         Origin restorer = origin.user() ? origin : Origin.USER_EDIT;
         return new Memory(id, workspaceId, kind, replaced.text(), replaced.scope(), sources, restorer, version + 1, Optional.of(new Previous(text, scope)),
                 delivered, cited, reports, createdAt, at);
+    }
+
+    /** An agent saw the rule again: the new sources are added, oldest kept first, up to {@link #MAX_SOURCES}; the text stays. */
+    public Memory withSources(List<MemorySource> added, Instant at)
+    {
+        checkState(!origin.user(), "Memory %s is the user's; agents never change it", id);
+        List<MemorySource> merged = Stream.concat(sources.stream(), added.stream().filter(source -> sources.stream().noneMatch(kept -> kept.url().equals(source.url()))))
+                .limit(MAX_SOURCES).collect(ImmutableList.toImmutableList());
+        return new Memory(id, workspaceId, kind, text, scope, merged, origin, version, previous, delivered, cited, reports, createdAt, at);
+    }
+
+    /** A newer source overrides the rule: the text and scope are replaced, the old ones kept as the previous version, and both sources stay. */
+    public Memory replaced(String newText, List<String> newScope, List<MemorySource> added, Instant at)
+    {
+        Memory sourced = withSources(added, at);
+        return new Memory(id, workspaceId, kind, newText, newScope, sourced.sources(), origin, version + 1, Optional.of(new Previous(text, scope)),
+                delivered, cited, ImmutableList.of(), createdAt, at);
     }
 
     /** An agent changes where a memory it saved applies; the scope it replaces is kept as the previous version. */

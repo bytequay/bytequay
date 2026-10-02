@@ -23,6 +23,7 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.core.domain.RepoRef;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.common.collect.ImmutableMap;
@@ -65,6 +66,20 @@ class TestContextBuildStore
     }
 
     @Test
+    void aCheckSavedBeforeHarvestsExistedStillReads()
+            throws Exception
+    {
+        ContextBuild saved = store.save(Optional.empty(), build());
+        ObjectNode json = (ObjectNode) mapper.readTree(settings.get(ContextBuildStore.PREFIX + WORKSPACE).orElseThrow());
+        json.remove("harvest");
+        settings.put(ContextBuildStore.PREFIX + WORKSPACE, json.toString());
+        assertThat(store.find(WORKSPACE)).contains(saved);
+        json.remove("taskId");
+        settings.put(ContextBuildStore.PREFIX + WORKSPACE, json.toString());
+        assertThatThrownBy(() -> store.find(WORKSPACE)).isInstanceOf(ContextStorageException.class);
+    }
+
+    @Test
     void aBuildSavedForAnotherWorkspaceCannotBeRead()
     {
         store.save(Optional.empty(), build());
@@ -96,6 +111,6 @@ class TestContextBuildStore
     {
         return new ContextBuild(1, "request", "sha256:" + "b".repeat(64), WORKSPACE, TASK.toString(), new RepositoryIdentity("owner", "repository"),
                 1, REPOSITORY, SHA, "bytequay/task", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH,
-                ContextBuild.Capture.empty(), new ContextBuild.Check("check", "plugin/iceberg/", Optional.empty(), "Brief"));
+                ContextBuild.Capture.empty(), Optional.of(new ContextBuild.Check("check", "plugin/iceberg/", Optional.empty(), "Brief")), Optional.empty());
     }
 }

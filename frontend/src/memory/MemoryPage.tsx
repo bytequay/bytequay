@@ -18,7 +18,7 @@ import RepoAvatar from '../RepoAvatar';
 import Toast from '../Toast';
 import type { AgentRuntimeStopImpactDto, ModelSettingsDto, WorkspaceDto } from '../types';
 import type { ContextBuildViewDto, ContextSpecCheckDto } from '../repository-context/contracts';
-import { SpecCheckDrawer, type SpecCheckActions, type SpecCheckData } from '../repository-context/ContextSpecCheck';
+import { RunLine, SpecCheckDrawer, type SpecCheckActions, type SpecCheckData } from '../repository-context/ContextSpecCheck';
 import { Icon, Spinner } from '../repository-context/icons';
 import { activeCheck, checkActive, checkProgress, modelLine, plural, shortDate, shortSha } from '../repository-context/model';
 import { CHECK_STATE, checkSummary, issueUrl, openFindings } from '../repository-context/specChecks';
@@ -168,6 +168,16 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
   const selected = drawer?.kind === 'memory' ? memories.find(memory => memory.id === drawer.id) ?? null : null;
   const count = (predicate: (memory: MemoryDto) => boolean) => memories.filter(predicate).length;
   const switches = page.switches;
+  const fresh = new Set(page.harvest.last?.outcome === 'DONE' ? page.harvest.last.saved : []);
+  const learn = (): void => void perform(async () => {
+    const started = await window.bridge.startMemoryHarvest(workspaceId, { requestKey: crypto.randomUUID(), expectedBuildSequence: build.buildRequestSequence,
+      pull: null, repo: null });
+    if (!mounted.current) return;
+    setBuild(started.view);
+    await load();
+    say(started.started ? `Learning from ${plural(started.pulls, 'pull request')} · ${plural(started.threads, 'maintainer thread')} to read`
+      : `No new maintainer threads in ${plural(started.pulls, 'pull request')}`);
+  });
   const saveSwitches = (next: { reviews: boolean; development: boolean }) =>
     change(() => window.bridge.saveMemorySwitches(workspaceId, next), () => say(next.reviews || next.development ? 'Memory switches saved' : 'Agents get no memory now'));
   return <div className="rcp" onKeyDown={onKeyDown}>
@@ -202,7 +212,10 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
           </div>
           {actionError !== null && <div className="rcp-error" role="alert">{actionError}
             <button type="button" className="rcp-link" onClick={() => setActionError(null)}>Dismiss</button></div>}
-          {run !== null && run.outcome === 'RUNNING' && <div className="rcp-status" role="status" aria-live="polite"><div className="rcp-status__row">
+          <LearnCard page={page} data={data} busy={busy} onLearn={learn} onStop={actions.stop}
+            onDelete={id => change(() => window.bridge.deleteMemory(workspaceId, id), () => say('Memory deleted', id))}
+            onOpen={id => open({ kind: 'memory', id })} />
+          {run !== null && run.kind === 'CHECK' && run.outcome === 'RUNNING' && <div className="rcp-status" role="status" aria-live="polite"><div className="rcp-status__row">
             <span className="rcp-status__icon rcp-tone--blue"><Spinner size={14} /></span>
             <div className="rcp-status__main">
               <div className="rcp-status__headline">Checking {checks.find(check => check.id === run.checkId)?.directory ?? 'a directory'}</div>
@@ -216,9 +229,9 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
             </div>
           </div></div>}
           {run !== null && run.outcome !== 'RUNNING' && task !== null && !build.canStart && <div className="rcp-alert">
-            {task.mutationClaim === 'RECOVERY' ? 'The last check’s agent process needs recovery before another check can start.'
-              : task.state === 'OPEN' ? 'The last check hasn’t settled yet. It usually finishes on its own.'
-                : 'The last check’s worktree is still retained. Clean it up before starting another check.'}
+            {task.mutationClaim === 'RECOVERY' ? `The last ${run.kind === 'CHECK' ? 'check' : 'harvest'}’s agent process needs recovery before another run can start.`
+              : task.state === 'OPEN' ? `The last ${run.kind === 'CHECK' ? 'check' : 'harvest'} hasn’t settled yet. It usually finishes on its own.`
+                : `The last ${run.kind === 'CHECK' ? 'check' : 'harvest'}’s worktree is still retained. Clean it up before starting another run.`}
             <div className="rcp-actions">
               {task.mutationClaim === 'RECOVERY' && <button type="button" className="rcp-btn rcp-btn--sm" disabled={busy} onClick={() => void perform(async () => {
                 const found = await window.bridge.getRepositoryContextBuildStopImpact(workspaceId, task.id);
@@ -273,7 +286,7 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
                   if (items.length === 0) return null;
                   return <div className="mem-group" key={group}>
                     <div className="mem-group__label">{KIND_LABEL[group].many} · {items.length}</div>
-                    <div className="mem-box">{items.map(memory => <MemoryRow key={memory.id} memory={memory} now={now}
+                    <div className="mem-box">{items.map(memory => <MemoryRow key={memory.id} memory={memory} now={now} fresh={fresh.has(memory.id)}
                       selected={selected?.id === memory.id} onOpen={() => open({ kind: 'memory', id: memory.id })} />)}</div>
                   </div>;
                 })}
@@ -349,7 +362,7 @@ function Chip({ icon, count, title, warn = false }: { icon: ReactNode; count: nu
   return <span className={`mem-chip${warn ? ' mem-warn' : ''}`} title={`${count} ${title}`}>{icon}{count}</span>;
 }
 
-function MemoryRow({ memory, now, selected, onOpen }: { memory: MemoryDto; now: number; selected: boolean; onOpen: () => void }) {
+function MemoryRow({ memory, now, fresh, selected, onOpen }: { memory: MemoryDto; now: number; fresh: boolean; selected: boolean; onOpen: () => void }) {
   const chip = sourceChip(memory);
   const flag = memoryFlags(memory)[0];
   return <button type="button" className={`mem-row${selected ? ' is-selected' : ''}`} onClick={onOpen}>
@@ -360,6 +373,7 @@ function MemoryRow({ memory, now, selected, onOpen }: { memory: MemoryDto; now: 
         <span className="mem-source-chip">{chip.kind === 'PR' ? <GitPullRequest size={13} aria-hidden="true" /> : <Globe size={13} aria-hidden="true" />}
           <span>{chip.label}</span>{chip.more !== '' && <span className="mem-muted">{chip.more}</span>}</span>
         {memory.origin.user && <span className="mem-source-chip"><User size={13} aria-hidden="true" />Yours</span>}
+        {fresh && <span className="mem-new">New</span>}
         {flag !== undefined && <span className="mem-warn mem-source-chip"><TriangleAlert size={13} aria-hidden="true" />{flag.title}</span>}
       </span>
     </span>
@@ -369,4 +383,56 @@ function MemoryRow({ memory, now, selected, onOpen }: { memory: MemoryDto; now: 
       <span className="rcp-age">{age(memory.createdAt, now)}</span>
     </span>
   </button>;
+}
+
+/** Learn from pull requests: how far the harvest has read, the run that reads it, and what the last run saved. */
+export function LearnCard({ page, data, busy, onLearn, onStop, onDelete, onOpen }: {
+  page: MemoryPageDto; data: SpecCheckData; busy: boolean; onLearn: () => void; onStop: (taskId: string) => void; onDelete: (id: string) => void;
+  onOpen: (id: string) => void;
+}) {
+  const run = data.build.build;
+  const last = page.harvest.last;
+  const cursor = page.harvest.cursor;
+  const harvesting = run !== null && run.kind === 'HARVEST' && run.outcome === 'RUNNING';
+  const saved = last === null || last.outcome !== 'DONE' ? [] : last.saved.map(id => page.memories.find(memory => memory.id === id)).filter(memory => memory !== undefined);
+  const blocked = data.model.blocker !== null;
+  return <section className="mem-learn" aria-label="Learn">
+    <span className="mem-learn__icon"><GitPullRequest size={16} aria-hidden="true" /></span>
+    <div className="mem-learn__main">
+      {harvesting && run !== null ? <>
+        <div className="mem-learn__title"><Spinner size={13} />{last?.label ?? 'Learning'}{last !== null && ` · reading ${plural(last.threads, 'maintainer thread')} in ${plural(last.pulls, 'pull request')}`}</div>
+        {run.activity.length > 0 && <div className="rcp-feed">{run.activity.slice(-3).map((line, index) =>
+          <div className={`rcp-feed__line rcp-tone--${line.tone === 'FAILED' ? 'red' : 'green'}`} key={index}>
+            <span className="rcp-feed__mark">{line.tone === 'FAILED' ? '✕' : '✓'}</span><span className="rcp-feed__text">{line.text}</span></div>)}</div>}
+        <div className="rcp-actions"><button type="button" className="rcp-btn rcp-btn--danger rcp-btn--sm" disabled={busy || run.activeTurn?.cancellationRequestedAt != null}
+          onClick={() => onStop(run.taskId)}>Stop</button></div>
+      </> : <>
+        <div className="mem-learn__title">Learn from pull requests</div>
+        <div className="mem-muted">{cursor === null
+          ? 'Reads the newest closed pull requests you wrote or reviewed, up to 30, and saves the rules their maintainers asked for.'
+          : `Learned through #${cursor.number}. The next run reads the pull requests you wrote or reviewed that closed after it, up to 30.`}</div>
+        {last !== null && last.outcome !== 'RUNNING' && <LastRun last={last} saved={saved} busy={busy} onDelete={onDelete} onOpen={onOpen} />}
+        <div className="rcp-actions"><button type="button" className="rcp-btn rcp-btn--primary" disabled={busy || !data.build.canStart || blocked} onClick={onLearn}>
+          <Icon name="bolt" size={13} />Learn from my PRs</button></div>
+        <RunLine workspaceId={data.workspaceId} blocked={blocked}>{data.model.blocker
+          ?? `Starts 1 run · reads the maintainer threads it finds and saves rules · ${data.model.label}`}</RunLine>
+      </>}
+    </div>
+  </section>;
+}
+
+function LastRun({ last, saved, busy, onDelete, onOpen }: {
+  last: NonNullable<MemoryPageDto['harvest']['last']>; saved: MemoryDto[]; busy: boolean; onDelete: (id: string) => void; onOpen: (id: string) => void;
+}) {
+  if (last.outcome === 'NOTHING') return <div className="mem-learn__last">{last.label} found no new maintainer threads in {plural(last.pulls, 'pull request')}.</div>;
+  if (last.outcome === 'FAILED') return <div className="mem-learn__last mem-warn">{last.label} did not finish; what it saved is kept.</div>;
+  return <div className="mem-learn__last">
+    <div>{last.label} read {plural(last.threads, 'maintainer thread')} in {plural(last.pulls, 'pull request')}
+      {[last.saved.length > 0 ? `${last.saved.length} new` : '', last.seenAgain > 0 ? `${last.seenAgain} seen again` : '',
+        last.replaced > 0 ? `${last.replaced} replaced` : ''].filter(part => part !== '').map(part => <span key={part} className="mem-muted"> · {part}</span>)}</div>
+    {saved.length > 0 && <div className="mem-box mem-learn__saved">{saved.map(memory => <div className="mem-learn__item" key={memory.id}>
+      <button type="button" className="mem-learn__text" onClick={() => onOpen(memory.id)}>{memory.text}</button>
+      <button type="button" className="rcp-link mem-learn__delete" disabled={busy} onClick={() => onDelete(memory.id)}>Delete</button>
+    </div>)}</div>}
+  </div>;
 }

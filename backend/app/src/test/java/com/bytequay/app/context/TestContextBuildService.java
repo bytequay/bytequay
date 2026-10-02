@@ -46,6 +46,7 @@ import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.memory.MemoryHarvestService;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
@@ -56,6 +57,7 @@ import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
+import com.bytequay.core.memory.MemorySource;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -121,6 +123,7 @@ class TestContextBuildService
     private final AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
     private final AgentDriver driver = mock(AgentDriver.class);
     private final ContextBuildCoordinator coordinator = mock(ContextBuildCoordinator.class);
+    private final MemoryHarvestService harvests = mock(MemoryHarvestService.class);
     private final ContextSpecCheckStore checks = mock(ContextSpecCheckStore.class);
     private final WorktreeService worktrees = mock(WorktreeService.class);
     private final GitCommandRunner git = mock(GitCommandRunner.class);
@@ -186,8 +189,10 @@ class TestContextBuildService
         when(worktrees.inspect(any(TaskWorktree.class))).thenAnswer(call -> new WorktreeSnapshot(call.getArgument(0), SHA, false, false, false));
         DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
         beans.registerSingleton("contextBuildCoordinator", coordinator);
+        beans.registerSingleton("memoryHarvestService", harvests);
         service = new ContextBuildService(builds, workspaces, models, credentials, drivers, tasks, taskStore, turns, turnStore, completions, approvals, checks,
-                worktrees, beans.getBeanProvider(ContextBuildCoordinator.class), git, mapper, Clock.fixed(NOW, ZoneOffset.UTC));
+                worktrees, beans.getBeanProvider(ContextBuildCoordinator.class), beans.getBeanProvider(MemoryHarvestService.class), git, mapper,
+                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
@@ -311,17 +316,44 @@ class TestContextBuildService
     }
 
     @Test
+    void aHarvestRunsOneTurnAndSettlesItsHarvestWhenTheTurnEnds()
+    {
+        ContextBuild.Harvest harvest = new ContextBuild.Harvest("harvest-1", "Learn from my PRs", true,
+                ImmutableList.of(new ContextBuild.HarvestPull(31201, "Add a property", "https://github.com/owner/repository/pull/31201", true, NOW)),
+                ImmutableList.of(new ContextBuild.HarvestThread("thread-1", 31201, MemorySource.Part.REVIEW_COMMENT, Optional.empty(), true, false,
+                        ImmutableList.of(new ContextBuild.HarvestNote("c1", "note-1", "bo", true, "Please document it.", "https://github.com/owner/repository/pull/31201",
+                                NOW)))));
+        ContextBuildService.View view = service.harvest(WORKSPACE, new ContextBuildService.Request("learn", 0), SHA, harvest);
+
+        assertThat(view.build().orElseThrow().kind()).isEqualTo("HARVEST");
+        assertThat(view.build().orElseThrow().checkId()).isEqualTo("harvest-1");
+        ArgumentCaptor<CreateAgentTaskCommand> created = ArgumentCaptor.forClass(CreateAgentTaskCommand.class);
+        verify(tasks).create(created.capture());
+        assertThat(created.getValue().title()).isEqualTo("Learn from owner/repository");
+        ArgumentCaptor<StartAgentTurnCommand> started = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
+        verify(turns).start(started.capture());
+        assertThat(started.getValue().message()).startsWith("Learn repository memory for owner/repository").contains("repository_context_harvest_save");
+
+        finishTurn(TurnState.COMPLETED, true);
+        ContextBuildService.View settled = service.get(WORKSPACE);
+        assertThat(settled.build().orElseThrow().outcome()).isEqualTo(ContextBuildService.Outcome.SAVED);
+        verify(completions).complete(any(CompleteAgentTaskCommand.class));
+        verify(harvests).finish(builds.find(WORKSPACE).orElseThrow(), true);
+        assertThat(settled.canStart()).isTrue();
+    }
+
+    @Test
     void duplicateRequestsReplayAndStaleOrChangedRequestsCannotReplaceAnOpenTask()
     {
         ContextBuildService.View first = start("first", 0);
         assertThat(start("first", 0)).isEqualTo(first);
         assertThatThrownBy(() -> service.check(WORKSPACE, new ContextBuildService.Request("first", 0), SHA,
                 new ContextBuild.Check("check-1", DIRECTORY, Optional.empty(), "Another brief")))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("different check inputs");
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("different run inputs");
         assertThatThrownBy(() -> start("second", 0)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("sequence");
         assertThatThrownBy(() -> service.check(WORKSPACE, new ContextBuildService.Request("second", 1), SHA,
                 new ContextBuild.Check("check-2", DIRECTORY, Optional.empty(), "Specs to check against")))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("previous check task");
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("last spec check or harvest must finish");
         verify(tasks).create(any(CreateAgentTaskCommand.class));
         verify(turns).start(any(StartAgentTurnCommand.class));
 

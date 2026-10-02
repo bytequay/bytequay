@@ -328,6 +328,7 @@ const bridge: Bridge = {
   deleteMemory: (workspaceId, memoryId) => ipcRenderer.invoke('memory:delete', workspaceId, memoryId),
   undoDeleteMemory: (workspaceId, memoryId) => ipcRenderer.invoke('memory:undo-delete', workspaceId, memoryId),
   saveMemorySwitches: (workspaceId, switches) => ipcRenderer.invoke('memory:switches', workspaceId, switches),
+  startMemoryHarvest: (workspaceId, request) => ipcRenderer.invoke('memory:harvest', workspaceId, request),
   setWorkspaceCommitsTarget: (workspaceId, branch) => ipcRenderer.invoke('workspaces:commits-target:set', workspaceId, branch),
   clearWorkspaceCommitsTarget: workspaceId => ipcRenderer.invoke('workspaces:commits-target:clear', workspaceId),
   renameWorkspace: (workspaceId, name) => ipcRenderer.invoke('workspaces:rename', workspaceId, name),

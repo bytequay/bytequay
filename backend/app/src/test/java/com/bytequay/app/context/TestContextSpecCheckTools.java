@@ -199,6 +199,6 @@ class TestContextSpecCheckTools
     {
         return new ContextBuild(1, "check-request", "sha256:" + "b".repeat(64), WORKSPACE, TASK.toString(), new RepositoryIdentity("owner", "repository"), 1,
                 RepoRef.of("owner", "repository"), SHA, "bytequay/check", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH,
-                ContextBuild.Capture.empty(), new ContextBuild.Check("check-1", "plugin/x/", reproduction, "brief"));
+                ContextBuild.Capture.empty(), Optional.of(new ContextBuild.Check("check-1", "plugin/x/", reproduction, "brief")), Optional.empty());
     }
 }

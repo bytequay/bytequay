@@ -22,6 +22,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.app.context.ContextSpecCheckTools;
+import com.bytequay.app.memory.MemoryHarvestTools;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,6 +43,7 @@ class TestReviewBridgeResolverImpl
     private static final String HEAD = "a".repeat(40);
     private final ReviewTools tools = mock(ReviewTools.class);
     private final ContextSpecCheckTools checks = mock(ContextSpecCheckTools.class);
+    private final MemoryHarvestTools harvests = mock(MemoryHarvestTools.class);
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
 
@@ -49,6 +51,7 @@ class TestReviewBridgeResolverImpl
     void registerChecks()
     {
         beans.registerSingleton("contextSpecCheckTools", checks);
+        beans.registerSingleton("memoryHarvestTools", harvests);
     }
 
     @Test
@@ -57,7 +60,8 @@ class TestReviewBridgeResolverImpl
         AgentTask task = task();
         ReviewBridge check = new ReviewBridge(ImmutableList.of(), "Check the directory's code against its specifications");
         when(checks.bridge(task.id().toString())).thenReturn(Optional.of(check));
-        ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextSpecCheckTools.class), tasks);
+        ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextSpecCheckTools.class),
+                beans.getBeanProvider(MemoryHarvestTools.class), tasks);
 
         assertThat(resolver.resolve(task.id().toString())).contains(check);
         verifyNoInteractions(tools, tasks);
@@ -70,7 +74,8 @@ class TestReviewBridgeResolverImpl
         AgentTask privateReview = development.withLocalReviewHead(Optional.of(HEAD), NOW);
         when(tasks.find(development.id())).thenReturn(Optional.of(privateReview));
         beans.registerSingleton("reviewTools", tools);
-        ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextSpecCheckTools.class), tasks);
+        ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextSpecCheckTools.class),
+                beans.getBeanProvider(MemoryHarvestTools.class), tasks);
 
         ReviewBridge bridge = resolver.resolve(privateReview.id().toString()).orElseThrow();
 
@@ -87,7 +92,8 @@ class TestReviewBridgeResolverImpl
         ReviewBridge review = new ReviewBridge(ImmutableList.of(), "The existing PR review policy");
         when(tools.bridge(task.id().toString())).thenReturn(Optional.of(review));
         beans.registerSingleton("reviewTools", tools);
-        ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextSpecCheckTools.class), tasks);
+        ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextSpecCheckTools.class),
+                beans.getBeanProvider(MemoryHarvestTools.class), tasks);
 
         assertThat(resolver.resolve(task.id().toString())).contains(review);
         verifyNoInteractions(tasks);
@@ -99,7 +105,8 @@ class TestReviewBridgeResolverImpl
         AgentTask review = task().withLocalReviewHead(Optional.of(HEAD), NOW);
         when(tasks.find(review.id())).thenReturn(Optional.of(review.fail("Task ended", NOW, NOW.plusSeconds(60))));
         beans.registerSingleton("reviewTools", tools);
-        ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextSpecCheckTools.class), tasks);
+        ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextSpecCheckTools.class),
+                beans.getBeanProvider(MemoryHarvestTools.class), tasks);
 
         assertThat(resolver.resolve(review.id().toString())).isEmpty();
     }

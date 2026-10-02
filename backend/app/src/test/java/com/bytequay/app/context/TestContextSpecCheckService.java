@@ -420,7 +420,7 @@ class TestContextSpecCheckService
     private void turnEnded(ContextBuild build, ContextBuildService.Outcome outcome)
     {
         when(buildStore.find(WORKSPACE)).thenReturn(Optional.of(build));
-        when(builds.get(WORKSPACE)).thenReturn(new ContextBuildService.View(build.sequence(), false, Optional.of(new ContextBuildService.BuildView(build.requestKey(),
+        when(builds.get(WORKSPACE)).thenReturn(new ContextBuildService.View(build.sequence(), false, Optional.of(new ContextBuildService.BuildView("CHECK", build.requestKey(),
                 TASK.toString(), "check-1", Optional.of(new ContextBuildService.TaskView(TASK.toString(), WORKSPACE, "OPEN", Optional.empty(), Optional.empty())),
                 Optional.empty(), 0, outcome, Optional.empty(), ImmutableList.of()))));
     }
@@ -470,6 +470,6 @@ class TestContextSpecCheckService
     {
         return new ContextBuild(reproduction.isPresent() ? 2 : 1, "check-request", "sha256:" + "b".repeat(64), WORKSPACE, TASK.toString(),
                 new RepositoryIdentity("owner", "repository"), 1, REPO, SHA, "bytequay/check", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
-                NOW, ContextBuild.Capture.empty(), new ContextBuild.Check("check-1", "plugin/trino-delta-lake/", reproduction, "brief"));
+                NOW, ContextBuild.Capture.empty(), Optional.of(new ContextBuild.Check("check-1", "plugin/trino-delta-lake/", reproduction, "brief")), Optional.empty());
     }
 }

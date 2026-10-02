@@ -23,8 +23,8 @@ are specifications by reading them; the user does not pick them. The user may ad
 a spec address the code doesn't link, and never picks sections: the check plans
 them. A new check of a directory is told which specs the last check used. Usually
 the user just starts. The run line states what the click starts: one task, a
-check turn and up to eight reproduction turns, and the model. One check runs at a
-time.
+check turn and up to eight reproduction turns, and the model. One check or
+memory harvest runs at a time per workspace.
 
 **Finish.** The directory's row shows a summary and the count of findings to
 file, and its drawer shows the report. It says, for

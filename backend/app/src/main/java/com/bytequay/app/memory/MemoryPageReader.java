@@ -50,15 +50,17 @@ public class MemoryPageReader
     private final WorkspaceRepositoryService workspaces;
     private final GitCommandRunner git;
     private final RepositoryGuidelineReader guidelines;
+    private final MemoryHarvestService harvests;
 
     public MemoryPageReader(MemoryService memories, ContextBuildService builds, WorkspaceRepositoryService workspaces, GitCommandRunner git,
-            RepositoryGuidelineReader guidelines)
+            RepositoryGuidelineReader guidelines, MemoryHarvestService harvests)
     {
         this.memories = requireNonNull(memories, "memories is null");
         this.builds = requireNonNull(builds, "builds is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.git = requireNonNull(git, "git is null");
         this.guidelines = requireNonNull(guidelines, "guidelines is null");
+        this.harvests = requireNonNull(harvests, "harvests is null");
     }
 
     public MemoryPage page(String workspaceId)
@@ -81,8 +83,9 @@ public class MemoryPageReader
             }
         }
         Set<String> gone = missing;
+        MemoryHarvestService.HarvestState harvest = harvests.state(workspaceId);
         return new MemoryPage(list.stream().map(memory -> new Entry(memory, memory.scope().stream().filter(gone::contains).collect(toImmutableList())))
-                .collect(toImmutableList()), memories.switches(workspaceId), files, head);
+                .collect(toImmutableList()), memories.switches(workspaceId), files, head, new HarvestView(harvest.cursor(), harvest.last()));
     }
 
     /** Scope paths without a file or directory at the head; a glob is never reported, since it may match files added later. */
@@ -108,7 +111,7 @@ public class MemoryPageReader
     }
 
     /** The page's memories in their stored order, newest first. */
-    public record MemoryPage(List<Entry> memories, MemorySwitches switches, List<GuidelineView> guidelines, Optional<String> head)
+    public record MemoryPage(List<Entry> memories, MemorySwitches switches, List<GuidelineView> guidelines, Optional<String> head, HarvestView harvest)
     {
         public MemoryPage
         {
@@ -116,6 +119,17 @@ public class MemoryPageReader
             requireNonNull(switches, "switches is null");
             guidelines = ImmutableList.copyOf(guidelines);
             requireNonNull(head, "head is null");
+            requireNonNull(harvest, "harvest is null");
+        }
+    }
+
+    /** How far Learn from my PRs has read, and the latest harvest. */
+    public record HarvestView(Optional<MemoryHarvestService.Cursor> cursor, Optional<MemoryHarvestService.LastRun> last)
+    {
+        public HarvestView
+        {
+            requireNonNull(cursor, "cursor is null");
+            requireNonNull(last, "last is null");
         }
     }
 

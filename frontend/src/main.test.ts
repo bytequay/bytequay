@@ -267,7 +267,7 @@ it('routes Code & Tests reads and writes to the review or the development task t
 it('routes spec check runs, their baseline and their recovery through the authenticated purpose-bound API', async () => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
-  const view: ContextBuildViewDto = { buildRequestSequence: 2, canStart: false, build: { requestKey: 'check-key', taskId: 'task', checkId: 'check-1',
+  const view: ContextBuildViewDto = { buildRequestSequence: 2, canStart: false, build: { kind: 'CHECK', requestKey: 'check-key', taskId: 'task', checkId: 'check-1',
     task: { id: 'task', workspaceId: 'workspace/one', state: 'OPEN', mutationClaim: 'TURN', worktreeRemovedAt: null }, activeTurn: { cancellationRequestedAt: null },
     pendingApprovals: 0, outcome: 'RUNNING', detail: null, activity: [{ at: '2026-10-02T00:00:00Z', text: 'Opened https://example.com/spec', tone: 'DONE' }] } };
   const fetch = vi.fn(async () => new Response(JSON.stringify(view)));
@@ -331,7 +331,8 @@ it('routes memory reads and the user’s changes, refusing a forged memory id be
       pullRequest: { number: 31201, part: 'REVIEW', commentId: '7', author: 'alice', maintainer: true, merged: true, resolved: false, outdated: false } }],
     origin: { user: false, description: 'Learn from my PRs', taskId: 'task' }, version: 1, previous: null, delivered: 3, cited: 1, reports: [],
     createdAt: '2026-10-02T00:00:00Z', updatedAt: '2026-10-02T00:00:00Z' };
-  const page: Record<string, unknown> = { memories: [{ memory, missingScope: [] }], switches: { reviews: true, development: true }, guidelines: [], head: 'a'.repeat(40) };
+  const page: Record<string, unknown> = { memories: [{ memory, missingScope: [] }], switches: { reviews: true, development: true }, guidelines: [], head: 'a'.repeat(40),
+    harvest: { cursor: null, last: null } };
   const fetch = vi.fn(async () => new Response(JSON.stringify(page)));
   vi.stubGlobal('fetch', fetch);
   const base = 'http://127.0.0.1:9527/api/workspaces/workspace%2Fone/memory';
@@ -353,7 +354,13 @@ it('routes memory reads and the user’s changes, refusing a forged memory id be
     await desktop.handlers.get(`memory:${item.name}`)?.({}, 'workspace/one', 'm12');
     expect(fetch).toHaveBeenLastCalledWith(base + item.path, expect.objectContaining({ method: item.method }));
   }
+  fetch.mockImplementation(async () => new Response(JSON.stringify({ started: true, pulls: 1, threads: 3, view: { buildRequestSequence: 5, canStart: false, build: null } })));
+  const harvest = { requestKey: 'learn', expectedBuildSequence: 4, pull: 31240, repo: 'trinodb/trino' };
+  await expect(desktop.handlers.get('memory:harvest')?.({}, 'workspace/one', harvest))
+    .resolves.toEqual({ started: true, pulls: 1, threads: 3, view: { buildRequestSequence: 5, canStart: false, build: null } });
+  expect(fetch).toHaveBeenLastCalledWith(base + '/harvest', expect.objectContaining({ method: 'POST', body: JSON.stringify(harvest) }));
   fetch.mockClear();
+  expect(() => desktop.handlers.get('memory:harvest')?.({}, 'workspace/one', { ...harvest, repo: null })).toThrow('Malformed harvest request');
   expect(() => desktop.handlers.get('memory:delete')?.({}, 'workspace/one', '../m12')).toThrow('Malformed memory id');
   expect(() => desktop.handlers.get('memory:edit')?.({}, 'workspace/one', 'm12', 0, 'Text')).toThrow('Malformed memory version');
   expect(() => desktop.handlers.get('memory:edit')?.({}, 'workspace/one', 'm12', 1, '  ')).toThrow('Malformed memory text');

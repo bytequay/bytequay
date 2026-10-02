@@ -236,6 +236,13 @@ check's tests and build output are its own, so between turns and before cleanup
 the service returns the worktree to its baseline; a worktree whose HEAD moved is
 kept and its task abandoned.
 
+A [memory harvest](repository-memory.md#31-pull-request-history) uses the same
+run machinery and the workspace's one run slot: one noninteractive turn on the
+Review model over the maintainer threads its binding carries, with a threads
+tool that pages through them and a save tool whose sources can only be this
+run's notes. The application fetches and filters the threads before the run
+starts, and the run's end moves the harvest cursor only when the turn completed.
+
 Check tasks open only on the Memory page, never as an interactive task
 screen. Generic send and steer endpoints reject noninteractive tasks; existing
 model preflight, Stop, runtime recovery and verified worktree cleanup controls

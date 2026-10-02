@@ -43,10 +43,10 @@ public class ContextBuildStore
     {
         this.settings = requireNonNull(settings, "settings is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
+        // A run saved before a field existed reads with it empty; the record's own checks still reject a missing required value.
         this.mapper = requireNonNull(mapper, "mapper is null").copy()
                 .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-                .enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
-                .enable(DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES);
+                .enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES);
     }
 
     public Optional<ContextBuild> find(String workspaceId)

@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.context.ContextBuildService;
+import com.bytequay.app.memory.MemoryHarvestService;
 import com.bytequay.app.memory.MemoryPageReader;
 import com.bytequay.app.memory.MemoryPageReader.MemoryPage;
 import com.bytequay.app.memory.MemoryService;
@@ -27,6 +29,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Optional;
+
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -37,11 +41,13 @@ public class MemoryController
 {
     private final MemoryService memories;
     private final MemoryPageReader pages;
+    private final MemoryHarvestService harvests;
 
-    public MemoryController(MemoryService memories, MemoryPageReader pages)
+    public MemoryController(MemoryService memories, MemoryPageReader pages, MemoryHarvestService harvests)
     {
         this.memories = requireNonNull(memories, "memories is null");
         this.pages = requireNonNull(pages, "pages is null");
+        this.harvests = requireNonNull(harvests, "harvests is null");
     }
 
     @GetMapping
@@ -95,9 +101,24 @@ public class MemoryController
         return pages.page(workspaceId);
     }
 
+    /**
+     * Learn from my PRs, or Learn from this PR when a pull request is named: reads its maintainer threads on GitHub and starts one
+     * harvest run over the new ones. GitHub is only read.
+     */
+    @PostMapping("/harvest")
+    public MemoryHarvestService.Started harvest(@PathVariable String workspaceId, @RequestBody HarvestRequest request)
+    {
+        checkArgument(request != null && request.requestKey() != null && request.expectedBuildSequence() != null, "requestKey and expectedBuildSequence are required");
+        checkArgument(request.pull() == null || request.pull() > 0, "pull must be a pull request number");
+        return harvests.start(workspaceId, new ContextBuildService.Request(request.requestKey(), request.expectedBuildSequence()), Optional.ofNullable(request.pull()),
+                Optional.ofNullable(request.repo()));
+    }
+
     public record EditRequest(Long expectedVersion, String text) {}
 
     public record RestoreRequest(Long expectedVersion) {}
 
     public record SwitchesRequest(Boolean reviews, Boolean development) {}
+
+    public record HarvestRequest(String requestKey, Long expectedBuildSequence, Integer pull, String repo) {}
 }

@@ -20,7 +20,7 @@ const actions: SpecCheckActions = { start: () => {}, stop: () => {}, dismissFind
 const check: ContextSpecCheckDto = { id: 'check-1', directory: 'plugin/trino-iceberg/', baselineSha: 'a'.repeat(40), requestKey: 'key',
   specs: ['https://iceberg.apache.org/spec/'], checkedAgainst: [], labels: [], state: 'CHECKING', candidates: [], covered: [], next: [], reproductions: 0,
   detail: null, startedAt: '2026-10-02T00:00:00Z', endedAt: null };
-const running: ContextBuildViewDto = { buildRequestSequence: 1, canStart: false, build: { requestKey: 'key', taskId: 'task', checkId: 'check-1', task: null,
+const running: ContextBuildViewDto = { buildRequestSequence: 1, canStart: false, build: { kind: 'CHECK', requestKey: 'key', taskId: 'task', checkId: 'check-1', task: null,
   activeTurn: { cancellationRequestedAt: null }, pendingApprovals: 0, outcome: 'RUNNING', detail: null, activity: [] } };
 const data = (checks: ContextSpecCheckDto[], build: ContextBuildViewDto): SpecCheckData => ({ workspaceId: 'workspace', repository: 'trinodb/trino', checks, build,
   model: { label: 'Codex · Sol', blocker: null }, now: Date.parse('2026-10-02T01:00:00Z') });

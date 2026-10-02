@@ -3545,6 +3545,12 @@ button:is(.agt-type-chip, .agt-type-tile) {
   overflow: auto;
 }
 
+.agt-home > .agt-page {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
 .agt-page-head {
   display: flex;
   align-items: center;

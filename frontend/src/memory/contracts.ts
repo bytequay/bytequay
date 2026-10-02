@@ -46,11 +46,11 @@ export type StartMemoryHarvestRequest = { requestKey: string; expectedBuildSeque
 /** Whether a run started, and how many pull requests and new maintainer threads it found. */
 export type MemoryHarvestStartedDto = { started: boolean; pulls: number; threads: number; view: ContextBuildViewDto };
 
-function flag(value: unknown, what: string): boolean {
+export function flag(value: unknown, what: string): boolean {
   if (typeof value !== 'boolean') throw new Error(`Malformed ${what}`);
   return value;
 }
-function list<T>(value: unknown, what: string, parse: (item: unknown) => T): T[] {
+export function list<T>(value: unknown, what: string, parse: (item: unknown) => T): T[] {
   if (!Array.isArray(value)) throw new Error(`Malformed ${what}`);
   return value.map(parse);
 }

@@ -367,6 +367,33 @@ it('routes memory reads and the user’s changes, refusing a forged memory id be
   expect(fetch).not.toHaveBeenCalled();
 });
 
+it('routes review replays through the agent review routes with the desktop session, refusing forged input before sending it', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const replay: Record<string, unknown> = { id: '6f1c2c1e-0000-4000-8000-000000000001', number: 31201, title: 'Add a property', url: 'https://github.com/trinodb/trino/pull/31201',
+    head: 'a'.repeat(40), fallback: null, cutoff: '2026-09-19T10:00:00Z', reviewer: 'bo', excludedMemories: 0, createdAt: '2026-10-02T09:00:00Z', sides: [], comments: [] };
+  const fetch = vi.fn(async () => new Response(JSON.stringify({ replays: [replay] })));
+  vi.stubGlobal('fetch', fetch);
+  const base = 'http://127.0.0.1:9527/api/agent-review/replays';
+  const session = expect.objectContaining({ 'X-ByteQuay-Session': 'test-session' });
+  await expect(desktop.handlers.get('replay:list')?.({}, 'workspace/one')).resolves.toHaveLength(1);
+  expect(fetch).toHaveBeenLastCalledWith(base + '?workspaceId=workspace%2Fone', expect.objectContaining({ headers: session }));
+  fetch.mockImplementation(async () => new Response(JSON.stringify(replay)));
+  await desktop.handlers.get('replay:start')?.({}, 'workspace/one', { repo: 'trinodb/trino', number: 31201 });
+  expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ method: 'POST', headers: session,
+    body: JSON.stringify({ workspaceId: 'workspace/one', repo: 'trinodb/trino', number: 31201 }) }));
+  await desktop.handlers.get('replay:mark')?.({}, 'workspace/one', replay.id, { commentId: 'c1', memory: false, raised: true });
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/${replay.id}/marks`, expect.objectContaining({ method: 'PUT', headers: session,
+    body: JSON.stringify({ workspaceId: 'workspace/one', commentId: 'c1', memory: false, raised: true }) }));
+  fetch.mockImplementation(async () => new Response(null, { status: 204 }));
+  await desktop.handlers.get('replay:delete')?.({}, 'workspace/one', replay.id);
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/${replay.id}?workspaceId=workspace%2Fone`, expect.objectContaining({ method: 'DELETE', headers: session }));
+  fetch.mockClear();
+  expect(() => desktop.handlers.get('replay:start')?.({}, 'workspace/one', { repo: 'trinodb/trino', number: 0 })).toThrow('Malformed replay request');
+  expect(() => desktop.handlers.get('replay:delete')?.({}, 'workspace/one', '../replay')).toThrow('Malformed replay id');
+  expect(fetch).not.toHaveBeenCalled();
+});
+
 it('routes Jira reads and versioned writes through the authenticated native API', async () => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');

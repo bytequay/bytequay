@@ -235,6 +235,8 @@ export type AgentReviewDto = {
   draft: ReviewDraftDto | null;
   /** The stored pull request's title and state; null until ByteQuay has stored the pull request. */
   pullRequest: { title: string; state: string; draft: boolean } | null;
+  /** Set on one side of a replay: the merged pull request it reviews at a past head, and whether this side has memory. */
+  replay?: { id: string; number: number; memory: boolean };
 };
 
 
@@ -476,6 +478,11 @@ export function parseAgentReviews(value: unknown): AgentReviewDto[] {
   return value.map(parseAgentReview);
 }
 
+function replayMarker(value: unknown): NonNullable<AgentReviewDto['replay']> {
+  const replay = object(value, 'review replay');
+  return { id: text(replay.id, 'replay id'), number: count(replay.number, 'replay number'), memory: flag(replay.memory) };
+}
+
 export function parseAgentReview(value: unknown): AgentReviewDto {
   const review = object(value, 'review');
   const task = object(review.task, 'review task');
@@ -488,6 +495,7 @@ export function parseAgentReview(value: unknown): AgentReviewDto {
     repo: text(review.repo, 'repository'),
     number: optionalCount(review.number),
     sourceTaskId: optionalText(review.sourceTaskId),
+    ...(review.replay == null ? {} : { replay: replayMarker(review.replay) }),
     state: oneOf(review.state, ['OPEN', 'CLOSED'] as const, 'review state'),
     followUpPaused: flag(review.followUpPaused),
     observedHeadSha: optionalText(review.observedHeadSha),

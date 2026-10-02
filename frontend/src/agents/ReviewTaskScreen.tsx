@@ -56,7 +56,8 @@ export default function ReviewTaskScreen({ workspaceId, reviewId, onBack, header
   </section>;
   const reviewActions = <><PinButton className="agt-headbtn" item={{
     key: `review:${review.id}`,
-    title: review.pullRequest?.title ?? `${review.repo} ${review.number === null ? 'local review' : `#${review.number} review`}`,
+    title: review.pullRequest?.title ?? `${review.repo} ${review.replay !== undefined ? `replay of #${review.replay.number}`
+      : review.number === null ? 'local review' : `#${review.number} review`}`,
     reference: 'Review',
     target: { kind: 'review', workspaceId, reviewId: review.id },
   }} />{headerAction}</>;
@@ -93,7 +94,8 @@ function LocalReviewWorkspace({ review, onReviewChange, onBack, headerAction }: 
     <section className="agr-workspace-conversation" aria-label="Review agent conversation">
       <header className="agt-screen-head">
         <button type="button" className="agt-back" aria-label="Back to tasks" onClick={back}>‹ Tasks</button>
-        <strong>{review.repo} · Local review</strong><span className="agt-spacer" />{headerAction}
+        <strong>{review.repo} · {review.replay === undefined ? 'Local review'
+          : `Replay of #${review.replay.number} · ${review.replay.memory ? 'with' : 'without'} memory`}</strong><span className="agt-spacer" />{headerAction}
       </header>
       <AgentReviewTab workspaceId={review.workspaceId} viewer={null} review={review} onReviewChange={onReviewChange}
         mode="conversation" focusFindingId={null} onNavigateToChanges={navigateToChanges}

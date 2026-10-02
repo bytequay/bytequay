@@ -25,16 +25,19 @@ import { activeCheck, checkActive, checkProgress, modelLine, plural, shortDate, 
 import { CHECK_STATE, checkSummary, issueUrl, openFindings } from '../repository-context/specChecks';
 import type { MemoryDto, MemoryKind, MemoryPageDto } from './contracts';
 import { MemoryDrawer } from './MemoryDrawer';
+import { ReplayDrawer, ReplaysSection } from './ReplaysSection';
+import { replayRunning, type ReplayDto } from './replays';
+import { workspaceReviewTaskRoute } from '../workspaces/model';
 import { age, flagged, KIND_LABEL, kilobytes, matches, MEMORY_CHANGED, memoryFlags, sourceChip, type MemoryKindFilter, type MemorySourceFilter } from './model';
 import '../css/repository-context.css';
 import '../css/memory.css';
 
 const KINDS: MemoryKind[] = ['RULE', 'SPEC'];
-type Drawer = { kind: 'spec'; directory: string | null } | { kind: 'memory'; id: string };
+type Drawer = { kind: 'spec'; directory: string | null } | { kind: 'memory'; id: string } | { kind: 'replay'; id: string };
 
 /**
- * The workspace's repository memory: what agents receive, what needs the user, the guideline files every turn reads, and the spec
- * checks. Opening the page only reads local state; a check starts only from Check against spec.
+ * The workspace's repository memory: what agents receive, what needs the user, the guideline files every turn reads, the spec
+ * checks, and the review replays. Opening the page only reads local state; a check starts only from Check against spec.
  */
 export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
   const workspaceId = workspace.id;
@@ -42,6 +45,8 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
   const [page, setPage] = useState<MemoryPageDto | null>(null);
   const [checks, setChecks] = useState<ContextSpecCheckDto[] | null>(null);
   const [build, setBuild] = useState<ContextBuildViewDto | null>(null);
+  const [replays, setReplays] = useState<ReplayDto[]>([]);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [models, setModels] = useState<ModelSettingsDto | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -60,10 +65,13 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
 
   const say = useCallback((text: string, undo: string | null = null) => setToast({ id: Date.now(), text, undo }), []);
   const load = useCallback(async () => {
-    const [nextPage, nextChecks, nextBuild] = await Promise.all([window.bridge.getMemoryPage(workspaceId),
-      window.bridge.getRepositoryContextSpecChecks(workspaceId), window.bridge.getRepositoryContextBuild(workspaceId)]);
+    // Replays sit behind the agent routes, which refuse until agent startup recovery ends; the rest of the page does not wait for them.
+    const [nextPage, nextChecks, nextBuild, nextReplays] = await Promise.all([window.bridge.getMemoryPage(workspaceId),
+      window.bridge.getRepositoryContextSpecChecks(workspaceId), window.bridge.getRepositoryContextBuild(workspaceId),
+      window.bridge.listReviewReplays(workspaceId).catch((): null => null)]);
     if (!mounted.current) return;
     setPage(nextPage);
+    if (nextReplays !== null) setReplays(nextReplays);
     setChecks(nextChecks);
     setBuild(nextBuild);
     setLoadError(null);
@@ -76,7 +84,8 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
     return () => { mounted.current = false; };
   }, [load, workspaceId]);
 
-  const running = (checks !== null && activeCheck(checks) !== null) || build?.build?.outcome === 'RUNNING' || build?.build?.task?.state === 'OPEN';
+  const running = (checks !== null && activeCheck(checks) !== null) || build?.build?.outcome === 'RUNNING' || build?.build?.task?.state === 'OPEN'
+    || replays.some(replayRunning);
   // A check saves candidates and results during its turns, and between them says whether it goes on.
   useEffect(() => {
     if (!running) return;
@@ -166,6 +175,12 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
   const needs = memories.filter(flagged);
   const visible = memories.filter(memory => matches(memory, kind, source, query));
   const selected = drawer?.kind === 'memory' ? memories.find(memory => memory.id === drawer.id) ?? null : null;
+  const replay = drawer?.kind === 'replay' ? replays.find(item => item.id === drawer.id) ?? null : null;
+  const mark = (commentId: string, memory: boolean, raised: boolean): void => void perform(async () => {
+    if (replay === null) return;
+    const next = await window.bridge.markReviewReplay(workspaceId, replay.id, { commentId, memory, raised });
+    if (mounted.current) setReplays(list => list.map(item => item.id === next.id ? next : item));
+  });
   const count = (predicate: (memory: MemoryDto) => boolean) => memories.filter(predicate).length;
   const switches = page.switches;
   const fresh = new Set(page.harvest.last?.outcome === 'DONE' ? page.harvest.last.saved : []);
@@ -310,6 +325,8 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
               })}</div>}
           </section>
 
+          <ReplaysSection replays={replays} now={now} onOpen={id => open({ kind: 'replay', id })} />
+
           <section className="mem-section" aria-label="Guidelines">
             <h2 className="mem-section__title">Guidelines · {plural(page.guidelines.length, 'file')}</h2>
             <div className="mem-muted">Every agent turn gets these files as reference data, read from the commit it starts at; reviews read their base branch.
@@ -326,11 +343,15 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
         </div>
       </div>
     </div>
-    {drawer !== null && (drawer.kind === 'spec' || selected !== null) && <>
+    {drawer !== null && (drawer.kind === 'spec' || selected !== null || replay !== null) && <>
       <div className="rcp-scrim" onClick={() => setDrawer(null)} />
-      <div ref={panel} className="rcp-drawer" role="dialog" aria-modal="true" aria-label={drawer.kind === 'spec' ? 'Spec check' : 'Memory'} tabIndex={-1}>
+      <div ref={panel} className="rcp-drawer" role="dialog" aria-modal="true" aria-label={drawer.kind === 'spec' ? 'Spec check' : drawer.kind === 'replay' ? 'Replay' : 'Memory'}
+        tabIndex={-1}>
         {drawer.kind === 'spec'
           ? <SpecCheckDrawer key={drawer.directory ?? 'new'} data={data} actions={actions} busy={busy} directory={drawer.directory} onClose={() => setDrawer(null)} />
+          : replay !== null ? <ReplayDrawer replay={replay} busy={busy} now={now} onClose={() => setDrawer(null)} onMark={mark}
+            onDelete={() => setDeleting(replay.id)} onOpenUrl={openUrl}
+            onOpenReview={reviewId => { window.location.hash = workspaceReviewTaskRoute(workspaceId, reviewId); }} />
           : selected !== null && <MemoryDrawer key={selected.id + ':' + selected.version} memory={selected} busy={busy} now={now} onClose={() => setDrawer(null)}
             onOpen={openUrl}
             onSave={text => change(() => window.bridge.editMemory(workspaceId, selected.id, selected.version, text), () => say('Memory saved · it is yours now'))}
@@ -339,6 +360,17 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
             onDelete={() => change(() => window.bridge.deleteMemory(workspaceId, selected.id), () => { setDrawer(null); say('Memory deleted', selected.id); })} />}
       </div>
     </>}
+    {deleting !== null && <ConfirmDialog title="Delete replay" confirmLabel="Delete" destructive busy={busy} onCancel={() => setDeleting(null)}
+      onConfirm={() => void perform(async () => {
+        await window.bridge.deleteReviewReplay(workspaceId, deleting);
+        if (!mounted.current) return;
+        setReplays(list => list.filter(item => item.id !== deleting));
+        setDeleting(null);
+        setDrawer(null);
+        say('Replay deleted');
+      })}>
+      Delete this replay’s comparison and your calls on it. Its two reviews end and stay in the review history.
+    </ConfirmDialog>}
     {impact !== null && <ConfirmDialog title="Stop remaining processes" confirmLabel="Stop processes" destructive busy={busy} onCancel={() => setImpact(null)}
       onConfirm={() => settle(async () => {
         const view = await window.bridge.stopRepositoryContextBuildRuntime(workspaceId, impact.taskId, impact.generation);

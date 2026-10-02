@@ -61,6 +61,7 @@ import {
   parseStartContextSpecCheckRequest,
 } from './repository-context/contracts';
 import { parseMemoryHarvestStarted, parseMemoryId, parseMemoryPage, parseMemorySwitches, parseMemoryText, parseMemoryVersion, parseStartMemoryHarvestRequest } from './memory/contracts';
+import { parseMarkReplayRequest, parseReplay, parseReplayId, parseReplays, parseStartReplayRequest } from './memory/replays';
 import {
   parseAgentReview,
   parseAgentReviews,
@@ -1360,6 +1361,17 @@ function registerIpc(): void {
     backendJson(memoryUrl(workspaceId, '/switches'), jsonInit('PUT', parseMemorySwitches(switches))).then(parseMemoryPage));
   ipcMain.handle('memory:harvest', (_event, workspaceId: string, request: unknown) =>
     backendJson(memoryUrl(workspaceId, '/harvest'), jsonInit('POST', parseStartMemoryHarvestRequest(request))).then(value => parseMemoryHarvestStarted(value, workspaceId)));
+  const replayUrl = (path = '') => `${backendBase()}/api/agent-review/replays${path}`;
+  ipcMain.handle('replay:list', (_event, workspaceId: string) =>
+    backendJson(`${replayUrl()}?workspaceId=${encodeURIComponent(workspaceId)}`, { headers: agentHeaders() }).then(parseReplays));
+  // A start reads GitHub, fetches the replayed head and starts two reviews, which can outlast the usual minute.
+  ipcMain.handle('replay:start', (_event, workspaceId: string, request: unknown) =>
+    backendJson(replayUrl(), { ...jsonInit('POST', { workspaceId, ...parseStartReplayRequest(request) }, agentHeaders()), signal: AbortSignal.timeout(15 * 60_000) })
+      .then(parseReplay));
+  ipcMain.handle('replay:mark', (_event, workspaceId: string, replayId: unknown, request: unknown) =>
+    backendJson(replayUrl(`/${parseReplayId(replayId)}/marks`), jsonInit('PUT', { workspaceId, ...parseMarkReplayRequest(request) }, agentHeaders())).then(parseReplay));
+  ipcMain.handle('replay:delete', (_event, workspaceId: string, replayId: unknown) =>
+    backendVoid(`${replayUrl(`/${parseReplayId(replayId)}`)}?workspaceId=${encodeURIComponent(workspaceId)}`, { method: 'DELETE', headers: agentHeaders() }));
   ipcMain.handle('repository-context:build:stop', (_event, workspaceId: string, taskId: string) =>
     backendJson(contextBuildUrl(workspaceId) + '/stop', jsonInit('POST', { taskId }, agentHeaders())).then(value => parseContextBuildView(value, workspaceId)));
   ipcMain.handle('repository-context:build:stop-impact', (_event, workspaceId: string, taskId: string) =>

@@ -1,8 +1,9 @@
 # Repository memory
 
-Status: approved; phases 0 to 3 are implemented: the store with the memory tool,
-the Memory page, turn-start delivery with receipts, harvest runs, and finding
-citations. Development answers are asked to cite memories but are not counted yet. It replaces the knowledge-learning design of Repository context
+Status: approved; phases 0 to 4 are implemented: the store with the memory tool,
+the Memory page, turn-start delivery with receipts, harvest runs, finding
+citations, and holdout replays. Development answers are asked to cite memories
+but are not counted yet. It replaces the knowledge-learning design of Repository context
 and the documents it built on, which phase 2 deleted, and revises the
 [spec check](spec-check.md) to start from a directory instead of a plan topic. The user chose the direction: remove the learning system, its
 note code and the note data built so far in one step, save memory without
@@ -280,12 +281,15 @@ memories.
 - **Guidelines:** the files that reach agents, with size and an open link.
 - **Specs:** spec memories with each one's latest check report, reusing the
   current report UI.
+- **Replays:** each replay with what each side raised, the sum over finished
+  replays, and a drawer that sets the maintainers' comments beside both sides'
+  findings, file by file, where the user changes a call and opens either review.
 
 **Elsewhere:**
 
 | Surface | Change |
 |---|---|
-| Pull request page | Learn from this PR, on merged or closed pull requests |
+| Pull request page | Learn from this PR, on merged or closed pull requests; Replay review, on merged ones |
 | Task and review transcripts | "Remembered: …" rows with Undo. The turn receipt folds "Memory: 6 delivered" and "Guidelines: 3 files" |
 | Review findings | "Memory used", folded. The Resolve dialog gains Remember for \<path\> |
 | Tasks list | Harvest runs appear as learning runs do today: read-only activity with Stop |

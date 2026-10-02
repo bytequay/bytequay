@@ -28,6 +28,7 @@ import type {
   StartContextSpecCheckRequest,
 } from './repository-context/contracts';
 import type { MemoryHarvestStartedDto, MemoryPageDto, MemorySwitchesDto, StartMemoryHarvestRequest } from './memory/contracts';
+import type { MarkReplayRequest, ReplayDto, StartReplayRequest } from './memory/replays';
 import type {
   AgentReviewDto,
   ReviewDraftDto,
@@ -1617,6 +1618,13 @@ export type Bridge = JiraBridge & {
   saveMemorySwitches: (workspaceId: string, switches: MemorySwitchesDto) => Promise<MemoryPageDto>;
   /** Learn from my PRs, or Learn from this PR: reads maintainer threads on GitHub and starts one harvest run over the new ones; GitHub is only read. */
   startMemoryHarvest: (workspaceId: string, request: StartMemoryHarvestRequest) => Promise<MemoryHarvestStartedDto>;
+  /** The workspace's replays of merged pull requests' reviews, newest first. */
+  listReviewReplays: (workspaceId: string) => Promise<ReplayDto[]>;
+  /** Runs Agent Review twice on a merged pull request at the head its maintainers first reviewed, with memory and without; nothing is posted. */
+  startReviewReplay: (workspaceId: string, request: StartReplayRequest) => Promise<ReplayDto>;
+  /** The user's call on whether one side of a replay raised one maintainer comment. */
+  markReviewReplay: (workspaceId: string, replayId: string, request: MarkReplayRequest) => Promise<ReplayDto>;
+  deleteReviewReplay: (workspaceId: string, replayId: string) => Promise<void>;
   setWorkspaceCommitsTarget: (workspaceId: string, branch: string) => Promise<WorkspaceCommitsTargetDto>;
   clearWorkspaceCommitsTarget: (workspaceId: string) => Promise<WorkspaceCommitsTargetDto>;
   renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceDto>;

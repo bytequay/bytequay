@@ -20,7 +20,6 @@ import {
   workspaceHasReadableCode,
   workspaceIssueRoute,
   workspaceIssueTaskRoute,
-  workspaceContextRunRoute,
   workspaceLocationFromRoute,
   workspaceMetadataState,
   workspacePullRequestRoute,
@@ -172,12 +171,9 @@ describe('workspace model', () => {
     }
   });
 
-  it('opens learning activity without selecting an interactive task', () => {
-    const route = workspaceContextRunRoute('workspace/id', 'run/1');
-    expect(route).toBe('#/workspaces/workspace%2Fid/context/run/run%2F1');
-    expect(workspaceLocationFromRoute(route)).toMatchObject({ tab: 'context', agentTaskId: null, contextRunId: 'run/1' });
-    expect(workspaceLocationFromRoute('#/workspaces/w/tasks/run/r')).toBeNull();
-    expect(workspaceLocationFromRoute('#/workspaces/w/context/run/%')).toBeNull();
+  it('has no run route under the context tab', () => {
+    expect(workspaceLocationFromRoute('#/workspaces/w/context/run/r')).toBeNull();
+    expect(workspaceLocationFromRoute('#/workspaces/w/context')).toMatchObject({ tab: 'context', agentTaskId: null });
   });
 
   it('keeps Jira ticket query parameters inside the workspace route', () => {

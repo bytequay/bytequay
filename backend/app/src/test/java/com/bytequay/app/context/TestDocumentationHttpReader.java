@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.context;
 
+import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.google.common.hash.Hashing;
@@ -293,7 +294,8 @@ class TestDocumentationHttpReader
     void readsAGitHubFilePageAsItsRawTextAndKeepsItsGitHubAddress()
             throws Exception
     {
-        RegisteredContextSource protocol = SelectedDocumentationReader.page("https://github.com/delta-io/delta/blob/master/PROTOCOL.md");
+        RegisteredContextSource protocol = new RegisteredContextSource("protocol", RegisteredContextSource.Kind.DOCUMENTATION_PAGE,
+                "https://github.com/delta-io/delta/blob/master/PROTOCOL.md", ContextEntryOrigin.GENERATED, Optional.empty());
         String markdown = "# Delta Transaction Log Protocol\n\nIntro\n\n## Add File and Remove File\n\nPaths are URI encoded.\n\n```\n# not a heading\n```\n"
                 + "## Add File and Remove File\n\nA repeat.\n";
         when(client.executeOpen(isNull(), any(), isNull())).thenReturn(response("text/plain; charset=utf-8", markdown));

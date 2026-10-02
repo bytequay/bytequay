@@ -35,7 +35,7 @@ import java.util.concurrent.Flow;
 
 import static java.util.Objects.requireNonNull;
 
-/** Observes only explicitly requested builds. Startup restores observation, never dispatches learning. */
+/** Observes only explicitly requested spec checks. Startup restores observation, never dispatches a check. */
 @Component
 public class ContextBuildCoordinator
 {
@@ -44,19 +44,17 @@ public class ContextBuildCoordinator
     private final WorkspaceStore workspaces;
     private final ContextBuildStore builds;
     private final ObjectProvider<ContextBuildService> service;
-    private final ObjectProvider<ContextLearningService> learning;
     private final ObjectProvider<ContextSpecCheckService> checks;
     private final Map<String, Flow.Subscription> subscriptions = new ConcurrentHashMap<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("context-build-reconcile-", 0).factory());
 
     public ContextBuildCoordinator(AgentEventService events, WorkspaceStore workspaces, ContextBuildStore builds, ObjectProvider<ContextBuildService> service,
-            ObjectProvider<ContextLearningService> learning, ObjectProvider<ContextSpecCheckService> checks)
+            ObjectProvider<ContextSpecCheckService> checks)
     {
         this.events = requireNonNull(events, "events is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.builds = requireNonNull(builds, "builds is null");
         this.service = requireNonNull(service, "service is null");
-        this.learning = requireNonNull(learning, "learning is null");
         this.checks = requireNonNull(checks, "checks is null");
     }
 
@@ -71,7 +69,7 @@ public class ContextBuildCoordinator
                 });
             }
             catch (RuntimeException failure) {
-                log.warn("Cannot restore repository learning for workspace {}: {}", workspace.id(), failure.toString());
+                log.warn("Cannot restore the spec check of workspace {}: {}", workspace.id(), failure.toString());
             }
         });
     }
@@ -113,7 +111,7 @@ public class ContextBuildCoordinator
                 public void onError(Throwable failure)
                 {
                     subscriptions.remove(build.taskId());
-                    log.warn("Repository learning {} lost its task stream: {}", build.taskId(), failure.toString());
+                    log.warn("Spec check task {} lost its task stream: {}", build.taskId(), failure.toString());
                 }
 
                 @Override
@@ -125,7 +123,7 @@ public class ContextBuildCoordinator
             });
         }
         catch (RuntimeException failure) {
-            log.warn("Repository learning {} cannot subscribe to its task: {}", build.taskId(), failure.toString());
+            log.warn("Spec check task {} cannot subscribe to its task: {}", build.taskId(), failure.toString());
         }
     }
 
@@ -137,17 +135,11 @@ public class ContextBuildCoordinator
         }
     }
 
-    /** Settles the run, then lets its batch start the next question or its spec check the next reproduction; one executor keeps them in order. */
+    /** Settles the turn, then lets its spec check start the next reproduction; one executor keeps them in order. */
     private void reconcileLater(ContextBuild build)
     {
         executor.execute(() -> {
             service.getObject().reconcile(build.workspaceId(), build.taskId());
-            try {
-                learning.getObject().continueBatch(build.workspaceId());
-            }
-            catch (RuntimeException failure) {
-                log.warn("Repository learning batch for workspace {} stopped: {}", build.workspaceId(), failure.toString());
-            }
             try {
                 checks.getObject().continueCheck(build.workspaceId());
             }

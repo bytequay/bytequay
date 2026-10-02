@@ -14,16 +14,9 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.agent.core.AgentStorageException;
-import com.bytequay.core.context.ContextDocumentRead;
-import com.bytequay.core.context.ContextHistoryRead;
-import com.bytequay.core.context.ContextReference;
-import com.bytequay.core.context.ContextRepositoryRead;
-import com.bytequay.core.context.ContextSourceRead;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.store.StorageException;
 import com.bytequay.persistence.sqlite.converter.JsonColumns;
-import com.fasterxml.jackson.annotation.JsonSubTypes;
-import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -43,8 +36,6 @@ final class JsonGuard<E extends RuntimeException>
     static final JsonGuard<AgentStorageException> AGENT = new JsonGuard<>(AgentStorageException.class, AgentStorageException::new, JsonColumns.mapper());
     // Stored runs keep fields the review record has since dropped, such as summary and coverage limitations.
     static final JsonGuard<ReviewConflictException> REVIEW = new JsonGuard<>(ReviewConflictException.class, ReviewConflictException::new, JsonColumns.mapper()
-            .addMixIn(ContextSourceRead.class, SourceReadJson.class)
-            .addMixIn(ContextReference.class, ReferenceJson.class)
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES));
     static final JsonGuard<StorageException> CHERRY_PICK = new JsonGuard<>(StorageException.class, StorageException::new, JsonColumns.mapper());
     static final JsonGuard<StorageException> CI_AUTOFIX = new JsonGuard<>(StorageException.class, StorageException::new, JsonColumns.mapper().disable(WRITE_DATES_AS_TIMESTAMPS));
@@ -93,21 +84,4 @@ final class JsonGuard<E extends RuntimeException>
         T call(ObjectMapper mapper)
                 throws JsonProcessingException;
     }
-
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.EXISTING_PROPERTY, property = "kind")
-    @JsonSubTypes({
-            @JsonSubTypes.Type(value = ContextRepositoryRead.class, name = "REPOSITORY_FILE"),
-            @JsonSubTypes.Type(value = ContextDocumentRead.class, name = "DOCUMENT"),
-            @JsonSubTypes.Type(value = ContextHistoryRead.class, name = "HISTORY")})
-    private interface SourceReadJson {}
-
-    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.EXISTING_PROPERTY, property = "kind")
-    @JsonSubTypes({
-            @JsonSubTypes.Type(value = ContextReference.RepositoryFile.class, name = "REPOSITORY_FILE"),
-            @JsonSubTypes.Type(value = ContextReference.PullRequest.class, name = "PR"),
-            @JsonSubTypes.Type(value = ContextReference.Issue.class, name = "ISSUE"),
-            @JsonSubTypes.Type(value = ContextReference.Task.class, name = "TASK"),
-            @JsonSubTypes.Type(value = ContextReference.Review.class, name = "REVIEW"),
-            @JsonSubTypes.Type(value = ContextReference.Document.class, name = "DOCUMENT")})
-    private interface ReferenceJson {}
 }

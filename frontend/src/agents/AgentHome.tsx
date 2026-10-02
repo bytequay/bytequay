@@ -13,7 +13,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CircleDot, EyeOff, ListChecks, Pencil, Search, SquareCheck, Zap, type LucideIcon } from 'lucide-react';
+import { CircleDot, EyeOff, ListChecks, Pencil, SquareCheck, type LucideIcon } from 'lucide-react';
 import RepoAvatar from '../RepoAvatar';
 import AttentionList, { type GoalToggle } from '../home/AttentionList';
 import { Card, CardActions, IconButton, InGoalBadge, Pill } from '../cards/Card';
@@ -23,9 +23,7 @@ import { zoomReference } from '../githubReference';
 import { jiraIssueLocation } from '../jira/contracts';
 import { relativeTime } from '../relativeTime';
 import { useRenameDraft } from '../renameDraft';
-import { ContextReviewRow } from '../repository-context/ContextCards';
-import { useContextReview, type ContextReview } from '../repository-context/reviewCount';
-import { displayModelName, effortLabel, laneLabel } from '../settings/model';
+import { displayModelName, laneLabel } from '../settings/model';
 import {
   ComposerDock, StartingAgentTask, TaskComposer, changesLabel, taskArchived, useAgentTaskCreation, useTaskChanges, type DraftImage, type TaskModelSelection,
 } from './AgentTasksView';
@@ -34,13 +32,6 @@ import type { AgentBridgePort } from './model';
 import type {
   AgentTaskActivityDto, AgentTaskChangesDto, AgentTaskDto, AgentTaskStartupPhase, ModelOptionDto, ModelProviderDto,
 } from '../types';
-
-const EXPLORE = 'Explore & prepare context';
-
-/** Explore sends the typed question inside the standing instruction; the agent may save a note from its answer. */
-export function exploreMessage(question: string): string {
-  return `Explore this code question: ${question}\n\nAnswer from the code, then save a reusable context note if committed source lines support it.`;
-}
 
 /** Starting points that fill the composer; the user edits or sends them as they are. */
 const SUGGESTIONS: { icon: LucideIcon; title: string; prompt: string }[] = [
@@ -114,9 +105,7 @@ export default function AgentHome({
   workspaceId, headerAction, repository, taskAttention, attention, goal, inGoal, bridge: explicitBridge, onOpenTask, onOpenSettings, onShowAll, onOpenPullRequest, onOpenIssue, onStartIssue,
 }: AgentHomeProps): React.JSX.Element {
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
-  const [explore, setExplore] = useState(false);
-  const creation = useAgentTaskCreation({ workspaceId, bridge: live, onOpenTask, wrapMessage: explore ? exploreMessage : undefined });
-  const contextReview = useContextReview(workspaceId, null);
+  const creation = useAgentTaskCreation({ workspaceId, bridge: live, onOpenTask });
   // The polled list is fresher; until its first read lands, the list this page last painted stands in.
   const listed = taskAttention.tasks.length > 0 ? taskAttention.tasks.map((entry) => entry.task) : creation.tasks;
   const openTasks = useMemo(() => listed.filter((task) => task.state === 'OPEN' && !taskArchived(task)), [listed]);
@@ -182,9 +171,6 @@ export default function AgentHome({
       onOpenTask={onOpenTask}
       onOpenSettings={onOpenSettings}
       onShowAll={onShowAll}
-      explore={explore}
-      onExplore={setExplore}
-      contextReview={contextReview}
     />
   );
 }
@@ -196,7 +182,6 @@ export function AgentHomeView({
   attention = [], handled = {}, viewerLogin = null, onHandledChange = () => {}, onOpenAttention = () => {},
   onStartIssue, attentionError, goal, inGoal, jiraConnected = false,
   images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, error = null, automation,
-  explore = false, onExplore, contextReview = null,
 }: {
   repository: string;
   workspaceId?: string;
@@ -248,11 +233,6 @@ export function AgentHomeView({
   onAttach?: () => void;
   onPasteImages?: () => void;
   onRemoveImage?: (id: string) => void;
-  /** Explore & prepare context: the composer asks a question the agent answers, saving a note when part of it is reusable. */
-  explore?: boolean;
-  onExplore?: (on: boolean) => void;
-  /** Repository context source proposals waiting review, drawn first in Needs attention. */
-  contextReview?: ContextReview | null;
 }): React.JSX.Element {
   if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup, headerAction }} />;
   const [owner, repo = ''] = repository.split('/');
@@ -277,7 +257,6 @@ export function AgentHomeView({
           onOpen={onOpenAttention}
           onStartIssue={onStartIssue}
           goal={goal}
-          lead={contextReview !== null && contextReview.total > 0 ? <ContextReviewRow workspaceId={workspaceId} review={contextReview} /> : undefined}
         />
         <section className="agt-open-tasks" aria-label="Open tasks">
           <div className="agt-open-tasks__head">
@@ -305,14 +284,10 @@ export function AgentHomeView({
           </div>
         </section>
         <ComposerDock repository={repository} chips={<>
-          <button type="button" className={`agt-start${explore ? ' is-active' : ''}`} aria-pressed={explore} onClick={() => onExplore?.(!explore)}>
-            <Search size={13} strokeWidth={1.9} aria-hidden="true" />
-            {EXPLORE}
-          </button>
           {SUGGESTIONS.map((suggestion) => {
             const Icon = suggestion.icon;
             return (
-              <button type="button" className="agt-start" key={suggestion.title} onClick={() => { onExplore?.(false); onDraftChange(suggestion.prompt); }}>
+              <button type="button" className="agt-start" key={suggestion.title} onClick={() => onDraftChange(suggestion.prompt)}>
                 <Icon size={13} strokeWidth={1.9} aria-hidden="true" />
                 {suggestion.title}
               </button>
@@ -339,30 +314,11 @@ export function AgentHomeView({
             onSelectModel={onSelectModel}
             onCreate={onCreate}
             onOpenSettings={onOpenSettings}
-            mode={explore ? { label: EXPLORE, placeholder: 'Ask how something in this repository works…', onLeave: () => onExplore?.(false),
-              hint: <ExploreHint model={modelText(laneId, providers, models, selection)} contextOn={contextReview?.useInDevelopment !== false} /> } : undefined}
           />
         </ComposerDock>
       </div>
     </div>
   );
-}
-
-function modelText(laneId: string, providers: ModelProviderDto[], models: ModelOptionDto[], selection: TaskModelSelection | null): string {
-  const provider = providers.find((candidate) => candidate.id === laneId);
-  const option = models.find((candidate) => candidate.id === selection?.model);
-  const model = option === undefined ? '' : displayModelName(option.name) + (selection?.effort ? ` ${effortLabel(selection.effort)}` : '');
-  return [provider?.label ?? laneLabel(laneId), model].filter((part) => part !== '').join(' · ');
-}
-
-/** What sending in Explore mode starts: one task, which may save a note. */
-function ExploreHint({ model, contextOn }: { model: string; contextOn: boolean }): React.JSX.Element {
-  return <>
-    <Zap className="agt-compose-hint__bolt" size={12} strokeWidth={2} aria-hidden="true" />
-    <span>Sending starts a task with {model}. {contextOn
-      ? 'You get an answer; if part of it is reusable, the agent saves a note to Repository context, where other agents can look it up.'
-      : 'Repository context is off for development tasks, so the agent answers without saving a note.'}</span>
-  </>;
 }
 
 /**

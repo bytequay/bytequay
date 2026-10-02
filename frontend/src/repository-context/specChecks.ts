@@ -26,11 +26,6 @@ export const CHECK_STATE: Record<ContextSpecCheckDto['state'], { label: string; 
 };
 export const DISMISS_REASONS = ['Filed on GitHub', 'Not a real gap', 'Not worth filing'] as const;
 
-/** A topic's latest check in the current plan; a new plan's topics start without one. */
-export function topicCheck(checks: ContextSpecCheckDto[], planId: string, topicId: string): ContextSpecCheckDto | null {
-  return checks.find(check => check.planId === planId && check.topicId === topicId) ?? null;
-}
-
 /** Confirmed gaps the user has not dismissed: the ones to file. */
 export function openFindings(check: ContextSpecCheckDto | null): ContextSpecCandidateDto[] {
   return check === null ? [] : check.candidates.filter(candidate => candidate.status === 'CONFIRMED' && candidate.dismissed === null);

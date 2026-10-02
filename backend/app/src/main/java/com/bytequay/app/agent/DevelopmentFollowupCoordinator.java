@@ -49,7 +49,6 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
-import java.util.function.BiConsumer;
 import java.util.regex.Pattern;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -74,14 +73,12 @@ public class DevelopmentFollowupCoordinator
     private final GitHubPullRequestWriteClient writes;
     private final Clock clock;
     private final Runnable waitForCi;
-    private final BiConsumer<AgentTask, GitHubPullRequestIdentity> publishedCandidate;
     private final ConcurrentMap<TaskId, Accepted> accepted = new ConcurrentHashMap<>();
     private final ConcurrentMap<TaskId, PendingPublication> publications = new ConcurrentHashMap<>();
 
     public DevelopmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git,
             Executor executor, CiAutofixService ci, GitHubActionsClient actions, CredentialService credentials, GitHubPullRequestReadClient pullRequests,
-            GitHubPullRequestWriteClient writes, Clock clock, Runnable waitForCi,
-            BiConsumer<AgentTask, GitHubPullRequestIdentity> publishedCandidate)
+            GitHubPullRequestWriteClient writes, Clock clock, Runnable waitForCi)
     {
         this.turns = requireNonNull(turns, "turns is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
@@ -94,7 +91,6 @@ public class DevelopmentFollowupCoordinator
         this.writes = requireNonNull(writes, "writes is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.waitForCi = requireNonNull(waitForCi, "waitForCi is null");
-        this.publishedCandidate = requireNonNull(publishedCandidate, "publishedCandidate is null");
     }
 
     /** Called after turn admission and before provider launch, outside the task lock. */
@@ -267,15 +263,6 @@ public class DevelopmentFollowupCoordinator
                 }
                 currentPr = verifiedPr;
             }
-            currentPr.ifPresent(pr -> {
-                try {
-                    publishedCandidate.accept(completion.task(), pr);
-                }
-                catch (RuntimeException failure) {
-                    // Candidate indexing must not change the verified development delivery result.
-                    log.warn("Could not retain repository-context candidate for task {}", completion.task().id(), failure);
-                }
-            });
             if (automation.autoCiFix()) {
                 action = "CI Autofix";
                 GitHubPullRequestIdentity publishedPr = currentPr.orElseThrow();

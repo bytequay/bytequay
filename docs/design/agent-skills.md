@@ -165,13 +165,6 @@ discard historical skill settings after a scope edit, disable, or removal.
 System resources remain active independently of the user
 collection.
 
-## Repository reference guidance
-
-Standalone Learn uses a saved `ContextBuild` binding and a restricted research
-bridge. It receives common guidance and Global user skills; noninteractive AUTO
-alone does not confer development or PR publication authority. It cannot save a
-user memory lesson automatically.
-
 ## Storage and management
 
 `AgentSkillService` owns the ordered user skill collection in the existing

@@ -12,15 +12,15 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import type { ContextSpecCandidateDto, ContextSpecCheckDto } from './contracts';
-import { checkSummary, codeLink, issueUrl, openFindings, specAddress, topicCheck } from './specChecks';
+import { specCheckDirectory, type ContextSpecCandidateDto, type ContextSpecCheckDto } from './contracts';
+import { checkSummary, codeLink, issueUrl, openFindings, specAddress } from './specChecks';
 
 const candidate = (id: string, type: ContextSpecCandidateDto['type'], status: ContextSpecCandidateDto['status'],
   patch: Partial<ContextSpecCandidateDto> = {}): ContextSpecCandidateDto => ({ id, type, predicted: type === 'BUG' ? 'DIVERGES' : type === 'FEATURE_REQUEST' ? 'REFUSES' : 'SKIPS_SHOULD',
   title: `Gap ${id}`, rule: 'MUST x', specUrl: 'https://example.com/spec#x', code: ['a/B.java:1-2'], reasoning: 'why', severity: 2, duplicate: null, status, test: null,
   reason: null, draft: null, dismissed: null, ...patch });
-const check = (candidates: ContextSpecCandidateDto[]): ContextSpecCheckDto => ({ id: 'check-1', planId: 'plan', topicId: 'topic:delta', topicTitle: 'Delta Lake',
-  scopeId: 'delta', paths: ['plugin/trino-delta-lake/'], baselineSha: 'a'.repeat(40), requestKey: 'key', specs: ['https://example.com/spec'],
+const check = (candidates: ContextSpecCandidateDto[]): ContextSpecCheckDto => ({ id: 'check-1', directory: 'plugin/trino-delta-lake/', baselineSha: 'a'.repeat(40),
+  requestKey: 'key', specs: ['https://example.com/spec'],
   checkedAgainst: ['https://example.com/spec'], labels: [],
   state: 'DONE', candidates, covered: [], next: [], reproductions: 2, detail: null, startedAt: '2026-10-01T00:00:00Z', endedAt: '2026-10-01T01:00:00Z' });
 
@@ -33,12 +33,18 @@ describe('spec check report', () => {
     expect(checkSummary(check([candidate('c1', 'BUG', 'REFUTED')]))).toBe('No gap confirmed · 1 refuted');
   });
 
-  it('lists only confirmed findings nobody dismissed, and only for the current plan', () => {
+  it('lists only confirmed findings nobody dismissed', () => {
     const value = check([candidate('c1', 'BUG', 'CONFIRMED'), candidate('c2', 'BUG', 'CONFIRMED', { dismissed: 'Filed on GitHub' }),
       candidate('c3', 'BUG', 'NOT_REPRODUCED')]);
     expect(openFindings(value).map(item => item.id)).toEqual(['c1']);
-    expect(topicCheck([value], 'plan', 'topic:delta')).toBe(value);
-    expect(topicCheck([value], 'newer-plan', 'topic:delta')).toBeNull();
+  });
+});
+
+describe('spec check directory', () => {
+  it('takes a repository directory with or without its slashes and refuses one that escapes it', () => {
+    expect(['plugin/trino-iceberg', '/plugin/trino-iceberg/', ' plugin/trino-iceberg// '].map(specCheckDirectory))
+      .toEqual(['plugin/trino-iceberg/', 'plugin/trino-iceberg/', 'plugin/trino-iceberg/']);
+    expect(['', '/', 'plugin/../core', './plugin', 'plugin//iceberg', 'C:\\plugin', '-plugin'].map(specCheckDirectory)).toEqual([null, null, null, null, null, null, null]);
   });
 });
 

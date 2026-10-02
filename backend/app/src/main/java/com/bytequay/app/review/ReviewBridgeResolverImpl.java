@@ -18,8 +18,6 @@ import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.ReviewBridge;
-import com.bytequay.app.context.ContextAgentDiscoveryTools;
-import com.bytequay.app.context.ContextBuildTools;
 import com.bytequay.app.context.ContextSpecCheckTools;
 import com.google.common.collect.ImmutableList;
 import org.springframework.beans.factory.ObjectProvider;
@@ -30,7 +28,7 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Answers the provider broker from durable review or explicit learning ownership. Looked up lazily: the broker is built
+ * Answers the provider broker from durable review or spec check ownership. Looked up lazily: the broker is built
  * before the review service, whose task execution depends on the drivers the broker serves.
  */
 @Component
@@ -38,17 +36,12 @@ public class ReviewBridgeResolverImpl
         implements BridgeResolver<ReviewBridge>
 {
     private final ObjectProvider<ReviewTools> tools;
-    private final ObjectProvider<ContextBuildTools> builders;
-    private final ObjectProvider<ContextAgentDiscoveryTools> discovery;
     private final ObjectProvider<ContextSpecCheckTools> checks;
     private final AgentTaskStore tasks;
 
-    public ReviewBridgeResolverImpl(ObjectProvider<ReviewTools> tools, ObjectProvider<ContextBuildTools> builders,
-            ObjectProvider<ContextAgentDiscoveryTools> discovery, ObjectProvider<ContextSpecCheckTools> checks, AgentTaskStore tasks)
+    public ReviewBridgeResolverImpl(ObjectProvider<ReviewTools> tools, ObjectProvider<ContextSpecCheckTools> checks, AgentTaskStore tasks)
     {
         this.tools = requireNonNull(tools, "tools is null");
-        this.builders = requireNonNull(builders, "builders is null");
-        this.discovery = requireNonNull(discovery, "discovery is null");
         this.checks = requireNonNull(checks, "checks is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
     }
@@ -56,7 +49,7 @@ public class ReviewBridgeResolverImpl
     @Override
     public Optional<ReviewBridge> resolve(String taskId)
     {
-        return discovery.getObject().bridge(taskId).or(() -> builders.getObject().bridge(taskId)).or(() -> checks.getObject().bridge(taskId))
+        return checks.getObject().bridge(taskId)
                 .or(() -> tools.getObject().bridge(taskId))
                 .or(() -> tasks.find(TaskId.valueOf(taskId))
                 .filter(task -> task.interactive() && task.state() == TaskState.OPEN)

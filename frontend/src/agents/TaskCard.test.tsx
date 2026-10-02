@@ -139,8 +139,7 @@ describe('agent home and overview', () => {
     expect(markup).toContain('title="jackchen/trino · tasks start in this repo"');
     expect(markup).not.toContain('What should the agent do');
     expect(markup).not.toContain('❋');
-    expect(markup.match(/class="agt-start"/g)).toHaveLength(3);
-    expect(markup).toContain('lucide-search');
+    expect(markup.match(/class="agt-start"/g)).toHaveLength(2);
     expect(markup).toContain('lucide-circle-dot');
     expect(markup).toContain('lucide-list-checks');
     expect(markup).toContain('Open tasks · 2');

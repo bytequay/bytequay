@@ -31,15 +31,13 @@ import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.repository.github.GitHubSearchResponse;
 import com.bytequay.app.review.MavenCommands;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.workspace.WorkspaceOperationLocks;
+import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
-import com.bytequay.core.context.ContextEntryKind;
 import com.bytequay.core.context.ContextLimits;
-import com.bytequay.core.context.ContextSourceEvidence;
-import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.google.common.collect.ImmutableList;
-import com.google.common.hash.Hashing;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -66,7 +64,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Spec checks: which specifications a topic's code implements, and checks that save candidate gaps and reproduce each with a test.
+ * Spec checks: which specifications a directory's code implements, and checks that save candidate gaps and reproduce each with a test.
  * The user starts a check and reads its report; the turns in between run without asking.
  */
 @Service
@@ -78,14 +76,11 @@ public class ContextSpecCheckService
     private static final List<String> NOT_RUN = ImmutableList.of("COMPILATION ERROR", "Compilation failure", "Compilation failed", "No tests were executed",
             "No tests matching", "No tests found");
     private static final int MAX_RECORDS = 4000;
-    private final ContextLearningPlanStore plans;
     private final WorkspaceRepositoryService workspaces;
     private final GitCommandRunner git;
     private final ContextSpecCheckStore checks;
     private final ContextBuildService builds;
     private final ContextBuildStore buildStore;
-    private final ContextLearningService learning;
-    private final RepositoryContextService notebooks;
     private final GitHubRepoClient github;
     private final CredentialService credentials;
     private final AgentTaskStore tasks;
@@ -93,18 +88,15 @@ public class ContextSpecCheckService
     private final WorktreeService worktrees;
     private final Clock clock;
 
-    public ContextSpecCheckService(ContextLearningPlanStore plans, WorkspaceRepositoryService workspaces, GitCommandRunner git, ContextSpecCheckStore checks,
-            ContextBuildService builds, ContextBuildStore buildStore, ContextLearningService learning, RepositoryContextService notebooks, GitHubRepoClient github,
-            CredentialService credentials, AgentTaskStore tasks, TaskLogStore logs, WorktreeService worktrees, Clock clock)
+    public ContextSpecCheckService(WorkspaceRepositoryService workspaces, GitCommandRunner git, ContextSpecCheckStore checks, ContextBuildService builds,
+            ContextBuildStore buildStore, GitHubRepoClient github, CredentialService credentials, AgentTaskStore tasks, TaskLogStore logs,
+            WorktreeService worktrees, Clock clock)
     {
-        this.plans = requireNonNull(plans, "plans is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.git = requireNonNull(git, "git is null");
         this.checks = requireNonNull(checks, "checks is null");
         this.builds = requireNonNull(builds, "builds is null");
         this.buildStore = requireNonNull(buildStore, "buildStore is null");
-        this.learning = requireNonNull(learning, "learning is null");
-        this.notebooks = requireNonNull(notebooks, "notebooks is null");
         this.github = requireNonNull(github, "github is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
@@ -113,18 +105,25 @@ public class ContextSpecCheckService
         this.clock = requireNonNull(clock, "clock is null");
     }
 
-    /** The documents the topic's code links at the plan's baseline, and its approved documentation. A local read only. */
-    public List<ContextSpecSource> sources(String workspaceId, String topicId)
+    /** The pages the directory's code links at the monitored branch head. A local read only. */
+    public List<ContextSpecSource> sources(String workspaceId, String directory)
     {
-        ContextLearningPlan plan = plans.find(workspaceId).orElseThrow(() -> new IllegalArgumentException("This repository has no learning plan"));
-        return sources(workspaceId, plan, plan.topic(topicId));
+        return sources(workspaceId, baseline(workspaceId), directory);
     }
 
-    private List<ContextSpecSource> sources(String workspaceId, ContextLearningPlan plan, ContextLearningPlan.Topic topic)
+    private List<ContextSpecSource> sources(String workspaceId, ContextBuildService.Baseline baseline, String directory)
     {
-        List<String> approved = plan.documentationSources().stream().filter(source -> topic.sourceIds().contains(source.id()))
-                .map(RegisteredContextSource::url).toList();
-        return ContextSpecSource.scan(git, workspaces.requireReadableRepository(workspaceId), plan.baselineSha(), topic.paths(), approved);
+        ContextLimits.pathPrefix(directory);
+        WorkspaceRepositoryContext workspace = workspaces.requireReadableRepository(workspaceId);
+        GitCommandRunner.Result tree = git.run(workspace.repository(), "rev-parse", "--verify", "--quiet",
+                baseline.sha() + ":" + directory.substring(0, directory.length() - 1) + "^{tree}");
+        checkArgument(tree.successful(), "%s is not a directory on %s at %s", directory, baseline.branch(), baseline.sha().substring(0, 12));
+        return ContextSpecSource.scan(git, workspace, baseline.sha(), directory);
+    }
+
+    private ContextBuildService.Baseline baseline(String workspaceId)
+    {
+        return builds.baseline(workspaceId).orElseThrow(() -> new IllegalArgumentException("The monitored branch is unavailable; refresh the repository"));
     }
 
     public List<ContextSpecCheck> checks(String workspaceId)
@@ -133,30 +132,23 @@ public class ContextSpecCheckService
     }
 
     /**
-     * Starts one check of a topic at the monitored branch head: a planning turn, then a reproduction turn per candidate. A topic's
-     * earlier findings are kept, and its covered and next sections tell the new check where to continue.
+     * Starts one check of a directory at the monitored branch head: a planning turn, then a reproduction turn per candidate. The
+     * directory's earlier findings are kept, and its covered and next sections tell the new check where to continue.
      */
     public Started start(String workspaceId, StartRequest request)
     {
-        ContextLearningPlan plan = plans.find(workspaceId).filter(value -> value.id().equals(request.planId()))
-                .orElseThrow(() -> new IllegalArgumentException("The learning plan changed; reload it"));
-        checkArgument(plan.batch().isEmpty(), "Learning is running; let it finish or stop it before checking against spec");
         checkArgument(checks.active(workspaceId).isEmpty(), "A spec check is already running");
-        ContextLearningPlan.Topic topic = plan.topic(request.topicId());
-        ContextBuildService.Baseline baseline = builds.baseline(workspaceId)
-                .orElseThrow(() -> new IllegalArgumentException("The monitored branch is unavailable; refresh the repository"));
-        List<ContextSpecSource> found = sources(workspaceId, plan, topic);
-        Optional<ContextSpecCheck> previous = checks.find(workspaceId).stream().filter(check -> check.topicId().equals(topic.id())).findFirst();
-        Optional<ContextSpecCheck> earlier = previous.filter(check -> check.planId().equals(plan.id()));
-        ContextSpecCheck check = checks.save(workspaceId, previous, new ContextSpecCheck(UUID.randomUUID().toString(), plan.id(), topic.id(), topic.title(),
-                topic.scopeId(), topic.paths(), baseline.sha(), request.requestKey(), request.specs(), ImmutableList.of(), labels(plan.repository()),
+        ContextBuildService.Baseline baseline = baseline(workspaceId);
+        List<ContextSpecSource> found = sources(workspaceId, baseline, request.directory());
+        Optional<ContextSpecCheck> earlier = checks.find(workspaceId).stream().filter(check -> check.directory().equals(request.directory())).findFirst();
+        ContextSpecCheck check = checks.save(workspaceId, earlier, new ContextSpecCheck(UUID.randomUUID().toString(), request.directory(), baseline.sha(),
+                request.requestKey(), request.specs(), ImmutableList.of(), labels(workspaces.requireReadableRepository(workspaceId).monitoredRepository()),
                 ContextSpecCheck.State.CHECKING,
                 earlier.map(ContextSpecCheck::kept).orElse(ImmutableList.of()), earlier.map(ContextSpecCheck::covered).orElse(ImmutableList.of()),
                 earlier.map(ContextSpecCheck::next).orElse(ImmutableList.of()), 0, Optional.empty(), Instant.now(clock), Optional.empty()));
         try {
-            ContextBuildService.View view = builds.check(workspaceId, new ContextBuildService.Request(request.requestKey(), request.expectedRevision(),
-                    request.expectedBuildSequence(), ImmutableList.of(check.scopeId()), ImmutableList.of()), check.baselineSha(),
-                    new ContextBuild.Check(check.id(), check.topicTitle(), Optional.empty(), planningBrief(check, earlier, found)));
+            ContextBuildService.View view = builds.check(workspaceId, new ContextBuildService.Request(request.requestKey(), request.expectedBuildSequence()),
+                    check.baselineSha(), new ContextBuild.Check(check.id(), check.directory(), Optional.empty(), planningBrief(check, earlier, found)));
             return new Started(checks.find(workspaceId, check.id()).orElseThrow(), view);
         }
         catch (RuntimeException failure) {
@@ -191,27 +183,27 @@ public class ContextSpecCheckService
             return;
         }
         ContextSpecCheck check = active.orElseThrow();
-        Optional<ContextBuild> build = buildStore.find(workspaceId).filter(value -> value.check().filter(bound -> bound.checkId().equals(check.id())).isPresent());
+        Optional<ContextBuild> build = buildStore.find(workspaceId).filter(value -> value.check().checkId().equals(check.id()));
         if (build.isEmpty()) {
-            end(workspaceId, check, ContextSpecCheck.State.FAILED, Optional.of("Another learning request replaced the check's task"));
+            end(workspaceId, check, ContextSpecCheck.State.FAILED, Optional.of("Another check replaced this check's task"));
             return;
         }
         ContextBuildService.View view = builds.get(workspaceId);
-        Optional<ContextRun> run = view.runs().stream().filter(value -> value.sequence() == build.orElseThrow().sequence()).findFirst();
-        if (run.isEmpty() || run.orElseThrow().outcome() == ContextRun.Outcome.RUNNING) {
+        Optional<ContextBuildService.BuildView> run = view.build().filter(value -> value.requestKey().equals(build.orElseThrow().requestKey()));
+        if (run.isEmpty() || run.orElseThrow().outcome() == ContextBuildService.Outcome.RUNNING) {
             return;
         }
         ContextSpecCheck current = checks.find(workspaceId, check.id()).orElseThrow();
         if (!current.state().active()) {
             return;
         }
-        ContextRun ended = run.orElseThrow();
-        if (ended.outcome() == ContextRun.Outcome.STOPPED) {
+        ContextBuildService.BuildView ended = run.orElseThrow();
+        if (ended.outcome() == ContextBuildService.Outcome.STOPPED) {
             end(workspaceId, current, ContextSpecCheck.State.STOPPED, Optional.of("Stopped"));
             return;
         }
-        Optional<ContextBuild.Reproduction> reproduced = build.orElseThrow().check().orElseThrow().reproduction();
-        if (reproduced.isEmpty() && ended.outcome() != ContextRun.Outcome.SUBMITTED) {
+        Optional<ContextBuild.Reproduction> reproduced = build.orElseThrow().check().reproduction();
+        if (reproduced.isEmpty() && ended.outcome() != ContextBuildService.Outcome.SAVED) {
             end(workspaceId, current, ContextSpecCheck.State.FAILED, Optional.of(ContextText.excerpt("The check turn ended without saving candidates"
                     + ended.detail().map(detail -> ": " + detail).orElse("."), 1000)));
             return;
@@ -227,7 +219,7 @@ public class ContextSpecCheckService
             end(workspaceId, current, ContextSpecCheck.State.DONE, Optional.empty());
             return;
         }
-        Optional<ContextBuildService.TaskView> task = view.build().flatMap(ContextBuildService.BuildView::task);
+        Optional<ContextBuildService.TaskView> task = ended.task();
         boolean kept = task.filter(value -> value.state().equals("OPEN") && value.mutationClaim().isEmpty()).isPresent();
         if (!kept && !view.canStart()) {
             // An ended task whose worktree could not be removed holds the workspace until the user cleans it up.
@@ -238,9 +230,8 @@ public class ContextSpecCheckService
         }
         ContextSpecCheck reproducing = checks.save(workspaceId, Optional.of(current), current.reproducing(next.orElseThrow()));
         try {
-            builds.check(workspaceId, new ContextBuildService.Request(reproducing.requestKey() + ":" + reproducing.reproductions(),
-                    notebooks.getNotebook(workspaceId).revision(), view.buildRequestSequence(), ImmutableList.of(reproducing.scopeId()), ImmutableList.of()),
-                    reproducing.baselineSha(), new ContextBuild.Check(reproducing.id(), reproducing.topicTitle(),
+            builds.check(workspaceId, new ContextBuildService.Request(reproducing.requestKey() + ":" + reproducing.reproductions(), view.buildRequestSequence()),
+                    reproducing.baselineSha(), new ContextBuild.Check(reproducing.id(), reproducing.directory(),
                             Optional.of(new ContextBuild.Reproduction(next.orElseThrow().id(), next.orElseThrow().title())),
                             reproductionBrief(reproducing, next.orElseThrow())));
         }
@@ -254,6 +245,16 @@ public class ContextSpecCheckService
     private void end(String workspaceId, ContextSpecCheck check, ContextSpecCheck.State state, Optional<String> why)
     {
         checks.save(workspaceId, Optional.of(check), check.ended(state, why, Instant.now(clock)));
+    }
+
+    /** Idempotent local deletion after the caller's verified workspace cleanup; shares the mutation lock so no check is recreated. */
+    public void deleteWorkspaceData(String workspaceId)
+    {
+        WorkspaceOperationLocks.withLock(workspaceId, () -> {
+            checks.delete(workspaceId);
+            buildStore.delete(workspaceId);
+            return null;
+        });
     }
 
     /** Hides a finding from the report and records why; nothing is sent to GitHub. */
@@ -290,7 +291,7 @@ public class ContextSpecCheckService
      * reproduced, a closed one is reproduced.
      */
     public Saved saveCandidates(ContextBuild build, List<Found> found, Optional<List<String>> checked, List<String> covered, List<String> next,
-            List<Question> questions, IntFunction<Optional<Duplicate>> searched)
+            IntFunction<Optional<Duplicate>> searched)
     {
         ContextSpecCheck check = requireCheck(build, false);
         checked.ifPresent(specs -> specs.forEach(spec -> checkArgument(check.specs().contains(spec) || build.capture().attempts().containsKey("page:" + spec),
@@ -309,9 +310,8 @@ public class ContextSpecCheckService
             checkArgument(check.specs().contains(address) || build.capture().attempts().containsKey("page:" + address),
                     "specUrl: %s is not a spec of this check or a page read in this turn", address);
             value.code().forEach(location -> location(location));
-            checkArgument(check.paths().isEmpty() || value.code().stream().map(location -> location(location).path()).anyMatch(path ->
-                            check.paths().stream().anyMatch(path::startsWith)),
-                    "code: cite at least one location in the topic's paths %s; gaps in other code go to questions", check.paths());
+            checkArgument(value.code().stream().map(location -> location(location).path()).anyMatch(path -> path.startsWith(check.directory())),
+                    "code: cite at least one location in %s", check.directory());
             Optional<Duplicate> duplicate = value.duplicate().map(issue -> searched.apply(issue)
                     .orElseThrow(() -> new IllegalArgumentException("duplicate: #" + issue + " was not returned by this turn's report search")));
             number++;
@@ -324,18 +324,8 @@ public class ContextSpecCheckService
                 ContextSpecCheck.MAX_CANDIDATES);
         ContextSpecCheck updated = checks.save(build.workspaceId(), Optional.of(check), check.withCandidates(candidates, checked.orElse(check.checkedAgainst()),
                 covered.isEmpty() ? check.covered() : covered, next.isEmpty() ? check.next() : next));
-        List<String> asked = questions.stream().map(question -> {
-            try {
-                ContextLearningService.Asked answer = learning.ask(build.workspaceId(), new ContextLearningService.Ask(question.question(), question.paths(),
-                        Optional.empty(), ContextLearningPlan.Origin.TASK));
-                return answer.status() + ": " + question.question();
-            }
-            catch (RuntimeException failure) {
-                return "NOT_ADDED: " + question.question() + " (" + message(failure) + ")";
-            }
-        }).toList();
         return new Saved(saved, skipped, (int) updated.candidates().stream().filter(candidate -> candidate.status() == Status.PENDING).count(),
-                (int) updated.candidates().stream().filter(candidate -> candidate.status() == Status.ALREADY_REPORTED).count(), asked);
+                (int) updated.candidates().stream().filter(candidate -> candidate.status() == Status.ALREADY_REPORTED).count());
     }
 
     /**
@@ -345,13 +335,12 @@ public class ContextSpecCheckService
     public Candidate saveResult(ContextBuild build, TurnId turn, Result result)
     {
         ContextSpecCheck check = requireCheck(build, true);
-        Candidate candidate = check.candidate(build.check().orElseThrow().reproduction().orElseThrow().candidateId());
+        Candidate candidate = check.candidate(build.check().reproduction().orElseThrow().candidateId());
         checkArgument(candidate.status() == Status.REPRODUCING, "This candidate already has its result");
         checkArgument(result.outcome() == Status.CONFIRMED || result.outcome() == Status.REFUTED || result.outcome() == Status.NOT_REPRODUCED,
                 "outcome: use CONFIRMED, REFUTED or NOT_REPRODUCED");
         checkArgument(result.outcome() == Status.NOT_REPRODUCED || result.testPath().isPresent() && result.command().isPresent(),
                 "A confirmed or refuted result passes testPath and the command that ran the test");
-        checkArgument(result.outcome() == Status.REFUTED || result.note().isEmpty(), "Only a refuted candidate saves a note");
         Optional<ContextSpecCheck.Test> test = result.command().map(command -> test(build, turn, result.testPath()
                 .orElseThrow(() -> new IllegalArgumentException("testPath: name the test the command ran")), command));
         test.ifPresent(ran -> {
@@ -374,20 +363,9 @@ public class ContextSpecCheckService
             draft = Optional.of(new Draft(result.title().orElse(candidate.title()), body(build.repository(), check, candidate, test.orElseThrow(),
                     result.summary().orElseThrow(), result.impact().orElseThrow(), result.proposal().orElseThrow()), result.labels()));
         }
-        result.note().ifPresent(note -> saveNote(build, turn, check, candidate, note));
         Candidate settled = candidate.withResult(result.outcome(), test, Optional.of(result.reason()), draft);
         checks.save(build.workspaceId(), Optional.of(check), check.withCandidate(settled));
         return settled;
-    }
-
-    /** The refuted rule as a note: the code follows the spec here, citing the lines that show it. */
-    private void saveNote(ContextBuild build, TurnId turn, ContextSpecCheck check, Candidate candidate, Note note)
-    {
-        String operation = "task:" + digest(build.taskId() + "\n" + turn + "\n" + candidate.id()).substring(0, 32) + ":"
-                + digest(check.id() + "\n" + candidate.id()).substring(0, 32);
-        notebooks.saveTaskNote(build.workspaceId(), notebooks.getNotebook(build.workspaceId()).revision(), new RepositoryContextService.TaskNote(operation,
-                build.taskId(), ContextEntryKind.KNOWLEDGE, check.scopeId(), Optional.empty(), Optional.empty(), note.title(), note.summary(), note.body(),
-                build.baselineSha(), note.evidence()));
     }
 
     /** The command this turn ran, as the provider recorded it, and the test file it ran from the task's worktree. */
@@ -513,7 +491,7 @@ public class ContextSpecCheckService
     /** The check a turn works for, which must still be running; a planning turn reproduces nothing and a reproduction turn plans nothing. */
     private ContextSpecCheck requireCheck(ContextBuild build, boolean reproduction)
     {
-        ContextBuild.Check bound = build.check().orElseThrow(() -> new IllegalArgumentException("This turn does not check a spec"));
+        ContextBuild.Check bound = build.check();
         checkArgument(bound.reproduction().isPresent() == reproduction, reproduction ? "This turn plans the check; it reproduces nothing"
                 : "This turn reproduces one candidate; it saves no candidates or searches");
         ContextSpecCheck check = checks.find(build.workspaceId(), bound.checkId()).orElseThrow(() -> new IllegalArgumentException("The spec check was removed"));
@@ -522,17 +500,16 @@ public class ContextSpecCheckService
     }
 
     /**
-     * What a planning turn starts from: the pages to find the specs among, the reference code, the topic's paths, and where an earlier
+     * What a planning turn starts from: the pages to find the specs among, the reference code, the directory, and where an earlier
      * check stopped, which specs it used and what it kept.
      */
     static String planningBrief(ContextSpecCheck check, Optional<ContextSpecCheck> earlier, List<ContextSpecSource> found)
     {
-        StringBuilder brief = new StringBuilder("Pages the topic's code links, most cited first; decide which are specifications the code implements:\n");
+        StringBuilder brief = new StringBuilder("Pages the directory's code links, most cited first; decide which are specifications the code implements:\n");
         StringBuilder reference = new StringBuilder();
         for (String spec : check.specs()) {
             Optional<ContextSpecSource> scanned = found.stream().filter(source -> source.url().equals(spec)).findFirst();
             String line = "- " + spec + scanned.map(source -> (source.links() > 0 ? " · cited " + source.links() + (source.links() == 1 ? " time" : " times") : "")
-                    + (source.approved() ? " · approved documentation of the topic" : "")
                     + (source.sections().isEmpty() ? "" : " · sections the code links: #" + String.join(", #", source.sections()))).orElse(" · added by the user") + "\n";
             if (scanned.filter(source -> source.kind() == ContextSpecSource.Kind.REFERENCE_CODE).isPresent()) {
                 reference.append(line);
@@ -546,7 +523,7 @@ public class ContextSpecCheckService
         }
         earlier.filter(value -> !value.checkedAgainst().isEmpty())
                 .ifPresent(value -> brief.append("The last check used these as specifications: ").append(String.join(", ", value.checkedAgainst())).append('\n'));
-        brief.append("Topic paths: ").append(check.paths().isEmpty() ? "the whole repository" : String.join(", ", check.paths())).append('\n');
+        brief.append("Directory: ").append(check.directory()).append('\n');
         if (!check.covered().isEmpty()) {
             brief.append("An earlier check covered: ").append(String.join("; ", check.covered())).append('\n');
         }
@@ -576,24 +553,18 @@ public class ContextSpecCheckService
         return ContextText.excerpt(brief, ContextBuild.Check.MAX_BRIEF_BYTES);
     }
 
-    private static String digest(String value)
-    {
-        return Hashing.sha256().hashString(value, UTF_8).toString();
-    }
-
     private static String message(RuntimeException failure)
     {
         return Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
     }
 
-    public record StartRequest(String requestKey, long expectedRevision, long expectedBuildSequence, String planId, String topicId, List<String> specs)
+    public record StartRequest(String requestKey, long expectedBuildSequence, String directory, List<String> specs)
     {
         public StartRequest
         {
             ContextLimits.text(requestKey, "requestKey", 90);
-            checkArgument(expectedRevision >= 0 && expectedBuildSequence >= 0, "Revisions must not be negative");
-            ContextLimits.text(planId, "planId", 200);
-            ContextLimits.text(topicId, "topicId", 200);
+            checkArgument(expectedBuildSequence >= 0, "Revisions must not be negative");
+            ContextLimits.pathPrefix(directory);
             specs = ImmutableList.copyOf(specs);
             checkArgument(!specs.isEmpty(), "Select at least one spec");
             ContextLimits.unique(specs, "specs", ContextSpecCheck.MAX_SPECS);
@@ -610,14 +581,8 @@ public class ContextSpecCheckService
     public record Found(ContextSpecCheck.Predicted predicted, String title, String rule, String specUrl, List<String> code, String reasoning, int severity,
             Optional<Integer> duplicate) {}
 
-    /** A rule the topic's code cannot settle, filed as a plan question. */
-    public record Question(String question, List<String> paths) {}
-
-    public record Saved(List<String> saved, List<String> skipped, int pending, int alreadyReported, List<String> questions) {}
+    public record Saved(List<String> saved, List<String> skipped, int pending, int alreadyReported) {}
 
     public record Result(Status outcome, String reason, Optional<String> testPath, Optional<String> command, Optional<String> title, Optional<String> summary,
-            Optional<String> impact, Optional<String> proposal, List<String> labels, Optional<Note> note) {}
-
-    /** A refuted rule's note, with the FILE reads that show the code follows it. */
-    public record Note(String title, String summary, String body, List<ContextSourceEvidence> evidence) {}
+            Optional<String> impact, Optional<String> proposal, List<String> labels) {}
 }

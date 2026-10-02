@@ -1566,24 +1566,9 @@ complete.
 - Raw chain-of-thought, raw provider protocol inspection, or a second event
   store in the renderer.
 
-## Repository context in review activity
+## Spec check activity
 
-The existing Review details disclosure shows the selected run's prepared text,
-source/version and selection facts, retained exact note/source reads, completed
-briefs and per-turn delivery receipts. Private questions retain their original
-run and show a separate local discussion capture for the executing turn. A new
-comment capture never rewrites the review head or notebook. Reconnect uses the
-saved run projection; missing provider receipts remain uncertain.
-
-Folded preparation entries use durable BEGIN/SUBMIT outcomes and bounded
-JOINED/DEFERRED observations, with actual elapsed time when recorded. Prepared,
-provided, retrieved and cited are separate facts. Source links lead to saved
-validation conclusions (including rejected hypotheses) and available current
-findings. Byte/read counts are retained-data measurements; unavailable token or
-provider-cache attribution is labeled unavailable. None implies comprehension
-or an improved review judgment.
-
-The workspace's Repository context page owns the explicit learning controls.
-Learning items open read-only activity with Stop and the existing recovery
-controls; they offer no interactive task route or steering. Opening settings,
-synchronizing comments or restoring the app cannot launch learning.
+The workspace's Spec checks page owns the spec check controls. A running check
+shows its latest activity lines, Stop and the existing recovery controls; its
+task offers no interactive route or steering. Opening the page, synchronizing
+comments or restoring the app never starts a check.

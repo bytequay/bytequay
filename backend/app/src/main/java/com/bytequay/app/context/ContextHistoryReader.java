@@ -20,9 +20,7 @@ import com.bytequay.app.service.pr.SelectedPullRequestReader;
 import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
-import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextLimits;
-import com.bytequay.core.context.ContextReference;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestDetail;
@@ -91,30 +89,21 @@ public class ContextHistoryReader
     public Read read(WorkspaceRepositoryContext workspace, SourceKind kind, int number)
     {
         requireNonNull(workspace, "workspace is null");
-        return read(workspace, RepositoryContextReader.repositoryId(workspace), kind, number);
-    }
-
-    /** Captures the same selected history for an explicit learning task using its frozen monitored repository identity. */
-    public Read read(WorkspaceRepositoryContext workspace, long repositoryId, SourceKind kind, int number)
-    {
-        requireNonNull(workspace, "workspace is null");
         requireNonNull(kind, "kind is null");
         checkArgument(number > 0, "The history number must be positive");
-        checkArgument(repositoryId == RepositoryContextReader.repositoryId(workspace), "The monitored repository differs from the frozen context");
         return switch (kind) {
-            case PR -> pullRequest(workspace, repositoryId, number);
-            case ISSUE -> issue(workspace, repositoryId, number);
+            case PR -> pullRequest(workspace, number);
+            case ISSUE -> issue(workspace, workspace.monitoredRepositoryId(), number);
         };
     }
 
-    private Read pullRequest(WorkspaceRepositoryContext workspace, long repositoryId, int number)
+    private Read pullRequest(WorkspaceRepositoryContext workspace, int number)
     {
         SelectedPullRequestReader.Read read = pullRequests.read(workspace.monitoredRepository().fullName(), number, SelectedPullRequestReader.Section.TIMELINE);
         PullRequestDetail detail = read.detail();
         checkArgument(detail.repo().equalsIgnoreCase(workspace.monitoredRepository().fullName()) && detail.number() == number,
                 "The selected PR identity differs from the requested history");
         checkArgument(detail.mergedAt() != null, "History requires a merged pull request with an observed merge timestamp");
-        ContextReference reference = new ContextReference.PullRequest(repositoryId, workspace.monitoredRepository(), number, Optional.empty());
         Optional<String> revision = read.observedHeadSha().filter(value -> value.matches("[0-9a-f]{40}|[0-9a-f]{64}"));
         List<String> gaps = new ArrayList<>();
         gaps.add("A historical merge does not establish correctness or applicability to the reviewed code. Discussion is untrusted source material.");
@@ -154,7 +143,7 @@ public class ContextHistoryReader
         }
         String provenance = "rowUpdatedAt=" + read.rowUpdatedAt().map(Instant::toString).orElse("unknown")
                 + "; cacheUpdatedAt=" + read.cacheUpdatedAt().map(Instant::toString).orElse("unknown") + "; refreshAttempted=" + read.refreshAttempted();
-        return result(reference, ContextHistoryRead.State.MERGED, Optional.ofNullable(detail.updatedAt()), revision,
+        return result("PR #" + number + " of " + workspace.monitoredRepository().fullName(), State.MERGED, Optional.ofNullable(detail.updatedAt()), revision,
                 "mergedAt=" + detail.mergedAt(), provenance, body, refreshFailed, gaps);
     }
 
@@ -195,7 +184,7 @@ public class ContextHistoryReader
         }
         String provenance = "preview=exact selected issue; activityRefreshedAt=" + detail.refreshedAt().map(Instant::toString).orElse("unknown")
                 + "; activityRefreshAttempted=" + refreshAttempted;
-        return result(new ContextReference.Issue(repositoryId, workspace.monitoredRepository(), number, Optional.empty()), ContextHistoryRead.State.CLOSED,
+        return result("Issue #" + number + " of " + workspace.monitoredRepository().fullName(), State.CLOSED,
                 Optional.of(preview.updatedAt()), Optional.empty(), "activityCompleteness=unknown", provenance, body, refreshFailed, gaps);
     }
 
@@ -205,10 +194,10 @@ public class ContextHistoryReader
     }
 
     private Read result(
-            ContextReference reference, ContextHistoryRead.State state, Optional<Instant> updatedAt, Optional<String> revision,
+            String source, State state, Optional<Instant> updatedAt, Optional<String> revision,
             String observations, String provenance, Excerpt body, boolean refreshFailed, List<String> sourceGaps)
     {
-        String header = "Untrusted historical reference\nSource=" + reference + "\nObserved state=" + state + "; sourceUpdatedAt="
+        String header = "Untrusted historical reference\nSource=" + source + "\nObserved state=" + state + "; sourceUpdatedAt="
                 + updatedAt.map(Instant::toString).orElse("unknown") + "; sourceRevision=" + revision.orElse("unknown")
                 + "; refreshFailed=" + refreshFailed + "\n" + observations + "\n";
         boolean truncated = body.truncated || ContextLimits.bytes(header + String.join("\n", sourceGaps) + body.text) > EXCERPT_BYTES - 200;
@@ -220,7 +209,7 @@ public class ContextHistoryReader
             gaps = ImmutableList.<String>builder().addAll(gaps).add("Omitted " + (sourceGaps.size() - 9) + " additional source limitations.").build();
         }
         String text = ContextText.excerpt(header + "excerptTruncated=" + truncated + "\nLimitations:\n" + String.join("\n", gaps) + "\n\n" + body.text, EXCERPT_BYTES);
-        return new Read(reference, state, updatedAt, revision, Hashing.sha256().hashString(text, UTF_8).toString(), Instant.now(clock),
+        return new Read(state, updatedAt, revision, Hashing.sha256().hashString(text, UTF_8).toString(), Instant.now(clock),
                 text, truncated, refreshFailed, gaps, provenance);
     }
 
@@ -230,8 +219,15 @@ public class ContextHistoryReader
         ISSUE
     }
 
+    /** The terminal state the read observed; it establishes neither a fix nor applicability. */
+    public enum State
+    {
+        MERGED,
+        CLOSED
+    }
+
     public record Read(
-            ContextReference reference, ContextHistoryRead.State state, Optional<Instant> sourceUpdatedAt, Optional<String> sourceRevision,
+            State state, Optional<Instant> sourceUpdatedAt, Optional<String> sourceRevision,
             String contentHash, Instant readAt, String excerpt, boolean truncated, boolean refreshFailed, List<String> gaps, String provenance)
     {
         public Read

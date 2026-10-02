@@ -280,9 +280,7 @@ function ToolRows({ member }: { member: ToolMember }): React.JSX.Element {
   // A ByteQuay tool says what the call read or saved; the tool's name stays on hover.
   const label = member.description ?? toolLabel(member.name);
   const title = member.description === null ? undefined : toolLabel(member.name);
-  const raw = member.summary === member.name || member.summary === toolLabel(member.name) ? '' : member.summary;
-  // A context receipt is bookkeeping for usage, not something to read.
-  const summary = member.description !== null && raw.startsWith('context-receipt:') ? '' : raw;
+  const summary = member.summary === member.name || member.summary === toolLabel(member.name) ? '' : member.summary;
   if (summary.length <= 80 && !summary.includes('\n')) {
     return (
       <div className="agt-act__row">

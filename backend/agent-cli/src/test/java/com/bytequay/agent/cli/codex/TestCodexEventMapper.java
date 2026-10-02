@@ -419,29 +419,6 @@ class TestCodexEventMapper
     }
 
     @Test
-    void completedByteQuayContextToolCarriesOnlyItsSavedReceipt()
-            throws Exception
-    {
-        String ref = "context-search:" + "a".repeat(64);
-        String content = new ObjectMapper().writeValueAsString(java.util.Map.of("content", List.of(
-                java.util.Map.of("type", "text", "text", "{\"searchRef\":\"" + ref + "\",\"hits\":[],\"activityLine\":\"Searched notes for “checkpoint” · no match\"}"))));
-        String notification = """
-                {"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"mcp-context",
-                "server":"bytequay","tool":"review_get_context","status":"completed","result":%s},
-                "threadId":"thread-1","turnId":"turn-1"}}
-                """.formatted(content);
-        ProviderAgentEvent.Tool completed = only(notification, ProviderAgentEvent.Tool.class);
-        assertThat(completed.name()).isEqualTo("bytequay/review_get_context");
-        assertThat(completed.summary()).isEqualTo("context-receipt:" + ref);
-        assertThat(completed.description()).contains("Searched notes for “checkpoint” · no match");
-        assertThat(completed.state()).isEqualTo(ProviderAgentEvent.ActivityState.COMPLETED);
-
-        // Only ByteQuay's own tools name what a call did; another server's result cannot relabel its row.
-        ProviderAgentEvent.Tool other = only(notification.replace("\"server\":\"bytequay\"", "\"server\":\"docs\""), ProviderAgentEvent.Tool.class);
-        assertThat(other.description()).isEmpty();
-    }
-
-    @Test
     void mapsCompletedFileChangesInsideTheWorktree()
     {
         CodexEventMapper worktreeMapper = new CodexEventMapper(

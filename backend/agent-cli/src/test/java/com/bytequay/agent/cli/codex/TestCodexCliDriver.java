@@ -2977,10 +2977,10 @@ class TestCodexCliDriver
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.156.1", false);
         supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
         supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
-        List<String> names = ImmutableList.of("repository_context_read", "repository_context_prepare");
+        List<String> names = ImmutableList.of("repository_context_read", "repository_context_spec_search");
         ReviewBridge review = new ReviewBridge(names.stream()
                 .map(name -> new ReviewTool(name, "Fixed task tool", ImmutableMap.of("type", "object"), arguments -> "captured"))
-                .collect(ImmutableList.toImmutableList()), "Learn the frozen repository");
+                .collect(ImmutableList.toImmutableList()), "Check the selected specs");
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review));
         CodexHome.prepare(codexHome());
@@ -2992,7 +2992,7 @@ class TestCodexCliDriver
                 List<String> arguments = supervisor.serverArgv().getLast();
                 assertThat(arguments).filteredOn(argument -> argument.startsWith("mcp_servers.bytequay.tools="))
                         .containsExactly("mcp_servers.bytequay.tools={"
-                                + "\"repository_context_read\"={approval_mode=\"approve\"},\"repository_context_prepare\"={approval_mode=\"approve\"}}");
+                                + "\"repository_context_read\"={approval_mode=\"approve\"},\"repository_context_spec_search\"={approval_mode=\"approve\"}}");
                 assertThat(arguments).contains("mcp_servers.bytequay.default_tools_approval_mode=\"approve\"");
                 assertThat(arguments).contains("approval_policy=\"on-request\"");
                 String token = supervisor.environments().getLast().get("BYTEQUAY_CODEGRAPH_TOKEN");

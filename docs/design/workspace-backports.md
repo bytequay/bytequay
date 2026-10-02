@@ -71,7 +71,7 @@ P3 must not silently turn P3 into P2's development base or PR target.
 Related contracts: [workspaces](watched-repo.md),
 [agent service](agent-service.md), [development delivery](development-delivery.md),
 [cherry-pick](cherry-pick-range.md), [CI Autofix](ci-autofix-service.md),
-[rebase](rebase-service.md), and [repository context](repository-context-refactor.md).
+[rebase](rebase-service.md), and [repository memory](repository-memory.md).
 
 ## 3. Workspace references
 

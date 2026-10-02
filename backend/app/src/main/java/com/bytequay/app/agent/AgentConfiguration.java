@@ -63,7 +63,6 @@ import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.PullRequestCiBridge;
-import com.bytequay.agent.spi.RepositoryContextBridge;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.app.agent.codegraph.CodeGraphBaseline;
 import com.bytequay.app.agent.codegraph.CodeGraphCli;
@@ -74,8 +73,6 @@ import com.bytequay.app.ci.CiMemoryService;
 import com.bytequay.app.ci.DevelopmentCiOwnership;
 import com.bytequay.app.ci.GitHubActionsClient;
 import com.bytequay.app.ci.ReadCiMemoryCommand;
-import com.bytequay.app.context.ContextMergedCandidateService;
-import com.bytequay.app.context.DevelopmentContextTools;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
@@ -149,7 +146,6 @@ public class AgentConfiguration
             BridgeResolver<LocalReviewBridge> localReviews,
             BridgeResolver<PullRequestCiBridge> pullRequestChecks,
             BridgeResolver<IssueContextBridge> issueContexts,
-            BridgeResolver<RepositoryContextBridge> repositoryContext,
             ObjectProvider<DevelopmentFollowupCoordinator> developmentFollowups)
     {
         return new PermissionBroker(
@@ -163,8 +159,7 @@ public class AgentConfiguration
                 (taskId, title, body) -> developmentFollowups.getObject().publishDraftPullRequest(taskId, title, body),
                 localReviews,
                 pullRequestChecks,
-                issueContexts,
-                repositoryContext);
+                issueContexts);
     }
 
     @Bean(destroyMethod = "close")
@@ -362,7 +357,6 @@ public class AgentConfiguration
             AgentRuntimeRegistry runtimeRegistry,
             CodeGraphService codeGraph,
             AgentSkillService skills,
-            DevelopmentContextTools developmentContext,
             RepositoryGuidelineReader guidelineReader,
             Clock agentClock,
             AgentProperties properties,
@@ -398,13 +392,7 @@ public class AgentConfiguration
                     @Override
                     public String prepare(AgentTask task, AgentTurn turn, String message)
                     {
-                        return developmentContext.prepare(task, turn, message);
-                    }
-
-                    @Override
-                    public void delivered(AgentTask task, AgentTurn turn)
-                    {
-                        developmentContext.delivered(task, turn);
+                        return message;
                     }
 
                     @Override
@@ -427,7 +415,7 @@ public class AgentConfiguration
     @Bean
     public DevelopmentFollowupCoordinator developmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git,
             CiAutofixService ci, GitHubActionsClient actions, CredentialService credentials, GitHubPullRequestReadClient pullRequests,
-            GitHubPullRequestWriteClient writes, Clock agentClock, ObjectProvider<ContextMergedCandidateService> candidates)
+            GitHubPullRequestWriteClient writes, Clock agentClock)
     {
         return new DevelopmentFollowupCoordinator(turns, turnStore, git,
                 command -> Thread.ofVirtual().name("bytequay-development-followup").start(command), ci, actions, credentials, pullRequests, writes, agentClock, () -> {
@@ -438,7 +426,7 @@ public class AgentConfiguration
                         Thread.currentThread().interrupt();
                         throw new IllegalStateException("Development CI monitoring was stopped", interrupted);
                     }
-                }, (task, pr) -> candidates.getObject().recordPublished(task, pr));
+                });
     }
 
     @Bean

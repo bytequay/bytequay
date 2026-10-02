@@ -34,7 +34,6 @@ import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.PullRequestCiBridge;
-import com.bytequay.agent.spi.RepositoryContextBridge;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.SessionAccess;
@@ -130,7 +129,6 @@ public final class PermissionBroker
     private final BridgeResolver<LocalReviewBridge> localReviews;
     private final BridgeResolver<PullRequestCiBridge> pullRequestChecks;
     private final BridgeResolver<IssueContextBridge> issueContexts;
-    private final BridgeResolver<RepositoryContextBridge> repositoryContext;
     private final Map<String, PermissionContext> contexts = new ConcurrentHashMap<>();
 
     public PermissionBroker(
@@ -193,8 +191,7 @@ public final class PermissionBroker
             BridgeResolver<LocalReviewBridge> localReviews,
             BridgeResolver<PullRequestCiBridge> pullRequestChecks)
     {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks,
-                BridgeResolver.none(), BridgeResolver.none());
+        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks, BridgeResolver.none());
     }
 
     public PermissionBroker(
@@ -208,22 +205,6 @@ public final class PermissionBroker
             BridgeResolver<PullRequestCiBridge> pullRequestChecks,
             BridgeResolver<IssueContextBridge> issueContexts)
     {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks,
-                issueContexts, BridgeResolver.none());
-    }
-
-    public PermissionBroker(
-            Supplier<URI> endpoint,
-            ObjectMapper objectMapper,
-            CiMemoryReader ciMemoryReader,
-            BridgeResolver<ReviewBridge> reviews,
-            BridgeResolver<DevelopmentResultBridge> developments,
-            DraftPullRequestPublisher draftPullRequests,
-            BridgeResolver<LocalReviewBridge> localReviews,
-            BridgeResolver<PullRequestCiBridge> pullRequestChecks,
-            BridgeResolver<IssueContextBridge> issueContexts,
-            BridgeResolver<RepositoryContextBridge> repositoryContext)
-    {
         this.endpoint = requireNonNull(endpoint, "endpoint is null");
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null")
                 .copy()
@@ -236,7 +217,6 @@ public final class PermissionBroker
         this.localReviews = requireNonNull(localReviews, "localReviews is null");
         this.pullRequestChecks = requireNonNull(pullRequestChecks, "pullRequestChecks is null");
         this.issueContexts = requireNonNull(issueContexts, "issueContexts is null");
-        this.repositoryContext = requireNonNull(repositoryContext, "repositoryContext is null");
     }
 
     McpRegistration register(
@@ -457,7 +437,6 @@ public final class PermissionBroker
         Optional<PullRequestCiBridge> pullRequestCi = !restricted && (permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX || scope.githubCommands())
                 ? pullRequestChecks.resolve(taskId) : Optional.empty();
         Optional<IssueContextBridge> issueContext = restricted ? Optional.empty() : issueContexts.resolve(taskId);
-        Optional<RepositoryContextBridge> notebook = restricted || review.isPresent() ? Optional.empty() : repositoryContext.resolve(taskId);
         // Claude's attended review gate uses this flag. Codex registers no permission tools and
         // gates its children through its own launch-time PreToolUse hook.
         boolean reviewChildren = permissionTools && scope.reviewReads();
@@ -465,7 +444,7 @@ public final class PermissionBroker
                 .map(home -> ImmutableMap.of("HOME", home)).orElse(ImmutableMap.of());
         return new PermissionContext(
                 taskId, worktree, scope, fileWriteEnvironment, approvals, redactor, permissionTools,
-                codeGraph, review, development, localReview, pullRequestCi, issueContext, notebook,
+                codeGraph, review, development, localReview, pullRequestCi, issueContext,
                 reviewChildren, new AtomicReference<>());
     }
 
@@ -478,8 +457,7 @@ public final class PermissionBroker
                         context.development().map(DevelopmentResultBridge::instruction),
                         context.localReview().map(LocalReviewBridge::instruction),
                         context.pullRequestCi().map(PullRequestCiBridge::instruction),
-                        context.issueContext().map(IssueContextBridge::instruction),
-                        context.notebook().map(RepositoryContextBridge::instruction))
+                        context.issueContext().map(IssueContextBridge::instruction))
                 .flatMap(Optional::stream)
                 .collect(Collectors.joining("\n\n"));
         return joined.isBlank() ? Optional.empty() : Optional.of(joined);
@@ -532,7 +510,6 @@ public final class PermissionBroker
             case "read_ci_memory" -> readCiMemory(request.id(), params.arguments(), context);
             case CodeGraphBridge.TOOL_NAME -> codeGraphExplore(request.id(), params.arguments(), context);
             case IssueContextBridge.TOOL_NAME -> readIssueContext(request.id(), params.arguments(), context);
-            case RepositoryContextBridge.TOOL_NAME -> repositoryContext(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.TOOL_NAME -> developmentResult(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.PUBLISH_TOOL_NAME -> createDraftPullRequest(request.id(), params.arguments(), context);
             case CiDescriptionProposal.TOOL_NAME -> proposeCiDescription(request.id(), params.arguments(), context);
@@ -824,24 +801,6 @@ public final class PermissionBroker
         return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(text))), failed));
     }
 
-    private McpHttpResponse repositoryContext(JsonNode id, JsonNode arguments, PermissionContext context)
-            throws JsonProcessingException
-    {
-        if (context.notebook().isEmpty()) {
-            return error(id, -32602, "Unknown tool");
-        }
-        try {
-            RepositoryContextBridge bridge = repositoryContext.resolve(context.taskId())
-                    .orElseThrow(() -> new IllegalStateException("Repository context is unavailable for this turn"));
-            String result = bridge.lookup().apply(objectMapper.writeValueAsString(arguments));
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(result))), false));
-        }
-        catch (RuntimeException failure) {
-            String detail = Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact("Context lookup failed: " + detail))), true));
-        }
-    }
-
     private McpHttpResponse permission(JsonNode id, JsonNode input, PermissionContext context)
             throws JsonProcessingException
     {
@@ -1048,49 +1007,6 @@ public final class PermissionBroker
                 IssueContextBridge.TOOL_NAME,
                 "Read the accepted issue snapshot and locally cached source observations for this task; missing or stale context is marked. Read-only; no remote fetch",
                 ImmutableMap.of("type", "object", "properties", ImmutableMap.of(), "additionalProperties", false))));
-        context.notebook().ifPresent(ignored -> tools.add(new ToolDefinition(
-                RepositoryContextBridge.TOOL_NAME,
-                "List or search saved notes, read an exact version, save a note from committed task file ranges, grade a note you checked, "
-                        + "or ask a question for the learning plan.",
-                ImmutableMap.of(
-                        "type", "object",
-                        "properties", ImmutableMap.<String, Object>builder()
-                                .put("action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("LIST", "SEARCH", "READ", "PROPOSE", "GRADE", "ASK")))
-                                .put("query", ImmutableMap.of("type", "string", "maxLength", 200))
-                                .put("paths", ImmutableMap.of("type", "array", "items", ImmutableMap.of("type", "string"), "maxItems", 20))
-                                .put("page", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", 100))
-                                .put("notebookRevision", ImmutableMap.of("type", "integer", "minimum", 0))
-                                .put("operationKey", ImmutableMap.of("type", "string", "maxLength", 100))
-                                .put("searchRef", ImmutableMap.of("type", "string"))
-                                .put("entryId", ImmutableMap.of("type", "string"))
-                                .put("entryVersion", ImmutableMap.of("type", "integer", "minimum", 1))
-                                .put("kind", ImmutableMap.of("type", "string", "enum", ImmutableList.of("KNOWLEDGE", "MEMORY")))
-                                .put("scopeId", ImmutableMap.of("type", "string"))
-                                .put("title", ImmutableMap.of("type", "string", "maxLength", 200))
-                                .put("summary", ImmutableMap.of("type", "string", "maxLength", 1000))
-                                .put("body", ImmutableMap.of("type", "string"))
-                                .put("sources", ImmutableMap.of("type", "array", "minItems", 1, "maxItems", 3,
-                                        "items", ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
-                                                "path", ImmutableMap.of("type", "string"),
-                                                "startLine", ImmutableMap.of("type", "integer", "minimum", 1),
-                                                "endLine", ImmutableMap.of("type", "integer", "minimum", 1)),
-                                                "required", ImmutableList.of("path", "startLine"), "additionalProperties", false)))
-                                .put("grade", ImmutableMap.of("type", "string", "enum", ImmutableList.of("HELPED", "NOT_RELEVANT", "WRONG", "HOLDS")))
-                                .put("reason", ImmutableMap.of("type", "string", "maxLength", 300))
-                                .put("quote", ImmutableMap.of("type", "string", "maxLength", 500))
-                                .put("correction", ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
-                                                "title", ImmutableMap.of("type", "string", "maxLength", 200),
-                                                "summary", ImmutableMap.of("type", "string", "maxLength", 1000),
-                                                "body", ImmutableMap.of("type", "string"),
-                                                "statement", ImmutableMap.of("type", "string", "maxLength", 500),
-                                                "rootCause", ImmutableMap.of("type", "string", "maxLength", 300)),
-                                        "required", ImmutableList.of("title", "summary", "body", "statement"), "additionalProperties", false))
-                                .put("question", ImmutableMap.of("type", "string", "maxLength", 1000))
-                                .put("lead", ImmutableMap.of("type", "string", "maxLength", 1000,
-                                        "description", "ASK: the page address or file lines that answered the question."))
-                                .buildOrThrow(),
-                        "required", ImmutableList.of("action"),
-                        "additionalProperties", false))));
         context.pullRequestCi().ifPresent(ignored -> {
             tools.add(new ToolDefinition(
                     PullRequestCiBridge.TOOL_NAME,
@@ -1442,7 +1358,6 @@ public final class PermissionBroker
             Optional<LocalReviewBridge> localReview,
             Optional<PullRequestCiBridge> pullRequestCi,
             Optional<IssueContextBridge> issueContext,
-            Optional<RepositoryContextBridge> notebook,
             boolean reviewChildren,
             AtomicReference<CodexReviewTools> codexReviewTools)
     {
@@ -1461,7 +1376,6 @@ public final class PermissionBroker
             requireNonNull(localReview, "localReview is null");
             requireNonNull(pullRequestCi, "pullRequestCi is null");
             requireNonNull(issueContext, "issueContext is null");
-            requireNonNull(notebook, "notebook is null");
         }
     }
 

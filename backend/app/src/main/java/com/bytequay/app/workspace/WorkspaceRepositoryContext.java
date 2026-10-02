@@ -40,6 +40,12 @@ public record WorkspaceRepositoryContext(
         extraRemotes = ImmutableList.copyOf(extraRemotes);
     }
 
+    /** The GitHub id of the monitored repository: the selected one, or its upstream when the workspace selected a fork. */
+    public long monitoredRepositoryId()
+    {
+        return selectedRepository.equals(monitoredRepository) ? selectedRepositoryId : upstreamRepositoryId.orElseThrow();
+    }
+
     public boolean knownRemote(String remote)
     {
         return sourceRemote.equals(remote)

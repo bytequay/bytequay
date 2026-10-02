@@ -32,9 +32,6 @@ import com.bytequay.persistence.sqlite.repository.AgentQueuedInputJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AgentTaskJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AgentTurnJpaRepository;
 import com.bytequay.persistence.sqlite.repository.BranchRebaseJpaRepository;
-import com.bytequay.persistence.sqlite.repository.ContextGradeJpaRepository;
-import com.bytequay.persistence.sqlite.repository.ContextUsageFactJpaRepository;
-import com.bytequay.persistence.sqlite.repository.DevelopmentContextReceiptJpaRepository;
 import com.bytequay.persistence.sqlite.repository.LocalReviewThreadJpaRepository;
 import com.bytequay.persistence.sqlite.repository.RecentTextJpaRepository;
 import com.bytequay.persistence.sqlite.repository.RecentTouchJpaRepository;
@@ -75,9 +72,6 @@ public class SqliteAgentTaskStore
     private final RecentTouchJpaRepository recentTouches;
     private final RecentTextJpaRepository recentTexts;
     private final LocalReviewThreadJpaRepository reviewThreads;
-    private final ContextUsageFactJpaRepository usage;
-    private final DevelopmentContextReceiptJpaRepository contextReceipts;
-    private final ContextGradeJpaRepository contextGrades;
     private final EntityManager entities;
 
     public SqliteAgentTaskStore(
@@ -92,9 +86,6 @@ public class SqliteAgentTaskStore
             RecentTouchJpaRepository recentTouches,
             RecentTextJpaRepository recentTexts,
             LocalReviewThreadJpaRepository reviewThreads,
-            ContextUsageFactJpaRepository usage,
-            DevelopmentContextReceiptJpaRepository contextReceipts,
-            ContextGradeJpaRepository contextGrades,
             EntityManager entities)
     {
         this.repository = requireNonNull(repository, "repository is null");
@@ -108,9 +99,6 @@ public class SqliteAgentTaskStore
         this.recentTouches = requireNonNull(recentTouches, "recentTouches is null");
         this.recentTexts = requireNonNull(recentTexts, "recentTexts is null");
         this.reviewThreads = requireNonNull(reviewThreads, "reviewThreads is null");
-        this.usage = requireNonNull(usage, "usage is null");
-        this.contextReceipts = requireNonNull(contextReceipts, "contextReceipts is null");
-        this.contextGrades = requireNonNull(contextGrades, "contextGrades is null");
         this.entities = requireNonNull(entities, "entities is null");
     }
 
@@ -255,9 +243,6 @@ public class SqliteAgentTaskStore
         recentTouches.deleteByItemKey("task:" + id);
         recentTexts.deleteByItemKey("task:" + id);
         reviewThreads.deleteByTaskId(id);
-        usage.deleteByTaskId(id);
-        contextReceipts.deleteByTaskId(id);
-        contextGrades.deleteByTaskId(id);
         // A development task's local runs go with it; an Agent review's runs outlive its task, like the review's other records.
         entities.createNativeQuery("DELETE FROM local_run_output WHERE run_id IN (SELECT id FROM local_run WHERE task_id = :taskId)"
                         + " AND NOT EXISTS (SELECT 1 FROM agent_review WHERE task_id = :taskId)")

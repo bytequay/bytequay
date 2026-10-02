@@ -22,7 +22,7 @@ import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
-import com.bytequay.app.context.RepositoryContextService;
+import com.bytequay.app.context.ContextSpecCheckService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.app.service.settings.ModelSettingsService;
@@ -61,7 +61,7 @@ public class WorkspaceDeletionService
     private final GitCommandRunner git;
     private final CodeGraphService codeGraph;
     private final ModelSettingsService models;
-    private final RepositoryContextService repositoryContext;
+    private final ContextSpecCheckService specChecks;
 
     public WorkspaceDeletionService(
             WorkspaceStore workspaces,
@@ -73,7 +73,7 @@ public class WorkspaceDeletionService
             GitCommandRunner git,
             CodeGraphService codeGraph,
             ModelSettingsService models,
-            RepositoryContextService repositoryContext)
+            ContextSpecCheckService specChecks)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
@@ -84,7 +84,7 @@ public class WorkspaceDeletionService
         this.git = requireNonNull(git, "git is null");
         this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
         this.models = requireNonNull(models, "models is null");
-        this.repositoryContext = requireNonNull(repositoryContext, "repositoryContext is null");
+        this.specChecks = requireNonNull(specChecks, "specChecks is null");
     }
 
     public void delete(String workspaceId, boolean confirmed, String repositoryName)
@@ -123,7 +123,7 @@ public class WorkspaceDeletionService
             deleteDirectory(current);
             codeGraph.deleteBaseline(new RepositoryIdentity(current.selectedRepository().owner(), current.selectedRepository().repo()));
             models.clearWorkspaceOverrides(workspaceId);
-            repositoryContext.deleteWorkspaceData(workspaceId);
+            specChecks.deleteWorkspaceData(workspaceId);
             workspaces.delete(workspaceId);
         }
         catch (IOException failure) {

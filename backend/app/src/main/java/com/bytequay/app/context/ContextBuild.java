@@ -15,18 +15,13 @@ package com.bytequay.app.context;
 
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.RepositoryIdentity;
-import com.bytequay.app.context.RepositoryContextPreparation.CapturedSource;
-import com.bytequay.core.context.ContextGrade;
-import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextLimits;
-import com.bytequay.core.context.ContextPreparationResult;
-import com.bytequay.core.context.ContextSourceRead;
-import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -34,17 +29,15 @@ import java.util.Optional;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** The latest explicit learning request or spec check turn and its captured evidence; execution state belongs to its agent task. */
+/** The latest spec check turn and what its tools recorded; execution state belongs to its agent task. */
 public record ContextBuild(
         long sequence, String requestKey, String requestDigest, String workspaceId, String taskId,
         RepositoryIdentity physicalRepository, long repositoryId, RepoRef repository, String baselineSha, String branch,
-        String laneId, AgentTaskDefaults defaults, List<String> scopeIds, List<History> history,
-        List<RegisteredContextSource> documentationSources, long notebookRevision, Instant requestedAt, Capture capture, Mode mode, Optional<Assignment> assignment,
-        Optional<String> continuesReport, Optional<Investigation> investigation, Optional<Check> check)
+        String laneId, AgentTaskDefaults defaults, Instant requestedAt, Capture capture, Check check)
 {
     public ContextBuild
     {
-        checkArgument(sequence > 0 && notebookRevision >= 0 && repositoryId > 0, "Invalid context build identity");
+        checkArgument(sequence > 0 && repositoryId > 0, "Invalid context build identity");
         ContextLimits.text(requestKey, "requestKey", 100);
         ContextLimits.text(workspaceId, "workspaceId", 200);
         ContextLimits.text(taskId, "taskId", 200);
@@ -55,30 +48,12 @@ public record ContextBuild(
         requireNonNull(branch, "branch is null");
         requireNonNull(laneId, "laneId is null");
         requireNonNull(defaults, "defaults is null");
-        scopeIds = ImmutableList.copyOf(scopeIds);
-        history = ImmutableList.copyOf(history);
-        documentationSources = ImmutableList.copyOf(documentationSources);
-        ContextLimits.unique(scopeIds, "scopeIds", 100);
-        requireNonNull(mode, "mode is null");
-        requireNonNull(assignment, "assignment is null");
-        checkArgument(mode == Mode.LEARN || assignment.isEmpty(), "Only learning has a topic assignment");
-        requireNonNull(continuesReport, "continuesReport is null");
-        checkArgument(mode == Mode.DISCOVER || continuesReport.isEmpty(), "Only discovery continues a saved report");
-        checkArgument(mode == Mode.DISCOVER ? scopeIds.isEmpty() && history.isEmpty() && documentationSources.isEmpty() : !scopeIds.isEmpty(),
-                "Discovery has no configured sources; learning requires selected scopes");
-        ContextLimits.unique(history, "history", 10);
-        requireNonNull(investigation, "investigation is null");
-        checkArgument(investigation.isEmpty() || (mode == Mode.LEARN && assignment.isEmpty() && history.isEmpty()
-                        && scopeIds.equals(ImmutableList.of(investigation.orElseThrow().scopeId()))),
-                "An investigation is one learning run over its note's scope, without a plan question or history");
-        requireNonNull(check, "check is null");
-        checkArgument((mode == Mode.CHECK) == check.isPresent() && (check.isEmpty() || history.isEmpty() && scopeIds.size() == 1),
-                "A spec check turn is one check of one topic's scope, without history");
         requireNonNull(requestedAt, "requestedAt is null");
         requireNonNull(capture, "capture is null");
+        requireNonNull(check, "check is null");
     }
 
-    /** Keyed by sequence as well: one task can ask several questions of a topic, one turn each. */
+    /** Keyed by sequence as well: one task takes a check's planning turn and then a turn per reproduction. */
     public String turnKey()
     {
         return "context-build:" + taskId + ":" + sequence;
@@ -87,62 +62,21 @@ public record ContextBuild(
     public ContextBuild withCapture(Capture replacement)
     {
         return new ContextBuild(sequence, requestKey, requestDigest, workspaceId, taskId, physicalRepository, repositoryId, repository, baselineSha, branch,
-                laneId, defaults, scopeIds, history, documentationSources, notebookRevision, requestedAt, replacement, mode, assignment, continuesReport,
-                investigation, check);
-    }
-
-    /** One accepted plan question; progress is the checkpoint an earlier run saved for it, empty when it has not started. */
-    public record Assignment(String planId, String topicId, String topicTitle, int questionIndex, String question, String progress,
-            List<String> paths, List<String> repositoryFiles)
-    {
-        public Assignment
-        {
-            ContextLimits.text(planId, "planId", 200);
-            ContextLimits.text(topicId, "topicId", 200);
-            ContextLimits.text(topicTitle, "topic title", 200);
-            checkArgument(questionIndex >= 0, "Invalid learning question index");
-            ContextLimits.text(question, "learning question", 1000);
-            checkArgument(ContextLimits.bytes(progress) <= 2000, "Saved question progress is too long");
-            paths = ImmutableList.copyOf(paths);
-            repositoryFiles = ImmutableList.copyOf(repositoryFiles);
-            ContextLimits.unique(paths, "learning paths", 20);
-            paths.forEach(ContextLimits::pathPrefix);
-            ContextLimits.unique(repositoryFiles, "learning source files", 40);
-            repositoryFiles.forEach(path -> ContextLimits.pathPrefix(path + "/"));
-        }
-    }
-
-    /**
-     * The dispute an investigation settles: the contested version of an agent-written note, its scope and disputed statement,
-     * and the brief the run starts from.
-     */
-    public record Investigation(String entryId, long entryVersion, String scopeId, String title, String statement, String brief)
-    {
-        public static final int MAX_BRIEF_BYTES = 48 * 1024;
-
-        public Investigation
-        {
-            ContextLimits.text(entryId, "investigated note", 1200);
-            checkArgument(entryVersion > 0, "Invalid investigated note version");
-            ContextLimits.text(scopeId, "investigated scope", 1100);
-            ContextLimits.text(title, "investigated title", 200);
-            ContextLimits.text(statement, "disputed statement", ContextGrade.MAX_QUOTE_BYTES);
-            ContextLimits.text(brief, "investigation brief", MAX_BRIEF_BYTES);
-        }
+                laneId, defaults, requestedAt, replacement, check);
     }
 
     /**
      * The spec check a turn works for: its planning turn when nothing is being reproduced, otherwise the turn that reproduces one
      * candidate. The brief is what the turn starts from.
      */
-    public record Check(String checkId, String topicTitle, Optional<Reproduction> reproduction, String brief)
+    public record Check(String checkId, String directory, Optional<Reproduction> reproduction, String brief)
     {
         public static final int MAX_BRIEF_BYTES = 48 * 1024;
 
         public Check
         {
             ContextLimits.text(checkId, "check id", 100);
-            ContextLimits.text(topicTitle, "topic title", 200);
+            ContextLimits.pathPrefix(directory);
             requireNonNull(reproduction, "reproduction is null");
             ContextLimits.text(brief, "check brief", MAX_BRIEF_BYTES);
         }
@@ -154,37 +88,6 @@ public record ContextBuild(
         {
             ContextLimits.text(candidateId, "candidate id", 60);
             ContextLimits.text(title, "candidate title", 200);
-        }
-    }
-
-    public enum Mode
-    {
-        LEARN, DISCOVER, CHECK
-    }
-
-    public record History(ContextHistoryReader.SourceKind kind, int number)
-    {
-        public History
-        {
-            requireNonNull(kind, "kind is null");
-            checkArgument(number > 0, "History number must be positive");
-        }
-    }
-
-    public record Operation(String digest, String result)
-    {
-        public Operation
-        {
-            checkArgument(digest.matches("sha256:[0-9a-f]{64}"), "Invalid operation digest");
-            ContextLimits.text(result, "operation result", 64 * 1024);
-        }
-    }
-
-    public record Result(List<ContextPreparationResult> scopeResults)
-    {
-        public Result
-        {
-            scopeResults = ImmutableList.copyOf(scopeResults);
         }
     }
 
@@ -200,57 +103,56 @@ public record ContextBuild(
 
         public enum Tone
         {
-            DONE, FAILED, LIMIT
+            DONE, FAILED
         }
     }
 
-    public record Capture(
-            List<ContextSourceRead> sourceReads, Map<String, CapturedSource> evidence, Map<String, String> attempts,
-            Map<String, Operation> operations, Optional<Result> result, List<String> gaps, List<Activity> activity)
+    /** Attempts are keyed markers the tools leave: pages read, reports found and whether the turn saved its result. */
+    public record Capture(Map<String, String> attempts, List<String> gaps, List<Activity> activity)
     {
         public static final int MAX_ACTIVITY = 200;
+        public static final int MAX_GAPS = 40;
 
         public Capture
         {
-            sourceReads = ImmutableList.copyOf(sourceReads);
-            evidence = ImmutableMap.copyOf(evidence);
             attempts = ImmutableMap.copyOf(attempts);
-            operations = ImmutableMap.copyOf(operations);
-            requireNonNull(result, "result is null");
             gaps = ImmutableList.copyOf(gaps);
             activity = ImmutableList.copyOf(activity);
             checkArgument(activity.size() <= MAX_ACTIVITY, "Too many activity lines");
-            checkArgument(sourceReads.stream().map(ContextSourceRead::id).distinct().count() == sourceReads.size(), "Build source receipts contain duplicates");
-            checkArgument(operations.size() <= 20, "Too many preparation receipts");
             attempts.forEach((key, value) -> {
                 ContextLimits.text(key, "source attempt key", 1500);
                 ContextLimits.text(value, "source attempt result", 2000);
             });
-            operations.keySet().forEach(key -> ContextLimits.text(key, "operation key", 120));
-            checkArgument(evidence.values().stream().mapToLong(source -> ContextLimits.bytes(source.excerpt())).sum() <= 2 * 1024 * 1024, "Build evidence exceeds 2 MiB");
-            checkArgument(gaps.size() <= 40, "Too many build limitations");
+            checkArgument(gaps.size() <= MAX_GAPS, "Too many build limitations");
             gaps.forEach(gap -> ContextLimits.text(gap, "build limitation", 1000));
-            Map<String, CapturedSource> captured = evidence;
-            sourceReads.forEach(read -> read.evidenceRef().ifPresent(ref -> {
-                checkArgument(captured.containsKey(ref), "Build receipt evidence is missing");
-                checkArgument(ContextLimits.bytes(captured.get(ref).excerpt()) == read.utf8Bytes(), "Build receipt differs from its captured excerpt");
-                if (read instanceof ContextHistoryRead historical) {
-                    historical.checkExcerpt(captured.get(ref).excerpt());
-                }
-            }));
         }
 
         public static Capture empty()
         {
-            return new Capture(ImmutableList.of(), ImmutableMap.of(), ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), ImmutableList.of(), ImmutableList.of());
+            return new Capture(ImmutableMap.of(), ImmutableList.of(), ImmutableList.of());
         }
 
         /** Keeps recent activity visible during long runs; the task transcript retains earlier operations. */
         public Capture logged(Instant at, String text, Activity.Tone tone)
         {
-            return new Capture(sourceReads, evidence, attempts, operations, result, gaps, ImmutableList.<Activity>builder()
+            return new Capture(attempts, gaps, ImmutableList.<Activity>builder()
                     .addAll(activity.subList(Math.max(0, activity.size() - MAX_ACTIVITY + 1), activity.size()))
                     .add(new Activity(at, ContextText.excerpt(text, 400), tone)).build());
+        }
+
+        /** Adds one limitation once, keeping at most {@link #MAX_GAPS}. */
+        public Capture withGap(String gap)
+        {
+            String bounded = ContextText.excerpt(gap, 1000);
+            return gaps.contains(bounded) || gaps.size() >= MAX_GAPS ? this
+                    : new Capture(attempts, ImmutableList.<String>builder().addAll(gaps).add(bounded).build(), activity);
+        }
+
+        public Capture withAttempts(Map<String, String> added)
+        {
+            Map<String, String> merged = new LinkedHashMap<>(attempts);
+            merged.putAll(added);
+            return new Capture(merged, gaps, activity);
         }
     }
 }

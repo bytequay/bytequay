@@ -17,7 +17,7 @@ import { CI_RUN } from './agents/fixtures/ciAutofix';
 import { parseAgentReview } from './pulls/agent-review/contracts';
 import { runningReviewFixture } from './pulls/agent-review/fixtures/review';
 import type { ReviewCodeFileDto } from './pulls/code-tests/contracts';
-import type { ContextBuildViewDto, ContextMergedCandidateDto, ContextUsageOverviewDto, RepositoryNotebookDto } from './repository-context/contracts';
+import type { ContextBuildViewDto, ContextSpecCheckDto } from './repository-context/contracts';
 import type { AgentRuntimeStopImpactDto } from './types';
 import type { TeamActivitySnapshot, TeamDirectory } from './teams/types';
 
@@ -264,133 +264,21 @@ it('routes Code & Tests reads and writes to the review or the development task t
   expect(fetch).toHaveBeenCalledTimes(calls);
 });
 
-const emptyNotebook: RepositoryNotebookDto = { schemaVersion: 1, revision: 7, useInReviews: true, useInDevelopment: true, sources: [],
-  scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, discoveryEvidenceRef: null }],
-  entries: [], replaced: [], sourceEvidence: [] };
-
-it('reads bounded usage, save times and the monitored baseline through authenticated workspace endpoints', async () => {
+it('routes spec check runs, their baseline and their recovery through the authenticated purpose-bound API', async () => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
-  const overview: ContextUsageOverviewDto = { trackingSince: null, window: '30d',
-    summary: { eligibleDevelopmentTasks: 0, eligibleReviewRuns: 0, contextOffTasks: 0, developmentTasksFoundOrOpened: 0, reviewRunsFoundOrOpened: 0,
-      webLookups: { notesOn: { tasks: 0, lookups: 0 }, notesOff: { tasks: 0, lookups: 0 } } },
-    entries: [] };
-  const fetch = vi.fn(async () => new Response(JSON.stringify(overview)));
-  vi.stubGlobal('fetch', fetch);
-  const base = 'http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context/usage';
-  await expect(desktop.handlers.get('repository-context:usage')?.({}, 'workspace/one', '30d')).resolves.toEqual(overview);
-  expect(fetch).toHaveBeenLastCalledWith(base + '?window=30d',
-    expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
-  const times = { entries: { '3:knowledge:project': { at: '2026-09-02T00:00:00Z', taskId: 'task' } } };
-  fetch.mockImplementation(async () => new Response(JSON.stringify(times)));
-  await expect(desktop.handlers.get('repository-context:times')?.({}, 'workspace/one')).resolves.toEqual(times);
-  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context/times',
-    expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
-  const baseline = { branch: 'master', sha: 'a'.repeat(40) };
-  fetch.mockImplementation(async () => new Response(JSON.stringify(baseline)));
-  await expect(desktop.handlers.get('repository-context:build:baseline')?.({}, 'workspace/one')).resolves.toEqual(baseline);
-  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context/build/baseline',
-    expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
-  fetch.mockClear();
-  expect(() => desktop.handlers.get('repository-context:usage')?.({}, 'workspace/one', 'year')).toThrow('Malformed repository context');
-  expect(fetch).not.toHaveBeenCalled();
-  fetch.mockImplementation(async () => new Response(JSON.stringify({ ...overview, window: 'all' })));
-  await expect(desktop.handlers.get('repository-context:usage')?.({}, 'workspace/one', '30d', 0)).rejects.toThrow('Malformed repository context');
-});
-
-it('routes notebook actions through authenticated workspace-scoped endpoints with exact revision and lesson bindings', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
-  const fetch = vi.fn(async () => new Response(JSON.stringify(emptyNotebook), { headers: { 'Content-Type': 'application/json' } }));
-  vi.stubGlobal('fetch', fetch);
-  const base = 'http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context';
-  await expect(desktop.handlers.get('repository-context:get')?.({}, 'workspace/one')).resolves.toEqual(emptyNotebook);
-  expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
-  const actions: Array<{ action: string; path: string; method: string; request: Record<string, unknown> }> = [
-    { action: 'configure', path: '/configuration', method: 'PUT', request: { expectedRevision: 7, useInReviews: false } },
-    { action: 'configure', path: '/configuration', method: 'PUT', request: { expectedRevision: 7, useInDevelopment: false } },
-    { action: 'edit', path: '/entries', method: 'PUT', request: { expectedRevision: 7, id: 'knowledge:project', scopeId: 'project',
-      title: 'Project', summary: 'Summary', body: 'Corrected text', claims: [], sourceIds: [] } },
-    { action: 'enabled', path: '/entries/enabled', method: 'PUT', request: { expectedRevision: 7, entryId: 'knowledge:project', enabled: false } },
-    { action: 'restore', path: '/entries/restore', method: 'POST', request: { expectedRevision: 7, entryId: 'knowledge:project' } },
-    { action: 'keep', path: '/entries/keep', method: 'POST', request: { expectedRevision: 7, entryId: 'knowledge:project' } },
-    { action: 'run-notes:disable', path: '/runs/disable-notes', method: 'POST', request: { expectedRevision: 7, taskId: 'learn-task', noteIds: ['knowledge:project'] } },
-  ];
-  for (const { action, path, method, request } of actions) {
-    await expect(desktop.handlers.get(`repository-context:${action}`)?.({}, 'workspace/one', request)).resolves.toEqual(emptyNotebook);
-    expect(fetch).toHaveBeenLastCalledWith(base + path, expect.objectContaining({ method, body: JSON.stringify(request),
-      headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
-  }
-  expect(fetch).toHaveBeenCalledTimes(8);
-});
-
-it('reads open reports and sends the user’s report of an exact version, showing the backend’s refusal', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
-  const fetch = vi.fn(async () => new Response(JSON.stringify([])));
-  vi.stubGlobal('fetch', fetch);
-  const base = 'http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context/reports';
-  await expect(desktop.handlers.get('repository-context:reports')?.({}, 'workspace/one')).resolves.toEqual([]);
-  expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
-  const request = { taskId: 'task/one', entryId: 'knowledge:project', entryVersion: 3, reason: 'Wrong path' };
-  await expect(desktop.handlers.get('repository-context:report')?.({}, 'workspace/one', request)).resolves.toEqual([]);
-  expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ method: 'POST', body: JSON.stringify(request),
-    headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
-  expect(() => desktop.handlers.get('repository-context:report')?.({}, 'workspace/one', { ...request, grade: 'HELPED' })).toThrow('unsupported request field');
-  expect(fetch).toHaveBeenCalledTimes(2);
-  fetch.mockImplementation(async () => new Response(JSON.stringify({ message: 'Report only a note version this task received or opened' }), { status: 400 }));
-  await expect(desktop.handlers.get('repository-context:report')?.({}, 'workspace/one', request)).rejects.toThrow('Report only a note version this task received or opened');
-  fetch.mockImplementation(async () => new Response(JSON.stringify([{ entryId: 'knowledge:project', entryVersion: 3, title: 'Project', userWritten: 'yes', grades: [] }])));
-  await expect(desktop.handlers.get('repository-context:reports')?.({}, 'workspace/one')).rejects.toThrow('Malformed repository context');
-  const disputes = { contested: { 'knowledge:project': { statement: 'Keep the condition.', version: 3 } }, settlements: {} };
-  fetch.mockImplementation(async () => new Response(JSON.stringify(disputes)));
-  await expect(desktop.handlers.get('repository-context:disputes')?.({}, 'workspace/one')).resolves.toEqual(disputes);
-  expect(fetch).toHaveBeenLastCalledWith(base.replace(/reports$/, 'disputes'), expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
-  const changed = { changed: { 'context-read:page': '2026-09-30T00:00:00Z' } };
-  fetch.mockImplementation(async () => new Response(JSON.stringify(changed)));
-  await expect(desktop.handlers.get('repository-context:pages:changed')?.({}, 'workspace/one')).resolves.toEqual(changed);
-  expect(fetch).toHaveBeenLastCalledWith(base.replace(/reports$/, 'pages/changed'), expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
-});
-
-it('rejects forged notebook mutation fields before sending and surfaces stale revisions without an automatic retry', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
-  const fetch = vi.fn(async () => new Response(JSON.stringify({ message: 'Notebook changed; reload before saving.' }), { status: 409 }));
-  vi.stubGlobal('fetch', fetch);
-  const configure = desktop.handlers.get('repository-context:configure');
-  expect(() => configure?.({}, 'workspace', { expectedRevision: 7, sourceEvidence: [] })).toThrow('unsupported request field');
-  expect(fetch).not.toHaveBeenCalled();
-  await expect(configure?.({}, 'workspace', { expectedRevision: 7, useInReviews: false })).rejects.toThrow('Notebook changed; reload before saving.');
-  expect(fetch).toHaveBeenCalledTimes(1);
-});
-
-it('refuses malformed notebook responses instead of returning a fabricated empty notebook', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
-  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ...emptyNotebook, useInReviews: 'false' }))));
-  await expect(desktop.handlers.get('repository-context:get')?.({}, 'workspace')).rejects.toThrow('Malformed repository context');
-});
-
-it('routes explicit learning and recovery through the authenticated purpose-bound API', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
-  const view: ContextBuildViewDto = { buildRequestSequence: 0, notebookRevision: 7, canStart: true, runs: [], build: null };
+  const view: ContextBuildViewDto = { buildRequestSequence: 2, canStart: false, build: { requestKey: 'check-key', taskId: 'task', checkId: 'check-1',
+    task: { id: 'task', workspaceId: 'workspace/one', state: 'OPEN', mutationClaim: 'TURN', worktreeRemovedAt: null }, activeTurn: { cancellationRequestedAt: null },
+    pendingApprovals: 0, outcome: 'RUNNING', detail: null, activity: [{ at: '2026-10-02T00:00:00Z', text: 'Opened https://example.com/spec', tone: 'DONE' }] } };
   const fetch = vi.fn(async () => new Response(JSON.stringify(view)));
   vi.stubGlobal('fetch', fetch);
   const base = 'http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context/build';
   await expect(desktop.handlers.get('repository-context:build:get')?.({}, 'workspace/one')).resolves.toEqual(view);
   expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
   const cases = [
-    { name: 'discover', path: '/discover', args: [{ requestKey: 'discover-key', expectedRevision: 7, expectedBuildSequence: 0, continuation: true }],
-      body: { requestKey: 'discover-key', expectedRevision: 7, expectedBuildSequence: 0, continuation: true } },
-    { name: 'learn', path: '/learn', args: [{ requestKey: 'selected-key', expectedRevision: 7, expectedBuildSequence: 0,
-      reportId: 'report-1', topicIds: ['topic:1'], excludedSourceIds: ['source:2'] }], body: { requestKey: 'selected-key', expectedRevision: 7,
-      expectedBuildSequence: 0, reportId: 'report-1', topicIds: ['topic:1'], excludedSourceIds: ['source:2'] } },
-    { name: 'continue', path: '/continue', args: [{ requestKey: 'continue-key', expectedRevision: 7, expectedBuildSequence: 0,
-      planId: 'plan-1' }], body: { requestKey: 'continue-key', expectedRevision: 7, expectedBuildSequence: 0, planId: 'plan-1' } },
     { name: 'stop', path: '/stop', args: ['task'], body: { taskId: 'task' } },
     { name: 'stop-runtime', path: '/runtime/stop', args: ['task', 'generation'], body: { taskId: 'task', generation: 'generation' } },
-    { name: 'fail', path: '/mark-failed', args: ['task', 'User stopped learning'], body: { taskId: 'task', reason: 'User stopped learning' } },
+    { name: 'fail', path: '/mark-failed', args: ['task', 'User ended the spec check.'], body: { taskId: 'task', reason: 'User ended the spec check.' } },
     { name: 'cleanup', path: '/cleanup', args: ['task'], body: { taskId: 'task' } },
   ];
   for (const item of cases) {
@@ -398,70 +286,41 @@ it('routes explicit learning and recovery through the authenticated purpose-boun
     expect(fetch).toHaveBeenLastCalledWith(base + item.path, expect.objectContaining({ method: 'POST', body: JSON.stringify(item.body),
       headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
   }
-  fetch.mockImplementation(async () => new Response(JSON.stringify({ plan: null, next: null })));
-  const discard = { planId: 'plan-1', expectedRevision: 7, expectedBuildSequence: 3 };
-  await expect(desktop.handlers.get('repository-context:build:plan:discard')?.({}, 'workspace/one', discard)).resolves.toEqual({ plan: null, next: null });
-  expect(fetch).toHaveBeenLastCalledWith(base + '/plan', expect.objectContaining({ method: 'DELETE', body: JSON.stringify(discard),
-    headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
-  const suggested = { planId: 'plan-1', expectedRevision: 7, expectedBuildSequence: 3, suggestedUrl: 'https://example.org/iceberg/', boundary: 'ROOT' };
-  await expect(desktop.handlers.get('repository-context:build:plan:source')?.({}, 'workspace/one', suggested)).resolves.toEqual({ plan: null, next: null });
-  expect(fetch).toHaveBeenLastCalledWith(base + '/plan/sources', expect.objectContaining({ method: 'POST', body: JSON.stringify(suggested),
-    headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
-  const question = { planId: 'plan-1', topicId: 'topic:1', text: 'How are releases cut?' };
-  const questionCases: Array<[string, string, string, object]> = [['add', '/plan/questions', 'POST', question],
-    ['edit', '/plan/questions', 'PUT', { planId: 'plan-1', topicId: 'topic:1', question: 1, text: 'Which tests?' }],
-    ['drop', '/plan/questions/drop', 'POST', { planId: 'plan-1', topicId: 'topic:1', question: 1 }]];
-  for (const [name, path, method, request] of questionCases) {
-    await expect(desktop.handlers.get(`repository-context:build:plan:questions:${name}`)?.({}, 'workspace/one', request)).resolves.toEqual({ plan: null, next: null });
-    expect(fetch).toHaveBeenLastCalledWith(base + path, expect.objectContaining({ method, body: JSON.stringify(request) }));
-  }
-  const decline = { planId: 'plan-1', suggestedUrl: suggested.suggestedUrl };
-  await expect(desktop.handlers.get('repository-context:build:plan:decline')?.({}, 'workspace/one', decline)).resolves.toEqual({ plan: null, next: null });
-  expect(fetch).toHaveBeenLastCalledWith(base + '/plan/sources', expect.objectContaining({ method: 'DELETE', body: JSON.stringify(decline),
-    headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
-  fetch.mockImplementation(async () => new Response(JSON.stringify(view)));
-  const deeper = { requestKey: 'deeper-key', expectedRevision: 7, expectedBuildSequence: 3, planId: 'plan-1', topicId: 'topic:1' };
-  await expect(desktop.handlers.get('repository-context:build:plan:deeper')?.({}, 'workspace/one', deeper)).resolves.toEqual(view);
-  expect(fetch).toHaveBeenLastCalledWith(base + '/plan/deeper', expect.objectContaining({ method: 'POST', body: JSON.stringify(deeper) }));
   const impact: AgentRuntimeStopImpactDto = { taskId: 'task/one', generation: 'generation', activeTurnId: null, liveProcess: true };
   fetch.mockImplementation(async () => new Response(JSON.stringify(impact)));
   await expect(desktop.handlers.get('repository-context:build:stop-impact')?.({}, 'workspace/one', 'task/one')).resolves.toEqual(impact);
   expect(fetch).toHaveBeenLastCalledWith(base + '/runtime/stop-impact?taskId=task%2Fone', expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
-  fetch.mockClear();
-  expect(() => desktop.handlers.get('repository-context:build:learn')?.({}, 'workspace/one', {
-    requestKey: 'learn-key', expectedRevision: 7, expectedBuildSequence: 0, reportId: 'report-1', topicIds: ['topic:1'], excludedSourceIds: [], prompt: 'forged',
-  })).toThrow('unsupported request field');
-  expect(fetch).not.toHaveBeenCalled();
+  const baseline = { branch: 'main', sha: 'a'.repeat(40) };
+  fetch.mockImplementation(async () => new Response(JSON.stringify(baseline)));
+  await expect(desktop.handlers.get('repository-context:build:baseline')?.({}, 'workspace/one')).resolves.toEqual(baseline);
+  expect(fetch).toHaveBeenLastCalledWith(base + '/baseline', expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  fetch.mockImplementation(async () => new Response(JSON.stringify({ ...view, notebookRevision: 7, build: { ...view.build, outcome: 'SUBMITTED' } })));
+  await expect(desktop.handlers.get('repository-context:build:get')?.({}, 'workspace/one')).rejects.toThrow('Malformed spec check: run outcome');
 });
 
-it('reads retained merged PR candidates without starting learning and fences explicit selection', async () => {
+it('reads a directory’s spec sources and starts a check of it, refusing a forged request before sending it', async () => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
-  const candidate: ContextMergedCandidateDto = { id: 'pr:trinodb/trino#123', repo: 'trinodb/trino', number: 123, title: 'Refresh Iceberg metadata',
-    mergedAt: '2026-09-01T00:00:00Z', taskTitle: null, taskResult: null, issue: null, review: null, checks: [] };
-  const view: ContextBuildViewDto = { buildRequestSequence: 1, notebookRevision: 7, canStart: false, runs: [], build: null };
-  const fetch = vi.fn(async () => new Response(JSON.stringify({ candidates: [candidate], gaps: [] })));
+  const fetch = vi.fn(async () => new Response(JSON.stringify({ sources: [{ url: 'https://iceberg.apache.org/spec/', kind: 'PAGE', links: 3, sections: ['manifests'] }] })));
   vi.stubGlobal('fetch', fetch);
-  const base = 'http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context/candidates';
-  await expect(desktop.handlers.get('repository-context:candidates')?.({}, 'workspace/one')).resolves.toEqual({ candidates: [candidate] });
-  expect(fetch).toHaveBeenCalledOnce();
-  expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
-  fetch.mockImplementation(async () => new Response(JSON.stringify(view)));
-  const request = { candidateId: candidate.id, requestKey: 'candidate-key', expectedRevision: 7, expectedBuildSequence: 0 };
-  await expect(desktop.handlers.get('repository-context:candidates:learn')?.({}, 'workspace/one', request)).resolves.toEqual(view);
-  expect(fetch).toHaveBeenLastCalledWith(base + '/learn', expect.objectContaining({ method: 'POST',
-    body: JSON.stringify({ requestKey: request.requestKey, expectedRevision: request.expectedRevision,
-      expectedBuildSequence: request.expectedBuildSequence, candidateId: request.candidateId }),
-    headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  const base = 'http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context/spec-checks';
+  await expect(desktop.handlers.get('repository-context:spec-checks:sources')?.({}, 'workspace/one', 'plugin/trino-iceberg/'))
+    .resolves.toEqual([{ url: 'https://iceberg.apache.org/spec/', kind: 'PAGE', links: 3, sections: ['manifests'] }]);
+  expect(fetch).toHaveBeenLastCalledWith(base + '/sources?directory=plugin%2Ftrino-iceberg%2F', expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
   fetch.mockClear();
-  expect(() => desktop.handlers.get('repository-context:candidates:learn')?.({}, 'workspace/one', { ...request, prompt: 'forged' }))
-    .toThrow('unsupported request field');
+  expect(() => desktop.handlers.get('repository-context:spec-checks:sources')?.({}, 'workspace/one', 'plugin/../core/')).toThrow('Malformed spec check: directory');
+  const request = { requestKey: 'check-key', expectedBuildSequence: 2, directory: 'plugin/trino-iceberg/', specs: ['https://iceberg.apache.org/spec/'] };
+  expect(() => desktop.handlers.get('repository-context:spec-checks:start')?.({}, 'workspace/one', { ...request, planId: 'plan' })).toThrow('unsupported request field');
   expect(fetch).not.toHaveBeenCalled();
-  const investigate = { entryId: 'knowledge:project', requestKey: 'investigate-key', expectedRevision: 7, expectedBuildSequence: 1 };
-  await expect(desktop.handlers.get('repository-context:build:investigate')?.({}, 'workspace/one', investigate)).resolves.toEqual(view);
-  expect(fetch).toHaveBeenLastCalledWith(base.replace(/candidates$/, 'build/investigate'), expect.objectContaining({ method: 'POST',
-    body: JSON.stringify({ requestKey: investigate.requestKey, expectedRevision: investigate.expectedRevision,
-      expectedBuildSequence: investigate.expectedBuildSequence, entryId: investigate.entryId }) }));
+  const check: ContextSpecCheckDto = { id: 'check-1', directory: 'plugin/trino-iceberg/', baselineSha: 'a'.repeat(40), requestKey: 'check-key', specs: request.specs, checkedAgainst: [],
+    labels: [], state: 'CHECKING', candidates: [], covered: [], next: [], reproductions: 0, detail: null, startedAt: '2026-10-02T00:00:00Z', endedAt: null };
+  fetch.mockImplementation(async () => new Response(JSON.stringify({ check, build: { buildRequestSequence: 3, canStart: false, build: null } })));
+  await expect(desktop.handlers.get('repository-context:spec-checks:start')?.({}, 'workspace/one', request))
+    .resolves.toEqual({ check, build: { buildRequestSequence: 3, canStart: false, build: null } });
+  expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ method: 'POST', body: JSON.stringify(request) }));
+  fetch.mockImplementation(async () => new Response(JSON.stringify(check)));
+  await expect(desktop.handlers.get('repository-context:spec-checks:dismiss')?.({}, 'workspace/one', 'check/1', 'c1', { reason: 'Filed on GitHub' })).resolves.toEqual(check);
+  expect(fetch).toHaveBeenLastCalledWith(base + '/check%2F1/candidates/c1/dismiss', expect.objectContaining({ method: 'POST', body: JSON.stringify({ reason: 'Filed on GitHub' }) }));
 });
 
 it('routes Jira reads and versioned writes through the authenticated native API', async () => {

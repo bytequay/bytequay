@@ -155,13 +155,15 @@ class TestReviewBridge
         assertThat(new ReviewBridge(ImmutableList.of(tool), "policy").tool("review_finish")).isPresent();
         assertThatThrownBy(() -> new ReviewTool("finish", "finish", ImmutableMap.of(), arguments -> "ok"))
                 .isInstanceOf(IllegalArgumentException.class);
-        for (String name : ImmutableList.of("repository_context_read", "repository_context_prepare", "repository_context_progress",
-                "repository_context_settle", "repository_context_discovery_read", "repository_context_discovery_submit")) {
+        for (String name : ImmutableList.of("repository_context_read", "repository_context_spec_search", "repository_context_spec_candidates",
+                "repository_context_spec_result")) {
             ReviewTool context = new ReviewTool(name, name, ImmutableMap.of("type", "object"), arguments -> "ok");
             assertThat(new ReviewBridge(ImmutableList.of(context), "policy").tool(name)).isPresent();
         }
-        assertThatThrownBy(() -> new ReviewTool("repository_context_delete", "delete", ImmutableMap.of(), arguments -> "ok"))
-                .isInstanceOf(IllegalArgumentException.class);
+        for (String name : ImmutableList.of("repository_context_delete", "repository_context_prepare")) {
+            assertThatThrownBy(() -> new ReviewTool(name, name, ImmutableMap.of(), arguments -> "ok"))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
         assertThatThrownBy(() -> new ReviewBridge(ImmutableList.of(tool, tool), "policy"))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ReviewBridge(ImmutableList.of(), ""))

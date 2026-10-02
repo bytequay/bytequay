@@ -37,10 +37,6 @@ import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
-import com.bytequay.core.context.ContextEntryOrigin;
-import com.bytequay.core.context.ContextHistoryRead;
-import com.bytequay.core.context.ContextReference;
-import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PrTimelineComment;
 import com.bytequay.core.domain.PrTimelineEvent;
@@ -138,8 +134,6 @@ class TestReviewTools
     private static final String COMMIT_SHA = "3333333333333333333333333333333333333333";
     private static final String DIFF_VERSION = "abcdef01".repeat(8);
     private static final String DOCUMENT_CAPTURE = "da8f7890-3814-4479-ac90-d6a105542e19";
-    private static final RegisteredContextSource DOCUMENT_SOURCE = new RegisteredContextSource(
-            "docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://docs.example.com/current/", ContextEntryOrigin.USER, Optional.empty());
     private static final String DIFF_PATH = "src/main/java/Widget.java";
     private static final String CANDIDATE = "The new input might bypass validation";
     private static final String PATCH = "@@ -1,2 +1,3 @@\n alpha\n+beta\n gamma\n";
@@ -1483,7 +1477,7 @@ class TestReviewTools
 
     private static ContextHistoryReader.Read historyRead(String excerpt)
     {
-        return new ContextHistoryReader.Read(new ContextReference.PullRequest(1, RepoRef.of("acme", "widgets"), 17, Optional.empty()), ContextHistoryRead.State.MERGED,
+        return new ContextHistoryReader.Read(ContextHistoryReader.State.MERGED,
                 Optional.of(NOW.minusSeconds(60)), Optional.of(HEAD_SHA), Hashing.sha256().hashString(excerpt, UTF_8).toString(), NOW,
                 excerpt, true, true, ImmutableList.of("Known missing discussion"), "cacheUpdatedAt=" + NOW.minusSeconds(30));
     }

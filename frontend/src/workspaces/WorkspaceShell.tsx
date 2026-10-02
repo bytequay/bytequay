@@ -31,7 +31,7 @@ import JiraScreen from '../jira/JiraScreen';
 import type { NavigationMode } from '../navigationHistory';
 import PullsScreen from '../pulls/PullsScreen';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
-import RepositoryContextPage from '../repository-context/RepositoryContextPage';
+import SpecChecksPage from '../repository-context/SpecChecksPage';
 import { settingsRoute } from '../settings/routes';
 import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
@@ -47,7 +47,7 @@ import {
 } from './model';
 import '../css/workspaces.css';
 
-export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, sourceIssueNumber = null, initialAgentTaskId, initialAgentReviewId = null, initialContextRunId = null, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onSelectIssue }: {
+export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, sourceIssueNumber = null, initialAgentTaskId, initialAgentReviewId = null, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onSelectIssue }: {
   workspace: WorkspaceDto;
   tab: WorkspaceTab;
   onSelectTab: (tab: WorkspaceTab) => void;
@@ -58,7 +58,6 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   /** Route-owned: which agent task is open, so a reload reopens the same one. */
   initialAgentTaskId: string | null;
   initialAgentReviewId?: string | null;
-  initialContextRunId?: string | null;
   browserOpen?: boolean;
   onSelectAgentTask: (taskId: string | null, mode: NavigationMode) => void;
   onSelectPullRequest: (number: number, mode: NavigationMode) => void;
@@ -234,7 +233,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       return <JiraScreen workspace={workspace} />;
     }
     if (tab === 'context') {
-      return <RepositoryContextPage workspace={workspace} initialRunId={initialContextRunId} />;
+      return <SpecChecksPage workspace={workspace} />;
     }
     if (tab === 'tasks') {
       if (initialAgentReviewId !== null) return stage(<ReviewTaskScreen
@@ -279,7 +278,6 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
             onOpenCherryPick={execution => setOpenCherryPick(execution.executionId)}
             onOpenPullRequest={zoomPullRequest}
             onNewItem={type => {
-              if (type === 'learning') { onSelectTab('context'); return; }
               // A cherry-pick starts from a range of upstream commits; a review or CI fix from a pull request.
               if (type === 'cherry') setInitialCommitsRepo('upstream');
               onSelectTab(type === 'cherry' ? 'commits' : 'prs');

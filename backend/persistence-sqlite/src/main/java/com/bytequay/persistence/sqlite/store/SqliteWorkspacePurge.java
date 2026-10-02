@@ -93,7 +93,6 @@ final class SqliteWorkspacePurge
         update("DELETE FROM cherry_pick_execution WHERE workspace_id = :workspaceId", parameters);
         update("DELETE FROM local_run_output WHERE run_id IN (SELECT id FROM local_run WHERE workspace_id = :workspaceId)", parameters);
         update("DELETE FROM local_run WHERE workspace_id = :workspaceId", parameters);
-        update("DELETE FROM context_usage_fact WHERE workspace_id = :workspaceId", parameters);
         for (String table : ImmutableList.of("agent_review_finding", "agent_review_message", "agent_review_run")) {
             update("DELETE FROM " + table + " WHERE review_id IN (SELECT id FROM agent_review WHERE workspace_id = :workspaceId)", parameters);
         }
@@ -112,7 +111,7 @@ final class SqliteWorkspacePurge
         }
         // Matched by prefix, not by exact key: these settings are per workspace and now also per
         // agent type, so an exact list silently leaks every suffix a later type adds.
-        for (String prefix : ImmutableList.of("workspace.agentModel." + id, "workspace.commitsTargetBranch." + id, "workspace.contextUsageTrackingSince." + id)) {
+        for (String prefix : ImmutableList.of("workspace.agentModel." + id, "workspace.commitsTargetBranch." + id)) {
             update(
                     "DELETE FROM app_settings WHERE setting_key = :key OR setting_key LIKE :pattern",
                     ImmutableMap.of("key", prefix, "pattern", prefix + ".%"));

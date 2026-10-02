@@ -71,23 +71,23 @@ class TestReviewToolBroker
     }
 
     @Test
-    void discoveryToolsAreListedAndDispatchedByBothProviderRegistrations()
+    void specCheckToolsAreListedAndDispatchedByBothProviderRegistrations()
             throws Exception
     {
-        ImmutableList<String> names = ImmutableList.of("repository_context_discovery_read", "repository_context_discovery_submit");
+        ImmutableList<String> names = ImmutableList.of("repository_context_read", "repository_context_spec_result");
         AtomicReference<String> called = new AtomicReference<>();
-        ReviewBridge discovery = new ReviewBridge(names.stream()
-                .map(name -> new ReviewTool(name, "Discover", ImmutableMap.of("type", "object"), arguments -> {
+        ReviewBridge check = new ReviewBridge(names.stream()
+                .map(name -> new ReviewTool(name, "Check", ImmutableMap.of("type", "object"), arguments -> {
                     called.set(name + ":" + arguments);
                     return "{\"accepted\":true}";
-                })).toList(), "Discover selected repository sources");
+                })).toList(), "Check the selected specs");
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> "memory", taskId -> Optional.of(discovery));
+                (taskId, query) -> "memory", taskId -> Optional.of(check));
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of());
-        try (McpRegistration codex = broker.registerTools("discovery-task", temporaryDirectory, AgentPermissionPolicy.AUTO,
+        try (McpRegistration codex = broker.registerTools("check-task", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
-                McpRegistration claude = broker.register("discovery-task", temporaryDirectory, temporaryDirectory, temporaryDirectory,
+                McpRegistration claude = broker.register("check-task", temporaryDirectory, temporaryDirectory, temporaryDirectory,
                         AgentPermissionPolicy.AUTO, SessionAccess.FULL,
                         (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
             for (McpRegistration registration : ImmutableList.of(codex, claude)) {
@@ -98,11 +98,11 @@ class TestReviewToolBroker
                 assertThat(listed.at("/result/tools").findValuesAsText("name")).containsAll(names);
                 JsonNode submitted = broker.handle(registration.token(), objectMapper.readTree("""
                         {"jsonrpc":"2.0","id":2,"method":"tools/call","params":
-                        {"name":"repository_context_discovery_submit","arguments":{"report":"evidenced"}}}
+                        {"name":"repository_context_spec_result","arguments":{"report":"evidenced"}}}
                         """)).body().orElseThrow();
                 assertThat(submitted.at("/result/isError").asBoolean()).isFalse();
                 assertThat(submitted.at("/result/content/0/text").asText()).isEqualTo("{\"accepted\":true}");
-                assertThat(called).hasValue("repository_context_discovery_submit:{\"report\":\"evidenced\"}");
+                assertThat(called).hasValue("repository_context_spec_result:{\"report\":\"evidenced\"}");
             }
         }
     }

@@ -38,9 +38,8 @@ import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
-import com.bytequay.core.context.ContextEntryKind;
-import com.bytequay.core.context.RepositoryNotebook;
 import com.bytequay.core.domain.RepoRef;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
@@ -59,13 +58,14 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.function.Predicate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -90,17 +90,16 @@ class TestContextSpecCheckService
     Path worktree;
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new JavaTimeModule());
     private final ContextSpecCheckStore store = new ContextSpecCheckStore(new InMemoryAppSettingsStore(), mapper);
-    private final ContextLearningPlanStore plans = mock(ContextLearningPlanStore.class);
     private final ContextBuildService builds = mock(ContextBuildService.class);
     private final ContextBuildStore buildStore = mock(ContextBuildStore.class);
-    private final RepositoryContextService notebooks = mock(RepositoryContextService.class);
+    private final WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
+    private final GitCommandRunner git = mock(GitCommandRunner.class);
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);
     private final TaskLogStore logs = mock(TaskLogStore.class);
     private final WorktreeService worktrees = mock(WorktreeService.class);
     private final List<AgentEventEnvelope> events = new ArrayList<>();
-    private final ContextSpecCheckService service = new ContextSpecCheckService(plans, mock(WorkspaceRepositoryService.class), mock(GitCommandRunner.class),
-            store, builds, buildStore, mock(ContextLearningService.class), notebooks, mock(GitHubRepoClient.class), mock(CredentialService.class), tasks, logs,
-            worktrees, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final ContextSpecCheckService service = new ContextSpecCheckService(workspaces, git, store, builds, buildStore, mock(GitHubRepoClient.class),
+            mock(CredentialService.class), tasks, logs, worktrees, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
     void setUp()
@@ -114,9 +113,36 @@ class TestContextSpecCheckService
         when(tasks.find(TASK)).thenReturn(Optional.of(AgentTask.created(TASK, false, "Check owner/repository", TitleSource.USER, AgentLaneId.CODEX_CLI, tree,
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW)));
         when(worktrees.ownedCheckout(tree)).thenReturn(worktree);
-        RepositoryNotebook empty = RepositoryNotebook.empty();
-        when(notebooks.getNotebook(WORKSPACE)).thenReturn(new RepositoryNotebook(empty.schemaVersion(), 4, true, true, empty.sources(), empty.scopes(),
-                empty.entries(), empty.sourceEvidence(), Optional.empty()));
+    }
+
+    @Test
+    void aCheckStartsFromADirectoryOnTheMonitoredBranchHeadAndKeepsItsEarlierFindings()
+    {
+        Path repository = Path.of("/tmp/bytequay-repository");
+        when(workspaces.requireReadableRepository(WORKSPACE)).thenReturn(new WorkspaceRepositoryContext(WORKSPACE, repository, 1, REPO, OptionalLong.empty(), REPO,
+                "origin", "origin", "main", ImmutableList.of()));
+        when(builds.baseline(WORKSPACE)).thenReturn(Optional.of(new ContextBuildService.Baseline("main", SHA)));
+        when(git.run(repository, "rev-parse", "--verify", "--quiet", SHA + ":plugin/trino-delta-lake^{tree}")).thenReturn(new GitCommandRunner.Result(0, "tree", false));
+        when(git.run(repository, "rev-parse", "--verify", "--quiet", SHA + ":plugin/missing^{tree}")).thenReturn(new GitCommandRunner.Result(1, "", false));
+        when(git.runLocalBoundedStdout(eq(repository), any(), anyInt(), any()))
+                .thenReturn(new GitCommandRunner.Result(0, SPEC + "#checkpoints\n" + SPEC + "#checkpoints\n", false));
+        store.save(WORKSPACE, Optional.empty(), check(ContextSpecCheck.State.DONE, ImmutableList.of(candidate("c1", 3, Status.CONFIRMED),
+                candidate("c2", 2, Status.NOT_REPRODUCED))));
+        when(builds.check(eq(WORKSPACE), any(), any(), any())).thenReturn(new ContextBuildService.View(1, false, Optional.empty()));
+
+        assertThat(service.sources(WORKSPACE, "plugin/trino-delta-lake/")).extracting(ContextSpecSource::url, ContextSpecSource::links).containsExactly(tuple(SPEC, 2));
+        assertThatThrownBy(() -> service.sources(WORKSPACE, "plugin/missing/")).hasMessageContaining("plugin/missing/ is not a directory on main");
+
+        ContextSpecCheckService.Started started = service.start(WORKSPACE,
+                new ContextSpecCheckService.StartRequest("start-key", 0, "plugin/trino-delta-lake/", ImmutableList.of(SPEC)));
+
+        assertThat(started.check().directory()).isEqualTo("plugin/trino-delta-lake/");
+        assertThat(started.check().state()).isEqualTo(ContextSpecCheck.State.CHECKING);
+        assertThat(started.check().candidates()).extracting(Candidate::id).containsExactly("c1");
+        assertThat(store.find(WORKSPACE)).hasSize(1);
+        verify(builds).check(eq(WORKSPACE), argThat(request -> request.requestKey().equals("start-key") && request.expectedBuildSequence() == 0), eq(SHA),
+                argThat(check -> check.directory().equals("plugin/trino-delta-lake/") && check.reproduction().isEmpty()
+                        && check.brief().contains("Directory: plugin/trino-delta-lake/")));
     }
 
     @Test
@@ -128,7 +154,7 @@ class TestContextSpecCheckService
                 found(Predicted.SKIPS_SHOULD, "Checkpoint omits the recommended stats", 1, Optional.of(100)),
                 found(Predicted.DIVERGES, "Checkpoints key removes by path only", 3, Optional.empty()),
                 found(Predicted.REFUSES, "Writes to catalog-managed tables are refused", 2, Optional.of(31252))),
-                Optional.of(ImmutableList.of(SPEC)), ImmutableList.of("Deletion Vectors"), ImmutableList.of("Column Mapping"), ImmutableList.of(), this::searched);
+                Optional.of(ImmutableList.of(SPEC)), ImmutableList.of("Deletion Vectors"), ImmutableList.of("Column Mapping"), this::searched);
 
         assertThat(saved.saved()).containsExactly("c1", "c2", "c3");
         assertThat(saved.pending()).isEqualTo(2);
@@ -145,7 +171,7 @@ class TestContextSpecCheckService
 
         ContextSpecCheckService.Saved again = service.saveCandidates(build(Optional.empty()),
                 ImmutableList.of(found(Predicted.DIVERGES, "checkpoints key removes by path only", 3, Optional.empty())), Optional.empty(), ImmutableList.of(),
-                ImmutableList.of(), ImmutableList.of(), this::searched);
+                ImmutableList.of(), this::searched);
         assertThat(again.saved()).isEmpty();
         assertThat(again.skipped()).hasSize(1);
         assertThat(current().covered()).containsExactly("Deletion Vectors");
@@ -153,28 +179,28 @@ class TestContextSpecCheckService
     }
 
     @Test
-    void candidatesCiteTheCheckedSpecsTheTopicsCodeAndOnlyReportsTheTurnFound()
+    void candidatesCiteTheCheckedSpecsTheDirectorysCodeAndOnlyReportsTheTurnFound()
     {
         store.save(WORKSPACE, Optional.empty(), check(ContextSpecCheck.State.CHECKING, ImmutableList.of()));
         ContextBuild build = build(Optional.empty());
 
         assertThatThrownBy(() -> service.saveCandidates(build, ImmutableList.of(new ContextSpecCheckService.Found(Predicted.DIVERGES, "Other spec", "MUST x",
                 "https://iceberg.apache.org/spec/#manifests", ImmutableList.of("plugin/trino-delta-lake/src/Writer.java:1-2"), "why", 2, Optional.empty())),
-                Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), this::searched))
+                Optional.empty(), ImmutableList.of(), ImmutableList.of(), this::searched))
                 .hasMessageContaining("is not a spec of this check");
         assertThatThrownBy(() -> service.saveCandidates(build, ImmutableList.of(new ContextSpecCheckService.Found(Predicted.DIVERGES, "Elsewhere", "MUST x",
                 SPEC + "#checkpoints", ImmutableList.of("core/trino-main/src/Planner.java:1-2"), "why", 2, Optional.empty())),
-                Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), this::searched))
-                .hasMessageContaining("cite at least one location in the topic's paths");
+                Optional.empty(), ImmutableList.of(), ImmutableList.of(), this::searched))
+                .hasMessageContaining("cite at least one location in plugin/trino-delta-lake/");
         assertThatThrownBy(() -> service.saveCandidates(build, ImmutableList.of(new ContextSpecCheckService.Found(Predicted.DIVERGES, "No lines", "MUST x",
                 SPEC + "#checkpoints", ImmutableList.of("plugin/trino-delta-lake/src/Writer.java"), "why", 2, Optional.empty())),
-                Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), this::searched))
+                Optional.empty(), ImmutableList.of(), ImmutableList.of(), this::searched))
                 .hasMessageContaining("path:start-end");
         assertThatThrownBy(() -> service.saveCandidates(build, ImmutableList.of(found(Predicted.DIVERGES, "Unknown report", 2, Optional.of(7))),
-                Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), this::searched))
+                Optional.empty(), ImmutableList.of(), ImmutableList.of(), this::searched))
                 .hasMessageContaining("#7 was not returned by this turn's report search");
         assertThatThrownBy(() -> service.saveCandidates(build, ImmutableList.of(), Optional.of(ImmutableList.of("https://iceberg.apache.org/spec/")),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), this::searched))
+                ImmutableList.of(), ImmutableList.of(), this::searched))
                 .hasMessageContaining("specs: https://iceberg.apache.org/spec/ is not a page of this check");
         assertThat(current().candidates()).isEmpty();
     }
@@ -230,7 +256,7 @@ class TestContextSpecCheckService
     }
 
     @Test
-    void aRefutedRuleNeedsAPassingRunAndSavesItsNote()
+    void aRefutedRuleNeedsAPassingRun()
             throws Exception
     {
         reproducing();
@@ -238,20 +264,15 @@ class TestContextSpecCheckService
         Files.writeString(worktree.resolve(TEST), "class TestCheckpointKeys {}\n");
         ContextBuild build = build(Optional.of(new ContextBuild.Reproduction("c1", "Checkpoints key removes by path only")));
         ran(TURN, COMMAND, 1, "Tests run: 1, Failures: 1");
-        ContextSpecCheckService.Note note = new ContextSpecCheckService.Note("Checkpoints key removes by deletion vector", "The writer keys both.",
-                "The checkpoint writer keys remove actions by path and deletion vector.", ImmutableList.of());
 
-        assertThatThrownBy(() -> service.saveResult(build, TURN, refuted(Optional.of(note))))
+        assertThatThrownBy(() -> service.saveResult(build, TURN, refuted()))
                 .hasMessageContaining("The test failed (exit 1)");
-        verify(notebooks, never()).saveTaskNote(any(), anyLong(), any());
 
         ran(TURN, COMMAND, 0, "Tests run: 1, Failures: 0\nBUILD SUCCESS");
-        Candidate settled = service.saveResult(build, TURN, refuted(Optional.of(note)));
+        Candidate settled = service.saveResult(build, TURN, refuted());
 
         assertThat(settled.status()).isEqualTo(Status.REFUTED);
         assertThat(settled.draft()).isEmpty();
-        verify(notebooks).saveTaskNote(eq(WORKSPACE), eq(4L), argThat(saved -> saved.kind() == ContextEntryKind.KNOWLEDGE && saved.scopeId().equals("project")
-                && saved.taskId().equals(TASK.toString()) && saved.baselineSha().equals(SHA) && saved.title().equals(note.title())));
     }
 
     @Test
@@ -261,7 +282,7 @@ class TestContextSpecCheckService
 
         Candidate settled = service.saveResult(build(Optional.of(new ContextBuild.Reproduction("c1", "Checkpoints key removes by path only"))), TURN,
                 new ContextSpecCheckService.Result(Status.NOT_REPRODUCED, "Needs a Hive metastore container", Optional.empty(), Optional.empty(),
-                        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), Optional.empty()));
+                        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of()));
 
         assertThat(settled.status()).isEqualTo(Status.NOT_REPRODUCED);
         assertThat(settled.reason()).contains("Needs a Hive metastore container");
@@ -273,20 +294,19 @@ class TestContextSpecCheckService
     {
         store.save(WORKSPACE, Optional.empty(), check(ContextSpecCheck.State.CHECKING, ImmutableList.of(
                 candidate("c1", 1, Status.PENDING), candidate("c2", 3, Status.PENDING), candidate("c3", 3, Status.ALREADY_REPORTED))));
-        turnEnded(build(Optional.empty()), ContextRun.Outcome.SUBMITTED);
+        turnEnded(build(Optional.empty()), ContextBuildService.Outcome.SAVED);
 
         service.continueCheck(WORKSPACE);
 
-        verify(builds).check(eq(WORKSPACE), argThat(request -> request.requestKey().equals("check-request:1") && request.expectedRevision() == 4
-                        && request.expectedBuildSequence() == 1 && request.scopeIds().equals(ImmutableList.of("project"))), eq(SHA),
-                argThat(check -> check.reproduction().map(ContextBuild.Reproduction::candidateId).equals(Optional.of("c2"))
+        verify(builds).check(eq(WORKSPACE), argThat(request -> request.requestKey().equals("check-request:1") && request.expectedBuildSequence() == 1), eq(SHA),
+                argThat(check -> check.reproduction().map(ContextBuild.Reproduction::candidateId).equals(Optional.of("c2")) && check.directory().equals("plugin/trino-delta-lake/")
                         && check.brief().contains("Rule: \"The checkpoint MUST contain")));
         assertThat(current().state()).isEqualTo(ContextSpecCheck.State.REPRODUCING);
         assertThat(current().candidate("c2").status()).isEqualTo(Status.REPRODUCING);
         assertThat(current().reproductions()).isEqualTo(1);
 
         // The reproduction turn ended without reporting: its candidate is not reproduced and the check moves on.
-        turnEnded(build(Optional.of(new ContextBuild.Reproduction("c2", "Gap c2"))), ContextRun.Outcome.FAILED);
+        turnEnded(build(Optional.of(new ContextBuild.Reproduction("c2", "Gap c2"))), ContextBuildService.Outcome.FAILED);
         service.continueCheck(WORKSPACE);
 
         assertThat(current().candidate("c2").status()).isEqualTo(Status.NOT_REPRODUCED);
@@ -296,7 +316,7 @@ class TestContextSpecCheckService
         ContextSpecCheck reproduced = current();
         store.save(WORKSPACE, Optional.of(reproduced), reproduced.withCandidate(reproduced.candidate("c1").withResult(Status.REFUTED, Optional.empty(),
                 Optional.of("Follows the rule"), Optional.empty())));
-        turnEnded(build(Optional.of(new ContextBuild.Reproduction("c1", "Gap c1"))), ContextRun.Outcome.SUBMITTED);
+        turnEnded(build(Optional.of(new ContextBuild.Reproduction("c1", "Gap c1"))), ContextBuildService.Outcome.SAVED);
         service.continueCheck(WORKSPACE);
 
         assertThat(current().state()).isEqualTo(ContextSpecCheck.State.DONE);
@@ -308,12 +328,12 @@ class TestContextSpecCheckService
     void aPlanningTurnThatSavedNothingFailsTheCheckAndARunningTurnChangesNothing()
     {
         store.save(WORKSPACE, Optional.empty(), check(ContextSpecCheck.State.CHECKING, ImmutableList.of()));
-        turnEnded(build(Optional.empty()), ContextRun.Outcome.RUNNING);
+        turnEnded(build(Optional.empty()), ContextBuildService.Outcome.RUNNING);
 
         service.continueCheck(WORKSPACE);
         assertThat(current().state()).isEqualTo(ContextSpecCheck.State.CHECKING);
 
-        turnEnded(build(Optional.empty()), ContextRun.Outcome.LIMIT);
+        turnEnded(build(Optional.empty()), ContextBuildService.Outcome.FAILED);
         service.continueCheck(WORKSPACE);
 
         assertThat(current().state()).isEqualTo(ContextSpecCheck.State.FAILED);
@@ -340,34 +360,23 @@ class TestContextSpecCheckService
     {
         ContextSpecCheck check = check(ContextSpecCheck.State.CHECKING, ImmutableList.of());
         String scala = "https://github.com/delta-io/delta/blob/f5ebfbb/spark/src/main/scala/Checkpoints.scala";
-        ContextSpecCheck earlier = new ContextSpecCheck("check-0", "plan-1", "topic:1", "Delta Lake connector", "project", ImmutableList.of(), SHA, "old",
+        ContextSpecCheck earlier = new ContextSpecCheck("check-0", "plugin/trino-delta-lake/", SHA, "old",
                 ImmutableList.of(SPEC), ImmutableList.of(SPEC), ImmutableList.of(), ContextSpecCheck.State.DONE, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), 0,
                 Optional.empty(), NOW, Optional.of(NOW));
-        ContextSpecCheck withCode = new ContextSpecCheck(check.id(), check.planId(), check.topicId(), check.topicTitle(), check.scopeId(), check.paths(),
-                check.baselineSha(), check.requestKey(), ImmutableList.of(SPEC, GUIDE, scala), ImmutableList.of(), check.labels(), check.state(), check.candidates(),
+        ContextSpecCheck withCode = new ContextSpecCheck(check.id(), check.directory(), check.baselineSha(), check.requestKey(), ImmutableList.of(SPEC, GUIDE, scala),
+                ImmutableList.of(), check.labels(), check.state(), check.candidates(),
                 check.covered(), check.next(), 0, Optional.empty(), NOW, Optional.empty());
 
         String brief = ContextSpecCheckService.planningBrief(withCode, Optional.of(earlier), ImmutableList.of(
-                new ContextSpecSource(SPEC, ContextSpecSource.Kind.PAGE, 32, ImmutableList.of("checkpoints", "deletion-vectors"), false),
-                new ContextSpecSource(scala, ContextSpecSource.Kind.REFERENCE_CODE, 3, ImmutableList.of(), false)));
+                new ContextSpecSource(SPEC, ContextSpecSource.Kind.PAGE, 32, ImmutableList.of("checkpoints", "deletion-vectors")),
+                new ContextSpecSource(scala, ContextSpecSource.Kind.REFERENCE_CODE, 3, ImmutableList.of())));
 
-        assertThat(brief).startsWith("Pages the topic's code links, most cited first; decide which are specifications the code implements:\n"
+        assertThat(brief).startsWith("Pages the directory's code links, most cited first; decide which are specifications the code implements:\n"
                 + "- " + SPEC + " · cited 32 times · sections the code links: #checkpoints, #deletion-vectors\n"
                 + "- " + GUIDE + " · added by the user\n"
                 + "Reference implementations in another engine, for comparison only and never rules:\n- " + scala + " · cited 3 times\n"
-                + "The last check used these as specifications: " + SPEC + "\n");
-    }
-
-    @Test
-    void aCheckSavedBeforeTheCheckChoseItsSpecsCheckedAgainstTheSelectedOnes()
-    {
-        InMemoryAppSettingsStore settings = new InMemoryAppSettingsStore();
-        ContextSpecCheckStore legacy = new ContextSpecCheckStore(settings, mapper);
-        legacy.save(WORKSPACE, Optional.empty(), check(ContextSpecCheck.State.DONE, ImmutableList.of()));
-        String saved = settings.get(ContextSpecCheckStore.PREFIX + WORKSPACE).orElseThrow();
-        settings.put(ContextSpecCheckStore.PREFIX + WORKSPACE, saved.replace("\"checkedAgainst\":[],", ""));
-
-        assertThat(legacy.find(WORKSPACE).getFirst().checkedAgainst()).containsExactly(SPEC, GUIDE);
+                + "The last check used these as specifications: " + SPEC + "\n"
+                + "Directory: plugin/trino-delta-lake/\n");
     }
 
     private Optional<Duplicate> searched(int number)
@@ -392,27 +401,25 @@ class TestContextSpecCheckService
                 Optional.empty(), ImmutableList.of(), false, Optional.empty())));
     }
 
-    private void turnEnded(ContextBuild build, ContextRun.Outcome outcome)
+    private void turnEnded(ContextBuild build, ContextBuildService.Outcome outcome)
     {
         when(buildStore.find(WORKSPACE)).thenReturn(Optional.of(build));
-        ContextRun run = new ContextRun(build.sequence(), TASK.toString(), ContextBuild.Mode.CHECK, NOW, Optional.of(NOW), Optional.empty(), Optional.empty(),
-                outcome, 0, 0, ImmutableList.of(), ImmutableList.of(), Optional.empty(), Optional.empty(), Optional.empty());
-        when(builds.get(WORKSPACE)).thenReturn(new ContextBuildService.View(build.sequence(), 4, false, Optional.of(new ContextBuildService.BuildView("key",
-                TASK.toString(), Optional.of(new ContextBuildService.TaskView(TASK.toString(), WORKSPACE, "OPEN", Optional.empty(), Optional.empty())),
-                Optional.empty(), 0, false)), ImmutableList.of(run)));
+        when(builds.get(WORKSPACE)).thenReturn(new ContextBuildService.View(build.sequence(), false, Optional.of(new ContextBuildService.BuildView(build.requestKey(),
+                TASK.toString(), "check-1", Optional.of(new ContextBuildService.TaskView(TASK.toString(), WORKSPACE, "OPEN", Optional.empty(), Optional.empty())),
+                Optional.empty(), 0, outcome, Optional.empty(), ImmutableList.of()))));
     }
 
     private static ContextSpecCheckService.Result confirmed(String command, List<String> labels)
     {
         return new ContextSpecCheckService.Result(Status.CONFIRMED, "The checkpoint dropped the second remove", Optional.of(TEST), Optional.of(command),
                 Optional.empty(), Optional.of("A checkpoint keeps one of two removes."), Optional.of("Readers see a deleted row again."),
-                Optional.of("Key removes by path and deletion vector."), labels, Optional.empty());
+                Optional.of("Key removes by path and deletion vector."), labels);
     }
 
-    private static ContextSpecCheckService.Result refuted(Optional<ContextSpecCheckService.Note> note)
+    private static ContextSpecCheckService.Result refuted()
     {
         return new ContextSpecCheckService.Result(Status.REFUTED, "The writer keys both", Optional.of(TEST), Optional.of(COMMAND), Optional.empty(),
-                Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), note);
+                Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of());
     }
 
     private ContextSpecCheck current()
@@ -438,8 +445,8 @@ class TestContextSpecCheckService
 
     private static ContextSpecCheck check(ContextSpecCheck.State state, List<Candidate> candidates)
     {
-        return new ContextSpecCheck("check-1", "plan-1", "topic:1", "Delta Lake connector", "project", ImmutableList.of("plugin/trino-delta-lake/"), SHA,
-                "check-request", ImmutableList.of(SPEC, GUIDE), ImmutableList.of(), ImmutableList.of("delta-lake", "correctness"), state, candidates, ImmutableList.of(),
+        return new ContextSpecCheck("check-1", "plugin/trino-delta-lake/", SHA, "check-request", ImmutableList.of(SPEC, GUIDE), ImmutableList.of(),
+                ImmutableList.of("delta-lake", "correctness"), state, candidates, ImmutableList.of(),
                 ImmutableList.of(), 0, Optional.empty(), NOW, state.active() ? Optional.empty() : Optional.of(NOW));
     }
 
@@ -447,7 +454,6 @@ class TestContextSpecCheckService
     {
         return new ContextBuild(reproduction.isPresent() ? 2 : 1, "check-request", "sha256:" + "b".repeat(64), WORKSPACE, TASK.toString(),
                 new RepositoryIdentity("owner", "repository"), 1, REPO, SHA, "bytequay/check", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
-                ImmutableList.of("project"), ImmutableList.of(), ImmutableList.of(), 0, NOW, ContextBuild.Capture.empty(), ContextBuild.Mode.CHECK, Optional.empty(),
-                Optional.empty(), Optional.empty(), Optional.of(new ContextBuild.Check("check-1", "Delta Lake connector", reproduction, "brief")));
+                NOW, ContextBuild.Capture.empty(), new ContextBuild.Check("check-1", "plugin/trino-delta-lake/", reproduction, "brief"));
     }
 }

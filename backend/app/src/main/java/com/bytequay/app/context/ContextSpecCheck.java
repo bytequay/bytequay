@@ -25,16 +25,16 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * The latest spec check of one plan topic: the pages it read to find the specs the code implements, the specs it checked against,
+ * The latest spec check of one directory: the pages it read to find the specs the code implements, the specs it checked against,
  * the candidate gaps its check turn found, and what reproducing each with a test showed. Only a confirmed candidate is a finding. A
- * later check of the topic keeps the findings.
+ * later check of the directory keeps the findings.
  */
 public record ContextSpecCheck(
-        String id, String planId, String topicId, String topicTitle, String scopeId, List<String> paths, String baselineSha, String requestKey,
+        String id, String directory, String baselineSha, String requestKey,
         List<String> specs, List<String> checkedAgainst, List<String> labels, State state, List<Candidate> candidates, List<String> covered, List<String> next,
         int reproductions, Optional<String> detail, Instant startedAt, Optional<Instant> endedAt)
 {
-    /** The pages a check may read as specs: every page the topic's code links, and the ones the user adds. */
+    /** The pages a check may read as specs: every page the directory's code links, and the ones the user adds. */
     public static final int MAX_SPECS = 30;
     public static final int MAX_CANDIDATES = 30;
     /** A check reproduces at most this many candidates, most severe first. */
@@ -43,13 +43,7 @@ public record ContextSpecCheck(
     public ContextSpecCheck
     {
         ContextLimits.text(id, "check id", 100);
-        ContextLimits.text(planId, "planId", 200);
-        ContextLimits.text(topicId, "topicId", 200);
-        ContextLimits.text(topicTitle, "topic title", 200);
-        ContextLimits.text(scopeId, "scopeId", 1100);
-        paths = ImmutableList.copyOf(paths);
-        ContextLimits.unique(paths, "check paths", 20);
-        paths.forEach(ContextLimits::pathPrefix);
+        ContextLimits.pathPrefix(directory);
         checkArgument(baselineSha.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Invalid check baseline");
         ContextLimits.text(requestKey, "requestKey", 90);
         specs = ImmutableList.copyOf(specs);
@@ -99,20 +93,20 @@ public record ContextSpecCheck(
         };
         List<Candidate> settled = candidates.stream().map(candidate -> candidate.status() == Status.PENDING || candidate.status() == Status.REPRODUCING
                 ? candidate.withResult(Status.NOT_REPRODUCED, candidate.test(), Optional.of(reason), Optional.empty()) : candidate).toList();
-        return new ContextSpecCheck(id, planId, topicId, topicTitle, scopeId, paths, baselineSha, requestKey, specs, checkedAgainst, labels, replacement, settled,
+        return new ContextSpecCheck(id, directory, baselineSha, requestKey, specs, checkedAgainst, labels, replacement, settled,
                 covered, next, reproductions, why, startedAt, Optional.of(at));
     }
 
     public ContextSpecCheck reproducing(Candidate candidate)
     {
-        return new ContextSpecCheck(id, planId, topicId, topicTitle, scopeId, paths, baselineSha, requestKey, specs, checkedAgainst, labels, State.REPRODUCING,
+        return new ContextSpecCheck(id, directory, baselineSha, requestKey, specs, checkedAgainst, labels, State.REPRODUCING,
                 replace(candidate.withResult(Status.REPRODUCING, Optional.empty(), Optional.empty(), Optional.empty())), covered, next,
                 reproductions + 1, detail, startedAt, endedAt);
     }
 
     public ContextSpecCheck withCandidates(List<Candidate> replacement, List<String> checked, List<String> coveredSections, List<String> nextSections)
     {
-        return new ContextSpecCheck(id, planId, topicId, topicTitle, scopeId, paths, baselineSha, requestKey, specs, checked, labels, state, replacement,
+        return new ContextSpecCheck(id, directory, baselineSha, requestKey, specs, checked, labels, state, replacement,
                 coveredSections, nextSections, reproductions, detail, startedAt, endedAt);
     }
 
@@ -144,7 +138,7 @@ public record ContextSpecCheck(
     }
 
     /**
-     * A new check of the topic keeps the earlier check's findings, refuted rules and already reported gaps, so it neither repeats nor
+     * A new check of the directory keeps the earlier check's findings, refuted rules and already reported gaps, so it neither repeats nor
      * loses them; unfinished and unreproduced candidates are dropped for the new check to find again.
      */
     public List<Candidate> kept()

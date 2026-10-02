@@ -51,8 +51,6 @@ import com.bytequay.app.agent.DevelopmentPublicationFacts;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.agent.codegraph.FakeCodeGraphService;
 import com.bytequay.app.agent.impl.DeterministicAgentDriver;
-import com.bytequay.app.context.EditContextConfiguration;
-import com.bytequay.app.context.RepositoryContextService;
 import com.bytequay.app.jira.JiraDtos;
 import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.jira.JiraService;
@@ -223,9 +221,6 @@ class TestAgentHttpApi
 
     @Autowired
     private ModelSettingsService models;
-
-    @Autowired
-    private RepositoryContextService repositoryContext;
 
     @Autowired
     private AgentTaskService tasks;
@@ -1134,9 +1129,6 @@ class TestAgentHttpApi
     void createsTaskRunsIdempotentTurnsAndReplaysSse()
             throws Exception
     {
-        // Keep the lifecycle transcript baseline independent of optional provider context.
-        repositoryContext.configure(workspaceId, repositoryContext.getNotebook(workspaceId).revision(),
-                new EditContextConfiguration(Optional.empty(), Optional.of(false), Optional.empty()));
         Map<String, Object> createRequest = new HashMap<>(createTaskBody("codex"));
         createRequest.put("message", "first");
         createRequest.put("idempotencyKey", "request-1");
@@ -1328,9 +1320,7 @@ class TestAgentHttpApi
                 .containsExactly(
                         "user_message", "lifecycle", "lifecycle", "assistant_message", "lifecycle", "lifecycle");
         assertThat(claudeEvents.get(0).required("payload").required("text").asText()).isEqualTo("Claude first");
-        assertThat(claudeEvents.get(3).required("payload").required("text").asText())
-                .startsWith("deterministic: Claude first\n\n")
-                .contains("repository_context_lookup", "LIST", "SEARCH", "READ", "entryVersion");
+        assertThat(claudeEvents.get(3).required("payload").required("text").asText()).isEqualTo("deterministic: Claude first");
         String turnId = claudeEvents.get(0).required("turnId").asText();
         assertThat(get("/agent/turns/" + turnId).getBody().required("state").asText()).isEqualTo("COMPLETED");
 

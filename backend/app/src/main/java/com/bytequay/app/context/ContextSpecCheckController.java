@@ -19,13 +19,14 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
-/** Spec checks of a learning plan's topics. */
+/** Spec checks of a workspace's directories. */
 @RestController
 @RequestMapping("/api/workspaces/{workspaceId}/repository-context/spec-checks")
 public class ContextSpecCheckController
@@ -43,7 +44,7 @@ public class ContextSpecCheckController
         return new Checks(checks.checks(workspaceId));
     }
 
-    /** Starts one check of a topic; the user reads its report when it ends. */
+    /** Starts one check of a directory; the user reads its report when it ends. */
     @PostMapping
     public ContextSpecCheckService.Started start(@PathVariable String workspaceId, @RequestBody ContextSpecCheckService.StartRequest request)
     {
@@ -57,10 +58,10 @@ public class ContextSpecCheckController
         return checks.dismiss(workspaceId, checkId, candidateId, request.reason());
     }
 
-    @GetMapping("/topics/{topicId}/sources")
-    public Sources sources(@PathVariable String workspaceId, @PathVariable String topicId)
+    @GetMapping("/sources")
+    public Sources sources(@PathVariable String workspaceId, @RequestParam String directory)
     {
-        return new Sources(checks.sources(workspaceId, topicId));
+        return new Sources(checks.sources(workspaceId, directory));
     }
 
     public record Checks(List<ContextSpecCheck> checks)

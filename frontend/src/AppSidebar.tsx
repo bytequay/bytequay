@@ -28,7 +28,6 @@ import {
   type SettingsSection,
   matchesSearch,
 } from './settings/routes';
-import { useContextReview } from './repository-context/reviewCount';
 import { workspaceHasReadableCode, type WorkspaceTab } from './workspaces/model';
 import PinButton from './home/PinButton';
 import { openPinned, usePinnedItems } from './home/pinned';
@@ -93,7 +92,7 @@ const WORKSPACE_TABS: Array<{ tab: WorkspaceTab; label: string; icon: ReactNode 
   { tab: 'issues', label: 'Issues', icon: <CircleDot size={16} strokeWidth={1.7} aria-hidden="true" /> },
   { tab: 'jira', label: 'Jira', icon: <JiraIcon size={16} /> },
   { tab: 'commits', label: 'Commits', icon: <GitBranch size={16} strokeWidth={1.7} aria-hidden="true" /> },
-  { tab: 'context', label: 'Repository context', icon: <FileText size={16} strokeWidth={1.7} aria-hidden="true" /> },
+  { tab: 'context', label: 'Spec checks', icon: <FileText size={16} strokeWidth={1.7} aria-hidden="true" /> },
 ];
 
 export default function AppSidebar({
@@ -136,7 +135,6 @@ export default function AppSidebar({
     if (pickerOpen) pickerMenu.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [pickerOpen]);
   const sidebar = useResizablePane(222, 200, 420);
-  const contextReview = useContextReview(workspace?.id ?? null, workspaceTab)?.total ?? 0;
 
   const historyControls = (
     <div className="app-sidebar__history" role="group" aria-label="View history">
@@ -192,7 +190,6 @@ export default function AppSidebar({
       active: workspaceTab === tab,
       disabled: reason !== null,
       title: reason ?? label,
-      badge: tab === 'context' && contextReview > 0 ? { count: contextReview, label: `${contextReview} to review` } : undefined,
       onClick: () => onWorkspaceTab(tab),
     });
   };

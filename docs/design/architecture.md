@@ -71,52 +71,18 @@ with GitHub, stores durable local state in SQLite, and hosts the implemented
 worktree-scoped agent service. Its implemented rich task surface is specified
 in [Agent Task UI Design](agent-task-ui.md).
 
-[Repository context](repository-context-refactor.md) stores approved knowledge and
-lesson notes, pending drafts, source evidence and configuration in existing
-application settings. Agent discovery, accepted learning plans and merged-work
-selections have bounded settings records; task/turn records remain the execution
-authority. Workspace deletion clears these records after existing ownership checks.
+Every accepted agent turn carries the repository's guideline files as
+delimited reference data, read at a commit the turn cannot change; ByteQuay
+keeps no learned repository notes. [Repository memory](repository-memory.md) is
+the approved design for short rules captured from pull requests, corrections and
+passing commands.
 
-The agent owns project/document associations and semantic relevance. ByteQuay
-provides paginated literal note lookup, optional fixed path filters, exact-version
-reads, frozen repository tools, registered-document reads and approval boundaries.
-There is no note ranking, automatic body injection, semantic index or crawler.
-Pending generated notes are absent from agent lookup until approval; updates leave
-the active version usable. Missing knowledge does not block development or review.
-
-Start discovery explicitly allocates one restricted research task at a frozen
-revision. Language-neutral recursive filename/text search and selective file reads
-produce evidenced topic/source proposals. Learning accepts selected topics and
-answers one small question per explicit run. Saved plans retain remaining work and
-a bounded document inventory across Continue. Reads, searches and document opens
-are counted for visibility, without a per-run count quota. The configured agent
-turn timeout bounds runtime. Approved roots permit two link hops; continuation
-preserves parent/depth. New roots require explicit approval.
-Runtime and storage safeguards are not token or dollar guarantees. Opening settings, startup
-and synchronization never launch a model.
-
-Source text is untrusted data. Captured Git/document/history identities and excerpts
-remain tied to the exact task/turn or review/run. Read receipts and inventory changes
-commit under the workspace ownership fence after external reads. Note approval
-checks notebook and target versions; it does not prove current applicability.
-Generated lessons need supporting evidence just like knowledge. Development and
-Explore may propose bounded drafts from server-read task HEAD files through the
-existing context tool. Reviews read no notes. Off denies new context access for
-the affected task.
-
-Verified development publication links and explicit imported-task PR mappings
-produce merged-work candidates from local caches. Merely listing them does not
-call a model or refresh GitHub. Explicit learning freezes the selected task, issue,
-review and check bundle, and retains its bounded excerpt alongside selected PR
-history. Historical merge/check facts still require validation against current
-baseline code. No branch-name inference or automatic generation is introduced.
-
-ContextBuildCoordinator observes existing task events and reconciles terminal,
-quiescent research tasks. It never resends uncertain input. Failed tasks retain
-explicit cleanup controls, and a replacement request needs recorded worktree
-removal. Existing exact-version usage receipts remain the source of usage
-reporting. Prepared, opened,
-delivered and cited are distinct facts, not evidence of model comprehension.
+A [spec check](spec-check.md) compares one directory's code
+with the specifications it links and reproduces each gap with a test. It runs as
+one noninteractive agent task the user starts; its check and current turn binding
+live in application settings, and task/turn records remain the execution
+authority. ContextBuildCoordinator observes the task's events and settles each
+turn without resending uncertain input. Workspace deletion removes both records.
 
 [Development delivery](development-delivery.md) extends the current agent core
 through one application coordinator. Core reserves its source owner after a

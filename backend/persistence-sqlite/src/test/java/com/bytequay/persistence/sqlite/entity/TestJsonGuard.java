@@ -19,15 +19,10 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
-import com.bytequay.core.context.ContextHistoryRead;
-import com.bytequay.core.context.ContextReference;
-import com.bytequay.core.context.ContextSourceRead;
-import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.review.ReviewCoverage;
 import com.bytequay.core.review.ReviewSummary;
 import com.bytequay.core.review.ReviewValidation;
 import com.google.common.collect.ImmutableList;
-import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -39,7 +34,6 @@ import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
 import static com.bytequay.persistence.sqlite.entity.JsonGuard.REVIEW;
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestJsonGuard
@@ -85,18 +79,6 @@ class TestJsonGuard
 
         assertThat(validation.coverage().complete()).isTrue();
         assertThat(validation.coverage().warnings()).isEmpty();
-    }
-
-    @Test
-    void retainsTypedHistorySourceReads()
-    {
-        String excerpt = "Observed closed issue; no resolution inferred";
-        var read = new ContextHistoryRead("context-read:history", new ContextReference.Issue(1, RepoRef.of("example", "repo"), 2, Optional.empty()),
-                ContextHistoryRead.State.CLOSED, Optional.of(Instant.EPOCH), Optional.empty(), Hashing.sha256().hashString(excerpt, UTF_8).toString(),
-                Instant.EPOCH, excerpt.getBytes(UTF_8).length, true, true, ImmutableList.of("Activity refresh failed"), Optional.of("E1"));
-        String encoded = REVIEW.write(read, "source read");
-        assertThat(encoded).contains("\"kind\":\"HISTORY\"");
-        assertThat(REVIEW.read(encoded, ContextSourceRead.class, "source read")).isEqualTo(read);
     }
 
     private static ApprovalRequest request(List<ProviderApprovalRequest.Decision> decisions, Optional<String> taskScope)

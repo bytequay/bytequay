@@ -709,27 +709,6 @@ class TestClaudeEventMapper
         assertThat(completed.summary()).isEqualTo("{\"step\":2,\"kind\":\"VALIDATE\"}");
     }
 
-    @Test
-    void completedByteQuayContextToolCarriesOnlyItsSavedReceipt()
-            throws Exception
-    {
-        String ref = "context-note:" + "b".repeat(64);
-        map("""
-                {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"context-1",
-                "name":"mcp__bytequay__review_get_context","input":{"kind":"note"}}]},"session_id":"session-1","uuid":"context-start"}
-                """);
-        String content = new ObjectMapper().writeValueAsString(ImmutableList.of(ImmutableMap.of("type", "text",
-                "text", "{\"status\":\"AVAILABLE\",\"evidenceRef\":\"" + ref + "\",\"activityLine\":\"Read note · Snapshot loading\"}")));
-        ProviderAgentEvent.Tool completed = only("""
-                {"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"context-1",
-                "content":%s,"is_error":false}]},"session_id":"session-1","uuid":"context-end"}
-                """.formatted(content), ProviderAgentEvent.Tool.class);
-        assertThat(completed.name()).isEqualTo("mcp__bytequay__review_get_context");
-        assertThat(completed.summary()).isEqualTo("context-receipt:" + ref);
-        assertThat(completed.description()).contains("Read note · Snapshot loading");
-        assertThat(completed.state()).isEqualTo(ProviderAgentEvent.ActivityState.COMPLETED);
-    }
-
     private List<ProviderAgentEvent> replay(String name)
             throws IOException
     {

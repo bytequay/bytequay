@@ -20,9 +20,7 @@ import com.bytequay.app.service.pr.SelectedPullRequestReader;
 import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
-import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextLimits;
-import com.bytequay.core.context.ContextReference;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
@@ -81,8 +79,8 @@ class TestContextHistoryReader
 
         ContextHistoryReader.Read read = reader.read(WORKSPACE, PR, NUMBER);
 
-        assertThat(read.reference()).isEqualTo(new ContextReference.PullRequest(9, REPO, NUMBER, Optional.empty()));
-        assertThat(read.state()).isEqualTo(ContextHistoryRead.State.MERGED);
+        assertThat(read.excerpt()).contains("Source=PR #" + NUMBER + " of " + REPO.fullName());
+        assertThat(read.state()).isEqualTo(ContextHistoryReader.State.MERGED);
         assertThat(read.sourceUpdatedAt()).contains(UPDATED);
         assertThat(read.sourceRevision()).contains(SHA);
         assertThat(read.readAt()).isEqualTo(NOW);
@@ -133,8 +131,8 @@ class TestContextHistoryReader
 
         ContextHistoryReader.Read read = reader.read(WORKSPACE, ISSUE, NUMBER);
 
-        assertThat(read.reference()).isEqualTo(new ContextReference.Issue(9, REPO, NUMBER, Optional.empty()));
-        assertThat(read.state()).isEqualTo(ContextHistoryRead.State.CLOSED);
+        assertThat(read.excerpt()).contains("Source=Issue #" + NUMBER + " of " + REPO.fullName());
+        assertThat(read.state()).isEqualTo(ContextHistoryReader.State.CLOSED);
         assertThat(read.sourceRevision()).isEmpty();
         assertThat(read.excerpt()).contains("Closed does not mean fixed", "Closed as duplicate", "activityCompleteness=unknown");
         assertThat(read.truncated()).isFalse();
@@ -350,8 +348,5 @@ class TestContextHistoryReader
     private static void assertHash(ContextHistoryReader.Read read)
     {
         assertThat(read.contentHash()).isEqualTo(Hashing.sha256().hashString(read.excerpt(), UTF_8).toString());
-        ContextHistoryRead receipt = new ContextHistoryRead("context-read:test", read.reference(), read.state(), read.sourceUpdatedAt(), read.sourceRevision(),
-                read.contentHash(), read.readAt(), ContextLimits.bytes(read.excerpt()), read.truncated(), read.refreshFailed(), read.gaps(), Optional.of("E1"));
-        receipt.checkExcerpt(read.excerpt());
     }
 }

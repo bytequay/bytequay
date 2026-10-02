@@ -38,7 +38,7 @@ class TestContextSpecSource
     private final GitCommandRunner git = new GitCommandRunner();
 
     @Test
-    void listsThePagesATopicsCodeLinksMostCitedFirstAndLeavesOutWhatNeverIsASpec()
+    void listsThePagesADirectorysCodeLinksMostCitedFirstAndLeavesOutWhatNeverIsASpec()
             throws IOException
     {
         command("init", "-q");
@@ -57,24 +57,23 @@ class TestContextSpecSource
         Files.writeString(plugin.getParent().resolve("pom.xml"),
                 "<project xmlns=\"http://maven.apache.org/POM/4.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"/>\n");
         Files.writeString(plugin.getParent().resolve("README.md"), "See https://delta.io/ and https://databricks.com/try-databricks\n");
-        Files.writeString(repository.resolve("README.md"), PROTOCOL + "#outside-the-topic\n");
+        Files.writeString(repository.resolve("README.md"), PROTOCOL + "#outside-the-directory\n");
         command("add", ".");
         command("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "Fixture");
         String baseline = command("rev-parse", "HEAD").strip();
 
-        assertThat(ContextSpecSource.scan(git, workspace(), baseline, ImmutableList.of("plugin/delta/"), ImmutableList.of("https://docs.delta.io/latest/")))
-                .extracting(ContextSpecSource::url, ContextSpecSource::kind, ContextSpecSource::links, ContextSpecSource::sections, ContextSpecSource::approved)
+        assertThat(ContextSpecSource.scan(git, workspace(), baseline, "plugin/delta/"))
+                .extracting(ContextSpecSource::url, ContextSpecSource::kind, ContextSpecSource::links, ContextSpecSource::sections)
                 .containsExactly(
-                        tuple("https://docs.delta.io/latest/", ContextSpecSource.Kind.PAGE, 0, ImmutableList.of(), true),
-                        tuple(PROTOCOL, ContextSpecSource.Kind.PAGE, 3, ImmutableList.of("action-reconciliation", "add-file-and-remove-file", "table-features"), false),
-                        tuple("https://databricks.com/try-databricks", ContextSpecSource.Kind.PAGE, 1, ImmutableList.of(), false),
-                        tuple("https://delta-users.slack.com/archives/GKTUWT03T/p1585760533005400", ContextSpecSource.Kind.PAGE, 1, ImmutableList.of(), false),
-                        tuple("https://docs.delta.io/latest/delta-batch.html", ContextSpecSource.Kind.PAGE, 1, ImmutableList.of(), false),
-                        tuple("https://issues.apache.org/jira/browse/PARQUET-1246", ContextSpecSource.Kind.PAGE, 1, ImmutableList.of(), false),
-                        tuple("https://rfc.zeromq.org/spec/32/", ContextSpecSource.Kind.PAGE, 1, ImmutableList.of(), false),
+                        tuple(PROTOCOL, ContextSpecSource.Kind.PAGE, 3, ImmutableList.of("action-reconciliation", "add-file-and-remove-file", "table-features")),
+                        tuple("https://databricks.com/try-databricks", ContextSpecSource.Kind.PAGE, 1, ImmutableList.of()),
+                        tuple("https://delta-users.slack.com/archives/GKTUWT03T/p1585760533005400", ContextSpecSource.Kind.PAGE, 1, ImmutableList.of()),
+                        tuple("https://docs.delta.io/latest/delta-batch.html", ContextSpecSource.Kind.PAGE, 1, ImmutableList.of()),
+                        tuple("https://issues.apache.org/jira/browse/PARQUET-1246", ContextSpecSource.Kind.PAGE, 1, ImmutableList.of()),
+                        tuple("https://rfc.zeromq.org/spec/32/", ContextSpecSource.Kind.PAGE, 1, ImmutableList.of()),
                         tuple("https://github.com/delta-io/delta/blob/f5ebfbb/spark/src/main/scala/Checkpoints.scala", ContextSpecSource.Kind.REFERENCE_CODE, 1,
-                                ImmutableList.of("L40"), false));
-        assertThat(ContextSpecSource.scan(git, workspace(), baseline, ImmutableList.of(), ImmutableList.of())).isEmpty();
+                                ImmutableList.of("L40")));
+        assertThat(ContextSpecSource.scan(git, workspace(), baseline, "plugin/missing/")).isEmpty();
     }
 
     private WorkspaceRepositoryContext workspace()

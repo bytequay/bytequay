@@ -214,78 +214,35 @@ state. A failed or unsafe head move fails the request. The task stays in private
 review. Finishing explicitly discards experiments without creating a stash.
 See [development delivery](development-delivery.md#2-settings-and-scope).
 
-## Explicit repository learning
+## Spec checks
 
-[Repository context](repository-context-refactor.md) uses existing noninteractive
-research tasks for explicit discovery and learning. Start discovery inspects a
-frozen local revision through language-neutral filename/text search and selective
-file reads. It saves an outline and evidenced topic/source suggestions. Learn
-selected accepts a bounded plan and starts one question; Continue starts another
-run from saved progress. A batch asks the next question of the same topic as a
-new turn of the same task after the previous turn completes normally; another
-topic, a changed model or a failed or stopped run finishes the task and cleans
-up its worktree first. No page load, synchronization or startup starts a model.
+A [spec check](spec-check.md) runs as one noninteractive
+research task the user starts for a directory. ContextBuildService validates the
+configured Review model and prior task cleanup before allocating a new task. Its
+saved binding fixes task identity, repository routing, the check's baseline and
+the check it works for. The resolver chooses the restricted check profile from
+that binding, never from prompt text. No page load, synchronization or startup
+starts a model.
 
-Learning topics distinguish source-read paths from explicit note applicability.
-All questions in a topic share the latter; different targets require separate
-topics. Task assignments retain the read boundary, while the accepted scope fixes
-where drafts apply. Off-target findings stay in saved progress/gaps for later
-explicit discovery. Unknown targets in older plans block learning and preparation
-without changing existing notes or drafts.
+The planning turn gets the read tool (the check's brief, and public pages by
+address) and the spec search/candidates tools; each reproduction turn gets the
+read tool and the spec result tool, and writes and runs one test in the task's
+worktree. A reproduction is a new turn of the same task when the previous turn
+completed normally on the same model; otherwise the task finishes and a fresh
+one starts. The session is review-scoped, with network for build dependencies
+and no GitHub commands; its policy forbids commits, pushes and children. A
+result counts only for a test command the provider recorded in that turn. The
+check's tests and build output are its own, so between turns and before cleanup
+the service returns the worktree to its baseline; a worktree whose HEAD moved is
+kept and its task abandoned.
 
-ContextBuildService validates the configured Review model, notebook revision,
-source selection and prior task cleanup before allocating a new task. Its saved binding fixes
-task identity, repository routing, baseline and purpose. The resolver chooses the
-restricted research profile from that binding, never from prompt text. Discovery
-gets the fixed discovery read/submit tools; learning gets read/prepare/progress.
-Neither profile can publish, edit code or start children. Existing model preflight,
-Stop, runtime recovery and verified worktree cleanup controls apply.
-
-A [spec check](repository-context-spec-check.md) is a third profile of the same
-binding. Its planning turn gets read and the spec search/candidates tools; each
-reproduction turn gets read and the spec result tool, and writes and runs one test
-in the task's worktree. The session is review-scoped, with network for build
-dependencies and no GitHub commands; its policy forbids commits, pushes and
-children. A result counts only for a test
-command the provider recorded in that turn. The check's tests and build output
-are its own, so between turns and before cleanup the service returns the worktree
-to its baseline; a worktree whose HEAD moved is kept and its task abandoned.
-
-The Tasks list projects these runs as Learning items from the existing context
-run history, one item per task; a spec check's turns form one item named for the
-check. They open read-only Repository context activity, never an interactive
-task screen. Generic send and steer endpoints reject noninteractive tasks;
-workflow-owned services retain their existing turn controls.
-
-A run records source operations and document opens before access; failures and
-retries count for observability, without a per-run research quota. The configured
-agent turn timeout bounds runtime, as it does for development. Document links stay inside approved roots and
-two link hops, with parent/depth persisted across Continue. Other URLs are proposals
-for explicit source expansion. Source inventory tracks opened, pending, failed and
-excluded pages without claiming that opening a page means complete understanding.
-Source responses and retained data remain byte-bounded; neither runtime nor storage
-limits provide a hard provider token/cost guarantee.
-
-Generated knowledge and lessons are pending drafts. Approval activates them after
-revision/version checks; old active versions remain available while updates wait.
-Agent note lookup lists bounded summaries and exact-version bodies only on demand.
-The agent decides relevance; ByteQuay has no semantic ranking. Development/Explore
-can propose a few supported drafts using server-captured committed task HEAD files,
-and review investigation/validation can use shared preparation. No useful draft is
-required to finish a task. Off and ownership checks remain enforced at tool access.
-
-Merged-work candidates come from cached merge facts and verified publication or
-explicit imported-task links. Listing is local and does not launch learning.
-An explicit selection freezes its bounded task/issue/review/check context. A selected
-PR history receipt can retain that clearly labeled local bundle, while draft claims
-still need captured baseline evidence. Merge and acceptance are historical facts,
-not proof that a lesson applies today.
-
-ContextBuildCoordinator observes existing lifecycle events. It settles only a
-terminal quiescent turn, preserves drafts and partial progress after interruption,
-and does not restart work. A failed task retains explicit cleanup; uncertain input
-is never automatically resent. Missing-task allocation failure remains visible and
-permits an explicit new request. There is no new job engine or learning scheduler.
+Check tasks open only on the Spec checks page, never as an interactive task
+screen. Generic send and steer endpoints reject noninteractive tasks; existing
+model preflight, Stop, runtime recovery and verified worktree cleanup controls
+apply. ContextBuildCoordinator observes lifecycle events and settles only a
+terminal quiescent turn. It does not restart work; a failed task retains explicit
+cleanup, and uncertain input is never resent. A failed task allocation stays
+visible and permits an explicit new request.
 
 ## Repository guideline input
 
@@ -4682,14 +4639,12 @@ Failed tasks use the same seven-day period, measured from their terminal
 timestamp. The product owner accepted this seven-day detailed-runtime window
 for the first release.
 
-Repository notebooks and the latest explicit-learning binding use the existing
-SQLite-backed AppSettingsStore. Context selections, discussion packets, exact
-note/source evidence and preparation activity belong to retained review runs and
-their operation journal. Ordinary task-runtime cleanup does not remove these
-records or rewrite old context. Source-cache eviction likewise leaves captured
-excerpts intact. Explicit confirmed workspace deletion purges workspace-owned
-notebooks/build bindings and reviews through the existing deletion path; Unwatch
-preserves them. No second database or separate retention scheduler is introduced.
+Spec checks and the current check turn's binding use the existing SQLite-backed
+AppSettingsStore. Ordinary task-runtime cleanup does not remove them. Explicit
+confirmed workspace deletion purges them and the workspace's reviews through the
+existing deletion path; Unwatch preserves them. No second database or separate
+retention scheduler is introduced. A startup cleanup deletes the settings, tables
+and review run column that the removed repository-context notes used.
 
 ### Explicit workspace deletion
 

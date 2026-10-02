@@ -18,10 +18,7 @@ import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.store.AppSettingsStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Component;
 
@@ -33,11 +30,11 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
-/** The latest spec check of each plan topic. */
+/** The latest spec check of each directory. */
 @Component
 public class ContextSpecCheckStore
 {
-    static final String PREFIX = "workspace.repositoryContextSpecChecks.";
+    static final String PREFIX = "workspace.specChecks.";
     private static final int MAX_STORED_BYTES = 4 * 1024 * 1024;
     private final AppSettingsStore settings;
     private final ObjectMapper mapper;
@@ -56,15 +53,7 @@ public class ContextSpecCheckStore
         return settings.get(PREFIX + workspaceId).map(json -> {
             try {
                 checkArgument(ContextLimits.bytes(json) <= MAX_STORED_BYTES, "Saved spec checks exceed 4 MiB");
-                JsonNode saved = mapper.readTree(json);
-                checkArgument(saved instanceof ArrayNode, "Saved spec checks must be an array");
-                // Checks saved before the check chose its specs checked against the specs the user selected.
-                saved.forEach(check -> {
-                    if (check instanceof ObjectNode value && !value.has("checkedAgainst")) {
-                        value.set("checkedAgainst", value.path("specs").deepCopy());
-                    }
-                });
-                return ImmutableList.copyOf(mapper.treeToValue(saved, ContextSpecCheck[].class));
+                return ImmutableList.copyOf(mapper.readValue(json, ContextSpecCheck[].class));
             }
             catch (JsonProcessingException | IllegalArgumentException | NullPointerException failure) {
                 throw new ContextStorageException("Saved spec checks cannot be read", failure);
@@ -77,20 +66,20 @@ public class ContextSpecCheckStore
         return find(workspaceId).stream().filter(check -> check.id().equals(checkId)).findFirst();
     }
 
-    /** At most one check runs at a time: it holds the workspace's one learning task. */
+    /** At most one check runs at a time: it holds the workspace's one check task. */
     public Optional<ContextSpecCheck> active(String workspaceId)
     {
         return find(workspaceId).stream().filter(check -> check.state().active()).findFirst();
     }
 
-    /** Replaces the topic's check when the saved one still equals what the caller read; a new check replaces the topic's last one. */
+    /** Replaces the directory's check when the saved one still equals what the caller read; a new check replaces its last one. */
     public ContextSpecCheck save(String workspaceId, Optional<ContextSpecCheck> expected, ContextSpecCheck replacement)
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
             List<ContextSpecCheck> current = find(workspaceId);
-            Optional<ContextSpecCheck> saved = current.stream().filter(check -> check.topicId().equals(replacement.topicId())).findFirst();
+            Optional<ContextSpecCheck> saved = current.stream().filter(check -> check.directory().equals(replacement.directory())).findFirst();
             checkArgument(saved.equals(expected), "Spec check changed; inspect the latest check");
-            List<ContextSpecCheck> updated = Stream.concat(current.stream().filter(check -> !check.topicId().equals(replacement.topicId())), Stream.of(replacement))
+            List<ContextSpecCheck> updated = Stream.concat(current.stream().filter(check -> !check.directory().equals(replacement.directory())), Stream.of(replacement))
                     .collect(toImmutableList());
             try {
                 String json = mapper.writeValueAsString(updated);
@@ -102,5 +91,10 @@ public class ContextSpecCheckStore
                 throw new ContextStorageException("Spec checks cannot be saved", failure);
             }
         });
+    }
+
+    public void delete(String workspaceId)
+    {
+        settings.delete(PREFIX + workspaceId);
     }
 }

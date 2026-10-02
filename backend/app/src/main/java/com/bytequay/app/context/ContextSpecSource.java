@@ -35,10 +35,10 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * A page a topic's code links, which the check reads to decide whether it is a specification the code implements, or another
+ * A page a directory's code links, which the check reads to decide whether it is a specification the code implements, or another
  * engine's source file, kept as a reference implementation to compare with and never as a rule.
  */
-public record ContextSpecSource(String url, Kind kind, int links, List<String> sections, boolean approved)
+public record ContextSpecSource(String url, Kind kind, int links, List<String> sections)
 {
     static final int MAX_SOURCES = 20;
     static final int MAX_SECTIONS = 40;
@@ -62,40 +62,37 @@ public record ContextSpecSource(String url, Kind kind, int links, List<String> s
     }
 
     /**
-     * Groups the links in the topic's code and documentation at the frozen baseline by address: pages first, then reference
-     * code, each approved first, then by the sections and links the code cites. Whether a page is a specification is for the
+     * Groups the links in the directory's code and documentation at the baseline by address: pages first, then reference
+     * code, each by the sections and links the code cites. Whether a page is a specification is for the
      * check to read; only what never is one is left out: build files' XML, license links, site home pages, and repository
      * pages other than files, such as issues and pull requests.
      */
-    static List<ContextSpecSource> scan(GitCommandRunner git, WorkspaceRepositoryContext workspace, String baseline, List<String> paths, List<String> approved)
+    static List<ContextSpecSource> scan(GitCommandRunner git, WorkspaceRepositoryContext workspace, String baseline, String directory)
     {
+        ContextLimits.pathPrefix(directory);
         Map<String, Integer> counts = new LinkedHashMap<>();
         Map<String, Set<String>> sections = new LinkedHashMap<>();
-        if (!paths.isEmpty()) {
-            GitCommandRunner.Result output = git.runLocalBoundedStdout(workspace.repository(), SCAN_TIMEOUT, SCAN_BYTES,
-                    ImmutableList.<String>builder().add("grep", "--no-color", "-I", "-h", "-o", "-E", "-e", LINK, baseline, "--")
-                            .addAll(paths.stream().map(path -> ":(literal)" + path).toList())
-                            .add(":(exclude,glob)**/*.xml", ":(exclude,glob)**/*.xsd").build());
-            checkArgument((output.successful() || output.exitCode() == 1) && !output.truncated(), "The topic's code has too many links to scan");
-            for (String line : output.output().split("\n")) {
-                // Pages are only read over HTTPS, which every spec host serves.
-                String link = line.strip().replaceAll("[.,;:]+$", "").replaceFirst("^http://", "https://");
-                int hash = link.indexOf('#');
-                String address = hash < 0 ? link : link.substring(0, hash);
-                if (address.isEmpty() || ignored(address)) {
-                    continue;
-                }
-                counts.merge(address, 1, Integer::sum);
-                if (hash >= 0 && hash + 1 < link.length()) {
-                    sections.computeIfAbsent(address, ignored -> new LinkedHashSet<>()).add(link.substring(hash + 1));
-                }
+        GitCommandRunner.Result output = git.runLocalBoundedStdout(workspace.repository(), SCAN_TIMEOUT, SCAN_BYTES,
+                ImmutableList.of("grep", "--no-color", "-I", "-h", "-o", "-E", "-e", LINK, baseline, "--", ":(literal)" + directory,
+                        ":(exclude,glob)**/*.xml", ":(exclude,glob)**/*.xsd"));
+        checkArgument((output.successful() || output.exitCode() == 1) && !output.truncated(), "The directory's code has too many links to scan");
+        for (String line : output.output().split("\n")) {
+            // Pages are only read over HTTPS, which every spec host serves.
+            String link = line.strip().replaceAll("[.,;:]+$", "").replaceFirst("^http://", "https://");
+            int hash = link.indexOf('#');
+            String address = hash < 0 ? link : link.substring(0, hash);
+            if (address.isEmpty() || ignored(address)) {
+                continue;
+            }
+            counts.merge(address, 1, Integer::sum);
+            if (hash >= 0 && hash + 1 < link.length()) {
+                sections.computeIfAbsent(address, ignored -> new LinkedHashSet<>()).add(link.substring(hash + 1));
             }
         }
         List<ContextSpecSource> found = new ArrayList<>();
         counts.forEach((address, links) -> found.add(new ContextSpecSource(address, classify(address), links,
-                sections.getOrDefault(address, ImmutableSet.of()).stream().limit(MAX_SECTIONS).toList(), approved.contains(address))));
-        approved.stream().filter(url -> !counts.containsKey(url)).forEach(url -> found.add(new ContextSpecSource(url, classify(url), 0, ImmutableList.of(), true)));
-        found.sort(Comparator.comparing(ContextSpecSource::kind).thenComparing(source -> !source.approved())
+                sections.getOrDefault(address, ImmutableSet.of()).stream().limit(MAX_SECTIONS).toList())));
+        found.sort(Comparator.comparing(ContextSpecSource::kind)
                 .thenComparing(Comparator.comparingInt((ContextSpecSource source) -> source.sections().size()).reversed())
                 .thenComparing(Comparator.comparingInt(ContextSpecSource::links).reversed()).thenComparing(ContextSpecSource::url));
         return found.stream().limit(MAX_SOURCES).collect(ImmutableList.toImmutableList());

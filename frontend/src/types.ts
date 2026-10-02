@@ -20,42 +20,12 @@ import type { AskCommentDiscussionRequest, AskDiscussionRequest, DiscussionQuery
 import type { CreateDevelopmentLearningCommentRequest, CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';
 import type { LocalReviewThreadDto } from './pulls/local-review/types';
 import type {
-  ConfigureRepositoryContextRequest,
-  ContextBuildViewDto,
   ContextBaselineDto,
-  ContextUsageOverviewDto,
-  ContextUsageWindow,
-  GoDeeperContextLearningRequest,
-  LearnContextTopicRequest,
+  ContextBuildViewDto,
   ContextSpecCheckDto,
   ContextSpecCheckStartedDto,
   ContextSpecSourceDto,
   StartContextSpecCheckRequest,
-  EditContextLearningQuestionRequest,
-  DropContextLearningQuestionRequest,
-  AddContextLearningQuestionRequest,
-  ContextDiscoveryReportDto,
-  ContextChangedPagesDto,
-  ContextDisputesDto,
-  ContextLearningPlanViewDto,
-  ContextReportedNoteDto,
-  ContextTimesDto,
-  DeclineContextLearningSourceRequest,
-  DisableRepositoryContextRunNotesRequest,
-  EditRepositoryContextEntryRequest,
-  InvestigateRepositoryContextNoteRequest,
-  KeepRepositoryContextEntryRequest,
-  ReportRepositoryContextNoteRequest,
-  RepositoryNotebookDto,
-  RestoreRepositoryContextEntryRequest,
-  SetRepositoryContextEntryEnabledRequest,
-  StartContextDiscoveryRequest,
-  StartContextLearningRequest,
-  ContinueContextLearningRequest,
-  DiscardContextLearningPlanRequest,
-  AllowContextLearningSourceRequest,
-  ContextMergedCandidatesDto,
-  LearnContextMergedCandidateRequest,
 } from './repository-context/contracts';
 import type {
   AgentReviewDto,
@@ -1365,34 +1335,6 @@ export type RecentDraftRequest = {
   body: string;
 };
 
-export interface DevelopmentContextActivityDto {
-  cards: Array<{
-    reference: string;
-    turnId: string;
-    kind: 'OFFER' | 'SEARCH' | 'READ';
-    createdAt: string;
-    notebookRevision: number;
-    delivery: 'PREPARED' | 'CONFIRMED' | 'UNCERTAIN' | 'UNKNOWN';
-    bytes: number;
-    query: string;
-    paths: string[];
-    entries: Array<{
-      id: string;
-      version: number;
-      kind: string;
-      scopeId: string;
-      title: string;
-      matchReasons: string[];
-      included: boolean;
-    }>;
-    omittedCount: number;
-    scopeStates: Array<{ scopeId: string; preparation: string; missingKnowledge: boolean }>;
-    warnings: string[];
-  }>;
-  hasMore: boolean;
-  usageTruncated: boolean;
-}
-
 export type Bridge = JiraBridge & {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
@@ -1645,50 +1587,21 @@ export type Bridge = JiraBridge & {
   deleteGitHubToken: () => Promise<void>;
 
   getWorkspaceSettings: (workspaceId: string) => Promise<WorkspaceSettingsDto>;
-  getRepositoryContext: (workspaceId: string) => Promise<RepositoryNotebookDto>;
-  getRepositoryContextUsage: (workspaceId: string, window: ContextUsageWindow) => Promise<ContextUsageOverviewDto>;
-  getRepositoryContextTimes: (workspaceId: string) => Promise<ContextTimesDto>;
-  getRepositoryContextDiscoveryReport: (workspaceId: string) => Promise<ContextDiscoveryReportDto | null>;
-  getRepositoryContextLearningPlan: (workspaceId: string) => Promise<ContextLearningPlanViewDto>;
   getRepositoryContextBaseline: (workspaceId: string) => Promise<ContextBaselineDto | null>;
   getRepositoryContextBuild: (workspaceId: string) => Promise<ContextBuildViewDto>;
-  startRepositoryContextDiscovery: (workspaceId: string, request: StartContextDiscoveryRequest) => Promise<ContextBuildViewDto>;
-  startRepositoryContextLearning: (workspaceId: string, request: StartContextLearningRequest) => Promise<ContextBuildViewDto>;
-  continueRepositoryContextLearning: (workspaceId: string, request: ContinueContextLearningRequest) => Promise<ContextBuildViewDto>;
-  discardRepositoryContextLearningPlan: (workspaceId: string, request: DiscardContextLearningPlanRequest) => Promise<ContextLearningPlanViewDto>;
-  addRepositoryContextQuestion: (workspaceId: string, request: AddContextLearningQuestionRequest) => Promise<ContextLearningPlanViewDto>;
-  editRepositoryContextQuestion: (workspaceId: string, request: EditContextLearningQuestionRequest) => Promise<ContextLearningPlanViewDto>;
-  dropRepositoryContextQuestion: (workspaceId: string, request: DropContextLearningQuestionRequest) => Promise<ContextLearningPlanViewDto>;
-  goDeeperRepositoryContextTopic: (workspaceId: string, request: GoDeeperContextLearningRequest) => Promise<ContextBuildViewDto>;
-  /** Runs one topic's open questions as one batch, ahead of the plan's order. */
-  learnRepositoryContextTopic: (workspaceId: string, request: LearnContextTopicRequest) => Promise<ContextBuildViewDto>;
-  /** The latest spec check of each plan topic, and the specs a topic's code links; reads only. */
+  /** The latest spec check of each directory; reads only. */
   getRepositoryContextSpecChecks: (workspaceId: string) => Promise<ContextSpecCheckDto[]>;
-  getRepositoryContextSpecSources: (workspaceId: string, topicId: string) => Promise<ContextSpecSourceDto[]>;
-  /** Starts one check of a topic: a turn that saves candidate gaps, then one turn per candidate that reproduces it with a test. */
+  /** The pages a directory's code links at the monitored branch head; reads only. */
+  getRepositoryContextSpecSources: (workspaceId: string, directory: string) => Promise<ContextSpecSourceDto[]>;
+  /** Starts one check of a directory: a turn that saves candidate gaps, then one turn per candidate that reproduces it with a test. */
   startRepositoryContextSpecCheck: (workspaceId: string, request: StartContextSpecCheckRequest) => Promise<ContextSpecCheckStartedDto>;
   /** Hides a finding from the report and records why; nothing is sent to GitHub. */
   dismissRepositoryContextSpecFinding: (workspaceId: string, checkId: string, candidateId: string, request: { reason: string }) => Promise<ContextSpecCheckDto>;
-  allowRepositoryContextLearningSource: (workspaceId: string, request: AllowContextLearningSourceRequest) => Promise<ContextLearningPlanViewDto>;
-  declineRepositoryContextLearningSource: (workspaceId: string, request: DeclineContextLearningSourceRequest) => Promise<ContextLearningPlanViewDto>;
-  getRepositoryContextMergedCandidates: (workspaceId: string) => Promise<ContextMergedCandidatesDto>;
-  learnRepositoryContextMergedCandidate: (workspaceId: string, request: LearnContextMergedCandidateRequest) => Promise<ContextBuildViewDto>;
-  investigateRepositoryContextNote: (workspaceId: string, request: InvestigateRepositoryContextNoteRequest) => Promise<ContextBuildViewDto>;
   stopRepositoryContextBuild: (workspaceId: string, taskId: string) => Promise<ContextBuildViewDto>;
   getRepositoryContextBuildStopImpact: (workspaceId: string, taskId: string) => Promise<AgentRuntimeStopImpactDto>;
   stopRepositoryContextBuildRuntime: (workspaceId: string, taskId: string, generation: string) => Promise<ContextBuildViewDto>;
   failRepositoryContextBuild: (workspaceId: string, taskId: string, reason: string) => Promise<ContextBuildViewDto>;
   cleanupRepositoryContextBuild: (workspaceId: string, taskId: string) => Promise<ContextBuildViewDto>;
-  configureRepositoryContext: (workspaceId: string, request: ConfigureRepositoryContextRequest) => Promise<RepositoryNotebookDto>;
-  editRepositoryContextEntry: (workspaceId: string, request: EditRepositoryContextEntryRequest) => Promise<RepositoryNotebookDto>;
-  setRepositoryContextEntryEnabled: (workspaceId: string, request: SetRepositoryContextEntryEnabledRequest) => Promise<RepositoryNotebookDto>;
-  restoreRepositoryContextEntry: (workspaceId: string, request: RestoreRepositoryContextEntryRequest) => Promise<RepositoryNotebookDto>;
-  keepRepositoryContextEntry: (workspaceId: string, request: KeepRepositoryContextEntryRequest) => Promise<RepositoryNotebookDto>;
-  getRepositoryContextReports: (workspaceId: string) => Promise<ContextReportedNoteDto[]>;
-  getRepositoryContextDisputes: (workspaceId: string) => Promise<ContextDisputesDto>;
-  getRepositoryContextChangedPages: (workspaceId: string) => Promise<ContextChangedPagesDto>;
-  reportRepositoryContextNote: (workspaceId: string, request: ReportRepositoryContextNoteRequest) => Promise<ContextReportedNoteDto[]>;
-  disableRepositoryContextRunNotes: (workspaceId: string, request: DisableRepositoryContextRunNotesRequest) => Promise<RepositoryNotebookDto>;
   setWorkspaceCommitsTarget: (workspaceId: string, branch: string) => Promise<WorkspaceCommitsTargetDto>;
   clearWorkspaceCommitsTarget: (workspaceId: string) => Promise<WorkspaceCommitsTargetDto>;
   renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceDto>;
@@ -1717,7 +1630,6 @@ export type Bridge = JiraBridge & {
   listAgentTasks: (workspaceId: string, limit?: number) => Promise<AgentTaskDto[]>;
   createAgentTask: (request: CreateAgentTaskRequest) => Promise<AgentTaskDto>;
   getAgentTask: (taskId: string, workspaceId: string) => Promise<AgentTaskDto>;
-  getAgentTaskRepositoryContext: (taskId: string, workspaceId: string) => Promise<DevelopmentContextActivityDto>;
   /** Polled while createAgentTask is in flight; the task may not exist yet, so it takes no workspace. */
   getAgentTaskStartup: (taskId: string) => Promise<AgentTaskStartupDto>;
   /** Version-checked, so a stale screen cannot overwrite a change it never saw. */

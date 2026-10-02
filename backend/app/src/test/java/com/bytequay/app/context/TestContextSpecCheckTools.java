@@ -29,7 +29,6 @@ import com.bytequay.app.context.ContextSpecCheck.Candidate;
 import com.bytequay.app.context.ContextSpecCheck.Predicted;
 import com.bytequay.app.context.ContextSpecCheck.Status;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
-import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.RepoRef;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -48,6 +47,7 @@ import java.util.Optional;
 import java.util.function.IntFunction;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
@@ -67,6 +67,7 @@ class TestContextSpecCheckTools
     private final ContextBuildStore store = new ContextBuildStore(new InMemoryAppSettingsStore(), tasks, mapper);
     private final ContextBuildService service = mock(ContextBuildService.class);
     private final ContextSpecCheckService checks = mock(ContextSpecCheckService.class);
+    private final SelectedDocumentationReader documents = mock(SelectedDocumentationReader.class);
     private final AgentUnitOfWork unitOfWork = mock(AgentUnitOfWork.class);
 
     @BeforeEach
@@ -95,15 +96,15 @@ class TestContextSpecCheckTools
 
         assertThat(found.path("reports").get(0).path("number").intValue()).isEqualTo(31252);
         assertThat(current().capture().attempts()).containsKey("spec-report:31252");
-        when(checks.saveCandidates(any(), anyList(), any(), anyList(), anyList(), anyList(), any())).thenAnswer(call -> {
+        when(checks.saveCandidates(any(), anyList(), any(), anyList(), anyList(), any())).thenAnswer(call -> {
             ContextSpecCheckService.Found candidate = call.<List<ContextSpecCheckService.Found>>getArgument(1).getFirst();
             assertThat(candidate.predicted()).isEqualTo(Predicted.DIVERGES);
             assertThat(candidate.duplicate()).contains(31252);
             assertThat(call.<Optional<List<String>>>getArgument(2)).contains(ImmutableList.of(SPEC));
-            IntFunction<Optional<ContextSpecCheck.Duplicate>> searched = call.getArgument(6);
+            IntFunction<Optional<ContextSpecCheck.Duplicate>> searched = call.getArgument(5);
             assertThat(searched.apply(31252)).map(ContextSpecCheck.Duplicate::open).contains(true);
             assertThat(searched.apply(7)).isEmpty();
-            return new ContextSpecCheckService.Saved(ImmutableList.of("c1"), ImmutableList.of(), 0, 1, ImmutableList.of());
+            return new ContextSpecCheckService.Saved(ImmutableList.of("c1"), ImmutableList.of(), 0, 1);
         });
 
         JsonNode saved = call(bridge, "repository_context_spec_candidates", "{\"candidates\":[{\"predicted\":\"DIVERGES\",\"title\":\"Removes keyed by path\","
@@ -111,12 +112,43 @@ class TestContextSpecCheckTools
                 + "\"reasoning\":\"why\",\"severity\":3,\"duplicate\":31252}],\"specs\":[\"" + SPEC + "#checkpoints\",\"" + SPEC + "\"],\"covered\":[\"Checkpoints\"]}");
 
         assertThat(saved.path("saved").path("saved").get(0).textValue()).isEqualTo("c1");
-        assertThat(current().capture().attempts()).containsKey(ContextRun.CHECKED);
+        assertThat(current().capture().attempts()).containsKey(ContextBuildService.CHECKED);
         assertThat(current().capture().activity()).extracting(ContextBuild.Activity::text)
                 .containsExactly("Searched reports for “deletion vector” · 1 report", "Saved 1 candidate · 0 to reproduce");
         assertThat(call(bridge, "repository_context_spec_candidates", "{\"candidates\":[{\"predicted\":\"MAYBE\",\"title\":\"t\",\"rule\":\"r\","
                 + "\"specUrl\":\"" + SPEC + "\",\"code\":[\"a:1\"],\"reasoning\":\"r\",\"severity\":1}]}").path("error").path("message").textValue())
                 .startsWith("predicted: use DIVERGES");
+    }
+
+    @Test
+    void theReadToolGivesTheBriefAndReadsSpecPagesByAddress()
+            throws Exception
+    {
+        store.save(Optional.empty(), build(Optional.empty()));
+        ReviewBridge bridge = bridge();
+        when(documents.readPage(SPEC, Optional.empty(), 1, Optional.of("checkpoints"))).thenReturn(new SelectedDocumentationReader.Page(SPEC, "capture-1",
+                "sha256:" + "c".repeat(64), Instant.EPOCH, 2, 3, "Checkpoints MUST contain", false, false, false, ImmutableList.of("Opened at #checkpoints"),
+                ImmutableList.of(new SelectedDocumentationReader.Heading("checkpoints", "Checkpoints", 2))));
+        when(documents.readPage("https://example.com/missing", Optional.empty(), 1, Optional.empty())).thenThrow(new IllegalArgumentException("Not found"));
+
+        JsonNode selection = call(bridge, "repository_context_read", "{\"kind\":\"SELECTION\"}");
+        JsonNode page = call(bridge, "repository_context_read", "{\"kind\":\"PAGE\",\"url\":\"" + SPEC + "#checkpoints\"}");
+        JsonNode missing = call(bridge, "repository_context_read", "{\"kind\":\"PAGE\",\"url\":\"https://example.com/missing\"}");
+
+        assertThat(selection.path("check").path("directory").textValue()).isEqualTo("plugin/x/");
+        assertThat(selection.path("baselineSha").textValue()).isEqualTo(SHA);
+        assertThat(page.path("source").textValue()).isEqualTo("Checkpoints MUST contain");
+        assertThat(page.path("untrusted").booleanValue()).isTrue();
+        assertThat(page.path("page").intValue()).isEqualTo(2);
+        assertThat(page.path("outline").get(0).path("anchor").textValue()).isEqualTo("checkpoints");
+        assertThat(page.path("gaps").toString()).contains("read covers page 2/3 only");
+        assertThat(missing.path("error").path("message").textValue()).isEqualTo("Not found");
+        assertThat(current().capture().attempts()).containsEntry("page:" + SPEC, "capture-1").doesNotContainKey("page:https://example.com/missing");
+        assertThat(current().capture().gaps()).containsExactly("Page https://example.com/missing could not be read: Not found");
+        assertThat(current().capture().activity()).extracting(ContextBuild.Activity::text, ContextBuild.Activity::tone).containsExactly(
+                tuple("Opened " + SPEC + "#checkpoints", ContextBuild.Activity.Tone.DONE),
+                tuple("Couldn’t read https://example.com/missing · Not found", ContextBuild.Activity.Tone.FAILED));
+        assertThat(call(bridge, "repository_context_read", "{\"kind\":\"FILE\"}").path("error").path("message").textValue()).isEqualTo("kind: use SELECTION or PAGE");
     }
 
     @Test
@@ -141,7 +173,7 @@ class TestContextSpecCheckTools
 
         assertThat(recorded.path("status").textValue()).isEqualTo("CONFIRMED");
         assertThat(recorded.path("exitCode").intValue()).isEqualTo(1);
-        assertThat(current().capture().attempts()).containsEntry(ContextRun.CHECKED, "CONFIRMED");
+        assertThat(current().capture().attempts()).containsEntry(ContextBuildService.CHECKED, "CONFIRMED");
         assertThat(current().capture().activity()).extracting(ContextBuild.Activity::text).containsExactly("Confirmed · Removes keyed by path · exit 1");
         assertThat(call(bridge, "repository_context_spec_result", "{\"outcome\":\"MAYBE\",\"reason\":\"r\"}").path("error").path("message").textValue())
                 .startsWith("outcome: use CONFIRMED");
@@ -149,11 +181,7 @@ class TestContextSpecCheckTools
 
     private ReviewBridge bridge()
     {
-        ContextBuildTools learning = new ContextBuildTools(store, service, tasks, mock(WorkspaceRepositoryService.class),
-                mock(RepositoryContextService.class), mock(ContextBaselineReader.class), mock(SelectedDocumentationReader.class), mock(ContextPageCaptures.class),
-                mock(ContextHistoryReader.class), mock(RepositoryContextPreparation.class), unitOfWork, mapper, mock(ContextLearningService.class),
-                mock(ContextNotebookLookup.class), mock(ContextMergedCandidateService.class), CLOCK);
-        return new ContextSpecCheckTools(store, service, learning, checks, tasks, unitOfWork, mapper, CLOCK).bridge(TASK.toString()).orElseThrow();
+        return new ContextSpecCheckTools(store, service, checks, documents, tasks, unitOfWork, mapper, CLOCK).bridge(TASK.toString()).orElseThrow();
     }
 
     private JsonNode call(ReviewBridge bridge, String tool, String arguments)
@@ -170,8 +198,7 @@ class TestContextSpecCheckTools
     private static ContextBuild build(Optional<ContextBuild.Reproduction> reproduction)
     {
         return new ContextBuild(1, "check-request", "sha256:" + "b".repeat(64), WORKSPACE, TASK.toString(), new RepositoryIdentity("owner", "repository"), 1,
-                RepoRef.of("owner", "repository"), SHA, "bytequay/check", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
-                ImmutableList.of("project"), ImmutableList.of(), ImmutableList.of(), 0, Instant.EPOCH, ContextBuild.Capture.empty(), ContextBuild.Mode.CHECK,
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(new ContextBuild.Check("check-1", "Delta Lake connector", reproduction, "brief")));
+                RepoRef.of("owner", "repository"), SHA, "bytequay/check", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH,
+                ContextBuild.Capture.empty(), new ContextBuild.Check("check-1", "plugin/x/", reproduction, "brief"));
     }
 }

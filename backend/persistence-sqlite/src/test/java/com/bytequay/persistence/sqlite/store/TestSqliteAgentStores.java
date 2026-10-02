@@ -74,8 +74,6 @@ import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
-import com.bytequay.core.context.ContextUsageEvent;
-import com.bytequay.core.context.DevelopmentContextReceipt;
 import com.bytequay.core.domain.PullRequestTask;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -120,12 +118,6 @@ class TestSqliteAgentStores
 
     @Autowired
     private SqlitePullRequestTaskStore pullRequestTasks;
-
-    @Autowired
-    private SqliteContextUsageStore usageStore;
-
-    @Autowired
-    private SqliteDevelopmentContextReceiptStore contextReceipts;
 
     @Autowired
     private SqliteAgentTurnStore turnStore;
@@ -834,12 +826,6 @@ class TestSqliteAgentStores
         AgentTask other = newTask(now);
         taskStore.insert(other);
         launchStore.insert(new AgentProcessLaunch("launch-other", LaunchOwnerKind.APP_SERVER, other.id().toString(), true, "/usr/bin/codex", "digest", now));
-        usageStore.record(new ContextUsageEvent("workspace-a", task.id().toString(), Optional.of(turn.id().toString()), Optional.empty(),
-                ContextUsageEvent.TaskKind.DEVELOPMENT, ContextUsageEvent.Stage.ELIGIBLE, ContextUsageEvent.Delivery.CONFIRMED,
-                "context-eligible:" + turn.id(), Optional.empty(), Optional.empty(), Optional.of(true), now));
-        DevelopmentContextReceipt receipt = new DevelopmentContextReceipt(task.id().toString(), turn.id().toString(), "search:one",
-                "context-search:one", DevelopmentContextReceipt.Kind.SEARCH, "request", "{\"hits\":[]}", "payload", now);
-        contextReceipts.insert(receipt);
         entityManager.clear();
         PullRequestTask assignment = new PullRequestTask(task.id().toString(), "workspace", "Owner/Repo", 7, "Load PR context");
         pullRequestTasks.insert(assignment);
@@ -864,12 +850,11 @@ class TestSqliteAgentStores
         assertThat(taskStore.find(task.id())).isEmpty();
         assertThat(pullRequestTasks.findByTaskId(task.id().toString())).isEmpty();
         assertThat(turnStore.find(turn.id())).isEmpty();
-        for (String table : ImmutableList.of("agent_turn", "agent_queued_input", "agent_input_delivery", "agent_event_outbox", "context_usage_fact")) {
+        for (String table : ImmutableList.of("agent_turn", "agent_queued_input", "agent_input_delivery", "agent_event_outbox")) {
             assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE task_id = ?", Integer.class, task.id().toString()))
                     .as(table).isZero();
         }
         assertThat(launchStore.list()).extracting(AgentProcessLaunch::launchId).containsExactly("launch-other");
-        assertThat(contextReceipts.find(task.id().toString(), turn.id().toString(), "search:one")).isEmpty();
         assertThat(taskStore.find(other.id())).isPresent();
 
         taskStore.delete(task.id());

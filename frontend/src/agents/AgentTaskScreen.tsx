@@ -47,7 +47,6 @@ providerAvailable,
 providerRemedy,
 remedyCommand
 } from '../settings/model';
-import { TaskContextNotes } from '../repository-context/ContextCards';
 import { settingsRoute } from '../settings/routes';
 import type {
 AgentApprovalDecision,
@@ -79,7 +78,6 @@ import AgentReviewTab, { type ReviewNavigationTarget } from '../pulls/agent-revi
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import { workspaceReviewTaskRoute } from '../workspaces/model';
 import DevelopmentLearningPanel from './DevelopmentLearningPanel';
-import DevelopmentContextActivityPanel from './DevelopmentContextActivityPanel';
 import LocalReviewThreadCard from '../pulls/local-review/LocalReviewThreadCard';
 import { IssueAttachment } from './IssueAttachment';
 import type { ReviewCardFocus, ReviewRequestTarget } from './ReviewRequestCard';
@@ -1067,7 +1065,7 @@ export function AgentTaskBody({
   headerAction,
   attentionStatus,
   submissionBlocked = false,
-  onAskAgent, onAskAgentDisabled, localReview, learning, contextActivity, contextNotes, reviewFocus, onOpenReview,
+  onAskAgent, onAskAgentDisabled, localReview, learning, reviewFocus, onOpenReview,
 }: {
   state: AgentTaskState;
   automation?: React.ReactNode;
@@ -1086,9 +1084,6 @@ export function AgentTaskBody({
   onHoverDiscussion?: (discussionId: string | null) => void;
   /** Renders the Summary; a development task's reviewer comes with it, so it can sit in the Summary's own strip and timeline. */
   learning?: React.ReactNode | ((onSelectCommit: (sha: string) => void, review?: TaskReviewOptions) => React.ReactNode);
-  contextActivity?: React.ReactNode;
-  /** Repository context notes this task saved, after its transcript. */
-  contextNotes?: React.ReactNode;
   reviewFocus?: ReviewCardFocus | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
   models: ModelOptionDto[];
@@ -1370,7 +1365,6 @@ export function AgentTaskBody({
         </div>
       )}
       {state.notice !== null && <div className="agt-notice" role="alert">{state.notice}</div>}
-      {contextActivity}
 
       <AgentConversation
         turns={turns} repository={repository} durableTurns={state.turns} models={models} now={now} scroll={scroll}
@@ -1382,7 +1376,6 @@ export function AgentTaskBody({
         previews={previews} agentLabels={agentLabels} pendingApprovals={pendingApprovals ?? []}
         onToggleTurn={onToggleTurn} onToggleActivity={onToggleActivity} onDecide={onDecide} onOpenAgent={onOpenAgent}
         transcriptFooter={<>
-          {contextNotes}
           {working.length > 0 && (
             <div className="agt-barrier">
               {working.length === 1 ? '1 subagent is still working' : `${working.length} subagents are still working`}
@@ -2631,13 +2624,6 @@ export default function AgentTaskScreen({
         refreshKey={state.lifecycleEpoch} refining={state.task?.developmentContinuationUnfinished === true && state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY'}
         disabledReason={taskCommentDisabled}
         localReview={localReview} bridge={live()} />}
-      contextActivity={state.task?.interactive && state.task.localReviewHead == null && live().getAgentTaskRepositoryContext
-        ? <DevelopmentContextActivityPanel taskId={taskId} workspaceId={workspaceId} bridge={live() as Required<Pick<AgentBridgePort, 'getAgentTaskRepositoryContext'>>}
-          refreshKey={`${state.lifecycleEpoch}:${state.events.filter(event => event.type === 'tool' && event.payload.state === 'COMPLETED'
-            && event.payload.summary.startsWith('context-receipt:')).at(-1)?.sequence ?? 0}`} /> : undefined}
-      contextNotes={state.task?.interactive && state.task.localReviewHead == null
-        ? <TaskContextNotes taskId={taskId} workspaceId={workspaceId} refreshKey={`${state.lifecycleEpoch}:${state.events.filter(event => event.type === 'tool'
-          && event.payload.state === 'COMPLETED' && event.payload.name.endsWith('repository_context_lookup')).length}`} /> : undefined}
       automation={automationEligible && automationSelection !== null ? <AutomationControl value={automationSelection} providers={automationProviders} disabled />
         : automationEligible ? <span className="agt-meta">Loading automation settings…</span> : undefined}
       historyLoading={historyLoading}

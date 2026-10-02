@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Toast from '../Toast';
 import { anchorPanel } from '../ReferenceCard';
@@ -63,8 +63,6 @@ type Props = {
   goal?: (item: AttentionItem) => GoalToggle | null;
   /** Whether Jira is connected; without it there is no Jira tab unless a Jira card is listed anyway. */
   jiraConnected?: boolean;
-  /** A row that is not an attention item, shown first under All: a workspace's Repository context source proposals waiting review. */
-  lead?: ReactNode;
 };
 
 /** A card's place in a pinned goal, and the change that flips it. */
@@ -74,7 +72,7 @@ type Anchored = { item: AttentionItem; anchor: DOMRect };
 type ToastState = { id: number; text: string; key: string };
 
 export default function AttentionList({
-  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home', scope, goal, jiraConnected = false, lead,
+  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home', scope, goal, jiraConnected = false,
 }: Props) {
   const [filter, setFilter] = useState<AttentionFilter>('all');
   const [onlyTeam, setOnlyTeam] = useState(false);
@@ -138,7 +136,6 @@ export default function AttentionList({
     setToast(null);
   }
 
-  const leading = filter === 'all' && !onlyTeam ? lead ?? null : null;
   const startable = (item: AttentionItem) => item.type === 'issue' && item.canStartDevelopment !== false && onStartIssue !== undefined && item.issueState !== 'closed'
     && (item.jira === undefined || item.jira.status.category !== 'done' && item.jira.task === null);
 
@@ -165,9 +162,8 @@ export default function AttentionList({
         </div>
       </div>
 
-      {cards.length > 0 || leading !== null ? (
+      {cards.length > 0 ? (
         <div className="item-list" role="list">
-          {leading}
           {cards.map(item => {
             const membership = item.issueState === 'closed' ? null : goal?.(item) ?? null;
             const match = teamAttentionMatch(item, circles, viewerLogin);

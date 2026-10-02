@@ -600,25 +600,21 @@ function joinClauses(parts: string[]): string {
   return `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
 }
 
-type ActivityCounts = { reads: number; searches: number; listings: number; commands: number; edits: number; web: number; notes: number; tools: number };
+type ActivityCounts = { reads: number; searches: number; listings: number; commands: number; edits: number; web: number; tools: number };
 
 /** Codex reports every web step as a Web search; Claude names its web tools. */
 const WEB_TOOLS = new Set(['Web search', 'WebSearch', 'WebFetch']);
 
-/** How ByteQuay's context tools describe a note search, listing or read. */
-const NOTE_LOOKUP = /^(Searched notes|Listed notes|Read note)\b/;
-
 function activityCounts(members: ActivityMember[]): ActivityCounts {
   const readPaths = new Set<string>();
   const editPaths = new Set<string>();
-  const counts: ActivityCounts = { reads: 0, searches: 0, listings: 0, commands: 0, edits: 0, web: 0, notes: 0, tools: 0 };
+  const counts: ActivityCounts = { reads: 0, searches: 0, listings: 0, commands: 0, edits: 0, web: 0, tools: 0 };
   for (const member of members) {
     if (member.kind === 'file') {
       editPaths.add(member.path);
     }
     else if (member.kind === 'tool') {
       if (WEB_TOOLS.has(member.name)) counts.web++;
-      else if (member.description !== null && NOTE_LOOKUP.test(member.description)) counts.notes++;
       else counts.tools++;
     }
     else {
@@ -649,7 +645,6 @@ export function activitySummary(members: ActivityMember[]): string {
   if (counts.commands > 0) parts.push(`ran ${count(counts.commands, 'command')}`);
   if (counts.edits > 0) parts.push(`edited ${count(counts.edits, 'file')}`);
   if (counts.web > 0) parts.push(`searched the web ${count(counts.web, 'time')}`);
-  if (counts.notes > 0) parts.push(`looked up notes ${count(counts.notes, 'time')}`);
   if (counts.tools > 0) parts.push(`used ${count(counts.tools, 'tool')}`);
   if (parts.length === 0) return 'Did nothing visible';
   const sentence = joinClauses(parts);

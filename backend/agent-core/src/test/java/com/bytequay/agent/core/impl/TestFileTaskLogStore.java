@@ -104,9 +104,9 @@ class TestFileTaskLogStore
                 new AgentEventPayload.ToolActivity(
                         "bytequay/review_get_context",
                         ActivityState.COMPLETED,
-                        "context-receipt:context-search:" + "a".repeat(64),
+                        "TableSnapshot.java",
                         Optional.of(12L),
-                        Optional.of("Searched notes for “checkpoint” · 3 notes")),
+                        Optional.of("Read diff · TableSnapshot.java")),
                 new AgentEventPayload.CommandActivity(
                         ActivityState.COMPLETED,
                         ImmutableList.of("git", "status"),

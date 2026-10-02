@@ -13,34 +13,28 @@
  */
 package com.bytequay.app.context;
 
-import com.bytequay.core.context.ContextScope;
-import com.bytequay.core.context.RegisteredContextSource;
-import com.bytequay.core.context.RepositoryNotebook;
 import com.google.common.base.Ticker;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 
-import static com.bytequay.core.context.ContextEntryOrigin.USER;
 import static com.bytequay.core.context.ContextLimits.bytes;
-import static com.bytequay.core.context.RegisteredContextSource.Kind.DOCUMENTATION_ROOT;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -49,15 +43,12 @@ import static org.mockito.Mockito.when;
 
 class TestSelectedDocumentationReader
 {
-    private static final String WORKSPACE = "workspace-1";
-    private static final RegisteredContextSource SOURCE = new RegisteredContextSource("docs", DOCUMENTATION_ROOT, "https://docs.example.com/current/", USER, Optional.empty());
-    private static final Optional<String> RELATIVE_PAGE = Optional.of("concepts.html");
+    private static final String URL = "https://iceberg.apache.org/spec/";
     private static final Instant READ_AT = Instant.parse("2026-01-01T00:00:00Z");
 
-    private final RepositoryContextService notebooks = mock(RepositoryContextService.class);
     private final DocumentationHttpReader http = mock(DocumentationHttpReader.class);
     private final AtomicLong nanos = new AtomicLong();
-    private final SelectedDocumentationReader reader = new SelectedDocumentationReader(notebooks, http, new Ticker()
+    private final SelectedDocumentationReader reader = new SelectedDocumentationReader(http, new Ticker()
     {
         @Override
         public long read()
@@ -69,51 +60,34 @@ class TestSelectedDocumentationReader
     @BeforeEach
     void setUp()
     {
-        when(notebooks.getNotebook(WORKSPACE)).thenReturn(notebook(SOURCE));
-        when(http.read(SOURCE, RELATIVE_PAGE)).thenReturn(capture("Captured concepts"));
+        when(http.read(any(), any())).thenReturn(capture("Captured concepts"));
     }
 
     @Test
-    void listingDoesNotFetchAndRepeatedReadsReuseCapturedObservation()
+    void aFirstReadFetchesAndContinuationReusesItsCapture()
     {
-        assertThat(reader.notebook(WORKSPACE).sources()).containsExactly(SOURCE);
-        verifyNoInteractions(http);
-        SelectedDocumentationReader.Page first = first(false);
-        SelectedDocumentationReader.Page reused = first(false);
+        SelectedDocumentationReader.Page first = first();
+        SelectedDocumentationReader.Page reused = read(first.captureId(), 1);
         assertThat(first.cacheHit()).isFalse();
         assertThat(reused.cacheHit()).isTrue();
         assertThat(reused.captureId()).isEqualTo(first.captureId());
         assertThat(reused.readAt()).isEqualTo(READ_AT);
         assertThat(reused.contentHash()).isEqualTo(first.contentHash());
         assertThat(reused.gaps()).anyMatch(gap -> gap.contains("unverified"));
-        verify(http).read(SOURCE, RELATIVE_PAGE);
-    }
+        verify(http).read(any(), any());
 
-    @Test
-    void linksRemainAttachedToTheSameCaptureAcrossTextPages()
-    {
-        String text = "a".repeat(SelectedDocumentationReader.PAGE_BYTES + 1);
-        DocumentationHttpReader.Link link = new DocumentationHttpReader.Link(SOURCE.url() + "next.html", Optional.of("next.html"));
-        when(http.read(SOURCE, RELATIVE_PAGE)).thenReturn(new DocumentationHttpReader.Read(
-                SOURCE.url() + RELATIVE_PAGE.orElseThrow(), text, Hashing.sha256().hashString(text, UTF_8).toString(), READ_AT, false,
-                List.of(), List.of(link), List.of("https://other.example.com/"), true, ImmutableMap.of()));
-
-        SelectedDocumentationReader.Page first = first(false);
-        SelectedDocumentationReader.Page second = read(first.captureId(), 2);
-
-        assertThat(first.links()).containsExactly(link);
-        assertThat(second.links()).containsExactly(link);
-        assertThat(second.suggestedExpansionUrls()).containsExactly("https://other.example.com/");
-        assertThat(second.linksTruncated()).isTrue();
-        verify(http).read(SOURCE, RELATIVE_PAGE);
+        SelectedDocumentationReader.Page fresh = first();
+        assertThat(fresh.captureId()).isNotEqualTo(first.captureId());
+        assertThatThrownBy(() -> read(first.captureId(), 1)).isInstanceOf(ResponseStatusException.class).hasMessageContaining("409");
+        verify(http, times(2)).read(argThat(source -> source.url().equals(URL)), any());
     }
 
     @Test
     void unicodePagesReconstructExactTextAndContinuationDoesNotFetch()
     {
         String text = "a".repeat(SelectedDocumentationReader.PAGE_BYTES - 1) + "😀世界".repeat(2000);
-        when(http.read(SOURCE, RELATIVE_PAGE)).thenReturn(capture(text));
-        SelectedDocumentationReader.Page first = first(false);
+        when(http.read(any(), any())).thenReturn(capture(text));
+        SelectedDocumentationReader.Page first = first();
         StringBuilder reconstructed = new StringBuilder(first.excerpt());
         for (int page = 2; page <= first.totalPages(); page++) {
             SelectedDocumentationReader.Page next = read(first.captureId(), page);
@@ -124,190 +98,99 @@ class TestSelectedDocumentationReader
         }
         assertThat(first.excerpt()).isEqualTo("a".repeat(SelectedDocumentationReader.PAGE_BYTES - 1));
         assertThat(reconstructed.toString()).isEqualTo(text);
-        verify(http).read(SOURCE, RELATIVE_PAGE);
+        verify(http).read(any(), any());
     }
 
     @Test
-    void successfulEmptyTextDiffersFromFailedCapture()
+    void aFailedReadFallsBackToTheEarlierCaptureAndSaysSo()
     {
-        when(http.read(SOURCE, RELATIVE_PAGE)).thenReturn(capture(""));
-        SelectedDocumentationReader.Page empty = first(false);
-        assertThat(empty.totalPages()).isEqualTo(1);
-        assertThat(empty.excerpt()).isEmpty();
-        assertThat(empty.refreshFailed()).isFalse();
-        when(http.read(SOURCE, RELATIVE_PAGE)).thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Unavailable"));
-        assertThat(first(true).refreshFailed()).isTrue();
-    }
+        when(http.read(any(), any())).thenReturn(capture(""));
+        SelectedDocumentationReader.Page original = first();
+        assertThat(original.totalPages()).isEqualTo(1);
+        assertThat(original.excerpt()).isEmpty();
+        assertThat(original.refreshFailed()).isFalse();
+        doThrow(new ResponseStatusException(HttpStatus.GATEWAY_TIMEOUT, "Timed out")).when(http).read(any(), any());
 
-    @Test
-    void refreshReplacesReceiptAndFailedRefreshPreservesOriginalObservation()
-    {
-        SelectedDocumentationReader.Page original = first(false);
-        when(http.read(SOURCE, RELATIVE_PAGE)).thenThrow(new ResponseStatusException(HttpStatus.GATEWAY_TIMEOUT, "Timed out"));
-        SelectedDocumentationReader.Page fallback = first(true);
+        SelectedDocumentationReader.Page fallback = first();
         assertThat(fallback.captureId()).isEqualTo(original.captureId());
-        assertThat(fallback.excerpt()).isEqualTo(original.excerpt());
         assertThat(fallback.readAt()).isEqualTo(READ_AT);
         assertThat(fallback.refreshFailed()).isTrue();
         assertThat(fallback.cacheHit()).isTrue();
         assertThat(fallback.gaps()).anyMatch(gap -> gap.contains("refresh failed"));
-
-        doReturn(capture("Changed concepts")).when(http).read(SOURCE, RELATIVE_PAGE);
-        SelectedDocumentationReader.Page refreshed = first(true);
-        assertThat(refreshed.captureId()).isNotEqualTo(original.captureId());
-        assertThat(refreshed.excerpt()).isEqualTo("Changed concepts");
-        assertThat(refreshed.cacheHit()).isFalse();
-        assertThatThrownBy(() -> read(original.captureId(), 1)).isInstanceOf(ResponseStatusException.class).hasMessageContaining("409");
-        verify(http, times(3)).read(SOURCE, RELATIVE_PAGE);
     }
 
     @Test
     void failedMissIsNotCachedAsEmpty()
     {
-        when(http.read(SOURCE, RELATIVE_PAGE)).thenThrow(new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported format"));
-        assertThatThrownBy(() -> first(false)).isInstanceOf(ResponseStatusException.class).hasMessageContaining("415");
-        doReturn(capture("Recovered document")).when(http).read(SOURCE, RELATIVE_PAGE);
-        assertThat(first(false).excerpt()).isEqualTo("Recovered document");
-        verify(http, times(2)).read(SOURCE, RELATIVE_PAGE);
+        doThrow(new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported format")).when(http).read(any(), any());
+        assertThatThrownBy(this::first).isInstanceOf(ResponseStatusException.class).hasMessageContaining("415");
+        doReturn(capture("Recovered document")).when(http).read(any(), any());
+        assertThat(first().excerpt()).isEqualTo("Recovered document");
+        verify(http, times(2)).read(any(), any());
     }
 
     @Test
-    void expiryAndRestartRequireNewReadInsteadOfSilentRefetch()
+    void expiryAndRestartRequireANewFirstRead()
     {
-        SelectedDocumentationReader.Page captured = first(false);
+        SelectedDocumentationReader.Page captured = first();
         nanos.set(Duration.ofMinutes(10).toNanos());
         assertThatThrownBy(() -> read(captured.captureId(), 1)).isInstanceOf(ResponseStatusException.class).hasMessageContaining("409");
-        SelectedDocumentationReader restarted = new SelectedDocumentationReader(notebooks, http);
-        assertThatThrownBy(() -> restarted.read(WORKSPACE, SOURCE.id(), RELATIVE_PAGE, Optional.of(captured.captureId()), 1, false))
+        SelectedDocumentationReader restarted = new SelectedDocumentationReader(http);
+        assertThatThrownBy(() -> restarted.readPage(URL, Optional.of(captured.captureId()), 1, Optional.empty()))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("409");
-        verify(http).read(SOURCE, RELATIVE_PAGE);
-        assertThat(first(false).captureId()).isNotEqualTo(captured.captureId());
-        verify(http, times(2)).read(SOURCE, RELATIVE_PAGE);
+        verify(http).read(any(), any());
     }
 
     @Test
-    void captureIsBoundToWorkspaceAndSelectedPage()
+    void aCaptureBelongsToItsPage()
     {
-        SelectedDocumentationReader.Page captured = first(false);
-        when(notebooks.getNotebook("workspace-2")).thenReturn(notebook(SOURCE));
-        assertThatThrownBy(() -> reader.read("workspace-2", SOURCE.id(), RELATIVE_PAGE, Optional.of(captured.captureId()), 1, false))
+        SelectedDocumentationReader.Page captured = first();
+        assertThatThrownBy(() -> reader.readPage("https://iceberg.apache.org/view-spec/", Optional.of(captured.captureId()), 1, Optional.empty()))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("409");
-        assertThatThrownBy(() -> reader.read(WORKSPACE, SOURCE.id(), Optional.of("other.html"), Optional.of(captured.captureId()), 1, false))
-                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("409");
-        verify(http).read(SOURCE, RELATIVE_PAGE);
-    }
-
-    @Test
-    void reconfiguredSourceCannotUseEarlierCapture()
-    {
-        SelectedDocumentationReader.Page captured = first(false);
-        RegisteredContextSource changed = new RegisteredContextSource(SOURCE.id(), DOCUMENTATION_ROOT, "https://docs.example.com/older/", USER, Optional.empty());
-        when(notebooks.getNotebook(WORKSPACE)).thenReturn(notebook(changed));
-        assertThatThrownBy(() -> read(captured.captureId(), 1)).isInstanceOf(ResponseStatusException.class).hasMessageContaining("409");
-        verify(http).read(SOURCE, RELATIVE_PAGE);
-    }
-
-    @Test
-    void sourceRemovalDuringFetchRejectsResultWithoutCaching()
-    {
-        when(http.read(SOURCE, RELATIVE_PAGE)).thenAnswer(_ -> {
-            when(notebooks.getNotebook(WORKSPACE)).thenReturn(RepositoryNotebook.empty());
-            return capture("Now revoked source");
-        });
-        assertThatThrownBy(() -> first(false)).isInstanceOf(ResponseStatusException.class).hasMessageContaining("409");
-        when(notebooks.getNotebook(WORKSPACE)).thenReturn(notebook(SOURCE));
-        doReturn(capture("New observation")).when(http).read(SOURCE, RELATIVE_PAGE);
-        assertThat(first(false).excerpt()).isEqualTo("New observation");
-        verify(http, times(2)).read(SOURCE, RELATIVE_PAGE);
-    }
-
-    @Test
-    void unknownSourceDoesNotFetch()
-    {
-        assertThatThrownBy(() -> reader.read(WORKSPACE, "unknown", RELATIVE_PAGE, Optional.empty(), 1, false)).isInstanceOf(IllegalArgumentException.class);
-        verifyNoInteractions(http);
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"https://other.example.com/", "//other.example.com/", "../outside.html", "page.html?token=secret", "page%2Fother.html"})
-    void escapedSelectorsAreRejectedBeforeFetch(String relative)
-    {
-        assertThatThrownBy(() -> reader.read(WORKSPACE, SOURCE.id(), Optional.of(relative), Optional.empty(), 1, false)).isInstanceOf(IllegalArgumentException.class);
-        verifyNoInteractions(http);
+        verify(http).read(any(), any());
     }
 
     @Test
     void invalidPaginationCannotStartRemoteWork()
     {
-        assertThatThrownBy(() -> reader.read(WORKSPACE, SOURCE.id(), RELATIVE_PAGE, Optional.empty(), 2, false)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> reader.read(WORKSPACE, SOURCE.id(), RELATIVE_PAGE, Optional.empty(), 0, false)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> reader.read(WORKSPACE, SOURCE.id(), RELATIVE_PAGE, Optional.of("invalid"), 1, false)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> reader.read(WORKSPACE, SOURCE.id(), RELATIVE_PAGE, Optional.of("invalid"), 1, true)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> reader.readPage(URL, Optional.empty(), 2, Optional.empty())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> reader.readPage(URL, Optional.empty(), 0, Optional.empty())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> reader.readPage(URL, Optional.of("invalid"), 1, Optional.empty())).isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(http);
-        SelectedDocumentationReader.Page captured = first(false);
+        SelectedDocumentationReader.Page captured = first();
         assertThatThrownBy(() -> read(captured.captureId(), Integer.MAX_VALUE)).isInstanceOf(IllegalArgumentException.class);
-        verify(http).read(SOURCE, RELATIVE_PAGE);
-    }
-
-    @Test
-    void aPageReadByItsAddressNeedsNoRegistrationAndContinuesFromItsCapture()
-    {
-        RegisteredContextSource page = SelectedDocumentationReader.page("https://iceberg.apache.org/spec/");
-        String text = "a".repeat(SelectedDocumentationReader.PAGE_BYTES + 1);
-        when(http.read(page, Optional.empty())).thenReturn(new DocumentationHttpReader.Read(page.url(), text, Hashing.sha256().hashString(text, UTF_8).toString(),
-                READ_AT, false, ImmutableList.of()));
-
-        SelectedDocumentationReader.Page first = reader.readPage(WORKSPACE, page, Optional.empty(), 1, Optional.empty());
-        assertThat(first.source()).isEqualTo(page);
-        assertThat(first.totalPages()).isEqualTo(2);
-        assertThat(reader.readPage(WORKSPACE, page, Optional.of(first.captureId()), 2, Optional.empty()).excerpt()).isEqualTo("a");
-        assertThat(SelectedDocumentationReader.readByAddress(page)).isTrue();
-        assertThat(SelectedDocumentationReader.readByAddress(SOURCE)).isFalse();
-        assertThatThrownBy(() -> reader.readPage(WORKSPACE, SOURCE, Optional.empty(), 1, Optional.empty())).isInstanceOf(IllegalArgumentException.class);
-        verify(http).read(page, Optional.empty());
+        verify(http).read(any(), any());
     }
 
     @Test
     void cacheHasBoundedCapacity()
     {
-        when(http.read(any(), any())).thenReturn(capture("Bounded capture"));
-        SelectedDocumentationReader.Page oldest = first(false);
+        SelectedDocumentationReader.Page oldest = first();
         for (int index = 0; index < 32; index++) {
-            reader.read(WORKSPACE, SOURCE.id(), Optional.of("page-" + index + ".html"), Optional.empty(), 1, false);
+            reader.readPage("https://docs.example.com/page-" + index + ".html", Optional.empty(), 1, Optional.empty());
         }
         assertThatThrownBy(() -> read(oldest.captureId(), 1)).isInstanceOf(ResponseStatusException.class).hasMessageContaining("409");
         verify(http, times(33)).read(any(), any());
     }
 
-    private SelectedDocumentationReader.Page first(boolean refresh)
-    {
-        return reader.read(WORKSPACE, SOURCE.id(), RELATIVE_PAGE, Optional.empty(), 1, refresh);
-    }
-
-    private SelectedDocumentationReader.Page read(String captureId, int page)
-    {
-        return reader.read(WORKSPACE, SOURCE.id(), RELATIVE_PAGE, Optional.of(captureId), page, false);
-    }
-
     @Test
     void aLinksSectionOrLineOpensThePageHoldingItAndContinuesFromThere()
     {
-        RegisteredContextSource page = SelectedDocumentationReader.page("https://iceberg.apache.org/spec/");
         String contents = "Partitioning\n" + "a".repeat(SelectedDocumentationReader.PAGE_BYTES);
         String text = contents + "\nPartitioning\nPartition specs describe how\n" + "b".repeat(SelectedDocumentationReader.PAGE_BYTES);
         int heading = contents.length() + 1;
-        when(http.read(page, Optional.empty())).thenReturn(new DocumentationHttpReader.Read(page.url(), text, Hashing.sha256().hashString(text, UTF_8).toString(),
+        when(http.read(any(), any())).thenReturn(new DocumentationHttpReader.Read(URL, text, Hashing.sha256().hashString(text, UTF_8).toString(),
                 READ_AT, false, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), false, ImmutableMap.of("partitioning", heading)));
 
-        SelectedDocumentationReader.Page section = reader.readPage(WORKSPACE, page, Optional.empty(), 1, Optional.of("partitioning"));
+        SelectedDocumentationReader.Page section = reader.readPage(URL, Optional.empty(), 1, Optional.of("partitioning"));
         assertThat(section.page()).isEqualTo(2);
         assertThat(section.totalPages()).isEqualTo(3);
         assertThat(section.excerpt()).contains("Partition specs describe how");
         assertThat(section.gaps()).contains("Opened at #partitioning on page 2 of 3; earlier pages hold what comes before it.");
-        assertThat(reader.readPage(WORKSPACE, page, Optional.of(section.captureId()), 3, Optional.empty()).excerpt()).endsWith("b");
+        assertThat(read(section.captureId(), 3).excerpt()).endsWith("b");
 
-        assertThat(reader.readPage(WORKSPACE, page, Optional.empty(), 1, Optional.of("L3")).page()).isEqualTo(2);
-        SelectedDocumentationReader.Page missing = reader.readPage(WORKSPACE, page, Optional.empty(), 1, Optional.of("appendix-z"));
+        assertThat(reader.readPage(URL, Optional.empty(), 1, Optional.of("L3")).page()).isEqualTo(2);
+        SelectedDocumentationReader.Page missing = reader.readPage(URL, Optional.empty(), 1, Optional.of("appendix-z"));
         assertThat(missing.page()).isEqualTo(1);
         assertThat(missing.gaps()).contains("No anchor, heading or line of the captured text matches #appendix-z; this is the first page.");
     }
@@ -315,45 +198,32 @@ class TestSelectedDocumentationReader
     @Test
     void aFirstReadReturnsTheHeadingsOfTheDocumentWithThePageEachStartsOn()
     {
-        RegisteredContextSource page = SelectedDocumentationReader.page("https://iceberg.apache.org/spec/");
         String contents = "Contents\nPartitioning\nManifests\n";
         String text = contents + "Partitioning 🔗\nPartition specs\n" + "a".repeat(SelectedDocumentationReader.PAGE_BYTES) + "\nManifests\nManifest files\n";
         int partitioning = contents.length();
         int manifests = text.indexOf("\nManifests\n", partitioning) + 1;
-        when(http.read(page, Optional.empty())).thenReturn(new DocumentationHttpReader.Read(page.url(), text, Hashing.sha256().hashString(text, UTF_8).toString(),
+        when(http.read(any(), any())).thenReturn(new DocumentationHttpReader.Read(URL, text, Hashing.sha256().hashString(text, UTF_8).toString(),
                 READ_AT, false, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), false,
                 ImmutableMap.of("toc", 0, "partitioning", partitioning, "manifests", manifests, "manifests-1", manifests)));
 
-        SelectedDocumentationReader.Page first = reader.readPage(WORKSPACE, page, Optional.empty(), 1, Optional.empty());
+        SelectedDocumentationReader.Page first = first();
         assertThat(first.outline()).containsExactly(new SelectedDocumentationReader.Heading("partitioning", "Partitioning", 1),
                 new SelectedDocumentationReader.Heading("manifests", "Manifests", 2), new SelectedDocumentationReader.Heading("manifests-1", "Manifests", 2));
-        assertThat(reader.readPage(WORKSPACE, page, Optional.of(first.captureId()), 2, Optional.empty()).outline()).isEmpty();
+        assertThat(read(first.captureId(), 2).outline()).isEmpty();
     }
 
-    @Test
-    void aCaptureHoldsAnEarlierExcerptWhereverItNowFalls()
+    private SelectedDocumentationReader.Page first()
     {
-        RegisteredContextSource page = SelectedDocumentationReader.page("https://iceberg.apache.org/spec/");
-        String text = "A new section added above.\n\nManifests\nReaders must ignore   entries\nwith status DELETED.\n";
-        when(http.read(page, Optional.empty())).thenReturn(new DocumentationHttpReader.Read(page.url(), text, Hashing.sha256().hashString(text, UTF_8).toString(),
-                READ_AT, false, ImmutableList.of()));
+        return reader.readPage(URL, Optional.empty(), 1, Optional.empty());
+    }
 
-        String captureId = reader.readPage(WORKSPACE, page, Optional.empty(), 1, Optional.empty()).captureId();
-
-        assertThat(reader.holds(captureId, "Manifests\nReaders must ignore entries with status DELETED.")).isTrue();
-        assertThat(reader.holds(captureId, "Readers must ignore entries with status EXISTING.")).isFalse();
-        assertThat(reader.holds("00000000-0000-0000-0000-000000000000", "Manifests")).isFalse();
+    private SelectedDocumentationReader.Page read(String captureId, int page)
+    {
+        return reader.readPage(URL, Optional.of(captureId), page, Optional.empty());
     }
 
     private static DocumentationHttpReader.Read capture(String text)
     {
-        return new DocumentationHttpReader.Read(SOURCE.url() + RELATIVE_PAGE.orElseThrow(), text, Hashing.sha256().hashString(text, UTF_8).toString(),
-                READ_AT, false, ImmutableList.of());
-    }
-
-    private static RepositoryNotebook notebook(RegisteredContextSource source)
-    {
-        return new RepositoryNotebook(1, 1, true, ImmutableList.of(source), ImmutableList.of(ContextScope.project()),
-                ImmutableList.of(), ImmutableList.of(), Optional.empty());
+        return new DocumentationHttpReader.Read(URL, text, Hashing.sha256().hashString(text, UTF_8).toString(), READ_AT, false, ImmutableList.of());
     }
 }

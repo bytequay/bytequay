@@ -14,7 +14,6 @@
 package com.bytequay.agent.cli.codex;
 
 import com.bytequay.agent.cli.development.DevelopmentResultTool;
-import com.bytequay.agent.cli.mcp.ContextReceiptRef;
 import com.bytequay.agent.cli.mcp.ToolActivityLine;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
@@ -258,10 +257,7 @@ final class CodexEventMapper
                     started,
                     source,
                     tool.durationMs(),
-                    !started && tool.server().equals("bytequay")
-                            && (tool.tool().equals("review_get_context") || tool.tool().equals("repository_context_lookup"))
-                            && tool.status() == CodexProtocol.ActivityStatus.COMPLETED && tool.error().isEmpty()
-                            ? tool.result().flatMap(ContextReceiptRef::fromResult).map(ContextReceiptRef.SUMMARY_PREFIX::concat) : Optional.empty(),
+                    Optional.empty(),
                     !started && tool.server().equals("bytequay") && tool.status() == CodexProtocol.ActivityStatus.COMPLETED && tool.error().isEmpty()
                             ? tool.result().flatMap(ToolActivityLine::fromResult) : Optional.empty()));
             case CodexProtocol.DynamicToolCallItem tool -> ImmutableList.of(tool(

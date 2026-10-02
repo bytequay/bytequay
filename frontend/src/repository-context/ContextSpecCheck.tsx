@@ -12,47 +12,66 @@
  * limitations under the License.
  */
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import type { ContextSpecCandidateDto, ContextSpecCheckDto, ContextSpecSourceDto } from './contracts';
-import { RunLine } from './ContextOverview';
+import { settingsRoute } from '../settings/routes';
+import { specCheckDirectory, type ContextSpecCandidateDto, type ContextSpecCheckDto, type ContextSpecSourceDto } from './contracts';
 import { Chevron, Icon } from './icons';
-import { activeCheck, CHECK_REPRODUCTIONS, checkActive, currentRun, plural, shortDate, shortSha } from './model';
-import type { ContextActions, ContextData } from './RepositoryContextPage';
-import {
-  CHECK_STATE, checkSummary, codeLink, DISMISS_REASONS, MAX_SPECS, openFindings, specAddress, topicCheck, TYPE_LABEL, TYPE_TONE,
-} from './specChecks';
+import { activeCheck, CHECK_REPRODUCTIONS, checkActive, checkProgress, plural, shortDate, shortSha } from './model';
+import type { SpecCheckActions, SpecCheckData } from './SpecChecksPage';
+import { CHECK_STATE, checkSummary, codeLink, DISMISS_REASONS, MAX_SPECS, openFindings, specAddress, TYPE_LABEL, TYPE_TONE } from './specChecks';
 
-/** One topic's spec check: what to check it against, and the report of its latest check. */
-export function SpecCheckDrawer({ data, actions, busy, topicId, onClose }: {
-  data: ContextData; actions: ContextActions; busy: boolean; topicId: string; onClose: () => void;
+/** What a button that starts a check starts and on which model, or why it cannot start. */
+export function RunLine({ children, blocked = false, workspaceId }: { children: ReactNode; blocked?: boolean; workspaceId: string }) {
+  return <div className={`rcp-runline${blocked ? ' is-blocked' : ''}`}><Icon name="bolt" size={12} className="rcp-bolt" />
+    <span>{children}{blocked && <> · <a href={settingsRoute('ws-agents', workspaceId)}>Workspace agent settings</a></>}</span></div>;
+}
+
+/** One directory's spec check: its latest report, and what a new check of it reads. Without a directory it asks for one first. */
+export function SpecCheckDrawer({ data, actions, busy, directory, onClose }: {
+  data: SpecCheckData; actions: SpecCheckActions; busy: boolean; directory: string | null; onClose: () => void;
 }) {
-  const plan = data.planView.plan;
-  const topic = plan?.topics.find(value => value.id === topicId) ?? null;
-  const check = plan === null ? null : topicCheck(data.checks, plan.id, topicId);
+  const [chosen, setChosen] = useState<string | null>(directory);
+  const check = chosen === null ? null : data.checks.find(value => value.directory === chosen) ?? null;
   const running = activeCheck(data.checks);
-  const run = currentRun(data.build);
+  const run = data.build.build;
   return <>
     <div className="rcp-drawer__head"><div className="rcp-drawer__top">
-      <span className="rcp-drawer__name">Spec check · {topic?.title ?? check?.topicTitle ?? 'Topic'}</span>
+      <span className="rcp-drawer__name">Spec check{chosen === null ? '' : ` · ${chosen}`}</span>
       {check !== null && <span className={`rcp-chip rcp-tone--${CHECK_STATE[check.state].tone}`}>{CHECK_STATE[check.state].label}</span>}
       <span className="rcp-spacer" />
       <button type="button" className="rcp-close" aria-label="Close" onClick={onClose}><Icon name="close" size={14} /></button>
     </div>
-      <div className="rcp-drawer__sub">Compares the topic’s code with the specifications it implements. Only a gap whose test fails is reported.</div></div>
+      <div className="rcp-drawer__sub">Compares a directory’s code with the specifications it implements. Only a gap whose test fails is reported.</div></div>
     <div className="rcp-drawer__body">
+      {chosen === null && <ChooseDirectory onChoose={setChosen} />}
       {check !== null && <Report data={data} actions={actions} busy={busy} check={check} />}
-      {topic !== null && running === null && <StartCheck key={topicId} data={data} actions={actions} busy={busy} topicId={topicId} previous={check} />}
-      {topic === null && check === null && <div className="rcp-empty">This topic is no longer in the learning plan.</div>}
+      {chosen !== null && running === null && <StartCheck key={chosen} data={data} actions={actions} busy={busy} directory={chosen} previous={check} />}
+      {chosen !== null && running !== null && running.id !== check?.id && <div className="rcp-note-caption">The check of {running.directory} is running.
+        A new check can start when it ends.</div>}
     </div>
-    {check !== null && check.id === running?.id && run?.check?.checkId === check.id && <div className="rcp-drawer__foot">
-      <button type="button" className="rcp-btn rcp-btn--danger" disabled={busy || data.build.build?.activeTurn?.cancellationRequestedAt != null}
-        onClick={() => void actions.stop(run)}>Stop check</button>
+    {check !== null && check.id === running?.id && run !== null && run.checkId === check.id && run.outcome === 'RUNNING' && <div className="rcp-drawer__foot">
+      <button type="button" className="rcp-btn rcp-btn--danger" disabled={busy || run.activeTurn?.cancellationRequestedAt != null}
+        onClick={() => actions.stop(run.taskId)}>Stop check</button>
     </div>}
   </>;
 }
 
-/** What a check reads: every page the topic's code links, among which it finds the specs itself, and the specs the user adds. */
-function StartCheck({ data, actions, busy, topicId, previous }: {
-  data: ContextData; actions: ContextActions; busy: boolean; topicId: string; previous: ContextSpecCheckDto | null;
+function ChooseDirectory({ onChoose }: { onChoose: (directory: string) => void }) {
+  const [draft, setDraft] = useState('');
+  const directory = specCheckDirectory(draft);
+  return <section aria-label="Choose a directory">
+    <div className="rcp-drawer-label">DIRECTORY</div>
+    <form className="rcp-q-add" onSubmit={(event: FormEvent) => { event.preventDefault(); if (directory !== null) onChoose(directory); }}>
+      <input aria-label="Directory" placeholder="A directory of the repository · plugin/trino-iceberg" value={draft} maxLength={1000} autoFocus
+        onChange={event => setDraft(event.target.value)} />
+      <button type="submit" className="rcp-btn rcp-btn--secondary" disabled={directory === null}>Find pages</button>
+    </form>
+    <div className="rcp-note-caption">The check reads the pages this directory’s code links, at the monitored branch head.</div>
+  </section>;
+}
+
+/** What a check reads: every page the directory's code links, among which it finds the specs itself, and the specs the user adds. */
+function StartCheck({ data, actions, busy, directory, previous }: {
+  data: SpecCheckData; actions: SpecCheckActions; busy: boolean; directory: string; previous: ContextSpecCheckDto | null;
 }) {
   const [sources, setSources] = useState<ContextSpecSourceDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -61,14 +80,14 @@ function StartCheck({ data, actions, busy, topicId, previous }: {
   const [showPages, setShowPages] = useState(false);
   useEffect(() => {
     let live = true;
-    void Promise.resolve().then(() => window.bridge.getRepositoryContextSpecSources(data.workspaceId, topicId)).then(found => {
+    void Promise.resolve().then(() => window.bridge.getRepositoryContextSpecSources(data.workspaceId, directory)).then(found => {
       if (!live) return;
       setSources(found);
       // A spec the user added to the last check is not in the code's links; it is offered again.
       setAdded(previous === null ? [] : previous.specs.filter(url => !found.some(source => source.url === url)));
     }).catch(cause => { if (live) setError(cause instanceof Error ? cause.message : String(cause)); });
     return () => { live = false; };
-  }, [data.workspaceId, previous, topicId]);
+  }, [data.workspaceId, directory, previous]);
   const known = sources ?? [];
   const pages = known.filter(source => source.kind === 'PAGE');
   const reference = known.filter(source => source.kind === 'REFERENCE_CODE');
@@ -81,17 +100,17 @@ function StartCheck({ data, actions, busy, topicId, previous }: {
     setDraft('');
   };
   const blocked = data.model.blocker !== null;
-  const canStart = data.build.canStart && !busy && !blocked && plan(data) && sources !== null && pages.length + added.length > 0 && specs.length <= MAX_SPECS;
+  const canStart = data.build.canStart && !busy && !blocked && sources !== null && pages.length + added.length > 0 && specs.length <= MAX_SPECS;
   return <section aria-label="Check against spec">
     <div className="rcp-drawer-label">{previous === null ? 'WHAT THE CHECK READS' : 'CHECK AGAIN'}</div>
-    {error !== null && <div className="rcp-drawer-error">The pages the code links could not be listed: {error}</div>}
-    {sources === null && error === null && <div className="rcp-note-caption">Finding the pages the topic’s code links…</div>}
+    {error !== null && <div className="rcp-drawer-error">The pages the directory’s code links could not be listed: {error}</div>}
+    {sources === null && error === null && <div className="rcp-note-caption">Finding the pages the directory’s code links…</div>}
     {sources !== null && <div className="rcp-spec-summary">{readsLine(pages.length, reference.length, added.length)}</div>}
     {previous !== null && previous.checkedAgainst.length > 0 && <div className="rcp-note-caption">The last check used {previous.checkedAgainst.join(', ')} as
       {previous.checkedAgainst.length === 1 ? ' its specification' : ' specifications'}.</div>}
     {known.length > 0 && <>
       <button type="button" className="rcp-how" aria-expanded={showPages} onClick={() => setShowPages(value => !value)}>
-        <Chevron open={showPages} size={11} />Links in the topic’s code · {known.length}</button>
+        <Chevron open={showPages} size={11} />Links in the directory’s code · {known.length}</button>
       {showPages && [...pages, ...reference].map(source => <div className="rcp-spec-page" key={source.url}>
         <span className="rcp-src__target">{source.url}</span><span className="rcp-src__sub">{sourceLine(source)}</span></div>)}
     </>}
@@ -106,7 +125,7 @@ function StartCheck({ data, actions, busy, topicId, previous }: {
     {specs.length > MAX_SPECS && <div className="rcp-drawer-error">A check reads at most {MAX_SPECS} pages; remove one you added.</div>}
     {previous !== null && previous.next.length > 0 && <div className="rcp-note-caption">Continues where the last check stopped: {previous.next.join(', ')}.</div>}
     <div className="rcp-q-deeper">
-      <button type="button" className="rcp-btn rcp-btn--primary" disabled={!canStart} onClick={() => actions.checkSpec(topicId, specs)}>
+      <button type="button" className="rcp-btn rcp-btn--primary" disabled={!canStart} onClick={() => actions.start(directory, specs)}>
         <Icon name="bolt" size={13} />Check against spec</button>
       <RunLine workspaceId={data.workspaceId} blocked={blocked}>{data.model.blocker
         ?? `Starts 1 task · a check turn, then up to ${CHECK_REPRODUCTIONS} reproduction turns that write and run tests in its worktree · ${data.model.label}`}</RunLine>
@@ -115,31 +134,27 @@ function StartCheck({ data, actions, busy, topicId, previous }: {
 }
 
 function readsLine(pages: number, reference: number, added: number): string {
-  if (pages + added === 0) return 'The topic’s code links no page. Add the address of the specification it implements.';
-  const read = [pages > 0 ? `the ${plural(pages, 'page')} the topic’s code links` : '', added > 0 ? `the ${plural(added, 'page')} you added` : '']
+  if (pages + added === 0) return 'The directory’s code links no page. Add the address of the specification it implements.';
+  const read = [pages > 0 ? `the ${plural(pages, 'page')} the directory’s code links` : '', added > 0 ? `the ${plural(added, 'page')} you added` : '']
     .filter(Boolean).join(' and ');
   return `The check reads ${read} and checks the code against the specifications among them`
     + `${reference > 0 ? `, comparing with ${plural(reference, 'source file')} of other engines` : ''}.`;
 }
 
-function plan(data: ContextData): boolean {
-  return data.planView.plan !== null && data.planView.plan.batch === null;
-}
-
 function sourceLine(source: ContextSpecSourceDto): string {
-  const kind = source.kind === 'REFERENCE_CODE' ? 'Reference code · for comparison, never a rule' : source.approved ? 'Approved documentation' : 'Linked page';
+  const kind = source.kind === 'REFERENCE_CODE' ? 'Reference code · for comparison, never a rule' : 'Linked page';
   if (source.links === 0) return kind;
   return `${kind} · cited ${plural(source.links, 'time')}${source.sections.length > 0 ? ` · ${plural(source.sections.length, 'section')}` : ''}`;
 }
 
-function Report({ data, actions, busy, check }: { data: ContextData; actions: ContextActions; busy: boolean; check: ContextSpecCheckDto }) {
+function Report({ data, actions, busy, check }: { data: SpecCheckData; actions: SpecCheckActions; busy: boolean; check: ContextSpecCheckDto }) {
   const findings = openFindings(check);
   const of = (status: ContextSpecCandidateDto['status']) => check.candidates.filter(candidate => candidate.status === status);
   const waiting = check.candidates.filter(candidate => candidate.status === 'PENDING' || candidate.status === 'REPRODUCING');
   const dismissed = of('CONFIRMED').filter(candidate => candidate.dismissed !== null);
   return <section aria-label="Spec check report">
     <div className="rcp-drawer-label">LATEST CHECK</div>
-    <div className="rcp-spec-summary">{checkSummary(check)}</div>
+    <div className="rcp-spec-summary">{checkActive(check) ? checkProgress(check) : checkSummary(check)}</div>
     <div className="rcp-note-caption">Code at {shortSha(check.baselineSha)} · started {shortDate(check.startedAt, data.now)}
       {check.endedAt !== null && ` · ended ${shortDate(check.endedAt, data.now)}`} · read {plural(check.specs.length, 'page')}</div>
     {check.checkedAgainst.length > 0
@@ -171,7 +186,7 @@ function Report({ data, actions, busy, check }: { data: ContextData; actions: Co
 
 /** A confirmed gap: the rule, the code, the failing test, and the issue a click opens on GitHub for the user to file. */
 function Finding({ data, actions, busy, check, candidate }: {
-  data: ContextData; actions: ContextActions; busy: boolean; check: ContextSpecCheckDto; candidate: ContextSpecCandidateDto;
+  data: SpecCheckData; actions: SpecCheckActions; busy: boolean; check: ContextSpecCheckDto; candidate: ContextSpecCandidateDto;
 }) {
   const [dismissing, setDismissing] = useState(false);
   const [reason, setReason] = useState<string>(DISMISS_REASONS[0]);

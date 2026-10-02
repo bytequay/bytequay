@@ -79,7 +79,7 @@ public class SelectedCommitPullRequestReader
      * Known positive associations need no Git or provider read. Each unresolved SHA has at most one
      * two-second local metadata read; only exact, complete commit metadata permits a due provider lookup.
      * There is at most one provider batch and one association-only upsert. No Git fetch, PR detail,
-     * history scan or notebook mutation occurs. A failed check never becomes a new checked negative.
+     * history scan or other write occurs. A failed check never becomes a new checked negative.
      */
     public Read read(WorkspaceRepositoryContext workspace, List<String> shas)
     {
@@ -88,7 +88,7 @@ public class SelectedCommitPullRequestReader
         selected = selected.stream().map(sha -> checkSha(sha.toLowerCase(Locale.ROOT), "sha")).collect(toImmutableList());
         checkArgument(ImmutableSet.copyOf(selected).size() == selected.size(), "Selected commits contain duplicate SHAs");
         requireNonNull(workspace, "workspace is null");
-        long repositoryId = RepositoryContextReader.repositoryId(workspace);
+        long repositoryId = workspace.monitoredRepositoryId();
         checkArgument(repositoryId > 0, "Monitored repository identity is invalid");
         Instant now = Instant.now(clock);
         Map<String, CommitEnrichment> existing = stored(repositoryId, selected);

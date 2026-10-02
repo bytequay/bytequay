@@ -81,31 +81,16 @@ historical checkpoint evidence and explicitly deferred future work.
   review comment. It never replies on GitHub or edits code, and a drafted reply
   is posted only by the user.
 - [Repository memory](repository-memory.md) is the approved redesign that
-  replaces the repository-context documents below. Agents get the repository's
-  guideline files and short rules captured where the information appears:
-  pull request history, corrections in tasks and reviews, passing commands and
-  spec pages, instead of notes learned by reading code. Its phase 2 deletes the
-  learning system, its note data and those documents.
-- [Repository context: discover, learn, and use](repository-context-refactor.md)
-  is the approved refactor: explicit agent discovery, bounded incremental learning,
-  user-approved context notes, and agent-owned literal lookup whose exact reads
-  check each cited passage against the reader's commit. Its section 8
-  names the supplied Claude Design prototype as the authoritative UI. The existing
-  [checklist](repository-context-impl-tmp.md#refactor-development-checkpoints)
-  tracks delivery separately from the earlier implementation, with its own
-  [UI refactor checkpoints](repository-context-impl-tmp.md#ui-refactor-checkpoints).
-- [Repository context: spec check](repository-context-spec-check.md) is implemented:
-  compare a topic's code with the specification it implements, reproduce each
-  gap with a test the check writes and runs, and report only reproduced bugs,
-  feature requests and improvements, each with a draft issue the user files.
-- [Repository Context](repository-context.md) defines shared workspace knowledge,
-  user-saved lessons, and source-linked input for the existing review flow.
-  Start with its overall flow; its [temporary checklist](repository-context-impl-tmp.md)
-  tracks implementation and enablement gates.
-- [Repository Context agent discovery](repository-context-agent-discovery.md)
-  defines the implemented read-only search and exact-note retrieval extension
-  for development tasks and active reviews, with a usage and coverage view.
-  Provider quality and performance acceptance remains open.
+  replaced the repository-context notes. Agents get the repository's guideline
+  files and short rules captured where the information appears: pull request
+  history, corrections in tasks and reviews, passing commands and spec pages,
+  instead of notes learned by reading code. Phases 0 to 2 are implemented:
+  guidelines reach every turn, and the learning system and its note data are
+  deleted.
+- [Spec check](spec-check.md) is implemented: compare a directory's code with the
+  specification it implements, reproduce each gap with a test the check writes
+  and runs, and report only reproduced bugs, feature requests and improvements,
+  each with a draft issue the user files.
 - [Code & Tests](code-tests.md) specifies the task-bound WorkBench tab for reading whole
   files, following symbols, running tests, editing test source, and a terminal
   in the Agent review working copy. Its [implementation checklist](code-tests-impl-tmp.md)

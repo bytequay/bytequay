@@ -20,7 +20,6 @@ import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.web.agent.AgentHttpModels;
 import com.bytequay.core.context.ContextLimits;
-import com.google.common.collect.ImmutableList;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -31,25 +30,21 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Optional;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** Purpose-scoped controls for a noninteractive learning task; no generic interactive-task coercion. */
+/** Purpose-scoped controls for a noninteractive spec check task; no generic interactive-task coercion. */
 @RestController
 @RequestMapping("/api/workspaces/{workspaceId}/repository-context/build")
 public class ContextBuildController
 {
     private final ContextBuildService builds;
-    private final ContextGradeService grades;
     private final AgentTurnService turns;
     private final AgentCompletionService completion;
     private final AgentStartupRecovery recovery;
 
-    public ContextBuildController(ContextBuildService builds, ContextGradeService grades, AgentTurnService turns, AgentCompletionService completion,
-            AgentStartupRecovery recovery)
+    public ContextBuildController(ContextBuildService builds, AgentTurnService turns, AgentCompletionService completion, AgentStartupRecovery recovery)
     {
         this.builds = requireNonNull(builds, "builds is null");
-        this.grades = requireNonNull(grades, "grades is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.completion = requireNonNull(completion, "completion is null");
         this.recovery = requireNonNull(recovery, "recovery is null");
@@ -65,21 +60,6 @@ public class ContextBuildController
     public Optional<ContextBuildService.Baseline> baseline(@PathVariable String workspaceId)
     {
         return builds.baseline(workspaceId);
-    }
-
-    @PostMapping("/discover")
-    public ContextBuildService.View discover(@PathVariable String workspaceId, @RequestBody DiscoveryRequest request)
-    {
-        return builds.discover(workspaceId, new ContextBuildService.Request(request.requestKey(), request.expectedRevision(), request.expectedBuildSequence(),
-                ImmutableList.of(), ImmutableList.of()), request.continuation().orElse(false));
-    }
-
-    @PostMapping("/investigate")
-    public ContextBuildService.View investigate(@PathVariable String workspaceId, @RequestBody InvestigationRequest request)
-    {
-        ContextBuild.Investigation investigation = grades.investigation(workspaceId, request.entryId());
-        return builds.investigate(workspaceId, new ContextBuildService.Request(request.requestKey(), request.expectedRevision(), request.expectedBuildSequence(),
-                ImmutableList.of(investigation.scopeId()), ImmutableList.of()), investigation);
     }
 
     @PostMapping("/stop")
@@ -122,28 +102,6 @@ public class ContextBuildController
         AgentTask task = builds.task(workspaceId, request.taskId());
         completion.cleanupWorktree(task.id());
         return builds.get(workspaceId);
-    }
-
-    public record DiscoveryRequest(String requestKey, Long expectedRevision, Long expectedBuildSequence, Optional<Boolean> continuation)
-    {
-        public DiscoveryRequest
-        {
-            ContextLimits.text(requestKey, "requestKey", 100);
-            requireNonNull(continuation, "continuation is null");
-            checkArgument(expectedRevision != null && expectedRevision >= 0 && expectedBuildSequence != null && expectedBuildSequence >= 0,
-                    "Both expectedRevision and expectedBuildSequence are required nonnegative integers");
-        }
-    }
-
-    public record InvestigationRequest(String requestKey, Long expectedRevision, Long expectedBuildSequence, String entryId)
-    {
-        public InvestigationRequest
-        {
-            ContextLimits.text(requestKey, "requestKey", 100);
-            ContextLimits.text(entryId, "entryId", 1200);
-            checkArgument(expectedRevision != null && expectedRevision >= 0 && expectedBuildSequence != null && expectedBuildSequence >= 0,
-                    "Both expectedRevision and expectedBuildSequence are required nonnegative integers");
-        }
     }
 
     public record TaskRequest(String taskId)

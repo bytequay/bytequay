@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.context;
 
-/** Saved notebook content was not readable; callers must never replace it with an empty notebook. */
+/** Saved spec check data was not readable; callers must never replace it with empty data. */
 public class ContextStorageException
         extends RuntimeException
 {

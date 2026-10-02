@@ -16,22 +16,19 @@ import { completedExecutionItems, taskState } from '../commits/model';
 import type { AttentionLink, AttentionTone } from '../home/attention';
 import { reviewStatus } from '../pulls/agent-review/model';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
-import type { ContextRunDto } from '../repository-context/contracts';
-import { OUTCOME, runOrigin } from '../repository-context/model';
 import { laneLabel } from '../settings/model';
 import type { AgentTaskActivityDto, AgentTaskChangesDto, AgentTaskDto, CherryPickExecution, CiAutofixRunDto, ModelProviderDto } from '../types';
 import { changesLabel, taskArchived } from './AgentTasksView';
 import { taskCardState, taskLastMessage, taskLinks, type TaskCardState } from './attention';
 
 /** Every kind of work the Tasks page lists, each with its own colour and icon. */
-export type TaskType = 'dev' | 'review' | 'cherry' | 'ci' | 'learning';
+export type TaskType = 'dev' | 'review' | 'cherry' | 'ci';
 
 export const TASK_TYPES: Record<TaskType, { label: string; newLabel: string }> = {
   dev: { label: 'Development', newLabel: 'New task' },
   review: { label: 'Review', newLabel: 'Review a pull request' },
   cherry: { label: 'Cherry-pick', newLabel: 'New cherry-pick' },
   ci: { label: 'CI fix', newLabel: 'Fix a failing check' },
-  learning: { label: 'Learning', newLabel: 'Repository context' },
 };
 
 export type TaskListMessage = { who: string; text: string; at: string };
@@ -54,34 +51,9 @@ export type TaskListItem = {
   review: AgentReviewDto | null;
   execution: CherryPickExecution | null;
   run: CiAutofixRunDto | null;
-  contextRun: ContextRunDto | null;
 };
 
-const EMPTY: Pick<TaskListItem, 'task' | 'review' | 'execution' | 'run' | 'contextRun'> = { task: null, review: null, execution: null, run: null, contextRun: null };
-
-/** One card per learning task: a batch asks a topic's questions as turns of one task. */
-export function learningItems(runs: ContextRunDto[]): TaskListItem[] {
-  const byTask = new Map<string, ContextRunDto[]>();
-  for (const run of runs) byTask.set(run.taskId, [...(byTask.get(run.taskId) ?? []), run]);
-  return [...byTask.values()].map(learningItem);
-}
-
-export function learningItem(runs: ContextRunDto[]): TaskListItem {
-  const run = runs.reduce((latest, value) => value.sequence > latest.sequence ? value : latest);
-  const first = runs.reduce((earliest, value) => value.sequence < earliest.sequence ? value : earliest);
-  const last = run.activity.at(-1);
-  return {
-    ...EMPTY, key: `learning:${run.taskId}`, type: 'learning',
-    title: runs.length > 1 && run.question !== null ? `Learning runs ${first.sequence}–${run.sequence} · ${run.question.topicTitle}`
-      : runs.length > 1 && run.check !== null ? `Spec check runs ${first.sequence}–${run.sequence} · ${run.check.topicTitle}` : runOrigin(run),
-    state: run.outcome === 'RUNNING' ? { label: 'Running', tone: 'blue', spinning: true, reason: null }
-      : run.outcome === 'FAILED' ? { label: 'Failed', tone: 'red', spinning: false, reason: run.detail }
-        : { label: 'Finished', tone: 'neutral', spinning: false, reason: null },
-    at: run.endedAt ?? last?.at ?? run.requestedAt,
-    message: last === undefined ? null : { who: run.mode === 'DISCOVER' ? 'Discovery' : run.mode === 'CHECK' ? 'Spec check' : 'Learning', text: last.text, at: last.at },
-    links: [], change: `${OUTCOME[run.outcome].label} · read-only`, progress: null, contextRun: run,
-  };
-}
+const EMPTY: Pick<TaskListItem, 'task' | 'review' | 'execution' | 'run'> = { task: null, review: null, execution: null, run: null };
 
 /** Words for an enum value the backend sends, such as a pause reason. */
 function words(value: string): string {

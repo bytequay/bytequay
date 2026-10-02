@@ -1,10 +1,8 @@
 # Repository memory
 
-Status: approved. It replaces the knowledge-learning design of
-[Repository context](repository-context-refactor.md) and the documents it builds
-on, which phase 2 deletes, and revises the
-[spec check](repository-context-spec-check.md) to start from a directory instead
-of a plan topic. The user chose the direction: remove the learning system, its
+Status: approved. It replaces the knowledge-learning design of Repository context
+and the documents it built on, which phase 2 deleted, and revises the
+[spec check](spec-check.md) to start from a directory instead of a plan topic. The user chose the direction: remove the learning system, its
 note code and the note data built so far in one step, save memory without
 approval and show it, give agents matching memory at turn start plus a lookup
 tool, and learn first from the user's own and reviewed pull requests and from
@@ -241,9 +239,10 @@ citations from both.
 - Transcripts show "Remembered" rows.
 - The turn receipt lists the memories delivered.
 
-**On and off.** The workspace switches for reviews and development stay and are
-recorded per turn as today. Off delivers no memory and offers no tool;
-guidelines stay on.
+**On and off.** The Memory page brings back the workspace switches for reviews
+and development; the old ones lived in the notebook phase 2 deleted. Each turn
+records its switch in the per-turn flag, as today. Off delivers no memory and
+offers no tool; guidelines stay on.
 
 ## 6. User interface
 
@@ -299,24 +298,29 @@ Phase 2 removes the learning system.
 - The restricted run machinery (`ContextBuildService`, its store and
   coordinator), cut to spec checks and harvest runs.
 - Safe page reads (`DocumentationHttpReader`, `SelectedDocumentationReader`),
-  page captures, the cited-lines source check, the spec check and its link scan.
+  the spec check and its link scan. Page captures and the cited-lines source
+  check went too: nothing reads them without notes.
 - History reads (`ContextHistoryReader`, `SelectedCommitPullRequestReader`) for
   reviews.
 - The `ContextLimits` and `ContextText` helpers that code outside the feature
   uses.
 
 **Frontend:**
-- `src/repository-context`, except the spec check parts.
-- Home's context row, the task note cards and the development activity panel.
+- `src/repository-context`, except the spec check parts, which make a slim Spec
+  checks page until the Memory page takes them.
+- Home's context row and its Explore & prepare context mode, the task note cards,
+  the development activity panel and the Tasks list's Learning items.
 - The review context details, preparation activity and Save lesson.
-- The 41 IPC channels shrink to the memory set.
+- The 41 IPC channels shrink to the spec check set; phase 3 adds the memory set.
 
 **Docs:**
 - Deleted: `repository-context.md`, `repository-context-refactor.md`,
   `repository-context-agent-discovery.md`, `repository-context-acceptance.md`,
-  `repository-context-impl-tmp.md` and the `docs/evaluation/repository-context-*`
-  captures.
-- Rewritten: the context paragraphs in `architecture.md` and `agent-service.md`.
+  `repository-context-impl-tmp.md`, the `docs/evaluation` captures and the two
+  `scripts/*repository-context-cases.py` fixture tools.
+- Rewritten: the context paragraphs in `architecture.md`, `agent-service.md`,
+  `agent-task-ui.md` and `agent-skills.md`; the spec check design moved to
+  `spec-check.md`.
 
 **Old local data** is deleted in the same step as the code. Nothing is
 migrated, and the one saved lesson is not carried over. The deletion covers:
@@ -329,7 +333,8 @@ migrated, and the one saved lesson is not carried over. The deletion covers:
 
 One idempotent cleanup at startup performs the deletion, and the next phase
 removes it once it has run. The per-turn `use_repository_context` flags stay as
-the memory switch.
+the memory switch. Spec checks keep their findings under new settings keys;
+checks saved before phase 2 start over.
 
 ## 8. Boundaries kept
 

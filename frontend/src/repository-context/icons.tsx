@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-/** The Repository context design's own glyphs; the lightning mark always means "starts an agent run". */
+/** The spec check page's own glyphs; the lightning mark always means "starts an agent run". */
 const PATHS = {
   doc: ['M7 3h7l4 4v14H7z', 'M14 3v4h4', 'M10 12h5M10 16h5'],
   lesson: ['M7 3h10v18l-5-4-5 4z'],

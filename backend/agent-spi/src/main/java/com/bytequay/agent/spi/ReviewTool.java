@@ -35,11 +35,6 @@ public record ReviewTool(String name, String description, Map<String, Object> in
     public static final String NAME_PREFIX = "review_";
     private static final Set<String> CONTEXT_TOOLS = Set.of(
             "repository_context_read",
-            "repository_context_prepare",
-            "repository_context_progress",
-            "repository_context_settle",
-            "repository_context_discovery_read",
-            "repository_context_discovery_submit",
             "repository_context_spec_search",
             "repository_context_spec_candidates",
             "repository_context_spec_result");

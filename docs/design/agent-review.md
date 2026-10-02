@@ -1004,7 +1004,12 @@ appears in another card or run. Existing unscoped summary discussion belongs
 to the PR-purpose card for its recorded run.
 
 **Steer now** sends guidance to the matching active turn only when supported.
-**Run next** queues a later turn. Preserve existing failure/uncertain-delivery
+**Run next** queues a later turn and is disabled between assignment turns.
+While a review appears busy, the owning view periodically re-reads its durable
+review, turn, and recent conversation state in case a stream update was missed.
+Rejected actions also refresh that state while preserving the draft and original
+error; they never resend the message automatically.
+Preserve existing failure/uncertain-delivery
 behavior; never create concurrent turns. Paused queued messages keep their
 original target/version. Before a resumed message executes after code or
 finding changes, provide both versions or ask for revalidation; never silently

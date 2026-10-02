@@ -182,13 +182,18 @@ export default function AgentReviewTab({
     setConversation(current => agentTaskReducer(current, action));
   }, []);
 
-  const refresh = useCallback(async (reviewId: string, turnId: string | null = null) => {
+  const refresh = useCallback(async (reviewId: string, turnId: string | null = null, reloadHistory = false) => {
+    const taskId = currentTaskId.current;
     const revision = ++projectionRevision.current;
-    const [updated, turn] = await Promise.all([
+    const [updated, turn, history] = await Promise.all([
       window.bridge.getAgentReview(reviewId),
       turnId === null || mode !== 'conversation' ? Promise.resolve(null) : window.bridge.getAgentTurn(turnId),
+      !reloadHistory || mode !== 'conversation' || taskId === null || historyAfter(conversationRef.current) !== null
+        ? Promise.resolve(null)
+        : readRecentAgentHistory({ readAgentHistory: (id, before, after) => window.bridge.readAgentReviewHistory(reviewId, id, before, after) }, taskId),
     ]);
     if (currentReviewId.current !== reviewId || projectionRevision.current !== revision) return null;
+    if (history !== null && historyAfter(conversationRef.current) === null) dispatchConversation({ type: 'history/loaded', ...history, direction: 'latest' });
     if (turn !== null) dispatchConversation({ type: 'turn/changed', turn });
     onReviewChange(updated);
     return updated;
@@ -202,6 +207,10 @@ export default function AgentReviewTab({
       await action();
     }
     catch (failure) {
+      // A turn can finish before its stream update reaches this view. Keep the draft and original error,
+      // but adopt the durable state so the next deliberate action does not repeat the same stale command.
+      const reviewId = currentReviewId.current;
+      if (reviewId !== null) await refresh(reviewId, conversationRef.current.latestTurnId, true).catch(() => {});
       setError(remoteErrorMessage(failure));
       if (propagate) throw failure;
     }
@@ -209,7 +218,7 @@ export default function AgentReviewTab({
       projectionRevision.current++;
       setPendingAction(null);
     }
-  }, []);
+  }, [refresh]);
 
   const reviewId = review?.id ?? null;
   const taskId = review?.task.id ?? null;
@@ -346,6 +355,20 @@ export default function AgentReviewTab({
   }, [dispatchConversation, unloaded]);
 
   const activeTurnId = review?.activeTurn?.id ?? null;
+  // A missed stream update must not leave a finished review offering Steer and Run next forever.
+  useEffect(() => {
+    if (reviewId === null || !reviewOpen || (!running && !recovery) || busy || (mode === 'cards' && !ownStream)) return;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try { await refresh(reviewId, activeTurnId, true); }
+      catch { /* Stream and action errors already surface failures; the next status check can retry. */ }
+      finally { if (live) timer = setTimeout(() => { void poll(); }, 5000); }
+    };
+    timer = setTimeout(() => { void poll(); }, 5000);
+    return () => { live = false; clearTimeout(timer); };
+  }, [activeTurnId, busy, mode, ownStream, recovery, refresh, reviewId, reviewOpen, running]);
+
   useEffect(() => {
     if (reviewId === null || taskId === null || activeTurnId === null || mode !== 'conversation') {
       setApprovals([]);

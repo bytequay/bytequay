@@ -92,7 +92,7 @@ export default function ReviewActivity({
           running={running} sending={busy} disabled={busy || connection === 'connecting'}
           sendEnabled={ready && !running && review.task.mutationClaim === null}
           steerEnabled={ready && running && review.task.steering && review.activeTurn?.state === 'RUNNING'}
-          queueEnabled={ready && running}
+          queueEnabled={ready && running && review.activeTurn !== null}
           steerTitle={review.task.steering ? 'Sends into the running turn now' : 'This provider cannot take input into a running turn'}
           connection={connection} models={models} model={review.task.model} provider={review.task.laneLabel} />
       )}

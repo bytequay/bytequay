@@ -511,6 +511,32 @@ class TestClaudeEventMapper
                 "content":"Command running in background with ID: shell-1"}]},"session_id":"session-1","uuid":"background-launched"}
                 """, ProviderAgentEvent.Command.class);
         assertThat(launched.background()).isTrue();
+        assertThat(launched.exitCode()).isEmpty();
+    }
+
+    @Test
+    void recordsTheExitCodeClaudeReportsForAFinishedCommand()
+    {
+        ProviderAgentEvent.Command passed = finishedCommand("passed", "\"BUILD SUCCESS\"", false, "");
+        assertThat(passed.state()).isEqualTo(ProviderAgentEvent.ActivityState.COMPLETED);
+        assertThat(passed.exitCode()).contains(0);
+        ProviderAgentEvent.Command failed = finishedCommand("failed", "\"Exit code 2\\nBUILD FAILURE\"", true, "");
+        assertThat(failed.state()).isEqualTo(ProviderAgentEvent.ActivityState.FAILED);
+        assertThat(failed.exitCode()).contains(2);
+        assertThat(finishedCommand("timeout", "\"Command timed out after 2m 0.0s\"", true, "").exitCode()).isEmpty();
+        assertThat(finishedCommand("interrupted", "\"partial output\"", false, ",\"tool_use_result\":{\"stdout\":\"\",\"stderr\":\"\",\"interrupted\":true}").exitCode()).isEmpty();
+    }
+
+    private ProviderAgentEvent.Command finishedCommand(String id, String content, boolean error, String metadata)
+    {
+        map("""
+                {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"%s","name":"Bash","input":{"command":"./mvnw test"}}]},
+                "session_id":"session-1","uuid":"%s-start"}
+                """.formatted(id, id));
+        return only("""
+                {"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"%s","content":%s,"is_error":%s}]}%s,
+                "session_id":"session-1","uuid":"%s-end"}
+                """.formatted(id, content, error, metadata, id), ProviderAgentEvent.Command.class);
     }
 
     @Test

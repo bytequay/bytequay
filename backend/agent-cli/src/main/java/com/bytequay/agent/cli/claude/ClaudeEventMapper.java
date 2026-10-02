@@ -33,6 +33,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -40,6 +42,7 @@ import static java.util.Objects.requireNonNull;
 final class ClaudeEventMapper
 {
     private static final int MAX_OUTPUT_CHARACTERS = 64 * 1024;
+    private static final Pattern EXIT_CODE = Pattern.compile("Exit code (\\d{1,3})(?:\\n|$)");
 
     private final SecretRedactor redactor;
     private final Optional<DevelopmentResultBridge> development;
@@ -275,7 +278,8 @@ final class ClaudeEventMapper
                 events.add(completedTool(
                         eventId(message.uuid(), "tool-result", index),
                         result,
-                        call));
+                        call,
+                        message.toolUseResult()));
                 completeInvocation(message, result, call, events);
                 if (call.name().equals("TodoWrite")) {
                     tools.remove(result.toolUseId());
@@ -454,7 +458,8 @@ final class ClaudeEventMapper
     private ProviderAgentEvent completedTool(
             Optional<String> eventId,
             ClaudeProtocol.ToolResultBlock result,
-            ToolCall call)
+            ToolCall call,
+            Optional<JsonNode> metadata)
     {
         ProviderAgentEvent.ActivityState state = result.error()
                 ? ProviderAgentEvent.ActivityState.FAILED
@@ -465,7 +470,7 @@ final class ClaudeEventMapper
                     state,
                     call.input().command().stream().map(this::bounded).collect(toImmutableList()),
                     Optional.of(bounded(result.text())),
-                    Optional.empty(),
+                    exitCode(result, call, metadata),
                     result.text().length() > MAX_OUTPUT_CHARACTERS,
                     source(call.parentToolUseId(), Optional.of(result.toolUseId())),
                     Optional.empty(),
@@ -486,6 +491,22 @@ final class ClaudeEventMapper
                 source(call.parentToolUseId(), Optional.of(result.toolUseId())),
                 Optional.empty(),
                 !result.error() && call.name().startsWith("mcp__bytequay__") ? ToolActivityLine.fromResult(result.content()) : Optional.empty());
+    }
+
+    /**
+     * Claude reports a nonzero exit status only as the first line of an error result, so a result without an error exited 0. A background
+     * launch, an interrupted command and any other error, such as a timeout or a denial, have no exit status.
+     */
+    private static Optional<Integer> exitCode(ClaudeProtocol.ToolResultBlock result, ToolCall call, Optional<JsonNode> metadata)
+    {
+        if (call.background() || metadata.filter(value -> value.path("interrupted").asBoolean(false)).isPresent()) {
+            return Optional.empty();
+        }
+        if (!result.error()) {
+            return Optional.of(0);
+        }
+        Matcher matcher = EXIT_CODE.matcher(result.text());
+        return matcher.lookingAt() ? Optional.of(Integer.parseInt(matcher.group(1))) : Optional.empty();
     }
 
     private ProviderAgentEvent.Tool hook(

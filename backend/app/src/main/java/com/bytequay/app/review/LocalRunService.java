@@ -326,7 +326,7 @@ public class LocalRunService
             MavenCommands.Maven maven,
             Optional<AgentStart> start)
     {
-        // Codex reports a declined or interrupted command as failed with no exit code: it never ran. Claude reports no exit code at all.
+        // Codex reports a declined or interrupted command as failed with no exit code: it never ran. Claude also gives none for a command that timed out, which did run.
         if (!task.laneId().equals(AgentLaneId.CLAUDE_CLI) && command.state() == ActivityState.FAILED && command.exitCode().isEmpty()) {
             return;
         }

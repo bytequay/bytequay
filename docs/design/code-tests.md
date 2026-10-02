@@ -734,7 +734,6 @@ change.
     counts visible, no Passed aggregate.
   - With no rows, the status is `BUILD_FAILED` only for a class or method scope
     with a known non-zero Maven exit. Otherwise it is `RESULTS_UNAVAILABLE`.
-  - Claude reports no exit code, so a mirrored Claude run is never `PASSED`.
 - **Output.** `CommandActivity.output`, bounded as in section 5.1. The
   provider's `truncated` flag sets `output_truncated` and leaves
   `omitted_bytes` null. The Log says "Output truncated by the agent; the end is
@@ -746,8 +745,10 @@ change.
 - **Record.** `initiator` AGENT, no `path` or `module` (so Rerun and Open test
   source stay unavailable), `agent_event_id` from the completion event, which
   keeps a replayed event from inserting a second row. Mirroring takes no claim.
-- **Providers.** The Codex skip is decided by the task's lane, because a failed
-  Claude Bash call also has no exit code but did run.
+- **Providers.** Claude states a nonzero exit code only as its result's first
+  line, `Exit code N`; a result without an error exited 0. The Codex skip is
+  decided by the task's lane, because a Claude Bash call that timed out also
+  has no exit code but did run.
 
 ## 6. Review comments
 

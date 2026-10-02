@@ -148,9 +148,9 @@ does, and stores the command, its directory and its commit. The instruction:
 remember a command you had to work out (flags, module, setup), not one the docs
 already give.
 
-**Claude exit codes.** Claude command records gain an exit code: 0 when the Bash
-result is not an error, and the number from Claude's `Exit code N` when it is.
-Today they have none, so a spec check run on Claude can never accept a result.
+**Claude exit codes.** Claude command records carry an exit code: 0 when the
+Bash result is not an error, and the number from Claude's `Exit code N` when it
+is, so recipes and spec checks work on both lanes.
 
 **Timing.** Capture happens during the turn. Nothing scans logs later; they are
 deleted after the task's retention window.

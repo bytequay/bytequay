@@ -104,19 +104,22 @@ class TestContextSourceChecker
     }
 
     @Test
-    void aCitedPageChangedWhenALearningRunLaterCapturedDifferentText()
+    void aCitedPageChangedWhenALearningRunLaterCapturedItWithoutTheCitedText()
     {
         String url = "https://example.com/spec";
         ContextSourceEvidence page = new ContextSourceEvidence("page", new ContextReference.Document("page:1", url), "Provenance", "Spec text",
                 ContextSourceEvidence.Capture.BYTEQUAY_READ, Optional.of(Instant.parse("2026-09-01T00:00:00Z")), Optional.of("a".repeat(64)), Optional.empty(), false);
-        when(pages.find(WORKSPACE)).thenReturn(ImmutableList.of(new ContextPageCaptures.Page(url, "b".repeat(64), Instant.parse("2026-09-30T00:00:00Z"))));
+        when(pages.find(WORKSPACE)).thenReturn(ImmutableList.of(new ContextPageCaptures.Page(url, "b".repeat(64), Instant.parse("2026-09-30T00:00:00Z"),
+                ImmutableList.of("page"))));
 
         ContextSourceCheck check = checker.check(WORKSPACE, Optional.empty(), ImmutableMap.of("page", page));
 
         assertThat(check.sources()).extracting(Source::status).containsExactly(CHANGED);
         assertThat(check.applicability()).isEqualTo(Applicability.VERSION_MISMATCH);
-        assertThat(check.gaps()).anySatisfy(gap -> assertThat(gap).contains(url + " changed after this note cited it"));
-        when(pages.find(WORKSPACE)).thenReturn(ImmutableList.of(new ContextPageCaptures.Page(url, "a".repeat(64), Instant.parse("2026-09-30T00:00:00Z"))));
+        assertThat(check.gaps()).anySatisfy(gap -> assertThat(gap).contains("The text this note cites from " + url + " is no longer on that page"));
+        // Edited elsewhere: the newer capture still holds the cited text.
+        when(pages.find(WORKSPACE)).thenReturn(ImmutableList.of(new ContextPageCaptures.Page(url, "b".repeat(64), Instant.parse("2026-09-30T00:00:00Z"),
+                ImmutableList.of())));
         assertThat(checker.check(WORKSPACE, Optional.empty(), ImmutableMap.of("page", page)).sources()).extracting(Source::status).containsExactly(UNCHECKED);
         when(pages.find(WORKSPACE)).thenThrow(new ContextStorageException("Saved page captures cannot be read", new IllegalStateException()));
         ContextSourceCheck unreadable = checker.check(WORKSPACE, Optional.empty(), ImmutableMap.of("page", page));

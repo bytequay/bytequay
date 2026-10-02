@@ -65,7 +65,7 @@ export default function ContextNotes({ data, area, onArea, onOpen }: { data: Con
                 <span className="rcp-note__line"><span className="rcp-note__title">{entry.title}</span>
                   {!entry.enabled && <span className="rcp-chip rcp-tone--gray">Disabled</span>}
                   {data.disputes?.contested[entry.id] !== undefined && <span className="rcp-chip rcp-tone--amber">Agents disagree</span>}
-                  {pageChangedAt(entry, data.changedPages) !== null && <span className="rcp-chip rcp-tone--amber">Page changed</span>}</span>
+                  {pageChangedAt(entry, data.changedPages) !== null && <span className="rcp-chip rcp-tone--amber">Cited text changed</span>}</span>
                 <span className="rcp-note__summary">{entry.summary.replaceAll('`', '')}</span>
                 <span className="rcp-note__meta"><span className="rcp-note__path">{noteArea(notebook, entry.scopeId).paths.join(' · ')}</span>
                   <span>v{entry.version}{stamp ? ` · ${shortDate(stamp.at, data.now)}` : ''}</span><span>{gradeLine(data.usage, entry, data.now)}</span></span>

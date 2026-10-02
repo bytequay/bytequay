@@ -648,7 +648,7 @@ public class ContextBuildTools
                             .map(url -> "Found a link outside approved sources · " + url).limit(5).toList()).build();
             saveRead(build, turn, key, Optional.of(receipt), evidence(read.excerpt(), provenance), ImmutableMap.of(), gaps, lines,
                     current -> {
-                        pages.record(build.workspaceId(), new ContextPageCaptures.Page(read.resolvedUrl(), read.contentHash(), read.readAt()));
+                        pages.record(build.workspaceId(), capture(build, read));
                         item.ifPresent(value -> learning.updateInventory(current, inventory -> inventory.read(value, id, read.contentHash())
                                 .offer(sourceId, value.resolvedUrl(), read.links(), read.linksTruncated())
                                 .suggest(read.suggestedExpansionUrls(), read.resolvedUrl(), current.assignment().orElseThrow().topicId(),
@@ -697,7 +697,7 @@ public class ContextBuildTools
                     + read.page() + "/" + read.totalPages() + " only; read further pages with its captureId.") : read.gaps();
             saveRead(build, turn, key, Optional.of(receipt), evidence(read.excerpt(), provenance), ImmutableMap.of(), gaps,
                     ImmutableList.of("Opened " + read.resolvedUrl() + section.map(value -> "#" + value).orElse("")),
-                    ignored -> pages.record(build.workspaceId(), new ContextPageCaptures.Page(read.resolvedUrl(), read.contentHash(), read.readAt())));
+                    ignored -> pages.record(build.workspaceId(), capture(build, read)));
             ObjectNode response = source(receipt, read.excerpt(), gaps).put("captureId", read.captureId()).put("page", read.page()).put("pages", read.totalPages());
             if (!read.outline().isEmpty()) {
                 response.set("outline", mapper.valueToTree(read.outline()));
@@ -708,6 +708,16 @@ public class ContextBuildTools
             failed(build, turn, key, failure);
             throw failure;
         }
+    }
+
+    /** The capture with the notes' cited reads of this page whose text it no longer holds. */
+    private ContextPageCaptures.Page capture(ContextBuild build, SelectedDocumentationReader.Page read)
+    {
+        List<String> stale = notebooks.getNotebook(build.workspaceId()).sourceEvidence().stream()
+                .filter(source -> source.reference() instanceof ContextReference.Document document && document.url().equals(read.resolvedUrl())
+                        && source.contentHash().filter(read.contentHash()::equals).isEmpty() && !documents.holds(read.captureId(), source.excerpt()))
+                .map(ContextSourceEvidence::id).limit(ContextPageCaptures.Page.MAX_STALE_SOURCES).collect(toImmutableList());
+        return new ContextPageCaptures.Page(read.resolvedUrl(), read.contentHash(), read.readAt(), stale);
     }
 
     private JsonNode history(ContextBuild build, Optional<TurnId> turn, JsonNode args)

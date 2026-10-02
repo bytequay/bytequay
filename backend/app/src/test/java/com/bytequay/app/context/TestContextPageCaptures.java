@@ -37,20 +37,21 @@ class TestContextPageCaptures
     private static final String URL = "https://github.com/delta-io/delta/blob/master/PROTOCOL.md";
     private static final Instant SAVED = Instant.parse("2026-09-01T00:00:00Z");
 
-    private final ContextPageCaptures pages = new ContextPageCaptures(new InMemoryAppSettingsStore(),
-            new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new JavaTimeModule()));
+    private final InMemoryAppSettingsStore settings = new InMemoryAppSettingsStore();
+    private final ContextPageCaptures pages = new ContextPageCaptures(settings, new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new JavaTimeModule()));
 
     @Test
-    void flagsASourceOnlyWhenALaterCaptureOfItsPageHasDifferentText()
+    void flagsASourceOnlyWhenALaterCaptureOfItsPageNoLongerHoldsItsText()
     {
         ContextSourceEvidence cited = page("cited", "a", SAVED);
-        pages.record(WORKSPACE, new ContextPageCaptures.Page(URL, "a".repeat(64), SAVED.plusSeconds(60)));
+        // The page was edited elsewhere: the cited text is still there.
+        pages.record(WORKSPACE, new ContextPageCaptures.Page(URL, "b".repeat(64), SAVED.plusSeconds(60), ImmutableList.of()));
         assertThat(ContextPageCaptures.changed(pages.find(WORKSPACE), cited)).isEmpty();
 
-        pages.record(WORKSPACE, new ContextPageCaptures.Page(URL, "b".repeat(64), SAVED.plusSeconds(120)));
+        pages.record(WORKSPACE, new ContextPageCaptures.Page(URL, "c".repeat(64), SAVED.plusSeconds(120), ImmutableList.of("cited")));
         // A capture that finishes after a newer one never replaces it.
-        pages.record(WORKSPACE, new ContextPageCaptures.Page(URL, "a".repeat(64), SAVED.plusSeconds(90)));
-        assertThat(pages.find(WORKSPACE)).containsExactly(new ContextPageCaptures.Page(URL, "b".repeat(64), SAVED.plusSeconds(120)));
+        pages.record(WORKSPACE, new ContextPageCaptures.Page(URL, "a".repeat(64), SAVED.plusSeconds(90), ImmutableList.of()));
+        assertThat(pages.find(WORKSPACE)).containsExactly(new ContextPageCaptures.Page(URL, "c".repeat(64), SAVED.plusSeconds(120), ImmutableList.of("cited")));
         assertThat(ContextPageCaptures.changed(pages.find(WORKSPACE), cited)).contains(SAVED.plusSeconds(120));
         assertThat(ContextPageCaptures.changed(pages.find(WORKSPACE), page("resaved", "c", SAVED.plusSeconds(180)))).isEmpty();
 
@@ -65,11 +66,20 @@ class TestContextPageCaptures
     void keepsTheMostRecentlyCapturedPages()
     {
         for (int index = 0; index <= ContextPageCaptures.MAX_PAGES; index++) {
-            pages.record(WORKSPACE, new ContextPageCaptures.Page("https://example.com/page-" + index, "a".repeat(64), SAVED.plusSeconds(index)));
+            pages.record(WORKSPACE, new ContextPageCaptures.Page("https://example.com/page-" + index, "a".repeat(64), SAVED.plusSeconds(index), ImmutableList.of()));
         }
         assertThat(pages.find(WORKSPACE)).hasSize(ContextPageCaptures.MAX_PAGES);
         assertThat(pages.find(WORKSPACE).getFirst().url()).isEqualTo("https://example.com/page-" + ContextPageCaptures.MAX_PAGES);
         assertThat(pages.find(WORKSPACE).getLast().url()).isEqualTo("https://example.com/page-1");
+    }
+
+    @Test
+    void aCaptureSavedBeforeCitedTextWasCheckedFlagsNothing()
+    {
+        settings.put(ContextPageCaptures.PREFIX + WORKSPACE, "[{\"url\":\"" + URL + "\",\"contentHash\":\"" + "b".repeat(64) + "\",\"capturedAt\":\"2026-09-02T00:00:00Z\"}]");
+
+        assertThat(pages.find(WORKSPACE)).containsExactly(new ContextPageCaptures.Page(URL, "b".repeat(64), Instant.parse("2026-09-02T00:00:00Z"), ImmutableList.of()));
+        assertThat(ContextPageCaptures.changed(pages.find(WORKSPACE), page("cited", "a", SAVED))).isEmpty();
     }
 
     private static ContextSourceEvidence page(String id, String hash, Instant retrievedAt)

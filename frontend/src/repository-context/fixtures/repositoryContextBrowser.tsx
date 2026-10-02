@@ -847,14 +847,15 @@ const scenarios: Array<[string, () => Promise<void>]> = [
       await render('review');
       await click('Notes8');
       const row = [...document.querySelectorAll<HTMLButtonElement>('button.rcp-note')].find(item => item.querySelector('.rcp-note__title')?.textContent === refresh.title);
-      assert(row !== undefined && text(row).includes('Page changed'), 'The note row is flagged');
+      assert(row !== undefined && text(row).includes('Cited text changed'), 'The note row is flagged');
       const cites = state.notebook.entries.filter(entry => entry.sourceIds.includes('ev-doc')).length;
-      assert([...document.querySelectorAll('button.rcp-note')].filter(item => text(item).includes('Page changed')).length === cites, 'Exactly the notes citing the page are flagged');
+      assert([...document.querySelectorAll('button.rcp-note')].filter(item => text(item).includes('Cited text changed')).length === cites,
+        'Exactly the notes whose cited text changed are flagged');
       row.click();
       await settle();
       await settle();
-      assert(text(drawer()).includes('A page this note cites changed after it was saved'), 'The drawer explains the change');
-      assert(text(drawer().querySelector('.rcp-source__changed')).includes('changed since'), 'The changed page is marked among the sources');
+      assert(text(drawer()).includes('The text this note cites from a page is no longer on it'), 'The drawer explains the change');
+      assert(text(drawer().querySelector('.rcp-source__changed')).includes('cited text changed'), 'The changed source is marked among the sources');
       assert(state.calls.starts.length === 0, 'Flagging starts no run');
     }
     finally {

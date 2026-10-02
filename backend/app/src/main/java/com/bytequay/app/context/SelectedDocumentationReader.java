@@ -52,6 +52,7 @@ public class SelectedDocumentationReader
     private static final Pattern LINE_ANCHOR = Pattern.compile("L(\\d{1,7})(-L\\d{1,7})?");
     private static final int MAX_OUTLINE = 300;
     private static final Duration RETENTION = Duration.ofMinutes(10);
+    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
     private final RepositoryContextService notebooks;
     private final DocumentationHttpReader reader;
@@ -120,6 +121,17 @@ public class SelectedDocumentationReader
     {
         return new RegisteredContextSource("page:" + Hashing.sha256().hashString(url, UTF_8).toString().substring(0, 16),
                 RegisteredContextSource.Kind.DOCUMENTATION_PAGE, url, ContextEntryOrigin.GENERATED, Optional.empty());
+    }
+
+    /**
+     * Whether a capture still holds an excerpt of an earlier one, wherever it now falls; whitespace is ignored. A capture this reader
+     * no longer keeps holds nothing.
+     */
+    public boolean holds(String captureId, String excerpt)
+    {
+        String wanted = WHITESPACE.matcher(excerpt).replaceAll(" ").strip();
+        return captures.asMap().values().stream().filter(captured -> captured.id().equals(captureId)).findFirst()
+                .map(captured -> WHITESPACE.matcher(captured.read().text()).replaceAll(" ").contains(wanted)).orElse(false);
     }
 
     /** Whether a learning run read this page by its address rather than through a registered source. */

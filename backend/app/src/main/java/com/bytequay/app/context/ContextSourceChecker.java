@@ -163,8 +163,8 @@ public class ContextSourceChecker
         sources.forEach((ref, source) -> {
             Optional<ContextReference.RepositoryFile> file = source.reference() instanceof ContextReference.RepositoryFile found ? Optional.of(found) : Optional.empty();
             Optional<Instant> pageChanged = ContextPageCaptures.changed(captures, source);
-            pageChanged.ifPresent(at -> gaps.add("The page " + ((ContextReference.Document) source.reference()).url()
-                    + " changed after this note cited it: a learning run captured different text at " + at + "."));
+            pageChanged.ifPresent(at -> gaps.add("The text this note cites from " + ((ContextReference.Document) source.reference()).url()
+                    + " is no longer on that page: a learning run captured it without that text at " + at + "."));
             Compared result = pageChanged.isPresent() ? new Compared(Status.CHANGED, Optional.empty()) : results.getOrDefault(ref, UNCHECKED);
             checked.add(new ContextSourceCheck.Source(ref, source.reference().getKind(), file.map(ContextReference.RepositoryFile::path),
                     file.flatMap(ignored -> excerpt(source.excerpt())).map(excerpt -> range(excerpt.start(), excerpt.lines().size())),

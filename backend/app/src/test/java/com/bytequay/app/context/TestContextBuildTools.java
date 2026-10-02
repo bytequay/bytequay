@@ -45,6 +45,7 @@ import com.bytequay.core.context.ContextPreparationResult;
 import com.bytequay.core.context.ContextReference;
 import com.bytequay.core.context.ContextRepositoryRead;
 import com.bytequay.core.context.ContextScope;
+import com.bytequay.core.context.ContextSourceEvidence;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.bytequay.core.domain.RepoRef;
@@ -296,7 +297,7 @@ class TestContextBuildTools
         assertThat(current().capture().sourceReads()).hasSize(1);
         assertThat(current().capture().gaps()).anySatisfy(gap -> assertThat(gap).contains("page 1/2 only").doesNotContain("unread"));
         verify(documents).read(WORKSPACE, DOC.id(), Optional.empty(), Optional.empty(), 1, true);
-        verify(pages).record(WORKSPACE, new ContextPageCaptures.Page(DOC.url(), "b".repeat(64), Instant.EPOCH));
+        verify(pages).record(WORKSPACE, new ContextPageCaptures.Page(DOC.url(), "b".repeat(64), Instant.EPOCH, ImmutableList.of()));
     }
 
     @Test
@@ -434,10 +435,46 @@ class TestContextBuildTools
             assertThat(SelectedDocumentationReader.readByAddress(receipt.registration())).isTrue();
         });
         assertThat(current().capture().activity().getLast().text()).isEqualTo("Opened " + lead + "#actions");
-        verify(pages).record(WORKSPACE, new ContextPageCaptures.Page(lead, "b".repeat(64), Instant.EPOCH));
+        verify(pages).record(WORKSPACE, new ContextPageCaptures.Page(lead, "b".repeat(64), Instant.EPOCH, ImmutableList.of()));
         assertThat(read("{\"kind\":\"PAGE\",\"url\":\"https://example.com/search?q=delta\"}").path("error").path("message").textValue())
                 .contains("query");
         verify(documents).readPage(WORKSPACE, page, Optional.empty(), 1, Optional.of("actions"));
+    }
+
+    @Test
+    void aPageReadFlagsOnlyTheNotesWhoseCitedTextItNoLongerHolds()
+            throws Exception
+    {
+        store.save(Optional.of(current()), assigned(ImmutableList.of()));
+        bridge = new ContextBuildTools(store, service, tasks, workspaces, notebooks, baseline, documents, pages, history, preparation,
+                unitOfWork, mapper, learning, lookup, candidates, CLOCK).bridge(TASK.toString()).orElseThrow();
+        String spec = "https://iceberg.apache.org/spec/";
+        ContextLearningPlan plan = new ContextLearningPlan("plan-1", WORKSPACE, "report-1", "request", "sha256:" + "b".repeat(64),
+                0, 1, ImmutableList.of("topic:1"), 1, REPO, SHA,
+                ImmutableList.of(new ContextLearningPlan.Topic("topic:1", "Iceberg metadata", "project",
+                        "sha256:" + "c".repeat(64), ImmutableList.of("plugin/trino-iceberg/"), Optional.of(ImmutableList.of()), ImmutableList.of("pom.xml"),
+                        ImmutableList.of(), ImmutableList.of(ContextLearningPlan.Question.open("How does Iceberg read metadata?")))),
+                ImmutableList.of(), ContextDocumentInventory.initial(ImmutableList.of()), ImmutableList.of(), Instant.EPOCH, Optional.empty());
+        when(learning.require(any())).thenReturn(plan);
+        RepositoryNotebook empty = RepositoryNotebook.empty();
+        when(notebooks.getNotebook(WORKSPACE)).thenReturn(new RepositoryNotebook(empty.schemaVersion(), empty.revision(), true, true, empty.sources(), empty.scopes(),
+                empty.entries(), ImmutableList.of(cited("kept", spec, "a", "Readers must ignore DELETED entries."), cited("gone", spec, "a", "Writers must add totals."),
+                        cited("same", spec, "b", "Unchanged capture."), cited("other", "https://delta.io/spec/", "a", "Another page.")), Optional.empty()));
+        RegisteredContextSource page = SelectedDocumentationReader.page(spec);
+        String captureId = UUID.randomUUID().toString();
+        when(documents.readPage(WORKSPACE, page, Optional.empty(), 1, Optional.empty())).thenReturn(new SelectedDocumentationReader.Page(page, 0, spec, captureId,
+                "b".repeat(64), Instant.EPOCH, 1, 1, "Readers must ignore DELETED entries. A new rule.", false, false, false, ImmutableList.of()));
+        when(documents.holds(captureId, "Readers must ignore DELETED entries.")).thenReturn(true);
+
+        assertThat(read("{\"kind\":\"PAGE\",\"url\":\"" + spec + "\"}").has("error")).isFalse();
+
+        verify(pages).record(WORKSPACE, new ContextPageCaptures.Page(spec, "b".repeat(64), Instant.EPOCH, ImmutableList.of("gone")));
+    }
+
+    private static ContextSourceEvidence cited(String id, String url, String hash, String excerpt)
+    {
+        return new ContextSourceEvidence(id, new ContextReference.Document("page:1", url), "Provenance", excerpt, ContextSourceEvidence.Capture.BYTEQUAY_READ,
+                Optional.of(Instant.EPOCH), Optional.of(hash.repeat(64)), Optional.empty(), false);
     }
 
     @Test

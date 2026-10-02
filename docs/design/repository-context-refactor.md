@@ -339,9 +339,12 @@ It is **CHANGED** when the file exists but the cited lines do not, and
 **ABSENT** when the path is missing or not a regular file. Matching is exact,
 so reformatting counts as a change; indentation carries meaning in files such as
 YAML and Python. A cited web page is **CHANGED** when a learning run captured
-different text from its address after the note's source was saved; learning
-runs keep the newest capture of each page they read, for the 200 most recently
-read pages. Other documents, history, agent-reported excerpts, files from
+it after the note's source was saved and the text the source cites is no longer
+on it, wherever on the page it would now be; whitespace is ignored. An edit
+elsewhere on the page changes nothing, as a code source is checked by its cited
+lines rather than its file. Learning runs keep the newest capture of each page
+they read, for the 200 most recently read pages, with the cited sources it no
+longer holds. Other documents, history, agent-reported excerpts, files from
 another repository, sources without a recorded blob and failed lookups are
 **UNCHECKED**, as is an excerpt cut short by the capture limit when its file's
 blob differs. The note is `MATCHED` when it has sources and all are UNCHANGED,
@@ -359,8 +362,8 @@ captures when a source is a web page. It never fetches and starts no background
 work. A failed check leaves the note `UNVERIFIED` with the reason as a
 limitation; it never fails the read. List and search stay literal and
 unchecked, so their hits remain `UNVERIFIED`. The Notes page does not run this
-check, but a note's sources show a cited page that changed and when that was
-seen.
+check, but it marks a note whose cited page text changed, and its sources show
+which one and when that was seen.
 
 `MATCHED` means the cited lines are unchanged, not that a claim is proved; a
 claim can depend on lines it did not cite. Renamed files report ABSENT. The

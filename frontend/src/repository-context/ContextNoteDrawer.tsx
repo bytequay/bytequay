@@ -116,8 +116,8 @@ export default function ContextNoteDrawer({ data, actions, busy, id, onClose }: 
             ?? `Starts 1 run · reads the code at the monitored branch head · ${data.model.label} · settles the dispute with its root cause`}</RunLine>
         </div>}
         {settlement !== undefined && reported?.contested == null && <div className="rcp-caveat">{settledLine(settlement)}</div>}
-        {changedAt !== null && <div className="rcp-caveat">A page this note cites changed after it was saved: a learning run found new text on it {ago(changedAt, data.now)}.
-          Agents that read the note are told and re-read the page.</div>}
+        {changedAt !== null && <div className="rcp-caveat">The text this note cites from a page is no longer on it: a learning run read the page
+          {` ${ago(changedAt, data.now)}`} and the cited text was gone. Agents that read the note are told and re-read the page.</div>}
         {origin.startsWith('Learning from merged PR') && <div className="rcp-caveat">Learned from merged work. A merged PR records a decision, not proof that every claim holds.</div>}
         {diff !== null ? <>
           <div className="rcp-diff-summary">{diff.summary}</div>
@@ -131,7 +131,7 @@ export default function ContextNoteDrawer({ data, actions, busy, id, onClose }: 
           {sources.map((source, position) => <div className="rcp-source" key={source.id}>
             <span className="rcp-source__n">[{position + 1}]</span>
             <span className="rcp-source__main"><span className="rcp-source__target">{source.target}</span><span className="rcp-source__sub">{source.kind} · {source.detail}
-              {data.changedPages[source.id] !== undefined && <span className="rcp-source__changed"> · changed since, seen {shortDate(data.changedPages[source.id], data.now)}</span>}
+              {data.changedPages[source.id] !== undefined && <span className="rcp-source__changed"> · cited text changed, seen {shortDate(data.changedPages[source.id], data.now)}</span>}
             </span></span>
             {source.capture && <span className={`rcp-source__cap${source.agent ? ' is-agent' : ''}`}>{source.capture}</span>}
           </div>)}

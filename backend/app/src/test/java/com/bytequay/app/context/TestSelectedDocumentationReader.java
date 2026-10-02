@@ -330,6 +330,21 @@ class TestSelectedDocumentationReader
         assertThat(reader.readPage(WORKSPACE, page, Optional.of(first.captureId()), 2, Optional.empty()).outline()).isEmpty();
     }
 
+    @Test
+    void aCaptureHoldsAnEarlierExcerptWhereverItNowFalls()
+    {
+        RegisteredContextSource page = SelectedDocumentationReader.page("https://iceberg.apache.org/spec/");
+        String text = "A new section added above.\n\nManifests\nReaders must ignore   entries\nwith status DELETED.\n";
+        when(http.read(page, Optional.empty())).thenReturn(new DocumentationHttpReader.Read(page.url(), text, Hashing.sha256().hashString(text, UTF_8).toString(),
+                READ_AT, false, ImmutableList.of()));
+
+        String captureId = reader.readPage(WORKSPACE, page, Optional.empty(), 1, Optional.empty()).captureId();
+
+        assertThat(reader.holds(captureId, "Manifests\nReaders must ignore entries with status DELETED.")).isTrue();
+        assertThat(reader.holds(captureId, "Readers must ignore entries with status EXISTING.")).isFalse();
+        assertThat(reader.holds("00000000-0000-0000-0000-000000000000", "Manifests")).isFalse();
+    }
+
     private static DocumentationHttpReader.Read capture(String text)
     {
         return new DocumentationHttpReader.Read(SOURCE.url() + RELATIVE_PAGE.orElseThrow(), text, Hashing.sha256().hashString(text, UTF_8).toString(),

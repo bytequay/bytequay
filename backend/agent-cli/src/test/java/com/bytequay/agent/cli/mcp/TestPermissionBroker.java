@@ -23,6 +23,7 @@ import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
+import com.bytequay.agent.spi.MemoryBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.PullRequestCiBridge;
@@ -202,6 +203,59 @@ class TestPermissionBroker
             assertThat(helper.toolNames()).isEmpty();
             assertThat(helper.instruction()).isEmpty();
             assertThat(localReviewCall(broker, helper.token(), IssueContextBridge.TOOL_NAME, "{}").at("/error/code").intValue()).isEqualTo(-32602);
+        }
+    }
+
+    @Test
+    void memoryToolCallsTheTaskBridgeAndReturnsRejectionsAsToolErrors()
+            throws Exception
+    {
+        List<String> calls = new ArrayList<>();
+        MemoryBridge bridge = new MemoryBridge(arguments -> {
+            calls.add(arguments);
+            if (arguments.contains("EDIT")) {
+                throw new IllegalArgumentException("action must be SEARCH, READ or REPORT");
+            }
+            return "{\"memories\":[],\"activityLine\":\"Searched memory for “docs” · 0 memories\"}";
+        });
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
+                (taskId, query) -> "memory", BridgeResolver.none(), BridgeResolver.none(),
+                DraftPullRequestPublisher.NONE, BridgeResolver.none(), BridgeResolver.none(), BridgeResolver.none(),
+                taskId -> taskId.equals("task-1") ? Optional.of(bridge) : Optional.empty());
+        SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of());
+        AgentApprovalHandler approvals = (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
+        try (McpRegistration claude = broker.register(
+                "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
+                SessionAccess.FULL, approvals, redactor, Optional.empty())) {
+            assertThat(claude.toolNames()).containsExactly(MemoryBridge.TOOL_NAME);
+            assertThat(claude.instruction()).contains(MemoryBridge.INSTRUCTION);
+            JsonNode listed = broker.handle(claude.token(), objectMapper.readTree("""
+                    {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                    """)).body().orElseThrow();
+            JsonNode definition = listed.at("/result/tools").findParents("name").stream()
+                    .filter(tool -> tool.path("name").asText().equals(MemoryBridge.TOOL_NAME)).findFirst().orElseThrow();
+            assertThat(definition.at("/inputSchema/properties/action/enum").toString()).isEqualTo("[\"SEARCH\",\"READ\",\"REPORT\"]");
+
+            JsonNode searched = localReviewCall(broker, claude.token(), MemoryBridge.TOOL_NAME, "{\"action\":\"SEARCH\",\"query\":\"docs\"}");
+            assertThat(searched.at("/result/isError").booleanValue()).isFalse();
+            assertThat(searched.at("/result/content/0/text").textValue()).contains("Searched memory for “docs”");
+            assertThat(calls).containsExactly("{\"action\":\"SEARCH\",\"query\":\"docs\"}");
+
+            JsonNode rejected = localReviewCall(broker, claude.token(), MemoryBridge.TOOL_NAME, "{\"action\":\"EDIT\"}");
+            assertThat(rejected.at("/result/isError").booleanValue()).isTrue();
+            assertThat(rejected.at("/result/content/0/text").textValue()).isEqualTo("Memory call failed: action must be SEARCH, READ or REPORT");
+        }
+        try (McpRegistration unbound = broker.register(
+                "task-2", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
+                SessionAccess.FULL, approvals, redactor, Optional.empty())) {
+            assertThat(unbound.toolNames()).isEmpty();
+            assertThat(localReviewCall(broker, unbound.token(), MemoryBridge.TOOL_NAME, "{\"action\":\"SEARCH\"}").at("/error/code").intValue()).isEqualTo(-32602);
+        }
+        try (McpRegistration helper = broker.register(
+                "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
+                SessionAccess.TEXT_ONLY, approvals, redactor, Optional.empty())) {
+            assertThat(helper.toolNames()).isEmpty();
         }
     }
 

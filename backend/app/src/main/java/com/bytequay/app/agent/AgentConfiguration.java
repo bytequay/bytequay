@@ -62,6 +62,7 @@ import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
+import com.bytequay.agent.spi.MemoryBridge;
 import com.bytequay.agent.spi.PullRequestCiBridge;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.app.agent.codegraph.CodeGraphBaseline;
@@ -146,6 +147,7 @@ public class AgentConfiguration
             BridgeResolver<LocalReviewBridge> localReviews,
             BridgeResolver<PullRequestCiBridge> pullRequestChecks,
             BridgeResolver<IssueContextBridge> issueContexts,
+            BridgeResolver<MemoryBridge> memories,
             ObjectProvider<DevelopmentFollowupCoordinator> developmentFollowups)
     {
         return new PermissionBroker(
@@ -159,7 +161,8 @@ public class AgentConfiguration
                 (taskId, title, body) -> developmentFollowups.getObject().publishDraftPullRequest(taskId, title, body),
                 localReviews,
                 pullRequestChecks,
-                issueContexts);
+                issueContexts,
+                memories);
     }
 
     @Bean(destroyMethod = "close")

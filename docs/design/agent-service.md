@@ -265,6 +265,19 @@ thread that already has them and get none. Codex's own `AGENTS.md` loading is
 off and Claude keeps `--setting-sources=`, so both lanes read the same text.
 Guidelines never enter managed instructions or process arguments.
 
+## Repository memory tool
+
+`MemoryBridge` gives an open interactive development task or a review the
+`repository_memory` tool when the task's workspace has at least one
+[repository memory](repository-memory.md). SEARCH matches literal text and
+paths, scoped memories first and longest scope first, twenty per page; READ
+returns one memory with its sources and quotes; REPORT flags one as wrong with
+a reason and a quote and records the reporting task. No action changes a
+memory's text, scope or sources. Results are JSON with an `activityLine` that
+the task log shows in place of the tool name. Restricted and text-only
+sessions, spec checks and other noninteractive runs get no tool; in a Codex
+review it is a root-only tool, like the other review writes.
+
 ## Development-agent CI evidence
 
 CI Autofix sessions additionally expose `propose_ci_description` through the

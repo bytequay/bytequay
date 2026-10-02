@@ -1,6 +1,7 @@
 # Repository memory
 
-Status: approved. It replaces the knowledge-learning design of Repository context
+Status: approved; phases 0 to 2 and the store with the memory tool are
+implemented. It replaces the knowledge-learning design of Repository context
 and the documents it built on, which phase 2 deleted, and revises the
 [spec check](spec-check.md) to start from a directory instead of a plan topic. The user chose the direction: remove the learning system, its
 note code and the note data built so far in one step, save memory without
@@ -220,7 +221,8 @@ one line each: `[m12] <text> (PR #31201 @alice, 3 PRs)`.
 This deliberately reverses the current rule against automatic note injection:
 memories are short, and lookup alone reached one development task.
 
-**The memory tool**, for development tasks and reviews, replaces
+**The memory tool**, `repository_memory`, for development tasks and reviews whose
+workspace has memories, replaces
 `repository_context_lookup` and the note kinds of `review_get_context`:
 
 | Action | What it does |

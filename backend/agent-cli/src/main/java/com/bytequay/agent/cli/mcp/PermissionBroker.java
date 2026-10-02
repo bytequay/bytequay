@@ -31,6 +31,7 @@ import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
+import com.bytequay.agent.spi.MemoryBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.PullRequestCiBridge;
@@ -129,6 +130,7 @@ public final class PermissionBroker
     private final BridgeResolver<LocalReviewBridge> localReviews;
     private final BridgeResolver<PullRequestCiBridge> pullRequestChecks;
     private final BridgeResolver<IssueContextBridge> issueContexts;
+    private final BridgeResolver<MemoryBridge> memories;
     private final Map<String, PermissionContext> contexts = new ConcurrentHashMap<>();
 
     public PermissionBroker(
@@ -205,6 +207,21 @@ public final class PermissionBroker
             BridgeResolver<PullRequestCiBridge> pullRequestChecks,
             BridgeResolver<IssueContextBridge> issueContexts)
     {
+        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks, issueContexts, BridgeResolver.none());
+    }
+
+    public PermissionBroker(
+            Supplier<URI> endpoint,
+            ObjectMapper objectMapper,
+            CiMemoryReader ciMemoryReader,
+            BridgeResolver<ReviewBridge> reviews,
+            BridgeResolver<DevelopmentResultBridge> developments,
+            DraftPullRequestPublisher draftPullRequests,
+            BridgeResolver<LocalReviewBridge> localReviews,
+            BridgeResolver<PullRequestCiBridge> pullRequestChecks,
+            BridgeResolver<IssueContextBridge> issueContexts,
+            BridgeResolver<MemoryBridge> memories)
+    {
         this.endpoint = requireNonNull(endpoint, "endpoint is null");
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null")
                 .copy()
@@ -217,6 +234,7 @@ public final class PermissionBroker
         this.localReviews = requireNonNull(localReviews, "localReviews is null");
         this.pullRequestChecks = requireNonNull(pullRequestChecks, "pullRequestChecks is null");
         this.issueContexts = requireNonNull(issueContexts, "issueContexts is null");
+        this.memories = requireNonNull(memories, "memories is null");
     }
 
     McpRegistration register(
@@ -437,6 +455,7 @@ public final class PermissionBroker
         Optional<PullRequestCiBridge> pullRequestCi = !restricted && (permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX || scope.githubCommands())
                 ? pullRequestChecks.resolve(taskId) : Optional.empty();
         Optional<IssueContextBridge> issueContext = restricted ? Optional.empty() : issueContexts.resolve(taskId);
+        Optional<MemoryBridge> memory = restricted ? Optional.empty() : memories.resolve(taskId);
         // Claude's attended review gate uses this flag. Codex registers no permission tools and
         // gates its children through its own launch-time PreToolUse hook.
         boolean reviewChildren = permissionTools && scope.reviewReads();
@@ -444,7 +463,7 @@ public final class PermissionBroker
                 .map(home -> ImmutableMap.of("HOME", home)).orElse(ImmutableMap.of());
         return new PermissionContext(
                 taskId, worktree, scope, fileWriteEnvironment, approvals, redactor, permissionTools,
-                codeGraph, review, development, localReview, pullRequestCi, issueContext,
+                codeGraph, review, development, localReview, pullRequestCi, issueContext, memory,
                 reviewChildren, new AtomicReference<>());
     }
 
@@ -457,7 +476,8 @@ public final class PermissionBroker
                         context.development().map(DevelopmentResultBridge::instruction),
                         context.localReview().map(LocalReviewBridge::instruction),
                         context.pullRequestCi().map(PullRequestCiBridge::instruction),
-                        context.issueContext().map(IssueContextBridge::instruction))
+                        context.issueContext().map(IssueContextBridge::instruction),
+                        context.memory().map(ignored -> MemoryBridge.INSTRUCTION))
                 .flatMap(Optional::stream)
                 .collect(Collectors.joining("\n\n"));
         return joined.isBlank() ? Optional.empty() : Optional.of(joined);
@@ -510,6 +530,7 @@ public final class PermissionBroker
             case "read_ci_memory" -> readCiMemory(request.id(), params.arguments(), context);
             case CodeGraphBridge.TOOL_NAME -> codeGraphExplore(request.id(), params.arguments(), context);
             case IssueContextBridge.TOOL_NAME -> readIssueContext(request.id(), params.arguments(), context);
+            case MemoryBridge.TOOL_NAME -> memory(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.TOOL_NAME -> developmentResult(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.PUBLISH_TOOL_NAME -> createDraftPullRequest(request.id(), params.arguments(), context);
             case CiDescriptionProposal.TOOL_NAME -> proposeCiDescription(request.id(), params.arguments(), context);
@@ -538,6 +559,21 @@ public final class PermissionBroker
             String reason = Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
             return response(id, new ToolResult(
                     ImmutableList.of(new TextContent("text", "Unable to read local issue context: " + context.redactor().redact(reason))), true));
+        }
+    }
+
+    private McpHttpResponse memory(JsonNode id, JsonNode arguments, PermissionContext context)
+    {
+        if (context.memory().isEmpty()) {
+            return error(id, -32602, "Unknown tool");
+        }
+        try {
+            String result = context.memory().orElseThrow().call().apply(objectMapper.writeValueAsString(arguments));
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(result))), false));
+        }
+        catch (JsonProcessingException | RuntimeException failure) {
+            String reason = Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact("Memory call failed: " + reason))), true));
         }
     }
 
@@ -1007,6 +1043,22 @@ public final class PermissionBroker
                 IssueContextBridge.TOOL_NAME,
                 "Read the accepted issue snapshot and locally cached source observations for this task; missing or stale context is marked. Read-only; no remote fetch",
                 ImmutableMap.of("type", "object", "properties", ImmutableMap.of(), "additionalProperties", false))));
+        context.memory().ifPresent(ignored -> tools.add(new ToolDefinition(
+                MemoryBridge.TOOL_NAME,
+                MemoryBridge.DESCRIPTION,
+                ImmutableMap.of(
+                        "type", "object",
+                        "properties", ImmutableMap.<String, Object>builder()
+                                .put("action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("SEARCH", "READ", "REPORT")))
+                                .put("query", ImmutableMap.of("type", "string", "maxLength", 200))
+                                .put("path", ImmutableMap.of("type", "string", "maxLength", 300))
+                                .put("page", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", 100))
+                                .put("id", ImmutableMap.of("type", "string", "pattern", "^m[1-9][0-9]*$"))
+                                .put("reason", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 500))
+                                .put("quote", ImmutableMap.of("type", "string", "maxLength", 300))
+                                .buildOrThrow(),
+                        "required", ImmutableList.of("action"),
+                        "additionalProperties", false))));
         context.pullRequestCi().ifPresent(ignored -> {
             tools.add(new ToolDefinition(
                     PullRequestCiBridge.TOOL_NAME,
@@ -1358,6 +1410,7 @@ public final class PermissionBroker
             Optional<LocalReviewBridge> localReview,
             Optional<PullRequestCiBridge> pullRequestCi,
             Optional<IssueContextBridge> issueContext,
+            Optional<MemoryBridge> memory,
             boolean reviewChildren,
             AtomicReference<CodexReviewTools> codexReviewTools)
     {
@@ -1376,6 +1429,7 @@ public final class PermissionBroker
             requireNonNull(localReview, "localReview is null");
             requireNonNull(pullRequestCi, "pullRequestCi is null");
             requireNonNull(issueContext, "issueContext is null");
+            requireNonNull(memory, "memory is null");
         }
     }
 

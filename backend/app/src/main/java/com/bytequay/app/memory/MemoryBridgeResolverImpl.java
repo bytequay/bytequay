@@ -21,15 +21,19 @@ import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.MemoryBridge;
 import com.bytequay.core.memory.Memory;
 import com.bytequay.core.memory.MemorySource;
+import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Optional;
+import java.util.function.Predicate;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -37,6 +41,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * Offers the memory tool to development tasks and reviews whose workspace has memories and has memory on for them. Spec checks
  * and other restricted runs get none. The tool only searches, reads and reports; nothing an agent sends changes a memory's text or sources.
+ * A replay with memory sees only what it could have known and reports nothing, since it reviews code that has since changed.
  */
 @Component
 public class MemoryBridgeResolverImpl
@@ -58,20 +63,28 @@ public class MemoryBridgeResolverImpl
     @Override
     public Optional<MemoryBridge> resolve(String taskId)
     {
+        Optional<AgentReview> review = reviews.findReviewByTask(taskId);
+        Optional<AgentReview.Replay> replay = review.flatMap(AgentReview::replay);
+        Predicate<Memory> visible = MemoryService.visibleTo(replay);
         return tasks.find(TaskId.valueOf(taskId))
                 .filter(task -> task.state() == TaskState.OPEN)
-                .flatMap(task -> task.workspaceId().filter(workspaceId -> switchedOn(task, workspaceId)))
-                .filter(workspaceId -> !memories.list(workspaceId).isEmpty())
-                .map(workspaceId -> new MemoryBridge(arguments -> call(workspaceId, taskId, arguments)));
+                .flatMap(task -> task.workspaceId().filter(workspaceId -> switchedOn(task, review, workspaceId)))
+                .filter(workspaceId -> memories.list(workspaceId).stream().anyMatch(visible))
+                .map(workspaceId -> new MemoryBridge(arguments -> call(workspaceId, taskId, replay, arguments)));
     }
 
-    private boolean switchedOn(AgentTask task, String workspaceId)
+    private boolean switchedOn(AgentTask task, Optional<AgentReview> review, String workspaceId)
     {
+        Optional<AgentReview.Replay> replay = review.flatMap(AgentReview::replay);
+        if (replay.isPresent()) {
+            // The replay's own side of the comparison decides, whatever the workspace switch says now.
+            return replay.orElseThrow().memory();
+        }
         MemorySwitches switches = memories.switches(workspaceId);
-        return reviews.findReviewByTask(task.id().toString()).isPresent() ? switches.reviews() : task.interactive() && switches.development();
+        return review.isPresent() ? switches.reviews() : task.interactive() && switches.development();
     }
 
-    String call(String workspaceId, String taskId, String json)
+    private String call(String workspaceId, String taskId, Optional<AgentReview.Replay> replay, String json)
     {
         JsonNode arguments;
         try {
@@ -81,20 +94,24 @@ public class MemoryBridgeResolverImpl
             throw new IllegalArgumentException("Arguments are not a JSON object", failure);
         }
         checkArgument(arguments.isObject(), "Arguments are not a JSON object");
+        Predicate<Memory> visible = MemoryService.visibleTo(replay);
         ObjectNode result = switch (arguments.path("action").asText("")) {
-            case "SEARCH" -> search(workspaceId, arguments);
-            case "READ" -> read(workspaceId, id(arguments));
-            case "REPORT" -> report(workspaceId, taskId, arguments);
+            case "SEARCH" -> search(workspaceId, visible, arguments);
+            case "READ" -> read(workspaceId, visible, id(arguments));
+            case "REPORT" -> {
+                checkArgument(replay.isEmpty(), "A replay reviews past code and cannot report memories");
+                yield report(workspaceId, taskId, arguments);
+            }
             default -> throw new IllegalArgumentException("action must be SEARCH, READ or REPORT");
         };
         return result.toString();
     }
 
-    private ObjectNode search(String workspaceId, JsonNode arguments)
+    private ObjectNode search(String workspaceId, Predicate<Memory> visible, JsonNode arguments)
     {
         Optional<String> query = text(arguments, "query");
         Optional<String> path = text(arguments, "path");
-        MemoryService.Page page = memories.search(workspaceId, query, path, arguments.path("page").asInt(1));
+        MemoryService.Page page = memories.search(workspaceId, query, path, arguments.path("page").asInt(1), visible);
         ObjectNode result = mapper.createObjectNode();
         ArrayNode list = result.putArray("memories");
         for (Memory memory : page.memories()) {
@@ -114,9 +131,13 @@ public class MemoryBridgeResolverImpl
         return result;
     }
 
-    private ObjectNode read(String workspaceId, String memoryId)
+    private ObjectNode read(String workspaceId, Predicate<Memory> visible, String memoryId)
     {
         Memory memory = memories.get(workspaceId, memoryId);
+        if (!visible.test(memory)) {
+            // A memory hidden from a replay reads as missing, so the id alone tells the replay nothing.
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Memory " + memoryId + " is not in this workspace");
+        }
         ObjectNode result = mapper.createObjectNode();
         result.put("id", memory.id());
         result.put("kind", memory.kind().name());

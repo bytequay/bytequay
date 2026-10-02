@@ -375,15 +375,30 @@ checks saved before phase 2 start over.
 twice at the pull request's first reviewed commit, its head when the first
 maintainer review arrived: once with memory and once without.
 
-- **No leakage.** The run with memory excludes memories sourced from this pull
-  request or from pull requests merged after that commit.
-- **Comparison.** The result lays the maintainers' actual review comments next
-  to each run's findings, file by file. It counts the comments each run raised
-  on the same file within a few lines, and the user can correct a match.
+- **The commit.** ByteQuay reads the pull request's reviews and the head each was
+  given on. A head GitHub no longer has gives way to the next maintainer-reviewed
+  head, then the merged head, and the replay says so. The base is where the
+  pull request branched from the base branch just before the merge commit.
+- **No leakage.** The run with memory gets no memory with a source from this
+  pull request or written after the first maintainer review. A replay's
+  deliveries and citations are not counted, and it cannot report a memory. Both
+  runs are told to stay on the frozen head and leave alone the pull request's
+  discussion, later commits, and anything written after that review. Their
+  review tools refuse the reads that show today's GitHub data: the pull request,
+  its timeline, threads and checks, issues, and history. The local clone still
+  holds the merged result, so that part rests on the instructions.
+- **Comparison.** The maintainers' comments on lines, the first comment of each
+  thread they started with its lines at the commit it was written on, sit next to
+  each run's findings, file by file. A comment counts as raised by a run when one
+  of its findings is on the same file and side within 3 lines, and the user can
+  correct each call. A comment written on a later head is marked, since the
+  replay never saw that code.
 - **Use.** Five to ten replays show whether memory makes reviews raise what
   maintainers raise.
 - **Limits.** Replays start only on a click, use the review model, are labeled as
-  replays and are never posted.
+  replays, are never posted, and end once their run does. A replay has no pull
+  request number, so the pull request's own review never finds it. A workspace
+  keeps its last 20 replays.
 
 ## 10. Delivery plan
 

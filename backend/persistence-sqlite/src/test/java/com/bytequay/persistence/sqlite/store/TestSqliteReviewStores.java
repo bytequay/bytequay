@@ -183,6 +183,16 @@ class TestSqliteReviewStores
         entityManager.clear();
         assertThat(store.findFinding("finding-whole")).contains(whole);
         assertThat(store.findFinding("finding-whole")).map(ReviewFinding::anchor).contains(Optional.empty());
+
+        // A replay has no pull request number, so the pull request's own review lookup never finds it.
+        AgentReview replay = new AgentReview("review-replay", "workspace-a", "bytequay/sample", OptionalInt.empty(), OptionalLong.empty(), "task-replay",
+                Optional.empty(), AgentReview.State.OPEN, false, Optional.empty(), Optional.of(HEAD_SHA), Optional.of(HEAD_SHA), 0, NOW, NOW, Optional.empty(),
+                Optional.of(new AgentReview.Replay("replay-1", 7, true, NOW.minusSeconds(60))));
+        store.insertReview(replay);
+        entityManager.clear();
+        assertThat(store.findReview("review-replay")).contains(replay);
+        assertThat(store.findReviewByTask("task-replay")).contains(replay);
+        assertThat(store.findOpenReview("workspace-a", "bytequay/sample", 7)).map(AgentReview::id).contains("review-1");
     }
 
     @Test

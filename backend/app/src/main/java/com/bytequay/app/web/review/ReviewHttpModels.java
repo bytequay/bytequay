@@ -71,7 +71,8 @@ final class ReviewHttpModels
                 projection.byteQuayTurnIds(),
                 projection.draft().map(ReviewHttpModels::draft),
                 projection.pullRequest().map(pullRequest -> new PullRequestResponse(pullRequest.title(), pullRequest.state(), pullRequest.draft())),
-                projection.worktreeSync().map(sync -> new WorktreeSyncResponse(sync.state().name(), sync.headSha(), sync.targetHeadSha(), sync.dirty(), sync.reason())));
+                projection.worktreeSync().map(sync -> new WorktreeSyncResponse(sync.state().name(), sync.headSha(), sync.targetHeadSha(), sync.dirty(), sync.reason())),
+                review.replay());
     }
 
     private static RunResponse run(ReviewRun run)
@@ -242,7 +243,8 @@ final class ReviewHttpModels
             List<String> byteQuayTurnIds,
             Optional<DraftResponse> draft,
             Optional<PullRequestResponse> pullRequest,
-            Optional<WorktreeSyncResponse> worktreeSync) {}
+            Optional<WorktreeSyncResponse> worktreeSync,
+            Optional<AgentReview.Replay> replay) {}
 
     record WorktreeSyncResponse(String state, Optional<String> headSha, Optional<String> targetHeadSha, boolean dirty, Optional<String> reason) {}
 

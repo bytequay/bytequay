@@ -92,6 +92,42 @@ class TestGitHubHarvestClient
     }
 
     @Test
+    void readsAMergedPullRequestsReviewHeadsAndThreadLinesForAReplay()
+    {
+        Fixture fixture = fixture();
+        fixture.graphql().expect(requestTo("https://api.github.test/graphql")).andRespond(withSuccess("""
+                {"data":{"repository":{"pullRequest":{"number":31201,"title":"Add a property","url":"https://github.com/trinodb/trino/pull/31201","merged":true,
+                  "baseRefName":"master","author":{"__typename":"User","login":"alice"},"mergeCommit":{"oid":"%s"},
+                  "reviews":{"nodes":[
+                    {"author":{"__typename":"User","login":"bo"},"authorAssociation":"MEMBER","state":"COMMENTED","submittedAt":"2026-09-19T10:00:00Z","commit":{"oid":"%s"}},
+                    {"author":{"__typename":"User","login":"dana"},"authorAssociation":"OWNER","state":"PENDING","submittedAt":null,"commit":null},
+                    {"author":{"__typename":"User","login":"cy"},"authorAssociation":"MEMBER","state":"APPROVED","submittedAt":"2026-09-20T10:00:00Z","commit":null}]},
+                  "reviewThreads":{"nodes":[
+                    {"path":"plugin/x/A.java","diffSide":"RIGHT","line":null,"startLine":null,"originalLine":14,"originalStartLine":12,"comments":{"nodes":[
+                      {"id":"note-1","body":"Please document it.","url":"u","authorAssociation":"MEMBER","author":{"__typename":"User","login":"bo"},
+                       "createdAt":"2026-09-19T10:00:00Z","originalCommit":{"oid":"%s"}}]}},
+                    {"path":null,"diffSide":"RIGHT","comments":{"nodes":[]}}]}
+                }}}}
+                """.formatted("m".repeat(40), "a".repeat(40), "a".repeat(40)), MediaType.APPLICATION_JSON));
+
+        GitHubHarvestClient.PullReplay replay = fixture.client().replay("pat", REPOSITORY, 31201).orElseThrow();
+
+        assertThat(replay.mergeCommit()).contains("m".repeat(40));
+        assertThat(replay.baseRef()).isEqualTo("master");
+        assertThat(replay.reviews()).extracting(GitHubHarvestClient.SubmittedReview::author).containsExactly("bo", "cy");
+        assertThat(replay.reviews().getFirst().commit()).contains("a".repeat(40));
+        assertThat(replay.reviews().getLast().commit()).isEmpty();
+        assertThat(replay.reviews()).allMatch(GitHubHarvestClient.SubmittedReview::maintainer);
+        GitHubHarvestClient.ThreadStart thread = replay.threads().getFirst();
+        assertThat(replay.threads()).hasSize(1);
+        assertThat(thread.line()).isEmpty();
+        assertThat(thread.originalLine()).contains(14);
+        assertThat(thread.originalStartLine()).contains(12);
+        assertThat(thread.originalCommit()).contains("a".repeat(40));
+        assertThat(thread.comment().maintainer()).isTrue();
+    }
+
+    @Test
     void anOpenPullRequestHasNothingToLearnAndARateLimitStops()
     {
         Fixture fixture = fixture();

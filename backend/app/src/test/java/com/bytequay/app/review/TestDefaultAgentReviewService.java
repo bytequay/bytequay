@@ -455,6 +455,42 @@ class TestDefaultAgentReviewService
     }
 
     @Test
+    void aReplayReviewsItsPastHeadOutsideThePullRequestsReviewsAndEndsWithItsRun()
+    {
+        Fixture fixture = new Fixture();
+        when(fixture.browse.history(REPOSITORY, MERGE_BASE, HEAD)).thenReturn(new WorktreeDiffReader.History(ImmutableList.of(
+                new DiffCommit(HEAD, MERGE_BASE, "Fix the parser", "Alice", NOW)), false));
+        when(fixture.browse.diff(REPOSITORY, MERGE_BASE, Optional.of(HEAD))).thenReturn(new WorktreeDiffReader.Diff(ImmutableList.of(
+                new DiffFile("src/App.java", "modified", 1, 0, "@@ -1 +1,2 @@")), false));
+        when(fixture.pullRequests.findPullRequestDetail(REPO, NUMBER)).thenReturn(Optional.of(detail()));
+        AgentReview.Replay replay = new AgentReview.Replay("replay-1", NUMBER, true, NOW);
+
+        AgentReviewProjection started = fixture.service.startReplay(WORKSPACE, new AgentReviewService.ReplayStart(replay, HEAD, "main", MERGE_BASE));
+
+        assertThat(started.review().replay()).contains(replay);
+        assertThat(started.review().number()).isEmpty();
+        assertThat(started.runs().getFirst().headSha()).isEqualTo(HEAD);
+        assertThat(started.runs().getFirst().baseSha()).isEqualTo(MERGE_BASE);
+        assertThat(started.runs().getFirst().diff()).extracting(DiffFile::filename).containsExactly("src/App.java");
+        ArgumentCaptor<CreateAgentTaskCommand> created = ArgumentCaptor.forClass(CreateAgentTaskCommand.class);
+        verify(fixture.tasks).create(created.capture());
+        assertThat(created.getValue().title()).isEqualTo("Replay review #" + NUMBER + " · with memory");
+        assertThat(created.getValue().startCommit()).isEqualTo(HEAD);
+        ArgumentCaptor<StartAgentTurnCommand> turn = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
+        verify(fixture.turns).start(turn.capture());
+        assertThat(turn.getValue().message()).startsWith("Review a past change in " + REPO + " at head").contains("This is a replay")
+                .contains("Pull request title: Fix the parser").contains("and do not fetch.").doesNotContain(REPO + "#" + NUMBER);
+        assertThat(fixture.service.list(WORKSPACE)).isEmpty();
+        assertThat(fixture.service.find(WORKSPACE, REPO, NUMBER)).isEmpty();
+
+        String reviewId = started.review().id();
+        fixture.store.updateRun(fixture.store.listRuns(reviewId).getLast().ended(ReviewRun.State.ACCEPTED, Optional.empty(), NOW));
+        fixture.service.reconcile(reviewId);
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().state()).isEqualTo(AgentReview.State.CLOSED);
+        verify(fixture.completions).cleanupWorktree(TASK_ID);
+    }
+
+    @Test
     void projectionKeepsValidationEvidenceOutsideTheInitialContextSelection()
     {
         Fixture fixture = new Fixture();

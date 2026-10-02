@@ -918,6 +918,32 @@ class TestReviewTools
     }
 
     @Test
+    void replaysReadNoCurrentGitHubDataAndCiteOnlyMemoryTheyCouldHaveKnown()
+    {
+        AgentReview original = store.findReview(REVIEW_ID).orElseThrow();
+        store.updateReview(new AgentReview(original.id(), original.workspaceId(), original.repo(), OptionalInt.empty(), OptionalLong.empty(), original.taskId(),
+                Optional.empty(), original.state(), original.followUpPaused(), original.latestCompletedRunId(), original.observedHeadSha(), original.worktreeHeadSha(),
+                original.version(), original.createdAt(), original.updatedAt(), original.closedAt(),
+                Optional.of(new AgentReview.Replay("replay-1", 31188, true, MemoryFixtures.NOW.plusSeconds(3600)))));
+        for (String kind : ImmutableList.of("pr", "timeline", "thread", "checks", "issue", "history")) {
+            assertThat(call("review_get_context", ImmutableMap.of("kind", kind, "number", 31188)).at("/error/message").asText())
+                    .contains("a replay reviews past code, so it cannot read " + kind);
+        }
+        verifyNoInteractions(selectedPullRequests, historySources);
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "scope")).has("number")).isFalse();
+
+        readSource();
+        memoryStore.save(MemoryFixtures.rule("m12", WORKSPACE_ID, "Validate input at the boundary.", ImmutableList.of(), 30000));
+        memoryStore.save(MemoryFixtures.rule("m13", WORKSPACE_ID, "Rule from the replayed pull request.", ImmutableList.of(), 31188));
+        JsonNode hidden = call("review_save_finding", with(finding("first", "Missing null check", "A2", ImmutableList.of(evidence("E1"))), "first", "memoryIds",
+                ImmutableList.of("m13")));
+        assertThat(hidden.at("/error/message").asText()).isEqualTo("m13 is not a memory of this workspace");
+        call("review_save_finding", with(finding("second", "Missing null check", "A2", ImmutableList.of(evidence("E1"))), "second", "memoryIds", ImmutableList.of("m12")));
+        assertThat(store.listFindings(REVIEW_ID).getFirst().memories()).extracting(ReviewFinding.MemoryCitation::id).containsExactly("m12");
+        assertThat(memoryStore.find("m12").orElseThrow().cited()).isZero();
+    }
+
+    @Test
     void findingsMustBePolishedBeforeTheirFirstVisibleSave()
     {
         readSource();

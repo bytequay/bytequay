@@ -66,6 +66,7 @@ import com.fasterxml.jackson.databind.cfg.JsonNodeFeature;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.hash.Hashing;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -113,6 +114,8 @@ public class ReviewTools
     private static final int MAX_KEY = 100;
     private static final int MAX_EVIDENCE = 8;
     private static final int MAX_CITED_MEMORIES = 8;
+    /** Reads of today's GitHub data, which would show a replay of past code what happened after it. */
+    private static final Set<String> REPLAY_HIDDEN_KINDS = ImmutableSet.of("pr", "timeline", "thread", "checks", "issue", "history");
     /** Marks evidence captured from a command the agent ran, which is the only proof a warning accepts. */
     private static final String COMMAND_EVIDENCE_SOURCE = "command output: ";
     private static final int MAX_EVIDENCE_REF = 200;
@@ -675,7 +678,9 @@ public class ReviewTools
                 .put("location", ReviewPrompts.location(saved))
                 .put("status", "accepted");
         store.saveFinding(saved, insert, call.run().withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
-        memoryStore.countCited(saved.memories().stream().map(ReviewFinding.MemoryCitation::id).filter(id -> !citedBefore.contains(id)).collect(toImmutableSet()));
+        if (call.review().replay().isEmpty()) {
+            memoryStore.countCited(saved.memories().stream().map(ReviewFinding.MemoryCitation::id).filter(id -> !citedBefore.contains(id)).collect(toImmutableSet()));
+        }
         return result;
     }
 
@@ -690,6 +695,9 @@ public class ReviewTools
                 memory = memories.get(call.review().workspaceId(), id);
             }
             catch (ResponseStatusException missing) {
+                throw new ReviewInvalidRequestException("memoryIds: " + id + " is not a memory of this workspace");
+            }
+            if (!MemoryService.visibleTo(call.review().replay()).test(memory)) {
                 throw new ReviewInvalidRequestException("memoryIds: " + id + " is not a memory of this workspace");
             }
             if (cited.stream().noneMatch(citation -> citation.id().equals(id))) {
@@ -989,6 +997,9 @@ public class ReviewTools
     {
         ObjectNode arguments = call.arguments();
         String kind = text(arguments, "kind", 30, true).toLowerCase(Locale.ROOT);
+        if (call.review().replay().isPresent() && REPLAY_HIDDEN_KINDS.contains(kind)) {
+            throw new ReviewInvalidRequestException("kind: a replay reviews past code, so it cannot read " + kind + ", which shows today's GitHub data");
+        }
         return switch (kind) {
             case "scope" -> scope(call);
             case "pr" -> pullRequest(call, pullRequestNumber(call));

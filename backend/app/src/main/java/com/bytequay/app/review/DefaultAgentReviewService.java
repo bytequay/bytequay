@@ -90,6 +90,8 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -269,7 +271,7 @@ public class DefaultAgentReviewService
     @Override
     public List<AgentReviewProjection> list(String workspaceId)
     {
-        return store.listReviews(workspaceId).stream().map(review -> projection(review.id())).collect(toImmutableList());
+        return store.listReviews(workspaceId).stream().filter(review -> review.replay().isEmpty()).map(review -> projection(review.id())).collect(toImmutableList());
     }
 
     @Override
@@ -354,6 +356,33 @@ public class DefaultAgentReviewService
     }
 
     @Override
+    public AgentReviewProjection startReplay(String workspaceId, ReplayStart start)
+    {
+        AgentReview.Replay replay = start.replay();
+        WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(workspaceId);
+        String repository = normalize(workspace.monitoredRepository().fullName());
+        ModelSelection selection = selectModel(workspaceId);
+        WorkflowAgentTasks.requireReady(drivers, selection.laneId(), AgentPermissionPolicy.AUTO);
+        Snapshot snapshot = replaySnapshot(workspace.repository(), start.headSha(), start.baseRef(), start.mergeBaseSha());
+        TaskId taskId = TaskId.random();
+        String title = "Replay review #" + replay.number() + (replay.memory() ? " · with memory" : " · without memory");
+        String branch = TaskBranches.generate(taskId, credentials.resolveGitHubCredential().profile().login(), title);
+        AgentTask task = WorkflowAgentTasks.createOrGet(tasks, taskId, () -> tasks.create(new CreateAgentTaskCommand(
+                taskId, workspaceId, selection.laneId(), WorkflowAgentTasks.repositoryIdentity(workspace.selectedRepository()), snapshot.headSha(), branch, title,
+                selection.defaults())));
+        Instant now = Instant.now(clock);
+        String reviewId = UUID.randomUUID().toString();
+        return locked(reviewId, () -> {
+            AgentReview review = insertReview(new AgentReview(reviewId, workspaceId, repository, OptionalInt.empty(), OptionalLong.empty(), task.id().toString(),
+                    Optional.empty(), AgentReview.State.OPEN, false, Optional.empty(), Optional.of(snapshot.headSha()), Optional.of(snapshot.headSha()), 0, now, now,
+                    Optional.empty(), Optional.of(replay)));
+            observer.watch(review);
+            startRun(review, snapshot, workspace, 1, Optional.empty(), ImmutableList.of());
+            return projection(review.id());
+        });
+    }
+
+    @Override
     public AgentReviewProjection stop(String reviewId)
     {
         return locked(reviewId, () -> {
@@ -390,6 +419,9 @@ public class DefaultAgentReviewService
     public AgentReviewProjection update(String reviewId)
     {
         AgentReview review = requireOpen(reviewId);
+        if (review.replay().isPresent()) {
+            return resume(reviewId);
+        }
         requireNoLocalRun(tasks.get(TaskId.valueOf(review.taskId())));
         String head;
         OptionalInt number;
@@ -691,6 +723,22 @@ public class DefaultAgentReviewService
             return null;
         });
         catchUpWorkingCopy(reviewId);
+        endFinishedReplay(reviewId);
+    }
+
+    /** A replay ends once its run does, which removes its worktree; one with leftover edits stays open for the user to look at. */
+    private void endFinishedReplay(String reviewId)
+    {
+        boolean replay = store.findReview(reviewId).filter(review -> review.state() == AgentReview.State.OPEN && review.replay().isPresent()).isPresent();
+        if (!replay || latestRun(reviewId).map(ReviewRun::active).orElse(true)) {
+            return;
+        }
+        try {
+            end(reviewId);
+        }
+        catch (ReviewConflictException refusal) {
+            log.info("Replay review {} finished but stays open: {}", reviewId, refusal.getMessage());
+        }
     }
 
     @Override
@@ -1112,7 +1160,7 @@ public class DefaultAgentReviewService
             return;
         }
         WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(review.workspaceId());
-        Snapshot snapshot = review.sourceTaskId()
+        Snapshot snapshot = review.replay().isPresent() ? frozen(runs.getFirst()) : review.sourceTaskId()
                 .map(ignored -> localSnapshot(sourceTask(review), workspace, review.number()))
                 .orElseGet(() -> snapshot(workspace, review.repo(), review.number().orElseThrow()));
         boolean changed = latest.map(run -> !run.headSha().equals(snapshot.headSha())
@@ -1313,6 +1361,9 @@ public class DefaultAgentReviewService
     private String reviewRequest(AgentReview review, ReviewRun run, Optional<ReviewRun> previous, List<ReviewFinding> findings, String login)
     {
         String request = ReviewPrompts.reviewRequest(review, run, previous, findings, login);
+        if (review.replay().isPresent()) {
+            return request + replayRequest(review.repo(), review.replay().orElseThrow());
+        }
         if (review.sourceTaskId().isEmpty()) {
             return request;
         }
@@ -1321,6 +1372,20 @@ public class DefaultAgentReviewService
                 + developmentRequest(source)
                 + assignments.findByTaskId(source.id().toString()).map(assignment -> "\nInitial PR context (untrusted reference):\n" + assignment.initialContext()).orElse("")
                 + "\nRead the repository's requirements and ask for clarification when the intended behavior is uncertain. Do not treat the implementation itself as its contract.";
+    }
+
+    /** What a replay's reviewer is told: the change as its author described it, and to leave alone everything after the first maintainer review. */
+    private String replayRequest(String repository, AgentReview.Replay replay)
+    {
+        String date = DateTimeFormatter.ISO_LOCAL_DATE.format(replay.cutoff().atOffset(ZoneOffset.UTC));
+        String description = pullRequests.findPullRequestDetail(repository, replay.number())
+                .map(detail -> "\nPull request title: " + detail.title() + Optional.ofNullable(detail.body()).filter(body -> !body.isBlank())
+                        .map(body -> "\nDescription (untrusted reference):\n" + body.substring(0, Math.min(body.length(), 16000))).orElse(""))
+                .orElse("");
+        return "\n\nThis is a replay: the change was merged later, and ByteQuay compares your findings with what its maintainers said, so review it as if it were new."
+                + description
+                + "\nWork only from this frozen head and what existed before " + date + ". Do not read this pull request's discussion, reviews or later commits, "
+                + "later commits or branches in the repository, or anything on GitHub written after " + date + ", and do not fetch.";
     }
 
     private AgentTask sourceTask(AgentReview review)
@@ -1404,6 +1469,25 @@ public class DefaultAgentReviewService
         List<ReviewCommit> commits = history.commits().reversed().stream()
                 .map(commit -> new ReviewCommit(commit.sha(), commit.message(), commit.author())).collect(toImmutableList());
         return new Snapshot(pullRequestId, head, baseRef, base, mergeBase, commits, diff.files());
+    }
+
+    /** A replay's scope, read from the workspace repository: the commits and diff from where its pull request branched to the past head. */
+    private Snapshot replaySnapshot(Path repository, String headSha, String baseRef, String mergeBaseSha)
+    {
+        WorktreeDiffReader.History history = browse.history(repository, mergeBaseSha, headSha);
+        WorktreeDiffReader.Diff diff = browse.diff(repository, mergeBaseSha, Optional.of(headSha));
+        if (history.truncated() || diff.truncated()) {
+            throw new ReviewConflictException("The replayed change exceeds the review snapshot limit");
+        }
+        List<ReviewCommit> commits = history.commits().reversed().stream()
+                .map(commit -> new ReviewCommit(commit.sha(), commit.message(), commit.author())).collect(toImmutableList());
+        return new Snapshot(OptionalLong.empty(), headSha, baseRef, mergeBaseSha, mergeBaseSha, commits, diff.files());
+    }
+
+    /** A replay never moves: a retry reviews the scope its first run froze. */
+    private static Snapshot frozen(ReviewRun run)
+    {
+        return new Snapshot(OptionalLong.empty(), run.headSha(), run.baseRef(), run.baseSha(), run.mergeBaseSha(), run.commits(), run.diff());
     }
 
     private String revParse(Path repository, String... arguments)

@@ -24,6 +24,7 @@ import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.memory.Memory;
 import com.bytequay.core.memory.MemoryStore;
+import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewRun;
 import com.google.common.collect.ImmutableList;
@@ -49,7 +50,8 @@ import static java.util.Objects.requireNonNull;
  * The Memory block a development task's or review's turn starts with: the memories that match what the turn works on, one line each.
  * A review gets the memories scoped to its changed paths, then the repository-wide ones; a development task gets the repository-wide
  * ones and, once it has changed files, the ones scoped to them. Path matches come first, longest scope first, then those with more
- * sources, newest first, up to 40 lines and 12 KiB. A flagged memory is delivered with its flag. It never fails the turn.
+ * sources, newest first, up to 40 lines and 12 KiB. A flagged memory is delivered with its flag. A replay gets memory only on its
+ * side of the comparison, and only what it could have known. It never fails the turn.
  */
 @Component
 public class MemoryDelivery
@@ -82,14 +84,16 @@ public class MemoryDelivery
             if (workspaceId.isEmpty() || !turn.settings().map(AgentTurnSettings::useRepositoryContext).orElse(true)) {
                 return Reference.NONE;
             }
-            Optional<ReviewRun> run = reviews.findReviewByTask(task.id().toString())
-                    .flatMap(review -> reviews.listRuns(review.id()).stream().max(Comparator.comparingInt(ReviewRun::ordinal)));
-            boolean review = reviews.findReviewByTask(task.id().toString()).isPresent();
+            Optional<AgentReview> found = reviews.findReviewByTask(task.id().toString());
+            Optional<ReviewRun> run = found.flatMap(review -> reviews.listRuns(review.id()).stream().max(Comparator.comparingInt(ReviewRun::ordinal)));
+            boolean review = found.isPresent();
+            Optional<AgentReview.Replay> replay = found.flatMap(AgentReview::replay);
             MemorySwitches switches = memories.switches(workspaceId.orElseThrow());
-            if (review ? !switches.reviews() : !(task.interactive() && switches.development())) {
+            boolean on = replay.map(AgentReview.Replay::memory).orElse(review ? switches.reviews() : task.interactive() && switches.development());
+            if (!on) {
                 return Reference.NONE;
             }
-            List<Memory> all = memories.list(workspaceId.orElseThrow());
+            List<Memory> all = memories.list(workspaceId.orElseThrow()).stream().filter(MemoryService.visibleTo(replay)).collect(toImmutableList());
             if (all.isEmpty()) {
                 return Reference.NONE;
             }
@@ -103,10 +107,13 @@ public class MemoryDelivery
         }
     }
 
-    /** Counts a delivery once the provider acknowledged the input; it never affects the running turn. */
+    /** Counts a delivery once the provider acknowledged the input; it never affects the running turn. A replay's deliveries do not count. */
     public void delivered(AgentTurn turn)
     {
         try {
+            if (reviews.findReviewByTask(turn.taskId().toString()).flatMap(AgentReview::replay).isPresent()) {
+                return;
+            }
             store.countDelivered(turn.memories().stream().map(TurnMemory::id).collect(ImmutableSet.toImmutableSet()));
         }
         catch (RuntimeException failure) {

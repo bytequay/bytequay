@@ -22,9 +22,10 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * One private review of a pull request or local development task: the workflow that owns an agent task, its runs, its
- * findings, and its discussions until the user ends it.
+ * One private review of a pull request, a local development task, or a merged pull request replayed at a past commit: the
+ * workflow that owns an agent task, its runs, its findings, and its discussions until the user ends it.
  *
+ * @param replay set on a replay, which has no pull request number or source task, so nothing finds it as a pull request's review
  * @param observedHeadSha the newest source head ByteQuay has seen; working-copy catch-up and explicit review updates use this target
  * @param worktreeHeadSha the last head ByteQuay aligned, retained independently of the assessed run to recognize private local commits
  */
@@ -44,7 +45,8 @@ public record AgentReview(
         long version,
         Instant createdAt,
         Instant updatedAt,
-        Optional<Instant> closedAt)
+        Optional<Instant> closedAt,
+        Optional<Replay> replay)
 {
     public AgentReview
     {
@@ -54,7 +56,9 @@ public record AgentReview(
         requireNonNull(number, "number is null");
         checkArgument(number.isEmpty() || number.getAsInt() > 0, "number is not positive");
         requireNonNull(sourceTaskId, "sourceTaskId is null");
-        checkArgument(number.isPresent() || sourceTaskId.isPresent(), "review source is missing");
+        requireNonNull(replay, "replay is null");
+        checkArgument(number.isPresent() || sourceTaskId.isPresent() || replay.isPresent(), "review source is missing");
+        checkArgument(replay.isEmpty() || (number.isEmpty() && sourceTaskId.isEmpty()), "a replay has no other source");
         requireNonNull(pullRequestId, "pullRequestId is null");
         requireNonNull(taskId, "taskId is null");
         requireNonNull(state, "state is null");
@@ -66,6 +70,28 @@ public record AgentReview(
         requireNonNull(updatedAt, "updatedAt is null");
         requireNonNull(closedAt, "closedAt is null");
         checkArgument((state == State.CLOSED) == closedAt.isPresent(), "closedAt and state disagree");
+    }
+
+    public AgentReview(
+            String id,
+            String workspaceId,
+            String repo,
+            OptionalInt number,
+            OptionalLong pullRequestId,
+            String taskId,
+            Optional<String> sourceTaskId,
+            State state,
+            boolean followUpPaused,
+            Optional<String> latestCompletedRunId,
+            Optional<String> observedHeadSha,
+            Optional<String> worktreeHeadSha,
+            long version,
+            Instant createdAt,
+            Instant updatedAt,
+            Optional<Instant> closedAt)
+    {
+        this(id, workspaceId, repo, number, pullRequestId, taskId, sourceTaskId, state, followUpPaused, latestCompletedRunId, observedHeadSha, worktreeHeadSha,
+                version, createdAt, updatedAt, closedAt, Optional.empty());
     }
 
     public AgentReview withVersion(long updatedVersion)
@@ -86,20 +112,21 @@ public record AgentReview(
                 updatedVersion,
                 createdAt,
                 updatedAt,
-                closedAt);
+                closedAt, replay);
     }
 
     public AgentReview withFollowUpPaused(boolean paused, Instant now)
     {
         return new AgentReview(id, workspaceId, repo, number, pullRequestId, taskId, sourceTaskId, state, paused, latestCompletedRunId, observedHeadSha, worktreeHeadSha,
-                version, createdAt, now, closedAt);
+                version, createdAt, now, closedAt, replay);
     }
 
     public AgentReview withPullRequest(int pullNumber, OptionalLong storedId, Instant now)
     {
         checkArgument(number.isEmpty() || number.getAsInt() == pullNumber, "review pull request cannot change");
+        checkArgument(replay.isEmpty(), "a replay has no pull request");
         return new AgentReview(id, workspaceId, repo, OptionalInt.of(pullNumber), storedId, taskId, sourceTaskId, state, followUpPaused,
-                latestCompletedRunId, observedHeadSha, worktreeHeadSha, version, createdAt, now, closedAt);
+                latestCompletedRunId, observedHeadSha, worktreeHeadSha, version, createdAt, now, closedAt, replay);
     }
 
     public AgentReview withObservedHead(String headSha, Instant now)
@@ -120,20 +147,20 @@ public record AgentReview(
                 version,
                 createdAt,
                 now,
-                closedAt);
+                closedAt, replay);
     }
 
     public AgentReview withLatestCompletedRun(String runId, Instant now)
     {
         return new AgentReview(id, workspaceId, repo, number, pullRequestId, taskId, sourceTaskId, state, followUpPaused, Optional.of(runId), observedHeadSha, worktreeHeadSha,
-                version, createdAt, now, closedAt);
+                version, createdAt, now, closedAt, replay);
     }
 
     /** Last head ByteQuay aligned, independent of the retained review scope and any private local commits. */
     public AgentReview withWorktreeHead(String headSha, Instant now)
     {
         return new AgentReview(id, workspaceId, repo, number, pullRequestId, taskId, sourceTaskId, state, followUpPaused, latestCompletedRunId,
-                observedHeadSha, Optional.of(headSha), version, createdAt, now, closedAt);
+                observedHeadSha, Optional.of(headSha), version, createdAt, now, closedAt, replay);
     }
 
     public AgentReview closed(Instant now)
@@ -154,12 +181,28 @@ public record AgentReview(
                 version,
                 createdAt,
                 now,
-                Optional.of(now));
+                Optional.of(now), replay);
     }
 
     public enum State
     {
         OPEN,
         CLOSED
+    }
+
+    /**
+     * A review of merged pull request {@code number} at a past commit, run with or without repository memory, for comparing its
+     * findings with what the maintainers said.
+     *
+     * @param cutoff when the first maintainer review arrived; memory written after it is not given to the replay
+     */
+    public record Replay(String id, int number, boolean memory, Instant cutoff)
+    {
+        public Replay
+        {
+            requireNonNull(id, "id is null");
+            checkArgument(number > 0, "number is not positive");
+            requireNonNull(cutoff, "cutoff is null");
+        }
     }
 }

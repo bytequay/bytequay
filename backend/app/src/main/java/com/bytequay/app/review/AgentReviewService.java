@@ -14,6 +14,7 @@
 package com.bytequay.app.review;
 
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewMessage;
 
@@ -39,11 +40,17 @@ public interface AgentReviewService
 
     AgentReviewProjection get(String reviewId);
 
-    /** Lists open and closed workspace reviews by descending update time, without starting work or refreshing GitHub. */
+    /** Lists open and closed workspace reviews by descending update time, without starting work or refreshing GitHub. Replays are left out. */
     List<AgentReviewProjection> list(String workspaceId);
 
     /** Starts a review, or returns the open one: one review per workspace and pull request. */
     AgentReviewProjection start(String workspaceId, String repo, int number);
+
+    /**
+     * Starts one side of a replay: a review of a merged pull request's change at a past head, with or without repository memory.
+     * It is never the pull request's review, so nothing it finds can be published, and it stays at that head.
+     */
+    AgentReviewProjection startReplay(String workspaceId, ReplayStart start);
 
     /** Cancels the active run and pauses follow-up; the review and its discussion stay open. */
     AgentReviewProjection stop(String reviewId);
@@ -51,7 +58,7 @@ public interface AgentReviewService
     /** Lifts the pause and starts a run for the newest observed head when nothing is running. */
     AgentReviewProjection resume(String reviewId);
 
-    /** Refreshes the pull request now and follows its head. */
+    /** Refreshes the pull request now and follows its head; a replay keeps its head and only resumes. */
     AgentReviewProjection update(String reviewId);
 
     /** Discards local work and catches up to the current remote PR head without starting another review. */
@@ -88,4 +95,11 @@ public interface AgentReviewService
 
     /** Records a newer remote head for every open review without moving its checkout or starting a run. */
     void observeHead(String repo, int number, String headSha);
+
+    /**
+     * Where a replay reviews: the past head, and the commit its pull request branched from.
+     *
+     * @param mergeBaseSha where the pull request branched from its base branch, which is the replay's base
+     */
+    record ReplayStart(AgentReview.Replay replay, String headSha, String baseRef, String mergeBaseSha) {}
 }

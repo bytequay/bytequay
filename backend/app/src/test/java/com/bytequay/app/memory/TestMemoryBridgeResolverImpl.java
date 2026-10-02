@@ -141,6 +141,28 @@ class TestMemoryBridgeResolverImpl
     }
 
     @Test
+    void aReplaySearchesAndReadsOnlyWhatItCouldHaveKnownAndReportsNothing()
+            throws Exception
+    {
+        store.save(rule("m1", "workspace", "Rule from an earlier pull request.", ImmutableList.of(), 30000));
+        store.save(rule("m2", "workspace", "Rule from the replayed pull request.", ImmutableList.of(), 31188));
+        AgentTask replay = task(false, "workspace");
+        when(reviews.findReviewByTask(replay.id().toString())).thenReturn(Optional.of(replay(replay, false)));
+        assertThat(resolver.resolve(replay.id().toString())).isEmpty();
+
+        when(reviews.findReviewByTask(replay.id().toString())).thenReturn(Optional.of(replay(replay, true)));
+        memories.saveSwitches("workspace", new MemorySwitches(false, false));
+        MemoryBridge bridge = resolver.resolve(replay.id().toString()).orElseThrow();
+        assertThat(call(bridge, "{\"action\":\"SEARCH\",\"query\":\"rule\"}").path("memories").findValuesAsText("id")).containsExactly("m1");
+        assertThat(call(bridge, "{\"action\":\"READ\",\"id\":\"m1\"}").path("id").asText()).isEqualTo("m1");
+        assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"READ\",\"id\":\"m2\"}")).isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Memory m2 is not in this workspace");
+        assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"REPORT\",\"id\":\"m1\",\"reason\":\"Old\"}"))
+                .hasMessage("A replay reviews past code and cannot report memories");
+        assertThat(store.find("m1").orElseThrow().reports()).isEmpty();
+    }
+
+    @Test
     void pagesSearchResults()
             throws Exception
     {
@@ -152,6 +174,13 @@ class TestMemoryBridgeResolverImpl
         assertThat(second.path("memories")).hasSize(5);
         assertThat(second.path("pages").asInt()).isEqualTo(2);
         assertThat(second.path("total").asInt()).isEqualTo(25);
+    }
+
+    private static AgentReview replay(AgentTask task, boolean memory)
+    {
+        return new AgentReview("replay-review", "workspace", "trinodb/trino", OptionalInt.empty(), OptionalLong.empty(), task.id().toString(), Optional.empty(),
+                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty(),
+                Optional.of(new AgentReview.Replay("replay", 31188, memory, NOW.plusSeconds(3600))));
     }
 
     private JsonNode call(MemoryBridge bridge, String arguments)

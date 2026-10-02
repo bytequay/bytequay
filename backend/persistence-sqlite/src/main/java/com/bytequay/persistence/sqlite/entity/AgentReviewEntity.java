@@ -91,6 +91,19 @@ public class AgentReviewEntity
     @Convert(converter = InstantToTextConverter.class)
     private Instant closedAt;
 
+    @Column(name = "replay_id")
+    private String replayId;
+
+    @Column(name = "replay_number")
+    private Integer replayNumber;
+
+    @Column(name = "replay_memory")
+    private Boolean replayMemory;
+
+    @Column(name = "replay_cutoff")
+    @Convert(converter = InstantToTextConverter.class)
+    private Instant replayCutoff;
+
     public AgentReviewEntity() {}
 
     public static AgentReviewEntity fromDomain(AgentReview review)
@@ -118,6 +131,10 @@ public class AgentReviewEntity
         createdAt = review.createdAt();
         updatedAt = review.updatedAt();
         closedAt = review.closedAt().orElse(null);
+        replayId = review.replay().map(AgentReview.Replay::id).orElse(null);
+        replayNumber = review.replay().map(AgentReview.Replay::number).orElse(null);
+        replayMemory = review.replay().map(AgentReview.Replay::memory).orElse(null);
+        replayCutoff = review.replay().map(AgentReview.Replay::cutoff).orElse(null);
     }
 
     public AgentReview toDomain()
@@ -138,6 +155,7 @@ public class AgentReviewEntity
                 version,
                 createdAt,
                 updatedAt,
-                Optional.ofNullable(closedAt));
+                Optional.ofNullable(closedAt),
+                Optional.ofNullable(replayId).map(replay -> new AgentReview.Replay(replay, replayNumber, replayMemory, replayCutoff)));
     }
 }

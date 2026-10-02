@@ -199,7 +199,8 @@ final class ReviewPrompts
         requireNonNull(review, "review is null");
         requireNonNull(run, "run is null");
         StringBuilder request = new StringBuilder()
-                .append(review.sourceTaskId().isPresent() ? "Review local development changes in " : "Review pull request ").append(review.repo())
+                .append(review.sourceTaskId().isPresent() ? "Review local development changes in " : review.replay().isPresent() ? "Review a past change in "
+                        : "Review pull request ").append(review.repo())
                 .append(review.number().isPresent() ? "#" + review.number().getAsInt() : "")
                 .append(" at head ").append(shortSha(run.headSha()))
                 .append(" (").append(run.commits().size()).append(run.commits().size() == 1 ? " commit" : " commits")

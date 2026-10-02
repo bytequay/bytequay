@@ -18,6 +18,7 @@ import com.bytequay.core.memory.Memory;
 import com.bytequay.core.memory.MemoryReport;
 import com.bytequay.core.memory.MemorySource;
 import com.bytequay.core.memory.MemoryStore;
+import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.store.AppSettingsStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,6 +40,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.function.Predicate;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -84,15 +86,16 @@ public class MemoryService
     }
 
     /**
-     * Literal matches: the text contains the query, ignoring case, and the scope covers the path. A path also finds the
-     * repository-wide memories, after the ones scoped to it, longest scope first.
+     * Literal matches among the visible memories: the text contains the query, ignoring case, and the scope covers the path. A
+     * path also finds the repository-wide memories, after the ones scoped to it, longest scope first.
      */
-    public Page search(String workspaceId, Optional<String> query, Optional<String> path, int page)
+    public Page search(String workspaceId, Optional<String> query, Optional<String> path, int page, Predicate<Memory> visible)
     {
         checkArgument(page >= 1, "page must be positive");
         Optional<String> needle = query.map(String::strip).filter(text -> !text.isEmpty()).map(text -> text.toLowerCase(Locale.ROOT));
         Optional<String> target = path.map(String::strip).filter(text -> !text.isEmpty());
         List<Memory> matches = store.list(workspaceId).stream()
+                .filter(visible)
                 .filter(memory -> needle.isEmpty() || memory.text().toLowerCase(Locale.ROOT).contains(needle.orElseThrow()))
                 .filter(memory -> target.isEmpty() || memory.repositoryWide() || memory.match(target.orElseThrow()).isPresent())
                 .sorted(Comparator.comparingInt((Memory memory) -> target.map(memory::match).orElse(OptionalInt.empty()).orElse(0)).reversed())
@@ -285,6 +288,22 @@ public class MemoryService
                 .orElseGet(() -> "Page " + first.url().replaceFirst("^https://", ""));
         long pullRequests = memory.sources().stream().flatMap(source -> source.pullRequest().stream()).mapToInt(MemorySource.PullRequestPart::number).distinct().count();
         return pullRequests > 1 ? head + " · " + pullRequests + " PRs" : head;
+    }
+
+    /** What a review's agent may see: every memory, or for a replay only the ones it could have known. */
+    public static Predicate<Memory> visibleTo(Optional<AgentReview.Replay> replay)
+    {
+        return memory -> replay.map(value -> knownBefore(memory, value)).orElse(true);
+    }
+
+    /**
+     * Whether a replay could have known the memory when the maintainers first reviewed: no source comes from the replayed pull
+     * request, and no pull request source was written at or after the cutoff.
+     */
+    public static boolean knownBefore(Memory memory, AgentReview.Replay replay)
+    {
+        return memory.sources().stream().noneMatch(source -> source.pullRequest()
+                .filter(part -> part.number() == replay.number() || !source.at().isBefore(replay.cutoff())).isPresent());
     }
 
     /** What an agent learns about a report with the memory. */

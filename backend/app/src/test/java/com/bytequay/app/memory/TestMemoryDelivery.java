@@ -45,6 +45,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -130,6 +131,31 @@ class TestMemoryDelivery
     }
 
     @Test
+    void aReplayGetsMemoryOnlyOnItsSideAndOnlyWhatItCouldHaveKnown()
+    {
+        store.save(rule("m1", "workspace", "Rule from an earlier pull request.", ImmutableList.of(), 30000));
+        store.save(rule("m2", "workspace", "Rule from the replayed pull request.", ImmutableList.of(), 31188));
+        AgentTask review = AgentTask.created(taskId, Optional.of("workspace"), false, "Replay", new AgentLaneId("codex"), new RepositoryIdentity("trinodb", "trino"),
+                repository, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
+        when(reviews.listRuns("review")).thenReturn(ImmutableList.of(run("core/A.java")));
+
+        replay(true, NOW.plusSeconds(3600));
+        Reference reference = delivery.reference(review, turn(true));
+        assertThat(reference.memories()).extracting(TurnMemory::id).containsExactly("m1");
+        delivery.delivered(turn(true).markDeliveryStarted(NOW).withReference(ImmutableList.of(), reference.memories()));
+        assertThat(store.find("m1").orElseThrow().delivered()).isZero();
+
+        // The fixtures' sources are written at NOW, so a first review before then could have known neither rule.
+        replay(true, NOW.minusSeconds(3600));
+        assertThat(delivery.reference(review, turn(true))).isEqualTo(Reference.NONE);
+        replay(false, NOW.plusSeconds(3600));
+        assertThat(delivery.reference(review, turn(true))).isEqualTo(Reference.NONE);
+        memories.saveSwitches("workspace", new MemorySwitches(false, false));
+        replay(true, NOW.plusSeconds(3600));
+        assertThat(delivery.reference(review, turn(true)).memories()).extracting(TurnMemory::id).containsExactly("m1");
+    }
+
+    @Test
     void deliversAtMostFortyLinesAndCountsWhatWasDelivered()
     {
         for (int number = 1; number <= 45; number++) {
@@ -148,6 +174,13 @@ class TestMemoryDelivery
         delivery.delivered(turn);
         assertThat(store.find(reference.memories().get(0).id()).orElseThrow().delivered()).isEqualTo(2);
         assertThat(store.find(reference.memories().get(2).id()).orElseThrow().delivered()).isZero();
+    }
+
+    private void replay(boolean memory, Instant cutoff)
+    {
+        when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(new AgentReview("review", "workspace", "trinodb/trino", OptionalInt.empty(),
+                OptionalLong.empty(), taskId.toString(), Optional.empty(), AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0,
+                NOW, NOW, Optional.empty(), Optional.of(new AgentReview.Replay("replay", 31188, memory, cutoff)))));
     }
 
     private AgentTask task(String startCommit)

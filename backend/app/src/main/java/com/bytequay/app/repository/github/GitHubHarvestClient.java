@@ -40,7 +40,10 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
-/** Reads the closed pull requests a person wrote or reviewed, and one pull request's review discussion, for learning repository memory. */
+/**
+ * Reads the closed pull requests a person wrote or reviewed, and one pull request's review discussion, for learning repository memory,
+ * and a merged pull request's reviews and review threads, for replaying its review.
+ */
 @Component
 public class GitHubHarvestClient
 {
@@ -53,6 +56,16 @@ public class GitHubHarvestClient
                 reviewThreads(first:100) { nodes { id isResolved isOutdated path comments(first:30) { nodes { %1$s createdAt } } } }
                 reviews(first:100) { nodes { %1$s submittedAt } }
                 comments(first:100) { nodes { %1$s createdAt } }
+              } }
+            }
+            """.formatted(NOTE_FIELDS);
+    private static final String REPLAY_QUERY = """
+            query($owner:String!,$repo:String!,$number:Int!) {
+              repository(owner:$owner,name:$repo) { pullRequest(number:$number) {
+                number title url merged baseRefName author { __typename login } mergeCommit { oid }
+                reviews(first:100) { nodes { author { __typename login } authorAssociation state submittedAt commit { oid } } }
+                reviewThreads(first:100) { nodes { path diffSide line startLine originalLine originalStartLine
+                  comments(first:1) { nodes { %1$s createdAt originalCommit { oid } } } } }
               } }
             }
             """.formatted(NOTE_FIELDS);
@@ -89,19 +102,7 @@ public class GitHubHarvestClient
     /** One closed pull request's review threads, reviews and comments; empty when it is open or gone. */
     public Optional<PullDiscussion> discussion(String pat, RepoRef repository, int number)
     {
-        requirePat(pat);
-        checkArgument(number > 0, "Invalid pull request number");
-        JsonNode response = requireBody(translating(() -> graphql(graphQlRestClient, pat, QUERY,
-                ImmutableMap.of("owner", repository.owner(), "repo", repository.repo(), "number", number)).body(JsonNode.class)), "GitHub returned no pull request");
-        for (JsonNode error : response.path("errors")) {
-            if ("RATE_LIMITED".equals(error.path("type").asText())) {
-                throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "GitHub GraphQL rate limit reached");
-            }
-            if (!"NOT_FOUND".equals(error.path("type").asText())) {
-                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub could not read pull request #" + number);
-            }
-        }
-        JsonNode pull = response.path("data").path("repository").path("pullRequest");
+        JsonNode pull = pullRequest(pat, repository, number, QUERY);
         if (!pull.isObject() || pull.path("closedAt").isNull() || pull.path("closedAt").isMissingNode()) {
             return Optional.empty();
         }
@@ -116,11 +117,70 @@ public class GitHubHarvestClient
                 nodes(pull.path("comments")).stream().map(comment -> note(comment, "createdAt")).collect(toImmutableList())));
     }
 
+    /** A pull request's submitted reviews, with the head each was given on, and the first comment of each review thread; empty when it is gone. */
+    public Optional<PullReplay> replay(String pat, RepoRef repository, int number)
+    {
+        JsonNode pull = pullRequest(pat, repository, number, REPLAY_QUERY);
+        if (!pull.isObject()) {
+            return Optional.empty();
+        }
+        JsonNode author = pull.path("author");
+        List<SubmittedReview> reviews = nodes(pull.path("reviews")).stream().filter(review -> review.path("submittedAt").isTextual())
+                .map(review -> new SubmittedReview(review.path("author").path("login").asText("ghost"), bot(review.path("author")),
+                        review.path("authorAssociation").asText("NONE"), review.path("state").asText(""), Instant.parse(review.path("submittedAt").asText()),
+                        Optional.ofNullable(review.path("commit").path("oid").textValue())))
+                .collect(toImmutableList());
+        List<ThreadStart> threads = nodes(pull.path("reviewThreads")).stream()
+                .filter(thread -> thread.path("path").isTextual() && !nodes(thread.path("comments")).isEmpty())
+                .map(thread -> {
+                    JsonNode first = nodes(thread.path("comments")).getFirst();
+                    return new ThreadStart(thread.path("path").asText(), thread.path("diffSide").asText("RIGHT"), line(thread, "line"), line(thread, "startLine"),
+                            line(thread, "originalLine"), line(thread, "originalStartLine"), note(first, "createdAt"),
+                            Optional.ofNullable(first.path("originalCommit").path("oid").textValue()));
+                })
+                .collect(toImmutableList());
+        return Optional.of(new PullReplay(pull.path("number").asInt(), pull.path("title").asText(), pull.path("url").asText(), pull.path("merged").asBoolean(),
+                author.path("login").asText("ghost"), pull.path("baseRefName").asText(), Optional.ofNullable(pull.path("mergeCommit").path("oid").textValue()),
+                reviews, threads));
+    }
+
+    private JsonNode pullRequest(String pat, RepoRef repository, int number, String query)
+    {
+        requirePat(pat);
+        checkArgument(number > 0, "Invalid pull request number");
+        JsonNode response = requireBody(translating(() -> graphql(graphQlRestClient, pat, query,
+                ImmutableMap.of("owner", repository.owner(), "repo", repository.repo(), "number", number)).body(JsonNode.class)), "GitHub returned no pull request");
+        for (JsonNode error : response.path("errors")) {
+            if ("RATE_LIMITED".equals(error.path("type").asText())) {
+                throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "GitHub GraphQL rate limit reached");
+            }
+            if (!"NOT_FOUND".equals(error.path("type").asText())) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub could not read pull request #" + number);
+            }
+        }
+        return response.path("data").path("repository").path("pullRequest");
+    }
+
+    private static Optional<Integer> line(JsonNode thread, String field)
+    {
+        return thread.path(field).isInt() ? Optional.of(thread.path(field).asInt()) : Optional.empty();
+    }
+
+    private static boolean bot(JsonNode author)
+    {
+        return "Bot".equals(author.path("__typename").asText()) || author.path("login").asText("").endsWith("[bot]");
+    }
+
+    private static boolean maintainer(String association)
+    {
+        return association.equals("OWNER") || association.equals("MEMBER") || association.equals("COLLABORATOR");
+    }
+
     private static Note note(JsonNode node, String timeField)
     {
         JsonNode author = node.path("author");
         String login = author.path("login").asText("ghost");
-        return new Note(node.path("id").asText(), login, "Bot".equals(author.path("__typename").asText()) || login.endsWith("[bot]"),
+        return new Note(node.path("id").asText(), login, bot(author),
                 node.path("authorAssociation").asText("NONE"), node.path("body").asText(""), node.path("url").asText(""),
                 Instant.parse(node.path(timeField).asText("1970-01-01T00:00:00Z")));
     }
@@ -167,7 +227,66 @@ public class GitHubHarvestClient
     {
         public boolean maintainer()
         {
-            return association.equals("OWNER") || association.equals("MEMBER") || association.equals("COLLABORATOR");
+            return GitHubHarvestClient.maintainer(association);
+        }
+    }
+
+    /**
+     * A pull request as its reviewers saw it, for replaying its review.
+     *
+     * @param mergeCommit the merge, squash or last rebased commit; its first parent is the base the change landed on
+     */
+    public record PullReplay(int number, String title, String url, boolean merged, String author, String baseRef, Optional<String> mergeCommit,
+            List<SubmittedReview> reviews, List<ThreadStart> threads)
+    {
+        public PullReplay
+        {
+            requireNonNull(title, "title is null");
+            requireNonNull(author, "author is null");
+            requireNonNull(baseRef, "baseRef is null");
+            requireNonNull(mergeCommit, "mergeCommit is null");
+            reviews = ImmutableList.copyOf(reviews);
+            threads = ImmutableList.copyOf(threads);
+        }
+    }
+
+    /**
+     * A submitted review and the head it was given on.
+     *
+     * @param commit the pull request's head at the review; GitHub drops it once a force-push lets that commit be collected
+     */
+    public record SubmittedReview(String author, boolean bot, String association, String state, Instant at, Optional<String> commit)
+    {
+        public SubmittedReview
+        {
+            requireNonNull(author, "author is null");
+            requireNonNull(association, "association is null");
+            requireNonNull(at, "at is null");
+            requireNonNull(commit, "commit is null");
+        }
+
+        public boolean maintainer()
+        {
+            return GitHubHarvestClient.maintainer(association);
+        }
+    }
+
+    /**
+     * The first comment of a review thread and where it sits.
+     *
+     * @param side LEFT for the base side of the diff, RIGHT for the head side
+     * @param line the line at the pull request's latest head, empty once the code under the thread changed
+     * @param originalLine the line at the commit the comment was written on
+     */
+    public record ThreadStart(String path, String side, Optional<Integer> line, Optional<Integer> startLine, Optional<Integer> originalLine,
+            Optional<Integer> originalStartLine, Note comment, Optional<String> originalCommit)
+    {
+        public ThreadStart
+        {
+            requireNonNull(path, "path is null");
+            requireNonNull(side, "side is null");
+            requireNonNull(comment, "comment is null");
+            requireNonNull(originalCommit, "originalCommit is null");
         }
     }
 }

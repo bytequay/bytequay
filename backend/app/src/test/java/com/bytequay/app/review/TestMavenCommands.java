@@ -76,4 +76,11 @@ class TestMavenCommands
         assertThat(MavenCommands.detect(ImmutableList.of("ls # && mvn test"))).isEmpty();
         assertThat(MavenCommands.detect(ImmutableList.of())).isEmpty();
     }
+
+    @Test
+    void aTypedCommandLosesCodexsShellWrapperAndExtraWhitespace()
+    {
+        assertThat(MavenCommands.typedCommand(ImmutableList.of("/bin/zsh -lc 'cd core && ./mvnw  test'"))).isEqualTo("cd core && ./mvnw test");
+        assertThat(MavenCommands.typedCommand(ImmutableList.of("./mvnw -pl core test\n"))).isEqualTo("./mvnw -pl core test");
+    }
 }

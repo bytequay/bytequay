@@ -47,10 +47,9 @@ class TestSqliteMemoryStore
     @Test
     void savesSourcesReportsAndPreviousVersionsAndCountsWithoutRewriting()
     {
-        MemorySource review = new MemorySource(MemorySource.Kind.PULL_REQUEST, "https://github.com/trinodb/trino/pull/31201#discussion_r1", "Please document the property.",
-                NOW, Optional.of(new MemorySource.PullRequestPart(31201, MemorySource.Part.REVIEW_COMMENT, "1", "alice", true, true, true, false)), Optional.empty());
-        MemorySource page = new MemorySource(MemorySource.Kind.PAGE, "https://github.com/delta-io/delta/blob/master/PROTOCOL.md", "", NOW, Optional.empty(),
-                Optional.of("Checkpoints"));
+        MemorySource review = MemorySource.pullRequest("https://github.com/trinodb/trino/pull/31201#discussion_r1", "Please document the property.", NOW,
+                new MemorySource.PullRequestPart(31201, MemorySource.Part.REVIEW_COMMENT, "1", "alice", true, true, true, false));
+        MemorySource page = MemorySource.page("https://github.com/delta-io/delta/blob/master/PROTOCOL.md", "", NOW, Optional.of("Checkpoints"));
         Memory rule = new Memory("m1", "workspace-1", Memory.Kind.RULE, "When adding a table property, document it on the connector's page.",
                 ImmutableList.of("plugin/trino-delta-lake/"), ImmutableList.of(review), new Memory.Origin(false, "Learn from my PRs", Optional.of("task-1")), 1,
                 Optional.empty(), 0, 0, ImmutableList.of(), NOW, NOW);

@@ -27,8 +27,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestMemory
 {
     private static final Instant NOW = Instant.parse("2026-10-02T10:00:00Z");
-    private static final MemorySource SOURCE = new MemorySource(MemorySource.Kind.PULL_REQUEST, "https://github.com/trinodb/trino/pull/31201", "Docs, please.", NOW,
-            Optional.of(new MemorySource.PullRequestPart(31201, MemorySource.Part.REVIEW, "7", "alice", true, true, false, false)), Optional.empty());
+    private static final MemorySource SOURCE = MemorySource.pullRequest("https://github.com/trinodb/trino/pull/31201", "Docs, please.", NOW,
+            new MemorySource.PullRequestPart(31201, MemorySource.Part.REVIEW, "7", "alice", true, true, false, false));
 
     @Test
     void matchesPrefixesFilesGlobsAndTheDirectoriesAboveThem()
@@ -54,8 +54,13 @@ class TestMemory
         assertThatThrownBy(() -> memory("Rule", ImmutableList.of("a/", "a/"))).hasMessageContaining("duplicates");
         assertThatThrownBy(() -> new Memory("12", "workspace", Memory.Kind.RULE, "Rule", ImmutableList.of(), ImmutableList.of(SOURCE),
                 Memory.Origin.USER_EDIT, 1, Optional.empty(), 0, 0, ImmutableList.of(), NOW, NOW)).hasMessageContaining("not m followed by a number");
-        assertThatThrownBy(() -> new MemorySource(MemorySource.Kind.PULL_REQUEST, "http://github.com/x", "Quote", NOW, SOURCE.pullRequest(), Optional.empty()))
-                .hasMessageContaining("HTTPS");
+        assertThatThrownBy(() -> MemorySource.pullRequest("http://github.com/x", "Quote", NOW, SOURCE.pullRequest().orElseThrow())).hasMessageContaining("HTTPS");
+        MemorySource words = MemorySource.user("Keep refactors in their own commits.", NOW, new MemorySource.UserPart(MemorySource.Where.TASK_MESSAGE, "task", "event"));
+        assertThat(words.key()).isEqualTo("user:TASK_MESSAGE:task:event");
+        assertThatThrownBy(() -> new MemorySource(MemorySource.Kind.USER, Optional.of("https://github.com/x"), "Words", NOW, Optional.empty(), Optional.empty(),
+                words.user(), Optional.empty())).hasMessageContaining("only a pull request or page source has an address");
+        assertThatThrownBy(() -> MemorySource.user(" ", NOW, words.user().orElseThrow())).hasMessageContaining("a USER source quotes the words it rests on");
+        assertThatThrownBy(() -> new MemorySource.CommandPart("task", "turn", "make test", ".", "abc")).hasMessageContaining("full commit ID");
     }
 
     @Test

@@ -185,9 +185,9 @@ public class MemoryHarvestTools
     {
         HarvestThread thread = harvest.thread(note);
         HarvestPull pull = harvest.pull(thread.pull());
-        return new MemorySource(MemorySource.Kind.PULL_REQUEST, note.url().startsWith("https://") ? note.url() : pull.url(),
-                ContextText.excerpt(note.body(), MemorySource.MAX_QUOTE_BYTES), note.at(), Optional.of(new MemorySource.PullRequestPart(pull.number(), thread.part(),
-                note.githubId(), note.author(), note.maintainer(), pull.merged(), thread.resolved(), thread.outdated())), Optional.empty());
+        return MemorySource.pullRequest(note.url().startsWith("https://") ? note.url() : pull.url(), ContextText.excerpt(note.body(), MemorySource.MAX_QUOTE_BYTES),
+                note.at(), new MemorySource.PullRequestPart(pull.number(), thread.part(), note.githubId(), note.author(), note.maintainer(), pull.merged(),
+                thread.resolved(), thread.outdated()));
     }
 
     private void record(ContextBuild build, TurnId turn, Map<String, String> attempts, String line)

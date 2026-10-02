@@ -59,13 +59,14 @@ export function MemoryDrawer({ memory, busy, now, onClose, onSave, onRestore, on
         {flag.title === 'Reported wrong' && <button type="button" className="rcp-link" disabled={busy} onClick={onKeep}>Keep as it is</button>}
       </div>)}
       <h3 className="mem-label">Sources · {memory.sources.length}</h3>
-      {memory.sources.map(source => {
+      {memory.sources.map((source, index) => {
         const line = sourceHead(source);
-        return <div className="mem-source" key={source.url + (source.pullRequest?.part ?? '')}>
+        const url = source.url;
+        return <div className="mem-source" key={index}>
           <div className="mem-source__head">{line.head}</div>
           {source.quote !== '' && <div className="mem-source__quote">{source.quote}</div>}
-          <div className="mem-source__foot"><span>{line.note}</span>
-            <button type="button" className="rcp-link" onClick={() => onOpen(source.url)}>{line.link}</button></div>
+          {(line.note !== '' || (line.link !== null && url !== null)) && <div className="mem-source__foot"><span>{line.note}</span>
+            {line.link !== null && url !== null && <button type="button" className="rcp-link" onClick={() => onOpen(url)}>{line.link}</button>}</div>}
         </div>;
       })}
       {memory.previous !== null && <>

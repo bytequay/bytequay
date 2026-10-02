@@ -4538,3 +4538,9 @@ button.agt-disc-mark:hover {
 .agt-disc-card button:focus-visible,
 .agt-disc-fail button:focus-visible { outline: 2px solid var(--disc-bl); outline-offset: 2px; }
 .agt-disc-reply:focus-within { border-color: var(--disc-bl); box-shadow: 0 0 0 3px var(--disc-focus); }
+
+/* What an agent remembered, with Undo, shown even while its activity group is folded. */
+.agt-remembered { flex-wrap: wrap; }
+.agt-remembered__icon { flex: none; color: #9a6700; }
+.agt-remembered__text { min-width: 0; overflow-wrap: anywhere; }
+.agt-remembered__error { color: #cf222e; font-size: 12px; }

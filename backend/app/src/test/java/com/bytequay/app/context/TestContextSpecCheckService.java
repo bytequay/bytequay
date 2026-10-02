@@ -187,7 +187,7 @@ class TestContextSpecCheckService
             assertThat(memory.kind()).isEqualTo(Memory.Kind.SPEC);
             assertThat(memory.text()).isEqualTo("Implements the specification at " + SPEC + ".");
             assertThat(memory.scope()).containsExactly(current().directory());
-            assertThat(memory.sources()).extracting(MemorySource::url).containsExactly(SPEC);
+            assertThat(memory.sources()).extracting(MemorySource::url).containsExactly(Optional.of(SPEC));
             assertThat(memory.origin().taskId()).contains(TASK.toString());
         });
         service.saveCandidates(build(Optional.empty()), ImmutableList.of(), Optional.of(ImmutableList.of(SPEC)), ImmutableList.of(), ImmutableList.of(), this::searched);

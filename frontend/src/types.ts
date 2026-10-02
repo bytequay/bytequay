@@ -1616,6 +1616,8 @@ export type Bridge = JiraBridge & {
   keepMemory: (workspaceId: string, memoryId: string) => Promise<MemoryPageDto>;
   deleteMemory: (workspaceId: string, memoryId: string) => Promise<MemoryPageDto>;
   undoDeleteMemory: (workspaceId: string, memoryId: string) => Promise<MemoryPageDto>;
+  /** Undo on a transcript's Remembered row: what the agent remembered goes, or its previous version comes back. */
+  undoRememberedMemory: (workspaceId: string, memoryId: string) => Promise<MemoryPageDto>;
   saveMemorySwitches: (workspaceId: string, switches: MemorySwitchesDto) => Promise<MemoryPageDto>;
   /** Learn from my PRs, or Learn from this PR: reads maintainer threads on GitHub and starts one harvest run over the new ones; GitHub is only read. */
   startMemoryHarvest: (workspaceId: string, request: StartMemoryHarvestRequest) => Promise<MemoryHarvestStartedDto>;

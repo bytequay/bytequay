@@ -14,12 +14,15 @@
 import { count, object, oneOf, optionalText, text } from '../pulls/wireParse';
 import { parseContextBuildView, type ContextBuildViewDto } from '../repository-context/contracts';
 
-export type MemoryKind = 'RULE' | 'SPEC';
+export type MemoryKind = 'RULE' | 'RECIPE' | 'SPEC';
 export type MemoryPart = 'REVIEW_COMMENT' | 'REVIEW' | 'COMMENT' | 'CLOSE';
-/** Where a memory came from, with the words it rests on. */
+export type MemoryWhere = 'TASK_MESSAGE' | 'REVIEW_MESSAGE' | 'RESOLVE' | 'DISMISS';
+/** Where a memory came from, with the words it rests on; the user's words and commands have no address. */
 export type MemorySourceDto = {
-  kind: 'PULL_REQUEST' | 'PAGE'; url: string; quote: string; at: string; section: string | null;
+  kind: 'PULL_REQUEST' | 'PAGE' | 'USER' | 'COMMAND'; url: string | null; quote: string; at: string; section: string | null;
   pullRequest: null | { number: number; part: MemoryPart; author: string; maintainer: boolean; merged: boolean; resolved: boolean; outdated: boolean };
+  user: null | { where: MemoryWhere; id: string; item: string };
+  command: null | { taskId: string; turnId: string; command: string; directory: string; commit: string };
 };
 export type MemoryReportDto = { reason: string; quote: string; taskId: string; at: string };
 /** One rule or spec agents receive; `missingScope` lists scope paths gone from the monitored head. */
@@ -59,9 +62,16 @@ const strings = (value: unknown, what: string): string[] => list(value, what, it
 function source(value: unknown): MemorySourceDto {
   const item = object(value, 'memory source');
   const part = item.pullRequest == null ? null : object(item.pullRequest, 'memory source pull request');
+  const user = item.user == null ? null : object(item.user, 'memory source user');
+  const command = item.command == null ? null : object(item.command, 'memory source command');
   return {
-    kind: oneOf(item.kind, ['PULL_REQUEST', 'PAGE'], 'memory source kind'), url: text(item.url, 'memory source url'), quote: text(item.quote, 'memory source quote'),
-    at: text(item.at, 'memory source time'), section: optionalText(item.section),
+    kind: oneOf(item.kind, ['PULL_REQUEST', 'PAGE', 'USER', 'COMMAND'], 'memory source kind'), url: optionalText(item.url),
+    quote: text(item.quote, 'memory source quote'), at: text(item.at, 'memory source time'), section: optionalText(item.section),
+    user: user === null ? null : { where: oneOf(user.where, ['TASK_MESSAGE', 'REVIEW_MESSAGE', 'RESOLVE', 'DISMISS'], 'memory source where'),
+      id: text(user.id, 'memory source user id'), item: text(user.item, 'memory source user item') },
+    command: command === null ? null : { taskId: text(command.taskId, 'memory source command task'), turnId: text(command.turnId, 'memory source command turn'),
+      command: text(command.command, 'memory source command'), directory: text(command.directory, 'memory source command directory'),
+      commit: text(command.commit, 'memory source command commit') },
     pullRequest: part === null ? null : {
       number: count(part.number, 'memory source pull request number'), part: oneOf(part.part, ['REVIEW_COMMENT', 'REVIEW', 'COMMENT', 'CLOSE'], 'memory source part'),
       author: text(part.author, 'memory source author'), maintainer: flag(part.maintainer, 'memory source maintainer'), merged: flag(part.merged, 'memory source merged'),
@@ -76,7 +86,7 @@ export function parseMemory(value: unknown): MemoryDto {
   const origin = object(item.origin, 'memory origin');
   const previous = item.previous == null ? null : object(item.previous, 'memory previous version');
   return {
-    id: text(item.id, 'memory id'), kind: oneOf(item.kind, ['RULE', 'SPEC'], 'memory kind'), text: text(item.text, 'memory text'),
+    id: text(item.id, 'memory id'), kind: oneOf(item.kind, ['RULE', 'RECIPE', 'SPEC'], 'memory kind'), text: text(item.text, 'memory text'),
     scope: strings(item.scope, 'memory scope'), sources: list(item.sources, 'memory sources', source),
     origin: { user: flag(origin.user, 'memory origin'), description: text(origin.description, 'memory origin'), taskId: optionalText(origin.taskId) },
     version: count(item.version, 'memory version'),

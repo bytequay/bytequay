@@ -135,8 +135,11 @@ beyond this change, remember it in your own words with the user's words as the
 source.
 
 - **Source binding.** ByteQuay binds the source to the user message the turn is
-  answering, or to the review discussion message. The agent cannot cite anything
-  else. Only a USER source can have the user-everywhere scope.
+  answering, or to the review discussion message. The agent may quote the user's
+  words, and ByteQuay checks the quote against the messages the user sent in that
+  turn, steers included; it cannot cite anything else. A review step, a generated
+  follow-up and a local review dispatch carry ByteQuay's words, not the user's,
+  so they remember no rule. Only a USER source can have the user-everywhere scope.
 - **Saving.** A memory is saved at once. The transcript shows "Remembered: …"
   with Undo, which deletes it, or restores the previous version of an update.
 - **Remember on Resolve and Dismiss.** Resolve on a review finding and Dismiss on
@@ -230,8 +233,8 @@ one line each: `[m12] <text> (PR #31201 @alice, 3 PRs)`.
 This deliberately reverses the current rule against automatic note injection:
 memories are short, and lookup alone reached one development task.
 
-**The memory tool**, `repository_memory`, for development tasks and reviews whose
-workspace has memories, replaces
+**The memory tool**, `repository_memory`, for development tasks and reviews with
+memory on, even before anything is remembered, replaces
 `repository_context_lookup` and the note kinds of `review_get_context`:
 
 | Action | What it does |
@@ -290,7 +293,7 @@ memories.
 | Surface | Change |
 |---|---|
 | Pull request page | Learn from this PR, on merged or closed pull requests; Replay review, on merged ones |
-| Task and review transcripts | "Remembered: …" rows with Undo. The turn receipt folds "Memory: 6 delivered" and "Guidelines: 3 files" |
+| Task and review transcripts | "Remembered: …" rows with Undo, shown while their activity is folded; a Codex review whose root tools run outside MCP reports no line for them, so it shows none. The turn receipt folds "Memory: 6 delivered" and "Guidelines: 3 files" |
 | Review findings | "Memory used", folded. The Resolve dialog gains Remember for \<path\> |
 | Tasks list | Harvest runs appear as learning runs do today: read-only activity with Stop |
 | Home | Needs attention keeps a row while memories are flagged |

@@ -25,12 +25,14 @@ import {
   planSummary,
   projectAgents,
   projectTranscript,
+  rememberedMemory,
   settleFinalTurn,
   turnElapsedMs,
   turnLabel,
   withApprovalAuthority,
   type ActivityBlock,
   type CommandAction,
+  type ToolMember,
 } from './transcript';
 
 const fixtureEvents = parseAgentEventSequence(fixture.events);
@@ -544,5 +546,20 @@ describe('bounded transcript windows', () => {
     const child = { ...sample, turnId: 'old-turn', source: { ...sample.source, providerThreadId: 'child', parentProviderThreadId: 'root' } };
     expect(projectAgents([child], 'current-turn', false)[0].status).toBe('unknown');
     expect(activeAgents(projectAgents([child], 'current-turn', false))).toEqual([]);
+  });
+});
+
+describe('remembered memories', () => {
+  const tool = (name: string, description: string | null): ToolMember => ({ kind: 'tool', id: 't', name, state: 'COMPLETED', summary: '', durationMs: null,
+    description });
+
+  it('reads a saved or updated memory from the line both providers carry', () => {
+    expect(rememberedMemory(tool('mcp__bytequay__repository_memory', 'Remembered m23 · Keep refactors in their own commits.')))
+      .toEqual({ updated: false, id: 'm23', text: 'Keep refactors in their own commits.' });
+    expect(rememberedMemory(tool('bytequay/repository_memory', 'Updated m4 · Run core tests with `./mvnw -pl core test`.')))
+      .toEqual({ updated: true, id: 'm4', text: 'Run core tests with `./mvnw -pl core test`.' });
+    expect(rememberedMemory(tool('bytequay/repository_memory', 'Read memory m4'))).toBeNull();
+    expect(rememberedMemory(tool('mcp__bytequay__review_get_context', 'Remembered m4 · x'))).toBeNull();
+    expect(rememberedMemory(tool('mcp__bytequay__repository_memory', null))).toBeNull();
   });
 });

@@ -14,12 +14,13 @@
 import type { MemoryDto, MemoryKind, MemoryPart, MemorySourceDto } from './contracts';
 
 export type MemoryKindFilter = 'ALL' | MemoryKind;
-export type MemorySourceFilter = 'ANY' | 'PR' | 'USER' | 'PAGE';
+export type MemorySourceFilter = 'ANY' | 'PR' | 'USER' | 'TASK' | 'PAGE';
 
 /** Every page that changes memory tells the sidebar count to re-read it. */
 export const MEMORY_CHANGED = 'bytequay:memory-changed';
 
-export const KIND_LABEL: Record<MemoryKind, { one: string; many: string }> = { RULE: { one: 'Rule', many: 'Rules' }, SPEC: { one: 'Spec', many: 'Specs' } };
+export const KIND_LABEL: Record<MemoryKind, { one: string; many: string }> = { RULE: { one: 'Rule', many: 'Rules' }, RECIPE: { one: 'Recipe', many: 'Recipes' },
+  SPEC: { one: 'Spec', many: 'Specs' } };
 
 /** Why a memory needs the user: its latest report, and scope paths gone from the monitored head. A flag never hides the memory. */
 export function memoryFlags(memory: MemoryDto): { title: string; detail: string }[] {
@@ -34,16 +35,24 @@ export function memoryFlags(memory: MemoryDto): { title: string; detail: string 
 
 export const flagged = (memory: MemoryDto): boolean => memoryFlags(memory).length > 0;
 
-/** The row's source chip: "#31201 @alice" with "3 PRs", or the page it cites. */
-export function sourceChip(memory: MemoryDto): { kind: 'PR' | 'PAGE'; label: string; more: string } {
+/** Memories remembered in tasks and reviews rest on the user's words or a command that passed. */
+export const fromTask = (memory: MemoryDto): boolean => memory.sources.some(source => source.kind === 'USER' || source.kind === 'COMMAND');
+
+/** The row's source chip: "#31201 @alice" with "3 PRs", the page it cites, the user's words, or the command that passed. */
+export function sourceChip(memory: MemoryDto): { kind: 'PR' | 'PAGE' | 'USER' | 'COMMAND'; label: string; more: string } {
   const first = memory.sources[0];
+  if (first.user !== null) return { kind: 'USER', label: WHERE_LABEL[first.user.where], more: '' };
+  if (first.command !== null) return { kind: 'COMMAND', label: 'Passed', more: first.command.commit.slice(0, 7) };
   if (first.pullRequest !== null) {
     const pullRequests = new Set(memory.sources.flatMap(source => source.pullRequest === null ? [] : [source.pullRequest.number])).size;
     return { kind: 'PR', label: `#${first.pullRequest.number} @${first.pullRequest.author}`,
       more: pullRequests > 1 ? `${pullRequests} PRs` : first.pullRequest.merged ? '' : 'closed' };
   }
-  return { kind: 'PAGE', label: pageLabel(first.url), more: '' };
+  return { kind: 'PAGE', label: pageLabel(first.url ?? ''), more: '' };
 }
+
+const WHERE_LABEL: Record<NonNullable<MemorySourceDto['user']>['where'], string> = { TASK_MESSAGE: 'You, in a task', REVIEW_MESSAGE: 'You, in a review',
+  RESOLVE: 'You, resolving a finding', DISMISS: 'You, dismissing a spec finding' };
 
 /** "github.com · PROTOCOL.md": the host and the page's last path segment. */
 export function pageLabel(url: string): string {
@@ -59,11 +68,17 @@ export function pageLabel(url: string): string {
 
 const PART_LABEL: Record<MemoryPart, string> = { REVIEW_COMMENT: 'review comment', REVIEW: 'review', COMMENT: 'comment', CLOSE: 'closing comment' };
 
-/** "PR #31201 · review comment · @alice, maintainer · merged", what shows the thread was applied, and the link's label. */
-export function sourceHead(source: MemorySourceDto): { head: string; note: string; link: string } {
+/** "PR #31201 · review comment · @alice, maintainer · merged", what shows the thread was applied, and the link's label when it has an address. */
+export function sourceHead(source: MemorySourceDto): { head: string; note: string; link: string | null } {
+  if (source.user !== null) return { head: WHERE_LABEL[source.user.where], note: 'Your words', link: null };
+  if (source.command !== null) {
+    return { head: `Command passed in ${source.command.directory === '.' ? 'the worktree' : source.command.directory} at ${source.command.commit.slice(0, 7)}`,
+      note: source.command.command, link: null };
+  }
   const part = source.pullRequest;
   if (part === null) {
-    return { head: ['Page', source.url.replace(/^https:\/\//, ''), source.section].filter(value => value !== null && value !== '').join(' · '), note: '', link: 'Open page' };
+    return { head: ['Page', (source.url ?? '').replace(/^https:\/\//, ''), source.section].filter(value => value !== null && value !== '').join(' · '), note: '',
+      link: 'Open page' };
   }
   const head = `PR #${part.number} · ${PART_LABEL[part.part]} · @${part.author}${part.maintainer ? ', maintainer' : ''} · ${part.merged ? 'merged' : 'closed without merge'}`;
   const note = part.part === 'CLOSE' ? 'A maintainer explained the close'
@@ -76,6 +91,7 @@ export function matches(memory: MemoryDto, kind: MemoryKindFilter, source: Memor
   if (source === 'USER' && !memory.origin.user) return false;
   if (source === 'PR' && !memory.sources.some(item => item.pullRequest !== null)) return false;
   if (source === 'PAGE' && !memory.sources.some(item => item.kind === 'PAGE')) return false;
+  if (source === 'TASK' && !fromTask(memory)) return false;
   const needle = query.trim().toLowerCase();
   return needle === '' || [memory.text, ...memory.scope, sourceChip(memory).label].join(' ').toLowerCase().includes(needle);
 }

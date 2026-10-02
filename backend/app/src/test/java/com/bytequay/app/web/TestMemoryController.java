@@ -43,8 +43,8 @@ class TestMemoryController
 {
     private static final Instant NOW = Instant.parse("2026-10-02T10:00:00Z");
     private static final Memory MEMORY = new Memory("m12", "workspace", Memory.Kind.RULE, "Document every new table property.", ImmutableList.of("plugin/"),
-            ImmutableList.of(new MemorySource(MemorySource.Kind.PULL_REQUEST, "https://github.com/trinodb/trino/pull/31201#discussion_r1", "Docs, please.", NOW,
-                    Optional.of(new MemorySource.PullRequestPart(31201, MemorySource.Part.REVIEW_COMMENT, "1", "alice", true, true, true, false)), Optional.empty())),
+            ImmutableList.of(MemorySource.pullRequest("https://github.com/trinodb/trino/pull/31201#discussion_r1", "Docs, please.", NOW,
+                    new MemorySource.PullRequestPart(31201, MemorySource.Part.REVIEW_COMMENT, "1", "alice", true, true, true, false))),
             new Memory.Origin(false, "Learn from my PRs", Optional.of("task-1")), 1, Optional.empty(), 37, 4, ImmutableList.of(), NOW, NOW);
     private static final MemoryPageReader.MemoryPage PAGE = new MemoryPageReader.MemoryPage(
             ImmutableList.of(new MemoryPageReader.Entry(MEMORY, ImmutableList.of("plugin/"))), new MemorySwitches(true, false),
@@ -96,6 +96,9 @@ class TestMemoryController
 
         mvc.perform(post("/api/workspaces/workspace/memory/m12/undo-delete")).andExpect(status().isOk());
         verify(memories).undoDelete("workspace", "m12");
+
+        mvc.perform(post("/api/workspaces/workspace/memory/m12/undo-remember")).andExpect(status().isOk());
+        verify(memories).undoRemember("workspace", "m12");
 
         mvc.perform(put("/api/workspaces/workspace/memory/switches").contentType(MediaType.APPLICATION_JSON).content("{\"reviews\":false,\"development\":true}"))
                 .andExpect(status().isOk());

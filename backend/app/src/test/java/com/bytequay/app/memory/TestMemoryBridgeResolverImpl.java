@@ -17,11 +17,14 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.MemoryBridge;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
+import com.bytequay.core.memory.Memory;
+import com.bytequay.core.memory.MemorySource;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -52,13 +55,14 @@ class TestMemoryBridgeResolverImpl
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
     private final InMemoryMemoryStore store = new InMemoryMemoryStore();
     private final MemoryService memories = new MemoryService(store, new InMemoryAppSettingsStore(), mapper, Clock.fixed(NOW, ZoneOffset.UTC));
-    private final MemoryBridgeResolverImpl resolver = new MemoryBridgeResolverImpl(tasks, reviews, memories, mapper);
+    private final MemorySources sources = mock(MemorySources.class);
+    private final MemoryBridgeResolverImpl resolver = new MemoryBridgeResolverImpl(tasks, reviews, memories, sources, mapper);
 
     @Test
-    void offersTheToolToDevelopmentTasksAndReviewsWhoseWorkspaceHasMemories()
+    void offersTheToolToDevelopmentTasksAndReviewsWithMemoryOnEvenBeforeAnythingIsRemembered()
     {
         AgentTask development = task(true, "workspace");
-        assertThat(resolver.resolve(development.id().toString())).isEmpty();
+        assertThat(resolver.resolve(development.id().toString())).isPresent();
 
         store.save(rule("m1", "workspace", "Keep refactors and behavior changes in separate commits.", ImmutableList.of()));
         assertThat(resolver.resolve(development.id().toString())).isPresent();
@@ -73,6 +77,7 @@ class TestMemoryBridgeResolverImpl
         assertThat(resolver.resolve(review.id().toString())).isPresent();
 
         AgentTask elsewhere = task(true, "other");
+        memories.saveSwitches("other", new MemorySwitches(true, false));
         assertThat(resolver.resolve(elsewhere.id().toString())).isEmpty();
 
         when(tasks.find(development.id())).thenReturn(Optional.of(development.fail("Failed", NOW, NOW.plus(Duration.ofDays(7)))));
@@ -136,7 +141,7 @@ class TestMemoryBridgeResolverImpl
         assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"READ\",\"id\":\"m5\"}")).isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Memory m5 is not in this workspace");
         assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"EDIT\",\"id\":\"m1\"}")).isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("action must be SEARCH, READ or REPORT");
+                .hasMessage("action must be SEARCH, READ, REPORT or REMEMBER");
         assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"REPORT\",\"id\":\"m1\"}")).hasMessage("REPORT needs a reason");
     }
 
@@ -159,7 +164,61 @@ class TestMemoryBridgeResolverImpl
                 .hasMessageContaining("Memory m2 is not in this workspace");
         assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"REPORT\",\"id\":\"m1\",\"reason\":\"Old\"}"))
                 .hasMessage("A replay reviews past code and cannot report memories");
+        assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"REMEMBER\",\"kind\":\"RULE\",\"text\":\"Rule\"}"))
+                .hasMessage("A replay reviews past code and cannot remember anything");
         assertThat(store.find("m1").orElseThrow().reports()).isEmpty();
+    }
+
+    @Test
+    void remembersRulesOnTheUsersWordsAndRecipesOnPassingCommandsAndUndoesThem()
+            throws Exception
+    {
+        AgentTask task = task(true, "workspace");
+        TurnId turn = TurnId.random();
+        when(sources.capture(task.id().toString())).thenReturn(Optional.of(turn));
+        MemorySource words = MemorySource.user("Keep refactors in their own commits.", NOW,
+                new MemorySource.UserPart(MemorySource.Where.TASK_MESSAGE, task.id().toString(), "event-1"));
+        when(sources.userWords(task, turn, Optional.of("Keep refactors in their own commits."))).thenReturn(words);
+        MemorySource command = MemorySource.command("./mvnw -pl core test", NOW,
+                new MemorySource.CommandPart(task.id().toString(), turn.toString(), "./mvnw -pl core test", ".", "a".repeat(40)));
+        when(sources.passingCommand(task, turn, "./mvnw -pl core test")).thenReturn(command);
+        store.save(new Memory("m9", "workspace", Memory.Kind.RULE, "The user's own rule.", ImmutableList.of(), ImmutableList.of(words), Memory.Origin.USER_EDIT, 1,
+                Optional.empty(), 0, 0, ImmutableList.of(), NOW, NOW));
+        MemoryBridge bridge = resolver.resolve(task.id().toString()).orElseThrow();
+
+        JsonNode rule = call(bridge, "{\"action\":\"REMEMBER\",\"kind\":\"RULE\",\"text\":\"Keep refactors\\nin their own commits.\","
+                + "\"quote\":\"Keep refactors in their own commits.\"}");
+        String ruleId = rule.path("id").asText();
+        assertThat(rule.path("activityLine").asText()).isEqualTo("Remembered " + ruleId + " · Keep refactors in their own commits.");
+        Memory saved = store.find(ruleId).orElseThrow();
+        assertThat(saved.sources()).containsExactly(words);
+        assertThat(saved.origin()).isEqualTo(new Memory.Origin(false, "Remembered in a task", Optional.of(task.id().toString())));
+
+        JsonNode recipe = call(bridge, "{\"action\":\"REMEMBER\",\"kind\":\"RECIPE\",\"text\":\"Run the core tests with `./mvnw -pl core test`.\","
+                + "\"command\":\"./mvnw -pl core test\",\"scope\":[\"core/\"]}");
+        Memory remembered = store.find(recipe.path("id").asText()).orElseThrow();
+        assertThat(remembered.kind()).isEqualTo(Memory.Kind.RECIPE);
+        assertThat(remembered.scope()).containsExactly("core/");
+        assertThat(remembered.sources()).containsExactly(command);
+
+        JsonNode updated = call(bridge, "{\"action\":\"REMEMBER\",\"id\":\"" + ruleId + "\",\"kind\":\"RULE\",\"text\":\"Keep refactors and behavior changes "
+                + "in separate commits.\",\"quote\":\"Keep refactors in their own commits.\"}");
+        assertThat(updated.path("activityLine").asText()).startsWith("Updated " + ruleId + " · Keep refactors and behavior");
+        assertThat(store.find(ruleId).orElseThrow().previous()).map(Memory.Previous::text).contains("Keep refactors in their own commits.");
+        assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"REMEMBER\",\"id\":\"" + ruleId + "\",\"kind\":\"RECIPE\",\"text\":\"x\","
+                + "\"command\":\"./mvnw -pl core test\"}")).hasMessage("Memory " + ruleId + " is a RULE; remember a RECIPE as a new memory");
+        assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"REMEMBER\",\"id\":\"m9\",\"kind\":\"RULE\",\"text\":\"x\",\"quote\":\"Keep refactors in their own commits.\"}"))
+                .hasMessageContaining("Memory m9 is the user's; agents never change it");
+        assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"REMEMBER\",\"kind\":\"RECIPE\",\"text\":\"x\"}")).hasMessage("A RECIPE needs the command that passed");
+        assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"REMEMBER\",\"kind\":\"SPEC\",\"text\":\"x\"}")).hasMessage("kind must be RULE or RECIPE");
+
+        memories.undoRemember("workspace", ruleId);
+        assertThat(store.find(ruleId).orElseThrow().text()).isEqualTo("Keep refactors in their own commits.");
+        assertThat(store.find(ruleId).orElseThrow().origin().user()).isTrue();
+        assertThatThrownBy(() -> memories.undoRemember("workspace", ruleId)).hasMessageContaining("is yours now");
+        memories.undoRemember("workspace", remembered.id());
+        assertThat(store.find(remembered.id())).isEmpty();
+        assertThat(memories.undoDelete("workspace", remembered.id()).id()).isEqualTo(remembered.id());
     }
 
     @Test

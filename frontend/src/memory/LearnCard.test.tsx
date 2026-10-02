@@ -21,7 +21,8 @@ import { LearnCard } from './MemoryPage';
 const memory: MemoryDto = {
   id: 'm31', kind: 'RULE', text: 'When a connector adds a session property, give it a catalog property too.', scope: ['plugin/'],
   sources: [{ kind: 'PULL_REQUEST', url: 'https://github.com/trinodb/trino/pull/31188', quote: 'Please add a catalog property too.', at: '2026-10-01T00:00:00Z',
-    section: null, pullRequest: { number: 31188, part: 'REVIEW_COMMENT', author: 'alice', maintainer: true, merged: true, resolved: true, outdated: false } }],
+    section: null, pullRequest: { number: 31188, part: 'REVIEW_COMMENT', author: 'alice', maintainer: true, merged: true, resolved: true, outdated: false },
+    user: null, command: null }],
   origin: { user: false, description: 'Learn from my PRs', taskId: 'task' }, version: 1, previous: null, delivered: 0, cited: 0, reports: [], missingScope: [],
   createdAt: '2026-10-02T00:00:00Z', updatedAt: '2026-10-02T00:00:00Z',
 };

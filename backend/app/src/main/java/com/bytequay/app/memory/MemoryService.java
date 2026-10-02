@@ -203,6 +203,25 @@ public class MemoryService
         }
     }
 
+    /**
+     * Undo on a transcript's Remembered row: a memory the agent saved goes, with the usual window to bring it back, and one it replaced
+     * gets its previous text and scope back. A memory the user has made theirs since is left for them to change in Memory.
+     */
+    public void undoRemember(String workspaceId, String memoryId)
+    {
+        synchronized (lock) {
+            Memory memory = get(workspaceId, memoryId);
+            if (memory.origin().user()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Memory " + memoryId + " is yours now; change it in Memory");
+            }
+            if (memory.previous().isEmpty()) {
+                delete(workspaceId, memoryId);
+                return;
+            }
+            store.save(memory.restored(clock.instant()));
+        }
+    }
+
     public Memory undoDelete(String workspaceId, String memoryId)
     {
         synchronized (lock) {
@@ -249,7 +268,7 @@ public class MemoryService
             try {
                 synchronized (lock) {
                     Optional<Memory> existing = store.list(workspaceId).stream()
-                            .filter(memory -> memory.kind() == Memory.Kind.SPEC && memory.sources().stream().anyMatch(source -> source.url().equals(url)))
+                            .filter(memory -> memory.kind() == Memory.Kind.SPEC && memory.sources().stream().anyMatch(source -> source.url().equals(Optional.of(url))))
                             .findFirst();
                     if (existing.isPresent()) {
                         Memory memory = existing.orElseThrow();
@@ -261,7 +280,7 @@ public class MemoryService
                 }
                 String text = "Implements the specification at " + url + ".";
                 create(workspaceId, Memory.Kind.SPEC, ContextLimits.bytes(text) <= Memory.MAX_TEXT_BYTES ? text : "Implements the specification linked in its source.",
-                        ImmutableList.of(directory), ImmutableList.of(new MemorySource(MemorySource.Kind.PAGE, url, "", clock.instant(), Optional.empty(), Optional.empty())),
+                        ImmutableList.of(directory), ImmutableList.of(MemorySource.page(url, "", clock.instant(), Optional.empty())),
                         new Memory.Origin(false, "Spec check of " + directory, Optional.of(taskId)));
             }
             catch (RuntimeException failure) {
@@ -279,13 +298,16 @@ public class MemoryService
         return memory;
     }
 
-    /** "PR #31201 @alice · 3 PRs": the first source and how many pull requests or pages the memory rests on. */
+    /** "PR #31201 @alice · 3 PRs": the first source and how many pull requests the memory rests on. */
     public static String sourceLabel(Memory memory)
     {
         MemorySource first = memory.sources().getFirst();
-        String head = first.pullRequest()
-                .map(part -> "PR #" + part.number() + " @" + part.author() + (part.merged() ? "" : ", closed"))
-                .orElseGet(() -> "Page " + first.url().replaceFirst("^https://", ""));
+        String head = switch (first.kind()) {
+            case PULL_REQUEST -> first.pullRequest().map(part -> "PR #" + part.number() + " @" + part.author() + (part.merged() ? "" : ", closed")).orElseThrow();
+            case PAGE -> "Page " + first.url().orElseThrow().replaceFirst("^https://", "");
+            case USER -> "the user's words";
+            case COMMAND -> "passed at " + first.command().orElseThrow().commit().substring(0, 7);
+        };
         long pullRequests = memory.sources().stream().flatMap(source -> source.pullRequest().stream()).mapToInt(MemorySource.PullRequestPart::number).distinct().count();
         return pullRequests > 1 ? head + " · " + pullRequests + " PRs" : head;
     }

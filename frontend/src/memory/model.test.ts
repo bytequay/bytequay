@@ -18,7 +18,8 @@ import { age, flagged, kilobytes, matches, memoryFlags, pageLabel, sourceChip, s
 
 const review = (number: number, overrides: Partial<NonNullable<MemorySourceDto['pullRequest']>> = {}): MemorySourceDto => ({
   kind: 'PULL_REQUEST', url: `https://github.com/trinodb/trino/pull/${number}`, quote: 'Docs, please.', at: '2026-10-01T00:00:00Z', section: null,
-  pullRequest: { number, part: 'REVIEW_COMMENT', author: 'alice', maintainer: true, merged: true, resolved: true, outdated: false, ...overrides },
+  pullRequest: { number, part: 'REVIEW_COMMENT', author: 'alice', maintainer: true, merged: true, resolved: true, outdated: false, ...overrides }, user: null,
+  command: null,
 });
 const memory = (overrides: Partial<MemoryDto> = {}): MemoryDto => ({
   id: 'm12', kind: 'RULE', text: 'Document every new table property on the connector page.', scope: ['plugin/'], sources: [review(31201), review(30877)],
@@ -42,10 +43,24 @@ describe('memory model', () => {
     expect(sourceHead(review(31201))).toEqual({ head: 'PR #31201 · review comment · @alice, maintainer · merged', note: 'Applied: thread resolved', link: 'Open on GitHub' });
     expect(sourceHead(review(31007, { merged: false, part: 'CLOSE', resolved: false })).note).toBe('A maintainer explained the close');
     const page: MemorySourceDto = { kind: 'PAGE', url: 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md', quote: '', at: '2026-10-01T00:00:00Z',
-      section: 'Checkpoints', pullRequest: null };
+      section: 'Checkpoints', pullRequest: null, user: null, command: null };
     expect(sourceHead(page)).toEqual({ head: 'Page · github.com/delta-io/delta/blob/master/PROTOCOL.md · Checkpoints', note: '', link: 'Open page' });
     expect(sourceChip(memory({ kind: 'SPEC', sources: [page] }))).toEqual({ kind: 'PAGE', label: 'github.com · PROTOCOL.md', more: '' });
     expect(pageLabel('https://iceberg.apache.org/')).toBe('iceberg.apache.org');
+  });
+
+  it('labels the user’s words and a passing command, which have no address', () => {
+    const words: MemorySourceDto = { kind: 'USER', url: null, quote: 'Keep refactors in their own commits.', at: '2026-10-02T00:00:00Z', section: null,
+      pullRequest: null, user: { where: 'REVIEW_MESSAGE', id: 'review', item: 'message' }, command: null };
+    const passed: MemorySourceDto = { kind: 'COMMAND', url: null, quote: './mvnw -pl core test', at: '2026-10-02T00:00:00Z', section: null, pullRequest: null,
+      user: null, command: { taskId: 'task', turnId: 'turn', command: './mvnw -pl core test', directory: 'core', commit: 'c'.repeat(40) } };
+    expect(sourceHead(words)).toEqual({ head: 'You, in a review', note: 'Your words', link: null });
+    expect(sourceHead(passed)).toEqual({ head: 'Command passed in core at ccccccc', note: './mvnw -pl core test', link: null });
+    const recipe = memory({ kind: 'RECIPE', sources: [passed] });
+    expect(sourceChip(recipe)).toEqual({ kind: 'COMMAND', label: 'Passed', more: 'ccccccc' });
+    expect(sourceChip(memory({ sources: [words] }))).toEqual({ kind: 'USER', label: 'You, in a review', more: '' });
+    expect(matches(recipe, 'RECIPE', 'TASK', '')).toBe(true);
+    expect(matches(memory(), 'ALL', 'TASK', '')).toBe(false);
   });
 
   it('filters by kind, source and literal text', () => {

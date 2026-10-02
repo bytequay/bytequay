@@ -1049,7 +1049,11 @@ public final class PermissionBroker
                 ImmutableMap.of(
                         "type", "object",
                         "properties", ImmutableMap.<String, Object>builder()
-                                .put("action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("SEARCH", "READ", "REPORT")))
+                                .put("action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("SEARCH", "READ", "REPORT", "REMEMBER")))
+                                .put("kind", ImmutableMap.of("type", "string", "enum", ImmutableList.of("RULE", "RECIPE")))
+                                .put("text", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 600))
+                                .put("scope", ImmutableMap.of("type", "array", "maxItems", 8, "items", ImmutableMap.of("type", "string", "maxLength", 300)))
+                                .put("command", ImmutableMap.of("type", "string", "maxLength", 2000))
                                 .put("query", ImmutableMap.of("type", "string", "maxLength", 200))
                                 .put("path", ImmutableMap.of("type", "string", "maxLength", 300))
                                 .put("page", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", 100))

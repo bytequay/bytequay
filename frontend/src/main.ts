@@ -1360,6 +1360,8 @@ function registerIpc(): void {
     backendJson(memoryUrl(workspaceId, `/${parseMemoryId(memoryId)}/keep`), { method: 'POST' }).then(parseMemoryPage));
   ipcMain.handle('memory:delete', (_event, workspaceId: string, memoryId: unknown) =>
     backendJson(memoryUrl(workspaceId, `/${parseMemoryId(memoryId)}`), { method: 'DELETE' }).then(parseMemoryPage));
+  ipcMain.handle('memory:undo-remember', (_event, workspaceId: string, memoryId: unknown) =>
+    backendJson(memoryUrl(workspaceId, `/${parseMemoryId(memoryId)}/undo-remember`), { method: 'POST' }).then(parseMemoryPage));
   ipcMain.handle('memory:undo-delete', (_event, workspaceId: string, memoryId: unknown) =>
     backendJson(memoryUrl(workspaceId, `/${parseMemoryId(memoryId)}/undo-delete`), { method: 'POST' }).then(parseMemoryPage));
   ipcMain.handle('memory:switches', (_event, workspaceId: string, switches: unknown) =>

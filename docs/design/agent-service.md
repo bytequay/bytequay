@@ -286,13 +286,17 @@ the input. A memory read that fails leaves the block out.
 ## Repository memory tool
 
 `MemoryBridge` gives an open interactive development task or a review the
-`repository_memory` tool when the task's workspace has at least one
-[repository memory](repository-memory.md). SEARCH matches literal text and
-paths, scoped memories first and longest scope first, twenty per page; READ
+`repository_memory` tool when the workspace has
+[repository memory](repository-memory.md) on for it. SEARCH matches literal text
+and paths, scoped memories first and longest scope first, twenty per page; READ
 returns one memory with its sources and quotes; REPORT flags one as wrong with
-a reason and a quote and records the reporting task. No action changes a
-memory's text, scope or sources. Results are JSON with an `activityLine` that
-the task log shows in place of the tool name. Restricted and text-only
+a reason and a quote and records the reporting task. REMEMBER saves a RULE
+resting on the user's words in the session's turn, or a RECIPE resting on a
+command that finished with exit code 0 in the task; ByteQuay binds both sources
+from the task log, and with an id it replaces a rule or recipe an agent saved.
+No action changes a memory the user owns. Results are JSON with an
+`activityLine` that the task log shows in place of the tool name; a saved
+memory's line, "Remembered m12 · …", gives the transcript row its Undo. Restricted and text-only
 sessions, spec checks and other noninteractive runs get no tool; in a Codex
 review it is a root-only tool, like the other review writes.
 
@@ -4686,8 +4690,7 @@ Spec checks and the current check turn's binding use the existing SQLite-backed
 AppSettingsStore. Ordinary task-runtime cleanup does not remove them. Explicit
 confirmed workspace deletion purges them and the workspace's reviews through the
 existing deletion path; Unwatch preserves them. No second database or separate
-retention scheduler is introduced. A startup cleanup deletes the settings, tables
-and review run column that the removed repository-context notes used.
+retention scheduler is introduced.
 
 Repository memories live in the `repository_memory` table, one row per memory
 with its scope, sources and reports as JSON columns; deliveries and citations

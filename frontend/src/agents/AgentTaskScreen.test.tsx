@@ -1610,6 +1610,19 @@ describe('agent task detail', () => {
     expect(inline).toMatch(/<div class="agt-act__row">[^]*?review_get_context[^]*?<span class="agt-mono">ok<\/span><\/div>/);
   });
 
+  it('keeps what the agent remembered in sight with Undo while its activity is folded', () => {
+    const remembered = events.map((event): AgentEventEnvelope => event.type !== 'tool' ? event : ({
+      ...event,
+      payload: { ...event.payload, name: 'mcp__bytequay__repository_memory', summary: '{"id":"m23","created":true}',
+        description: 'Remembered m23 · Keep refactors in their own commits.' },
+    }));
+    const folded = body({ task: task('t-1', 'OPEN', 'x'), events: remembered, connection: 'open' });
+    expect(folded).toContain('Remembered: Keep refactors in their own commits.');
+    expect(folded).toContain('>Undo</button>');
+    const opened = body({ task: task('t-1', 'OPEN', 'x'), events: remembered, connection: 'open' }, { '00000000-0000-4000-8000-000000000005': true });
+    expect(opened.match(/Remembered: Keep refactors/g)).toHaveLength(1);
+  });
+
   it('keeps unnamed reads truthful and a running result folded, without activity clocks', () => {
     const reading = events.filter((event) => event.type !== 'lifecycle' || event.payload.phase !== 'TURN_COMPLETED')
       .map((event): AgentEventEnvelope => event.type !== 'command' ? event : ({

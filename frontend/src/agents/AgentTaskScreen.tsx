@@ -1369,7 +1369,7 @@ export function AgentTaskBody({
       {state.notice !== null && <div className="agt-notice" role="alert">{state.notice}</div>}
 
       <AgentConversation
-        turns={turns} repository={repository} durableTurns={state.turns} models={models} now={now} scroll={scroll}
+        turns={turns} repository={repository} durableTurns={state.turns} models={models} now={now} scroll={scroll} workspaceId={state.task?.workspaceId}
         localReview={localReview} onOpenReview={onOpenReview} issueSource={state.task?.issueSource} jiraSource={state.task?.jiraSource}
         discussions={discussions?.discussions} discussionBusy={discussions?.busy} onSelectPassage={onSelectPassage} onOpenDiscussion={onOpenDiscussion}
         generatedBranch={state.task?.generatedBranch}

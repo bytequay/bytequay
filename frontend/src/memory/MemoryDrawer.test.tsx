@@ -20,7 +20,7 @@ const memory: MemoryDto = {
   id: 'm4', kind: 'RULE', text: 'Keep partition values out of data file paths.', scope: ['plugin/trino-delta-lake/'],
   sources: [{ kind: 'PULL_REQUEST', url: 'https://github.com/trinodb/trino/pull/28770#discussion_r1', quote: 'We use random prefixes for data files.',
     at: '2026-09-01T00:00:00Z', section: null, pullRequest: { number: 28770, part: 'REVIEW_COMMENT', author: 'bo', maintainer: true, merged: true, resolved: true,
-      outdated: false } }],
+      outdated: false }, user: null, command: null }],
   origin: { user: false, description: 'Learn from my PRs', taskId: 'task' }, version: 2, previous: { text: 'Partition values stay out of paths.', scope: [] },
   delivered: 6, cited: 0, reports: [{ reason: 'The writer now encodes partition values', quote: 'path(partition)', taskId: 'task', at: '2026-10-01T00:00:00Z' }],
   missingScope: [], createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',

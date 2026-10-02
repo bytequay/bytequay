@@ -32,8 +32,8 @@ import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 /**
- * One short rule an agent cannot read from the repository at its commit: a convention maintainers enforce or a specification
- * that governs code, with the paths it applies to and the sources it came from. Agents never change a memory the user owns,
+ * One short rule an agent cannot read from the repository at its commit: a convention maintainers enforce, a way to build or test
+ * that the docs don't give, or a specification that governs code, with the paths it applies to and the sources it came from. Agents never change a memory the user owns,
  * and a report flags a memory without editing or hiding it.
  *
  * @param scope path prefixes ending in {@code /}, file paths or globs; empty applies to the whole repository
@@ -65,9 +65,11 @@ public record Memory(
     private static final int MAX_SCOPE_PATH = 300;
     private static final Pattern ID = Pattern.compile("m[1-9][0-9]{0,17}");
 
+    /** RULE: what to do or avoid, when, and why. RECIPE: how to build, test or run something here, with the command. SPEC: a specification that governs code. */
     public enum Kind
     {
         RULE,
+        RECIPE,
         SPEC,
     }
 
@@ -151,7 +153,7 @@ public record Memory(
     public Memory withSources(List<MemorySource> added, Instant at)
     {
         checkState(!origin.user(), "Memory %s is the user's; agents never change it", id);
-        List<MemorySource> merged = Stream.concat(sources.stream(), added.stream().filter(source -> sources.stream().noneMatch(kept -> kept.url().equals(source.url()))))
+        List<MemorySource> merged = Stream.concat(sources.stream(), added.stream().filter(source -> sources.stream().noneMatch(kept -> kept.key().equals(source.key()))))
                 .limit(MAX_SOURCES).collect(ImmutableList.toImmutableList());
         return new Memory(id, workspaceId, kind, text, scope, merged, origin, version, previous, delivered, cited, reports, createdAt, at);
     }

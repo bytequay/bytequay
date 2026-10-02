@@ -328,6 +328,7 @@ const bridge: Bridge = {
   keepMemory: (workspaceId, memoryId) => ipcRenderer.invoke('memory:keep', workspaceId, memoryId),
   deleteMemory: (workspaceId, memoryId) => ipcRenderer.invoke('memory:delete', workspaceId, memoryId),
   undoDeleteMemory: (workspaceId, memoryId) => ipcRenderer.invoke('memory:undo-delete', workspaceId, memoryId),
+  undoRememberedMemory: (workspaceId, memoryId) => ipcRenderer.invoke('memory:undo-remember', workspaceId, memoryId),
   saveMemorySwitches: (workspaceId, switches) => ipcRenderer.invoke('memory:switches', workspaceId, switches),
   startMemoryHarvest: (workspaceId, request) => ipcRenderer.invoke('memory:harvest', workspaceId, request),
   listReviewReplays: workspaceId => ipcRenderer.invoke('replay:list', workspaceId),

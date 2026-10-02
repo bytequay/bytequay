@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { BookOpen, ChevronRight, FileText, GitPullRequest, Globe, Quote, TriangleAlert, User } from 'lucide-react';
+import { Bot, BookOpen, ChevronRight, FileText, GitPullRequest, Globe, Quote, SquareTerminal, TriangleAlert, User } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import RepoAvatar from '../RepoAvatar';
 import Toast from '../Toast';
@@ -28,11 +28,11 @@ import { MemoryDrawer } from './MemoryDrawer';
 import { ReplayDrawer, ReplaysSection } from './ReplaysSection';
 import { replayRunning, type ReplayDto } from './replays';
 import { workspaceReviewTaskRoute } from '../workspaces/model';
-import { age, flagged, KIND_LABEL, kilobytes, matches, MEMORY_CHANGED, memoryFlags, sourceChip, type MemoryKindFilter, type MemorySourceFilter } from './model';
+import { age, flagged, fromTask, KIND_LABEL, kilobytes, matches, MEMORY_CHANGED, memoryFlags, sourceChip, type MemoryKindFilter, type MemorySourceFilter } from './model';
 import '../css/repository-context.css';
 import '../css/memory.css';
 
-const KINDS: MemoryKind[] = ['RULE', 'SPEC'];
+const KINDS: MemoryKind[] = ['RULE', 'RECIPE', 'SPEC'];
 type Drawer = { kind: 'spec'; directory: string | null } | { kind: 'memory'; id: string } | { kind: 'replay'; id: string };
 
 /**
@@ -206,9 +206,11 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
                 <span className="rcp-repo"><RepoAvatar owner={workspace.monitoredOwner} repo={workspace.monitoredRepo} size={18} />{repository}</span>
                 {page.head !== null && <span className="mem-head">{shortSha(page.head)}</span>}
                 <Chip icon={<BookOpen size={14} />} count={count(memory => memory.kind === 'RULE')} title="rules" />
+                <Chip icon={<SquareTerminal size={14} />} count={count(memory => memory.kind === 'RECIPE')} title="recipes" />
                 <Chip icon={<FileText size={14} />} count={count(memory => memory.kind === 'SPEC')} title="specs" />
                 <Chip icon={<GitPullRequest size={14} />} count={count(memory => memory.sources.some(item => item.pullRequest !== null))} title="from pull requests" />
                 <Chip icon={<User size={14} />} count={count(memory => memory.origin.user)} title="yours" />
+                <Chip icon={<Bot size={14} />} count={count(fromTask)} title="from tasks and reviews" />
                 <Chip icon={<Globe size={14} />} count={count(memory => memory.sources.some(item => item.kind === 'PAGE'))} title="from pages" />
                 <Chip icon={<TriangleAlert size={14} />} count={needs.length} title="need you" warn />
               </div>
@@ -288,13 +290,15 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
                 <option value="ANY">Any source</option>
                 <option value="PR">From pull requests</option>
                 <option value="USER">Yours</option>
+                <option value="TASK">From tasks and reviews</option>
                 <option value="PAGE">From pages</option>
               </select>
               <input type="search" aria-label="Filter memories" placeholder="Filter" className="mem-filter" value={query} onChange={event => setQuery(event.target.value)} />
             </div>
             {memories.length === 0
-              ? <div className="rcp-empty">No memory yet. A spec check remembers the specifications it used. Agents in reviews and development tasks get the
-                memories that match their work at the start of every turn and can search the rest.</div>
+              ? <div className="rcp-empty">No memory yet. Learn from pull requests saves the rules maintainers asked for, a spec check remembers the
+                specifications it used, and agents in tasks and reviews remember your corrections and the commands they had to work out. Agents get
+                the memories that match their work at the start of every turn and can search the rest.</div>
               : visible.length === 0 ? <div className="rcp-empty">No memory matches these filters.</div>
                 : KINDS.map(group => {
                   const items = visible.filter(memory => memory.kind === group);
@@ -402,7 +406,8 @@ function MemoryRow({ memory, now, fresh, selected, onOpen }: { memory: MemoryDto
       <span className="mem-row__text">{memory.text}</span>
       <span className="mem-row__meta">
         {memory.scope.length === 0 ? <span className="mem-scope">Repository</span> : memory.scope.map(path => <span key={path} className="mem-scope is-path">{path}</span>)}
-        <span className="mem-source-chip">{chip.kind === 'PR' ? <GitPullRequest size={13} aria-hidden="true" /> : <Globe size={13} aria-hidden="true" />}
+        <span className="mem-source-chip">{chip.kind === 'PR' ? <GitPullRequest size={13} aria-hidden="true" /> : chip.kind === 'USER' ? <User size={13} aria-hidden="true" />
+          : chip.kind === 'COMMAND' ? <SquareTerminal size={13} aria-hidden="true" /> : <Globe size={13} aria-hidden="true" />}
           <span>{chip.label}</span>{chip.more !== '' && <span className="mem-muted">{chip.more}</span>}</span>
         {memory.origin.user && <span className="mem-source-chip"><User size={13} aria-hidden="true" />Yours</span>}
         {fresh && <span className="mem-new">New</span>}

@@ -14,7 +14,7 @@
 
 import type { JiraTaskSource } from '../jira/contracts';
 import { JiraRequestCard } from '../jira/JiraSourceAttachment';
-import { BookOpen,Check,ChevronsDownUp,Circle,CircleAlert,CircleCheck,CircleX,CornerDownRight,FilePenLine,FolderOpen,GitPullRequest,Globe,Image,ListChecks,ListPlus,LoaderCircle,MessageSquare,Search,ShieldCheck,ShieldX,SquareTerminal,Trash2,TriangleAlert,Wrench,X,type LucideIcon } from 'lucide-react';
+import { BookMarked,BookOpen,Check,ChevronsDownUp,Circle,CircleAlert,CircleCheck,CircleX,CornerDownRight,FilePenLine,FolderOpen,GitPullRequest,Globe,Image,ListChecks,ListPlus,LoaderCircle,MessageSquare,Search,ShieldCheck,ShieldX,SquareTerminal,Trash2,TriangleAlert,Wrench,X,type LucideIcon } from 'lucide-react';
 import hljs from 'highlight.js/lib/common';
 import React,{ useCallback,useEffect,useId,useLayoutEffect,useMemo,useRef,useState } from 'react';
 import { Chevron } from '../Chevron';
@@ -23,6 +23,8 @@ import { displayModelName } from '../settings/model';
 import LocalReviewThreadCard from '../pulls/local-review/LocalReviewThreadCard';
 import type { LocalReviewThreads } from '../pulls/local-review/types';
 import { linkIssueNumbers } from '../pulls/MarkdownBody';
+import { remoteErrorMessage } from '../pulls/PullOverview';
+import { MEMORY_CHANGED } from '../memory/model';
 import type { AgentIssueSourceDto,AgentApprovalDecision,AgentAttachmentDto,AgentPendingApprovalDto,AgentQueuedInputDto,AgentStreamConnectionState,AgentTurnDto,ModelOptionDto,ToolCountersDto } from '../types';
 import { AgentMark } from './AgentMark';
 import { developmentTurnRequest,draftPullRequestRequest } from './DevelopmentFacts';
@@ -36,7 +38,7 @@ import { approvalDecisions, approvalQuestions, questionAnswers, type ApprovalQue
 import { ModelPicker } from './ModelPicker';
 import { IssueRequestCard } from './IssueAttachment';
 import { ReviewRequestCard, type ReviewRequest, type ReviewRequestTarget } from './ReviewRequestCard';
-import { activitySummary,formatDuration,planChip,turnElapsedMs,turnLabel,type ActivityBlock,type ActivityMember,type ApprovalBlock,type CommandAction,type CommandMember,type PlanStep,type ToolMember,type TranscriptTurn,type TurnBlock } from './transcript';
+import { activitySummary,formatDuration,planChip,rememberedMemory,turnElapsedMs,turnLabel,type ActivityBlock,type ActivityMember,type ApprovalBlock,type CommandAction,type CommandMember,type PlanStep,type ToolMember,type TranscriptTurn,type TurnBlock } from './transcript';
 
 /** Answers accompany a question tool's allow; every other approval sends the decision alone. */
 export type ApprovalDecider = (approvalId: string, decision: AgentApprovalDecision, answers?: Record<string, string>) => void;
@@ -275,8 +277,35 @@ function CommandCells({ member, chevron = false }: {
 
 const CHANGE_VERBS: Record<string, string> = { ADDED: 'Added', MODIFIED: 'Edited', DELETED: 'Deleted', RENAMED: 'Renamed' };
 
+/** Undo for what an agent remembered, bound to the transcript's workspace; null where the transcript has none. */
+const MemoryUndo = React.createContext<((memoryId: string) => Promise<void>) | null>(null);
+
+/** What an agent remembered, with Undo: a memory it saved goes, and one it updated gets its previous version back. */
+function RememberedRow({ memory }: { memory: { updated: boolean; id: string; text: string } }): React.JSX.Element {
+  const undo = React.useContext(MemoryUndo);
+  const [state, setState] = useState<'idle' | 'busy' | 'undone'>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const revert = (): void => {
+    if (undo === null) return;
+    setState('busy');
+    setError(null);
+    undo(memory.id).then(() => setState('undone'), (cause: unknown) => { setState('idle'); setError(remoteErrorMessage(cause)); });
+  };
+  return (
+    <div className="agt-act__row agt-remembered">
+      <BookMarked size={13} aria-hidden="true" className="agt-remembered__icon" />
+      <span className="agt-remembered__text" title={memory.id}>{memory.updated ? 'Updated' : 'Remembered'}: {memory.text}</span>
+      {undo !== null && (state === 'undone' ? <span className="agt-muted">Undone</span>
+        : <button type="button" className="agt-link" disabled={state === 'busy'} onClick={revert}>Undo</button>)}
+      {error !== null && <span className="agt-remembered__error" role="alert">{error}</span>}
+    </div>
+  );
+}
+
 /** A one-line result stays on the row; anything longer folds like a command's output. */
 function ToolRows({ member }: { member: ToolMember }): React.JSX.Element {
+  const remembered = rememberedMemory(member);
+  if (remembered !== null) return <RememberedRow memory={remembered} />;
   // A ByteQuay tool says what the call read or saved; the tool's name stays on hover.
   const label = member.description ?? toolLabel(member.name);
   const title = member.description === null ? undefined : toolLabel(member.name);
@@ -347,6 +376,11 @@ function ActivityView({ block, expanded, onToggle }: {
   onToggle: () => void;
 }): React.JSX.Element {
   const current = block.members.filter((member) => memberState(member) === 'running').at(-1);
+  // What the agent remembered stays in sight while the group is folded, so Undo is one click away.
+  const remembered = block.members.flatMap((member) => {
+    const memory = member.kind === 'tool' ? rememberedMemory(member) : null;
+    return memory === null ? [] : [{ key: member.id, memory }];
+  });
   return (
     <div className={`agt-act${current === undefined ? '' : ' is-running'}`}>
       <button type="button" className="agt-act__fold" aria-expanded={expanded} onClick={onToggle}>
@@ -354,6 +388,7 @@ function ActivityView({ block, expanded, onToggle }: {
         <span>{current === undefined ? activitySummary(block.members) : memberLabel(current)}</span>
       </button>
       {expanded && <div className="agt-act__body"><MemberRows members={block.members} /></div>}
+      {!expanded && remembered.length > 0 && <div className="agt-act__body">{remembered.map(item => <RememberedRow key={item.key} memory={item.memory} />)}</div>}
     </div>
   );
 }
@@ -1040,6 +1075,7 @@ export function AgentConversation({
   activityChoice, turnChoice, onToggleTurn, onToggleActivity, onDecide,
   previews = {}, agentLabels = {}, pendingApprovals = [], generatedTurnIds, generatedBranch,
   onOpenAgent, children, transcriptFooter, localReview, discussions, reviewRequests, issueSource, jiraSource, onOpenReview, onOpenDiscussion, onSelectPassage, discussionBusy, focusedDiscussion, onHoverDiscussion, label = 'Task transcript',
+  workspaceId,
 }: {
   turns: TranscriptTurn[];
   /** `owner/repo` a bare `#1234` in the transcript refers to. */
@@ -1082,6 +1118,8 @@ export function AgentConversation({
   jiraSource?: JiraTaskSource | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
   label?: string;
+  /** The workspace whose memory a Remembered row's Undo changes; without it the rows show no Undo. */
+  workspaceId?: string | null;
 }): React.JSX.Element {
   const pending = scroll.after === null ? pendingMessage : null;
   const liveTurn = turns.find(turn => turn.turnId === activeTurnId);
@@ -1105,7 +1143,12 @@ export function AgentConversation({
     observer.observe(tail);
     return () => observer.disconnect();
   }, [transcriptRef]);
+  const undo = useMemo(() => workspaceId == null ? null : async (memoryId: string): Promise<void> => {
+    await window.bridge.undoRememberedMemory(workspaceId, memoryId);
+    window.dispatchEvent(new CustomEvent(MEMORY_CHANGED, { detail: workspaceId }));
+  }, [workspaceId]);
   return (
+    <MemoryUndo.Provider value={undo}>
     <div className="agt-conversation">
       {scroll.loading && <div className="agt-history-edge" role="status">Loading activity…</div>}
       <div className="agt-transcript" role="log" aria-label={label} tabIndex={0} {...scroll.transcriptProps}>
@@ -1158,6 +1201,7 @@ export function AgentConversation({
       </div>
       <div className="agt-bottom">{children}</div>
     </div>
+    </MemoryUndo.Provider>
   );
 }
 

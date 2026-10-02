@@ -16,6 +16,7 @@ package com.bytequay.app.memory;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
+import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.MemoryBridge;
@@ -28,20 +29,24 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.ImmutableList;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.function.Predicate;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Offers the memory tool to development tasks and reviews whose workspace has memories and has memory on for them. Spec checks
- * and other restricted runs get none. The tool only searches, reads and reports; nothing an agent sends changes a memory's text or sources.
- * A replay with memory sees only what it could have known and reports nothing, since it reviews code that has since changed.
+ * Offers the memory tool to development tasks and reviews whose workspace has memory on for them. Spec checks and other restricted runs
+ * get none. The tool searches, reads, reports, and remembers: a rule resting on the user's words in the turn, or a recipe resting on a
+ * command that passed in the task, both bound by ByteQuay, never named by the agent. Agents never change a memory the user owns. A
+ * replay with memory sees only what it could have known and neither reports nor remembers, since it reviews code that has since changed.
  */
 @Component
 public class MemoryBridgeResolverImpl
@@ -50,13 +55,15 @@ public class MemoryBridgeResolverImpl
     private final AgentTaskStore tasks;
     private final AgentReviewStore reviews;
     private final MemoryService memories;
+    private final MemorySources sources;
     private final ObjectMapper mapper;
 
-    public MemoryBridgeResolverImpl(AgentTaskStore tasks, AgentReviewStore reviews, MemoryService memories, ObjectMapper mapper)
+    public MemoryBridgeResolverImpl(AgentTaskStore tasks, AgentReviewStore reviews, MemoryService memories, MemorySources sources, ObjectMapper mapper)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.memories = requireNonNull(memories, "memories is null");
+        this.sources = requireNonNull(sources, "sources is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -66,11 +73,13 @@ public class MemoryBridgeResolverImpl
         Optional<AgentReview> review = reviews.findReviewByTask(taskId);
         Optional<AgentReview.Replay> replay = review.flatMap(AgentReview::replay);
         Predicate<Memory> visible = MemoryService.visibleTo(replay);
-        return tasks.find(TaskId.valueOf(taskId))
-                .filter(task -> task.state() == TaskState.OPEN)
-                .flatMap(task -> task.workspaceId().filter(workspaceId -> switchedOn(task, review, workspaceId)))
-                .filter(workspaceId -> memories.list(workspaceId).stream().anyMatch(visible))
-                .map(workspaceId -> new MemoryBridge(arguments -> call(workspaceId, taskId, replay, arguments)));
+        Optional<AgentTask> open = tasks.find(TaskId.valueOf(taskId)).filter(task -> task.state() == TaskState.OPEN);
+        // A session serves one turn; what it remembers rests on that turn's words and commands.
+        Optional<TurnId> turn = sources.capture(taskId);
+        return open.flatMap(task -> task.workspaceId().filter(workspaceId -> switchedOn(task, review, workspaceId))
+                // Remembering needs no memory to exist yet; a replay can only read, so it needs one it could have known.
+                .filter(workspaceId -> replay.isEmpty() || memories.list(workspaceId).stream().anyMatch(visible))
+                .map(workspaceId -> new MemoryBridge(arguments -> call(workspaceId, task, review.isPresent(), turn, replay, arguments))));
     }
 
     private boolean switchedOn(AgentTask task, Optional<AgentReview> review, String workspaceId)
@@ -84,7 +93,7 @@ public class MemoryBridgeResolverImpl
         return review.isPresent() ? switches.reviews() : task.interactive() && switches.development();
     }
 
-    private String call(String workspaceId, String taskId, Optional<AgentReview.Replay> replay, String json)
+    private String call(String workspaceId, AgentTask task, boolean review, Optional<TurnId> turn, Optional<AgentReview.Replay> replay, String json)
     {
         JsonNode arguments;
         try {
@@ -100,9 +109,13 @@ public class MemoryBridgeResolverImpl
             case "READ" -> read(workspaceId, visible, id(arguments));
             case "REPORT" -> {
                 checkArgument(replay.isEmpty(), "A replay reviews past code and cannot report memories");
-                yield report(workspaceId, taskId, arguments);
+                yield report(workspaceId, task.id().toString(), arguments);
             }
-            default -> throw new IllegalArgumentException("action must be SEARCH, READ or REPORT");
+            case "REMEMBER" -> {
+                checkArgument(replay.isEmpty(), "A replay reviews past code and cannot remember anything");
+                yield remember(workspaceId, task, review, turn.orElseThrow(() -> new IllegalArgumentException("This session has no turn to remember from")), arguments);
+            }
+            default -> throw new IllegalArgumentException("action must be SEARCH, READ, REPORT or REMEMBER");
         };
         return result.toString();
     }
@@ -148,10 +161,12 @@ public class MemoryBridgeResolverImpl
         for (MemorySource source : memory.sources()) {
             ObjectNode item = sources.addObject();
             item.put("kind", source.kind().name());
-            item.put("url", source.url());
+            source.url().ifPresent(url -> item.put("url", url));
             item.put("quote", source.quote());
             item.put("at", source.at().toString());
             source.section().ifPresent(section -> item.put("section", section));
+            source.user().ifPresent(part -> item.put("where", part.where().name()));
+            source.command().ifPresent(part -> item.put("command", part.command()).put("directory", part.directory()).put("commit", part.commit()));
             source.pullRequest().ifPresent(part -> {
                 item.put("pullRequest", part.number());
                 item.put("part", part.part().name());
@@ -177,6 +192,60 @@ public class MemoryBridgeResolverImpl
         result.put("reported", true);
         result.put("activityLine", "Reported memory " + reported.id() + " as wrong");
         return result;
+    }
+
+    /**
+     * Saves a rule resting on the user's words in this turn, or a recipe resting on a command that passed in this task. With an id, the
+     * rule or recipe an agent saved before takes the new text and scope, and the old ones stay as its previous version.
+     */
+    private ObjectNode remember(String workspaceId, AgentTask task, boolean review, TurnId turn, JsonNode arguments)
+    {
+        Memory.Kind kind = switch (text(arguments, "kind").orElse("")) {
+            case "RULE" -> Memory.Kind.RULE;
+            case "RECIPE" -> Memory.Kind.RECIPE;
+            default -> throw new IllegalArgumentException("kind must be RULE or RECIPE");
+        };
+        String text = text(arguments, "text").map(value -> value.replaceAll("\\s*\\R\\s*", " "))
+                .orElseThrow(() -> new IllegalArgumentException("REMEMBER needs the text, in your own words"));
+        List<String> scope = paths(arguments);
+        MemorySource source = kind == Memory.Kind.RECIPE
+                ? sources.passingCommand(task, turn, text(arguments, "command").orElseThrow(() -> new IllegalArgumentException("A RECIPE needs the command that passed")))
+                : sources.userWords(task, turn, text(arguments, "quote"));
+        Optional<String> id = text(arguments, "id");
+        Memory saved;
+        if (id.isPresent()) {
+            Memory existing = memories.get(workspaceId, id.orElseThrow());
+            checkArgument(existing.kind() == kind, "Memory %s is a %s; remember a %s as a new memory", existing.id(), existing.kind(), kind);
+            saved = memories.replace(workspaceId, existing.id(), text, scope, ImmutableList.of(source));
+        }
+        else {
+            saved = memories.create(workspaceId, kind, text, scope, ImmutableList.of(source),
+                    new Memory.Origin(false, review ? "Remembered in a review" : "Remembered in a task", Optional.of(task.id().toString())));
+        }
+        ObjectNode result = mapper.createObjectNode();
+        result.put("id", saved.id());
+        result.put("created", id.isEmpty());
+        // The transcript shows this line with Undo; its id and text are what the row needs.
+        result.put("activityLine", (id.isEmpty() ? "Remembered " : "Updated ") + saved.id() + " · " + excerpt(saved.text()));
+        return result;
+    }
+
+    private static String excerpt(String text)
+    {
+        return text.length() <= 160 ? text : text.substring(0, 159) + "…";
+    }
+
+    private static List<String> paths(JsonNode arguments)
+    {
+        JsonNode value = arguments.path("scope");
+        if (value.isMissingNode() || value.isNull()) {
+            return ImmutableList.of();
+        }
+        checkArgument(value.isArray(), "scope must be a list of repository paths");
+        return Memory.checkScope(ImmutableList.copyOf(value.elements()).stream().map(path -> {
+            checkArgument(path.isTextual(), "scope must be a list of repository paths");
+            return path.textValue().strip();
+        }).collect(toImmutableList()));
     }
 
     private static void scope(ObjectNode node, Memory memory)

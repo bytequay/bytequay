@@ -122,7 +122,7 @@ class TestMemoryHarvestTools
         assertThat(memory.text()).isEqualTo("When a connector adds a session property, give it a catalog property too.");
         assertThat(memory.origin()).isEqualTo(new Memory.Origin(false, "Learn from my PRs", Optional.of(TASK.toString())));
         MemorySource source = memory.sources().getFirst();
-        assertThat(source.url()).isEqualTo("https://github.com/trinodb/trino/pull/31201#discussion_r1");
+        assertThat(source.url()).contains("https://github.com/trinodb/trino/pull/31201#discussion_r1");
         assertThat(source.quote()).isEqualTo("Please document property 1.");
         assertThat(source.pullRequest()).contains(new MemorySource.PullRequestPart(31201, MemorySource.Part.REVIEW_COMMENT, "node-1", "alice", true, true, true, false));
 

@@ -127,6 +127,13 @@ public final class MavenCommands
         return words.isEmpty() || words.stream().anyMatch(Word::operator) ? Optional.empty() : Optional.of(words.stream().map(Word::text).toList());
     }
 
+    /** A command as the agent typed it: the {@code <shell> -c} wrapper Codex adds removed and runs of whitespace collapsed, so two runs compare. */
+    public static String typedCommand(List<String> argv)
+    {
+        String text = String.join(" ", argv);
+        return shellScript(split(text)).orElse(text).strip().replaceAll("\\s+", " ");
+    }
+
     /** The script of {@code <shell> [flags] -c <script>}, as Codex wraps commands in the user's login shell. */
     private static Optional<String> shellScript(List<Word> words)
     {

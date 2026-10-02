@@ -350,7 +350,7 @@ it('routes memory reads and the user’s changes, refusing a forged memory id be
     expect(fetch).toHaveBeenLastCalledWith(base + item.path, expect.objectContaining({ method: item.method, body: JSON.stringify(item.body) }));
   }
   for (const item of [{ name: 'keep', path: '/m12/keep', method: 'POST' }, { name: 'delete', path: '/m12', method: 'DELETE' },
-    { name: 'undo-delete', path: '/m12/undo-delete', method: 'POST' }]) {
+    { name: 'undo-delete', path: '/m12/undo-delete', method: 'POST' }, { name: 'undo-remember', path: '/m12/undo-remember', method: 'POST' }]) {
     await desktop.handlers.get(`memory:${item.name}`)?.({}, 'workspace/one', 'm12');
     expect(fetch).toHaveBeenLastCalledWith(base + item.path, expect.objectContaining({ method: item.method }));
   }

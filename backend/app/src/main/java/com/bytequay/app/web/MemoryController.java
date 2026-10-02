@@ -86,6 +86,14 @@ public class MemoryController
         return pages.page(workspaceId);
     }
 
+    /** Undo on a transcript's Remembered row: what the agent remembered goes, or its previous version comes back. */
+    @PostMapping("/{memoryId}/undo-remember")
+    public MemoryPage undoRemember(@PathVariable String workspaceId, @PathVariable String memoryId)
+    {
+        memories.undoRemember(workspaceId, memoryId);
+        return pages.page(workspaceId);
+    }
+
     @PostMapping("/{memoryId}/undo-delete")
     public MemoryPage undoDelete(@PathVariable String workspaceId, @PathVariable String memoryId)
     {

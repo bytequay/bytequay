@@ -235,7 +235,8 @@ class TestPermissionBroker
                     """)).body().orElseThrow();
             JsonNode definition = listed.at("/result/tools").findParents("name").stream()
                     .filter(tool -> tool.path("name").asText().equals(MemoryBridge.TOOL_NAME)).findFirst().orElseThrow();
-            assertThat(definition.at("/inputSchema/properties/action/enum").toString()).isEqualTo("[\"SEARCH\",\"READ\",\"REPORT\"]");
+            assertThat(definition.at("/inputSchema/properties/action/enum").toString()).isEqualTo("[\"SEARCH\",\"READ\",\"REPORT\",\"REMEMBER\"]");
+            assertThat(definition.at("/inputSchema/properties/kind/enum").toString()).isEqualTo("[\"RULE\",\"RECIPE\"]");
 
             JsonNode searched = localReviewCall(broker, claude.token(), MemoryBridge.TOOL_NAME, "{\"action\":\"SEARCH\",\"query\":\"docs\"}");
             assertThat(searched.at("/result/isError").booleanValue()).isFalse();

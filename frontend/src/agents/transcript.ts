@@ -636,6 +636,15 @@ function activityCounts(members: ActivityMember[]): ActivityCounts {
  * The folded sentence for a finished group, from typed facts only: "Read 3 files, ran 2 commands,
  * and edited 2 files". It is recomputed on every render and never stored.
  */
+const REMEMBERED = /^(Remembered|Updated) (m[1-9][0-9]*) · (.+)$/;
+
+/** A memory tool call that saved or updated a memory, read from the line ByteQuay gave its row, which both providers carry. */
+export function rememberedMemory(member: ToolMember): { updated: boolean; id: string; text: string } | null {
+  if (!member.name.endsWith('repository_memory')) return null;
+  const match = REMEMBERED.exec(member.description ?? '');
+  return match === null ? null : { updated: match[1] === 'Updated', id: match[2], text: match[3] };
+}
+
 export function activitySummary(members: ActivityMember[]): string {
   const counts = activityCounts(members);
   const parts: string[] = [];

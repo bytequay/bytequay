@@ -1,7 +1,7 @@
 # Repository memory
 
-Status: approved; phases 0 to 2, the store with the memory tool and the Memory
-page are implemented. It replaces the knowledge-learning design of Repository context
+Status: approved; phases 0 to 2, the store with the memory tool, the Memory page
+and turn-start delivery with receipts are implemented. It replaces the knowledge-learning design of Repository context
 and the documents it built on, which phase 2 deleted, and revises the
 [spec check](spec-check.md) to start from a directory instead of a plan topic. The user chose the direction: remove the learning system, its
 note code and the note data built so far in one step, save memory without
@@ -242,8 +242,9 @@ citations from both.
 - The turn receipt lists the memories delivered.
 
 **On and off.** The Memory page brings back the workspace switches for reviews
-and development; the old ones lived in the notebook phase 2 deleted. Each turn
-records its switch in the per-turn flag, as today. Off delivers no memory and
+and development; the old ones lived in the notebook phase 2 deleted. A turn reads
+the switch when it starts, and a session when its tools are registered; a turn
+whose per-turn flag is off gets no memory either. Off delivers no memory and
 offers no tool; guidelines stay on.
 
 ## 6. User interface

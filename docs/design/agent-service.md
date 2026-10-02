@@ -244,7 +244,7 @@ terminal quiescent turn. It does not restart work; a failed task retains explici
 cleanup, and uncertain input is never resent. A failed task allocation stays
 visible and permits an explicit new request.
 
-## Repository guideline input
+## Repository guideline and memory input
 
 Agent core reads guidelines through the narrow framework-free
 ReviewTurnInputResolver port, outside the task monitor, after the accepted
@@ -264,6 +264,17 @@ counts them. Generated follow-up turns, steering and helper sessions resume a
 thread that already has them and get none. Codex's own `AGENTS.md` loading is
 off and Claude keeps `--setting-sources=`, so both lanes read the same text.
 Guidelines never enter managed instructions or process arguments.
+
+The same port then adds a Memory block after the guidelines for an open
+interactive development task or a review whose workspace has memory switched on
+for it: the memories that match the turn, one line each with its source and any
+flag, at most forty lines and 12 KiB. A review matches its latest run's changed
+paths; a development task matches the files it changed since its worktree
+started, so its first turn gets only repository-wide memories. Path matches come
+first, longest scope first, then memories with more sources, newest first. Core
+records the delivered lines on AgentTurn beside the guideline paths, the turn
+receipt lists them, and the deliveries are counted once the provider acknowledges
+the input. A memory read that fails leaves the block out.
 
 ## Repository memory tool
 

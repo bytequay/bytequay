@@ -164,7 +164,9 @@ explicit scrollbar or keyboard interaction.
 Retained image previews are limited to sixteen thumbnails of at most 512 pixels
 per side. Opening the image viewer fetches its original separately and releases
 that object URL when closed. Finished turns fold their logs by default on opening
-and completion, leaving each turn's final answer and footer visible. Live turns
+and completion, leaving each turn's final answer and footer visible. The footer's
+receipt counts the repository memories and guideline files the turn carried and
+expands to list each memory as the agent received it. Live turns
 and turns without a loaded final answer keep their logs open. Explicit fold
 choices always win. Reaching the bottom resumes latest-history loading, including
 when completion leaves the displayed content short enough to fit the viewport.

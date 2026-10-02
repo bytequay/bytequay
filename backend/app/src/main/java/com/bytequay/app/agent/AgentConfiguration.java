@@ -75,6 +75,7 @@ import com.bytequay.app.ci.DevelopmentCiOwnership;
 import com.bytequay.app.ci.GitHubActionsClient;
 import com.bytequay.app.ci.ReadCiMemoryCommand;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.memory.MemoryDelivery;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -361,6 +362,7 @@ public class AgentConfiguration
             CodeGraphService codeGraph,
             AgentSkillService skills,
             RepositoryGuidelineReader guidelineReader,
+            MemoryDelivery memoryDelivery,
             Clock agentClock,
             AgentProperties properties,
             AgentReviewStore reviews,
@@ -399,9 +401,15 @@ public class AgentConfiguration
                     }
 
                     @Override
-                    public Guidelines guidelines(AgentTask task, AgentTurn turn)
+                    public Reference reference(AgentTask task, AgentTurn turn)
                     {
-                        return guidelineReader.read(task);
+                        return guidelineReader.read(task).plus(memoryDelivery.reference(task, turn));
+                    }
+
+                    @Override
+                    public void delivered(AgentTask task, AgentTurn turn)
+                    {
+                        memoryDelivery.delivered(turn);
                     }
                 },
                 agentClock,

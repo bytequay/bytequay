@@ -20,7 +20,7 @@ import java.util.List;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** Supplies frozen reference data, repository guidelines and review context, at an accepted turn's provider launch boundary. */
+/** Supplies frozen reference data, repository guidelines, memory and review context, at an accepted turn's provider launch boundary. */
 @FunctionalInterface
 public interface ReviewTurnInputResolver
 {
@@ -51,25 +51,34 @@ public interface ReviewTurnInputResolver
     default void delivered(AgentTask task, AgentTurn turn) {}
 
     /**
-     * Reads the repository guideline files that go with every accepted turn's provider input as reference data, at a commit
-     * the turn cannot change. It runs before {@link #prepare} and never fails the turn: a read that cannot complete returns
-     * {@link Guidelines#NONE}.
+     * Reads the reference data that goes with every accepted turn's provider input: the repository's guideline files at a commit the
+     * turn cannot change, then the repository memories that match the turn. It runs before {@link #prepare} and never fails the turn:
+     * a part that cannot be read is left out.
      */
-    default Guidelines guidelines(AgentTask task, AgentTurn turn)
+    default Reference reference(AgentTask task, AgentTurn turn)
     {
-        return Guidelines.NONE;
+        return Reference.NONE;
     }
 
-    /** The guideline files read, by repository path, and the delimited reference text that carries them. */
-    record Guidelines(List<String> paths, String text)
+    /** The guideline files and memories a turn carries, by path and as delivered, and the delimited reference text that carries them. */
+    record Reference(List<String> guidelines, List<TurnMemory> memories, String text)
     {
-        public static final Guidelines NONE = new Guidelines(ImmutableList.of(), "");
+        public static final Reference NONE = new Reference(ImmutableList.of(), ImmutableList.of(), "");
 
-        public Guidelines
+        public Reference
         {
-            paths = ImmutableList.copyOf(paths);
+            guidelines = ImmutableList.copyOf(guidelines);
+            memories = ImmutableList.copyOf(memories);
             requireNonNull(text, "text is null");
-            checkArgument(paths.isEmpty() == text.isEmpty(), "guideline paths and text disagree");
+            checkArgument((guidelines.isEmpty() && memories.isEmpty()) == text.isEmpty(), "reference parts and text disagree");
+        }
+
+        /** This reference followed by another, as one block of reference data. */
+        public Reference plus(Reference next)
+        {
+            String joined = text.isEmpty() || next.text().isEmpty() ? text + next.text() : text + "\n\n" + next.text();
+            return new Reference(ImmutableList.<String>builder().addAll(guidelines).addAll(next.guidelines()).build(),
+                    ImmutableList.<TurnMemory>builder().addAll(memories).addAll(next.memories()).build(), joined);
         }
 
         public String append(String message)

@@ -482,6 +482,12 @@ export function parseAgentTurn(value: unknown, path = 'turn'): AgentTurnDto {
     guidelines: source.guidelines === null || source.guidelines === undefined
       ? []
       : list(source.guidelines, `${path}.guidelines`).map((value, index) => text(value, `${path}.guidelines[${index}]`)),
+    memories: source.memories === null || source.memories === undefined
+      ? []
+      : list(source.memories, `${path}.memories`).map((value, index) => {
+        const memory = object(value, `${path}.memories[${index}]`);
+        return { id: text(memory.id, `${path}.memories[${index}].id`), line: text(memory.line, `${path}.memories[${index}].line`) };
+      }),
   };
 }
 

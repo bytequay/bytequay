@@ -49,7 +49,8 @@ public record AgentTurn(
         Optional<DevelopmentResultReport> developmentResult,
         Optional<DevelopmentTurnOrigin> developmentOrigin,
         Optional<List<PlanItem>> plan,
-        List<String> guidelines)
+        List<String> guidelines,
+        List<TurnMemory> memories)
 {
     public AgentTurn(
             TurnId id,
@@ -71,7 +72,7 @@ public record AgentTurn(
     {
         this(id, taskId, idempotencyKey, state, version, createdAt, startedAt, endedAt, cancellationRequestedAt,
                 providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, Optional.empty(), Optional.empty(), Optional.empty(),
-                ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of());
     }
 
     public AgentTurn
@@ -80,6 +81,7 @@ public record AgentTurn(
         requireNonNull(developmentOrigin, "developmentOrigin is null");
         plan = requireNonNull(plan, "plan is null").map(ImmutableList::copyOf);
         guidelines = ImmutableList.copyOf(guidelines);
+        memories = ImmutableList.copyOf(memories);
         checkArgument(developmentOrigin.stream().noneMatch(origin -> origin.parentUserTurnId().equals(id)), "generated turn cannot be its own parent");
         requireNonNull(id, "id is null");
         requireNonNull(taskId, "taskId is null");
@@ -171,12 +173,13 @@ public record AgentTurn(
                 providerTurnReference, knownUnsent, model, terminalReason, failureKind, metrics);
     }
 
-    /** The repository guideline files that go with this turn's provider input, recorded when its delivery starts. */
-    public AgentTurn withGuidelines(List<String> paths)
+    /** The repository guideline files and memories that go with this turn's provider input, recorded when its delivery starts. */
+    public AgentTurn withReference(List<String> guidelinePaths, List<TurnMemory> deliveredMemories)
     {
         requireState(TurnState.ACCEPTED);
         return new AgentTurn(id, taskId, idempotencyKey, state, version, createdAt, startedAt, endedAt, cancellationRequestedAt,
-                providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, developmentResult, developmentOrigin, plan, paths);
+                providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, developmentResult, developmentOrigin, plan, guidelinePaths,
+                deliveredMemories);
     }
 
     public AgentTurn requestCancellation(Instant now)
@@ -251,7 +254,7 @@ public record AgentTurn(
         requireState(TurnState.ACCEPTED);
         checkState(developmentOrigin.isEmpty(), "generated turn already has an origin");
         return new AgentTurn(id, taskId, idempotencyKey, state, version, createdAt, startedAt, endedAt, cancellationRequestedAt,
-                providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, developmentResult, Optional.of(origin), plan, guidelines);
+                providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, developmentResult, Optional.of(origin), plan, guidelines, memories);
     }
 
     public AgentTurn withDevelopmentResult(DevelopmentResultReport report)
@@ -259,14 +262,15 @@ public record AgentTurn(
         requireNonNull(report, "report is null");
         checkState(state.active(), "cannot report development readiness after the turn ended");
         return new AgentTurn(id, taskId, idempotencyKey, state, version, createdAt, startedAt, endedAt, cancellationRequestedAt,
-                providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, Optional.of(report), developmentOrigin, plan, guidelines);
+                providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, Optional.of(report), developmentOrigin, plan, guidelines, memories);
     }
 
     public AgentTurn withPlan(List<PlanItem> items)
     {
         checkState(state.active(), "cannot update the plan after the turn ended");
         return new AgentTurn(id, taskId, idempotencyKey, state, version, createdAt, startedAt, endedAt, cancellationRequestedAt,
-                providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, developmentResult, developmentOrigin, Optional.of(items), guidelines);
+                providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, developmentResult, developmentOrigin, Optional.of(items), guidelines,
+                memories);
     }
 
     public AgentTurn withoutLearningSummary()
@@ -278,7 +282,7 @@ public record AgentTurn(
         DevelopmentResultReport report = developmentResult.orElseThrow();
         return new AgentTurn(id, taskId, idempotencyKey, state, version, createdAt, startedAt, endedAt, cancellationRequestedAt,
                 providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics,
-                Optional.of(new DevelopmentResultReport(report.readyForDelivery(), report.message())), developmentOrigin, plan, guidelines);
+                Optional.of(new DevelopmentResultReport(report.readyForDelivery(), report.message())), developmentOrigin, plan, guidelines, memories);
     }
 
     public AgentTurn withMetrics(AgentMetrics updatedMetrics)
@@ -327,7 +331,8 @@ public record AgentTurn(
                 developmentResult,
                 developmentOrigin,
                 plan,
-                guidelines);
+                guidelines,
+                memories);
     }
 
     private void requireState(TurnState expected)

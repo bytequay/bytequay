@@ -47,6 +47,7 @@ import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.TurnMemory;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeSnapshot;
@@ -622,14 +623,17 @@ class TestSqliteAgentStores
         entityManager.clear();
         assertThat(turnStore.find(turn.id()).orElseThrow().plan()).isEmpty();
         assertThat(turnStore.find(turn.id()).orElseThrow().guidelines()).isEmpty();
+        assertThat(turnStore.find(turn.id()).orElseThrow().memories()).isEmpty();
 
         List<ProviderAgentEvent.PlanItem> items = ImmutableList.of(new ProviderAgentEvent.PlanItem("Verify", ProviderAgentEvent.PlanItemState.IN_PROGRESS));
-        AgentTurn running = turnStore.update(turnStore.find(turn.id()).orElseThrow().markDeliveryStarted(now).withGuidelines(ImmutableList.of("CONTRIBUTING.md"))
+        AgentTurn running = turnStore.update(turnStore.find(turn.id()).orElseThrow().markDeliveryStarted(now)
+                .withReference(ImmutableList.of("CONTRIBUTING.md"), ImmutableList.of(new TurnMemory("m12", "Document every new table property.")))
                 .running(new ProviderTurnRef("provider-plan"), Optional.of("model")).withPlan(items));
         entityManager.clear();
         assertThat(turnStore.find(turn.id()).orElseThrow().plan()).contains(items);
-        // The guideline files that went with the input stay with the turn through later updates.
+        // The guideline files and memories that went with the input stay with the turn through later updates.
         assertThat(turnStore.find(turn.id()).orElseThrow().guidelines()).containsExactly("CONTRIBUTING.md");
+        assertThat(turnStore.find(turn.id()).orElseThrow().memories()).containsExactly(new TurnMemory("m12", "Document every new table property."));
         AgentTurn cleared = turnStore.update(running.withPlan(ImmutableList.of()));
         entityManager.clear();
         assertThat(turnStore.find(turn.id()).orElseThrow().plan()).contains(ImmutableList.of());

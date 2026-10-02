@@ -265,8 +265,8 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
               <input type="search" aria-label="Filter memories" placeholder="Filter" className="mem-filter" value={query} onChange={event => setQuery(event.target.value)} />
             </div>
             {memories.length === 0
-              ? <div className="rcp-empty">No memory yet. A spec check remembers the specifications it used, and agents in reviews and development tasks
-                can search what is here.</div>
+              ? <div className="rcp-empty">No memory yet. A spec check remembers the specifications it used. Agents in reviews and development tasks get the
+                memories that match their work at the start of every turn and can search the rest.</div>
               : visible.length === 0 ? <div className="rcp-empty">No memory matches these filters.</div>
                 : KINDS.map(group => {
                   const items = visible.filter(memory => memory.kind === group);

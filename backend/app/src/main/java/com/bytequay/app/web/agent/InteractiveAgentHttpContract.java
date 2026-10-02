@@ -23,6 +23,7 @@ import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
+import com.bytequay.agent.core.TurnMemory;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -151,7 +152,8 @@ final class InteractiveAgentHttpContract
                 turn.developmentResult(),
                 turn.developmentOrigin().map(origin -> new DevelopmentOrigin(origin.kind().name(), origin.parentUserTurnId().toString())),
                 turn.plan(),
-                turn.guidelines());
+                turn.guidelines(),
+                turn.memories());
     }
 
     static QueuedInputResponse queuedInput(QueuedAgentInput input)
@@ -417,7 +419,8 @@ final class InteractiveAgentHttpContract
             Optional<DevelopmentResultReport> developmentResult,
             Optional<DevelopmentOrigin> developmentOrigin,
             Optional<List<PlanItem>> plan,
-            List<String> guidelines) {}
+            List<String> guidelines,
+            List<TurnMemory> memories) {}
 
     record DevelopmentOrigin(String kind, String parentUserTurnId) {}
 

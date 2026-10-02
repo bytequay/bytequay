@@ -1449,6 +1449,11 @@ describe('agent task detail', () => {
     expect(markup).not.toContain('Guidelines');
     const guided = body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open', turns: { [firstTurn]: { ...ran, guidelines: ['CONTRIBUTING.md', '.github/DEVELOPMENT.md'] } } });
     expect(guided).toContain('Guidelines 2');
+    // Memories delivered at turn start are counted beside them, and their lines stay folded until asked for.
+    const remembered = body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open', turns: { [firstTurn]: { ...ran, guidelines: ['CONTRIBUTING.md'],
+      memories: [{ id: 'm12', line: 'Document every new table property. (PR #31201 @alice)' }] } } });
+    expect(remembered).toContain('aria-expanded="false">Memory 1 · Guidelines 1</button>');
+    expect(remembered).not.toContain('Document every new table property.');
   });
 
   it('folds a finished turn to its final answer and keeps the totals under the composer', () => {

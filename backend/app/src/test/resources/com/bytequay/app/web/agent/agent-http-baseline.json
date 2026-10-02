@@ -125,7 +125,8 @@
         },
         "developmentOrigin": null,
         "plan": null,
-        "guidelines": []
+        "guidelines": [],
+        "memories": []
       },
       "terminalResponse": {
         "id": "<turn-1>",
@@ -175,7 +176,8 @@
         },
         "developmentOrigin": null,
         "plan": null,
-        "guidelines": []
+        "guidelines": [],
+        "memories": []
       }
     },
     {
@@ -231,7 +233,8 @@
         },
         "developmentOrigin": null,
         "plan": null,
-        "guidelines": []
+        "guidelines": [],
+        "memories": []
       },
       "terminalResponse": {
         "id": "<turn-1>",
@@ -281,7 +284,8 @@
         },
         "developmentOrigin": null,
         "plan": null,
-        "guidelines": []
+        "guidelines": [],
+        "memories": []
       }
     },
     {
@@ -337,7 +341,8 @@
         },
         "developmentOrigin": null,
         "plan": null,
-        "guidelines": []
+        "guidelines": [],
+        "memories": []
       },
       "terminalResponse": {
         "id": "<turn-2>",
@@ -387,7 +392,8 @@
         },
         "developmentOrigin": null,
         "plan": null,
-        "guidelines": []
+        "guidelines": [],
+        "memories": []
       }
     }
   ],

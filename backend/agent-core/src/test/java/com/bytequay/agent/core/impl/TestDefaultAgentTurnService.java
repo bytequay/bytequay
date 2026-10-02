@@ -63,6 +63,7 @@ import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.TurnMemory;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.UnsequencedAgentEvent;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
@@ -1270,7 +1271,7 @@ class TestDefaultAgentTurnService
     }
 
     @Test
-    void sendsTheRepositoryGuidelinesOnlyToTheProviderAndRecordsThemOnTheTurn()
+    void sendsTheRepositoryReferenceOnlyToTheProviderAndRecordsItOnTheTurn()
     {
         reviewTurnInput = new ReviewTurnInputResolver()
         {
@@ -1281,22 +1282,26 @@ class TestDefaultAgentTurnService
             }
 
             @Override
-            public Guidelines guidelines(AgentTask acceptedTask, AgentTurn turn)
+            public Reference reference(AgentTask acceptedTask, AgentTurn turn)
             {
-                return new Guidelines(ImmutableList.of("CONTRIBUTING.md"), "Repository guidelines: keep commits small.");
+                return new Reference(ImmutableList.of("CONTRIBUTING.md"), ImmutableList.of(), "Repository guidelines: keep commits small.")
+                        .plus(new Reference(ImmutableList.of(), ImmutableList.of(new TurnMemory("m12", "Document every new table property.")),
+                                "Repository memory: [m12] Document every new table property."));
             }
         };
 
         AgentTurn accepted = service.start(command("Fix the flaky test", "guided-input"));
 
-        // The guidelines precede the review reference; the transcript keeps the user's own words.
+        // Guidelines, then memory, precede the review reference; the transcript keeps the user's own words.
         assertThat(driver.commands()).extracting(AgentTurnCommand::message)
-                .containsExactly("Fix the flaky test\n\nRepository guidelines: keep commits small.\n<review-reference/>");
+                .containsExactly("Fix the flaky test\n\nRepository guidelines: keep commits small.\n\nRepository memory: [m12] Document every new table property."
+                        + "\n<review-reference/>");
         assertThat(events.readAfter(task.id(), 0, 100))
                 .filteredOn(event -> event.type() == AgentEventPayload.Kind.USER_MESSAGE)
                 .extracting(event -> ((AgentEventPayload.UserMessage) event.payload()).text())
                 .containsExactly("Fix the flaky test");
         assertThat(stores.find(accepted.id()).orElseThrow().guidelines()).containsExactly("CONTRIBUTING.md");
+        assertThat(stores.find(accepted.id()).orElseThrow().memories()).containsExactly(new TurnMemory("m12", "Document every new table property."));
     }
 
     @Test
@@ -3538,9 +3543,9 @@ class TestDefaultAgentTurnService
                     }
 
                     @Override
-                    public Guidelines guidelines(AgentTask acceptedTask, AgentTurn turn)
+                    public Reference reference(AgentTask acceptedTask, AgentTurn turn)
                     {
-                        return reviewTurnInput.guidelines(acceptedTask, turn);
+                        return reviewTurnInput.reference(acceptedTask, turn);
                     }
                 },
                 clock,

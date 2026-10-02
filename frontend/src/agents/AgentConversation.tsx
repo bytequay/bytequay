@@ -622,6 +622,7 @@ function TurnFooter({ turn, durable, models }: {
   durable: AgentTurnDto | undefined;
   models: ModelOptionDto[];
 }): React.JSX.Element {
+  const [referenceOpen, setReferenceOpen] = useState(false);
   const parts = [turn.ordinal > 0 ? `Turn ${turn.ordinal}` : 'Turn'];
   const elapsed = turnElapsedMs(turn, 0);
   if (elapsed !== null) parts.push(formatDuration(elapsed));
@@ -635,14 +636,28 @@ function TurnFooter({ turn, durable, models }: {
   if (counters) {
     parts.push(`Tools ${counters.toolCalls} · Explored ${counters.exploreActions}${counters.codegraphCalls > 0 ? ` · ${codeGraphText(counters, true)}` : ''}`);
   }
-  const guidelines = durable?.guidelines ?? [];
-  if (guidelines.length > 0) parts.push(`Guidelines ${guidelines.length}`);
   if (turn.endedAt !== null) parts.push(clock(turn.endedAt));
+  const guidelines = durable?.guidelines ?? [];
+  const memories = durable?.memories ?? [];
+  const reference = [memories.length > 0 ? `Memory ${memories.length}` : '', guidelines.length > 0 ? `Guidelines ${guidelines.length}` : '']
+    .filter(part => part !== '').join(' · ');
   return (
-    <div className="agt-usage">
-      <Glyph icon={turn.outcome === 'interrupted' ? CircleX : CircleCheck} className={`${turn.outcome === 'interrupted' ? 'is-failed' : 'is-ok'} is-outcome`} />
-      <span>{parts.join(' · ')}</span>
-    </div>
+    <>
+      <div className="agt-usage">
+        <Glyph icon={turn.outcome === 'interrupted' ? CircleX : CircleCheck} className={`${turn.outcome === 'interrupted' ? 'is-failed' : 'is-ok'} is-outcome`} />
+        <span>{parts.join(' · ')}</span>
+        {reference !== '' && <button type="button" className="agt-usage__reference" aria-expanded={referenceOpen}
+          onClick={() => setReferenceOpen(value => !value)}>{reference}</button>}
+      </div>
+      {referenceOpen && <div className="agt-reference">
+        {memories.length > 0 && <>
+          <div className="agt-reference__label">Memory delivered at turn start</div>
+          {memories.map(memory => <div className="agt-reference__memory" key={memory.id}><span className="agt-reference__id">{memory.id}</span>
+            <span>{memory.line}</span></div>)}
+        </>}
+        {guidelines.length > 0 && <div className="agt-reference__guidelines">Guidelines: {guidelines.join(', ')}</div>}
+      </div>}
+    </>
   );
 }
 

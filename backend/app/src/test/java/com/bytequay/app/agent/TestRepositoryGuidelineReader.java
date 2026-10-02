@@ -16,7 +16,7 @@ package com.bytequay.app.agent;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.RepositoryIdentity;
-import com.bytequay.agent.core.ReviewTurnInputResolver.Guidelines;
+import com.bytequay.agent.core.ReviewTurnInputResolver.Reference;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
@@ -79,10 +79,10 @@ final class TestRepositoryGuidelineReader
         commit();
         write("CONTRIBUTING.md", "Uncommitted edit.\n");
 
-        Guidelines guidelines = reader.read(task(start));
+        Reference guidelines = reader.read(task(start));
 
         // Root files come before .github, and the symlinked AGENTS.md is left out rather than read twice.
-        assertThat(guidelines.paths()).containsExactly("CONTRIBUTING.md", ".github/DEVELOPMENT.md");
+        assertThat(guidelines.guidelines()).containsExactly("CONTRIBUTING.md", ".github/DEVELOPMENT.md");
         assertThat(guidelines.text())
                 .contains("at commit " + start)
                 .contains("----- BEGIN REPOSITORY GUIDELINES -----\n### CONTRIBUTING.md\n\nKeep commits small.")
@@ -101,9 +101,9 @@ final class TestRepositoryGuidelineReader
         write("DEVELOPMENT.md", "d".repeat(10 * 1024));
         write(".github/CONTRIBUTING.md", "Never reached.\n");
 
-        Guidelines guidelines = reader.read(task(commit()));
+        Reference guidelines = reader.read(task(commit()));
 
-        assertThat(guidelines.paths()).containsExactly("AGENTS.md", "CONTRIBUTING.md", "DEVELOPMENT.md");
+        assertThat(guidelines.guidelines()).containsExactly("AGENTS.md", "CONTRIBUTING.md", "DEVELOPMENT.md");
         // 16 KiB of the first file, all 15 KiB of the second, and the last 1 KiB of the 32 KiB budget for the third.
         assertThat(guidelines.text()).contains("### AGENTS.md (first 16 KiB of 20 KiB)").contains("### CONTRIBUTING.md\n")
                 .contains("### DEVELOPMENT.md (first 1 KiB of 10 KiB)").doesNotContain("Never reached")
@@ -128,9 +128,9 @@ final class TestRepositoryGuidelineReader
         when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(review));
         when(reviews.listRuns("review")).thenReturn(ImmutableList.of(run(1, base, head, "CONTRIBUTING.md"), run(2, base, head, "plugin/delta/src/Writer.java")));
 
-        Guidelines guidelines = reader.read(task(head));
+        Reference guidelines = reader.read(task(head));
 
-        assertThat(guidelines.paths()).containsExactly("CONTRIBUTING.md", "plugin/delta/AGENTS.md");
+        assertThat(guidelines.guidelines()).containsExactly("CONTRIBUTING.md", "plugin/delta/AGENTS.md");
         assertThat(guidelines.text()).contains("at commit " + base).contains("Base rules.").contains("Delta rules.")
                 .doesNotContain("rewrote", "Iceberg rules");
     }
@@ -138,9 +138,9 @@ final class TestRepositoryGuidelineReader
     @Test
     void guidelinesThatCannotBeReadLeaveTheTurnInputUnchanged()
     {
-        Guidelines guidelines = reader.read(task("f".repeat(40)));
+        Reference guidelines = reader.read(task("f".repeat(40)));
 
-        assertThat(guidelines).isEqualTo(Guidelines.NONE);
+        assertThat(guidelines).isEqualTo(Reference.NONE);
         assertThat(guidelines.append("Fix the flaky test")).isEqualTo("Fix the flaky test");
     }
 

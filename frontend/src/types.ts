@@ -721,6 +721,8 @@ export type AgentTurnDto = {
   metrics: AgentMetricsDto;
   /** Repository guideline files that went with the turn's input, by path; empty when none were read. */
   guidelines?: string[];
+  /** Repository memories that went with the turn's input, each as the agent received it. */
+  memories?: { id: string; line: string }[];
 };
 
 export type AgentDevelopmentCiDto = {

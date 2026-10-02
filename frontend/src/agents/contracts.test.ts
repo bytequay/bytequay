@@ -158,6 +158,11 @@ describe('agent contract parsing', () => {
     expect(parseAgentTurn({ ...fixture.turn, guidelines: undefined }).guidelines).toEqual([]);
     expect(parseAgentTurn({ ...fixture.turn, guidelines: ['CONTRIBUTING.md'] }).guidelines).toEqual(['CONTRIBUTING.md']);
     expect(() => parseAgentTurn({ ...fixture.turn, guidelines: [3] })).toThrow(/guidelines\[0\]/);
+    // The memories that went with the input, each as the agent received it.
+    expect(parseAgentTurn({ ...fixture.turn, memories: undefined }).memories).toEqual([]);
+    expect(parseAgentTurn({ ...fixture.turn, memories: [{ id: 'm12', line: 'Document every new table property. (PR #31201 @alice)' }] }).memories)
+      .toEqual([{ id: 'm12', line: 'Document every new table property. (PR #31201 @alice)' }]);
+    expect(() => parseAgentTurn({ ...fixture.turn, memories: [{ id: 'm12' }] })).toThrow(/memories\[0\]\.line/);
 
     // A turn that ran with an image names it the way the backend does: a reference, not a bare id.
     const reference = { id: 'attachment-1', name: 'red-square.png', mediaType: 'image/png' };

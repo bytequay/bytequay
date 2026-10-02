@@ -80,6 +80,12 @@ historical checkpoint evidence and explicitly deferred future work.
   the per-task Auto review summary option has the agent summarize each new
   review comment. It never replies on GitHub or edits code, and a drafted reply
   is posted only by the user.
+- [Repository memory](repository-memory.md) is the approved redesign that
+  replaces the repository-context documents below. Agents get the repository's
+  guideline files and short rules captured where the information appears:
+  pull request history, corrections in tasks and reviews, passing commands and
+  spec pages, instead of notes learned by reading code. Its phase 2 deletes the
+  learning system, its note data and those documents.
 - [Repository context: discover, learn, and use](repository-context-refactor.md)
   is the approved refactor: explicit agent discovery, bounded incremental learning,
   user-approved context notes, and agent-owned literal lookup whose exact reads

@@ -346,8 +346,8 @@ migrated, and the one saved lesson is not carried over. The deletion covers:
 - the `agent_review_run.context_json` column;
 - the renderer's saved view state for the old page.
 
-One idempotent cleanup at startup performs the deletion, and the next phase
-removes it once it has run. The per-turn `use_repository_context` flags stay as
+One idempotent cleanup at startup performed the deletion and was removed once
+it had run. The per-turn `use_repository_context` flags stay as
 the memory switch. Spec checks keep their findings under new settings keys;
 checks saved before phase 2 start over.
 

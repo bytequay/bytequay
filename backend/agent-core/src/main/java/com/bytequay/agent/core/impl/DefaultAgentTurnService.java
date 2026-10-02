@@ -439,7 +439,7 @@ public final class DefaultAgentTurnService
         requireNonNull(taskId, "taskId is null");
         requireNonNull(origin, "origin is null");
         checkNotBlank(message, "message");
-        Launch launch;
+        TurnAcceptance acceptance;
         CompletableFuture<DevelopmentTurnCompletion> completion;
         synchronized (runtimeRegistry.taskLock(taskId)) {
             if (taskStore.require(taskId).localReviewHead().isPresent()) {
@@ -466,9 +466,8 @@ public final class DefaultAgentTurnService
                     .collect(toImmutableList());
             completion = runtimeRegistry.registerDevelopmentTurn(taskId, origin);
             try {
-                TurnAcceptance acceptance = acceptTurnLocked(task, "development:" + origin.parentUserTurnId() + ":" + origin.kind(),
+                acceptance = acceptTurnLocked(task, "development:" + origin.parentUserTurnId() + ":" + origin.kind(),
                         message, attachments, settings, Optional.of(origin));
-                launch = launchLocked(task, acceptance);
             }
             catch (RuntimeException failure) {
                 completion.completeExceptionally(failure);
@@ -476,7 +475,7 @@ public final class DefaultAgentTurnService
             }
         }
         try {
-            settleLaunch(launch);
+            launchAccepted(acceptance);
         }
         catch (RuntimeException failure) {
             completion.completeExceptionally(failure);
@@ -771,12 +770,12 @@ public final class DefaultAgentTurnService
             ReviewTurnInputResolver.Reference reference = reviewTurnInput.reference(task, turn);
             String message = reviewTurnInput.prepare(task, turn, reference.append(acceptance.message()));
             checkNotBlank(message, "prepared review input");
-            if (developmentTurnEligible(task, turn)) {
+            if (turn.developmentOrigin().isEmpty() && developmentTurnEligible(task, turn)) {
                 developmentAccepted.accept(task, turn);
             }
             synchronized (runtimeRegistry.taskLock(taskId)) {
                 task = requireAcceptedLaunch(turn);
-                if (task.developmentContinuationUnfinished()) {
+                if (turn.developmentOrigin().isEmpty() && task.developmentContinuationUnfinished()) {
                     task = taskStore.update(task.withDevelopmentContinuation(false, Instant.now(clock)));
                 }
                 launchAttempted = true;
@@ -792,7 +791,7 @@ public final class DefaultAgentTurnService
                     throw failure;
                 }
                 recordKnownUnsentFailure(turn, failure, runtimeRegistry.unverifiedClose(taskId).isEmpty());
-                if (developmentTurnEligible(taskStore.require(taskId), turn)) {
+                if (turn.developmentOrigin().isEmpty() && developmentTurnEligible(taskStore.require(taskId), turn)) {
                     reserveDevelopmentContinuation(turnStore.require(turn.id()));
                 }
                 launch = new Launch(turn, Optional.empty(), Optional.of(failure));
@@ -808,7 +807,10 @@ public final class DefaultAgentTurnService
         if (runtimeRegistry.closing()) {
             throw new AgentConflictException("Backend is shutting down");
         }
-        if (runtimeRegistry.hasDevelopmentOwner(task.id())) {
+        if (turn.developmentOrigin().isPresent()) {
+            requireDevelopmentOwner(task.id(), turn.developmentOrigin().orElseThrow().parentUserTurnId());
+        }
+        else if (runtimeRegistry.hasDevelopmentOwner(task.id())) {
             throw new AgentConflictException("Development automation owns this task: " + task.id());
         }
         if (task.state() != TaskState.OPEN || turn.state() != TurnState.ACCEPTED || turn.cancellationRequestedAt().isPresent()) {

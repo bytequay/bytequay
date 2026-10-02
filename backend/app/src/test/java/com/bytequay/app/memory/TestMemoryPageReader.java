@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.memory;
 
+import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.app.agent.RepositoryGuidelineReader;
 import com.bytequay.app.context.ContextBuildService;
 import com.bytequay.app.git.GitCommandRunner;
@@ -49,8 +50,8 @@ class TestMemoryPageReader
     private final ContextBuildService builds = mock(ContextBuildService.class);
     private final WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
     private final MemoryHarvestService harvests = mock(MemoryHarvestService.class);
-    private final MemoryPageReader reader = new MemoryPageReader(memories, builds, workspaces, git, new RepositoryGuidelineReader(git, mock(AgentReviewStore.class)),
-            harvests);
+    private final MemoryPageReader reader = new MemoryPageReader(memories, builds, workspaces, git,
+            new RepositoryGuidelineReader(git, mock(AgentReviewStore.class), mock(AgentTurnStore.class)), harvests);
 
     @BeforeEach
     void harvests()

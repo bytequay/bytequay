@@ -15,13 +15,20 @@ package com.bytequay.app.agent;
 
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.AgentTurnSettings;
+import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.ReviewTurnInputResolver.Reference;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
+import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentSessionRef;
+import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.review.AgentReview;
@@ -36,6 +43,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -50,7 +58,8 @@ final class TestRepositoryGuidelineReader
     private final TaskId taskId = TaskId.random();
     private final GitCommandRunner git = new GitCommandRunner();
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
-    private final RepositoryGuidelineReader reader = new RepositoryGuidelineReader(git, reviews);
+    private final AgentTurnStore turns = mock(AgentTurnStore.class);
+    private final RepositoryGuidelineReader reader = new RepositoryGuidelineReader(git, reviews, turns);
 
     @TempDir
     private Path root;
@@ -79,7 +88,7 @@ final class TestRepositoryGuidelineReader
         commit();
         write("CONTRIBUTING.md", "Uncommitted edit.\n");
 
-        Reference guidelines = reader.read(task(start));
+        Reference guidelines = reader.read(task(start), turn("user"));
 
         // Root files come before .github, and the symlinked AGENTS.md is left out rather than read twice.
         assertThat(guidelines.guidelines()).containsExactly("CONTRIBUTING.md", ".github/DEVELOPMENT.md");
@@ -101,7 +110,7 @@ final class TestRepositoryGuidelineReader
         write("DEVELOPMENT.md", "d".repeat(10 * 1024));
         write(".github/CONTRIBUTING.md", "Never reached.\n");
 
-        Reference guidelines = reader.read(task(commit()));
+        Reference guidelines = reader.read(task(commit()), turn("user"));
 
         assertThat(guidelines.guidelines()).containsExactly("AGENTS.md", "CONTRIBUTING.md", "DEVELOPMENT.md");
         // 16 KiB of the first file, all 15 KiB of the second, and the last 1 KiB of the 32 KiB budget for the third.
@@ -128,7 +137,7 @@ final class TestRepositoryGuidelineReader
         when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(review));
         when(reviews.listRuns("review")).thenReturn(ImmutableList.of(run(1, base, head, "CONTRIBUTING.md"), run(2, base, head, "plugin/delta/src/Writer.java")));
 
-        Reference guidelines = reader.read(task(head));
+        Reference guidelines = reader.read(task(head), turn("user"));
 
         assertThat(guidelines.guidelines()).containsExactly("CONTRIBUTING.md", "plugin/delta/AGENTS.md");
         assertThat(guidelines.text()).contains("at commit " + base).contains("Base rules.").contains("Delta rules.")
@@ -138,7 +147,7 @@ final class TestRepositoryGuidelineReader
     @Test
     void guidelinesThatCannotBeReadLeaveTheTurnInputUnchanged()
     {
-        Reference guidelines = reader.read(task("f".repeat(40)));
+        Reference guidelines = reader.read(task("f".repeat(40)), turn("user"));
 
         assertThat(guidelines).isEqualTo(Reference.NONE);
         assertThat(guidelines.append("Fix the flaky test")).isEqualTo("Fix the flaky test");
@@ -152,6 +161,67 @@ final class TestRepositoryGuidelineReader
         assertThat(RepositoryGuidelineReader.paths(ImmutableList.of(".github", "a")))
                 .containsExactly("CLAUDE.md", "AGENTS.md", "CONTRIBUTING.md", "DEVELOPMENT.md",
                         ".github/CLAUDE.md", ".github/AGENTS.md", ".github/CONTRIBUTING.md", ".github/DEVELOPMENT.md", "a/CLAUDE.md", "a/AGENTS.md");
+    }
+
+    @Test
+    void automaticReviewStepsReuseAcknowledgedGuidelinesOnlyWithinTheirFrozenRun()
+            throws IOException
+    {
+        write("AGENTS.md", "Root rules.\n");
+        write("plugin/delta/AGENTS.md", "Delta rules.\n");
+        String base = commit();
+        AgentTask fresh = task(base);
+        AgentTask resumed = fresh.withSessionReference(new AgentSessionRef(AgentLaneId.CODEX_CLI, 1, "conversation"), Instant.EPOCH);
+        AgentTurn first = turn("review-step:first");
+        AgentTurn next = turn("review-step:next");
+        AgentReview review = new AgentReview("review", "workspace", "example/project", OptionalInt.of(7), OptionalLong.of(1), taskId.toString(), Optional.empty(),
+                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+        when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(review));
+        ReviewRun firstRun = run(1, base, base, "README.md").withTurn(first.id().toString(), Instant.EPOCH);
+        when(reviews.listRuns("review")).thenReturn(ImmutableList.of(firstRun));
+
+        assertThat(reader.read(fresh, first).guidelines()).containsExactly("AGENTS.md");
+        AgentTurn sent = first.withReference(ImmutableList.of("AGENTS.md"), ImmutableList.of()).markDeliveryStarted(Instant.EPOCH);
+        when(turns.list(taskId)).thenReturn(ImmutableList.of(sent));
+        // Recording a send is not an acknowledgement; delivery may have failed or be uncertain.
+        assertThat(reader.read(resumed, next).guidelines()).containsExactly("AGENTS.md");
+        when(turns.list(taskId)).thenReturn(ImmutableList.of(sent.running(new ProviderTurnRef("first"), Optional.empty())));
+        assertThat(reader.read(resumed, next)).isEqualTo(Reference.NONE);
+        assertThat(reader.read(fresh, next).guidelines()).containsExactly("AGENTS.md");
+        assertThat(reader.read(resumed, turn("user-followup")).guidelines()).containsExactly("AGENTS.md");
+
+        ReviewRun changedScope = run(2, base, base, "plugin/delta/Writer.java");
+        when(reviews.listRuns("review")).thenReturn(ImmutableList.of(firstRun, changedScope));
+        assertThat(reader.read(resumed, next).guidelines()).containsExactly("AGENTS.md", "plugin/delta/AGENTS.md");
+        write("AGENTS.md", "Updated base rules.\n");
+        String updatedBase = commit();
+        when(reviews.listRuns("review")).thenReturn(ImmutableList.of(firstRun, run(2, updatedBase, updatedBase, "README.md")));
+        assertThat(reader.read(resumed, next).text()).contains("Updated base rules.");
+    }
+
+    @Test
+    void developmentFollowupsUseTheSameReceiptRuleAndRetryMissingGuidelines()
+            throws IOException
+    {
+        write("AGENTS.md", "Root rules.\n");
+        AgentTask fresh = task(commit());
+        AgentTask resumed = fresh.withSessionReference(new AgentSessionRef(AgentLaneId.CODEX_CLI, 1, "conversation"), Instant.EPOCH);
+        AgentTurn source = turn("user");
+        AgentTurn generated = turn("development:commit").withDevelopmentOrigin(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, source.id()));
+        when(turns.list(taskId)).thenReturn(ImmutableList.of(source.markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("source"), Optional.empty())));
+        assertThat(reader.read(resumed, generated).guidelines()).containsExactly("AGENTS.md");
+
+        AgentTurn delivered = source.withReference(ImmutableList.of("AGENTS.md"), ImmutableList.of()).markDeliveryStarted(Instant.EPOCH)
+                .running(new ProviderTurnRef("source"), Optional.empty());
+        when(turns.list(taskId)).thenReturn(ImmutableList.of(delivered));
+        assertThat(reader.read(resumed, generated)).isEqualTo(Reference.NONE);
+        assertThat(reader.read(fresh, generated).guidelines()).containsExactly("AGENTS.md");
+    }
+
+    private AgentTurn turn(String key)
+    {
+        return AgentTurn.accepted(TurnId.random(), taskId, key,
+                new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(10), ImmutableList.of()), Instant.EPOCH);
     }
 
     private AgentTask task(String startCommit)

@@ -405,7 +405,8 @@ public class AgentConfiguration
                     @Override
                     public Reference reference(AgentTask task, AgentTurn turn)
                     {
-                        return guidelineReader.read(task).plus(memoryDelivery.reference(task, turn));
+                        return guidelineReader.read(task, turn)
+                                .plus(turn.developmentOrigin().isPresent() ? Reference.NONE : memoryDelivery.reference(task, turn));
                     }
 
                     @Override

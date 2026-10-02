@@ -222,6 +222,13 @@ follow them where they don't conflict.
 **Receipt.** Each turn records the files it carried, and its footer shows
 "Guidelines 2".
 
+Automatic development and review follow-ups reuse guidelines already
+acknowledged by the provider in that conversation and frozen scope. A new
+conversation or review run reads them again; an absent or unacknowledged
+receipt cannot suppress delivery. User turns still receive guidelines.
+This reuse does not suppress a review turn's fresh Memory lookup; generated
+development turns continue without another Memory block.
+
 ## 5. Delivery and receipts
 
 **At turn start.** After the guidelines, a Memory block lists matching memories,

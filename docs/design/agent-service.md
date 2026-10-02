@@ -256,8 +256,8 @@ visible and permits an explicit new request.
 Agent core reads guidelines through the narrow framework-free
 ReviewTurnInputResolver port, outside the task monitor, after the accepted
 message is saved and its transcript event drained and before the provider
-session opens; core then rechecks cancellation and worktree ownership. Every
-accepted turn gets the repository's guideline files as delimited, untrusted
+session opens; core then rechecks cancellation and worktree ownership. User
+turns get the repository's guideline files as delimited, untrusted
 reference data on both lanes, as [Repository memory](repository-memory.md)
 specifies: `CLAUDE.md`, `AGENTS.md`, `CONTRIBUTING.md` and `DEVELOPMENT.md` at
 the root and under `.github/`, plus, for a review, `CLAUDE.md` or `AGENTS.md`
@@ -267,8 +267,13 @@ under review, and every other task's worktree start commit. Each file is cut at
 16 KiB and all of them at 32 KiB, with the cut stated; symlinked files are
 skipped. A read that fails leaves the input unchanged and never fails the turn.
 Core records the paths on AgentTurn when delivery starts, and the turn footer
-counts them. Generated follow-up turns, steering and helper sessions resume a
-thread that already has them and get none. Codex's own `AGENTS.md` loading is
+counts them. Generated development and review turns use the same preparation
+path. On a resumed conversation they omit guidelines only if an earlier
+provider-acknowledged turn carried them in the same frozen scope: the task's
+start commit for development, or the current review run's base and changed paths.
+A new conversation or review run, a failed guideline read, or an unacknowledged
+delivery sends them again. Ordinary user turns still receive guidelines;
+steering and helper sessions do not. Codex's own `AGENTS.md` loading is
 off and Claude keeps `--setting-sources=`, so both lanes read the same text.
 Guidelines never enter managed instructions or process arguments.
 

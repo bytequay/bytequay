@@ -1504,6 +1504,66 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void generatedTurnsPrepareReferencesOutsideTheLockWithoutRecapturingTheDevelopmentBaseline()
+    {
+        List<TurnId> baselines = new ArrayList<>();
+        developmentAccepted = (acceptedTask, turn) -> baselines.add(turn.id());
+        reviewTurnInput = new ReviewTurnInputResolver()
+        {
+            @Override
+            public String prepare(AgentTask acceptedTask, AgentTurn turn, String message)
+            {
+                assertThat(Thread.holdsLock(runtimeRegistry.taskLock(acceptedTask.id()))).isFalse();
+                return message;
+            }
+
+            @Override
+            public Reference reference(AgentTask acceptedTask, AgentTurn turn)
+            {
+                assertThat(Thread.holdsLock(runtimeRegistry.taskLock(acceptedTask.id()))).isFalse();
+                return new Reference(ImmutableList.of("AGENTS.md"), ImmutableList.of(), "Guidelines for " + turn.id());
+            }
+        };
+        enableDevelopment(ignored -> {});
+        AgentTurn source = service.start(command("Change", "shared-reference"));
+        reportReady(source);
+        driver.complete("Done");
+        CompletionStage<DevelopmentTurnCompletion> completion = service.startGeneratedTurn(
+                task.id(), new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, source.id()), "Commit");
+        AgentTurn generated = stores.findActive(task.id()).orElseThrow();
+
+        assertThat(driver.commands().getLast().message()).isEqualTo("Commit\n\nGuidelines for " + generated.id());
+        assertThat(generated.guidelines()).containsExactly("AGENTS.md");
+        assertThat(baselines).containsExactly(source.id());
+        assertThat(taskService.get(task.id()).developmentContinuationUnfinished()).isTrue();
+        assertThat(service.ownsDevelopmentContinuation(task.id(), source.id())).isTrue();
+        driver.complete("Committed");
+        assertThat(completion.toCompletableFuture().join().providerQuiescent()).isTrue();
+        service.finishDevelopmentContinuation(task.id(), source.id());
+    }
+
+    @Test
+    void stoppingDuringGeneratedInputPreparationCannotLaunchTheTurnAfterward()
+    {
+        enableDevelopment(ignored -> {});
+        AgentTurn source = service.start(command("Change", "generated-stop"));
+        reportReady(source);
+        driver.complete("Done");
+        reviewTurnInput = (acceptedTask, turn, message) -> {
+            CompletableFuture.runAsync(() -> service.stopRuntime(acceptedTask.id(), service.stopImpact(acceptedTask.id()).generation()))
+                    .orTimeout(5, TimeUnit.SECONDS).join();
+            return message;
+        };
+
+        service.startGeneratedTurn(task.id(), new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, source.id()), "Commit");
+
+        assertThat(stores.list(task.id())).filteredOn(turn -> turn.developmentOrigin().isPresent())
+                .singleElement().satisfies(turn -> assertThat(turn.state()).isEqualTo(TurnState.INTERRUPTED));
+        assertThat(driver.commands()).hasSize(1);
+        assertThat(runtimeRegistry.hasDevelopmentOwner(task.id())).isFalse();
+    }
+
+    @Test
     void generatedTurnsKeepTheWholeSourceSnapshotAndTheirQuestionBlocksFurtherWork()
     {
         List<DevelopmentTurnCompletion> completed = new ArrayList<>();

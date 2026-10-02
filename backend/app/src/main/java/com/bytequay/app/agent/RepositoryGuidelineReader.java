@@ -14,8 +14,10 @@
 package com.bytequay.app.agent;
 
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.ReviewTurnInputResolver.Reference;
 import com.bytequay.agent.core.TaskWorktree;
+import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.app.context.ContextText;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.core.context.ContextLimits;
@@ -60,19 +62,29 @@ public final class RepositoryGuidelineReader
 
     private final GitCommandRunner git;
     private final AgentReviewStore reviews;
+    private final AgentTurnStore turns;
 
-    public RepositoryGuidelineReader(GitCommandRunner git, AgentReviewStore reviews)
+    public RepositoryGuidelineReader(GitCommandRunner git, AgentReviewStore reviews, AgentTurnStore turns)
     {
         this.git = requireNonNull(git, "git is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
+        this.turns = requireNonNull(turns, "turns is null");
     }
 
     /** Never fails the turn: guidelines that cannot be read are left out. */
-    public Reference read(AgentTask task)
+    public Reference read(AgentTask task, AgentTurn turn)
     {
         try {
             Optional<ReviewRun> run = reviews.findReviewByTask(task.id().toString())
                     .flatMap(review -> reviews.listRuns(review.id()).stream().max(Comparator.comparingInt(ReviewRun::ordinal)));
+            boolean generated = turn.developmentOrigin().isPresent() || (run.isPresent() && turn.idempotencyKey().startsWith("review-step:"));
+            // The task start commit and each review run's base/path scope are immutable. Receipts from
+            // that scope suffice; an unacknowledged send never proves the provider has the guidelines.
+            if (generated && task.sessionReference().isPresent() && turns.list(task.id()).stream()
+                    .filter(previous -> previous.providerTurnReference().isPresent() && !previous.guidelines().isEmpty())
+                    .anyMatch(previous -> run.isEmpty() || run.orElseThrow().turnIds().contains(previous.id().toString()))) {
+                return Reference.NONE;
+            }
             if (run.isPresent()) {
                 return read(task.worktree(), run.orElseThrow().baseSha(), paths(directories(run.orElseThrow().diff())));
             }

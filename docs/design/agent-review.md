@@ -620,6 +620,14 @@ evidence. Those old references explain the prior claim; they are not fresh
 evidence references for the current run. `kind=discussion` continues to read
 the current card conversation.
 
+`kind=command_output` returns one completed or failed foreground command from
+the current run, with a bounded excerpt, exit status and `commandId` (its event
+sequence). It defaults to the latest result in the bounded recent history page; supplying that identity rereads
+the exact execution. Progress and background launch receipts are not results.
+Repeated reads reuse the execution's evidence ref without writing another
+record. Separate executions remain distinct even with identical text, and an
+identity from a previous run cannot become fresh evidence.
+
 The pr, timeline and checks reads select the current PR by default; an optional
 number selects a related PR in the same repository. They reuse persisted data
 and hydrate selected missing or outdated detail through existing PR refresh

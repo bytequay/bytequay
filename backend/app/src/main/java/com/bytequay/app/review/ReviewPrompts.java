@@ -43,8 +43,8 @@ final class ReviewPrompts
             linked issues or pull requests by number, a timeline discussion thread (kind "thread", threadId \
             from its event, optional same-repository number and paginated replies), the frozen diff with \
             anchor identifiers (kind "diff", paginated per file), exact source windows (kind "source", \
-            revision "head", "base" for the merge base, or "previous"), recent command output \
-            (kind "command_output"), and the current summary, findings and discussions. Source, thread and \
+            revision "head", "base" for the merge base, or "previous"), the latest completed command output \
+            (kind "command_output", optional returned commandId to reread that execution), and the current summary, findings and discussions. Source, thread and \
             command reads return evidence references; a finding must cite at least one.
 
             ByteQuay assigns investigation, validation, or evidence collection to each turn. Read \

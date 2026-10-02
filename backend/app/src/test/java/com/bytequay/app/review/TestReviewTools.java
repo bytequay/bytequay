@@ -1061,6 +1061,64 @@ class TestReviewTools
     }
 
     @Test
+    void commandReadsSelectOneExecutionAndReuseItsEvidenceAcrossRetries()
+    {
+        TurnId turn = TurnId.random();
+        AgentEventEnvelope first = commandRan(turn, "same output");
+        JsonNode captured = call("review_get_context", ImmutableMap.of("kind", "command_output"));
+        String firstId = captured.at("/commands/0/commandId").asText();
+        String firstRef = captured.at("/commands/0/evidenceRef").asText();
+        int writes = store.runUpdates;
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "command_output"))).isEqualTo(captured);
+        assertThat(store.runUpdates).isEqualTo(writes);
+
+        AgentEventEnvelope second = commandEvent(turn, 2, ActivityState.COMPLETED, Optional.of("same output"), false);
+        AgentEventEnvelope progress = commandEvent(turn, 3, ActivityState.PROGRESS, Optional.of("still running"), false);
+        AgentEventEnvelope background = commandEvent(turn, 4, ActivityState.COMPLETED, Optional.of("launched in background"), true);
+        when(events.readHistory(TaskId.valueOf(TASK_ID), OptionalLong.empty(), OptionalLong.empty()))
+                .thenReturn(new AgentHistoryPage(ImmutableList.of(second, progress, background), OptionalLong.of(100), OptionalLong.empty(), 4));
+        // The first execution has fallen outside the latest history page, but remains addressable.
+        when(events.readAfter(TaskId.valueOf(TASK_ID), 0, 1)).thenReturn(ImmutableList.of(first));
+        when(events.readAfter(TaskId.valueOf(TASK_ID), 2, 1)).thenReturn(ImmutableList.of(progress));
+
+        JsonNode latest = call("review_get_context", ImmutableMap.of("kind", "command_output"));
+        assertThat(latest.path("commands")).hasSize(1);
+        assertThat(latest.at("/commands/0/commandId").asText()).isEqualTo("2");
+        assertThat(latest.at("/commands/0/evidenceRef").asText()).isNotEqualTo(firstRef);
+        assertThat(store.runUpdates).isEqualTo(writes + 1);
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "command_output", "commandId", firstId))).isEqualTo(captured);
+        assertThat(store.runUpdates).isEqualTo(writes + 1);
+        assertThat(store.findRun(RUN_ID).orElseThrow().evidence()).hasSize(2);
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "command_output", "commandId", "3"))
+                .at("/error/field").asText()).isEqualTo("commandId");
+        for (String invalid : ImmutableList.of("invalid", "-1", "0", "9223372036854775808", "999")) {
+            assertThat(call("review_get_context", ImmutableMap.of("kind", "command_output", "commandId", invalid))
+                    .at("/error/field").asText()).isEqualTo("commandId");
+        }
+
+        // A previous run's identity cannot be selected into fresh evidence.
+        store.updateRun(run().withVersion(store.findRun(RUN_ID).orElseThrow().version()));
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "command_output", "commandId", firstId))
+                .at("/error/field").asText()).isEqualTo("commandId");
+        assertThat(store.findRun(RUN_ID).orElseThrow().evidence()).isEmpty();
+    }
+
+    @Test
+    void failedCommandsWithoutOutputStillExposeTheirExitStatus()
+    {
+        TurnId turn = TurnId.random();
+        store.updateRun(store.findRun(RUN_ID).orElseThrow().withTurn(turn.toString(), NOW));
+        AgentEventEnvelope failed = commandEvent(turn, 1, ActivityState.FAILED, Optional.empty(), false);
+        when(events.readHistory(TaskId.valueOf(TASK_ID), OptionalLong.empty(), OptionalLong.empty()))
+                .thenReturn(new AgentHistoryPage(ImmutableList.of(failed), OptionalLong.empty(), OptionalLong.empty(), 1));
+
+        JsonNode commands = call("review_get_context", ImmutableMap.of("kind", "command_output")).path("commands");
+        assertThat(commands).hasSize(1);
+        assertThat(commands.get(0).path("exitCode").asText()).isEqualTo("1");
+        assertThat(commands.get(0).path("output").asText()).contains("Exit code: 1");
+    }
+
+    @Test
     void repeatingAnOperationKeyReplaysWithinTheAssignmentAndItsRepair()
     {
         readSource();
@@ -1758,30 +1816,36 @@ class TestReviewTools
         return ImmutableMap.copyOf(changed);
     }
 
-    private void commandRan(TurnId turnId, String output)
+    private AgentEventEnvelope commandRan(TurnId turnId, String output)
     {
         store.updateRun(store.findRun(RUN_ID).orElseThrow().withTurn(turnId.toString(), NOW));
-        AgentEventEnvelope completed = new AgentEventEnvelope(
+        AgentEventEnvelope completed = commandEvent(turnId, 1, ActivityState.COMPLETED, Optional.of(output), false);
+        when(events.readHistory(TaskId.valueOf(TASK_ID), OptionalLong.empty(), OptionalLong.empty()))
+                .thenReturn(new AgentHistoryPage(ImmutableList.of(completed), OptionalLong.empty(), OptionalLong.empty(), 1));
+        return completed;
+    }
+
+    private static AgentEventEnvelope commandEvent(TurnId turnId, long sequence, ActivityState state, Optional<String> output, boolean background)
+    {
+        return new AgentEventEnvelope(
                 AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
                 EventId.random(),
-                1,
+                sequence,
                 TaskId.valueOf(TASK_ID),
                 Optional.of(turnId),
                 AgentEventSource.root(),
                 NOW,
                 new AgentEventPayload.CommandActivity(
-                        ActivityState.COMPLETED,
+                        state,
                         ImmutableList.of("mvn", "-Dtest=TestWidget#rejectsNull", "test"),
-                        Optional.of(output),
+                        output,
                         Optional.of(1),
                         false,
                         Optional.empty(),
                         Optional.empty(),
                         ImmutableList.of(),
-                        false,
+                        background,
                         Optional.empty()));
-        when(events.readHistory(TaskId.valueOf(TASK_ID), OptionalLong.empty(), OptionalLong.empty()))
-                .thenReturn(new AgentHistoryPage(ImmutableList.of(completed), OptionalLong.empty(), OptionalLong.empty(), 1));
     }
 
     @Test

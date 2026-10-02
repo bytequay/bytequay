@@ -18,6 +18,7 @@ import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.context.ContextHistoryReader;
@@ -212,7 +213,8 @@ public class ReviewTools
                                 + "commit_prs (required shas: 1 to " + SelectedCommitPullRequestReader.MAX_COMMITS
                                 + " unique full 40/64-hex commit IDs in this repository), "
                                 + "history (required sourceKind PR or ISSUE and number; selected merged PR or closed non-PR issue), "
-                                + "source (path, startLine, endLine, revision: head/base/previous), command_output, investigation, findings "
+                                + "source (path, startLine, endLine, revision: head/base/previous), "
+                                + "command_output (latest completed command, optional commandId), investigation, findings "
                                 + "(omit target for the list; target=findingId for its body and historical evidence), "
                                 + "summary, discussion (target), or evidence (ref). "
                                 + "Only current-review diff lines carry anchor ids; related patch pages and other source reads return evidence refs. "
@@ -225,6 +227,7 @@ public class ReviewTools
                                 .put("kind", ImmutableMap.of("type", "string", "enum", ImmutableList.of("scope", "pr", "timeline", "thread", "checks", "issue", "commit_prs",
                                         "diff", "history", "source", "command_output", "investigation", "assignment", "findings", "summary", "discussion", "evidence")))
                                 .put("path", ImmutableMap.of("type", "string", "maxLength", 1000))
+                                .put("commandId", ImmutableMap.of("type", "string", "pattern", "^[1-9][0-9]{0,18}$"))
                                 .put("revision", ImmutableMap.of("type", "string", "enum", ImmutableList.of("head", "base", "previous")))
                                 .put("number", ImmutableMap.of("type", "integer", "minimum", 1))
                                 .put("threadId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 30))
@@ -1666,26 +1669,53 @@ public class ReviewTools
 
     private JsonNode commandOutput(Call call)
     {
-        List<AgentEventEnvelope> recent = events.readHistory(TaskId.valueOf(call.review().taskId()), OptionalLong.empty(), OptionalLong.empty()).events();
-        List<Map<String, Object>> commands = new ArrayList<>();
-        for (int index = recent.size() - 1; index >= 0 && commands.size() < 10; index--) {
+        String commandId = text(call.arguments(), "commandId", 100, false);
+        TaskId taskId = TaskId.valueOf(call.review().taskId());
+        List<AgentEventEnvelope> recent;
+        if (commandId.isEmpty()) {
+            recent = events.readHistory(taskId, OptionalLong.empty(), OptionalLong.empty()).events();
+        }
+        else {
+            long sequence;
+            try {
+                sequence = Long.parseLong(commandId);
+            }
+            catch (NumberFormatException failure) {
+                throw new ReviewInvalidRequestException("commandId: expected a positive event sequence");
+            }
+            if (sequence <= 0) {
+                throw new ReviewInvalidRequestException("commandId: expected a positive event sequence");
+            }
+            recent = events.readAfter(taskId, sequence - 1, 1);
+        }
+        for (int index = recent.size() - 1; index >= 0; index--) {
             AgentEventEnvelope envelope = recent.get(index);
             boolean sameRun = envelope.turnId().filter(turn -> call.run().turnIds().contains(turn.toString()) || call.turnId().equals(Optional.of(turn))).isPresent();
-            if (!sameRun || !(envelope.payload() instanceof AgentEventPayload.CommandActivity command) || command.output().isEmpty()) {
+            if (!sameRun || !(envelope.payload() instanceof AgentEventPayload.CommandActivity command) || command.background()
+                    || (command.state() != ActivityState.COMPLETED && command.state() != ActivityState.FAILED)
+                    || (!commandId.isEmpty() && !commandId.equals(Long.toString(envelope.sequence())))) {
                 continue;
             }
             String commandLine = String.join(" ", command.argv());
-            String output = "$ " + commandLine + "\nExit code: " + command.exitCode().map(String::valueOf).orElse("unavailable") + "\n" + command.output().orElseThrow();
+            String output = "$ " + commandLine + "\nExit code: " + command.exitCode().map(String::valueOf).orElse("unavailable") + "\n" + command.output().orElse("");
             String excerpt = bounded(output, 3000);
-            String ref = registerEvidence(
-                    call,
-                    COMMAND_EVIDENCE_SOURCE + bounded(commandLine, 200),
-                    "command run by the agent in the review worktree" + envelope.turnId().map(turn -> " during turn " + turn).orElse("")
-                            + "; exitCode=" + command.exitCode().map(String::valueOf).orElse("unavailable") + "; excerptTruncated=" + (output.length() > 3000),
-                    excerpt);
-            commands.add(ImmutableMap.of("evidenceRef", ref, "command", commandLine, "exitCode", command.exitCode().map(String::valueOf).orElse(""), "output", excerpt));
+            // Event identity preserves separate executions, even when their argv and output match.
+            String ref = "E-command-" + envelope.eventId();
+            ReviewRun current = store.findRun(call.run().id()).orElse(call.run());
+            if (!current.evidence().containsKey(ref)) {
+                String provenance = "command run by the agent in the review worktree" + envelope.turnId().map(turn -> " during turn " + turn).orElse("")
+                        + "; eventId=" + envelope.eventId() + "; exitCode=" + command.exitCode().map(String::valueOf).orElse("unavailable")
+                        + "; excerptTruncated=" + (command.truncated() || output.length() > 3000);
+                store.updateRun(current.withEvidence(ref, new ReviewEvidence(ref, COMMAND_EVIDENCE_SOURCE + bounded(commandLine, 200), provenance, excerpt, ""), now()));
+            }
+            return objectMapper.createObjectNode().putPOJO("commands", ImmutableList.of(ImmutableMap.of(
+                    "commandId", Long.toString(envelope.sequence()), "evidenceRef", ref, "command", commandLine,
+                    "exitCode", command.exitCode().map(String::valueOf).orElse(""), "output", excerpt)));
         }
-        return objectMapper.createObjectNode().putPOJO("commands", commands);
+        if (!commandId.isEmpty()) {
+            throw new ReviewInvalidRequestException("commandId: no completed command with this identity in the current run");
+        }
+        return objectMapper.createObjectNode().putPOJO("commands", ImmutableList.of());
     }
 
     private JsonNode findings(Call call)

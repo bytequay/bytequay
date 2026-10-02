@@ -112,8 +112,10 @@ discussions, resumed turns, and report repair.
    reproduction or source trace, setup, decisive test code, commands, expected
    and actual result, output and provenance, plus the validation explanation.
    State whether a case was executed or only traced from source.
-   Capture command output with review_get_context immediately after execution,
-   and cite it alongside relevant frozen source. Print a new reproduction's
+   Capture command output with review_get_context kind command_output immediately after execution;
+   it returns only the latest completed command. Use its returned commandId to
+   reread that execution; retries reuse its evidence ref. Cite it alongside
+   relevant frozen source. Print a new reproduction's
    relevant code/setup into captured output so it survives log retention.
    Check truncation; never claim reproduction from a planned command or merely
    written test. Use one GitHub ```suggestion block only for an exact replacement

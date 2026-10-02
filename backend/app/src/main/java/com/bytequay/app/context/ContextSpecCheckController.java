@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -55,7 +56,7 @@ public class ContextSpecCheckController
     public ContextSpecCheck dismiss(@PathVariable String workspaceId, @PathVariable String checkId, @PathVariable String candidateId,
             @RequestBody DismissRequest request)
     {
-        return checks.dismiss(workspaceId, checkId, candidateId, request.reason());
+        return checks.dismiss(workspaceId, checkId, candidateId, request.reason(), Optional.ofNullable(request.rule()).filter(rule -> !rule.isBlank()));
     }
 
     @GetMapping("/sources")
@@ -72,7 +73,10 @@ public class ContextSpecCheckController
         }
     }
 
-    public record DismissRequest(String reason) {}
+    /**
+     * @param rule the user's words to remember for the finding's file, such as why a deviation stays
+     */
+    public record DismissRequest(String reason, String rule) {}
 
     public record Sources(List<ContextSpecSource> sources)
     {

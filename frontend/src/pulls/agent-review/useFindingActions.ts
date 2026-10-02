@@ -99,8 +99,8 @@ export function useFindingActions({
       onReviewChange(await window.bridge.askAgentReview(review.id, finding.id, finding.revision, message));
       recordReviewAttentionAction(review, 'prompt');
     }, true),
-    onResolve: (finding, reason) => guard(async () => {
-      onReviewChange(await window.bridge.resolveAgentReviewFinding(review.id, finding.id, finding.version, reason));
+    onResolve: (finding, reason, remember = false) => guard(async () => {
+      onReviewChange(await window.bridge.resolveAgentReviewFinding(review.id, finding.id, finding.version, reason, remember));
       recordReviewAttentionAction(review, 'update');
     }, true),
     onReopen: finding => guard(async () => {

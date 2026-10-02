@@ -143,11 +143,12 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
       await load();
       say('Spec check stopped · confirmed findings kept');
     }),
-    dismissFinding: (check, candidateId, reason) => void perform(async () => {
-      const saved = await window.bridge.dismissRepositoryContextSpecFinding(workspaceId, check.id, candidateId, { reason });
+    dismissFinding: (check, candidateId, reason, rule) => void perform(async () => {
+      const saved = await window.bridge.dismissRepositoryContextSpecFinding(workspaceId, check.id, candidateId, rule === null ? { reason } : { reason, rule });
       if (!mounted.current) return;
       setChecks(value => (value ?? []).map(item => item.id === saved.id ? saved : item));
-      say('Finding dismissed · nothing was sent to GitHub');
+      if (rule !== null) await load();
+      say(rule === null ? 'Finding dismissed · nothing was sent to GitHub' : 'Finding dismissed · your rule is in memory · nothing was sent to GitHub');
     }),
     // Opening GitHub's form writes nothing; the user files the issue there.
     openIssue: candidate => void perform(async () => {

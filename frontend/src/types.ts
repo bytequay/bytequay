@@ -1601,7 +1601,7 @@ export type Bridge = JiraBridge & {
   /** Starts one check of a directory: a turn that saves candidate gaps, then one turn per candidate that reproduces it with a test. */
   startRepositoryContextSpecCheck: (workspaceId: string, request: StartContextSpecCheckRequest) => Promise<ContextSpecCheckStartedDto>;
   /** Hides a finding from the report and records why; nothing is sent to GitHub. */
-  dismissRepositoryContextSpecFinding: (workspaceId: string, checkId: string, candidateId: string, request: { reason: string }) => Promise<ContextSpecCheckDto>;
+  dismissRepositoryContextSpecFinding: (workspaceId: string, checkId: string, candidateId: string, request: { reason: string; rule?: string }) => Promise<ContextSpecCheckDto>;
   stopRepositoryContextBuild: (workspaceId: string, taskId: string) => Promise<ContextBuildViewDto>;
   getRepositoryContextBuildStopImpact: (workspaceId: string, taskId: string) => Promise<AgentRuntimeStopImpactDto>;
   stopRepositoryContextBuildRuntime: (workspaceId: string, taskId: string, generation: string) => Promise<ContextBuildViewDto>;
@@ -1800,6 +1800,7 @@ export type Bridge = JiraBridge & {
     findingId: string,
     expectedVersion: number,
     reason: string,
+    remember: boolean,
   ) => Promise<AgentReviewDto>;
   reopenAgentReviewFinding: (reviewId: string, findingId: string, expectedVersion: number) => Promise<AgentReviewDto>;
   readAgentReviewHistory: (reviewId: string, taskId: string, before?: string, after?: string) => Promise<AgentHistoryPageDto>;

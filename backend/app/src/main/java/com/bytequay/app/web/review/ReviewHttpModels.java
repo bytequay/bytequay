@@ -379,7 +379,10 @@ final class ReviewHttpModels
     /** A free-form message to the review agent: TURN starts one, STEER joins the running one, QUEUE runs next. */
     record MessageRequest(String message, String delivery) {}
 
-    record ResolveFindingRequest(Long expectedVersion, String reason) {}
+    /**
+     * @param remember also save the reason as the user's rule for the finding's file
+     */
+    record ResolveFindingRequest(Long expectedVersion, String reason, Boolean remember) {}
 
     record DraftItemRequest(
             Long expectedVersion,

@@ -12,8 +12,8 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { specCheckDirectory, type ContextSpecCandidateDto, type ContextSpecCheckDto } from './contracts';
-import { checkSummary, codeLink, issueUrl, openFindings, specAddress } from './specChecks';
+import { parseDismissContextSpecFindingRequest, specCheckDirectory, type ContextSpecCandidateDto, type ContextSpecCheckDto } from './contracts';
+import { checkSummary, codeLink, findingFile, issueUrl, openFindings, specAddress } from './specChecks';
 
 const candidate = (id: string, type: ContextSpecCandidateDto['type'], status: ContextSpecCandidateDto['status'],
   patch: Partial<ContextSpecCandidateDto> = {}): ContextSpecCandidateDto => ({ id, type, predicted: type === 'BUG' ? 'DIVERGES' : type === 'FEATURE_REQUEST' ? 'REFUSES' : 'SKIPS_SHOULD',
@@ -68,5 +68,16 @@ describe('spec check links', () => {
     expect(codeLink('o/r', 'abc', 'core/A.java:7')).toBe('https://github.com/o/r/blob/abc/core/A.java#L7');
     expect(specAddress(' https://iceberg.apache.org/spec/#manifests ')).toBe('https://iceberg.apache.org/spec/');
     expect([specAddress('http://iceberg.apache.org/spec/'), specAddress('https://example.com/spec?v=2'), specAddress('not a url')]).toEqual([null, null, null]);
+  });
+
+  it('remembers a dismissed finding’s rule for its file in the checked directory', () => {
+    expect(findingFile('plugin/x/', ['core/A.java:3', 'plugin/x/B.java:12-40'])).toBe('plugin/x/B.java');
+    expect(findingFile('plugin/x/', ['core/A.java:3'])).toBe('core/A.java');
+    expect(findingFile('plugin/x/', [])).toBeNull();
+    expect(parseDismissContextSpecFindingRequest({ reason: 'Not a real gap', rule: 'Paths stay keys here on purpose.' }))
+      .toEqual({ reason: 'Not a real gap', rule: 'Paths stay keys here on purpose.' });
+    expect(parseDismissContextSpecFindingRequest({ reason: 'Filed on GitHub' })).toEqual({ reason: 'Filed on GitHub' });
+    expect(() => parseDismissContextSpecFindingRequest({ reason: 'Not a real gap', rule: ' ' })).toThrow();
+    expect(() => parseDismissContextSpecFindingRequest({ reason: 'Not a real gap', note: 'x' })).toThrow();
   });
 });

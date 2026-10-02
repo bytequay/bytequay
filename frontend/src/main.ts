@@ -1060,10 +1060,10 @@ function registerIpc(): void {
     review(`/${encodeURIComponent(reviewId)}/queue/${encodeURIComponent(queuedInputId)}`, {}, { method: 'DELETE' }));
   ipcMain.handle('review:queue:steer', (_event, reviewId: string, queuedInputId: string, turnId: string) =>
     review(`/${encodeURIComponent(reviewId)}/queue/${encodeURIComponent(queuedInputId)}/steer`, { turnId }, { method: 'POST' }));
-  ipcMain.handle('review:finding:resolve', (_event, reviewId: string, findingId: string, expectedVersion: number, reason: string) =>
+  ipcMain.handle('review:finding:resolve', (_event, reviewId: string, findingId: string, expectedVersion: number, reason: string, remember: boolean) =>
     review(`/${encodeURIComponent(reviewId)}/findings/${encodeURIComponent(findingId)}/resolve`, {}, {
       method: 'POST',
-      body: JSON.stringify({ expectedVersion, reason }),
+      body: JSON.stringify({ expectedVersion, reason, remember: remember === true }),
     }));
   ipcMain.handle('review:finding:reopen', (_event, reviewId: string, findingId: string, expectedVersion: number) =>
     review(`/${encodeURIComponent(reviewId)}/findings/${encodeURIComponent(findingId)}/reopen`, {}, {

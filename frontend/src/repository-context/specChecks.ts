@@ -66,6 +66,12 @@ export function codeLink(repository: string, sha: string, location: string): str
   return `https://github.com/${repository}/blob/${sha}/${match[1]}#L${match[2]}${match[3] === undefined ? '' : `-L${match[3]}`}`;
 }
 
+/** The file a dismissed finding's rule is remembered for: its first code location in the checked directory, else its first. */
+export function findingFile(directory: string, code: string[]): string | null {
+  const paths = code.map(location => /^(.+?):\d+(?:-\d+)?$/.exec(location)?.[1] ?? location);
+  return paths.find(path => path.startsWith(directory)) ?? paths[0] ?? null;
+}
+
 /** GitHub's new-issue form pre-filled with the draft; a body too long for the address is cut there, and cut says so. */
 export function issueUrl(repository: string, draft: NonNullable<ContextSpecCandidateDto['draft']>): { url: string; cut: boolean } {
   const address = (body: string) => {

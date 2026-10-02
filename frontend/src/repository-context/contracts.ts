@@ -182,6 +182,9 @@ export function parseStartContextSpecCheckRequest(value: unknown): StartContextS
   if (result.specs.length === 0 || result.specs.length > 30 || result.specs.some(spec => !spec.startsWith('https://'))) malformed('specs');
   return result;
 }
-export function parseDismissContextSpecFindingRequest(value: unknown): { reason: string } {
-  return { reason: nonblank(request(value, ['reason']).reason, 'dismissal reason') };
+/** Why a finding is dismissed, and the user's rule to remember for its file when they asked for that. */
+export function parseDismissContextSpecFindingRequest(value: unknown): { reason: string; rule?: string } {
+  const item = request(value, ['reason', 'rule']);
+  const reason = nonblank(item.reason, 'dismissal reason');
+  return item.rule === undefined ? { reason } : { reason, rule: nonblank(item.rule, 'remembered rule') };
 }

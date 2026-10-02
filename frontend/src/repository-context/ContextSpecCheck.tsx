@@ -17,7 +17,7 @@ import { settingsRoute } from '../settings/routes';
 import { specCheckDirectory, type ContextBuildViewDto, type ContextSpecCandidateDto, type ContextSpecCheckDto, type ContextSpecSourceDto } from './contracts';
 import { Chevron, Icon } from './icons';
 import { activeCheck, CHECK_REPRODUCTIONS, checkActive, checkProgress, plural, shortDate, shortSha } from './model';
-import { CHECK_STATE, checkSummary, codeLink, DISMISS_REASONS, MAX_SPECS, openFindings, specAddress, TYPE_LABEL, TYPE_TONE } from './specChecks';
+import { CHECK_STATE, checkSummary, codeLink, DISMISS_REASONS, findingFile, MAX_SPECS, openFindings, specAddress, TYPE_LABEL, TYPE_TONE } from './specChecks';
 
 export type SpecCheckData = {
   workspaceId: string; repository: string; checks: ContextSpecCheckDto[]; build: ContextBuildViewDto; model: { label: string; blocker: string | null }; now: number;
@@ -26,7 +26,8 @@ export type SpecCheckData = {
 export type SpecCheckActions = {
   start: (directory: string, specs: string[]) => void;
   stop: (taskId: string) => void;
-  dismissFinding: (check: ContextSpecCheckDto, candidateId: string, reason: string) => void;
+  /** With a rule, the user's words are also remembered for the finding's file. */
+  dismissFinding: (check: ContextSpecCheckDto, candidateId: string, reason: string, rule: string | null) => void;
   openIssue: (candidate: ContextSpecCandidateDto) => void;
   say: (text: string) => void;
 };
@@ -202,6 +203,9 @@ function Finding({ data, actions, busy, check, candidate }: {
 }) {
   const [dismissing, setDismissing] = useState(false);
   const [reason, setReason] = useState<string>(DISMISS_REASONS[0]);
+  const [remember, setRemember] = useState(false);
+  const [rule, setRule] = useState('');
+  const file = findingFile(check.directory, candidate.code);
   const open = (url: string): void => void window.bridge.openInAppBrowser(url);
   return <div className="rcp-finding">
     <div className="rcp-finding__head"><span className={`rcp-chip rcp-tone--${TYPE_TONE[candidate.type]}`}>{TYPE_LABEL[candidate.type]}</span>
@@ -221,12 +225,18 @@ function Finding({ data, actions, busy, check, candidate }: {
     {candidate.draft !== null && <Disclosure label={`Issue draft${candidate.draft.labels.length > 0 ? ` · ${candidate.draft.labels.join(', ')}` : ''}`}>
       <pre className="rcp-finding__pre">{candidate.draft.body}</pre></Disclosure>}
     {dismissing
-      ? <div className="rcp-finding__actions">
-        <select aria-label="Why dismiss" value={reason} onChange={event => setReason(event.target.value)}>
-          {DISMISS_REASONS.map(value => <option key={value}>{value}</option>)}</select>
-        <button type="button" className="rcp-btn rcp-btn--secondary rcp-btn--xs" disabled={busy}
-          onClick={() => { actions.dismissFinding(check, candidate.id, reason); setDismissing(false); }}>Dismiss</button>
-        <button type="button" className="rcp-link" onClick={() => setDismissing(false)}>Cancel</button>
+      ? <div className="rcp-finding__dismiss">
+        <div className="rcp-finding__actions">
+          <select aria-label="Why dismiss" value={reason} onChange={event => setReason(event.target.value)}>
+            {DISMISS_REASONS.map(value => <option key={value}>{value}</option>)}</select>
+          {file !== null && <label className="rcp-remember" title="Saves your words as a rule agents get for this file">
+            <input type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} />Remember for <code>{file}</code></label>}
+          <button type="button" className="rcp-btn rcp-btn--secondary rcp-btn--xs" disabled={busy || (remember && rule.trim() === '')}
+            onClick={() => { actions.dismissFinding(check, candidate.id, reason, remember ? rule.trim() : null); setDismissing(false); }}>Dismiss</button>
+          <button type="button" className="rcp-link" onClick={() => setDismissing(false)}>Cancel</button>
+        </div>
+        {remember && <textarea className="rcp-remember__rule" rows={2} aria-label="Rule to remember" value={rule} onChange={event => setRule(event.target.value)}
+          placeholder="Why this is fine here, as a rule agents get for this file, such as a deviation kept on purpose" />}
       </div>
       : <div className="rcp-finding__actions">
         <button type="button" className="rcp-btn rcp-btn--primary rcp-btn--xs" disabled={busy || candidate.draft === null} onClick={() => actions.openIssue(candidate)}>

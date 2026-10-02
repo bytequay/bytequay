@@ -24,13 +24,18 @@ import com.bytequay.agent.core.SteerAgentTurnCommand;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.app.agent.AgentStartupRecovery;
+import com.bytequay.app.memory.MemoryService;
+import com.bytequay.app.review.AgentReviewProjection;
 import com.bytequay.app.review.AgentReviewService;
 import com.bytequay.app.review.ReviewPublicationService;
 import com.bytequay.app.utils.PullRequestRefUtil;
 import com.bytequay.app.web.agent.AgentHttpModels;
 import com.bytequay.app.web.agent.AgentStreamRegistry;
 import com.bytequay.app.web.agent.ResolveApprovalRequest;
+import com.bytequay.core.memory.MemorySource;
+import com.bytequay.core.review.ReviewAnchor;
 import com.bytequay.core.review.ReviewDraftItem;
+import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewInvalidRequestException;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.google.common.collect.ImmutableList;
@@ -77,6 +82,7 @@ public class ReviewController
     private final AgentApprovalService approvals;
     private final AgentStartupRecovery startupRecovery;
     private final AgentStreamRegistry streams;
+    private final MemoryService memories;
 
     public ReviewController(
             AgentReviewService reviews,
@@ -85,7 +91,8 @@ public class ReviewController
             AgentEventService events,
             AgentApprovalService approvals,
             AgentStartupRecovery startupRecovery,
-            AgentStreamRegistry streams)
+            AgentStreamRegistry streams,
+            MemoryService memories)
     {
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.publications = requireNonNull(publications, "publications is null");
@@ -94,6 +101,7 @@ public class ReviewController
         this.approvals = requireNonNull(approvals, "approvals is null");
         this.startupRecovery = requireNonNull(startupRecovery, "startupRecovery is null");
         this.streams = requireNonNull(streams, "streams is null");
+        this.memories = requireNonNull(memories, "memories is null");
     }
 
     @GetMapping(params = {"!repo", "!number"})
@@ -263,8 +271,23 @@ public class ReviewController
             @PathVariable String findingId,
             @RequestBody ReviewHttpModels.ResolveFindingRequest request)
     {
-        reviews.resolveFinding(reviewId, findingId, required(request.expectedVersion(), "expectedVersion"), Optional.ofNullable(request.reason()).orElse(""));
-        return ReviewHttpModels.review(reviews.get(reviewId));
+        String reason = Optional.ofNullable(request.reason()).orElse("");
+        // Checked before resolving, so a reason that cannot be remembered leaves the finding open.
+        Optional<String> remembered = Boolean.TRUE.equals(request.remember()) ? Optional.of(rememberedPath(reviewId, findingId, reason)) : Optional.empty();
+        reviews.resolveFinding(reviewId, findingId, required(request.expectedVersion(), "expectedVersion"), reason);
+        AgentReviewProjection resolved = reviews.get(reviewId);
+        remembered.ifPresent(path -> memories.rememberReason(resolved.review().workspaceId(), reason, path,
+                new MemorySource.UserPart(MemorySource.Where.RESOLVE, reviewId, findingId)));
+        return ReviewHttpModels.review(resolved);
+    }
+
+    /** The file a resolved finding's reason is remembered for; a finding about the whole change has none. */
+    private String rememberedPath(String reviewId, String findingId, String reason)
+    {
+        MemoryService.checkReason(reason);
+        return reviews.get(reviewId).findings().stream().filter(finding -> finding.id().equals(findingId)).findFirst()
+                .flatMap(ReviewFinding::anchor).map(ReviewAnchor::path)
+                .orElseThrow(() -> new ReviewInvalidRequestException("A finding about the whole change has no file to remember its reason for"));
     }
 
     @PostMapping("/{reviewId}/findings/{findingId}/reopen")

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.memory;
 
+import com.bytequay.app.context.ContextText;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.memory.Memory;
 import com.bytequay.core.memory.MemoryReport;
@@ -201,6 +202,27 @@ public class MemoryService
             deleted.put(memoryId, new Memory(memory.id(), memory.workspaceId(), memory.kind(), memory.text(), memory.scope(), memory.sources(), memory.origin(),
                     memory.version(), memory.previous(), memory.delivered(), memory.cited(), memory.reports(), memory.createdAt(), now));
         }
+    }
+
+    /**
+     * A rule in the user's own words, saved as written with no model: the reason they gave when resolving a review finding, or the rule
+     * they wrote when dismissing a spec finding, scoped to the finding's file. The user owns it, so agents never change it.
+     */
+    public Memory rememberReason(String workspaceId, String reason, String path, MemorySource.UserPart where)
+    {
+        String text = checkReason(reason);
+        MemorySource source = MemorySource.user(ContextText.excerpt(text, MemorySource.MAX_QUOTE_BYTES), clock.instant(), where);
+        String description = where.where() == MemorySource.Where.RESOLVE ? "You, resolving a finding" : "You, dismissing a spec finding";
+        return create(workspaceId, Memory.Kind.RULE, text, ImmutableList.of(path), ImmutableList.of(source), new Memory.Origin(true, description, Optional.empty()));
+    }
+
+    /** A reason as a memory's text, one paragraph within {@value Memory#MAX_TEXT_BYTES} bytes; checked before the finding changes. */
+    public static String checkReason(String reason)
+    {
+        String text = Optional.ofNullable(reason).orElse("").strip().replaceAll("\\s*\\R\\s*", " ");
+        checkArgument(!text.isEmpty(), "Write the reason to remember it");
+        checkArgument(ContextLimits.bytes(text) <= Memory.MAX_TEXT_BYTES, "Keep the reason within %s bytes to remember it", Memory.MAX_TEXT_BYTES);
+        return text;
     }
 
     /**

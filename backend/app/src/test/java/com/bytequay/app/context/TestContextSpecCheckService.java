@@ -358,6 +358,28 @@ class TestContextSpecCheckService
     }
 
     @Test
+    void dismissingCanRememberTheUsersRuleForTheFindingsFileInTheDirectory()
+    {
+        store.save(WORKSPACE, Optional.empty(), check(ContextSpecCheck.State.DONE, ImmutableList.of(candidate("c1", 3, Status.CONFIRMED),
+                candidate("c2", 2, Status.CONFIRMED))));
+
+        ContextSpecCheck dismissed = service.dismiss(WORKSPACE, "check-1", "c1", "Not a real gap",
+                Optional.of("The writer keys removes by path on purpose until deletion vectors are enabled."));
+        assertThat(dismissed.candidate("c1").dismissed()).contains("Not a real gap");
+        assertThat(memories.list(WORKSPACE)).singleElement().satisfies(memory -> {
+            assertThat(memory.text()).isEqualTo("The writer keys removes by path on purpose until deletion vectors are enabled.");
+            assertThat(memory.scope()).containsExactly("plugin/trino-delta-lake/src/Writer.java");
+            assertThat(memory.origin().user()).isTrue();
+            assertThat(memory.sources().getFirst().user()).contains(new MemorySource.UserPart(MemorySource.Where.DISMISS, "check-1", "c1"));
+        });
+
+        assertThatThrownBy(() -> service.dismiss(WORKSPACE, "check-1", "c2", "Not a real gap", Optional.of(" "))).hasMessage("Write the reason to remember it");
+        assertThat(current().candidate("c2").dismissed()).isEmpty();
+        service.dismiss(WORKSPACE, "check-1", "c2", "Not worth filing", Optional.empty());
+        assertThat(memories.list(WORKSPACE)).hasSize(1);
+    }
+
+    @Test
     void anEndedCheckKeepsItsFindingsAndSaysWhyTheRestWasNotReproduced()
     {
         ContextSpecCheck check = check(ContextSpecCheck.State.REPRODUCING, ImmutableList.of(candidate("c1", 3, Status.CONFIRMED),

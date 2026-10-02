@@ -41,11 +41,15 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.agent.AgentStartupRecovery;
+import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.review.AgentReviewProjection;
 import com.bytequay.app.review.AgentReviewService;
 import com.bytequay.app.review.ReviewPublicationService;
 import com.bytequay.app.web.agent.AgentStreamRegistry;
+import com.bytequay.core.memory.MemorySource;
 import com.bytequay.core.review.AgentReview;
+import com.bytequay.core.review.ReviewAnchor;
+import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.bytequay.core.review.ReviewRun;
@@ -97,8 +101,10 @@ class TestReviewRuntimeRecovery
     private final AgentStartupRecovery recovery = new AgentStartupRecovery(
             mock(AgentEventOutboxStore.class), mock(AgentEventService.class), maintenance(), supervisor,
             new AgentServingGate(), launchStore, taskStore, turnStore, mock(AgentTurnService.class));
+    private final MemoryService memories = mock(MemoryService.class);
     private final ReviewController controller = new ReviewController(
-            reviews, mock(ReviewPublicationService.class), turns, mock(AgentEventService.class), mock(AgentApprovalService.class), recovery, new AgentStreamRegistry());
+            reviews, mock(ReviewPublicationService.class), turns, mock(AgentEventService.class), mock(AgentApprovalService.class), recovery, new AgentStreamRegistry(),
+            memories);
 
     @Test
     void workspaceListingAndPullRequestLookupKeepTheirOwnResponseShapes()
@@ -146,6 +152,32 @@ class TestReviewRuntimeRecovery
         verify(reviews).syncWorktree(REVIEW_ID, head);
         verifyNoMoreInteractions(reviews);
         verifyNoInteractions(turns);
+    }
+
+    @Test
+    void resolvingRemembersTheReasonForTheFindingsFileOnlyWhenAsked()
+            throws Exception
+    {
+        ReviewFinding finding = new ReviewFinding("finding-1", REVIEW_ID, "run-1", 1, "Unchecked input", "Body", Optional.empty(),
+                Optional.of(new ReviewAnchor("src/App.java", "RIGHT", 3, 4, ImmutableList.of("parse(input)"))), ImmutableList.of(), 1, ReviewFinding.State.OPEN,
+                Optional.empty(), "a".repeat(40), false, 0, NOW, NOW);
+        when(reviews.get(REVIEW_ID)).thenReturn(projection(ImmutableList.of(), ImmutableList.of(finding)));
+        MockMvc mvc = standaloneSetup(controller).build();
+
+        mvc.perform(post("/api/agent-review/{reviewId}/findings/finding-1/resolve", REVIEW_ID).contentType("application/json")
+                        .content("{\"expectedVersion\":0,\"reason\":\"We validate input at the API boundary.\",\"remember\":true}"))
+                .andExpect(status().isOk());
+        verify(reviews).resolveFinding(REVIEW_ID, "finding-1", 0, "We validate input at the API boundary.");
+        verify(memories).rememberReason("workspace-1", "We validate input at the API boundary.", "src/App.java",
+                new MemorySource.UserPart(MemorySource.Where.RESOLVE, REVIEW_ID, "finding-1"));
+
+        assertThatThrownBy(() -> mvc.perform(post("/api/agent-review/{reviewId}/findings/finding-1/resolve", REVIEW_ID).contentType("application/json")
+                .content("{\"expectedVersion\":0,\"reason\":\" \",\"remember\":true}"))).hasMessageContaining("Write the reason to remember it");
+        mvc.perform(post("/api/agent-review/{reviewId}/findings/finding-1/resolve", REVIEW_ID).contentType("application/json")
+                        .content("{\"expectedVersion\":0,\"reason\":\"\"}"))
+                .andExpect(status().isOk());
+        verify(reviews).resolveFinding(REVIEW_ID, "finding-1", 0, "");
+        verifyNoMoreInteractions(memories);
     }
 
     @Test
@@ -282,11 +314,16 @@ class TestReviewRuntimeRecovery
 
     private static AgentReviewProjection projection(List<ReviewRun> runs)
     {
+        return projection(runs, ImmutableList.of());
+    }
+
+    private static AgentReviewProjection projection(List<ReviewRun> runs, List<ReviewFinding> findings)
+    {
         AgentReview review = new AgentReview(
                 REVIEW_ID, "workspace-1", "owner/repo", OptionalInt.of(7), OptionalLong.empty(), TASK_ID.toString(), Optional.empty(), AgentReview.State.OPEN, true,
                 Optional.empty(), Optional.of("head"), Optional.of("head"), 0, NOW, NOW, Optional.empty());
         return new AgentReviewProjection(
-                review, runs, ImmutableList.of(), ImmutableList.of(new AgentReviewProjection.MessageView(
+                review, runs, findings, ImmutableList.of(new AgentReviewProjection.MessageView(
                         new ReviewMessage("message-1", REVIEW_ID, Optional.empty(), Optional.of("run-1:limitations"), ReviewMessage.Author.USER,
                                 "Explain this limitation", 1, "run-1", Optional.empty(), Optional.of("queue-1"), 0, NOW),
                         Optional.of("turn-2"), Optional.of("event-1"))),

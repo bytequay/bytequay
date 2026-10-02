@@ -474,8 +474,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('review:message', reviewId, message, delivery, idempotencyKey),
   removeAgentReviewQueued: (reviewId, queuedInputId) => ipcRenderer.invoke('review:queue:remove', reviewId, queuedInputId),
   steerAgentReviewQueued: (reviewId, queuedInputId, turnId) => ipcRenderer.invoke('review:queue:steer', reviewId, queuedInputId, turnId),
-  resolveAgentReviewFinding: (reviewId, findingId, expectedVersion, reason) =>
-    ipcRenderer.invoke('review:finding:resolve', reviewId, findingId, expectedVersion, reason),
+  resolveAgentReviewFinding: (reviewId, findingId, expectedVersion, reason, remember) =>
+    ipcRenderer.invoke('review:finding:resolve', reviewId, findingId, expectedVersion, reason, remember),
   reopenAgentReviewFinding: (reviewId, findingId, expectedVersion) =>
     ipcRenderer.invoke('review:finding:reopen', reviewId, findingId, expectedVersion),
   readAgentReviewHistory: (reviewId, taskId, before, after) => ipcRenderer.invoke('review:history:read', reviewId, taskId, before, after),

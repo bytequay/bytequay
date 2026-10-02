@@ -79,6 +79,11 @@ export async function resolveFinding(projection: 'review' | 'changes'): Promise<
     assert(value !== null, 'Resolve locally must open an in-app optional reason input');
     return value;
   };
+  const remember = () => {
+    const value = card().querySelector<HTMLInputElement>('.agr-remember input[type="checkbox"]');
+    assert(value !== null, 'Resolving a finding about a file must offer to remember the reason for it');
+    return value;
+  };
   const write = async (text: string) => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input(), text);
     input().dispatchEvent(new Event('input', { bubbles: true }));
@@ -101,7 +106,7 @@ export async function resolveFinding(projection: 'review' | 'changes'): Promise<
     button('Resolve locally').click(); await settle();
     assert(Number(requests.length) === 1 && input().disabled && button('Cancel').disabled,
       'Pending resolution must retain its reason and disable editing/cancellation');
-    assert(JSON.stringify(requests[0]) === JSON.stringify([saved.id, finding.id, finding.version, 'This case is already covered.']),
+    assert(JSON.stringify(requests[0]) === JSON.stringify([saved.id, finding.id, finding.version, 'This case is already covered.', false]),
       'Resolution must retain review/finding/version identity and trim the optional reason');
     completions[0](new Error('The review changed; try again.')); await settle();
     assert(input().value.trim() === 'This case is already covered.' && !input().disabled
@@ -120,6 +125,18 @@ export async function resolveFinding(projection: 'review' | 'changes'): Promise<
     assert(requests[2]?.[3] === '', 'Empty optional reason must reach the local resolution API');
     completions[2](); await settle();
     assert(card().textContent?.includes('Resolved locally by you') === true, 'Blank-reason resolution must complete');
+    button('Reopen').click(); await settle();
+    button('Resolve').click(); await settle();
+    assert(card().querySelector('.agr-remember')?.textContent === 'Remember for src/Example.java' && !remember().checked,
+      'Remember must name the finding\'s file and start unchecked');
+    remember().click(); await settle();
+    assert(remember().checked && button('Resolve locally').disabled, 'A reason to remember must be written first');
+    await write('Generated parsers are never reviewed here.');
+    button('Resolve locally').click(); await settle();
+    assert(requests[3]?.[3] === 'Generated parsers are never reviewed here.' && requests[3]?.[4] === true,
+      'Remember must reach the local resolution API with the reason');
+    completions[3](); await settle();
+    assert(card().textContent?.includes('Resolved locally by you') === true, 'A remembered resolution must complete');
     // The bridge has only private read/resolve/reopen operations; any outgoing call fails this scenario.
   }
   finally { flushSync(() => root.unmount()); host.remove(); Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge }); }

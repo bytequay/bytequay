@@ -183,3 +183,10 @@
   .rcp-bar { padding: 12px 20px; }
   .rcp-limits { left: 20px; }
 }
+
+/* Remember for <path> beside a spec finding's dismissal: the user's words become a rule for that file. */
+.rcp-finding__dismiss { display: flex; flex-direction: column; gap: 8px; }
+.rcp-remember { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #45484c; }
+.rcp-remember code { font-family: var(--mono); font-size: 11.5px; overflow-wrap: anywhere; }
+.rcp-remember__rule { box-sizing: border-box; width: 100%; border: 1px solid #d0d7de; border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 13px;
+  resize: vertical; }

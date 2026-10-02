@@ -29,6 +29,7 @@ export default function ReviewComposer({
   autoFocus = false,
   allowEmpty = false,
   secondary,
+  extra,
   onChange,
   onSubmit,
   onCancel,
@@ -48,6 +49,8 @@ export default function ReviewComposer({
   allowEmpty?: boolean;
   /** Takes the Cancel button's place; Escape still cancels. */
   secondary?: ReactNode;
+  /** Sits before the buttons, such as Resolve's Remember checkbox. */
+  extra?: ReactNode;
   onChange: (value: string) => void;
   /** The host closes or clears on success and presents errors; keep its draft until this settles. */
   onSubmit: () => void | Promise<void>;
@@ -87,6 +90,7 @@ export default function ReviewComposer({
       autoFocus={autoFocus}
       onSubmit={() => { void submit(); }}
       onCancel={() => { if (!inFlight.current) onCancel(); }}>
+      {extra}
       {secondary ?? <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>}
       <button type="button" className="is-primary" disabled={!ready} title={disabledReason ?? undefined} onClick={() => { void submit(); }}>
         {primaryLabel}

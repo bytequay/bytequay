@@ -25,7 +25,8 @@ import { askLabel, draftCommentCommit, draftItemFor, findingPill, findingPublica
 export type FindingActions = {
   onRequestFix?: (finding: ReviewFindingDto, instruction: string) => Promise<void>;
   onAsk: (finding: ReviewFindingDto, message: string) => Promise<void>;
-  onResolve: (finding: ReviewFindingDto, reason: string) => Promise<void>;
+  /** Resolves the finding privately; with remember, the reason is also kept as the user's rule for the finding's file. */
+  onResolve: (finding: ReviewFindingDto, reason: string, remember?: boolean) => Promise<void>;
   onReopen: (finding: ReviewFindingDto) => Promise<void>;
   onAddToReview: (finding: ReviewFindingDto) => Promise<void>;
   onPostNow: (finding: ReviewFindingDto, body: string) => Promise<void>;
@@ -74,6 +75,7 @@ export default function ReviewFindingCard({
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [composer, setComposer] = useState<'ask' | 'resolve' | 'post' | 'draft' | 'fix' | null>(null);
   const [fixSent, setFixSent] = useState(false);
+  const [remember, setRemember] = useState(false);
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const pill = findingPill(review, finding);
@@ -106,15 +108,16 @@ export default function ReviewFindingCard({
     setError(null);
     setComposer(null);
     setText('');
+    setRemember(false);
   };
   const submit = async () => {
     const body = text.trim();
-    if (busy || (body === '' && composer !== 'resolve' && !(composer === 'draft' && reviewText !== null))) return;
+    if (busy || (body === '' && !(composer === 'resolve' && !remember) && !(composer === 'draft' && reviewText !== null))) return;
     setError(null);
     try {
       if (composer === 'fix') { await actions.onRequestFix?.(finding, body); setFixSent(true); }
       if (composer === 'ask') await actions.onAsk(finding, body);
-      if (composer === 'resolve') await actions.onResolve(finding, body);
+      if (composer === 'resolve') await actions.onResolve(finding, body, remember);
       if (composer === 'post') await actions.onPostNow(finding, body);
       if (composer === 'draft') await actions.onEditDraft(finding, body);
       close();
@@ -151,7 +154,10 @@ export default function ReviewFindingCard({
               suggestion={composer === 'post' ? suggestion : composer === 'draft' ? draftSuggestion : undefined}
               autoFocus
               busy={busy}
-              allowEmpty={composer === 'resolve' || (composer === 'draft' && reviewText !== null)}
+              allowEmpty={(composer === 'resolve' && !remember) || (composer === 'draft' && reviewText !== null)}
+              extra={composer === 'resolve' && lines !== null && <label className="agr-remember" title="Saves your reason as a rule agents get for this file">
+                <input type="checkbox" checked={remember} disabled={busy} onChange={event => setRemember(event.target.checked)} />
+                Remember for <code>{shortPath(lines.path, 36)}</code></label>}
               placeholder={composer === 'fix' ? 'Tell the developer what to fix…' : composer === 'resolve' ? 'Why are you resolving this finding locally? (optional)'
                 : composer === 'ask' ? 'Ask the reviewer about this finding…' : reviewText !== null ? 'Your review summary…' : 'Comment text (edits here never change the finding)'}
               ariaLabel={composer === 'fix' ? 'Instructions for the development agent' : composer === 'resolve' ? 'Resolution reason (optional)' : composer === 'ask' ? 'Ask the reviewer about this finding' : reviewText !== null ? 'Review summary text' : 'Outgoing comment text'}

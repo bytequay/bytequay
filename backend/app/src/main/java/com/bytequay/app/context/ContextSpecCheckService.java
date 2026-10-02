@@ -38,6 +38,7 @@ import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryLabel;
+import com.bytequay.core.memory.MemorySource;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,6 +62,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
@@ -260,12 +262,24 @@ public class ContextSpecCheckService
         });
     }
 
-    /** Hides a finding from the report and records why; nothing is sent to GitHub. */
-    public ContextSpecCheck dismiss(String workspaceId, String checkId, String candidateId, String reason)
+    /**
+     * Hides a finding from the report and records why; nothing is sent to GitHub. With a rule, such as a deviation kept on purpose, the
+     * user's words are also remembered for the finding's file in the checked directory.
+     */
+    public ContextSpecCheck dismiss(String workspaceId, String checkId, String candidateId, String reason, Optional<String> rule)
     {
         ContextLimits.text(reason, "dismissal", 500);
         ContextSpecCheck check = checks.find(workspaceId, checkId).orElseThrow(() -> new IllegalArgumentException("Unknown spec check"));
-        return checks.save(workspaceId, Optional.of(check), check.withCandidate(check.candidate(candidateId).withDismissed(reason.strip())));
+        ContextSpecCheck.Candidate candidate = check.candidate(candidateId);
+        Optional<String> path = rule.map(text -> {
+            MemoryService.checkReason(text);
+            List<String> paths = candidate.code().stream().map(location -> location(location).path()).collect(toImmutableList());
+            return paths.stream().filter(file -> file.startsWith(check.directory())).findFirst().or(() -> paths.stream().findFirst())
+                    .orElseThrow(() -> new IllegalArgumentException("This finding cites no code to remember the rule for"));
+        });
+        ContextSpecCheck saved = checks.save(workspaceId, Optional.of(check), check.withCandidate(candidate.withDismissed(reason.strip())));
+        rule.ifPresent(text -> memories.rememberReason(workspaceId, text, path.orElseThrow(), new MemorySource.UserPart(MemorySource.Where.DISMISS, checkId, candidateId)));
+        return saved;
     }
 
     /** Issues and pull requests in any state that may already report a gap; the tool records each so a candidate can cite it. */

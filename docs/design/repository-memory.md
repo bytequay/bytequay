@@ -145,7 +145,9 @@ source.
 - **Remember on Resolve and Dismiss.** Resolve on a review finding and Dismiss on
   a spec finding gain **Remember for \<path\>** beside their reason. The reason
   is saved as written: a RULE with a USER source, scoped to the finding's file,
-  with no model.
+  with no model. Dismiss picks its reason from a list, so its Remember asks for
+  the rule in the user's words. A spec finding's file is the first code it cites
+  under the checked directory; a finding with no file offers no Remember.
 - **Save lesson** and its lesson drafts are removed; these paths replace them.
 
 ### 3.3 Recipes

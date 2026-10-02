@@ -70,6 +70,7 @@ import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.core.domain.Checks.checkSha;
 import static com.bytequay.core.domain.PullRequest.Origin.AUTHORED;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.domain.PullRequest.Origin.REVIEW_REQUESTED;
@@ -169,13 +170,62 @@ public class GitHubPullRequestReadClient
     {
         requirePat(pat);
         requireNonNull(pullRequest, "pullRequest is null");
-        PublicationPullRequest response = translating(() -> get(gitHubRestClient, pat,
-                "/repos/{owner}/{repo}/pulls/{number}", pullRequest.owner(), pullRequest.repo(), pullRequest.number())
-                .retrieve()
-                .body(PublicationPullRequest.class));
+        PublicationPullRequest response = readPublication(pat, pullRequest);
         GitHubPullRequestIdentity identity = publicationIdentity(response, RepoRef.of(pullRequest.owner(), pullRequest.repo()));
         checkState(identity.pullRequest().equals(pullRequest), "GitHub returned another pull request");
         return identity;
+    }
+
+    /** Fresh merge evidence and the complete original PR sequence, never cached commit-to-PR grouping. */
+    public MergedPullRequest fetchMergedPullRequest(String pat, PullRequestRef pullRequest)
+    {
+        requirePat(pat);
+        requireNonNull(pullRequest, "pullRequest is null");
+        PublicationPullRequest before = readPublication(pat, pullRequest);
+        GitHubPullRequestIdentity identity = publicationIdentity(before, RepoRef.of(pullRequest.owner(), pullRequest.repo()));
+        checkState(identity.pullRequest().equals(pullRequest), "GitHub returned another pull request");
+        checkState(identity.state() == GitHubPullRequestIdentity.State.MERGED && Boolean.TRUE.equals(before.merged()), "The pull request is not verified merged");
+        checkState(before.mergeCommitSha() != null, "GitHub omitted the landed commit");
+        checkSha(before.mergeCommitSha(), "GitHub merge commit");
+        checkState(before.base().repo().id() > 0, "GitHub omitted the base repository ID");
+        // GitHub's PR commits endpoint is capped at 250, including when pagination succeeds.
+        checkState(before.commits() != null && before.commits() > 0 && before.commits() <= 250,
+                "The complete pull-request commit list is unavailable (supported limit: 250)");
+        ImmutableList.Builder<String> commits = ImmutableList.builder();
+        for (int offset = 0; offset < before.commits(); offset += GitHubPaginator.PAGE_SIZE) {
+            List<GitHubPullRequestCommit> page = paginator.fetchPage(pat, "/repos/{owner}/{repo}/pulls/{number}/commits",
+                    new ParameterizedTypeReference<List<GitHubPullRequestCommit>>() {}, offset / GitHubPaginator.PAGE_SIZE + 1,
+                    pullRequest.owner(), pullRequest.repo(), pullRequest.number());
+            checkState(page.size() == Math.min(GitHubPaginator.PAGE_SIZE, before.commits() - offset), "GitHub returned an incomplete pull-request commit list");
+            for (GitHubPullRequestCommit commit : page) {
+                checkState(commit != null && commit.sha() != null, "GitHub omitted a pull-request commit");
+                checkSha(commit.sha(), "GitHub pull-request commit");
+                commits.add(commit.sha());
+            }
+        }
+        List<String> sequence = commits.build();
+        checkState(ImmutableSet.copyOf(sequence).size() == sequence.size(), "GitHub returned duplicate pull-request commits");
+        checkState(sequence.getLast().equals(identity.headSha()), "GitHub's commit list does not end at the pull-request head");
+        checkState(before.equals(readPublication(pat, pullRequest)), "The pull request changed while its merge evidence was being read");
+        return new MergedPullRequest(identity, before.base().repo().id(), before.mergedAt(), before.mergeCommitSha(), sequence);
+    }
+
+    private PublicationPullRequest readPublication(String pat, PullRequestRef pullRequest)
+    {
+        return requireBody(translating(() -> get(gitHubRestClient, pat, "/repos/{owner}/{repo}/pulls/{number}",
+                pullRequest.owner(), pullRequest.repo(), pullRequest.number()).retrieve().body(PublicationPullRequest.class)),
+                "GitHub returned no pull-request merge evidence");
+    }
+
+    public record MergedPullRequest(GitHubPullRequestIdentity identity, long repositoryId, Instant mergedAt, String mergeSha, List<String> commits)
+    {
+        public MergedPullRequest
+        {
+            requireNonNull(identity, "identity is null");
+            requireNonNull(mergedAt, "mergedAt is null");
+            checkSha(mergeSha, "mergeSha");
+            commits = ImmutableList.copyOf(commits);
+        }
     }
 
     /** Reads complete current-head checks and both classic and ruleset requirements without a cached success fallback. */
@@ -463,6 +513,9 @@ public class GitHubPullRequestReadClient
             @JsonProperty("html_url") String htmlUrl,
             String state,
             @JsonProperty("merged_at") Instant mergedAt,
+            Boolean merged,
+            @JsonProperty("merge_commit_sha") String mergeCommitSha,
+            Integer commits,
             Boolean draft,
             PublicationBranch head,
             PublicationBranch base,
@@ -472,7 +525,7 @@ public class GitHubPullRequestReadClient
     private record PublicationBranch(String ref, String sha, PublicationRepository repo) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record PublicationRepository(@JsonProperty("full_name") String fullName) {}
+    private record PublicationRepository(long id, @JsonProperty("full_name") String fullName) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record PublicationUser(String login) {}

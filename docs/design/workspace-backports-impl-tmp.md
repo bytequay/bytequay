@@ -1,7 +1,7 @@
 # Workspace Relationships Implementation Checklist
 
-Status: checkpoints 1 and 2 implemented and checked.
-Checkpoints 3–5 are not started.
+Status: checkpoints 1–3 implemented and checked.
+Checkpoints 4–5 are not started.
 The [design](workspace-backports.md) is canonical.
 This file tracks implementation, not another runtime workflow.
 Checkpoint order replaces the earlier chain-first plan.
@@ -80,18 +80,19 @@ UI: reuse existing commit selection for an unresolved source.
 Starting points: `GitHubPullRequestReadClient`, Git history, and
 `CherryPickPreviewService`.
 
-- [ ] Add the narrow merged-PR resolver. Save verified repository/PR identity,
-  merge evidence, and exact landed range; use fresh provider facts and local Git.
-- [ ] Feed proven non-merge ranges into existing preview. Unsupported or
+- [x] Add the narrow merged-PR resolver. Capture verified repository/PR identity,
+  merge evidence, and exact landed range in a serializable value using fresh
+  provider facts and local Git. Durable chain storage belongs to checkpoint 4.
+- [x] Feed proven non-merge ranges into existing preview. Unsupported or
   ambiguous history pauses for explicit selection; add no merge-commit replay.
-- [ ] Test linear, squash, and rebase outcomes with real Git/provider fixtures,
+- [x] Test linear, squash, and rebase outcomes with real Git/provider fixtures,
   including unrelated base changes and conflict-resolution fixup commits.
-- [ ] Verify a P3 PR supplies P3's landed changes for P2, never the original P4
+- [x] Verify a P3 PR supplies P3's landed changes for P2, never the original P4
   range or pre-merge head. Missing history cannot silently widen the selection.
 
 Gate:
 
-- [ ] A merged PR resolves to the intended existing-executor input or a clear
+- [x] A merged PR resolves to the intended existing-executor input or a clear
   hold, with evidence for every supported merge shape.
 
 ## Checkpoint 4 — Saved backport chain
@@ -216,3 +217,30 @@ Checkpoint 2 verification:
   all 139 files and 1,386 tests have passed across the full run and focused rerun.
 - TypeScript, lint and Electron packaging passed with the final UI layout.
 - Changed design links and `git diff --check` passed.
+
+Checkpoint 3 uses disposable local Git repositories and fresh mocked GitHub
+responses. Linear, squash and rewritten rebase fixtures feed P3's landed result,
+including its conflict snapshot/fixup pair, into the real P2 preview and conflict
+scout. Unrelated base commits and later PRs stay outside the selection. The
+frozen evidence round-trips through JSON.
+
+Negative checks cover incomplete and duplicate API pages, moving merge facts,
+the API commit limit, missing PR heads, a landed SHA outside the base branch,
+shallow and truncated history, non-linear original history, empty commits,
+ambiguous matches, same-file base changes, changed remote routing and a widened
+preview range. Unsupported results name the existing Commits selection path.
+The resolver adds no HTTP/UI flow or persistent workflow; checkpoint 4 will
+save its range in the chain and connect blocked states to the approved UI.
+
+Checkpoint 3 verification:
+
+- Full backend `mvn verify` passed: 3,317 tests, no failures, errors or skips.
+  An initial run hit an existing process fixture's temporary-directory cleanup
+  race; the complete rerun passed without changing that fixture.
+- Final focused `mvn verify` passed all 46 merge-reader, resolver and preview
+  tests, including the added binary/quoted-filename case and the final path-byte
+  comparison fix. Checkstyle, licenses and backend packaging passed.
+- `git diff --check` and new-file whitespace checks passed. Changed document
+  links resolve except the design index's pre-existing missing review checklist.
+- Frontend files were unchanged. No live provider sessions or GitHub writes
+  were used.

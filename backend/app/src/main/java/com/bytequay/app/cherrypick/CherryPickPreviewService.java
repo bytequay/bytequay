@@ -23,6 +23,7 @@ import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
+import com.bytequay.core.cherrypick.MergedPullRequestRange;
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.base.Ticker;
@@ -203,6 +204,25 @@ public class CherryPickPreviewService
                 now,
                 now.plus(PREVIEW_LIFETIME));
         cache.put(preview.previewId(), preview);
+        return preview;
+    }
+
+    /** Reuses ordinary preview while requiring the frozen landed sequence, including its repository identity. */
+    public CherryPickPreview preview(PreviewCherryPickRangeCommand command, MergedPullRequestRange source)
+    {
+        if (!command.sourceBaseRef().equals(source.sourceBaseSha()) || !command.sourceTipRef().equals(source.mergeSha())
+                || command.sourceRepositoryId().isPresent() && command.sourceRepositoryId().orElseThrow() != source.repositoryId()) {
+            throw new CherryPickInvalidRequestException("Preview does not match the saved merged pull request");
+        }
+        if (!readRepository(command.repository(), command.sourceRemote()).fullName().equalsIgnoreCase(source.pullRequest().repoFullName())) {
+            throw new CherryPickInvalidRequestException("Source remote does not match the saved merged pull request");
+        }
+        CherryPickPreview preview = preview(command);
+        if (!preview.sourceRepository().fullName().equalsIgnoreCase(source.pullRequest().repoFullName())
+                || !preview.commits().stream().map(CherryPickCommitPreview::sourceSha).collect(toImmutableList()).equals(source.commits())) {
+            cache.invalidate(preview.previewId());
+            throw new CherryPickInvalidRequestException("Git history does not match the saved landed commits; select an explicit source range");
+        }
         return preview;
     }
 

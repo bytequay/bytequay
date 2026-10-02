@@ -1,6 +1,7 @@
 # Workspace relationships and backport chains
 
-Status: checkpoint 1 implemented; conversation handoffs and backport chains remain planned.
+Status: relationships, conversation handoffs, and merged-source resolution are
+implemented. Saved backport chains remain planned.
 The [temporary checklist](workspace-backports-impl-tmp.md) tracks five checkpoints.
 
 Keep one workspace per repository. Add two relationship kinds, let a
@@ -312,6 +313,35 @@ history must establish the exact landed range. Squash/rebase merges can rewrite
 SHAs; PR commit count or grouping alone is insufficient. Feed proven non-merge
 ranges into the existing preview. Unsupported or ambiguous history pauses for
 explicit commit selection; do not add merge-commit replay or guess a range.
+
+### Implemented landed-source resolution
+
+`MergedPullRequestResolver` resolves a PR in an already configured source remote.
+`GitHubPullRequestReadClient` reads fresh merge facts, the complete original
+commit list, and the PR again to reject changing evidence. It follows the
+[GitHub REST contract](https://docs.github.com/en/rest/pulls/pulls#get-a-pull-request)
+for the landed SHA and rejects PRs beyond the commits endpoint's 250-commit limit.
+It does not use cached commit grouping or assume the current base SHA was the
+base at merge time.
+
+The resolver fetches the named base and original PR head into temporary private
+refs, checks the original head and landed ancestry, and removes those refs.
+It never changes a checked-out branch. An unchanged linear sequence keeps its
+exact SHAs. Rewritten sequences must match every original file transition;
+a squash must match the aggregate transition. Comparison uses full blob IDs,
+file modes and paths, including binary files, without whitespace normalization.
+Multiple possible ranges, merges, empty original commits, incomplete history,
+and changed files that prevent exact proof require manual selection in Commits.
+In particular, a base edit to the same file can require selection even when
+Git could rebase it cleanly.
+
+`MergedPullRequestRange` captures repository ID, PR, base branch, merge time,
+landed SHA, original commits and the exact landed range as one serializable
+value. Chain persistence belongs to checkpoint 4. The existing preview accepts
+this value and verifies its repository and complete commit sequence; refreshing
+a preview cannot substitute the old PR head or widen the range.
+
+### Existing execution and delivery
 
 Reuse an existing source remote, or register a missing one through
 `WorkspaceRemoteSourceService` under the accepted route. Use the source's

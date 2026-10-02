@@ -47,7 +47,8 @@ searches may run in parallel through native children assigned read-only
 exploration; the root rereads decisive source, challenges their conclusions, and owns every saved
 report. CodeGraph suggests paths to inspect, never establishes correctness.
 
-Every accepted review turn carries the repository's guideline files, read at
+User review turns carry the repository's guideline files; automatic assignments
+reuse confirmed delivery within their frozen run. Guidelines are read at
 the run's base commit as [Agent Service](agent-service.md#repository-guideline-input)
 describes. Reviews keep no saved repository notes; [Repository
 memory](repository-memory.md) describes what replaces them.
@@ -488,6 +489,10 @@ have indirect callers, sibling implementations, registration paths or
 configuration consumers. The agent still opens the current source and checks
 coverage; an absent graph does not narrow the review obligation.
 
+The packaged `bytequay-review.md` is the single review policy. Shared agent
+guidance owns common writing and exploration rules; request builders supply the
+frozen scope and short assignment instructions instead of repeating the policy.
+
 ## 5. Context, anchors, and evidence
 
 The `history` read takes one merged PR or closed issue of the review's
@@ -745,7 +750,12 @@ identity rather than trusting an explorer role label. Unsupported versions use
 the no-child review profile. A failed hook or isolation verification on an
 otherwise supported version aborts that review session rather than relaunching
 with weaker settings. The projection reports nested agents as available only
-when the provider gate is active. In either lane, the root agent rereads
+when the provider gate is active. Initial and unsealed automatic assignment requests explicitly ask for up to two
+concurrent read-only subagents on independent questions while the root continues.
+This satisfies a native policy requiring delegation in the request; it does not
+bypass provider capability gates or guarantee a useful split. Repair reuses prior
+work, and a sealed assignment ends without launching more children.
+In either lane, the root agent rereads
 decisive code, validates child conclusions and owns all review writes.
 
 A new guarded Codex review stores session contract version 2 for the dynamic
@@ -792,6 +802,17 @@ frozen scope, captured evidence IDs, and candidate hypotheses. A run permits
 thirty new hypotheses plus one slot for each finding originating in a prior run,
 including resolved or withdrawn findings so its capacity cannot shrink during
 the run. The tool schema stays stable while runtime admission enforces this cap.
+The optional `verification` handoff records a bounded recipe (at most 4,000
+characters) and up to ten `commandEvidenceRefs` from commands captured in this
+run. It carries exact successful commands, environment and temporary build
+adjustments, completed checks and limitations. Source-only or missing references
+cannot establish a completed check. Evidence collection retains the prior handoff
+when omitted and may replace it with updated setup; validation cannot edit it.
+A new run starts without this handoff. The recipe is untrusted evidence, not an
+automatically executed script or permission grant. Validation checks the code,
+experiment files, environment and purpose before reusing a result and repeats
+checks whose inputs changed or whose evidence does not answer the candidate.
+
 Only an investigation or evidence-collection assignment can call it. The
 summary must account for every actual commit first. Subsequent collection
 preserves candidate text and one-based numbering, appends hypotheses requested

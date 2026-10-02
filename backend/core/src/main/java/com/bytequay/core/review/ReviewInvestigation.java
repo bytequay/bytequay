@@ -16,6 +16,7 @@ package com.bytequay.core.review;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -26,10 +27,12 @@ public record ReviewInvestigation(
         List<String> contextEvidenceRefs,
         List<String> candidates,
         List<ReviewCandidateValidation> validations,
-        List<ReviewEvidenceAnswer> answers)
+        List<ReviewEvidenceAnswer> answers,
+        Optional<ReviewVerification> verification)
 {
     public ReviewInvestigation
     {
+        requireNonNull(verification, "verification is null");
         requireNonNull(changeMap, "changeMap is null");
         reviewedFiles = ImmutableList.copyOf(reviewedFiles);
         contextEvidenceRefs = ImmutableList.copyOf(contextEvidenceRefs);
@@ -40,6 +43,6 @@ public record ReviewInvestigation(
 
     public ReviewInvestigation withValidations(List<ReviewCandidateValidation> conclusions)
     {
-        return new ReviewInvestigation(changeMap, reviewedFiles, contextEvidenceRefs, candidates, conclusions, answers);
+        return new ReviewInvestigation(changeMap, reviewedFiles, contextEvidenceRefs, candidates, conclusions, answers, verification);
     }
 }

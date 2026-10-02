@@ -767,7 +767,7 @@ class TestReviewTools
             assertThat(resource).isNotNull();
             String policy = new String(resource.readAllBytes(), UTF_8).strip();
             assertThat(policy).isNotBlank();
-            assertThat(bridge.instruction()).startsWith(policy + "\n\n");
+            assertThat(bridge.instruction()).isEqualTo(policy);
         }
         assertThat(bridge.tools()).filteredOn(tool -> tool.name().startsWith(ReviewTool.NAME_PREFIX))
                 .allSatisfy(tool -> assertThat(bridge.instruction()).contains(tool.name()));
@@ -776,19 +776,21 @@ class TestReviewTools
         assertThat(schema.path("properties").size()).isEqualTo(3);
         assertThat(schema.path("required")).isEqualTo(objectMapper.valueToTree(ImmutableList.of("operationKey", "purpose", "commits")));
         assertThat(summary.description()).doesNotContain("combined result", "critical findings", "supporting evidence");
-        assertThat(bridge.instruction()).contains("only purpose", "design", "implementation", "exact replacement code", "RIGHT-side", "omit severity");
-        assertThat(bridge.instruction()).contains("build that module from this worktree", "rebuilt from the worktree, not reported", "the recovery that was tried");
+        assertThat(bridge.instruction()).contains("only purpose", "design/implementation", "exact replacement", "RIGHT-side", "omit severity");
+        assertThat(bridge.instruction()).contains("build that module from this", "rebuilt from the worktree, not reported", "the recovery that was tried");
         assertThat(bridge.instruction()).contains("drive the changed code end", "Never call a test unavailable without running it", "never attempted is not unavailable");
         assertThat(bridge.instruction()).contains("at most 120 prose words", "at most 35", "executed or only traced from source");
-        assertThat(bridge.instruction()).contains("Warnings are only for checks that could not run", "stays in that candidate's conclusion");
-        assertThat(bridge.instruction()).contains("up to five nit candidates", "reject the nit candidates as held back", "Never pad", "save it with scope pull_request");
-        assertThat(bridge.instruction()).contains("read-only children for bounded, independent", "You own every save", "verify each delegated conclusion");
+        assertThat(bridge.instruction()).contains("Warnings are only for checks that could not", "stays with the candidate conclusion");
+        assertThat(bridge.instruction()).contains("up to five nit candidates", "reject the nit candidates as held", "rather than pad", "save it with scope pull_request");
+        assertThat(bridge.instruction()).contains("at most two concurrent read-only children", "You own every save", "verify each delegated conclusion");
         // Only the tool that reads may be called by an exploration child; the child gate refuses the rest.
         assertThat(bridge.tools().stream().filter(ReviewTool::childCallable)).extracting(ReviewTool::name).containsExactly("review_get_context");
         ReviewTool finish = bridge.tools().stream().filter(tool -> tool.name().equals("review_finish")).findFirst().orElseThrow();
         assertThat(finish.description()).contains("Caveats about evidence strength stay with the candidate").doesNotContain("Put unavailable tests");
+        assertThat(finish.description()).contains("at most 8 refs", "SUPPORTED must include every ref cited by its saved finding");
         ReviewTool finding = bridge.tools().stream().filter(tool -> tool.name().equals("review_save_finding")).findFirst().orElseThrow();
         assertThat(finding.description()).contains("Polish before saving", "full reproduction code, commands and results in captured evidence");
+        assertThat(finding.description()).contains("at most 8 decisive evidence entries", "reuse their refs in this candidate's SUPPORTED assessment");
         assertContextToolSchema();
     }
 
@@ -2028,6 +2030,53 @@ class TestReviewTools
     }
 
     @Test
+    void requestsAuthorizeBoundedDelegationAndReuseVerificationAcrossAssignments()
+    {
+        ReviewRun initial = run(RUN_ID, 1, PATCH, false);
+        assertThat(ReviewPrompts.reviewRequest(review(AgentReview.State.OPEN), initial, Optional.empty(), ImmutableList.of(), "reviewer"))
+                .contains("Use up to two read-only subagents", "Keep edits, tests, review decisions and saved reports in the main agent");
+        assertThat(ReviewPrompts.stepRequest(run())).contains("Use up to two read-only subagents", "verification recipe", "Reuse completed checks");
+        ReviewRun repair = run().replaceCurrentStep(run().currentStep().orElseThrow().forRepair(), NOW);
+        assertThat(ReviewPrompts.stepRequest(repair)).contains("Use up to two read-only subagents", "do not repeat completed checks");
+        assertThat(ReviewPrompts.stepRequest(initial.replaceCurrentStep(ReviewStep.initial().withInvestigation(run().investigation().orElseThrow()), NOW)))
+                .doesNotContain("Use up to two read-only subagents").contains("already saved and sealed");
+    }
+
+    @Test
+    void verificationHandoffRequiresCommandEvidenceAndSurvivesValidationAndCollection()
+    {
+        store.updateRun(run(RUN_ID, 1, PATCH, false));
+        call("review_save_summary", summary("summary", "Input change"));
+        readSource();
+        commandRan(TurnId.random(), "Tests run: 1, Failures: 1; null was accepted instead of rejected");
+        String commandRef = call("review_get_context", ImmutableMap.of("kind", "command_output")).at("/commands/0/evidenceRef").asText();
+        Map<String, Object> input = investigation("handoff", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of(CANDIDATE));
+        String recipe = "Use mvn -Dtest=TestWidget#rejectsNull test with TMPDIR=/tmp; the reproduction failed because null was accepted. Restore only experiment edits.";
+        for (List<String> invalid : ImmutableList.<List<String>>of(ImmutableList.of(), ImmutableList.of("E1"), ImmutableList.of("unknown"))) {
+            assertThat(call("review_save_investigation", with(input, "invalid-" + invalid, "verification",
+                    ImmutableMap.of("recipe", recipe, "commandEvidenceRefs", invalid))).at("/error/field").asText()).isEqualTo("commandEvidenceRefs");
+        }
+        Map<String, Object> verification = ImmutableMap.of("recipe", recipe, "commandEvidenceRefs", ImmutableList.of(commandRef));
+        assertThat(call("review_save_investigation", with(input, "handoff", "verification", verification)).path("status").asText()).isEqualTo("accepted");
+        advance(VALIDATE);
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "investigation")).path("verification")).isEqualTo(objectMapper.valueToTree(verification));
+        assertThat(store.findRun(RUN_ID).orElseThrow().investigation().orElseThrow().withValidations(ImmutableList.of()).verification()).isPresent();
+
+        // An evidence turn may retain setup without resending its recipe in every report write.
+        Map<String, Object> requested = new LinkedHashMap<>(finish("need-check", ImmutableList.of(needsEvidence(1))));
+        requested.put("complete", false);
+        requested.put("omissions", ImmutableList.of("Need caller evidence"));
+        assertThat(call("review_finish", requested).path("status").asText()).isEqualTo("accepted");
+        advance(COLLECT_EVIDENCE);
+        assertThat(call("review_save_investigation", investigation("answer", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of(CANDIDATE),
+                ImmutableList.of(ImmutableMap.of("candidate", 1, "attempted", "Inspected caller", "evidenceRefs", ImmutableList.of("E1")))))
+                .path("status").asText()).isEqualTo("accepted");
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "investigation")).path("verification")).isEqualTo(objectMapper.valueToTree(verification));
+        store.updateRun(run(RUN_ID, 1, PATCH, false).withVersion(store.findRun(RUN_ID).orElseThrow().version()));
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "investigation")).isNull()).isTrue();
+    }
+
+    @Test
     void collectionAccountsForEachRequestedCheckAndPreservesCandidateIdentity()
     {
         requestEvidence();
@@ -2322,7 +2371,7 @@ class TestReviewTools
     private static ReviewRun run(String id, int ordinal, String patch, boolean validating)
     {
         ReviewInvestigation investigation = new ReviewInvestigation("Account for changed input behavior", ImmutableList.of(DIFF_PATH), ImmutableList.of(),
-                ImmutableList.of(CANDIDATE), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(CANDIDATE), ImmutableList.of(), ImmutableList.of(), Optional.empty());
         ReviewStep initial = ReviewStep.initial();
         return new ReviewRun(
                 id,

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Check root-only Codex review dynamic tools across a native thread resume.
+"""Check review child read/write boundaries and root tools across a native resume.
 
 Run: python3 scripts/codex-review-dynamic-resume-probe.py
-Requires Python 3.9+, Codex 0.156.1+, and permission to bind a loopback socket.
-Uses a keyless fake model and MCP server in a fresh temporary profile.
+Requires macOS, Python 3.9+, Codex 0.156.1+, and permission to bind a loopback socket.
+Uses the production child gate with a keyless fake model and MCP server in a fresh profile.
 """
 
 import argparse
@@ -11,6 +11,7 @@ import http.server
 import importlib.util
 import json
 from pathlib import Path
+import shlex
 import shutil
 import sys
 import tempfile
@@ -97,7 +98,9 @@ class Fixture:
                     calls = [item for item in calls if item.get("call_id", "").startswith("resumed_")]
                     sequence = [] if child else [(TOOL, {"finding": "resumed root"}, None)]
                 elif child:
-                    sequence = [(TOOL, {"finding": "child attempt"}, None)]
+                    sequence = [(TOOL, {"finding": "child attempt"}, None),
+                                ("exec_command", {"cmd": "touch child-wrote", "workdir": str(fixture.output / "workspace")}, None),
+                                ("review_get_context", {}, "mcp__bytequay")]
                 else:
                     sequence = [("spawn_agent", {"message": "Inspect the fixture", "task_name": "fixture_child",
                                                   "fork_turns": "none"}, "collaboration"),
@@ -169,6 +172,9 @@ def main():
     print("Probe artifacts: " + str(output), flush=True)
     for name in ("home", "profile", "sqlite", "tmp", "workspace"):
         (output / name).mkdir(mode=0o700)
+    gate = output / "profile" / "review-child-gate.sh"
+    shutil.copyfile(Path(__file__).resolve().parents[1] / "backend/agent-cli/src/main/resources/com/bytequay/agent/cli/codex/review-child-gate.sh", gate)
+    gate.chmod(0o700)
     environment = {"HOME": str(output / "home"), "CODEX_HOME": str(output / "profile"),
                    "CODEX_SQLITE_HOME": str(output / "sqlite"), "TMPDIR": str(output / "tmp"),
                    "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "LANG": "en_US.UTF-8"}
@@ -177,7 +183,7 @@ def main():
         base = "http://127.0.0.1:" + str(fixture.server.server_port)
         arguments = [str(Path(options.codex).absolute()), "app-server", "--listen", "stdio://", "--strict-config",
                      "--enable", "skip_host_skill_discovery", "--enable", "multi_agent_v2", "--disable", "multi_agent",
-                     "--disable", "hooks", "--disable", "tool_call_mcp_elicitation", "--disable", "code_mode",
+                     "--enable", "hooks", "--disable", "tool_call_mcp_elicitation", "--disable", "code_mode",
                      "--disable", "tool_search"]
         config = {"model_provider": "fixture", "model": "fixture-model", "model_providers.fixture.name": "Local fixture",
                   "model_providers.fixture.base_url": base + "/v1", "model_providers.fixture.wire_api": "responses",
@@ -188,10 +194,13 @@ def main():
                   "shell_environment_policy.inherit": "none"}
         for key, value in config.items():
             arguments.extend(["-c", key + "=" + json.dumps(value)])
+        arguments.extend(["-c", 'hooks.PreToolUse=[{matcher=".*",hooks=[{type="command",command='
+                          + json.dumps(shlex.quote(str(gate))) + ',timeout=5}]}]'])
         probe.write_json(output / "launch.json", {"arguments": arguments, "environment": environment})
         initial = {"cwd": str(output / "workspace"), "model": "fixture-model", "modelProvider": "fixture",
                    "approvalPolicy": "on-request", "approvalsReviewer": "auto_review", "sandbox": "workspace-write",
-                   "ephemeral": False, "config": {"features": {"hooks": False, "multi_agent_v2": True, "multi_agent": False}},
+                   "ephemeral": False, "config": {"bypass_hook_trust": True,
+                                                  "features": {"hooks": True, "multi_agent_v2": True, "multi_agent": False}},
                    "dynamicTools": [{"type": "function", "name": TOOL, "description": "Save a fixture finding",
                                      "inputSchema": {"type": "object", "properties": {"finding": {"type": "string"}}}}]}
         with probe.AppServer(arguments, environment, output, "initial") as app:
@@ -201,7 +210,7 @@ def main():
             deadline = time.monotonic() + 25
             while time.monotonic() < deadline:
                 with fixture.lock:
-                    child_rejected = rejected_child_call(fixture.requests)
+                    child_rejected = rejected_child_call(fixture.requests) and "review_get_context" in fixture.mcp_calls
                 if child_rejected:
                     break
                 time.sleep(0.02)
@@ -235,8 +244,13 @@ def main():
             probe.require(len(callbacks) == 1 and callbacks[0]["threadId"] == root["id"] and
                           callbacks[0]["turnId"] == turn_id and callbacks[0]["tool"] == TOOL,
                           name + " callback was not bound to the exact root thread and turn")
-        probe.require(not mcp_calls, "A review write reached the shared MCP endpoint")
-        print("Native child omitted root tool; resumed root retained it; callbacks matched both exact turns.", flush=True)
+        probe.require(mcp_calls == ["review_get_context"], "Child read was denied or another tool reached the shared MCP endpoint")
+        probe.require(not (output / "workspace" / "child-wrote").exists(), "Child executed a shell write")
+        probe.require(any(child_request(request) and any(
+            item.get("type") == "function_call_output" and item.get("call_id") == "child_1" and
+            "PreToolUse" in item.get("output", "") for item in request.get("input", [])) for request in requests),
+            "Child shell call was not rejected by the production hook")
+        print("Native child read succeeded; root tool and child shell write were denied; resumed root retained its exact-turn write tool.", flush=True)
     finally:
         fixture.close()
 

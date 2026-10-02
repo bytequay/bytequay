@@ -34,6 +34,7 @@ import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
 import com.bytequay.core.review.ReviewValidation;
+import com.bytequay.core.review.ReviewVerification;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import jakarta.persistence.EntityManager;
@@ -151,7 +152,7 @@ class TestSqliteReviewStores
                         ImmutableList.of("The count might never reach callers"),
                         ImmutableList.of(new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.SUPPORTED, "The caller receives the unchanged value",
                                 ImmutableList.of("ev-1"), "No cleanup in caller", Optional.of("finding-1"), Optional.of(1), Optional.empty())),
-                        ImmutableList.of()), NOW.plusSeconds(3))
+                        ImmutableList.of(), Optional.empty()), NOW.plusSeconds(3))
                 .withStep(new ReviewStep(2, ReviewStep.Kind.VALIDATE, false, Optional.empty(), Optional.empty()), NOW.plusSeconds(3))
                 .withOperation("review_finding:finding-1", new ReviewOperation("sha256:9f1c", "created"), NOW.plusSeconds(4))
                 .withEvidence("ev-2", COMMAND_EVIDENCE, NOW.plusSeconds(5))
@@ -258,13 +259,15 @@ class TestSqliteReviewStores
     {
         AgentReview review = newReview("review-loop", "workspace-a", "bytequay/sample", 7, "task-loop", NOW);
         ReviewInvestigation initial = new ReviewInvestigation("Caller lifetime", ImmutableList.of(REVIEW_TOOLS), ImmutableList.of("ev-1"),
-                ImmutableList.of("The resource may leak"), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of("The resource may leak"), ImmutableList.of(), ImmutableList.of(),
+                Optional.of(new ReviewVerification("Run the focused check using the recorded temporary directory", ImmutableList.of("ev-1"))));
         ReviewCandidateValidation request = new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.NEEDS_EVIDENCE, "Ownership is unknown",
                 ImmutableList.of("ev-1"), "The caller may close the resource", Optional.empty(), Optional.empty(),
                 Optional.of(new ReviewEvidenceRequest("Who closes the resource?", "Read the caller finally block", "Guaranteed cleanup rejects the leak")));
         ReviewValidation validation = new ReviewValidation(1, ImmutableList.of(request), COVERAGE, ImmutableList.of());
         ReviewInvestigation response = new ReviewInvestigation(initial.changeMap(), initial.reviewedFiles(), ImmutableList.of("ev-1", "ev-2"), initial.candidates(),
-                ImmutableList.of(), ImmutableList.of(new ReviewEvidenceAnswer(1, "Read all callers", ImmutableList.of("ev-2"), Optional.of("Integration fixture unavailable"))));
+                ImmutableList.of(), ImmutableList.of(new ReviewEvidenceAnswer(1, "Read all callers", ImmutableList.of("ev-2"), Optional.of("Integration fixture unavailable"))),
+                initial.verification());
         ReviewRun run = newRun("run-loop", review.id())
                 .replaceCurrentStep(ReviewStep.initial().withInvestigation(initial), NOW)
                 .withStep(new ReviewStep(2, ReviewStep.Kind.VALIDATE, false, Optional.empty(), Optional.of(validation)), NOW)

@@ -498,7 +498,7 @@ class TestDefaultAgentReviewService
         ReviewEvidence context = new ReviewEvidence("E1", "src/App.java", "frozen head", "parse(input)", "");
         ReviewEvidence validation = new ReviewEvidence("E2", "command output: regression test", "validation turn", "HEAD passed; old condition failed", "");
         ReviewInvestigation investigation = new ReviewInvestigation("Parser behavior", ImmutableList.of("src/App.java"),
-                ImmutableList.of("E1"), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of("E1"), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty());
         fixture.store.updateRun(run.withInvestigation(investigation, NOW).withEvidence("E1", context, NOW).withEvidence("E2", validation, NOW));
 
         assertThat(fixture.service.get(run.reviewId()).runs().getFirst().evidence().values()).containsExactly(context, validation);
@@ -1597,7 +1597,7 @@ class TestDefaultAgentReviewService
         fixture.store.updateFinding(revalidated);
         ReviewRun evidenced = fixture.store.updateRun(baseline.withEvidence("E1", evidence, NOW));
         ReviewInvestigation assessment = new ReviewInvestigation("Parser lifetime", ImmutableList.of("src/App.java"), ImmutableList.of("E1"),
-                ImmutableList.of("Does the earlier finding still hold?"), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of("Does the earlier finding still hold?"), ImmutableList.of(), ImmutableList.of(), Optional.empty());
         ReviewRun validating = beginValidation(fixture, evidenced, assessment);
         ReviewCandidateValidation supported = new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.SUPPORTED,
                 "The original trigger and contract still hold", ImmutableList.of("E1"), "No counterexample found",
@@ -2673,7 +2673,7 @@ class TestDefaultAgentReviewService
     private static ReviewInvestigation investigation()
     {
         return new ReviewInvestigation("Each parser invocation owns fresh state", ImmutableList.of("src/App.java"),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty());
     }
 
     private static ReviewRun beginCandidateValidation(Fixture fixture)
@@ -2681,7 +2681,7 @@ class TestDefaultAgentReviewService
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         ReviewInvestigation investigation = new ReviewInvestigation("Parser lifetime", ImmutableList.of("src/App.java"), ImmutableList.of("E1"),
-                ImmutableList.of("The parser may leak"), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of("The parser may leak"), ImmutableList.of(), ImmutableList.of(), Optional.empty());
         ReviewEvidence evidence = new ReviewEvidence("E1", "src/App.java", "frozen head", "new Parser()", "allocation");
         fixture.store.updateRun(sealInvestigation(run.withSummary(summary(), NOW).withInvestigation(investigation, NOW).withEvidence("E1", evidence, NOW)));
         settleCurrentTurn(fixture, run);
@@ -2713,7 +2713,7 @@ class TestDefaultAgentReviewService
         ReviewInvestigation previous = run.investigation().orElseThrow();
         ReviewInvestigation report = new ReviewInvestigation(
                 previous.changeMap(), previous.reviewedFiles(), previous.contextEvidenceRefs(), previous.candidates(), ImmutableList.of(),
-                ImmutableList.of(new ReviewEvidenceAnswer(1, "Read the caller and checked the cleanup path", ImmutableList.of("E1"), limitation)));
+                ImmutableList.of(new ReviewEvidenceAnswer(1, "Read the caller and checked the cleanup path", ImmutableList.of("E1"), limitation)), Optional.empty());
         fixture.store.updateRun(sealInvestigation(run.withInvestigation(report, NOW)));
         settleCurrentTurn(fixture, run);
     }

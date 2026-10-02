@@ -60,6 +60,7 @@ import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
 import com.bytequay.core.review.ReviewValidation;
+import com.bytequay.core.review.ReviewVerification;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -260,12 +261,16 @@ public class ReviewTools
                 new ReviewTool("review_save_investigation",
                         "Save the change map, assessed changed-file paths, supporting evidence refs, and candidate claims before ending investigation. "
                                 + "Candidates are private hypotheses numbered from 1, not findings. "
+                                + "verification carries reusable test setup and completed checks backed by command evidence; omission retains the previous handoff in this run. "
                                 + "Only the assigned investigation or evidence-collection turn may seal this report. Evidence collection must answer every requested check.",
                         schema(ImmutableMap.of(
                                 "operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY),
                                 "changeMap", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_TEXT),
                                 "reviewedFiles", stringArray(1000, 1000),
                                 "contextEvidenceRefs", stringArray(80, MAX_EVIDENCE_REF),
+                                "verification", schema(ImmutableMap.of(
+                                        "recipe", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 4000),
+                                        "commandEvidenceRefs", stringArray(10, MAX_EVIDENCE_REF)), ImmutableList.of("recipe", "commandEvidenceRefs")),
                                 // Codex retains tool schemas across runs; admission applies the current carried-finding limit.
                                 "candidates", ImmutableMap.of("type", "array", "items", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000)),
                                 "answers", ImmutableMap.of("type", "array", "items", schema(ImmutableMap.of(
@@ -286,6 +291,7 @@ public class ReviewTools
                                 + "Keep the example brief; retain full reproduction code, commands and results in captured evidence. For an exact replacement, "
                                 + "include one GitHub ```suggestion block replacing the complete RIGHT-side startAnchor/endAnchor range. "
                                 + "Revisions require findingId and expectedRevision; nothing is published. "
+                                + "Choose at most " + MAX_EVIDENCE + " decisive evidence entries; reuse their refs in this candidate's SUPPORTED assessment. "
                                 + "Pass memoryIds for the repository memories, such as m12, that shaped the finding.",
                         schema(ImmutableMap.<String, Object>builder()
                                 .put("operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY))
@@ -330,6 +336,8 @@ public class ReviewTools
                         "Seal this validation assignment. Assess every candidate as SUPPORTED, REJECTED, NEEDS_EVIDENCE, or UNRESOLVED. "
                                 + "NEEDS_EVIDENCE requires a specific question, check, and resolving criterion; ByteQuay schedules the evidence turn. "
                                 + "SUPPORTED binds a saved findingId and findingRevision. "
+                                + "Each candidate's evidenceRefs allows at most " + MAX_EVIDENCE + " refs; SUPPORTED must include every ref cited by its saved finding. "
+                                + "Use the same small decisive evidence set for the finding and its assessment. "
                                 + "Every open finding, including carried findings, needs a current assessment or withdrawal. "
                                 + "Report the investigationStep from the assignment context. "
                                 + "complete=false and omissions are required for unsettled candidates or unreviewed scope. "
@@ -525,7 +533,20 @@ public class ReviewTools
         if (!answered.equals(requested)) {
             throw new ReviewInvalidRequestException("answers: account for every requested check, including unavailable evidence");
         }
-        ReviewInvestigation investigation = new ReviewInvestigation(text(call.arguments(), "changeMap", MAX_TEXT, true), files, refs, candidates, ImmutableList.of(), answers);
+        Optional<ReviewVerification> verification = call.run().investigation().flatMap(ReviewInvestigation::verification);
+        if (call.arguments().has("verification")) {
+            JsonNode value = call.arguments().path("verification");
+            if (!value.isObject()) {
+                throw new ReviewInvalidRequestException("verification: expected a recipe and captured command evidence refs");
+            }
+            List<String> commandRefs = evidenceRefs(call, value, "commandEvidenceRefs", 10);
+            if (commandRefs.isEmpty() || commandRefs.stream().anyMatch(ref -> !call.run().evidence().get(ref).source().startsWith(COMMAND_EVIDENCE_SOURCE))) {
+                throw new ReviewInvalidRequestException("commandEvidenceRefs: cite commands actually executed in this run");
+            }
+            verification = Optional.of(new ReviewVerification(text(value, "recipe", 4000, true), commandRefs));
+        }
+        ReviewInvestigation investigation = new ReviewInvestigation(text(call.arguments(), "changeMap", MAX_TEXT, true), files, refs, candidates,
+                ImmutableList.of(), answers, verification);
         ObjectNode result = objectMapper.createObjectNode().put("status", "accepted").put("candidates", candidates.size()).put("investigationStep", step.number())
                 .put("next", "End this investigation turn; ByteQuay will start a separate validation turn");
         ReviewRun updated = call.run().withInvestigation(investigation, now()).replaceCurrentStep(step.withInvestigation(investigation), now());

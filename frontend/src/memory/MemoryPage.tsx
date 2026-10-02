@@ -16,6 +16,7 @@ import { BookOpen, ChevronRight, FileText, GitPullRequest, Globe, Quote, Triangl
 import { ConfirmDialog } from '../ConfirmDialog';
 import RepoAvatar from '../RepoAvatar';
 import Toast from '../Toast';
+import { remoteErrorMessage } from '../pulls/PullOverview';
 import type { AgentRuntimeStopImpactDto, ModelSettingsDto, WorkspaceDto } from '../types';
 import type { ContextBuildViewDto, ContextSpecCheckDto } from '../repository-context/contracts';
 import { RunLine, SpecCheckDrawer, type SpecCheckActions, type SpecCheckData } from '../repository-context/ContextSpecCheck';
@@ -28,7 +29,6 @@ import { age, flagged, KIND_LABEL, kilobytes, matches, MEMORY_CHANGED, memoryFla
 import '../css/repository-context.css';
 import '../css/memory.css';
 
-const failure = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
 const KINDS: MemoryKind[] = ['RULE', 'SPEC'];
 type Drawer = { kind: 'spec'; directory: string | null } | { kind: 'memory'; id: string };
 
@@ -71,7 +71,7 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
 
   useEffect(() => {
     mounted.current = true;
-    void load().catch(cause => { if (mounted.current) setLoadError(failure(cause)); });
+    void load().catch(cause => { if (mounted.current) setLoadError(remoteErrorMessage(cause)); });
     void window.bridge.getModelSettings(workspaceId).then(value => { if (mounted.current) setModels(value); }).catch(() => {});
     return () => { mounted.current = false; };
   }, [load, workspaceId]);
@@ -97,7 +97,7 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
     setBusy(true);
     setActionError(null);
     try { await operation(); }
-    catch (cause) { if (mounted.current) { setActionError(failure(cause)); void load().catch(() => {}); } }
+    catch (cause) { if (mounted.current) { setActionError(remoteErrorMessage(cause)); void load().catch(() => {}); } }
     finally { inFlight.current = false; if (mounted.current) setBusy(false); }
   }, [load]);
 
@@ -115,7 +115,7 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
       <h1 className="rcp-page-title">Memory</h1>
       {loadError === null ? <p className="rcp-loading" role="status">Loading memory…</p>
         : <div className="rcp-error" role="alert">Memory could not be loaded. {loadError}
-          <button type="button" className="rcp-link" onClick={() => void load().catch(cause => setLoadError(failure(cause)))}>Try again</button></div>}
+          <button type="button" className="rcp-link" onClick={() => void load().catch(cause => setLoadError(remoteErrorMessage(cause)))}>Try again</button></div>}
     </div></div></div>;
   }
 

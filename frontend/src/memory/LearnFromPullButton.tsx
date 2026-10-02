@@ -13,6 +13,7 @@
  */
 import { useState } from 'react';
 import Toast from '../Toast';
+import { remoteErrorMessage } from '../pulls/PullOverview';
 import { Icon } from '../repository-context/icons';
 import { plural } from '../repository-context/model';
 import { MEMORY_CHANGED } from './model';
@@ -33,7 +34,7 @@ export default function LearnFromPullButton({ workspaceId, repo, number }: { wor
         : `#${number} has no new maintainer threads to learn from` });
     }
     catch (cause) {
-      setToast({ id: Date.now(), text: cause instanceof Error ? cause.message : String(cause) });
+      setToast({ id: Date.now(), text: remoteErrorMessage(cause) });
     }
     finally {
       setBusy(false);

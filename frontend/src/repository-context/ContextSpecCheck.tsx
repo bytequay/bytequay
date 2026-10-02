@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { remoteErrorMessage } from '../pulls/PullOverview';
 import { settingsRoute } from '../settings/routes';
 import { specCheckDirectory, type ContextBuildViewDto, type ContextSpecCandidateDto, type ContextSpecCheckDto, type ContextSpecSourceDto } from './contracts';
 import { Chevron, Icon } from './icons';
@@ -96,7 +97,7 @@ function StartCheck({ data, actions, busy, directory, previous }: {
       setSources(found);
       // A spec the user added to the last check is not in the code's links; it is offered again.
       setAdded(previous === null ? [] : previous.specs.filter(url => !found.some(source => source.url === url)));
-    }).catch(cause => { if (live) setError(cause instanceof Error ? cause.message : String(cause)); });
+    }).catch(cause => { if (live) setError(remoteErrorMessage(cause)); });
     return () => { live = false; };
   }, [data.workspaceId, directory, previous]);
   const known = sources ?? [];

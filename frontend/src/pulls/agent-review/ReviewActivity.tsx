@@ -29,7 +29,7 @@ export default function ReviewActivity({
   review, events, turns, models, pendingApprovals, now, composer, busy,
   localReview, onOpenReview, pendingMessage = null,
   connection = 'open', history = EMPTY_HISTORY, lastSequence = events.at(-1)?.sequence ?? 0,
-  onCompose, onSend, onSteer, onQueue, onStop, onDecide, onRemoveQueued,
+  onCompose, onSend, onSteer, onQueue, onStop, onDecide, onRemoveQueued, onSteerQueued,
 }: {
   review: AgentReviewDto;
   localReview?: LocalReviewThreads;
@@ -52,6 +52,7 @@ export default function ReviewActivity({
   onStop: () => void;
   onDecide: ApprovalDecider;
   onRemoveQueued: (queuedInputId: string) => void;
+  onSteerQueued?: (queuedInputId: string) => void;
 }) {
   const [activityChoice, setActivityChoice] = useState<Record<string, boolean>>({});
   const [turnChoice, setTurnChoice] = useState<Record<string, boolean>>({});
@@ -77,11 +78,13 @@ export default function ReviewActivity({
       onToggleActivity={(id, open) => setActivityChoice(choices => ({ ...choices, [id]: open }))}
       onDecide={onDecide}>
       <ConversationQueue
-        queue={review.queuedInputIds.map((id): ConversationQueuedInput => ({
-          id, state: null,
-          preview: review.messages.find(message => message.queuedInputId === id)?.body ?? 'Queued message',
-        }))}
+        queue={review.queuedInputIds.map((id): ConversationQueuedInput => {
+          const message = review.messages.find(message => message.queuedInputId === id);
+          return { id, state: null, preview: message?.body ?? 'Queued message', turnId: message?.turnId };
+        })}
         running={running} idle={!running && !recovery} resumeBlocked={recovery}
+        steerEnabled={!busy && !recovery && connection === 'open' && review.task.steering && review.activeTurn?.state === 'RUNNING'}
+        onSteer={onSteerQueued}
         onRemove={onRemoveQueued} />
       {recovery && <div className="agt-notice" role="status">
         Recovery required. The last turn ended, but runtime cleanup is unverified. New messages wait until cleanup is verified.

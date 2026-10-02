@@ -1701,6 +1701,7 @@ export type Bridge = JiraBridge & {
   listAgentQueue: (taskId: string, workspaceId: string) => Promise<AgentQueuedInputDto[]>;
   /** Removes a waiting input, or records an uncertain one as abandoned. */
   removeAgentQueuedInput: (taskId: string, workspaceId: string, queuedInputId: string) => Promise<AgentQueuedInputDto>;
+  steerAgentQueuedInput: (taskId: string, workspaceId: string, queuedInputId: string, turnId: string) => Promise<AgentInputDeliveryDto>;
   /** Starts the paused queue head on an idle task. */
   resumeAgentQueue: (taskId: string, workspaceId: string) => Promise<AgentTurnDto>;
   getAgentTurn: (turnId: string) => Promise<AgentTurnDto>;
@@ -1790,6 +1791,7 @@ export type Bridge = JiraBridge & {
     idempotencyKey: string,
   ) => Promise<AgentReviewDto>;
   removeAgentReviewQueued: (reviewId: string, queuedInputId: string) => Promise<AgentReviewDto>;
+  steerAgentReviewQueued: (reviewId: string, queuedInputId: string, turnId: string) => Promise<AgentReviewDto>;
   resolveAgentReviewFinding: (
     reviewId: string,
     findingId: string,

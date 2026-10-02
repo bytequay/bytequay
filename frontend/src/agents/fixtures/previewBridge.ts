@@ -387,6 +387,14 @@ export function createPreviewBridge(
       const [removed] = previewQueue.splice(index, 1);
       return { ...removed, state: removed.state === 'UNCERTAIN' ? 'ABANDONED' : 'REMOVED' };
     },
+    steerAgentQueuedInput: async (taskId, id, queuedInputId, turnId) => {
+      record('steerAgentQueuedInput', taskId, id, queuedInputId, turnId);
+      const index = previewQueue.findIndex(input => input.id === queuedInputId);
+      if (index < 0) throw new Error('Queued input not found');
+      previewQueue.splice(index, 1);
+      return { id: `steer-${queuedInputId}`, taskId, turnId, state: 'DELIVERED', failure: null,
+        createdAt: '2026-08-20T10:00:03Z', updatedAt: '2026-08-20T10:00:03Z' };
+    },
     resumeAgentQueue: async (taskId, id) => {
       record('resumeAgentQueue', taskId, id);
       previewQueue.shift();

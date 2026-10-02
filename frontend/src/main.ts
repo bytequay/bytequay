@@ -783,6 +783,9 @@ function registerIpc(): void {
   ipcMain.handle('agent:queue:resume', (_event, taskId: string, workspaceId: string) =>
     backendJson(taskUrl(taskId, '/queue/resume', { workspaceId }), { method: 'POST', headers: agentHeaders() })
       .then((turn) => parseAgentTurn(turn)));
+  ipcMain.handle('agent:queue:steer', (_event, taskId: string, workspaceId: string, queuedInputId: string, turnId: string) =>
+    backendJson(taskUrl(taskId, `/queue/${encodeURIComponent(queuedInputId)}/steer`, { workspaceId, turnId }), { method: 'POST', headers: agentHeaders() })
+      .then(parseAgentInputDelivery));
   ipcMain.handle('agent:attachments:pick-drafts', async () => {
     if (mainWindow === null) return [];
     const picked = await dialog.showOpenDialog(mainWindow, {
@@ -1055,6 +1058,8 @@ function registerIpc(): void {
     }).then(parseAgentReview));
   ipcMain.handle('review:queue:remove', (_event, reviewId: string, queuedInputId: string) =>
     review(`/${encodeURIComponent(reviewId)}/queue/${encodeURIComponent(queuedInputId)}`, {}, { method: 'DELETE' }));
+  ipcMain.handle('review:queue:steer', (_event, reviewId: string, queuedInputId: string, turnId: string) =>
+    review(`/${encodeURIComponent(reviewId)}/queue/${encodeURIComponent(queuedInputId)}/steer`, { turnId }, { method: 'POST' }));
   ipcMain.handle('review:finding:resolve', (_event, reviewId: string, findingId: string, expectedVersion: number, reason: string) =>
     review(`/${encodeURIComponent(reviewId)}/findings/${encodeURIComponent(findingId)}/resolve`, {}, {
       method: 'POST',

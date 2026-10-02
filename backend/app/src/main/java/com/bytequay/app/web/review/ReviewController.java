@@ -238,6 +238,16 @@ public class ReviewController
         return ReviewHttpModels.review(reviews.get(reviewId));
     }
 
+    @PostMapping("/{reviewId}/queue/{queuedInputId}/steer")
+    public ReviewHttpModels.ReviewResponse steerQueued(
+            @PathVariable String reviewId,
+            @PathVariable String queuedInputId,
+            @RequestParam String turnId)
+    {
+        turns.steerQueued(reviews.task(reviewId).id(), TurnId.valueOf(turnId), QueuedInputId.valueOf(queuedInputId));
+        return ReviewHttpModels.review(reviews.get(reviewId));
+    }
+
     @DeleteMapping("/{reviewId}/queue/{queuedInputId}")
     public ReviewHttpModels.ReviewResponse removeQueued(
             @PathVariable String reviewId,

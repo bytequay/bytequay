@@ -1775,6 +1775,35 @@ class TestAgentHttpApi
     }
 
     @Test
+    void steersAQueuedMessageOnceUsingItsFullSavedInput()
+            throws Exception
+    {
+        String taskId = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
+        String attachmentId = uploadImage(taskId, "queued.png");
+        driver.holdNextTurn();
+        String turnId = startTurn(taskId, "keep running", "queued-steer-turn").required("id").asText();
+        String queuePath = "/agent/tasks/" + taskId + "/queue?workspaceId=" + workspaceId;
+        String message = "Preserve every line of the queued message\n".repeat(20);
+        String queuedId = post(queuePath,
+                ImmutableMap.of("message", message, "attachments", ImmutableList.of(attachmentId), "expectedVersion", taskVersion(taskId)), "queued-steer")
+                .getBody().required("id").asText();
+        String steerPath = "/agent/tasks/" + taskId + "/queue/" + queuedId + "/steer?workspaceId=" + workspaceId + "&turnId=" + turnId;
+
+        ResponseEntity<JsonNode> steered = post(steerPath, ImmutableMap.of(), null);
+
+        assertThat(steered.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        assertThat(steered.getBody().required("state").asText()).isEqualTo("DELIVERED");
+        assertThat(get(queuePath).getBody()).isEmpty();
+        deleteAttachment(taskId, attachmentId);
+        assertThat(post(steerPath, ImmutableMap.of(), null).getBody().required("id").asText()).isEqualTo(steered.getBody().required("id").asText());
+        assertThat(get("/agent/tasks/" + taskId + "/events?after=0&limit=100").getBody())
+                .filteredOn(event -> event.required("payload").path("deliveryKind").asText().equals("STEER"))
+                .singleElement().satisfies(event -> assertThat(event.required("payload").required("text").asText()).isEqualTo(message));
+        driver.completeHeldTurn();
+        awaitContinuationSettled(taskId);
+    }
+
+    @Test
     void refusesToSteerATurnThatIsNotRunning()
             throws Exception
     {
@@ -1823,6 +1852,16 @@ class TestAgentHttpApi
 
         assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(refused.getBody().path("message").asText()).contains("text-only-model").contains("does not accept images");
+        String queuePath = "/agent/tasks/" + taskId + "/queue?workspaceId=" + workspaceId;
+        String queuedId = post(queuePath,
+                ImmutableMap.of("message", "look later", "attachments", ImmutableList.of(attachmentId), "expectedVersion", taskVersion(taskId)), "queued-image")
+                .getBody().required("id").asText();
+        String steerPath = "/agent/tasks/" + taskId + "/queue/" + queuedId + "/steer?workspaceId=" + workspaceId + "&turnId=" + running.required("id").asText();
+        ResponseEntity<JsonNode> refusedQueued = post(steerPath,
+                ImmutableMap.of(), null);
+        assertThat(refusedQueued.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(get(queuePath).getBody()).hasSize(1);
+        rest.exchange(url("/agent/tasks/" + taskId + "/queue/" + queuedId + "?workspaceId=" + workspaceId), HttpMethod.DELETE, new HttpEntity<>(headers()), JsonNode.class);
         driver.completeHeldTurn();
     }
 

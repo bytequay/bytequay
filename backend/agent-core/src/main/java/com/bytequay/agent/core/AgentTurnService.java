@@ -123,6 +123,12 @@ public interface AgentTurnService
     AgentInputDelivery steer(SteerAgentTurnCommand command);
 
     /**
+     * Transfers an unclaimed queued input into the named running turn. Queue consumption and
+     * steer acceptance commit together; retries return the same delivery without resending it.
+     */
+    AgentInputDelivery steerQueued(TaskId taskId, TurnId turnId, QueuedInputId queuedInputId);
+
+    /**
      * Finds a steer key before a caller resolves mutable request resources.
      *
      * <p>A settled result may be returned directly. {@code ACCEPTED} and {@code SENDING} are only

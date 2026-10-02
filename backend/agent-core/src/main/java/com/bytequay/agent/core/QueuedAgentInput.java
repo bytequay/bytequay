@@ -123,6 +123,13 @@ public record QueuedAgentInput(
         return copy(State.STARTED, messageEventId, turnId, Optional.empty(), now);
     }
 
+    /** Consumed by the steer ledger, which owns the provider delivery outcome from acceptance onward. */
+    public QueuedAgentInput steered(TurnId targetTurn, EventId messageEvent, Instant now)
+    {
+        checkState((state == State.QUEUED || state == State.PAUSED) && messageEventId.isEmpty(), "input is not waiting for its first delivery");
+        return copy(State.STARTED, Optional.of(messageEvent), Optional.of(targetTurn), Optional.empty(), now);
+    }
+
     /**
      * Settles a claimed input by what its turn durably proves: never sent, it waits again as
      * paused; sent but never acknowledged, nobody knows, so it is uncertain and only the user may

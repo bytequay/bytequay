@@ -20,6 +20,7 @@ import { initialAgentTaskState, type AgentTaskState } from './model';
 import { agentTurn, previewTask, TASK_BODY_NOOPS } from './fixtures/previewBridge';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import type { AgentProviderStatus, AgentQueuedInputDto, AgentTurnDto, ModelOptionDto } from '../types';
+import { runBrowserFixture } from '../fixtures/browserFixture';
 
 // The fixture's open approval would put the header on 'waiting on you'; the count needs a plain running turn.
 const events = parseAgentEventSequence(fixture.events).filter((event) => event.type !== 'approval_requested');
@@ -58,6 +59,11 @@ function body(state: Partial<AgentTaskState>, providerStatus: AgentProviderStatu
 }
 
 describe('the queue behind a running turn', () => {
+  it('steers queued messages through the task bridge and preserves drafts in Chromium', async () => {
+    const result = await runBrowserFixture<string>({ prefix: 'bytequay-queue-', entry: 'src/agents/fixtures/queueBrowser.tsx',
+      global: 'QueueTests', styles: true, charset: true, width: 1280, height: 800, timeoutMs: 30_000 });
+    expect(result).toContain('queued steering preserves drafts');
+  }, 45_000);
   it('lists queued messages under the composer with their settings', () => {
     const markup = body({
       turn: turn('RUNNING'),
@@ -142,6 +148,17 @@ describe('the queue behind a running turn', () => {
     expect(markup).toMatch(/class="[^"]*agt-spin[^"]*"/);
     expect(markup).not.toContain('aria-label="Remove from queue"');
     expect(markup).not.toContain('>Discard<');
+  });
+
+  it('offers queued steering with an empty composer only for unclaimed inputs on a steering lane', () => {
+    const state = { turn: turn('RUNNING'), composer: '', capabilities: { ...NO_AGENT_CAPABILITIES, steering: true },
+      queue: [queued('q-1', 'QUEUED', 'Send this now')] };
+    expect(body(state)).toMatch(/class="agt-queue__link"(?![^>]*disabled)[^>]*>Steer<\/button>/);
+    expect(body({ ...state, sending: true })).toMatch(/class="agt-queue__link"[^>]*disabled[^>]*>Steer<\/button>/);
+    expect(body({ ...state, capabilities: NO_AGENT_CAPABILITIES })).toMatch(/class="agt-queue__link"[^>]*disabled[^>]*>Steer<\/button>/);
+    for (const inputState of ['PAUSED', 'UNCERTAIN', 'STARTING']) {
+      expect(body({ ...state, queue: [queued('q-1', inputState, 'Previously claimed', { turnId: 'turn-old' })] })).not.toContain('>Steer</button>');
+    }
   });
 
   it('renders no strip for an empty queue or a finished task', () => {

@@ -14,6 +14,7 @@
 package com.bytequay.app.web.agent;
 
 import com.bytequay.agent.core.AgentApprovalService;
+import com.bytequay.agent.core.AgentAttachmentReference;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventService;
@@ -737,6 +738,25 @@ public class AgentController
         QueuedInputId inputId = QueuedInputId.valueOf(queuedInputId);
         var removed = turnService.removeQueued(id, inputId);
         return InteractiveAgentHttpContract.queuedInput(removed);
+    }
+
+    @PostMapping("/tasks/{taskId}/queue/{queuedInputId}/steer")
+    public ResponseEntity<InteractiveAgentHttpContract.InputDeliveryResponse> steerQueued(
+            @PathVariable String taskId,
+            @PathVariable String queuedInputId,
+            @RequestParam String workspaceId,
+            @RequestParam String turnId)
+    {
+        TaskId id = TaskId.valueOf(taskId);
+        AgentTask task = taskService.getInteractive(workspaceId, id);
+        AgentTurn turn = turnService.get(TurnId.valueOf(turnId));
+        checkArgument(turn.taskId().equals(id), "Turn does not belong to task");
+        QueuedInputId inputId = QueuedInputId.valueOf(queuedInputId);
+        turnService.queued(id).stream().filter(input -> input.id().equals(inputId)).findFirst()
+                .filter(input -> !input.settings().attachments().isEmpty())
+                .ifPresent(input -> requireImageInput(task.laneId(), turn.settings().flatMap(settings -> settings.model()),
+                        input.settings().attachments().stream().map(AgentAttachmentReference::mediaType).collect(toImmutableList())));
+        return ResponseEntity.accepted().body(InteractiveAgentHttpContract.delivery(turnService.steerQueued(id, turn.id(), inputId)));
     }
 
     /** Starts the paused queue head on an idle task; a successful turn starts the next one by itself. */

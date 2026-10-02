@@ -61,6 +61,7 @@ export type AgentBridgePort = Pick<Bridge,
   | 'queueAgentInput'
   | 'listAgentQueue'
   | 'removeAgentQueuedInput'
+  | 'steerAgentQueuedInput'
   | 'resumeAgentQueue'
   | 'getAgentTurn'
   | 'cancelAgentTurn'
@@ -638,14 +639,14 @@ export function canSend(state: AgentTaskState): boolean {
  * Whether Steer may fire: a turn is running on a lane that steers, the screen has its id, and
  * there is something to say. A queue that is starting its next turn is not one to steer.
  */
-export function canSteer(state: AgentTaskState): boolean {
+export function canSteer(state: AgentTaskState, message = state.composer): boolean {
   return runtimeStatus(state) === 'running'
     && !state.task?.developmentContinuationUnfinished
     && state.capabilities?.steering === true
     && state.turn !== null
     && state.turn.state === 'RUNNING'
     && !state.sending
-    && state.composer.trim().length > 0
+    && message.trim().length > 0
     && state.connection !== 'failed';
 }
 

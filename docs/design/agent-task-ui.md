@@ -756,6 +756,14 @@ approval/authentication problem, queued inputs remain visible but paused until
 the user explicitly resumes execution. The first release supports adding and
 removing queued inputs, not reordering, priorities, or schedules.
 
+While a steering-capable turn runs, each unclaimed queued row also offers
+**Steer**. It sends that row's full saved text and attachments into the displayed
+turn without using or clearing the composer draft. The running turn's model
+must support its attachments. Starting, previously claimed, and uncertain rows
+cannot be steered. Acceptance atomically consumes the queue row and records the
+normal steer delivery, so the input cannot also run as a later turn. Failed or
+uncertain delivery remains visible in the transcript and is never requeued.
+
 After backend loss and provider quiescence, an untouched queued input remains
 safely resumable. An
 input already being delivered becomes **Delivery uncertain** and is never
@@ -1350,6 +1358,7 @@ POST   /agent/tasks/{taskId}/queue
 GET    /agent/tasks/{taskId}/queue
 DELETE /agent/tasks/{taskId}/queue/{queuedInputId}
 POST   /agent/tasks/{taskId}/queue/resume
+POST   /agent/tasks/{taskId}/queue/{queuedInputId}/steer?workspaceId=...&turnId=...
 POST   /agent/tasks/{taskId}/attachments
 GET    /agent/tasks/{taskId}/attachments/{attachmentId}
 POST   /agent/tasks/{taskId}/mark-failed

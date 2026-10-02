@@ -31,6 +31,12 @@ const render = (overrides: Partial<typeof props> = {}) => renderToStaticMarkup(<
 const liveLine = (overrides: Partial<typeof props> = {}) => render(overrides).match(/<div class="agt-live"[^]*?<\/div>/)?.[0];
 
 describe('the unified review conversation', () => {
+  it('offers queued steering without requiring a composer draft', () => {
+    const review = { ...props.review, queuedInputIds: ['queued-1'] };
+    const html = render({ review, onSteerQueued: () => {} });
+    expect(html).toMatch(/class="agt-queue__link"(?![^>]*disabled)[^>]*>Steer<\/button>/);
+    expect(render({ review, onSteerQueued: () => {}, busy: true })).toMatch(/class="agt-queue__link"[^>]*disabled[^>]*>Steer<\/button>/);
+  });
   it('renders saved local discussions in place of their generated context prompt', () => {
     const first = events[0];
     const html = render({ localReview: {

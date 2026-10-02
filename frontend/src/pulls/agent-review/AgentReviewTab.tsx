@@ -700,6 +700,14 @@ export default function AgentReviewTab({
           }}
           onRemoveQueued={queuedInputId => {
             void run_(async () => { onReviewChange(await window.bridge.removeAgentReviewQueued(review.id, queuedInputId)); recordReviewAttentionAction(review, 'update'); });
+          }}
+          onSteerQueued={queuedInputId => {
+            const turnId = review.activeTurn?.id;
+            if (turnId === undefined) return;
+            void run_(async () => {
+              onReviewChange(await window.bridge.steerAgentReviewQueued(review.id, queuedInputId, turnId));
+              recordReviewAttentionAction(review, 'prompt');
+            });
           }} />
       )}
       {recovery && recoveryConfirmation?.reviewId === review.id && (

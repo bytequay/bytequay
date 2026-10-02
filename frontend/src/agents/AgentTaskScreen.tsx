@@ -1055,6 +1055,7 @@ export function AgentTaskBody({
   onSteer: steer = () => {},
   onQueue = () => {},
   onRemoveQueued = () => {},
+  onSteerQueued = () => {},
   onResumeQueue = () => {},
   onCleanup = () => {},
   historyLoading = false,
@@ -1172,6 +1173,7 @@ export function AgentTaskBody({
   onSteer?: () => void;
   onQueue?: () => void;
   onRemoveQueued?: (queuedInputId: string) => void;
+  onSteerQueued?: (queuedInputId: string) => void;
   onResumeQueue?: () => void;
   /** Retries safe checkout removal for a terminal task whose first attempt failed. */
   onCleanup?: () => void;
@@ -1406,6 +1408,7 @@ export function AgentTaskBody({
             ...input,
             preview: localReview?.threads.flatMap(thread => thread.messages).find(message => message.queuedInputId === input.id)?.body ?? input.preview,
             attachmentCount: input.settings.attachments.length,
+            steerBlockedReason: input.settings.attachments.length > 0 && !activeImagesAccepted ? 'The running turn’s model does not accept images' : undefined,
             modelLabel: `${modelName(models, input.settings.model)}${input.settings.effort === null ? '' : ` ${input.settings.effort}`}${input.settings.serviceTier == null ? '' : ` · ${serviceTierName(models, input.settings.model, input.settings.serviceTier)}`}`,
           }))}
           running={status === 'running'}
@@ -1414,6 +1417,8 @@ export function AgentTaskBody({
           resumeBlockedReason={question !== null ? 'Answer the agent’s question before resuming earlier queued messages'
             : automationActive ? 'Available when automation finishes' : undefined}
           onRemove={onRemoveQueued}
+          steerEnabled={canSteer(state, state.queue[0]?.preview ?? '')}
+          onSteer={onSteerQueued}
           onResume={onResumeQueue}
         />
       )}
@@ -2324,6 +2329,28 @@ export default function AgentTaskScreen({
     await refreshProjection(state.latestTurnId);
   }), [attentionAction, live, refreshProjection, removeQueuedInput, run, state.latestTurnId, taskId, workspaceId]);
 
+  const steerQueued = useCallback((queuedInputId: string) => run(async () => {
+    const current = stateRef.current;
+    const input = current.queue.find(input => input.id === queuedInputId);
+    if (input === undefined || input.turnId !== null || !canSteer(current, input.preview) || current.turn === null) return;
+    if (input.settings.attachments.length > 0 && !acceptsImages(models, current.turn.settings?.model, current.capabilities)) return;
+    dispatch({ type: 'composer/sending', sending: true });
+    try {
+      const delivery = await live().steerAgentQueuedInput(taskId, workspaceId, queuedInputId, current.turn.id);
+      removeQueuedInput(queuedInputId);
+      attentionAction(delivery.state === 'DELIVERED' ? 'prompt' : 'update');
+      if (delivery.state !== 'DELIVERED') {
+        dispatch({ type: 'notice/changed', notice: delivery.state === 'UNKNOWN'
+          ? `The steer may not have reached the agent: ${delivery.failure ?? 'no answer'}. It is not sent again by itself.`
+          : `The steer was not delivered: ${delivery.failure ?? delivery.state}` });
+      }
+      await refreshProjection(current.latestTurnId);
+    }
+    finally {
+      dispatch({ type: 'composer/sending', sending: false });
+    }
+  }), [attentionAction, live, models, refreshProjection, removeQueuedInput, run, taskId, workspaceId]);
+
   const resumeQueue = useCallback(() => run(async () => {
     const current = stateRef.current;
     if (runtimeStatus(current) !== 'idle' || current.task?.developmentContinuationUnfinished || developmentQuestion(current) !== null) return;
@@ -2722,6 +2749,7 @@ export default function AgentTaskScreen({
       onSteer={() => { void steer(); }}
       onQueue={() => { void queueNext(); }}
       onRemoveQueued={(queuedInputId) => { void removeQueued(queuedInputId); }}
+      onSteerQueued={(queuedInputId) => { void steerQueued(queuedInputId); }}
       onResumeQueue={() => { void resumeQueue(); }}
     />
     {confirmation !== null && (

@@ -105,6 +105,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BiConsumer;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
@@ -923,7 +924,35 @@ public final class DefaultAgentTurnService
     public AgentInputDelivery steer(SteerAgentTurnCommand command)
     {
         requireNonNull(command, "command is null");
-        TaskId taskId = turnStore.require(command.turnId()).taskId();
+        return steer(command.turnId(), command.idempotencyKey(), (task, turn) -> acceptSteerLocked(task, turn, command, Optional.empty()));
+    }
+
+    @Override
+    public AgentInputDelivery steerQueued(TaskId taskId, TurnId turnId, QueuedInputId queuedInputId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(turnId, "turnId is null");
+        requireNonNull(queuedInputId, "queuedInputId is null");
+        if (!turnStore.require(turnId).taskId().equals(taskId) || !requireQueued(queuedInputId).taskId().equals(taskId)) {
+            throw new AgentConflictException("Turn and queued input must belong to task " + taskId);
+        }
+        String idempotencyKey = "queue-steer:" + queuedInputId;
+        return steer(turnId, idempotencyKey, (task, turn) -> {
+            QueuedAgentInput input = requireQueued(queuedInputId);
+            if ((input.state() != QueuedAgentInput.State.QUEUED && input.state() != QueuedAgentInput.State.PAUSED) || input.messageEventId().isPresent()) {
+                throw new AgentConflictException("Queued input is no longer waiting for its first delivery: " + input.id());
+            }
+            List<AgentAttachment> attachments = input.settings().attachments().stream()
+                    .map(reference -> resourceService.readAttachment(taskId, reference.id()).input())
+                    .collect(toImmutableList());
+            return acceptSteerLocked(task, turn,
+                    new SteerAgentTurnCommand(turnId, readUtf8(taskId, input.textBlob()), attachments, idempotencyKey), Optional.of(input));
+        });
+    }
+
+    private AgentInputDelivery steer(TurnId turnId, String idempotencyKey, BiFunction<AgentTask, AgentTurn, SteerAcceptance> accept)
+    {
+        TaskId taskId = turnStore.require(turnId).taskId();
         retryCompletedTurn(taskId);
         // The provider has no steer idempotency key. Keep acceptance and the corresponding send in
         // one task-local order, while leaving the task state lock free during provider I/O.
@@ -932,10 +961,10 @@ public final class DefaultAgentTurnService
             RunningTurn running;
             synchronized (runtimeRegistry.taskLock(taskId)) {
                 drainPending(outboxStore, eventService, taskId);
-                Optional<AgentInputDelivery> repeated = steerStore.findSteerByIdempotencyKey(taskId, command.idempotencyKey());
+                Optional<AgentInputDelivery> repeated = steerStore.findSteerByIdempotencyKey(taskId, idempotencyKey);
                 if (repeated.isPresent()) {
                     AgentInputDelivery existing = repeated.orElseThrow();
-                    if (!existing.turnId().equals(command.turnId())) {
+                    if (!existing.turnId().equals(turnId)) {
                         throw new AgentConflictException("Steer idempotency key belongs to another turn: " + existing.turnId());
                     }
                     if (existing.state() == AgentInputDelivery.State.SENDING) {
@@ -948,7 +977,7 @@ public final class DefaultAgentTurnService
                         return existing;
                     }
                 }
-                AgentTurn turn = turnStore.require(command.turnId());
+                AgentTurn turn = turnStore.require(turnId);
                 // The turn the user was looking at, and only that one: a turn that has since ended
                 // is stale, and its successor must not receive input meant for it.
                 if (turn.state() != TurnState.RUNNING) {
@@ -966,9 +995,10 @@ public final class DefaultAgentTurnService
                     acceptance = new SteerAcceptance(accepted, EventId.steerMessage(accepted.id()), persistedSteerInput(accepted));
                 }
                 else {
-                    acceptance = acceptSteerLocked(task, turn, command);
+                    acceptance = accept.apply(task, turn);
                 }
                 eventService.drain(acceptance.messageEventId());
+                drainPending(outboxStore, eventService, taskId);
                 steerStore.update(acceptance.delivery().sending(Instant.now(clock)));
             }
 
@@ -1001,7 +1031,7 @@ public final class DefaultAgentTurnService
         }
     }
 
-    private SteerAcceptance acceptSteerLocked(AgentTask task, AgentTurn turn, SteerAgentTurnCommand command)
+    private SteerAcceptance acceptSteerLocked(AgentTask task, AgentTurn turn, SteerAgentTurnCommand command, Optional<QueuedAgentInput> queued)
     {
         Instant acceptedAt = Instant.now(clock);
         BlobRef messageBlob = logStore.writeBlob(
@@ -1014,6 +1044,11 @@ public final class DefaultAgentTurnService
                 deliveryId, task.id(), turn.id(), command.idempotencyKey(), acceptedAt);
         unitOfWork.execute(() -> {
             steerStore.insert(delivery);
+            queued.ifPresent(input -> {
+                queueStore.update(input.steered(turn.id(), messageEventId, acceptedAt));
+                outboxStore.insert(pendingLifecycle(EventId.random(), task.id(), Optional.of(turn.id()),
+                        AgentEventPayload.LifecyclePhase.QUEUE_CHANGED, "Queued input steered into the running turn", acceptedAt));
+            });
             outboxStore.insert(new AgentEventOutboxEntry(
                     messageEventId,
                     task.id(),

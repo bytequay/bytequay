@@ -1122,6 +1122,8 @@ public interface AgentTurnService
      */
     AgentInputDelivery steer(SteerAgentTurnCommand command);
 
+    AgentInputDelivery steerQueued(TaskId taskId, TurnId turnId, QueuedInputId queuedInputId);
+
     /**
      * Adds one later turn to the task-owned FIFO queue.
      *
@@ -3027,6 +3029,15 @@ changes `SENDING` to `FAILED`, while connection/process loss changes it to
 quiescence is proven; that creates a new key and warns that an `UNKNOWN` steer
 might already have arrived.
 
+An explicit queued **Steer** transfers an unclaimed `QUEUED` or `PAUSED` input
+into the named running turn. Its task, turn, capability and attachment checks
+precede acceptance. One transaction records the normal steer delivery, message
+outbox entry and `QUEUE_CHANGED` event, and consumes the queue row as `STARTED`
+with the target turn and steer message event. The saved text blob supplies the
+full input, never its preview. The queue ID determines the steer idempotency
+key; the existing steer ledger owns retries, failures and unknown delivery.
+Consumed input never starts another turn or automatically returns to the queue.
+
 ### 6.5 QueuedInputStore
 
 The queue needs one small durable store; it is not reconstructed from provider
@@ -4447,6 +4458,7 @@ POST /agent/tasks/{taskId}/queue
 GET  /agent/tasks/{taskId}/queue
 DELETE /agent/tasks/{taskId}/queue/{queuedInputId}
 POST /agent/tasks/{taskId}/queue/resume
+POST /agent/tasks/{taskId}/queue/{queuedInputId}/steer?workspaceId=...&turnId=...
 POST /agent/tasks/{taskId}/mark-failed
 POST /agent/tasks/{taskId}/complete?workspaceId=...
 POST /agent/tasks/{taskId}/cleanup?workspaceId=...

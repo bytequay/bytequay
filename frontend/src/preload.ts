@@ -400,6 +400,8 @@ const bridge: Bridge = {
   listAgentQueue: (taskId, workspaceId) => ipcRenderer.invoke('agent:queue:list', taskId, workspaceId),
   removeAgentQueuedInput: (taskId, workspaceId, queuedInputId) =>
     ipcRenderer.invoke('agent:queue:remove', taskId, workspaceId, queuedInputId),
+  steerAgentQueuedInput: (taskId, workspaceId, queuedInputId, turnId) =>
+    ipcRenderer.invoke('agent:queue:steer', taskId, workspaceId, queuedInputId, turnId),
   resumeAgentQueue: (taskId, workspaceId) => ipcRenderer.invoke('agent:queue:resume', taskId, workspaceId),
   getAgentTurn: turnId => ipcRenderer.invoke('agent:turns:get', turnId),
   cancelAgentTurn: turnId => ipcRenderer.invoke('agent:turns:cancel', turnId),
@@ -469,6 +471,7 @@ const bridge: Bridge = {
   messageAgentReview: (reviewId, message, delivery, idempotencyKey) =>
     ipcRenderer.invoke('review:message', reviewId, message, delivery, idempotencyKey),
   removeAgentReviewQueued: (reviewId, queuedInputId) => ipcRenderer.invoke('review:queue:remove', reviewId, queuedInputId),
+  steerAgentReviewQueued: (reviewId, queuedInputId, turnId) => ipcRenderer.invoke('review:queue:steer', reviewId, queuedInputId, turnId),
   resolveAgentReviewFinding: (reviewId, findingId, expectedVersion, reason) =>
     ipcRenderer.invoke('review:finding:resolve', reviewId, findingId, expectedVersion, reason),
   reopenAgentReviewFinding: (reviewId, findingId, expectedVersion) =>

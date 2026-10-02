@@ -804,6 +804,12 @@ class TestBranchRebaseService
         }
 
         @Override
+        public AgentInputDelivery steerQueued(TaskId taskId, TurnId turnId, QueuedInputId queuedInputId)
+        {
+            throw new UnsupportedOperationException("this test never steers or queues a turn");
+        }
+
+        @Override
         public Optional<AgentInputDelivery> findSteerByIdempotencyKey(TurnId turnId, String idempotencyKey)
         {
             return Optional.empty();

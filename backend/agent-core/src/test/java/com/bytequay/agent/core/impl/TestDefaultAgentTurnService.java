@@ -2849,6 +2849,78 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void steersTheFullQueuedInputOnceWithoutStartingItAgain()
+    {
+        AgentTurn first = service.start(command("first", "key-1"));
+        var attachment = resources.storeAttachment(new StoreAgentAttachmentCommand(task.id(), "queued.png", "image/png",
+                Base64.getDecoder().decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")));
+        String message = "Full queued instructions\n".repeat(30);
+        QueuedAgentInput input = service.enqueue(new QueueAgentInputCommand(
+                task.id(), taskService.get(task.id()).version(), message, ImmutableList.of(attachment.input()), "queue-steer"));
+        driver.beforeSteer(() -> {
+            assertThat(service.queued(task.id())).isEmpty();
+            assertThat(stores.find(input.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.STARTED);
+        });
+
+        AgentInputDelivery delivery = service.steerQueued(task.id(), first.id(), input.id());
+
+        assertThat(delivery.state()).isEqualTo(AgentInputDelivery.State.DELIVERED);
+        assertThat(driver.steers()).singleElement().satisfies(steer -> {
+            assertThat(steer.message()).isEqualTo(message);
+            assertThat(steer.attachments()).containsExactly(attachment.input());
+        });
+        assertThat(stores.find(input.id())).hasValueSatisfying(queued -> {
+            assertThat(queued.turnId()).contains(first.id());
+            assertThat(queued.messageEventId()).contains(EventId.steerMessage(delivery.id()));
+        });
+        assertThat(service.steerQueued(task.id(), first.id(), input.id()).id()).isEqualTo(delivery.id());
+        assertThat(driver.steers()).hasSize(1);
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.type() == AgentEventPayload.Kind.USER_MESSAGE)
+                .extracting(event -> ((AgentEventPayload.UserMessage) event.payload()).text()).containsExactly("first", message);
+        driver.complete("done");
+        assertThat(stores.findActive(task.id())).isEmpty();
+        assertThat(service.steerQueued(task.id(), first.id(), input.id()).id()).isEqualTo(delivery.id());
+    }
+
+    @Test
+    void neverRequeuesFailedOrUncertainQueuedSteers()
+    {
+        AgentTurn first = service.start(command("first", "key-1"));
+        for (RuntimeException failure : ImmutableList.of(new AgentUnavailableException("refused"), new AgentDeliveryUncertainException("no response", null))) {
+            QueuedAgentInput input = service.enqueue(new QueueAgentInputCommand(
+                    task.id(), taskService.get(task.id()).version(), "queued " + failure.getMessage(), ImmutableList.of(), failure.getMessage()));
+            driver.failNextSteer(failure);
+            AgentInputDelivery delivery = service.steerQueued(task.id(), first.id(), input.id());
+            assertThat(delivery.state()).isEqualTo(failure instanceof AgentDeliveryUncertainException ? AgentInputDelivery.State.UNKNOWN : AgentInputDelivery.State.FAILED);
+            assertThat(service.steerQueued(task.id(), first.id(), input.id())).isEqualTo(delivery);
+            assertThat(service.queued(task.id())).isEmpty();
+        }
+        driver.complete("done");
+        assertThat(stores.findActive(task.id())).isEmpty();
+    }
+
+    @Test
+    void refusesQueuedSteeringForAnotherTaskRemovedInputOrStaleTurn()
+    {
+        AgentTurn first = service.start(command("first", "key-1"));
+        QueuedAgentInput input = service.enqueue(new QueueAgentInputCommand(
+                task.id(), taskService.get(task.id()).version(), "later", ImmutableList.of(), "queue-1"));
+        assertThatThrownBy(() -> service.steerQueued(TaskId.random(), first.id(), input.id())).isInstanceOf(AgentConflictException.class);
+        assertThat(service.queued(task.id())).hasSize(1);
+        service.removeQueued(task.id(), input.id());
+        assertThatThrownBy(() -> service.steerQueued(task.id(), first.id(), input.id())).isInstanceOf(AgentConflictException.class);
+        driver.complete("done");
+        AgentTurn second = service.start(command("second", "key-2"));
+        QueuedAgentInput later = service.enqueue(new QueueAgentInputCommand(
+                task.id(), taskService.get(task.id()).version(), "later again", ImmutableList.of(), "queue-2"));
+        assertThatThrownBy(() -> service.steerQueued(task.id(), first.id(), later.id())).isInstanceOf(AgentConflictException.class).hasMessageContaining("not running");
+        assertThat(service.queued(task.id())).extracting(QueuedAgentInput::id).containsExactly(later.id());
+        assertThat(driver.steers()).isEmpty();
+        assertThat(service.get(second.id()).state()).isEqualTo(TurnState.RUNNING);
+    }
+
+    @Test
     void findsAcceptedRequestsBeforeACallerRevalidatesMutableInput()
     {
         AgentTurn turn = service.start(command("first", "key-1"));

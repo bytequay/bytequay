@@ -910,14 +910,14 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-width: 760px;
+  width: calc(100% - 28px);
+  max-width: 732px;
   margin: 0 auto 8px;
 }
 
 .agt-queue.is-attached {
   gap: 0;
   box-sizing: border-box;
-  max-width: 732px;
   margin-bottom: -14px;
   padding-bottom: 14px;
   border-radius: 14px;

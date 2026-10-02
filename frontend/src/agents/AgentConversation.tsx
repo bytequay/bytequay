@@ -822,6 +822,8 @@ export type ConversationQueuedInput = {
   pauseReason?: string | null;
   attachmentCount?: number;
   modelLabel?: string;
+  turnId?: string | null;
+  steerBlockedReason?: string;
 };
 
 const QUEUE_LABELS: Record<string, string> = {
@@ -836,12 +838,14 @@ const QUEUE_LABELS: Record<string, string> = {
  * offers to resume the queue; an uncertain one, which may or may not have reached the agent, is
  * only ever discarded by hand.
  */
-export function ConversationQueue({ queue, running, idle, resumeBlocked, resumeBlockedReason, onRemove, onResume }: {
+export function ConversationQueue({ queue, running, idle, resumeBlocked, resumeBlockedReason, steerEnabled = false, onSteer, onRemove, onResume }: {
   queue: ConversationQueuedInput[];
   running: boolean;
   idle: boolean;
   resumeBlocked: boolean;
   resumeBlockedReason?: string;
+  steerEnabled?: boolean;
+  onSteer?: (queuedInputId: string) => void;
   onRemove: (queuedInputId: string) => void;
   onResume?: () => void;
 }): React.JSX.Element | null {
@@ -870,6 +874,11 @@ export function ConversationQueue({ queue, running, idle, resumeBlocked, resumeB
             <span className="agt-mono agt-queue__meta">
               {input.modelLabel}
             </span>
+            {running && onSteer !== undefined && input.turnId == null && ['QUEUED', 'PAUSED', 'UNKNOWN'].includes(state) && (
+              <button type="button" className="agt-queue__link" disabled={!steerEnabled || input.steerBlockedReason !== undefined}
+                title={input.steerBlockedReason ?? (steerEnabled ? 'Sends this queued message into the running turn now' : 'Steering is unavailable for the current turn')}
+                onClick={() => onSteer(input.id)}>Steer</button>
+            )}
             {state === 'PAUSED' && input.id === head.id && idle && onResume !== undefined && (
               <button
                 type="button"

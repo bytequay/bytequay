@@ -1354,17 +1354,17 @@ export function PullDetailHeader({
   if (workbenchSelected) lastWorkbenchTab.current = tab;
   const draft = detail?.draft === true;
   const canOpenMerge = pr !== null && detail?.state?.toLowerCase() === 'open';
-  const canMerge = canOpenMerge && !draft && detail.viewerCanWrite && !isQueued(detail.recentActivity);
+  const queued = detail !== null && isQueued(detail.recentActivity);
+  const canMerge = canOpenMerge && !draft && detail.viewerCanWrite && !queued;
   const conflicts = hasMergeConflicts(detail);
   const merge = detail ? mergeStatus(detail) : null;
-  const mergeModeReady = typeof mergeQueue === 'boolean';
   const mergeBlocked = merge?.state === 'failed' || merge?.state === 'blocked';
-  const mergeLoading = (canMerge && !mergeModeReady) || merge?.state === 'pending';
+  const mergeLoading = !queued && ((canMerge && mergeQueue === undefined) || merge?.state === 'pending');
   const state = (detail?.state ?? pr?.state)?.toLowerCase();
   const iconState = state === 'merged' || state === 'closed'
     ? state
     : (detail?.draft ?? pr?.draft) ? 'draft' : 'open';
-  const mergeLabel = conflicts
+  const mergeLabel = queued ? 'In merge queue' : conflicts
     ? 'Conflicts'
     : merge?.state === 'failed'
         ? 'Checks failed'
@@ -1379,8 +1379,9 @@ export function PullDetailHeader({
   useEffect(() => {
     setMergeOpen(false);
     setReviewOpen(false);
-    setMergeQueue(undefined);
+    setMergeQueue(null);
     if (!canMerge || conflicts || !detail?.baseRef) return;
+    setMergeQueue(undefined);
     let cancelled = false;
     void window.bridge.fetchMergeMode(detail.repo, detail.baseRef)
       .then(mode => { if (!cancelled) setMergeQueue(mode.mergeQueue); })
@@ -1882,8 +1883,10 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
   const submitted = useRef(false);
   const canMarkReady = detail.draft && detail.state?.toLowerCase() === 'open'
     && (detail.viewerCanWrite || pr.origin === 'AUTHORED');
+  const queued = isQueued(detail.recentActivity);
+  const canRemoveFromQueue = queued && detail.state?.toLowerCase() === 'open' && detail.viewerCanWrite;
   const canMerge = !detail.draft && detail.state?.toLowerCase() === 'open' && detail.viewerCanWrite && state === 'ready'
-    && typeof mergeQueue === 'boolean' && !hasMergeConflicts(detail) && !isQueued(detail.recentActivity);
+    && typeof mergeQueue === 'boolean' && !hasMergeConflicts(detail) && !queued;
 
   useEffect(() => {
     mounted.current = true;
@@ -1900,8 +1903,9 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
     return () => document.removeEventListener('keydown', close);
   }, [onClose, submitting]);
 
-  const submit = async (action: 'ready' | 'merge') => {
-    if (inFlight.current || submitted.current || (action === 'ready' ? !canMarkReady : !canMerge)) return;
+  const submit = async (action: 'ready' | 'merge' | 'remove') => {
+    const allowed = action === 'ready' ? canMarkReady : action === 'remove' ? canRemoveFromQueue : canMerge;
+    if (inFlight.current || submitted.current || !allowed) return;
     inFlight.current = true;
     setSubmitting(true);
     setError(null);
@@ -1909,6 +1913,9 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
       if (action === 'ready') {
         await window.bridge.markPrReadyForReview(detail.repo, detail.number);
         onDetailUpdate(detail.repo, detail.number, current => ({ ...current, draft: false }));
+      }
+      else if (action === 'remove') {
+        await window.bridge.removePrFromMergeQueue(detail.repo, detail.number);
       }
       else {
         await window.bridge.mergePr(pr.id, detail.repo, detail.number, mergeQueue ? 'queue' : 'rebase');
@@ -1938,13 +1945,17 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
         <button type="button" aria-label="Close merge dialog" autoFocus disabled={submitting} onClick={onClose}>×</button>
       </div>
       <div className="pr-merge-sheet__content">
-        <div className={`pr-merge-status-card${blocked ? ' is-danger' : ''}`}>
-          {blocked
+        <div className={`pr-merge-status-card${blocked && !queued ? ' is-danger' : ''}`}>
+          {queued
+            ? <span className="pr-merge-dot is-queue" aria-hidden="true" />
+            : blocked
             ? <ConflictIcon />
             : state === 'pending'
               ? <MergeReadyIcon />
               : <span className={`pr-merge-dot${mergeQueue ? ' is-queue' : ''}`} />}
-          <strong>{blocked
+          <strong>{queued
+            ? 'In merge queue'
+            : blocked
             ? 'Merge blocked'
             : state === 'pending'
               ? 'Waiting for checks'
@@ -1987,13 +1998,15 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
       </div>
       <footer className="pr-merge-sheet__footer">
         <button type="button" disabled={submitting} onClick={onClose}>Cancel</button>
-        <button className="is-primary" type="button" disabled={submitting || !canMarkReady}
+        {!queued && <button className="is-primary" type="button" disabled={submitting || !canMarkReady}
           onClick={() => { void submit('ready'); }}>
           <PullRequestIcon /> {submitting && detail.draft ? 'Marking ready…' : 'Ready for review'}
-        </button>
-        <button className="is-primary" type="button" disabled={submitting || !canMerge}
-          onClick={() => { void submit('merge'); }}>
-          <PullRequestIcon /> {submitting && !detail.draft ? 'Submitting…' : mergeQueue === false ? 'Rebase and merge' : 'Merge when ready'}
+        </button>}
+        <button className={queued ? undefined : 'is-primary'} type="button" disabled={submitting || !(queued ? canRemoveFromQueue : canMerge)}
+          onClick={() => { void submit(queued ? 'remove' : 'merge'); }}>
+          {queued ? <X size={14} aria-hidden="true" /> : <PullRequestIcon />}
+          {queued ? submitting ? 'Removing…' : 'Remove from merge queue'
+            : submitting && !detail.draft ? 'Submitting…' : mergeQueue === false ? 'Rebase and merge' : 'Merge when ready'}
         </button>
       </footer>
     </section>

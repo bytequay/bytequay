@@ -1863,6 +1863,35 @@ class TestPullRequestService
     }
 
     @Test
+    void removesFromMergeQueueWithoutMergingOrDiscardingCachedDiffs()
+    {
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(merges.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(Optional.of("PR_1"));
+
+        service.removeFromMergeQueue("owner/repo", 7);
+
+        verify(merges).dequeuePullRequest("pat", "PR_1");
+        verify(merges, never()).mergePullRequest(anyString(), any(), any());
+        verify(detailStore).updateEtag(12L, Optional.empty());
+        verifyNoMoreInteractions(detailStore);
+        verifyNoInteractions(diffStore, viewStateStore);
+    }
+
+    @Test
+    void invalidatesQueueStatusAfterAnUncertainRemoval()
+    {
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(merges.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(Optional.of("PR_1"));
+        doThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Response lost")).when(merges).dequeuePullRequest("pat", "PR_1");
+
+        assertThatThrownBy(() -> service.removeFromMergeQueue("owner/repo", 7))
+                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("Response lost");
+
+        verify(detailStore).updateEtag(12L, Optional.empty());
+        verifyNoInteractions(diffStore, viewStateStore);
+    }
+
+    @Test
     void readsDiffFilesFromLocalStore()
     {
         List<DiffFile> files = ImmutableList.of(new DiffFile("a.txt", "modified", 1, 0, "+line"));

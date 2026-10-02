@@ -1651,6 +1651,8 @@ function registerIpc(): void {
     backendVoid(prUrl('/prs/close', repo, number), { method: 'POST' }));
   ipcMain.handle('prs:ready-for-review', (_event, repo: string, number: number) =>
     backendVoid(prUrl('/prs/ready-for-review', repo, number), { method: 'POST' }));
+  ipcMain.handle('prs:merge-queue:remove', (_event, repo: string, number: number) =>
+    backendVoid(prUrl('/prs/merge-queue', repo, number), { method: 'DELETE' }));
   ipcMain.handle('prs:review-comment:reply', (
     _event,
     repo: string,

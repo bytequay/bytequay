@@ -16,11 +16,16 @@ package com.bytequay.app.repository.github;
 import com.bytequay.core.domain.MergeResult;
 import com.bytequay.core.domain.RepoRef;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.server.ResponseStatusException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
@@ -51,6 +56,50 @@ class TestGitHubClientMergeQueue
 
         assertThat(result.queued()).isTrue();
         assertThat(result.message()).contains("position 2");
+    }
+
+    @Test
+    void dequeuesPullRequestUsingItsNodeId()
+    {
+        Fixture fixture = fixture();
+        fixture.graphql().expect(requestTo("https://api.github.test/graphql"))
+                .andExpect(content().json("""
+                        {"query":"mutation($id: ID!) { dequeuePullRequest(input: { id: $id }) { clientMutationId } }","variables":{"id":"PR_1"}}
+                        """))
+                .andRespond(withSuccess("""
+                        {"data":{"dequeuePullRequest":{"clientMutationId":null}}}
+                        """, MediaType.APPLICATION_JSON));
+
+        fixture.client().dequeuePullRequest("pat", "PR_1");
+
+        fixture.graphql().verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"data\":{}}", "{\"data\":{\"dequeuePullRequest\":null}}"})
+    void rejectsIncompleteDequeueAcknowledgment(String response)
+    {
+        Fixture fixture = fixture();
+        fixture.graphql().expect(requestTo("https://api.github.test/graphql"))
+                .andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> fixture.client().dequeuePullRequest("pat", "PR_1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("incomplete GraphQL data");
+    }
+
+    @Test
+    void reportsDequeueRejectionEvenWithPartialData()
+    {
+        Fixture fixture = fixture();
+        fixture.graphql().expect(requestTo("https://api.github.test/graphql"))
+                .andRespond(withSuccess("""
+                        {"data":{"dequeuePullRequest":{"clientMutationId":null}},"errors":[{"message":"Write access is required"}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> fixture.client().dequeuePullRequest("pat", "PR_1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Write access is required");
     }
 
     private static Fixture fixture()

@@ -143,6 +143,25 @@ public class GitHubMergeClient
         });
     }
 
+    public void dequeuePullRequest(String pat, String pullRequestNodeId)
+    {
+        String mutation = "mutation($id: ID!) { dequeuePullRequest(input: { id: $id }) { clientMutationId } }";
+        translating(() -> {
+            DequeueResponse response = graphql(graphqlRestClient, pat, mutation, ImmutableMap.of("id", pullRequestNodeId))
+                    .body(DequeueResponse.class);
+            if (response != null && response.errors() != null && !response.errors().isEmpty()) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(422),
+                        "GitHub dequeuePullRequest failed: " + response.errors().getFirst().message());
+            }
+            if (response == null || response.data() == null || response.data().dequeuePullRequest() == null) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(502), "GitHub dequeuePullRequest returned incomplete GraphQL data");
+            }
+            return null;
+        });
+    }
+
     private static String queueMessage(QueueEntry entry)
     {
         String state = entry.state() == null
@@ -201,4 +220,13 @@ public class GitHubMergeClient
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record QueueEntry(Integer position, String state) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record DequeueResponse(DequeueData data, List<GraphQlError> errors) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record DequeueData(DequeuePayload dequeuePullRequest) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record DequeuePayload(String clientMutationId) {}
 }

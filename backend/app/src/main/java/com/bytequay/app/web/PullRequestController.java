@@ -32,6 +32,7 @@ import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -414,6 +415,15 @@ public class PullRequestController
             @RequestBody InlineReviewComment comment)
     {
         return pullRequests.createReviewComment(repo, number, comment);
+    }
+
+    @DeleteMapping("/prs/merge-queue")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeFromMergeQueue(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number)
+    {
+        pullRequests.removeFromMergeQueue(repo, number);
     }
 
     @PostMapping("/prs/merge")

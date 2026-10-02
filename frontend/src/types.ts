@@ -1416,6 +1416,7 @@ export type Bridge = JiraBridge & {
   ) => Promise<PullRequestDetailDto>;
   betterWords: (text: string, repository: string, workspaceId?: string) => Promise<string>;
   mergePr: (prId: number, repo: string, number: number, strategy: string) => Promise<void>;
+  removePrFromMergeQueue: (repo: string, number: number) => Promise<void>;
 
   searchRepositories: (query: string, limit: number) => Promise<RepositorySearchResultDto[]>;
   previewWatch: (selectedRepositoryId: number) => Promise<WatchRepositoryPreviewDto>;

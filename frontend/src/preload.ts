@@ -150,6 +150,7 @@ const bridge: Bridge = {
     ipcRenderer.invoke('agent:better-words', text, repository, workspaceId),
   mergePr: (prId, repo, number, strategy) =>
     ipcRenderer.invoke('prs:merge', prId, repo, number, strategy),
+  removePrFromMergeQueue: (repo, number) => ipcRenderer.invoke('prs:merge-queue:remove', repo, number),
 
   searchRepositories: (query, limit) => ipcRenderer.invoke('workspaces:search', query, limit),
   previewWatch: selectedRepositoryId => ipcRenderer.invoke('workspaces:preview', selectedRepositoryId),

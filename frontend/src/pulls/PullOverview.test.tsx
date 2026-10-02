@@ -88,6 +88,69 @@ describe('PullOverview', () => {
     expect(actions[1].includes('disabled=""')).toBe(mergeQueue === undefined);
   });
 
+  it.each([true, false, undefined, null])('shows the queued state without waiting for merge mode (%s)', mergeQueue => {
+    const value: PullRequestDetailDto = { ...queuedDetail(), checkRuns: [], ciStatus: 'PASSING' };
+    const popup = renderToStaticMarkup(<MergeDialog pr={pullRequest()} detail={value} mergeQueue={mergeQueue}
+      onClose={() => {}} onRefresh={async () => {}} />);
+
+    expect(popup).toContain('In merge queue');
+    expect(popup).not.toContain('Loading merge status');
+    expect(popup).not.toContain('Merge status unavailable');
+    expect(popup).not.toContain('Ready for review');
+    expect(popup).not.toContain('Merge when ready');
+    expect(popup).toMatch(/<button type="button">.*Remove from merge queue<\/button>/);
+  });
+
+  it.each([true, false])('removes a queued PR once and closes before refresh only on success (%s)', async accepted => {
+    const write = Promise.withResolvers<void>();
+    const refresh = Promise.withResolvers<void>();
+    const removePrFromMergeQueue = vi.fn(() => write.promise);
+    const mergePr = vi.fn();
+    const onClose = vi.fn();
+    const onRefresh = vi.fn(() => {
+      expect(onClose).toHaveBeenCalledOnce();
+      return refresh.promise;
+    });
+    const submit = captureMergeSubmit({
+      pr: pullRequest(), detail: queuedDetail(), mergeQueue: undefined, onClose, onRefresh,
+    });
+    vi.stubGlobal('window', { bridge: { removePrFromMergeQueue, mergePr } });
+    try {
+      expect(removePrFromMergeQueue).not.toHaveBeenCalled();
+      submit();
+      submit();
+      expect(removePrFromMergeQueue).toHaveBeenCalledOnce();
+      expect(removePrFromMergeQueue).toHaveBeenCalledWith('owner/repo', 42);
+      expect(onClose).not.toHaveBeenCalled();
+      if (accepted) write.resolve();
+      else write.reject(new Error('Write access is required'));
+      await write.promise.catch(() => {});
+      if (accepted) await vi.waitFor(() => expect(onRefresh).toHaveBeenCalledOnce());
+      expect(onClose).toHaveBeenCalledTimes(accepted ? 1 : 0);
+      expect(onRefresh).toHaveBeenCalledTimes(accepted ? 1 : 0);
+      expect(mergePr).not.toHaveBeenCalled();
+    }
+    finally {
+      refresh.resolve();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each([false, true])('blocks queue removal without write access or after closure (closed: %s)', closed => {
+    const props: Parameters<typeof MergeDialog>[0] = {
+      pr: pullRequest(), detail: { ...queuedDetail(), viewerCanWrite: closed, state: closed ? 'closed' : 'open' },
+      mergeQueue: undefined, onClose: () => {}, onRefresh: async () => {},
+    };
+    expect(renderToStaticMarkup(<MergeDialog {...props} />)).toMatch(/<button type="button" disabled="">.*Remove from merge queue<\/button>/);
+    const removePrFromMergeQueue = vi.fn();
+    vi.stubGlobal('window', { bridge: { removePrFromMergeQueue } });
+    try {
+      captureMergeSubmit(props)();
+      expect(removePrFromMergeQueue).not.toHaveBeenCalled();
+    }
+    finally { vi.unstubAllGlobals(); }
+  });
+
   it.each([true, false])('does not route a disabled popup action to another endpoint (draft: %s)', draft => {
     const markPrReadyForReview = vi.fn();
     const mergePr = vi.fn();
@@ -1690,6 +1753,12 @@ function captureMergeSubmit(props: Parameters<typeof MergeDialog>[0], action: 'r
   }
   renderToStaticMarkup(<CaptureDialog />);
   return submit;
+}
+
+function queuedDetail(): PullRequestDetailDto {
+  return { ...detail(), viewerCanWrite: true, recentActivity: [
+    { actor: 'alice', eventType: 'added_to_merge_queue', timestamp: '2026-08-20T09:00:00Z', body: null, githubId: 4, payload: emptyPayload },
+  ] };
 }
 
 function pullRequest(): PullRequestDto {

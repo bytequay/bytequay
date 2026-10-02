@@ -1337,6 +1337,21 @@ public class PullRequestService
         return result;
     }
 
+    public void removeFromMergeQueue(String repo, int number)
+    {
+        String pat = credentialService.resolveGitHubToken();
+        String nodeId = merges.pullRequestNodeId(pat, parseRef(repo, number))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no pull request node ID"));
+        try {
+            merges.dequeuePullRequest(pat, nodeId);
+            recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
+        }
+        finally {
+            // A lost response may still have removed the entry; let refresh reconcile it.
+            invalidatePullRequestDetail(repo, number);
+        }
+    }
+
     private MergeResult enqueuePullRequest(String pat, PullRequestRef ref, String repo, int number)
     {
         String nodeId = merges.pullRequestNodeId(pat, ref)

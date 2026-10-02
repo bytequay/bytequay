@@ -20,6 +20,7 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.MemoryBridge;
+import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.core.memory.Memory;
 import com.bytequay.core.memory.MemorySource;
 import com.bytequay.core.review.AgentReview;
@@ -57,14 +58,17 @@ public class MemoryBridgeResolverImpl
     private final MemoryService memories;
     private final MemorySources sources;
     private final ObjectMapper mapper;
+    private final WorkspaceRelationships relationships;
 
-    public MemoryBridgeResolverImpl(AgentTaskStore tasks, AgentReviewStore reviews, MemoryService memories, MemorySources sources, ObjectMapper mapper)
+    public MemoryBridgeResolverImpl(AgentTaskStore tasks, AgentReviewStore reviews, MemoryService memories, MemorySources sources,
+            ObjectMapper mapper, WorkspaceRelationships relationships)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.memories = requireNonNull(memories, "memories is null");
         this.sources = requireNonNull(sources, "sources is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.relationships = requireNonNull(relationships, "relationships is null");
     }
 
     @Override
@@ -103,10 +107,23 @@ public class MemoryBridgeResolverImpl
             throw new IllegalArgumentException("Arguments are not a JSON object", failure);
         }
         checkArgument(arguments.isObject(), "Arguments are not a JSON object");
+        task = tasks.find(task.id()).orElseThrow(() -> new IllegalArgumentException("Task is unavailable"));
+        checkArgument(task.state() == TaskState.OPEN && task.workspaceId().filter(workspaceId::equals).isPresent(), "Task is unavailable");
+        Optional<AgentReview> currentReview = reviews.findReviewByTask(task.id().toString());
+        checkArgument(switchedOn(task, currentReview, workspaceId), "Memory is disabled for this task");
+        String selectedWorkspace = text(arguments, "workspaceId").orElse(workspaceId);
+        boolean related = !selectedWorkspace.equals(workspaceId);
+        if (related) {
+            checkArgument(arguments.path("action").asText().equals("SEARCH") || arguments.path("action").asText().equals("READ"),
+                    "Only SEARCH and READ may use a related workspace");
+            checkArgument(task.interactive() && currentReview.isEmpty(), "Related memory is available only in development conversations");
+            relationships.requireRelated(workspaceId, selectedWorkspace);
+            checkArgument(memories.switches(selectedWorkspace).development(), "Related workspace memory is disabled");
+        }
         Predicate<Memory> visible = MemoryService.visibleTo(replay);
         ObjectNode result = switch (arguments.path("action").asText("")) {
-            case "SEARCH" -> search(workspaceId, visible, arguments);
-            case "READ" -> read(workspaceId, visible, id(arguments));
+            case "SEARCH" -> search(selectedWorkspace, visible, arguments);
+            case "READ" -> read(selectedWorkspace, visible, id(arguments));
             case "REPORT" -> {
                 checkArgument(replay.isEmpty(), "A replay reviews past code and cannot report memories");
                 yield report(workspaceId, task.id().toString(), arguments);
@@ -117,6 +134,11 @@ public class MemoryBridgeResolverImpl
             }
             default -> throw new IllegalArgumentException("action must be SEARCH, READ, REPORT or REMEMBER");
         };
+        result.put("workspaceId", selectedWorkspace);
+        if (related) {
+            result.put("repository", relationships.requireRelated(workspaceId, selectedWorkspace).monitoredRepository().fullName());
+            result.put("activityLine", result.path("activityLine").asText() + " · " + selectedWorkspace);
+        }
         return result.toString();
     }
 
@@ -130,6 +152,8 @@ public class MemoryBridgeResolverImpl
         for (Memory memory : page.memories()) {
             ObjectNode item = list.addObject();
             item.put("id", memory.id());
+            item.put("workspaceId", workspaceId);
+            item.put("version", memory.version());
             item.put("kind", memory.kind().name());
             item.put("text", memory.text());
             scope(item, memory);
@@ -153,6 +177,7 @@ public class MemoryBridgeResolverImpl
         }
         ObjectNode result = mapper.createObjectNode();
         result.put("id", memory.id());
+        result.put("version", memory.version());
         result.put("kind", memory.kind().name());
         result.put("text", memory.text());
         scope(result, memory);

@@ -1330,6 +1330,14 @@ function registerIpc(): void {
   ipcMain.handle('settings:app:save', (_event, preferences: unknown) =>
     backendJson(`${backendBase()}/api/settings/app`, jsonInit('PUT', preferences)));
 
+  ipcMain.handle('workspaces:relationships', (_event, workspaceId: string) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/relationships`));
+  ipcMain.handle('workspaces:relationships:save', (_event, workspaceId: string, relationship: import('./types').WorkspaceRelationshipDto) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/relationships`,
+      jsonInit('PUT', relationship)));
+  ipcMain.handle('workspaces:relationships:remove', (_event, workspaceId: string, destinationId: string) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/relationships/${encodeURIComponent(destinationId)}`,
+      { method: 'DELETE' }));
   ipcMain.handle('workspaces:settings', (_event, workspaceId: string) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/settings`));
   const contextBuildUrl = (workspaceId: string) => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/build`;

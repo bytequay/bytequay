@@ -309,6 +309,9 @@ const bridge: Bridge = {
   copyGitHubToken: () => ipcRenderer.invoke('pat:copy'),
   deleteGitHubToken: () => ipcRenderer.invoke('pat:delete'),
 
+  getWorkspaceRelationships: workspaceId => ipcRenderer.invoke('workspaces:relationships', workspaceId),
+  saveWorkspaceRelationship: (workspaceId, relationship) => ipcRenderer.invoke('workspaces:relationships:save', workspaceId, relationship),
+  removeWorkspaceRelationship: (workspaceId, destinationId) => ipcRenderer.invoke('workspaces:relationships:remove', workspaceId, destinationId),
   getWorkspaceSettings: workspaceId => ipcRenderer.invoke('workspaces:settings', workspaceId),
   getRepositoryContextBaseline: workspaceId => ipcRenderer.invoke('repository-context:build:baseline', workspaceId),
   getRepositoryContextBuild: workspaceId => ipcRenderer.invoke('repository-context:build:get', workspaceId),

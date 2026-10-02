@@ -23,6 +23,7 @@ import com.bytequay.app.workspace.WorkspaceDeletionService;
 import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
+import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.RepoRef;
@@ -52,7 +53,7 @@ class TestWorkspaceIssueDevelopmentController
     private final MockMvc mvc = standaloneSetup(new WorkspaceController(
             mock(WorkspaceRepositoryService.class), mock(WorkspaceDeletionService.class), mock(PullRequestService.class), mock(PullRequestRefreshService.class),
             mock(WorkspaceMetadataService.class), issues, mock(WorkspaceIssueRefreshService.class), mock(WorkspaceRemoteSourceService.class),
-            mock(ModelSettingsService.class), mock(CredentialService.class), mock(WorkspaceCommitsSettingsService.class), development)).build();
+            mock(ModelSettingsService.class), mock(CredentialService.class), mock(WorkspaceCommitsSettingsService.class), development, mock(WorkspaceRelationships.class))).build();
 
     @Test
     void issueProjectionStaysFlatAndRetainsExistingTaskWorkspace()

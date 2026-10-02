@@ -26,12 +26,20 @@ import com.bytequay.app.workspace.WorkspaceDeletionService;
 import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
+import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
+import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.domain.RepoRef;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.MediaType;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -65,7 +73,8 @@ class TestWorkspaceCommitsSettingsController
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         WorkspaceController controller = new WorkspaceController(workspaces, deletion, mock(PullRequestService.class), refresh,
                 mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class), mock(WorkspaceIssueRefreshService.class),
-                mock(WorkspaceRemoteSourceService.class), models, mock(CredentialService.class), settings, mock(IssueDevelopmentService.class));
+                mock(WorkspaceRemoteSourceService.class), models, mock(CredentialService.class), settings, mock(IssueDevelopmentService.class),
+                mock(WorkspaceRelationships.class));
         var mvc = standaloneSetup(controller).build();
 
         mvc.perform(get("/api/workspaces/workspace/settings"))
@@ -87,5 +96,29 @@ class TestWorkspaceCommitsSettingsController
         verify(settings).save("workspace", "release/next");
         verify(settings).reset("workspace");
         verifyNoInteractions(workspaces, deletion, refresh);
+    }
+    @Test
+    void relatedWorkspaceShowsMissingCheckoutWithoutLosingItsGuidance(@TempDir Path directory)
+            throws Exception
+    {
+        var workspaces = mock(WorkspaceRepositoryService.class);
+        var relationships = mock(WorkspaceRelationships.class);
+        when(relationships.list("trino")).thenReturn(ImmutableList.of(
+                new WorkspaceRelationships.Relationship("iceberg", WorkspaceRelationships.Kind.DEPENDENCY, "Version in pom.xml")));
+        when(workspaces.requireLocalRepository("iceberg")).thenReturn(new WorkspaceRepositoryContext("iceberg", directory, 2,
+                RepoRef.of("apache", "iceberg"), OptionalLong.empty(), RepoRef.of("apache", "iceberg"), "origin", "origin", "main", ImmutableList.of()));
+        var controller = new WorkspaceController(workspaces, mock(WorkspaceDeletionService.class), mock(PullRequestService.class),
+                mock(PullRequestRefreshService.class), mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
+                mock(WorkspaceIssueRefreshService.class), mock(WorkspaceRemoteSourceService.class), mock(ModelSettingsService.class),
+                mock(CredentialService.class), mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class), relationships);
+        var mvc = standaloneSetup(controller).build();
+        mvc.perform(get("/api/workspaces/trino/relationships"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].guidance").value("Version in pom.xml"))
+                .andExpect(jsonPath("$[0].unavailableReason").value("Managed checkout missing at " + directory));
+        Files.createDirectory(directory.resolve(".git"));
+        mvc.perform(get("/api/workspaces/trino/relationships"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].unavailableReason").doesNotExist());
     }
 }

@@ -60,6 +60,7 @@ public final class DefaultWorkspacePullRequestService
     private final CiAutofixService ciAutofix;
     private final CiAutofixStore ciAutofixStore;
     private final Clock clock;
+    private final WorkspaceRelationships relationships;
     private final Striped<Lock> locks = Striped.lock(64);
 
     public DefaultWorkspacePullRequestService(
@@ -73,7 +74,8 @@ public final class DefaultWorkspacePullRequestService
             PullRequestService pullRequestCatalog,
             CiAutofixService ciAutofix,
             CiAutofixStore ciAutofixStore,
-            Clock clock)
+            Clock clock,
+            WorkspaceRelationships relationships)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.executions = requireNonNull(executions, "executions is null");
@@ -86,6 +88,7 @@ public final class DefaultWorkspacePullRequestService
         this.ciAutofix = requireNonNull(ciAutofix, "ciAutofix is null");
         this.ciAutofixStore = requireNonNull(ciAutofixStore, "ciAutofixStore is null");
         this.clock = requireNonNull(clock, "clock is null");
+        this.relationships = requireNonNull(relationships, "relationships is null");
     }
 
     @Override
@@ -127,6 +130,7 @@ public final class DefaultWorkspacePullRequestService
         try {
             Workspace workspace = requireWorkspace(command.workspaceId());
             CherryPickExecution execution = requireExecution(workspace, command.executionId());
+            relationships.requireTransferAllowed(execution.workspace().sourceRepository(), execution.workspace().repository());
             requireDeliverable(execution);
             if (execution.delivery().isPresent()) {
                 return pushResult(execution.delivery().orElseThrow());
@@ -160,6 +164,7 @@ public final class DefaultWorkspacePullRequestService
         try {
             Workspace workspace = requireWorkspace(command.workspaceId());
             CherryPickExecution execution = requireExecution(workspace, command.executionId());
+            relationships.requireTransferAllowed(execution.workspace().sourceRepository(), execution.workspace().repository());
             requireDeliverable(execution);
             Delivery delivery = execution.delivery().orElseThrow(() ->
                     WorkspaceException.deliveryUnavailable("Push the generated branch before creating a pull request."));

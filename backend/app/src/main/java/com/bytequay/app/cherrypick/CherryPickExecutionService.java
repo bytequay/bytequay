@@ -167,6 +167,7 @@ public class CherryPickExecutionService
         if (existing.isPresent()) {
             CherryPickExecution execution = existing.orElseThrow();
             requireWorkspace(execution.workspace().workspaceId(), workspaceId);
+            previews.requireTransferAllowed(execution.workspace().sourceRepository(), execution.workspace().repository());
             if (execution.status() != Status.FINISHED) {
                 ensureAgentTask(execution);
             }
@@ -177,6 +178,7 @@ public class CherryPickExecutionService
                 .orElseThrow(() -> new CherryPickInvalidRequestException(
                         "Preview is unknown or expired; preview the range again"));
         requireWorkspace(preview.workspaceId(), workspaceId);
+        previews.requireTransferAllowed(Optional.of(preview.sourceRepository()), preview.repository());
         requireUnmoved(preview, command);
         AgentLaneId laneId = new AgentLaneId(command.laneId());
         requireReady(drivers, laneId, AgentPermissionPolicy.CHERRY_PICK);
@@ -206,7 +208,8 @@ public class CherryPickExecutionService
                         preview.localTargetBranch(),
                         branch,
                         plannedWorktree(workspaceId, taskId),
-                        command.laneId()),
+                        command.laneId(),
+                        Optional.of(preview.sourceRepository())),
                 Optional.of(command.pullRequestDraft()),
                 new Range(preview.sourceBaseSha(), preview.sourceTipSha(), preview.targetSha()),
                 items,

@@ -17,6 +17,7 @@ import com.bytequay.app.cherrypick.CherryPickCommitPreview.TargetMatch;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote.Role;
@@ -62,6 +63,8 @@ class TestCherryPickPreviewService
     private static final GitCommandRunner GIT = new GitCommandRunner();
     private static final Instant NOW = Instant.parse("2026-08-20T00:00:00Z");
 
+    private final WorkspaceRelationships relationships = mock(WorkspaceRelationships.class);
+
     @TempDir
     private Path temporaryDirectory;
 
@@ -100,7 +103,18 @@ class TestCherryPickPreviewService
                 enrichment,
                 credentials,
                 remoteSources,
-                clock);
+                clock,
+                relationships);
+    }
+
+    @Test
+    void rejectsDependencyTransfersBeforeFetchingOrScouting()
+    {
+        org.mockito.Mockito.doThrow(new IllegalArgumentException("Dependency transfer blocked"))
+                .when(relationships).requireTransferAllowed(org.mockito.ArgumentMatchers.<com.bytequay.core.domain.RepoRef>any(), org.mockito.ArgumentMatchers.any());
+        assertThatThrownBy(() -> service.preview(new PreviewCherryPickRangeCommand(clone, "workspace-id", OptionalLong.empty(),
+                "origin", head(upstream), "origin/main", "fork", "main"))).hasMessage("Dependency transfer blocked");
+        assertThat(git(clone, "branch", "--list")).isEmpty();
     }
 
     @Test
@@ -268,7 +282,8 @@ class TestCherryPickPreviewService
                 enrichment,
                 credentials,
                 remoteSources,
-                clock);
+                clock,
+                relationships);
 
         CherryPickPreview preview = service.preview(command(base, "main"));
 

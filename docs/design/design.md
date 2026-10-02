@@ -109,10 +109,10 @@ historical checkpoint evidence and explicitly deferred future work.
   implemented. Its [implementation checklist](development-delivery-impl-tmp.md)
   records fixture/local verification and conservative unsupported-check limits;
   review-comment fixing and whole-flow restart recovery are excluded.
-- [Workspace references and backport chains](workspace-backports.md) defines
-  one-way reference context, fresh conversation handoffs, and saved sequential
-  backports through the existing cherry-pick, PR, CI, and rebase services.
-  It is approved design, not implemented behavior. Its
+- [Workspace relationships and backport chains](workspace-backports.md) defines
+  direct Fork/Dependency context, fresh conversation handoffs, and sequential
+  backports through existing cherry-pick, PR, CI, and rebase services.
+  Relationships and reading are implemented; handoffs and chains remain planned. Its
   [temporary checklist](workspace-backports-impl-tmp.md) tracks five checkpoints.
 - [Branch Rebase Service](rebase-service.md) specifies a program-owned rebase
   of one local branch onto another with agent-assisted conflict resolution,

@@ -307,6 +307,14 @@ memory's line, "Remembered m12 · …", gives the transcript row its Undo. Restr
 sessions, spec checks and other noninteractive runs get no tool; in a Codex
 review it is a root-only tool, like the other review writes.
 
+Development conversations also receive direct related-workspace discovery at
+turn preparation: relationship kind, guidance, backend-resolved path and exact
+locally available monitored commit. This is separate from guideline/memory
+receipts. The memory tool accepts optional `workspaceId` for SEARCH/READ, checks
+current direct membership and both development switches, and is offered when
+only a related workspace has memories. REPORT remains local; review/replay
+scope is unchanged. See [workspace relationships](workspace-backports.md).
+
 ## Development-agent CI evidence
 
 CI Autofix sessions additionally expose `propose_ci_description` through the

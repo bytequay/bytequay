@@ -23,6 +23,9 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.MemoryBridge;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
+import com.bytequay.app.workspace.WorkspaceRelationships;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.memory.Memory;
 import com.bytequay.core.memory.MemorySource;
 import com.bytequay.core.review.AgentReview;
@@ -55,8 +58,9 @@ class TestMemoryBridgeResolverImpl
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
     private final InMemoryMemoryStore store = new InMemoryMemoryStore();
     private final MemoryService memories = new MemoryService(store, new InMemoryAppSettingsStore(), mapper, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final WorkspaceRelationships relationships = mock(WorkspaceRelationships.class);
     private final MemorySources sources = mock(MemorySources.class);
-    private final MemoryBridgeResolverImpl resolver = new MemoryBridgeResolverImpl(tasks, reviews, memories, sources, mapper);
+    private final MemoryBridgeResolverImpl resolver = new MemoryBridgeResolverImpl(tasks, reviews, memories, sources, mapper, relationships);
 
     @Test
     void offersTheToolToDevelopmentTasksAndReviewsWithMemoryOnEvenBeforeAnythingIsRemembered()
@@ -233,6 +237,44 @@ class TestMemoryBridgeResolverImpl
         assertThat(second.path("memories")).hasSize(5);
         assertThat(second.path("pages").asInt()).isEqualTo(2);
         assertThat(second.path("total").asInt()).isEqualTo(25);
+    }
+
+    @Test
+    void readsAllRelatedMemoryWithoutOwnMemoriesAndRechecksEachCall()
+            throws Exception
+    {
+        Workspace destination = new Workspace("iceberg", "Iceberg", 2, RepoRef.of("apache", "iceberg"), Optional.empty(), Optional.empty(),
+                2, RepoRef.of("apache", "iceberg"), Workspace.Topology.DIRECT, "main", "https://github.com/apache/iceberg.git",
+                Optional.empty(), Optional.empty(), "/managed/iceberg", Optional.empty(), Optional.empty(), 0, java.time.Instant.EPOCH, java.time.Instant.EPOCH);
+        when(relationships.requireRelated("workspace", "iceberg")).thenReturn(destination);
+        for (int number = 1; number <= 25; number++) {
+            store.save(rule("m" + number, "iceberg", "Rule " + number, ImmutableList.of()));
+        }
+        AgentTask task = task(true, "workspace");
+        MemoryBridge bridge = resolver.resolve(task.id().toString()).orElseThrow();
+        JsonNode page = call(bridge, "{\"action\":\"SEARCH\",\"workspaceId\":\"iceberg\",\"page\":2}");
+        assertThat(page.path("memories")).hasSize(5);
+        assertThat(page.path("workspaceId").asText()).isEqualTo("iceberg");
+        assertThat(page.path("repository").asText()).isEqualTo("apache/iceberg");
+        assertThat(page.path("memories").get(0).path("version").asInt()).isEqualTo(1);
+        JsonNode memory = call(bridge, "{\"action\":\"READ\",\"workspaceId\":\"iceberg\",\"id\":\"m1\"}");
+        assertThat(memory.path("sources").isArray()).isTrue();
+        assertThat(memory.path("version").asInt()).isEqualTo(1);
+        assertThatThrownBy(() -> call(bridge, "{\"action\":\"REPORT\",\"workspaceId\":\"iceberg\",\"id\":\"m1\",\"reason\":\"bad\"}"))
+                .hasMessageContaining("Only SEARCH and READ");
+        assertThatThrownBy(() -> call(bridge, "{\"action\":\"REMEMBER\",\"workspaceId\":\"iceberg\",\"kind\":\"RULE\",\"text\":\"Keep private\"}"))
+                .hasMessageContaining("Only SEARCH and READ");
+        assertThat(memories.list("workspace")).isEmpty();
+        memories.saveSwitches("iceberg", new MemorySwitches(true, false));
+        assertThatThrownBy(() -> call(bridge, "{\"action\":\"SEARCH\",\"workspaceId\":\"iceberg\"}"))
+                .hasMessageContaining("Related workspace memory is disabled");
+        assertThat(resolver.resolve(task.id().toString())).isPresent(); // Local REMEMBER remains available.
+        memories.saveSwitches("iceberg", new MemorySwitches(true, true));
+        when(relationships.requireRelated("workspace", "iceberg")).thenThrow(new IllegalArgumentException("Workspace is not directly related"));
+        assertThatThrownBy(() -> call(bridge, "{\"action\":\"SEARCH\",\"workspaceId\":\"iceberg\"}"))
+                .hasMessageContaining("not directly related");
+        when(tasks.find(task.id())).thenReturn(Optional.of(task.fail("Failed", NOW, NOW.plus(Duration.ofDays(7)))));
+        assertThatThrownBy(() -> call(bridge, "{\"action\":\"SEARCH\"}")).hasMessageContaining("Task is unavailable");
     }
 
     private static AgentReview replay(AgentTask task, boolean memory)

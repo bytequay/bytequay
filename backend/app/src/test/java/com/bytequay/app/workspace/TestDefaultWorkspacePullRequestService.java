@@ -73,6 +73,20 @@ class TestDefaultWorkspacePullRequestService
     private Path temporaryDirectory;
 
     @Test
+    void rejectsDependencyDeliveryWithoutHidingStatusOrDiscardingWork()
+    {
+        Fixture fixture = fixture(directWorkspace(), directRepository(true));
+        doThrow(new IllegalArgumentException("Dependency transfer blocked")).when(fixture.relationships())
+                .requireTransferAllowed(org.mockito.ArgumentMatchers.<Optional<RepoRef>>any(), any());
+        assertThatThrownBy(() -> fixture.service().push(new PushCommand("workspace", fixture.executionId(), true)))
+                .hasMessage("Dependency transfer blocked");
+        assertThatThrownBy(() -> fixture.service().createPullRequest(new PullRequestCommand("workspace", fixture.executionId(), true)))
+                .hasMessage("Dependency transfer blocked");
+        fixture.service().getStatus("workspace", fixture.executionId());
+        verifyNoInteractions(fixture.git(), fixture.pullRequests());
+    }
+
+    @Test
     void directDeliveryPushesOriginAndCreatesPullRequestInSelectedRepository()
     {
         Fixture fixture = fixture(directWorkspace(), directRepository(true));
@@ -252,6 +266,7 @@ class TestDefaultWorkspacePullRequestService
         PullRequestService pullRequestCatalog = mock(PullRequestService.class);
         CiAutofixService ciAutofix = mock(CiAutofixService.class);
         CiAutofixStore ciAutofixStore = mock(CiAutofixStore.class);
+        WorkspaceRelationships relationships = mock(WorkspaceRelationships.class);
         DefaultWorkspacePullRequestService service = new DefaultWorkspacePullRequestService(
                 workspaceStore,
                 executionStore,
@@ -263,7 +278,8 @@ class TestDefaultWorkspacePullRequestService
                 pullRequestCatalog,
                 ciAutofix,
                 ciAutofixStore,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                relationships);
         return new Fixture(
                 service,
                 workspace,
@@ -272,7 +288,7 @@ class TestDefaultWorkspacePullRequestService
                 git,
                 pullRequests,
                 pullRequestCatalog,
-                ciAutofix);
+                ciAutofix, relationships);
     }
 
     private CherryPickExecution completedExecution(Workspace workspace, String targetBranch)
@@ -292,7 +308,7 @@ class TestDefaultWorkspacePullRequestService
                                 "bytequay-base",
                                 WORK_BRANCH,
                                 temporaryDirectory,
-                                "lane"),
+                                "lane", Optional.empty()),
                         Optional.of(new PullRequestDraft("PR title", "PR body")),
                         new Range(PARENT_SHA, SHA, PARENT_SHA),
                         ImmutableList.of(item),
@@ -425,7 +441,8 @@ class TestDefaultWorkspacePullRequestService
             ManagedWorkspaceGit git,
             GitHubPullRequestWriteClient pullRequests,
             PullRequestService pullRequestCatalog,
-            CiAutofixService ciAutofix)
+            CiAutofixService ciAutofix,
+            WorkspaceRelationships relationships)
     {
         private Fixture
         {

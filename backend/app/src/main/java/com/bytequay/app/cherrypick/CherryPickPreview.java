@@ -32,6 +32,7 @@ public record CherryPickPreview(
         String previewId,
         String workspaceId,
         RepoRef repository,
+        RepoRef sourceRepository,
         String sourceRemote,
         String targetRemote,
         String targetBranch,
@@ -49,6 +50,7 @@ public record CherryPickPreview(
         requireNonNull(previewId, "previewId is null");
         requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(repository, "repository is null");
+        requireNonNull(sourceRepository, "sourceRepository is null");
         requireNonNull(sourceRemote, "sourceRemote is null");
         requireNonNull(targetRemote, "targetRemote is null");
         requireNonNull(targetBranch, "targetBranch is null");

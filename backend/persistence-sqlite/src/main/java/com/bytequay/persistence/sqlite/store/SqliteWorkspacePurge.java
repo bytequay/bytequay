@@ -112,7 +112,7 @@ final class SqliteWorkspacePurge
         // Matched by prefix, not by exact key: these settings are per workspace and now also per
         // agent type, so an exact list silently leaks every suffix a later type adds.
         for (String prefix : ImmutableList.of("workspace.agentModel." + id, "workspace.commitsTargetBranch." + id, "workspace.memory." + id,
-                "workspace.memoryHarvest." + id, "workspace.reviewReplays." + id)) {
+                "workspace.relationships." + id, "workspace.memoryHarvest." + id, "workspace.reviewReplays." + id)) {
             update(
                     "DELETE FROM app_settings WHERE setting_key = :key OR setting_key LIKE :pattern",
                     ImmutableMap.of("key", prefix, "pattern", prefix + ".%"));

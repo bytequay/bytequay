@@ -18,6 +18,7 @@ import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
@@ -79,6 +80,7 @@ public class CherryPickPreviewService
     private final CredentialService credentials;
     private final WorkspaceRemoteSourceService remoteSources;
     private final Clock clock;
+    private final WorkspaceRelationships relationships;
     private final Cache<String, CherryPickPreview> cache;
 
     public CherryPickPreviewService(
@@ -87,7 +89,8 @@ public class CherryPickPreviewService
             RepositoryEnrichmentService enrichment,
             CredentialService credentials,
             WorkspaceRemoteSourceService remoteSources,
-            Clock clock)
+            Clock clock,
+            WorkspaceRelationships relationships)
     {
         this.git = requireNonNull(git, "git is null");
         this.conflictScout = requireNonNull(conflictScout, "conflictScout is null");
@@ -95,6 +98,7 @@ public class CherryPickPreviewService
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
         this.clock = requireNonNull(clock, "clock is null");
+        this.relationships = requireNonNull(relationships, "relationships is null");
         // One time source drives both the stored expiry and the cache's own, so
         // a preview cannot read as live in one and expired in the other.
         this.cache = CacheBuilder.newBuilder()
@@ -127,6 +131,7 @@ public class CherryPickPreviewService
                 repository,
                 command.workspaceId(),
                 ImmutableList.of(command.sourceRemote(), command.targetRemote()));
+        relationships.requireTransferAllowed(readRepository(repository, command.sourceRemote()), readRepository(repository, command.targetRemote()));
         synchronizeTarget(repository, command, environment);
 
         String targetSha = resolve(repository, command.localTargetBranch());
@@ -185,6 +190,7 @@ public class CherryPickPreviewService
                 UUID.randomUUID().toString(),
                 command.workspaceId(),
                 readRepository(repository, command.targetRemote()),
+                readRepository(repository, command.sourceRemote()),
                 command.sourceRemote(),
                 command.targetRemote(),
                 command.targetBranch(),
@@ -257,6 +263,11 @@ public class CherryPickPreviewService
     {
         requireNonNull(repository, "repository is null");
         requireNonNull(preview, "preview is null");
+        if (!readRepository(repository, preview.sourceRemote()).equals(preview.sourceRepository())
+                || !readRepository(repository, preview.targetRemote()).equals(preview.repository())) {
+            throw new CherryPickInvalidRequestException("Repository routing changed; preview again");
+        }
+        relationships.requireTransferAllowed(preview.sourceRepository(), preview.repository());
         Map<String, String> environment = authenticationEnvironment(
                 repository,
                 preview.workspaceId(),
@@ -522,6 +533,11 @@ public class CherryPickPreviewService
                     + "This is advisory: they remain selectable and are not skipped automatically.");
         }
         return equivalent.build();
+    }
+
+    public void requireTransferAllowed(Optional<RepoRef> source, RepoRef target)
+    {
+        relationships.requireTransferAllowed(source, target);
     }
 
     private RepoRef readRepository(Path repository, String remote)

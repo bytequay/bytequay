@@ -21,6 +21,7 @@ import type {
   WorkspaceSettingsDto,
 } from '../types';
 import RepoAvatar from '../RepoAvatar';
+import { RelatedWorkspaceSettings } from '../workspaces/RelatedWorkspaces';
 import { isDeepSeekKeyLane, providerStatusLabel } from './model';
 import { AgentModelControls, typeLabel, type ModelChoice } from './ModelsPage';
 import { AddAction, Badge, SettingsCard, SettingsRow, StatusDot, dotTone } from './primitives';
@@ -131,6 +132,8 @@ export function WorkspaceRepositoryPage({ workspace, settings, error, onAddRemot
           </div>
         )}
       </SettingsCard>
+
+      <RelatedWorkspaceSettings key={workspace.id} workspace={workspace} />
 
       <div className="setw-section"><span className="setw-section-title">Commits</span></div>
       <SettingsCard>

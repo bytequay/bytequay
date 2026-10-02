@@ -363,6 +363,7 @@ public class AgentConfiguration
             CodeGraphService codeGraph,
             AgentSkillService skills,
             RepositoryGuidelineReader guidelineReader,
+            RelatedWorkspaceContext relatedContext,
             MemoryDelivery memoryDelivery,
             RecipeChecks recipeChecks,
             Clock agentClock,
@@ -399,7 +400,7 @@ public class AgentConfiguration
                     @Override
                     public String prepare(AgentTask task, AgentTurn turn, String message)
                     {
-                        return message;
+                        return relatedContext.append(task, message);
                     }
 
                     @Override

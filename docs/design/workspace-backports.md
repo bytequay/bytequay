@@ -1,291 +1,344 @@
-# Workspace references and backport chains
+# Workspace relationships and backport chains
 
-Status: approved design; implementation has not started. The
-[temporary checklist](workspace-backports-impl-tmp.md) tracks delivery.
+Status: checkpoint 1 implemented; conversation handoffs and backport chains remain planned.
+The [temporary checklist](workspace-backports-impl-tmp.md) tracks five checkpoints.
 
-Keep one workspace per repository. Add references for reading related code,
-a handoff to another workspace's normal conversation, and a saved backport
-chain. Existing development, cherry-pick, PR delivery, CI, and rebase services
-continue to perform the work.
+Keep one workspace per repository. Add two relationship kinds, let a
+conversation read and request work in a related workspace, and put a small
+saved chain above the existing cherry-pick flow.
 
-## 1. User flows
+## 1. Two relationship kinds
 
-### Start from P2
+| Relationship from our workspace | Example | What it allows |
+| --- | --- | --- |
+| Fork | Private Trino -> Apache Trino | Read code and memory, compare versions, investigate there, and backport into our workspace when requested |
+| Dependency | Trino -> Apache Iceberg | Read code and memory, compare versions, and investigate there; no cherry-pick or backport between them |
 
-The user asks in a P2 conversation: "Check whether this issue also exists in
-P4. If it does, fix it there, then backport through P3 to P2."
+A fork means our source builds on that project. It need not be a GitHub fork.
+There is no third Reference kind or list of capability switches.
 
-1. The P2 agent reads P4's code and notes through a configured reference.
-2. If the bug exists in P4, ByteQuay starts a fresh P4 conversation with a
-   focused problem description. If not, it reports the finding without
-   starting the upstream fix or backport chain.
-3. P4's existing development flow produces its PR and handles CI.
-4. After that PR merges, the existing cherry-pick flow runs in P3 and
-   produces the P3 PR.
-5. After the P3 PR merges, the same flow runs in P2 using P3's landed changes.
+Save a list in the existing workspace settings through `AppSettingsStore`.
+Each entry has only `workspaceId`, `kind` (`FORK` or `DEPENDENCY`), and
+`guidance`: why this workspace matters and when to consult it. Put version
+hints in that guidance, such as "Iceberg's version is declared in pom.xml";
+do not add a separate version configuration or dependency lockfile.
 
-This produces one upstream fix PR and two backport PRs. Each workspace owns
-its worktree, agent execution, credentials, target branch, and PR.
-
-### Start from P4
-
-The user starts an ordinary P4 conversation and asks for the fix. Before or
-after its PR merges, they can add: "After this merges, backport to P3, then
-backport P3's landed changes to P2."
-
-Both cases join the same chain:
+For the private fork chain:
 
 ```text
-P4 conversation -> P4 PR
-                     | merged
-Existing cherry-pick in P3 -> existing push / PR / CI
-                     | P3 PR merged
-Existing cherry-pick in P2 -> existing push / PR / CI
-                     | P2 PR merged
-Complete
+P1 --dependency--> P2
+P2 --fork-------> P3 and P4
+P3 --fork-------> P4
+P4 has no outgoing relationships
 ```
 
-Starting a conversation remains the way to request development. There is no
-new "create task" button. Backports reuse the existing cherry-pick execution
-and its conflict agent; they are not wrapped in another development conversation.
+Only direct outgoing relationships supply context. P2 can read P3 and P4;
+P3 cannot read P2 through this feature. Do not follow relationships recursively.
+Reject self-links, duplicate destinations, and unavailable workspace identities.
+Changing a relationship does not change the other workspace's configuration.
 
-## 2. Reuse boundaries
+A relationship names the related workspace's monitored project. Resolve its
+managed checkout and logical repository identity on the backend; a personal
+`origin` used for publishing is not a different project to consult. Existing
+`Workspace.Topology`, `origin`, and `upstream` still control contribution
+routing. Adding a relationship never changes them. A backport PR must target
+the requested project's branch; if existing routing points elsewhere, report
+the mismatch instead of silently redirecting the work.
+For an internal fork that should receive its own PRs, use the existing
+upstream configuration to make that project the monitored destination first.
+`setUpstream` already supports changing or clearing that contribution link;
+this feature adds no second PR-routing mechanism.
 
-| Existing part | Responsibility retained |
+Each chain hop requires a direct Fork relationship from destination to source:
+P3 -> P4 permits the P4-to-P3 hop; P2 -> P3 permits the next hop. The backend
+can validate this without giving P4 access to downstream memory. Dependency
+relationships prohibit transfers between the linked repositories in either
+direction. Check actual repository identities in shared cherry-pick admission
+and delivery, so a manual request or another remote name cannot bypass this.
+Existing manual routes outside these relationships keep their current behavior.
+
+## 2. Fit the current code
+
+The old repository-context notebooks, knowledge notes, learning runs, and
+note lookup APIs have been deleted. Do not restore them. "Read the other
+workspace's knowledge" now means read its code, docs, guidelines, and saved
+[repository memory](repository-memory.md).
+
+| Current code | Reuse or small change |
 | --- | --- |
-| `InteractiveAgentTaskCreator` and turn admission | Create the destination conversation and its managed worktree |
-| `DevelopmentFollowupCoordinator` | Commit finished development, publish its PR, repair CI, and mark ready |
-| `CherryPickPreviewService` / `CherryPickExecutionService` | Freeze and validate the selection, apply commits, resolve conflicts, account for results, and recover execution |
-| `WorkspacePullRequestService` | Push the generated backport branch and create its PR |
-| `CiAutofixService` / `BranchRebaseService` | Own CI repairs, required rebases, pushes, and their existing recovery |
+| `MemoryService`, `MemoryBridgeResolverImpl`, `MemoryBridge` | Extend existing `repository_memory` SEARCH/READ to a direct related workspace |
+| `RepositoryGuidelineReader` and the turn-input resolver | Keep current-workspace guidelines; add concise relationship discovery instructions |
+| `InteractiveAgentTaskCreator` and `WorktreeService` | Reuse normal conversations and exact-commit worktrees; allow a chosen investigation revision |
+| `DevelopmentFollowupCoordinator` | Keep development, publication, and its existing restart behavior |
+| Cherry-pick preview/execution, workspace PR delivery, CI Autofix, Branch Rebase | Run each backport hop; add only the missing chain coordination |
 
-The chain coordinator only decides when to invoke these services. It does not
-run Git mutations itself, duplicate their states, or hold an agent process
-open while waiting for a merge. The existing development continuation stays
-in-process and retains its current restart behavior.
+The memory store and SEARCH/READ/REPORT tool exist. Memory UI, enable switches,
+and capture are also changing in concurrent work. Reuse their current contracts;
+do not assume the whole memory roadmap is implemented or duplicate it. The
+current tool's availability check requires memories in the owning workspace;
+extend it to eligible related workspaces while respecting memory switches.
 
-References do not change the existing workspace `origin` / `upstream` routing.
-That routing determines development and PR destinations. A P2 reference to
-P3 must not silently turn P3 into P2's development base or PR target.
+The current conversation creator resolves the default branch, although the
+worktree service already accepts an exact commit. Backport delivery still skips
+CI activation and CI status for linked-upstream workspaces. These are concrete
+integration changes, not reasons for a new task or workflow engine.
 
-Related contracts: [workspaces](watched-repo.md),
-[agent service](agent-service.md), [development delivery](development-delivery.md),
-[cherry-pick](cherry-pick-range.md), [CI Autofix](ci-autofix-service.md),
-[rebase](rebase-service.md), and [repository memory](repository-memory.md).
+Related contracts: [workspaces](watched-repo.md), [agent service](agent-service.md),
+[worktrees](worktree-service.md), [development delivery](development-delivery.md),
+[cherry-pick](cherry-pick-range.md), [CI](ci-autofix-service.md), and
+[rebase](rebase-service.md).
 
-## 3. Workspace references
+## 3. Reading and comparing
 
-Store a small list in workspace settings. Each entry contains the referenced
-workspace ID and a short, user-editable explanation of the relationship and
-when to consult it. Workspace names are display labels, not identities.
+### Tell the agent where and when to look
+
+Every development turn receives its direct relationships, guidance, and
+backend-resolved repository paths and commits. Use the existing provider input
+path for both lanes. For example:
+
+> This is Trino. Apache Iceberg is a Dependency. For Iceberg library behavior
+> or an upgrade failure, read that repository at the version Trino uses.
+> Its checkout is at the supplied path. Use normal file/Git reads for code;
+> use repository_memory with its workspaceId for saved rules and sources.
+> Ask for an investigation there if tests need its build. Do not cherry-pick
+> between Trino and Iceberg.
+
+For a Fork, guidance instead explains which behavior is inherited and where
+our changes differ. The agent decides relevance from that guidance and the
+current question. No topic classifier or automatic research job is needed.
+
+Ordinary code reads use the existing managed checkout at a captured commit,
+without checking out another branch or creating a worktree. Fetch missing
+history through existing repository sync. Report an unavailable repository or
+revision; never silently substitute another one. Reading another project's
+rules does not make them rules for the current project.
+
+### Reuse the memory tool
+
+Add optional `workspaceId` to SEARCH and READ. Omission means the current
+workspace. On each call, validate the task and direct relationship, then use
+`MemoryService`. SEARCH without a query already pages through all memory;
+reuse it instead of adding LIST. Return the source workspace, memory ID,
+version, sources, and reports. Expose all saved kinds and scopes in that
+workspace, not just a preselected topic.
+
+Related access is read-only. REPORT and any future memory-writing actions
+remain bound to the owning workspace; passing another workspace must be
+rejected. Update the existing tool schema and bindings for both providers.
+Keep memory's own enablement and receipt rules as they are implemented. A
+development turn must have memory enabled, and related reads also honor the
+source workspace's development-memory switch. Add no second store, copy of
+memory, or per-relationship memory toggle.
+
+Keep current-workspace guideline and memory delivery separate from related
+reads. Supply the relationship list automatically, then read related memory
+on demand. A related workspace does not inherit our transcript, repository
+memory, or outgoing links. Source text remains reference data. Existing
+filesystem permissions remain unchanged; this is not filesystem isolation.
+
+### Compare actual versions
+
+For a dependency upgrade, the agent reads the declaration and resolved build
+evidence in the current task, identifies old/new library versions, and finds
+their source revisions. Compare old P2 with new P2, then inspect how P1 uses
+the changed behavior. For a fork, compare a known upstream baseline with the
+chosen newer upstream revision and inspect our local differences.
+
+Resolve tags/refs to exact commits in the related repository and retain the
+labels, SHAs, and evidence with the request. Diff reads and test worktrees use
+those SHAs even if a tag moves. Missing history or an uncertain package-to-source
+mapping is a visible limitation, not permission to use the default branch.
+No package-manager abstraction or upgrade watcher is required.
+
+Memory is current saved advice, not a historical snapshot for each release.
+Read its sources and verify relevant claims against the chosen code revision.
+Use memory's source flags where available; do not claim the deleted notebook's
+revision checks still exist or rebuild them in this feature.
+
+### Current implementation boundary
+
+`WorkspaceRelationships` saves each direct list in application settings under
+`workspace.relationships.<workspaceId>`. Row writes take the existing workspace
+lock. Settings and sidebar links reuse the Commits and Memory routes. Missing
+workspaces stay visible for removal. Same monitored projects are rejected with
+an explanation of the existing upstream routing.
+
+`RelatedWorkspaceContext` appends discovery data through the shared turn-input
+resolver's preparation step for development conversations, on both providers.
+It resolves local monitored refs without fetching. Related guideline text is
+read on demand and does not enter the current repository's guideline receipts.
+`repository_memory` accepts `workspaceId` on SEARCH/READ; omitted means local.
+Every call rechecks the open task, switches and direct membership. Review and
+replay scope stays unchanged. Related memory is not automatically delivered.
+
+Preview, execution admission and push/PR delivery share dependency rejection.
+New cherry-pick executions persist their source repository so remote changes
+cannot rewrite its identity. Older executions without that identity must be
+previewed again before delivery when the target participates in a Dependency;
+their work is preserved. Existing manual transfers unrelated to these pairs
+keep their behavior. The feature does not change filesystem permissions.
+
+## 4. Request work in the other workspace
+
+A conversation can request a focused investigation or fix in a direct related
+workspace. Add one fixed, root-bound handoff operation through the existing
+tool transport. It creates an ordinary destination conversation and can read
+that conversation's status and the result of the requested work.
+
+Reuse conversation creation, first-turn admission, provider readiness, model
+settings, and worktree ownership. Record the source/request key -> destination
+task/first-turn link before starting work, so retries return the same work.
+Compare the saved request before replay; include destination, purpose, revision,
+and accepted settings in the fingerprint. This is a link, not a second
+conversation lifecycle.
+
+An investigation supplies a backend-validated commit in the destination
+repository. Extend the creator's base selection for that case, then use
+`WorktreeService` unchanged. A fix uses normal development base selection.
+Testing both revisions uses one ordinary conversation/worktree per revision;
+never reset another task's checkout or edit a managed shared checkout.
+
+For investigation, turn off Auto draft PR, Auto CI fix, and Auto review summary
+in the new task's saved development settings and accepted turns. Keep normal
+local development commits. Do not confuse this with the internal
+`DevelopmentAutomation.LOCAL_ONLY`, which also disables commits for private
+flows. An investigation request grants no push or PR authority; a requested
+fix/publication uses the existing development authorization and delivery rules.
+
+Send only the question, selected revision, reproduction steps, and necessary
+evidence authorized by the user's request. Do not copy the parent conversation
+or memory. Keep the original Jira/GitHub issue association in the original
+workspace. The destination loads its own guidelines, memory, and relationships.
+
+The source can read the linked work's status and completed-turn answer through
+the same operation, using existing turn/log readers. An ordinary conversation
+stays open after answering; do not wait for `AgentTask.summary`, which exists
+only after task completion. Identify the result turn and return tested commits,
+commands, outcomes, and limitations. Missing/expired results are reported.
+No general cross-workspace messaging system or new result store is needed.
+
+The accepted user request supplies authority for the named work. An agent's
+suggestion or a memory entry does not. Keep provider approvals, existing stop
+controls, and root/turn checks. A plain investigation never creates a backport
+chain. Starting a conversation remains the user entry point; no Create task
+button is added.
+
+## 5. Put a saved chain above cherry-pick
+
+The two fork flows share one route:
 
 ```text
-P1 references P2
-P2 references P3 and P4
-P3 references P4
-P4 references none
+From P2: investigate P4 -> fresh P4 fix conversation -> P4 PR
+From P4: ordinary fix conversation -----------------> P4 PR
+                                                       | merged
+                                      existing backport in P3 -> P3 PR
+                                                                  | merged
+                                                 existing backport in P2 -> P2 PR
+                                                                             | merged
+                                                                          complete
 ```
 
-References are explicit, directional, and non-transitive. Reject self-links
-and duplicates. Each referenced workspace must exist and be readable by the
-user. References are not a build dependency graph and do not grant publication
-authority. A user may request a backport to another accessible workspace
-without giving the source agent access to that destination's notes.
+The user may attach the route before or after the source PR exists. A negative
+P4 finding starts no fix or chain. P4 can also backport directly to P2 when
+P2 declares P4 as a Fork source. A Dependency never enters this flow.
+When starting in P2, bind the chain to the returned P4 conversation, not P2's
+conversation. Attach only that conversation's verified published PR.
 
-At the start of a development turn, ByteQuay supplies the current workspace,
-the direct reference list, each explanation, and concrete reading instructions:
+### What is new
 
-> P2 adds internal changes above P3; P4 is the original Trino project.
-> Start with P2. Consult P3 or P4 for inherited behavior, then check P2's
-> differences before applying that explanation here.
-> Reference code is available at the listed paths and revisions. Use normal
-> file/Git tools to read it. Use the context-note tool with the reference's
-> workspace identifier to read its notes. Edit only the task worktree.
+One `BackportChain` record, its store, and a small coordinator. Place the domain
+and storage port in `core`, the SQLite adapter in `persistence-sqlite`, and
+coordination in `app`, using existing Hibernate and `MonitorLoop` conventions.
+Store only:
 
-Resolve paths on the backend from existing managed repositories. Include the
-resolved repository identity and commit for each reference; use ordinary Git
-reads at that commit when the shared checkout may change. Reuse the existing
-sync/read services rather than creating reference worktrees or another index.
-An unavailable reference is reported as unavailable, never silently replaced.
+- The source conversation and/or verified PR, request key, and accepted authority.
+- Ordered destination workspace/repository/branch identities and execution choices.
+- Each step's resolved landed commits and existing execution/PR IDs.
+- A stop flag, blocking reason, and version for concurrent updates.
 
-Extend the existing notebook tool's list, search, and exact-read operations
-with an optional reference workspace selector. Omission means the task's own
-workspace. Check direct membership and existing context enable settings on
-each call. Return source workspace, repository, commit, and note version;
-include the workspace in lookup keys and receipts to avoid collisions.
+Derive progress from existing execution, CI, and PR facts. A fixed root-bound
+chain operation saves/appends the route under the accepted user request. Append
+only unstarted work; do not rewrite completed steps. Freeze destinations when
+the request is accepted, and reject changed fields on a reused key.
 
-Check a P4 note against the captured P4 revision, not the P2 task HEAD. That
-check does not prove the explanation applies to P2. Reference access exposes
-read operations only; note proposals, edits, grades, and learning requests
-continue to belong to the task's own workspace. Do not widen cherry-pick or
-CI helper permissions as a side effect of adding development references.
+### How it advances
 
-Detailed guidance stays in existing notes. For example, a P2 Iceberg note can
-point to a P4 note for inherited behavior and a P2 note for internal changes.
-Reuse existing note identity/version lookup; add no separate concept graph or
-automatic note-copying system. Referenced text remains source material, not
-authority to change the task's instructions or permissions.
+1. Recheck the direct Fork relationship, saved authority, and destination routing.
+   Wait for the exact source PR to merge, using the existing GitHub readers.
+2. Resolve what actually landed in that repository. Save the exact source range.
+3. Reuse the destination's remote-source support, preview, and execution with a
+   stable chain/step key. Reuse an existing execution instead of starting twice.
+4. Reuse push/PR delivery and CI Autofix, including its Branch Rebase service.
+5. Wait for that PR to merge. Its landed result is the next step's source.
 
-This feature controls supplied context and tool access. It deliberately keeps
-today's filesystem permissions; it does not promise that an agent cannot
-discover other local repositories through its existing shell access.
+P2 receives P3's landed result, including its adaptations and conflict fixups,
+not the original P4 commits or an old PR head. The final step also waits for
+merge. The chain never merges a PR automatically or keeps an agent running to
+wait for a merge.
 
-## 4. Conversation handoff
+Add one narrow merged-PR source resolver. GitHub merge facts plus fetched Git
+history must establish the exact landed range. Squash/rebase merges can rewrite
+SHAs; PR commit count or grouping alone is insufficient. Feed proven non-merge
+ranges into the existing preview. Unsupported or ambiguous history pauses for
+explicit commit selection; do not add merge-commit replay or guess a range.
 
-Add a fixed task-bound operation for the current root conversation to request
-work in a named workspace. Reuse the existing local-tool transport, conversation
-creator, first-turn admission, provider readiness, and destination settings.
-Creation uses a stable request key so a repeated tool call returns the same
-destination conversation.
+Reuse an existing source remote, or register a missing one through
+`WorkspaceRemoteSourceService` under the accepted route. Use the source's
+backend-resolved repository URL; never replace `origin` or contribution
+`upstream`. An expired preview or moved target requires a fresh preview of the
+same saved source and destination. Keep manual confirmation unchanged; chain
+publication uses its specific saved authority through the existing delivery gate.
 
-The original user request must authorize the destination and the work. An
-agent's own suggestion is not authorization. The new conversation receives a
-focused problem statement and selected supporting evidence, never the full
-source transcript, its reference list, or its private notebook by default.
-The application can retain a private source/destination link for navigation.
+Complete linked-upstream CI activation and status in the existing delivery
+service, reusing its stable CI key and fork validation. Do not duplicate CI,
+rebase, conflict resolution, or draft promotion in the chain coordinator.
 
-Keep the original Jira/GitHub issue association with the original conversation.
-Use ordinary conversation creation for the handoff; do not reassign the ticket
-or duplicate its current single-conversation association. Pass only the issue
-information needed and authorized for the destination work.
+### Stop and recovery
 
-Starting from P2 does not make P2 the owner of P4's work. P4 receives its own
-workspace context and direct references. P4's published PR can become the
-source of the saved chain without another user submission.
+Persist before dispatch. Serialize each chain and reuse child IDs/stable keys
+across crashes; existing child services keep their own recovery. Repeated ticks
+must not publish twice. The current development continuation is not made
+restartable by this feature. Waiting chains may resume merge checks after restart;
+failed development/CI and uncertain actions require attention, not blind replay.
 
-## 5. One saved chain
+Before retrying an uncertain push/PR creation, verify the exact branch, commit,
+and PR through existing readers. Adopt a proven result or pause. Stop records
+its flag before further dispatch and uses existing cancellation for chain-owned
+work; it does not close PRs, discard work, or stop the independent source chat.
+Resume is explicit and revalidates current facts.
 
-Add one `BackportChain` aggregate and storage port in `core`, its SQLite
-adapter in `persistence-sqlite`, and a coordinator in `app`. Use the existing
-Hibernate schema conventions. The ordered steps can be stored with the chain;
-there is no separate generic workflow, step engine, or Maven module.
+Recheck relationships and routing before every new step and publication. Removal,
+change to Dependency, a closed-unmerged PR, or a missing workspace pauses the
+chain without deleting work. Workspace deletion must stop or refuse active
+related work. Settings updates use the existing workspace lock; no whole-graph
+lock is needed. Existing writer claims serialize mutations within one worktree.
 
-The record holds only facts needed to wait and resume safely:
+If a hop is empty/already present, create no empty PR. The final hop may complete
+as a verified no-op. An intermediate hop still needs a proven landed source in
+that destination for the next hop; otherwise pause for selection.
 
-| Fact | Purpose |
+## 6. Small UI and delivery order
+
+The approved [UI prototype](https://claude.ai/artifact/ANGa1cuFczrHjBoACSDVxt)
+is the source of truth for this feature's layout and interactions. Its mock
+records and scenario-switching toolbar are preview-only. Use existing app
+primitives for the workspace picker, Fork/Dependency segments, compact related
+rows, linked-work cards and Tasks sub-tab. Preserve current conversation entry;
+this feature adds no Create task button.
+
+
+| Existing surface | Addition |
 | --- | --- |
-| Chain ID, request key, source conversation and/or PR | Attach the request before publication or to an existing PR without duplicate creation |
-| Ordered destinations with workspace, repository identity, and branch | Freeze the requested route; never retarget after settings changes |
-| Accepted user request and execution choices | Preserve authority for the named operations and the selected agent/settings |
-| Per-step landed source and existing execution/PR IDs | Reuse real results and start each backport once |
-| Stopped flag, blocking reason, record version | Stop dispatch, explain a hold, and prevent conflicting updates |
+| Workspace settings | Related workspace, Fork/Dependency, and one guidance text field |
+| Workspace navigation | Links to the related code/history and Memory views, clearly labeled with the workspace |
+| Conversation | Linked investigation/fix, tested revisions/results, and a compact backport route with execution/PR links or the blocking reason |
+| Existing action controls | Stop/Resume for the chain; no backport action for a Dependency |
 
-The current step is the first one without a verified merged destination result.
-Derive display progress from existing execution, delivery, CI, and PR facts.
-Do not copy their phase/status fields into another lifecycle. The final PR
-being open is shown as waiting for merge; the chain completes after it merges.
+Show version comparison in the conversation using existing Git/diff output;
+no dedicated comparison dashboard is required. Reuse the Memory page as its
+current implementation lands, without adding another memory browser.
 
-A fixed conversation operation saves or appends backport destinations using
-the existing tool transport. Bind it to the accepted user turn, current root,
-source, and exact destinations. Appending changes only unstarted work and
-requires the new user request. Generated messages cannot add destinations or
-expand write authority. A chat promise alone does not create a chain.
-
-The chain request authorizes cherry-pick, branch publication, PR creation, and
-the existing bounded CI actions in those destinations. Provider approvals,
-credentials, and current repository permission checks still apply. This
-extends the existing delivery confirmation boundary with saved chain authority;
-it does not make every background caller implicitly confirmed.
-
-The request does not authorize automatic PR merges. Continue to use the
-existing user/reviewer merge path, and advance only after fresh GitHub evidence
-that the exact predecessor PR merged. Closed without merge blocks the next step.
-
-## 6. Advance through existing services
-
-A small monitor follows the existing `MonitorLoop` pattern. It checks the
-exact PR currently awaited, with existing rate-limit and scheduling policies,
-independently of whether a workspace panel is open. Reuse GitHub readers;
-do not redesign general PR refresh or keep a conversation running to poll.
-
-The coordinator advances one chain under the existing locking/store conventions:
-
-1. Check that the chain is enabled and its recorded destination still matches
-   the workspace's actual routing. Resolve a source conversation's PR through
-   verified publication facts; never guess from its title or branch name.
-2. Once that exact PR is merged, resolve and save its landed changes.
-3. Resolve the source through the destination's existing remote-source support,
-   synchronize, and call the existing preview and execution services. Use a
-   stable chain/step execution key and reuse any already-created execution.
-4. When the execution completes successfully, call existing push and PR
-   delivery under the saved authority, then reuse CI Autofix. Store result IDs.
-5. Wait for that PR to merge. Its landed result becomes the next step's source.
-
-The executor retains immutable source order, presence checks, exact target
-checks, conflict history, and worktree cleanup. A moved target invalidates a
-preview. Under the saved chain request the coordinator may create a fresh
-preview for the same frozen source and destination, but must not start from
-stale SHAs or widen the selection. Existing manual confirmation behavior stays
-unchanged. Missing source routing blocks with an actionable configuration error;
-never replace the destination's contribution upstream to make the fetch work.
-
-Backport delivery currently omits automatic CI for linked-upstream workspaces.
-Complete that connection in the existing delivery service, including its CI
-status projection, using the CI service's current fork checks and stable run
-key. Do not create a second CI loop in the chain coordinator. Preserve the
-existing backport PR type rather than wrapping it in development draft promotion.
-
-## 7. Resolve what actually landed
-
-Add one narrow helper that turns a verified merged PR into exact source commits
-accepted by the existing cherry-pick preview. Retain the source repository,
-PR, branch, merge identity, and ordered landed commits with that result.
-
-Read fresh merge facts and verify the commits in fetched source history.
-Squash and rebase merges can change commit IDs, so the old PR head and its
-pre-merge commit list are not sufficient. Include adaptations and conflict
-fixups that became part of the merged result. Commit-to-PR grouping remains
-display metadata; it is not alone a proof of the landed range.
-
-Test each supported merge shape with real Git history and recorded provider
-responses. The current executor accepts a range of non-merge commits. Do not
-add merge-commit replay, silently flatten history, or include unrelated commits
-to fit that interface. If an exact compatible range cannot be established,
-pause for explicit source selection. Reuse the existing preview for that choice.
-
-For P4 -> P3 -> P2, resolve the P3 PR after it merges. Never substitute the
-original P4 range, the old P3 task head, or only a cherry-pick item's target SHA:
-the existing conflict result can include its adjacent fixup commit.
-
-If all changes are already present or the resulting change is empty, do not
-create an empty PR. A final step can report that verified no-op as complete.
-An intermediate step can advance only with an exact landed destination source
-for the next hop; otherwise pause for selection rather than bypassing P3.
-
-## 8. Stop, restart, and uncertain results
-
-Persist the chain before it dispatches work. Use stable request/execution keys
-and existing IDs to cover the gap between dispatch and saving its result.
-Reject changed parameters on a reused request key. Check saved authority and
-the stopped flag before every new external action.
-
-On restart, waiting chains resume checks and adopt existing execution/PR facts.
-Running cherry-pick and standalone CI retain their existing recovery rules.
-The chain does not restart a failed development continuation or an exhausted
-CI run. Existing active work and writer-ownership checks remain authoritative.
-
-An uncertain push or PR-create response never justifies a blind retry. Check
-the exact destination branch, commit, and PR identity through existing readers.
-Adopt only a proven match; otherwise block for inspection. Do not add an
-automatic retry framework or claim saved execution IDs alone solve remote
-publication uncertainty.
-
-Stop records the stop before further dispatch and uses existing stop/cancel
-operations for active work owned by the chain. It does not stop the independent
-source conversation, close PRs, or discard files/branches. Resume is explicit
-and rechecks the current facts and authority. Missing/deleted workspaces or
-changed routing block; cleanup/deletion must preserve or explicitly stop
-dependent chains rather than silently retargeting them.
-
-## 9. Small UI and delivery order
-
-Workspace settings lists references and their explanations. Reuse existing
-code/commit/PR/context views for browsing each reference, clearly identifying
-the displayed workspace. A conversation shows the requested route and links
-to the existing execution, PR, or blocking reason for each step, with Stop and
-Resume through the existing controls. It does not introduce a workflow canvas
-or a new development entry point.
-
-Implement and verify the chain from an existing PR first. Then add reference
-context and the P2-to-P4 handoff using the same chain. The temporary checklist
-defines five implementation checkpoints; those checkpoints are not runtime states.
+Implement in this order: relationships and reading; conversation handoff;
+landed-source resolution; chain integration; end-to-end verification. These are
+the five checkpoints in the [checklist](workspace-backports-impl-tmp.md), not
+runtime states. Dependency investigation is usable without the chain feature.

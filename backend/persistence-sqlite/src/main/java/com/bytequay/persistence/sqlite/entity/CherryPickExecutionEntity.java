@@ -71,6 +71,10 @@ public class CherryPickExecutionEntity
     @Column(nullable = false)
     private String sourceRemote;
 
+    private String sourceRepositoryOwner;
+
+    private String sourceRepositoryName;
+
     @Column(nullable = false)
     private String targetRemote;
 
@@ -183,6 +187,8 @@ public class CherryPickExecutionEntity
         physicalRepositoryOwner = workspace.physicalRepository().owner();
         physicalRepositoryName = workspace.physicalRepository().repo();
         sourceRemote = workspace.sourceRemote();
+        sourceRepositoryOwner = workspace.sourceRepository().map(RepoRef::owner).orElse(null);
+        sourceRepositoryName = workspace.sourceRepository().map(RepoRef::repo).orElse(null);
         targetRemote = workspace.targetRemote();
         targetBranch = workspace.targetBranch();
         localTargetBranch = workspace.localTargetBranch();
@@ -230,7 +236,8 @@ public class CherryPickExecutionEntity
                         localTargetBranch,
                         workBranch,
                         Path.of(worktree),
-                        laneId),
+                        laneId,
+                        Optional.ofNullable(sourceRepositoryOwner).map(owner -> RepoRef.of(owner, sourceRepositoryName))),
                 Optional.ofNullable(pullRequestTitle)
                         .map(title -> new PullRequestDraft(title, Optional.ofNullable(pullRequestBody).orElse(""))),
                 Optional.ofNullable(pushedRemote).map(remote -> new Delivery(

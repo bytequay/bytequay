@@ -1,145 +1,183 @@
-# Workspace Backports Implementation Checklist
+# Workspace Relationships Implementation Checklist
 
-Status: not started. Canonical behavior is defined in
-[Workspace references and backport chains](workspace-backports.md).
-This is a temporary implementation tracker, not a second design.
-All implementation and verification boxes start unchecked.
+Status: checkpoint 1 implemented and checked. Checkpoints 2–5 are not started.
+The [design](workspace-backports.md) is canonical.
+This file tracks implementation, not another runtime workflow.
+Checkpoint order replaces the earlier chain-first plan.
 
 ## Working rules
 
-- [ ] Read the repository instructions and canonical design before changes;
-  inspect the working tree and preserve unrelated work.
-- [ ] Reuse conversation creation, development delivery, cherry-pick, PR
-  delivery, CI, rebase, GitHub readers, and existing monitor/tool transports.
-- [ ] Keep one chain aggregate and coordinator; add no generic workflow
-  engine, new module, duplicate execution lifecycle, or new dependency.
-- [ ] Mark a box complete only when its behavior exists and its relevant
-  check passes. Record evidence below without dates or unsupported claims.
-- [ ] Use fixture providers and disposable repositories for tests. Live
-  GitHub writes require a user-selected authorized test target.
+Preserve concurrent work. Re-read the current memory and agent contracts before
+implementation; the old knowledge notebooks and their APIs were removed.
+Use existing services and modules. Mark a box only after its check passes.
+Use disposable Git repositories and provider fixtures; live GitHub writes need
+an explicitly selected test target. Record evidence without authoring dates.
 
-## Checkpoint 1 — Saved chain and landed source
+## Checkpoint 1 — Relationships and reading
 
-Starting points: `CherryPickPreviewService`, `CherryPickPullRequestLookup`,
-`GitHubPullRequestReadClient`, and existing core/SQLite storage conventions.
+UI: workspace settings and links to related workspaces.
+Starting points: `AppSettingsStore`, `MemoryBridgeResolverImpl`, `MemoryService`,
+`MemoryBridge`, `RepositoryGuidelineReader`, and workspace repository resolution.
 
-- [ ] Add the chain aggregate/store and SQLite adapter with ordered
-  destinations, frozen repository/branch identities, accepted authority,
-  source conversation/PR, stable keys, result IDs, stop/block facts, and version.
-- [ ] Add the landed-source resolver. Verify fresh merge facts and source
-  history; retain exact source commits and provenance. Do not use an old PR
-  head, commit-count guess, or PR grouping alone as the answer.
-- [ ] Feed compatible ranges into existing preview. Show an actionable hold
-  for unsupported or ambiguous history and reuse explicit commit selection.
-- [ ] Cover normal linear, squash, and rebase outcomes, retained conflict
-  fixups, unrelated base commits, merge-commit rejection, and missing history
-  with real Git fixtures and provider response fixtures.
-- [ ] Verify chain round trips, duplicate request handling, changed request
-  rejection, frozen destination routing, and optimistic update conflicts.
+- [x] Save one direct relationship list: workspace ID, Fork/Dependency, guidance.
+  Validate self-links/duplicates and logical repository identities; serialize
+  settings writes. Preserve contribution routing and explain routing mismatches.
+- [x] Supply the list, guidance, paths, and captured commits to development
+  turns through current provider input. Use ordinary Git reads for code and
+  old/new version comparisons; unavailable or unmapped revisions stay explicit.
+- [x] Add optional workspace selection to memory SEARCH/READ on both providers.
+  Offer the tool when only a related workspace has memory; expose all its saved
+  memory through existing pagination. Label workspace/ID/version/sources.
+- [x] Validate direct membership on every call. Keep REPORT and future writes
+  local, respect memory's own controls, and leave source guidelines scoped.
+  Do not rebuild deleted notebooks, note receipts, or version-check machinery.
+- [x] Add the small settings list and existing-view links. Add shared dependency
+  rejection to manual/API cherry-pick admission and delivery, checking actual
+  repository identities rather than remote names.
 
 Gate:
 
-- [ ] A merged PR resolves to the exact intended input, or a clear hold;
-  persisted chains survive reload without losing their route or result IDs.
+- [x] P2 can read P3/P4 code and memory; P3/P4 receive no reverse access. A Trino
+  task can compare two Iceberg commits and read Iceberg memory even when Trino
+  has none. Tests reject reverse/transitive reads, foreign REPORT, dependency
+  cherry-picks, and stale relationship use; unknown versions are not guessed.
 
-## Checkpoint 2 — Existing cherry-pick and delivery integration
+## Checkpoint 2 — Work in a related workspace
 
-Starting points: `CherryPickExecutionService`, `WorkspacePullRequestService`,
-`CiAutofixService`, and `MonitorLoop`.
+UI: conversation investigation/fix cards, destination request bubble, and the
+Tasks → Linked work sub-tab from the approved prototype.
+Starting points: `InteractiveAgentTaskCreator`, `WorktreeService`, existing
+provider tool transport, accepted turns, task logs, and development settings.
 
-- [ ] Add one coordinator and bounded monitor for the exact waiting PR.
-  Confirm merge before starting the next step; do not change general PR refresh.
-- [ ] Reuse destination remote-source routing, preview, execution, push,
-  PR creation, and standalone CI. Keep each operation in its owning service.
-- [ ] Extend delivery admission to validated saved chain authority without
-  weakening manual confirmation, provider checks, or exact target validation.
-- [ ] Complete existing fork/linked-upstream cherry-pick CI activation and
-  status display. Reuse its stable CI key and existing scope validation.
-- [ ] Persist/adopt result IDs with stable step keys. Implement Stop/Resume,
-  restart while waiting, uncertain-publication holds, closed-without-merge,
-  changed routing, missing workspace, and empty/already-present outcomes.
-
-Gate:
-
-- [ ] Starting from an existing P4 PR, fixtures complete P4 -> P3 -> P2
-  with one execution/PR per necessary hop and P3's landed result as P2's source.
-- [ ] Test repeated monitor ticks, concurrent dispatch, restart around start
-  and result saves, uncertain push/PR responses, and Stop during dispatch.
-  No duplicate publication or automatic revival of failed development/CI occurs.
-
-## Checkpoint 3 — Workspace references and note reads
-
-Starting points: workspace settings, `DevelopmentContextTools`,
-`ContextNotebookLookup`, `ContextNoteReader`, and existing repository readers.
-
-- [ ] Save direct reference workspace IDs and short relationship/use guidance;
-  reject self-links and duplicates without changing contribution upstreams.
-- [ ] Supply reference instructions, backend-resolved paths, repository
-  identities, and captured revisions to development turns. Report unavailable
-  references; reuse existing checkout/Git reads and keep current permissions.
-- [ ] Extend list/search/exact-read with a validated reference selector.
-  Scope receipts and keys by workspace; check notes against their own source
-  revision and preserve context enable settings.
-- [ ] Keep proposals, grades, edits, and learning requests local to the owning
-  workspace. Support references to existing notes without copying notebooks.
-- [ ] Add minimal reference settings/browsing using existing views. Verify
-  direct-only visibility, source labels, unavailable references, version/path
-  differences, and attempts to mutate another workspace's notes.
+- [ ] Add one root-bound handoff with start and status/result reads, restricted
+  to direct related destinations and the accepted user request. Save only the
+  source/request -> target task/first-turn link; reuse normal task lifecycle.
+- [ ] Extend base selection for an exact investigation commit. Bind destination,
+  purpose, revision, and settings in the replay fingerprint; repeated requests
+  reuse one task, while changed requests on the same key fail.
+- [ ] Start investigation with ordinary local commits and draft/CI/review-summary
+  automation off in saved defaults and accepted/queued turns. Keep fix requests
+  on existing authorized development delivery. Reuse destination model settings.
+- [ ] Pass a focused question and selected evidence. Keep source history/memory
+  and the original issue association in the source. Read the requested work's
+  completed-turn answer and status without requiring task completion.
+- [ ] Show tested revisions, commands, outcomes, and limitations through existing
+  conversation results. Keep tests in destination-owned worktrees, one per
+  requested revision; use existing Stop and preservation rules.
 
 Gate:
 
-- [ ] A P2 development conversation can follow its Iceberg guidance into P4
-  code and notes. A fresh P4 conversation receives only P4's configured context;
-  no claim of new filesystem isolation is made.
+- [ ] Both providers pass P1 -> P2 investigation/result-return fixtures at old
+  and new revisions, including retry, restart, wrong root/turn, missing result,
+  and destination defaults that normally publish. No automatic PR or backport
+  starts. A separately authorized fork fix produces its normal PR.
 
-## Checkpoint 4 — Conversation handoff and chain commands
+## Checkpoint 3 — Resolve merged changes
 
-Starting points: `InteractiveAgentTaskCreator`, current first-turn admission,
-fixed provider tool transport, issue/Jira associations, and conversation UI.
+UI: reuse existing commit selection for an unresolved source.
+Starting points: `GitHubPullRequestReadClient`, Git history, and
+`CherryPickPreviewService`.
 
-- [ ] Add the fixed root-bound handoff operation using existing creation and
-  destination settings. Repeated requests adopt one fresh conversation.
-- [ ] Send only the focused request and selected evidence. Retain application
-  navigation links without copying source transcripts, reference lists, or
-  notebooks into the destination; keep the original issue association.
-- [ ] Add the fixed save/append-chain operation bound to the accepted user
-  request. Accept a source conversation before its PR exists or an existing
-  PR; attach only a verified published PR and freeze authorized destinations.
-- [ ] Reuse existing provider bindings and approvals. Reject wrong-root,
-  stale-turn, wrong-source, changed-key, and unauthorized destination requests.
-  An agent's prose alone must not start work or grant permission.
-- [ ] Show the route, linked execution/PR results, blocking reasons, and
-  Stop/Resume in existing conversation surfaces. Add no create-task button
-  or extra development conversation around a cherry-pick execution.
+- [ ] Add the narrow merged-PR resolver. Save verified repository/PR identity,
+  merge evidence, and exact landed range; use fresh provider facts and local Git.
+- [ ] Feed proven non-merge ranges into existing preview. Unsupported or
+  ambiguous history pauses for explicit selection; add no merge-commit replay.
+- [ ] Test linear, squash, and rebase outcomes with real Git/provider fixtures,
+  including unrelated base changes and conflict-resolution fixup commits.
+- [ ] Verify a P3 PR supplies P3's landed changes for P2, never the original P4
+  range or pre-merge head. Missing history cannot silently widen the selection.
 
 Gate:
 
-- [ ] Both providers pass fixtures for P2 investigation -> P4 conversation
-  -> source PR -> chain, and for adding the same chain from P4 before/after
-  merge. A negative upstream finding starts no handoff or backport.
+- [ ] A merged PR resolves to the intended existing-executor input or a clear
+  hold, with evidence for every supported merge shape.
 
-## Checkpoint 5 — End-to-end verification and documentation
+## Checkpoint 4 — Saved backport chain
 
-- [ ] Verify direct P4 -> P2, P4 -> P3, and sequential P4 -> P3 -> P2;
-  include destination-specific conflict fixes and upstream fork publication.
-- [ ] Verify no-op intermediate steps cannot silently bypass the required
-  landed P3 source; holds, failures, closed PRs, routing changes, and deletion
-  preserve work and prevent unauthorized later actions.
-- [ ] Run `mvn verify` in `backend/`. Run `npm run lint`,
-  `npx tsc --noEmit`, `npm test`, and `npm run package` in `frontend/`.
-- [ ] Run `git diff --check` and documentation-link checks. Reconcile the
-  design index and affected workspace, agent, cherry-pick, and CI contracts
-  with actual implemented behavior.
-- [ ] Record commands/results and remaining limits. Keep fixture evidence
-  separate from optional live-provider/live-GitHub verification.
+UI: compact route, current result/block, and Stop/Resume in the conversation.
+Starting points: cherry-pick execution, workspace PR delivery, CI Autofix,
+Branch Rebase, `MonitorLoop`, and current core/SQLite storage patterns.
+
+- [ ] Add one chain record/store/coordinator and root-bound save/append operation.
+  Save source conversation/PR, ordered frozen destinations, accepted authority,
+  stable keys, landed sources, child IDs, stop/block facts, and record version.
+- [ ] Validate destination-to-source Fork relationships per hop. Bind a source
+  conversation only to its verified PR. Reuse remote-source registration,
+  preview, execution, and delivery without replacing origin/upstream or adding
+  another development conversation around each cherry-pick.
+- [ ] Extend existing delivery admission to specific saved chain authority.
+  Complete linked-upstream CI activation/status with the existing stable CI
+  key and fork checks. Keep CI, rebase, and publication in their owning services.
+- [ ] Persist before dispatch and serialize each chain. Reuse child IDs/keys on
+  repeated ticks and restart. Stop/recheck before new actions; adopt uncertain
+  publication only with exact evidence. Preserve work on missing workspaces,
+  changed relationships/routing, failed children, or closed-unmerged PRs.
+- [ ] Wait for each PR's merge, including the final PR, without automatic merge.
+  Show existing child progress and Stop/Resume. Handle no-op final hops without
+  empty PRs; intermediate hops require a proven destination source to continue.
 
 Gate:
 
-- [ ] Both user scenarios work through existing execution services; every
-  completed checkbox has evidence and incomplete work remains visible.
+- [ ] P4 -> P3 -> P2 creates one necessary backport PR per destination using
+  P3's actual landed changes. Tests cover concurrent dispatch, lost responses,
+  restart around child creation, relation changes, Stop races, and no-op hops.
+  No duplicate publication or revival of failed development/CI occurs.
+
+## Checkpoint 5 — End-to-end checks and documentation
+
+UI: verification only.
+
+- [ ] Verify starting from P2 investigation -> P4 fix -> P3 -> P2, and starting
+  from a P4 conversation with the route added before/after its PR merges.
+  Also cover direct P4 -> P2/P3 and a negative upstream finding.
+- [ ] Verify Trino -> Iceberg investigation independently of chains: version
+  mapping, moving tags, memory source limitations, result return, local-only
+  publication settings, and dependency transfer rejection through every entry.
+- [ ] Run `mvn verify` in `backend/`; run frontend lint, `npx tsc --noEmit`,
+  tests, and package. Run `git diff --check` and changed-document link checks.
+- [ ] Reconcile workspace, memory, agent, cherry-pick, and CI contracts with the
+  actual implementation. Keep unrelated Memory UI/harvest/capture work separate
+  and report fixture versus live-provider evidence honestly.
+
+Gate:
+
+- [ ] All requested fork and dependency flows work through the existing services;
+  every completed box has evidence and remaining work is explicit.
 
 ## Evidence
 
-No implementation verification has run for this feature. Add checkpoint
-evidence here as work lands; do not mark existing unrelated service tests as
-proof that the new chain is implemented.
+Checkpoint 1 adds settings/IPC/HTTP storage and navigation, development discovery,
+related memory reads and shared dependency transfer rejection. It reuses current
+services and introduces no workflow engine or new module.
+
+Focused checks cover direct/reverse/transitive membership, unavailable and removed
+links, duplicate logical projects, concurrent settings writes, related-only memory,
+all-page reads, memory provenance/switches, foreign REPORT rejection, concrete Git
+version differences, dependency rejection at preview/start/retry/delivery, and
+source-repository persistence. The shared provider tool schema carries workspace
+selection without a fixed pagination ceiling. No live provider or GitHub writes
+were used.
+
+The Chromium fixture verifies add/edit/remove, failed-save preservation, unavailable
+links, same-project rejection and navigation to the existing Commits/Memory views.
+The rendered form and saved row were also checked manually against the approved
+prototype. The picker, explicit Fork/Dependency segments, guidance, row actions
+and compact sidebar now follow it. Missing-checkout responses keep guidance
+and disable both view links; HTTP and browser fixtures verify this state.
+
+Verification:
+
+- Backend `mvn verify` passed: 3,279 tests, no failures, errors or skips.
+  After the UI availability change, targeted `mvn verify` passed the controller
+  checks, including the new missing-checkout test.
+- Frontend lint, TypeScript and Electron packaging passed.
+- The full frontend test run and targeted reruns initially passed 137 of 138 test files,
+  including the new related-workspace browser fixture. The remaining unchanged
+  `usePullRequestDetailBrowser.test.ts` then passed in an isolated run alongside
+  the updated relationship fixture: all 138 files have passed across these runs.
+  No timeout was relaxed.
+- `git diff --check` passed. Changed-document links resolved apart from the
+  pre-existing `design.md` link to the missing `agent-review-impl-tmp.md`.
+
+This evidence covers checkpoint 1 fixtures and the browser preview, not live
+Claude/Codex sessions or the planned cross-workspace handoffs and chains.

@@ -256,7 +256,7 @@ class TestCherryPickExecution
     {
         assertThatThrownBy(() -> new Workspace(
                 "workspace-id", RepoRef.of("trinodb", "trino"), RepoRef.of("trinodb", "trino"), "origin", "fork", "master",
-                "fork-master", "fork-master", Path.of("/tmp/wt"), "claude"))
+                "fork-master", "fork-master", Path.of("/tmp/wt"), "claude", Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("work branch equals the local target branch");
     }
@@ -285,7 +285,7 @@ class TestCherryPickExecution
                 "fork-master",
                 "bump-477-478-a7",
                 Path.of("/tmp/bytequay-cherry-pick"),
-                "claude");
+                "claude", Optional.empty());
     }
 
     private static ActionJournal journal()

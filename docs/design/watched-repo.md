@@ -991,3 +991,14 @@ delivery as a separate explicit gate.
 - Clone and GitHub failures are visible, sanitized, retryable, and do not create duplicate
   workspaces.
 - Push and pull-request creation never occur without explicit user confirmation.
+
+## Related workspaces
+
+Repository settings can save direct Fork or Dependency relationships and short
+guidance. These name other watched workspaces' monitored repositories and never
+change origin, upstream, PR routing or the destination's settings. The sidebar
+links to their existing Commits and Memory pages. Development turns receive
+local paths and captured commits, with memory reads on demand. Dependency pairs
+cannot transfer commits through cherry-pick or delivery. See
+[workspace relationships](workspace-backports.md) for the implemented reading
+checkpoint and the planned handoff/chain checkpoints.

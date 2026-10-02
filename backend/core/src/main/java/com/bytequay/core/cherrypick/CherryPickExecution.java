@@ -453,7 +453,8 @@ public record CherryPickExecution(
             String localTargetBranch,
             String workBranch,
             Path worktree,
-            String laneId)
+            String laneId,
+            Optional<RepoRef> sourceRepository)
     {
         public Workspace
         {
@@ -464,6 +465,7 @@ public record CherryPickExecution(
             requireNonNull(physicalRepository, "physicalRepository is null");
             checkText(physicalRepository.owner(), "physical repository owner", 100);
             checkText(physicalRepository.repo(), "physical repository name", 100);
+            requireNonNull(sourceRepository, "sourceRepository is null");
             checkText(sourceRemote, "sourceRemote", 100);
             checkText(targetRemote, "targetRemote", 100);
             checkText(targetBranch, "targetBranch", 255);

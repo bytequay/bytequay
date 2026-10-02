@@ -71,7 +71,8 @@ function Detail({ value, perform }: { value: AttentionItem; perform: () => Promi
 
 function mount(initial: AttentionItem[]) {
   window.localStorage.clear();
-  window.bridge = { setPrAttentionHandled: async () => {}, setPrAttentionPinned: async () => {} } as unknown as Bridge;
+  window.bridge = { setPrAttentionHandled: async () => {}, setPrAttentionPinned: async () => {},
+    getWorkspaceRelationships: async (): Promise<[]> => [], listWorkspaces: async (): Promise<[]> => [] } as unknown as Bridge;
   const host = document.createElement('div');
   document.body.append(host);
   let root = createRoot(host);

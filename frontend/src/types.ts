@@ -1131,6 +1131,13 @@ export type WorkspaceCommitsTargetDto = {
   overridden: boolean;
 };
 
+export type WorkspaceRelationshipDto = {
+  unavailableReason?: string | null;
+  workspaceId: string;
+  kind: 'FORK' | 'DEPENDENCY';
+  guidance: string;
+};
+
 export type WorkspaceSettingsDto = {
   remotes: WorkspaceRemoteDto[];
   commitsTarget: WorkspaceCommitsTargetDto;
@@ -1422,6 +1429,9 @@ export type Bridge = JiraBridge & {
   previewWatch: (selectedRepositoryId: number) => Promise<WatchRepositoryPreviewDto>;
   watchRepository: (command: WatchRepositoryCommand) => Promise<WorkspaceDto>;
   listWorkspaces: () => Promise<WorkspaceDto[]>;
+  getWorkspaceRelationships: (workspaceId: string) => Promise<WorkspaceRelationshipDto[]>;
+  saveWorkspaceRelationship: (workspaceId: string, relationship: WorkspaceRelationshipDto) => Promise<WorkspaceRelationshipDto[]>;
+  removeWorkspaceRelationship: (workspaceId: string, destinationId: string) => Promise<WorkspaceRelationshipDto[]>;
   listRetiredWorkspaces: () => Promise<WorkspaceDto[]>;
   getWorkspace: (workspaceId: string) => Promise<WorkspaceDto>;
   getWorkspaceMetadata: (workspaceId: string) => Promise<RepositoryMetadataDto>;

@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { RelatedWorkspaceNavigation } from './workspaces/RelatedWorkspaces';
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   BookMarked, Bot, ChevronDown, ChevronLeft, ChevronRight, CircleDot, CircleUser, GitBranch, GitPullRequest, Globe, History, House, KeyRound,
@@ -328,6 +329,7 @@ export default function AppSidebar({
           <nav className="app-sidebar__nav" aria-label="Workspace navigation">
             {WORKSPACE_TABS.filter(item => item.tab !== 'jira' || jiraConnected).map(workspaceItem)}
           </nav>
+          <RelatedWorkspaceNavigation key={workspace.id} workspaceId={workspace.id} />
         </>
       )}
       {pinnedItems.length > 0 && <section className="app-sidebar__pinned" aria-label="Pinned">

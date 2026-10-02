@@ -191,6 +191,15 @@ deleted after the task's retention window.
   pull request, with `commit_prs` and `history` in reviews.
 - **What the docs say:** it arrives as guidelines.
 
+### Related workspace reads
+
+Development conversations may SEARCH/READ the memory of a directly related
+workspace using the existing tool's optional `workspaceId`. Both workspaces'
+development-memory switches apply, and every call rechecks membership. Related
+memory is read on demand; it is not copied into local memory or automatic turn
+receipts. Results identify workspace and memory version. REPORT stays local.
+See [workspace relationships](workspace-backports.md).
+
 ## 4. Guidelines
 
 **What and when.** At every turn of development tasks, reviews, harvest runs and

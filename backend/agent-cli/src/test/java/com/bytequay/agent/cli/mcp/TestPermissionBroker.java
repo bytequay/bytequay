@@ -238,10 +238,13 @@ class TestPermissionBroker
             assertThat(definition.at("/inputSchema/properties/action/enum").toString()).isEqualTo("[\"SEARCH\",\"READ\",\"REPORT\",\"REMEMBER\"]");
             assertThat(definition.at("/inputSchema/properties/kind/enum").toString()).isEqualTo("[\"RULE\",\"RECIPE\"]");
 
-            JsonNode searched = localReviewCall(broker, claude.token(), MemoryBridge.TOOL_NAME, "{\"action\":\"SEARCH\",\"query\":\"docs\"}");
+            assertThat(definition.at("/inputSchema/properties/workspaceId/type").asText()).isEqualTo("string");
+            assertThat(definition.at("/inputSchema/properties/page/maximum").isMissingNode()).isTrue();
+
+            JsonNode searched = localReviewCall(broker, claude.token(), MemoryBridge.TOOL_NAME, "{\"action\":\"SEARCH\",\"query\":\"docs\",\"workspaceId\":\"iceberg\"}");
             assertThat(searched.at("/result/isError").booleanValue()).isFalse();
             assertThat(searched.at("/result/content/0/text").textValue()).contains("Searched memory for “docs”");
-            assertThat(calls).containsExactly("{\"action\":\"SEARCH\",\"query\":\"docs\"}");
+            assertThat(calls).containsExactly("{\"action\":\"SEARCH\",\"query\":\"docs\",\"workspaceId\":\"iceberg\"}");
 
             JsonNode rejected = localReviewCall(broker, claude.token(), MemoryBridge.TOOL_NAME, "{\"action\":\"EDIT\"}");
             assertThat(rejected.at("/result/isError").booleanValue()).isTrue();

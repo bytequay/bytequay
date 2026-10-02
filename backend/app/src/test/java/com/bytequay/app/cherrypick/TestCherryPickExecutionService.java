@@ -34,6 +34,7 @@ import com.bytequay.app.git.GitSequencerDriver;
 import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspacePaths;
+import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote.Role;
@@ -95,6 +96,8 @@ class TestCherryPickExecutionService
     private static final String WORKSPACE_ID = "workspace-id";
     private static final RepositoryIdentity PHYSICAL_REPOSITORY = RepositoryIdentity.valueOf("trinodb/trino");
 
+    private final WorkspaceRelationships relationships = mock(WorkspaceRelationships.class);
+
     @TempDir
     private Path temporaryDirectory;
 
@@ -145,7 +148,8 @@ class TestCherryPickExecutionService
                 mock(RepositoryEnrichmentService.class),
                 credentials,
                 remoteSources,
-                CLOCK);
+                CLOCK,
+                relationships);
         agent = new ScriptedCherryPickAgent(new TestWorktreeService(clone, worktreeParent));
         AgentCapabilities capabilities = new AgentCapabilities(
                 false,
@@ -180,6 +184,27 @@ class TestCherryPickExecutionService
                 workspaceRepositories,
                 workspacePaths,
                 CLOCK);
+    }
+
+    @Test
+    void rechecksDependencyAfterPreviewAndBeforeReusingAnExecution()
+    {
+        String base = head(upstream);
+        write(upstream, "file.txt", "content\n");
+        commit(upstream, "Upstream change");
+        CherryPickPreview preview = preview(base);
+        StartCherryPickExecutionCommand command = command(preview, ImmutableList.of(), "dependency-check");
+        org.mockito.Mockito.doThrow(new IllegalArgumentException("Dependency transfer blocked"))
+                .when(relationships).requireTransferAllowed(Optional.of(preview.sourceRepository()), preview.repository());
+        assertThatThrownBy(() -> service.start(command, WORKSPACE_ID, clone, PHYSICAL_REPOSITORY)).hasMessage("Dependency transfer blocked");
+        assertThat(store.listRecent(10)).isEmpty();
+        org.mockito.Mockito.reset(relationships);
+        CherryPickExecution execution = service.start(command, WORKSPACE_ID, clone, PHYSICAL_REPOSITORY);
+        assertThat(execution.workspace().sourceRepository()).contains(preview.sourceRepository());
+        org.mockito.Mockito.doThrow(new IllegalArgumentException("Dependency transfer blocked"))
+                .when(relationships).requireTransferAllowed(Optional.of(preview.sourceRepository()), preview.repository());
+        assertThatThrownBy(() -> service.start(command, WORKSPACE_ID, clone, PHYSICAL_REPOSITORY)).hasMessage("Dependency transfer blocked");
+        assertThat(store.listRecent(10)).hasSize(1);
     }
 
     @Test

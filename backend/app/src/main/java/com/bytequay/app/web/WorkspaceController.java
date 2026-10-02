@@ -25,9 +25,12 @@ import com.bytequay.app.workspace.WatchRepositoryPreview;
 import com.bytequay.app.workspace.WorkspaceCommitsSettingsService;
 import com.bytequay.app.workspace.WorkspaceCommitsTarget;
 import com.bytequay.app.workspace.WorkspaceDeletionService;
+import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
+import com.bytequay.app.workspace.WorkspaceRelationships;
+import com.bytequay.app.workspace.WorkspaceRelationships.Relationship;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
@@ -52,6 +55,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -76,6 +80,7 @@ public class WorkspaceController
     private final CredentialService credentials;
     private final WorkspaceCommitsSettingsService commitsSettings;
     private final IssueDevelopmentService issueDevelopment;
+    private final WorkspaceRelationships relationships;
 
     public WorkspaceController(
             WorkspaceRepositoryService workspaces,
@@ -89,7 +94,8 @@ public class WorkspaceController
             ModelSettingsService models,
             CredentialService credentials,
             WorkspaceCommitsSettingsService commitsSettings,
-            IssueDevelopmentService issueDevelopment)
+            IssueDevelopmentService issueDevelopment,
+            WorkspaceRelationships relationships)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.deletion = requireNonNull(deletion, "deletion is null");
@@ -103,6 +109,7 @@ public class WorkspaceController
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.commitsSettings = requireNonNull(commitsSettings, "commitsSettings is null");
         this.issueDevelopment = requireNonNull(issueDevelopment, "issueDevelopment is null");
+        this.relationships = requireNonNull(relationships, "relationships is null");
     }
 
     @PostMapping
@@ -292,6 +299,39 @@ public class WorkspaceController
                         .collect(toImmutableList()),
                 credentials.workspaceGitHubToken(workspaceId).orElse(null),
                 commitsSettings.get(workspaceId));
+    }
+
+    @GetMapping("/{workspaceId}/relationships")
+    public List<RelationshipResponse> relationships(@PathVariable String workspaceId)
+    {
+        return relationships.list(workspaceId).stream().map(link -> {
+            String unavailable = null;
+            try {
+                relationships.requireRelated(workspaceId, link.workspaceId());
+                var local = workspaces.requireLocalRepository(link.workspaceId());
+                if (!Files.exists(local.repository().resolve(".git"))) {
+                    unavailable = "Managed checkout missing at " + local.repository();
+                }
+            }
+            catch (IllegalArgumentException | WorkspaceException failure) {
+                unavailable = failure.getMessage();
+            }
+            return new RelationshipResponse(link.workspaceId(), link.kind(), link.guidance(), unavailable);
+        }).collect(toImmutableList());
+    }
+
+    public record RelationshipResponse(String workspaceId, WorkspaceRelationships.Kind kind, String guidance, String unavailableReason) {}
+
+    @PutMapping("/{workspaceId}/relationships")
+    public List<Relationship> saveRelationship(@PathVariable String workspaceId, @RequestBody Relationship relationship)
+    {
+        return relationships.save(workspaceId, relationship);
+    }
+
+    @DeleteMapping("/{workspaceId}/relationships/{destinationId}")
+    public List<Relationship> removeRelationship(@PathVariable String workspaceId, @PathVariable String destinationId)
+    {
+        return relationships.remove(workspaceId, destinationId);
     }
 
     @PutMapping("/{workspaceId}/commits-target")

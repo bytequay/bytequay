@@ -1,0 +1,97 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.agent;
+
+import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.workspace.WorkspaceRelationships;
+import com.bytequay.app.workspace.WorkspaceRepositoryContext;
+import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.review.AgentReviewStore;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.Optional;
+import java.util.OptionalLong;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+class TestRelatedWorkspaceContext
+{
+    @TempDir
+    Path repository;
+
+    @Test
+    void suppliesExactLocalCommitsAndVersionInstructionsWithoutMovingTheRelatedCheckout()
+            throws Exception
+    {
+        GitCommandRunner git = new GitCommandRunner();
+        command(git, "init", "-q");
+        command(git, "config", "user.name", "Test");
+        command(git, "config", "user.email", "test@example.com");
+        Files.writeString(repository.resolve("API.txt"), "old API");
+        command(git, "add", "API.txt");
+        command(git, "commit", "-qm", "Old API");
+        String old = command(git, "rev-parse", "HEAD");
+        command(git, "tag", "v1");
+        Files.writeString(repository.resolve("API.txt"), "new API");
+        command(git, "commit", "-qam", "New API");
+        String next = command(git, "rev-parse", "HEAD");
+        command(git, "update-ref", "refs/remotes/origin/main", next);
+        var relationships = mock(WorkspaceRelationships.class);
+        var repositories = mock(WorkspaceRepositoryService.class);
+        Workspace workspace = new Workspace("iceberg", "Iceberg", 2, RepoRef.of("apache", "iceberg"), Optional.empty(), Optional.empty(),
+                2, RepoRef.of("apache", "iceberg"), Workspace.Topology.DIRECT, "main", "https://github.com/apache/iceberg.git",
+                Optional.empty(), Optional.empty(), "/managed/iceberg", Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH);
+        when(relationships.list("trino")).thenReturn(ImmutableList.of(
+                new WorkspaceRelationships.Relationship("iceberg", WorkspaceRelationships.Kind.DEPENDENCY, "Version in pom.xml")));
+        when(relationships.requireRelated("trino", "iceberg")).thenReturn(workspace);
+        when(repositories.requireLocalRepository("iceberg")).thenReturn(new WorkspaceRepositoryContext("iceberg", repository, 2,
+                RepoRef.of("apache", "iceberg"), OptionalLong.empty(), RepoRef.of("apache", "iceberg"), "origin", "origin", "main", ImmutableList.of()));
+        var context = new RelatedWorkspaceContext(relationships, repositories, mock(AgentReviewStore.class), git, new ObjectMapper());
+        AgentTask task = AgentTask.created(TaskId.random(), Optional.of("trino"), true, "Upgrade Iceberg", new AgentLaneId("codex"),
+                new RepositoryIdentity("trinodb", "trino"), repository,
+                new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Optional.empty(), Optional.empty()), Instant.EPOCH);
+        String input = context.append(task, "Investigate the upgrade");
+        assertThat(input).startsWith("Investigate the upgrade").contains(repository.toString(), next, "Version in pom.xml", "apache/iceberg",
+                "NOT the version this project uses", "unknown mappings", "SEARCH/READ", "DEPENDENCY");
+        assertThat(command(git, "diff", old, next, "--", "API.txt")).contains("-old API", "+new API");
+        assertThat(command(git, "rev-parse", "HEAD")).isEqualTo(next);
+        command(git, "update-ref", "-d", "refs/remotes/origin/main");
+        assertThat(context.append(task, "Investigate")).contains("unavailable", "synchronize").doesNotContain("\"commit\":");
+        when(relationships.list("trino")).thenReturn(ImmutableList.of());
+        assertThat(context.append(task, "No related workspaces")).isEqualTo("No related workspaces");
+    }
+
+    private String command(GitCommandRunner git, String... args)
+    {
+        var result = git.run(repository, args);
+        assertThat(result.successful()).as(result.output()).isTrue();
+        return result.output().strip();
+    }
+}

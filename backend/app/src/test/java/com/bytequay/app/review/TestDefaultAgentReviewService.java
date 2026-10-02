@@ -778,6 +778,46 @@ class TestDefaultAgentReviewService
                 .hasMessageContaining("does not belong");
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void questionCardIdentityIsReadableBeforeDispatchReturns(boolean queued)
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        EventId eventId = EventId.random();
+        Runnable assertAccepted = () -> {
+            ReviewMessage question = fixture.store.listMessages(reviewId).getFirst();
+            assertThat(question.turnId()).isEmpty();
+            assertThat(question.queuedInputId()).isEmpty();
+            String key = "review-ask:" + question.id();
+            if (queued) {
+                when(fixture.queueStore.findQueuedByIdempotencyKey(TASK_ID, key)).thenReturn(Optional.of(queuedInput().starting(TURN_TWO, eventId, NOW)));
+            }
+            else {
+                when(fixture.turnStore.findByIdempotencyKey(TASK_ID, key)).thenReturn(Optional.of(AgentTurn.accepted(TURN_TWO, TASK_ID, key, SETTINGS, NOW)));
+            }
+            AgentReviewProjection.MessageView view = fixture.service.get(reviewId).messages().getFirst();
+            assertThat(view.turnId()).contains(TURN_TWO.toString());
+            assertThat(view.message().body()).isEqualTo("Check the upstream behavior");
+            assertThat(view.messageEventId()).isEqualTo(queued ? Optional.of(eventId.toString()) : Optional.empty());
+        };
+        if (queued) {
+            when(fixture.tasks.get(TASK_ID)).thenReturn(busyTask());
+            when(fixture.turns.enqueue(any())).thenAnswer(invocation -> {
+                assertAccepted.run();
+                return queuedInput();
+            });
+        }
+        else {
+            when(fixture.turns.start(any())).thenAnswer(invocation -> {
+                assertAccepted.run();
+                StartAgentTurnCommand command = invocation.getArgument(0);
+                return AgentTurn.accepted(TURN_TWO, TASK_ID, command.idempotencyKey(), SETTINGS, NOW);
+            });
+        }
+        fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 1, "Check the upstream behavior");
+    }
+
     @Test
     void askEnqueuesWhenTheTaskIsBusy()
     {

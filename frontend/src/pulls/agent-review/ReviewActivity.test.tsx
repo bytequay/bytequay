@@ -128,6 +128,19 @@ describe('compact review requests', () => {
   const question = { ...base.messages[0], runId: base.runs[0].id, cardId: `${base.runs[0].id}:limitations`,
     body: 'Which Maven commands did you run?\nPlease include the flags.', turnId: first.turnId };
 
+  it('waits for review metadata before rendering an unfamiliar input and shows a known card immediately', () => {
+    const event = { ...questionEvent, turnId: 'new-question-turn' };
+    const pending = render({ review: base, events: [event], reviewSequence: 0 });
+    expect(pending).not.toContain(prompt);
+    expect(pending).not.toContain('agt-user__bubble');
+    const html = render({ review: { ...base, messages: [{ ...question, turnId: event.turnId }] }, events: [event], reviewSequence: 0 });
+    expect(html).toContain('agt-review-request');
+    expect(html).toContain(question.body);
+    expect(html).not.toContain(prompt);
+    // Only a completed review read can establish that an unmatched input is ordinary user text.
+    expect(render({ review: base, events: [event], reviewSequence: event.sequence })).toContain(prompt);
+  });
+
   it('renders the saved question and topic after reload without exposing the generated prompt', () => {
     const review = parseAgentReview(JSON.parse(JSON.stringify({ ...base, messages: [question] })));
     const html = render({ review, events: [questionEvent] });
@@ -162,7 +175,7 @@ describe('compact review requests', () => {
   it('matches a claimed queue message by its durable event even after a retry changes its turn', () => {
     const queued = { ...question, queuedInputId: 'queued-question', messageEventId: first.eventId, turnId: 'retry-turn' };
     const event: AgentEventEnvelope = { ...questionEvent, payload: { ...first.payload, text: prompt, deliveryKind: 'QUEUED' } };
-    const html = render({ review: parseAgentReview({ ...base, messages: [queued] }), events: [event] });
+    const html = render({ review: parseAgentReview({ ...base, messages: [queued] }), events: [event], reviewSequence: 0 });
     expect(html).toContain('Ask about review');
     expect(html).toContain(question.body);
     expect(html).not.toContain(prompt);

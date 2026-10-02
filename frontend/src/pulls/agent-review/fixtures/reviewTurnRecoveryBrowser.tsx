@@ -15,12 +15,12 @@ import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { AgentTurnDto, Bridge } from '../../../types';
-import { parseAgentEventSequence } from '../../../agents/events';
+import { parseAgentEventSequence, type AgentEventEnvelope } from '../../../agents/events';
 import contracts from '../../../agents/fixtures/agent-contracts-v1.json';
 import eventFixture from '../../../agents/fixtures/agent-events-v2.json';
 import { assert, changeInput, settle } from '../../../fixtures/harness';
 import AgentReviewTab from '../AgentReviewTab';
-import type { AgentReviewDto } from '../contracts';
+import type { AgentReviewDto, ReviewMessageDto } from '../contracts';
 import { reviewFixture, runningReviewFixture } from './review';
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
@@ -45,7 +45,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     catch (cause) { results.push({ name, error: cause instanceof Error ? cause.message : String(cause) }); }
     finally { flushSync(() => root.render(null)); }
   };
-  const mount = async (initial: AgentReviewDto, saved: () => AgentReviewDto, message: Bridge['messageAgentReview']) => {
+  const mount = async (initial: AgentReviewDto, saved: () => AgentReviewDto, message: Bridge['messageAgentReview'],
+    overrides: Partial<Pick<Bridge, 'getAgentReview' | 'getAgentTurn' | 'readAgentReviewHistory' | 'subscribeAgentReview'>> = {}) => {
     const bridge = {
       getModelSettings: async () => ({ providers: [], agents: [], apiKeys: [], keyProviders: [] }),
       getAgentReview: async () => saved(),
@@ -61,6 +62,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
         return () => {};
       },
       messageAgentReview: message,
+      ...overrides,
     } satisfies Pick<Bridge, 'getModelSettings' | 'getAgentReview' | 'getAgentTurn' | 'readAgentReviewHistory'
       | 'readAgentReviewApprovals' | 'subscribeAgentReview' | 'messageAgentReview'>;
     Object.defineProperty(window, 'bridge', { configurable: true, value: bridge });
@@ -74,6 +76,61 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     changeInput(input(), 'what are you doing?'); await settle();
   };
   try {
+    await scenario('A delayed review read shows the request card directly and coalesces stream refreshes', async () => {
+      const source = inputEvents[0];
+      assert(source.type === 'user_message', 'The fixture needs a user input');
+      const prompt = 'Internal generated review prompt. Reply with review_reply. Selected card: '.repeat(200);
+      const question: ReviewMessageDto = { ...reviewFixture().messages[0], id: 'new-question', author: 'USER',
+        findingId: completed.findings[0].id, runId: completed.runs[0].id, cardId: null,
+        body: 'Please check Spark behavior before keeping this finding.', turnId: 'question-turn', queuedInputId: null };
+      let saved = completed;
+      const history: AgentEventEnvelope[] = [...inputEvents, endEvent];
+      let listener: Parameters<Bridge['subscribeAgentReview']>[2] = () => { throw new Error('Stream is not subscribed'); };
+      let delayed = false;
+      let release = () => {};
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      let releaseTurn = () => {};
+      const turnGate = new Promise<void>(resolve => { releaseTurn = resolve; });
+      let reads = 0;
+      let concurrent = 0;
+      let maximum = 0;
+      let exposed = false;
+      const observer = new MutationObserver(() => { exposed ||= host.textContent?.includes('Internal generated review prompt') === true; });
+      observer.observe(host, { childList: true, subtree: true, characterData: true });
+      try {
+        await mount(completed, () => saved, async () => saved, {
+          getAgentReview: async () => {
+            reads++; maximum = Math.max(maximum, ++concurrent);
+            if (delayed) await gate;
+            concurrent--;
+            return saved;
+          },
+          getAgentTurn: async id => {
+            if (delayed) await turnGate;
+            return { ...contracts.turn, id, taskId: completed.task.id } as AgentTurnDto;
+          },
+          readAgentReviewHistory: async () => ({ events: [...history], beforeCursor: null, afterCursor: null,
+            latestSequence: history.at(-1)?.sequence ?? 0 }),
+          subscribeAgentReview: async (_id, _after, callback) => { listener = callback; return () => {}; },
+        });
+        const initialReads = reads;
+        delayed = true;
+        history.push({ ...source, eventId: 'question-event', turnId: question.turnId, sequence: 4, payload: { ...source.payload, text: prompt } });
+        for (let index = 0; index < 18; index++) {
+          listener({ kind: 'changed', taskId: completed.task.id, subscriptionId: 'review-stream', sequence: 4, turnId: question.turnId });
+          await settle();
+          assert(!host.textContent?.includes('Internal generated review prompt'), 'No intermediate frame may expose generated context');
+        }
+        assert(reads === initialReads + 1 && concurrent === 1, 'Stream notifications must share one pending review read');
+        saved = { ...completed, messages: [question] };
+        release();
+        for (let attempt = 0; attempt < 30 && !host.textContent?.includes(question.body); attempt++) await settle();
+        const card = host.querySelector('[data-history-anchor="question-turn"] .agt-review-request');
+        assert(card?.textContent?.includes(question.body) === true, 'Show the complete compact card without waiting for turn details');
+        assert(maximum === 1 && !exposed, 'Review reads must stay sequential and the raw prompt must never reach the DOM');
+      }
+      finally { release(); releaseTurn(); observer.disconnect(); }
+    });
     for (const delivery of ['STEER', 'QUEUE'] as const) {
       await scenario(`A rejected ${delivery} refreshes the turn and preserves the unsent draft`, async () => {
         let saved = running;

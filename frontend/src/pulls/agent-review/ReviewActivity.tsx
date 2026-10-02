@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { ReviewRequestTarget } from '../../agents/ReviewRequestCard';
 import { AgentConversation, ConversationComposer, ConversationQueue, useConversationHistory, type ApprovalDecider, type ConversationHistory, type ConversationQueuedInput } from '../../agents/AgentConversation';
 import { projectTranscript, withApprovalAuthority } from '../../agents/transcript';
@@ -29,6 +29,7 @@ export default function ReviewActivity({
   review, events, turns, models, pendingApprovals, now, composer, busy,
   localReview, onOpenReview, pendingMessage = null,
   connection = 'open', history = EMPTY_HISTORY, lastSequence = events.at(-1)?.sequence ?? 0,
+  reviewSequence = lastSequence,
   onCompose, onSend, onSteer, onQueue, onStop, onDecide, onRemoveQueued, onSteerQueued,
 }: {
   review: AgentReviewDto;
@@ -45,6 +46,8 @@ export default function ReviewActivity({
   connection?: AgentStreamConnectionState;
   history?: ConversationHistory;
   lastSequence?: number;
+  /** User inputs beyond this point still need their saved review-card identity. */
+  reviewSequence?: number;
   onCompose: (text: string) => void;
   onSend: () => void;
   onSteer: () => void;
@@ -57,9 +60,19 @@ export default function ReviewActivity({
   const [activityChoice, setActivityChoice] = useState<Record<string, boolean>>({});
   const [turnChoice, setTurnChoice] = useState<Record<string, boolean>>({});
   const latestTurn = Object.values(turns).at(-1);
-  const scroll = useConversationHistory(events, latestTurn?.endedAt, history);
   const pendingIds = new Set(pendingApprovals.map(approval => approval.approvalId));
-  const projected = withApprovalAuthority(projectTranscript(events, null, turns, history.before === null, history.after === null && (scroll.following || (events.at(-1)?.sequence ?? 0) >= lastSequence)), pendingIds);
+  const requests = useMemo(() => reviewRequests(review), [review]);
+  // History can arrive before a synchronous launch saves its discussion association.
+  // Keep that input out of the transcript until it can render directly as its card.
+  const visibleEvents = useMemo(() => {
+    const requestTurns = new Set(requests.map(request => request.turnId));
+    const requestEvents = new Set(requests.map(request => request.messageEventId));
+    const visible = events.filter(event => event.type !== 'user_message' || event.sequence <= reviewSequence
+      || requestEvents.has(event.eventId) || (event.payload.deliveryKind !== 'STEER' && event.turnId !== null && requestTurns.has(event.turnId)));
+    return visible.length === events.length ? events : visible;
+  }, [events, requests, reviewSequence]);
+  const scroll = useConversationHistory(visibleEvents, latestTurn?.endedAt, history);
+  const projected = withApprovalAuthority(projectTranscript(visibleEvents, null, turns, history.before === null, history.after === null && (scroll.following || (events.at(-1)?.sequence ?? 0) >= lastSequence)), pendingIds);
   const running = reviewRunning(review);
   const recovery = reviewRecoveryRequired(review);
   const waiting = review.pendingApprovals > 0 || pendingApprovals.length > 0;
@@ -70,7 +83,7 @@ export default function ReviewActivity({
   return (
     <AgentConversation
       turns={projected} repository={review.repo} durableTurns={turns} models={models} now={now} scroll={scroll}
-      localReview={localReview} reviewRequests={reviewRequests(review)} onOpenReview={onOpenReview}
+      localReview={localReview} reviewRequests={requests} onOpenReview={onOpenReview}
       connection={connection} running={running} activeTurn={review.activeTurn} waiting={waiting} pendingMessage={pendingMessage}
       activityChoice={activityChoice} turnChoice={turnChoice} pendingApprovals={pendingApprovals}
       generatedTurnIds={new Set(review.byteQuayTurnIds)} label="Review agent conversation"

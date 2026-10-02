@@ -117,6 +117,7 @@ export default function AgentReviewTab({
   const recoveryPending = useRef(false);
   const recoveryRequest = useRef(0);
   const [conversation, setConversation] = useState(initialAgentTaskState);
+  const [reviewSequence, setReviewSequence] = useState(0);
   const conversationRef = useRef(conversation);
   conversationRef.current = conversation;
   const followingHistory = useRef(true);
@@ -182,20 +183,27 @@ export default function AgentReviewTab({
     setConversation(current => agentTaskReducer(current, action));
   }, []);
 
-  const refresh = useCallback(async (reviewId: string, turnId: string | null = null, reloadHistory = false) => {
+  const refresh = useCallback(async (reviewId: string, turnId: string | null = null, reloadHistory = false, sequence = 0) => {
     const taskId = currentTaskId.current;
     const revision = ++projectionRevision.current;
-    const [updated, turn, history] = await Promise.all([
-      window.bridge.getAgentReview(reviewId),
+    const history = !reloadHistory || mode !== 'conversation' || taskId === null || historyAfter(conversationRef.current) !== null
+      ? null : await readRecentAgentHistory({ readAgentHistory: (id, before, after) => window.bridge.readAgentReviewHistory(reviewId, id, before, after) }, taskId);
+    const observedSequence = Math.max(sequence, history?.page.latestSequence ?? conversationRef.current.lastSequence);
+    // Read the review after history so every exposed input has its saved presentation available.
+    const current = () => currentReviewId.current === reviewId && projectionRevision.current === revision;
+    const [updated, turn] = await Promise.all([
+      window.bridge.getAgentReview(reviewId).then(updated => {
+        if (!current()) return null;
+        if (history !== null && historyAfter(conversationRef.current) === null) dispatchConversation({ type: 'history/loaded', ...history, direction: 'latest' });
+        // Turn details can wait for provider startup; the request card must not.
+        onReviewChange(updated);
+        setReviewSequence(previous => Math.max(previous, observedSequence));
+        return updated;
+      }),
       turnId === null || mode !== 'conversation' ? Promise.resolve(null) : window.bridge.getAgentTurn(turnId),
-      !reloadHistory || mode !== 'conversation' || taskId === null || historyAfter(conversationRef.current) !== null
-        ? Promise.resolve(null)
-        : readRecentAgentHistory({ readAgentHistory: (id, before, after) => window.bridge.readAgentReviewHistory(reviewId, id, before, after) }, taskId),
     ]);
-    if (currentReviewId.current !== reviewId || projectionRevision.current !== revision) return null;
-    if (history !== null && historyAfter(conversationRef.current) === null) dispatchConversation({ type: 'history/loaded', ...history, direction: 'latest' });
+    if (!current()) return null;
     if (turn !== null) dispatchConversation({ type: 'turn/changed', turn });
-    onReviewChange(updated);
     return updated;
   }, [dispatchConversation, mode, onReviewChange]);
 
@@ -272,19 +280,30 @@ export default function AgentReviewTab({
     const revisions = projectionRevision;
     let settlingRefresh: ReturnType<typeof setTimeout> | undefined;
     setConversation(initialAgentTaskState());
+    setReviewSequence(0);
     followingHistory.current = true;
-    const reload = async (turnId: string | null) => {
-      try {
-        const updated = await refresh(reviewId, turnId);
-        // The review observer settles after the task event. One follow-up covers a read that reached it first.
-        if (live && updated !== null && updated.activeTurn === null && updated.task.mutationClaim === null && latestRun(updated)?.state === 'RUNNING') {
-          if (settlingRefresh !== undefined) clearTimeout(settlingRefresh);
-          settlingRefresh = setTimeout(() => { if (live) void refresh(reviewId, turnId).catch(() => {}); }, 200);
+    let reloading = false;
+    let nextRefresh: { turnId: string | null; sequence: number } | null = null;
+    const reload = async (turnId: string | null, sequence = 0) => {
+      nextRefresh = { turnId, sequence };
+      if (reloading) return;
+      reloading = true;
+      while (live && nextRefresh !== null) {
+        const next = nextRefresh;
+        nextRefresh = null;
+        try {
+          const updated = await refresh(reviewId, next.turnId, false, next.sequence);
+          // The review observer settles after the task event. One follow-up covers a read that reached it first.
+          if (live && updated !== null && updated.activeTurn === null && updated.task.mutationClaim === null && latestRun(updated)?.state === 'RUNNING') {
+            if (settlingRefresh !== undefined) clearTimeout(settlingRefresh);
+            settlingRefresh = setTimeout(() => { if (live) void refresh(reviewId, next.turnId).catch(() => {}); }, 200);
+          }
+        }
+        catch (failure) {
+          if (live) setError(remoteErrorMessage(failure));
         }
       }
-      catch (failure) {
-        if (live) setError(remoteErrorMessage(failure));
-      }
+      reloading = false;
     };
     const session = mode === 'cards'
       ? reviewOpen && ownStream ? window.bridge.subscribeAgentReview(reviewId, 0, message => {
@@ -296,9 +315,12 @@ export default function AgentReviewTab({
       : startAgentConversationSession(conversationBridge, taskId, action => {
       if (!live) return;
       dispatchConversation(action);
-      if (action.type === 'live/changed') void reload(action.turnId);
-      if (action.type === 'events/observed') void reload(action.events.at(-1)?.turnId ?? null);
-      if (action.type === 'connection/changed' && action.state === 'open') void reload(null);
+      // The shared session coalesces stream notifications into history reads.
+      if (action.type === 'history/loaded') void reload(action.page.events.at(-1)?.turnId ?? null, action.page.latestSequence);
+      else if (historyAfter(conversationRef.current) !== null) {
+        if (action.type === 'live/changed') void reload(action.turnId, action.sequence);
+        if (action.type === 'events/observed') void reload(action.events.at(-1)?.turnId ?? null, action.events.at(-1)?.sequence ?? 0);
+      }
     }, () => live, () => historyAfter(conversationRef.current) === null, reviewOpen);
     session.catch(failure => { if (live) setError(remoteErrorMessage(failure)); });
     return () => {
@@ -324,6 +346,7 @@ export default function AgentReviewTab({
       const history = direction === 'latest'
         ? await readRecentAgentHistory(conversationBridge, taskId)
         : { page: await conversationBridge.readAgentHistory(taskId, before ?? undefined, after ?? undefined) };
+      if (current() && reviewId !== null) await refresh(reviewId, history.page.events.at(-1)?.turnId ?? null, false, history.page.latestSequence);
       if (current()) dispatchConversation({ type: 'history/loaded', ...history, direction });
     }
     catch (failure) {
@@ -335,7 +358,7 @@ export default function AgentReviewTab({
         setHistoryLoading(false);
       }
     }
-  }, [conversationBridge, dispatchConversation, reviewId, taskId]);
+  }, [conversationBridge, dispatchConversation, refresh, reviewId, taskId]);
 
   // Turn settings are what each message ran with, and only the durable turn records them.
   const turnIds = useMemo(
@@ -672,6 +695,7 @@ export default function AgentReviewTab({
           pendingApprovals={approvals}
           connection={conversation.connection}
           lastSequence={conversation.lastSequence}
+          reviewSequence={reviewSequence}
           history={{
             before: historyBefore(conversation),
             after: historyAfter(conversation),

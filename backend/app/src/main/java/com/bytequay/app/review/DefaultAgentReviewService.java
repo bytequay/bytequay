@@ -1530,7 +1530,7 @@ public class DefaultAgentReviewService
                 review,
                 runs,
                 store.listFindings(reviewId),
-                store.listMessages(reviewId).stream().map(this::messageView).collect(toImmutableList()),
+                store.listMessages(reviewId).stream().map(message -> messageView(taskId, message)).collect(toImmutableList()),
                 new AgentReviewProjection.TaskView(
                         task.id().toString(),
                         review.workspaceId(),
@@ -1553,12 +1553,17 @@ public class DefaultAgentReviewService
                 worktreeSync(review, task, runs));
     }
 
-    private AgentReviewProjection.MessageView messageView(ReviewMessage message)
+    private AgentReviewProjection.MessageView messageView(TaskId taskId, ReviewMessage message)
     {
         // Delivery identity must stay readable after the generated prompt blob expires.
-        Optional<QueuedAgentInput> queued = message.queuedInputId().map(QueuedInputId::valueOf).flatMap(queueStore::find);
+        // Acceptance precedes provider startup; do not wait for start/enqueue to return before showing the question card.
+        boolean dispatching = message.author() == ReviewMessage.Author.USER && message.turnId().isEmpty() && message.queuedInputId().isEmpty();
+        String key = "review-ask:" + message.id();
+        Optional<QueuedAgentInput> queued = message.queuedInputId().map(QueuedInputId::valueOf).flatMap(queueStore::find)
+                .or(() -> dispatching ? queueStore.findQueuedByIdempotencyKey(taskId, key) : Optional.empty());
         return new AgentReviewProjection.MessageView(message,
-                queued.flatMap(QueuedAgentInput::turnId).map(Object::toString).or(message::turnId),
+                queued.flatMap(QueuedAgentInput::turnId).map(Object::toString).or(message::turnId)
+                        .or(() -> dispatching ? turnStore.findByIdempotencyKey(taskId, key).map(turn -> turn.id().toString()) : Optional.empty()),
                 queued.flatMap(QueuedAgentInput::messageEventId).map(Object::toString));
     }
 

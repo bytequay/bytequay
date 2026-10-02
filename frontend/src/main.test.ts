@@ -323,6 +323,43 @@ it('reads a directory’s spec sources and starts a check of it, refusing a forg
   expect(fetch).toHaveBeenLastCalledWith(base + '/check%2F1/candidates/c1/dismiss', expect.objectContaining({ method: 'POST', body: JSON.stringify({ reason: 'Filed on GitHub' }) }));
 });
 
+it('routes memory reads and the user’s changes, refusing a forged memory id before sending it', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const memory: Record<string, unknown> = { id: 'm12', workspaceId: 'workspace/one', kind: 'RULE', text: 'Document every new table property.', scope: ['plugin/'],
+    sources: [{ kind: 'PULL_REQUEST', url: 'https://github.com/trinodb/trino/pull/31201', quote: 'Docs, please.', at: '2026-10-02T00:00:00Z', section: null,
+      pullRequest: { number: 31201, part: 'REVIEW', commentId: '7', author: 'alice', maintainer: true, merged: true, resolved: false, outdated: false } }],
+    origin: { user: false, description: 'Learn from my PRs', taskId: 'task' }, version: 1, previous: null, delivered: 3, cited: 1, reports: [],
+    createdAt: '2026-10-02T00:00:00Z', updatedAt: '2026-10-02T00:00:00Z' };
+  const page: Record<string, unknown> = { memories: [{ memory, missingScope: [] }], switches: { reviews: true, development: true }, guidelines: [], head: 'a'.repeat(40) };
+  const fetch = vi.fn(async () => new Response(JSON.stringify(page)));
+  vi.stubGlobal('fetch', fetch);
+  const base = 'http://127.0.0.1:9527/api/workspaces/workspace%2Fone/memory';
+  const read = await desktop.handlers.get('memory:page')?.({}, 'workspace/one') as { memories: { id: string; sources: { pullRequest: { author: string } }[] }[] };
+  expect(read.memories[0].id).toBe('m12');
+  expect(read.memories[0].sources[0].pullRequest.author).toBe('alice');
+  expect(fetch).toHaveBeenLastCalledWith(base, expect.anything());
+  const cases = [
+    { name: 'edit', args: ['m12', 1, 'New text'], path: '/m12', method: 'PATCH', body: { expectedVersion: 1, text: 'New text' } },
+    { name: 'restore', args: ['m12', 2], path: '/m12/restore', method: 'POST', body: { expectedVersion: 2 } },
+    { name: 'switches', args: [{ reviews: false, development: true }], path: '/switches', method: 'PUT', body: { reviews: false, development: true } },
+  ];
+  for (const item of cases) {
+    await desktop.handlers.get(`memory:${item.name}`)?.({}, 'workspace/one', ...item.args);
+    expect(fetch).toHaveBeenLastCalledWith(base + item.path, expect.objectContaining({ method: item.method, body: JSON.stringify(item.body) }));
+  }
+  for (const item of [{ name: 'keep', path: '/m12/keep', method: 'POST' }, { name: 'delete', path: '/m12', method: 'DELETE' },
+    { name: 'undo-delete', path: '/m12/undo-delete', method: 'POST' }]) {
+    await desktop.handlers.get(`memory:${item.name}`)?.({}, 'workspace/one', 'm12');
+    expect(fetch).toHaveBeenLastCalledWith(base + item.path, expect.objectContaining({ method: item.method }));
+  }
+  fetch.mockClear();
+  expect(() => desktop.handlers.get('memory:delete')?.({}, 'workspace/one', '../m12')).toThrow('Malformed memory id');
+  expect(() => desktop.handlers.get('memory:edit')?.({}, 'workspace/one', 'm12', 0, 'Text')).toThrow('Malformed memory version');
+  expect(() => desktop.handlers.get('memory:edit')?.({}, 'workspace/one', 'm12', 1, '  ')).toThrow('Malformed memory text');
+  expect(fetch).not.toHaveBeenCalled();
+});
+
 it('routes Jira reads and versioned writes through the authenticated native API', async () => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');

@@ -60,6 +60,7 @@ import {
   parseSpecCheckDirectory,
   parseStartContextSpecCheckRequest,
 } from './repository-context/contracts';
+import { parseMemoryId, parseMemoryPage, parseMemorySwitches, parseMemoryText, parseMemoryVersion } from './memory/contracts';
 import {
   parseAgentReview,
   parseAgentReviews,
@@ -1342,6 +1343,21 @@ function registerIpc(): void {
   ipcMain.handle('repository-context:spec-checks:dismiss', (_event, workspaceId: string, checkId: string, candidateId: string, request: unknown) =>
     backendJson(`${specCheckUrl(workspaceId)}/${encodeURIComponent(checkId)}/candidates/${encodeURIComponent(candidateId)}/dismiss`,
       jsonInit('POST', parseDismissContextSpecFindingRequest(request), agentHeaders())).then(parseContextSpecCheck));
+  const memoryUrl = (workspaceId: string, path = '') => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/memory${path}`;
+  ipcMain.handle('memory:page', (_event, workspaceId: string) => backendJson(memoryUrl(workspaceId)).then(parseMemoryPage));
+  ipcMain.handle('memory:edit', (_event, workspaceId: string, memoryId: unknown, expectedVersion: unknown, text: unknown) =>
+    backendJson(memoryUrl(workspaceId, `/${parseMemoryId(memoryId)}`), jsonInit('PATCH', { expectedVersion: parseMemoryVersion(expectedVersion), text: parseMemoryText(text) }))
+      .then(parseMemoryPage));
+  ipcMain.handle('memory:restore', (_event, workspaceId: string, memoryId: unknown, expectedVersion: unknown) =>
+    backendJson(memoryUrl(workspaceId, `/${parseMemoryId(memoryId)}/restore`), jsonInit('POST', { expectedVersion: parseMemoryVersion(expectedVersion) })).then(parseMemoryPage));
+  ipcMain.handle('memory:keep', (_event, workspaceId: string, memoryId: unknown) =>
+    backendJson(memoryUrl(workspaceId, `/${parseMemoryId(memoryId)}/keep`), { method: 'POST' }).then(parseMemoryPage));
+  ipcMain.handle('memory:delete', (_event, workspaceId: string, memoryId: unknown) =>
+    backendJson(memoryUrl(workspaceId, `/${parseMemoryId(memoryId)}`), { method: 'DELETE' }).then(parseMemoryPage));
+  ipcMain.handle('memory:undo-delete', (_event, workspaceId: string, memoryId: unknown) =>
+    backendJson(memoryUrl(workspaceId, `/${parseMemoryId(memoryId)}/undo-delete`), { method: 'POST' }).then(parseMemoryPage));
+  ipcMain.handle('memory:switches', (_event, workspaceId: string, switches: unknown) =>
+    backendJson(memoryUrl(workspaceId, '/switches'), jsonInit('PUT', parseMemorySwitches(switches))).then(parseMemoryPage));
   ipcMain.handle('repository-context:build:stop', (_event, workspaceId: string, taskId: string) =>
     backendJson(contextBuildUrl(workspaceId) + '/stop', jsonInit('POST', { taskId }, agentHeaders())).then(value => parseContextBuildView(value, workspaceId)));
   ipcMain.handle('repository-context:build:stop-impact', (_event, workspaceId: string, taskId: string) =>

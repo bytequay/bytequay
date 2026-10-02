@@ -13,7 +13,7 @@
  */
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  Bot, ChevronDown, ChevronLeft, ChevronRight, CircleDot, CircleUser, FileText, GitBranch, GitPullRequest, Globe, History, House, KeyRound,
+  BookMarked, Bot, ChevronDown, ChevronLeft, ChevronRight, CircleDot, CircleUser, GitBranch, GitPullRequest, Globe, History, House, KeyRound,
   LayoutDashboard, LayoutGrid, ListChecks, Network, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
   Pin, Sparkles, Sun, Tags, TriangleAlert, Users,
 } from 'lucide-react';
@@ -30,6 +30,7 @@ import {
 } from './settings/routes';
 import { workspaceHasReadableCode, type WorkspaceTab } from './workspaces/model';
 import PinButton from './home/PinButton';
+import { useMemoryNeeds } from './memory/needs';
 import { openPinned, usePinnedItems } from './home/pinned';
 
 /** What the sidebar needs to be the settings window's nav. Absent on every other page. */
@@ -92,7 +93,7 @@ const WORKSPACE_TABS: Array<{ tab: WorkspaceTab; label: string; icon: ReactNode 
   { tab: 'issues', label: 'Issues', icon: <CircleDot size={16} strokeWidth={1.7} aria-hidden="true" /> },
   { tab: 'jira', label: 'Jira', icon: <JiraIcon size={16} /> },
   { tab: 'commits', label: 'Commits', icon: <GitBranch size={16} strokeWidth={1.7} aria-hidden="true" /> },
-  { tab: 'context', label: 'Spec checks', icon: <FileText size={16} strokeWidth={1.7} aria-hidden="true" /> },
+  { tab: 'context', label: 'Memory', icon: <BookMarked size={16} strokeWidth={1.7} aria-hidden="true" /> },
 ];
 
 export default function AppSidebar({
@@ -135,6 +136,7 @@ export default function AppSidebar({
     if (pickerOpen) pickerMenu.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [pickerOpen]);
   const sidebar = useResizablePane(222, 200, 420);
+  const memoryNeeds = useMemoryNeeds(workspace?.id ?? null, workspaceTab) ?? 0;
 
   const historyControls = (
     <div className="app-sidebar__history" role="group" aria-label="View history">
@@ -190,6 +192,7 @@ export default function AppSidebar({
       active: workspaceTab === tab,
       disabled: reason !== null,
       title: reason ?? label,
+      badge: tab === 'context' && memoryNeeds > 0 ? { count: memoryNeeds, label: `${memoryNeeds} need you` } : undefined,
       onClick: () => onWorkspaceTab(tab),
     });
   };

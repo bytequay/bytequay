@@ -39,6 +39,7 @@ import java.util.Set;
 import java.util.TreeSet;
 
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -82,6 +83,17 @@ public final class RepositoryGuidelineReader
             log.warn("Repository guidelines are unavailable for task {}", task.id(), failure);
             return Guidelines.NONE;
         }
+    }
+
+    /** The root and {@code .github} guideline files at a commit with their sizes: what every turn of a task started there reads. */
+    public List<GuidelineFile> files(Path repository, String commit)
+    {
+        List<String> paths = paths(ImmutableList.of());
+        GitCommandRunner.Result listing = git.runLocalBoundedStdout(repository, TIMEOUT, LISTING_BYTES,
+                ImmutableList.<String>builder().add("--literal-pathspecs", "ls-tree", "-z", "-l", "--full-tree", commit, "--").addAll(paths).build());
+        checkState(listing.successful() && !listing.truncated(), "Cannot list the guideline files at %s", commit);
+        Map<String, Blob> blobs = blobs(listing.output());
+        return paths.stream().filter(blobs::containsKey).map(path -> new GuidelineFile(path, blobs.get(path).size())).collect(toImmutableList());
     }
 
     /** Root files first, then {@code .github}, then the files beside a review's changed paths, without repeats. */
@@ -167,4 +179,13 @@ public final class RepositoryGuidelineReader
     }
 
     private record Blob(String id, long size) {}
+
+    public record GuidelineFile(String path, long bytes)
+    {
+        /** Whether a turn reads only the file's first {@link #MAX_FILE_BYTES}. */
+        public boolean cut()
+        {
+            return bytes > MAX_FILE_BYTES;
+        }
+    }
 }

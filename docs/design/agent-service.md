@@ -236,7 +236,7 @@ check's tests and build output are its own, so between turns and before cleanup
 the service returns the worktree to its baseline; a worktree whose HEAD moved is
 kept and its task abandoned.
 
-Check tasks open only on the Spec checks page, never as an interactive task
+Check tasks open only on the Memory page, never as an interactive task
 screen. Generic send and steer endpoints reject noninteractive tasks; existing
 model preflight, Stop, runtime recovery and verified worktree cleanup controls
 apply. ContextBuildCoordinator observes lifecycle events and settles only a
@@ -4658,6 +4658,13 @@ confirmed workspace deletion purges them and the workspace's reviews through the
 existing deletion path; Unwatch preserves them. No second database or separate
 retention scheduler is introduced. A startup cleanup deletes the settings, tables
 and review run column that the removed repository-context notes used.
+
+Repository memories live in the `repository_memory` table, one row per memory
+with its scope, sources and reports as JSON columns; deliveries and citations
+are counted with an update, never a rewrite. Memory numbers come from one
+counter in application settings and are never reused, so a cited `m12` always
+names one memory. The workspace's memory switches are an application setting.
+Workspace deletion removes the memories and the switches.
 
 ### Explicit workspace deletion
 

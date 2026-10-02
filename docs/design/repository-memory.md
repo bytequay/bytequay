@@ -1,7 +1,7 @@
 # Repository memory
 
-Status: approved; phases 0 to 2 and the store with the memory tool are
-implemented. It replaces the knowledge-learning design of Repository context
+Status: approved; phases 0 to 2, the store with the memory tool and the Memory
+page are implemented. It replaces the knowledge-learning design of Repository context
 and the documents it built on, which phase 2 deleted, and revises the
 [spec check](spec-check.md) to start from a directory instead of a plan topic. The user chose the direction: remove the learning system, its
 note code and the note data built so far in one step, save memory without

@@ -27,6 +27,7 @@ import java.util.regex.Pattern;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -142,6 +143,14 @@ public record Memory(
         Previous replaced = previous.orElseThrow(() -> new IllegalStateException("Memory " + id + " has no previous version"));
         Origin restorer = origin.user() ? origin : Origin.USER_EDIT;
         return new Memory(id, workspaceId, kind, replaced.text(), replaced.scope(), sources, restorer, version + 1, Optional.of(new Previous(text, scope)),
+                delivered, cited, reports, createdAt, at);
+    }
+
+    /** An agent changes where a memory it saved applies; the scope it replaces is kept as the previous version. */
+    public Memory rescoped(List<String> newScope, Instant at)
+    {
+        checkState(!origin.user(), "Memory %s is the user's; agents never change it", id);
+        return new Memory(id, workspaceId, kind, text, newScope, sources, origin, version + 1, Optional.of(new Previous(text, scope)),
                 delivered, cited, reports, createdAt, at);
     }
 

@@ -27,6 +27,7 @@ import type {
   ContextSpecSourceDto,
   StartContextSpecCheckRequest,
 } from './repository-context/contracts';
+import type { MemoryPageDto, MemorySwitchesDto } from './memory/contracts';
 import type {
   AgentReviewDto,
   ReviewDraftDto,
@@ -1602,6 +1603,16 @@ export type Bridge = JiraBridge & {
   stopRepositoryContextBuildRuntime: (workspaceId: string, taskId: string, generation: string) => Promise<ContextBuildViewDto>;
   failRepositoryContextBuild: (workspaceId: string, taskId: string, reason: string) => Promise<ContextBuildViewDto>;
   cleanupRepositoryContextBuild: (workspaceId: string, taskId: string) => Promise<ContextBuildViewDto>;
+  /** The workspace's memories with their flags, the memory switches and the guideline files every turn reads; local reads only. */
+  getMemoryPage: (workspaceId: string) => Promise<MemoryPageDto>;
+  /** Replaces a memory's text with the user's words, which makes it theirs; fails when it changed since `expectedVersion`. */
+  editMemory: (workspaceId: string, memoryId: string, expectedVersion: number, text: string) => Promise<MemoryPageDto>;
+  restoreMemory: (workspaceId: string, memoryId: string, expectedVersion: number) => Promise<MemoryPageDto>;
+  /** Settles a memory's reports and keeps it as it is. */
+  keepMemory: (workspaceId: string, memoryId: string) => Promise<MemoryPageDto>;
+  deleteMemory: (workspaceId: string, memoryId: string) => Promise<MemoryPageDto>;
+  undoDeleteMemory: (workspaceId: string, memoryId: string) => Promise<MemoryPageDto>;
+  saveMemorySwitches: (workspaceId: string, switches: MemorySwitchesDto) => Promise<MemoryPageDto>;
   setWorkspaceCommitsTarget: (workspaceId: string, branch: string) => Promise<WorkspaceCommitsTargetDto>;
   clearWorkspaceCommitsTarget: (workspaceId: string) => Promise<WorkspaceCommitsTargetDto>;
   renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceDto>;

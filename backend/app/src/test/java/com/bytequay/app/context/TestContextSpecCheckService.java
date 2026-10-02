@@ -35,12 +35,16 @@ import com.bytequay.app.context.ContextSpecCheck.Duplicate;
 import com.bytequay.app.context.ContextSpecCheck.Predicted;
 import com.bytequay.app.context.ContextSpecCheck.Status;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.memory.InMemoryMemoryStore;
+import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.memory.Memory;
+import com.bytequay.core.memory.MemorySource;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -98,8 +102,10 @@ class TestContextSpecCheckService
     private final TaskLogStore logs = mock(TaskLogStore.class);
     private final WorktreeService worktrees = mock(WorktreeService.class);
     private final List<AgentEventEnvelope> events = new ArrayList<>();
+    private final InMemoryMemoryStore memoryStore = new InMemoryMemoryStore();
+    private final MemoryService memories = new MemoryService(memoryStore, new InMemoryAppSettingsStore(), mapper, Clock.fixed(NOW, ZoneOffset.UTC));
     private final ContextSpecCheckService service = new ContextSpecCheckService(workspaces, git, store, builds, buildStore, mock(GitHubRepoClient.class),
-            mock(CredentialService.class), tasks, logs, worktrees, Clock.fixed(NOW, ZoneOffset.UTC));
+            mock(CredentialService.class), tasks, logs, worktrees, memories, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
     void setUp()
@@ -176,6 +182,16 @@ class TestContextSpecCheckService
         assertThat(again.skipped()).hasSize(1);
         assertThat(current().covered()).containsExactly("Deletion Vectors");
         assertThat(current().checkedAgainst()).containsExactly(SPEC);
+
+        assertThat(memories.list(WORKSPACE)).singleElement().satisfies(memory -> {
+            assertThat(memory.kind()).isEqualTo(Memory.Kind.SPEC);
+            assertThat(memory.text()).isEqualTo("Implements the specification at " + SPEC + ".");
+            assertThat(memory.scope()).containsExactly(current().directory());
+            assertThat(memory.sources()).extracting(MemorySource::url).containsExactly(SPEC);
+            assertThat(memory.origin().taskId()).contains(TASK.toString());
+        });
+        service.saveCandidates(build(Optional.empty()), ImmutableList.of(), Optional.of(ImmutableList.of(SPEC)), ImmutableList.of(), ImmutableList.of(), this::searched);
+        assertThat(memories.list(WORKSPACE)).hasSize(1);
     }
 
     @Test

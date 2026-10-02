@@ -21,6 +21,7 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.MemoryBridge;
+import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -50,7 +51,7 @@ class TestMemoryBridgeResolverImpl
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
     private final InMemoryMemoryStore store = new InMemoryMemoryStore();
-    private final MemoryService memories = new MemoryService(store, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final MemoryService memories = new MemoryService(store, new InMemoryAppSettingsStore(), mapper, Clock.fixed(NOW, ZoneOffset.UTC));
     private final MemoryBridgeResolverImpl resolver = new MemoryBridgeResolverImpl(tasks, reviews, memories, mapper);
 
     @Test
@@ -77,6 +78,25 @@ class TestMemoryBridgeResolverImpl
         when(tasks.find(development.id())).thenReturn(Optional.of(development.fail("Failed", NOW, NOW.plus(Duration.ofDays(7)))));
         assertThat(resolver.resolve(development.id().toString())).isEmpty();
         assertThat(resolver.resolve(TaskId.random().toString())).isEmpty();
+    }
+
+    @Test
+    void theWorkspaceSwitchesWithdrawTheTool()
+    {
+        store.save(rule("m1", "workspace", "Keep refactors and behavior changes in separate commits.", ImmutableList.of()));
+        AgentTask development = task(true, "workspace");
+        AgentTask review = task(false, "workspace");
+        when(reviews.findReviewByTask(review.id().toString())).thenReturn(Optional.of(new AgentReview("review", "workspace", "trinodb/trino", OptionalInt.of(1),
+                OptionalLong.empty(), review.id().toString(), Optional.empty(), AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0,
+                NOW, NOW, Optional.empty())));
+
+        memories.saveSwitches("workspace", new MemorySwitches(true, false));
+        assertThat(resolver.resolve(development.id().toString())).isEmpty();
+        assertThat(resolver.resolve(review.id().toString())).isPresent();
+
+        memories.saveSwitches("workspace", new MemorySwitches(false, true));
+        assertThat(resolver.resolve(development.id().toString())).isPresent();
+        assertThat(resolver.resolve(review.id().toString())).isEmpty();
     }
 
     @Test

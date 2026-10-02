@@ -31,7 +31,7 @@ import JiraScreen from '../jira/JiraScreen';
 import type { NavigationMode } from '../navigationHistory';
 import PullsScreen from '../pulls/PullsScreen';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
-import SpecChecksPage from '../repository-context/SpecChecksPage';
+import MemoryPage from '../memory/MemoryPage';
 import { settingsRoute } from '../settings/routes';
 import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
@@ -233,7 +233,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       return <JiraScreen workspace={workspace} />;
     }
     if (tab === 'context') {
-      return <SpecChecksPage workspace={workspace} />;
+      return <MemoryPage workspace={workspace} />;
     }
     if (tab === 'tasks') {
       if (initialAgentReviewId !== null) return stage(<ReviewTaskScreen

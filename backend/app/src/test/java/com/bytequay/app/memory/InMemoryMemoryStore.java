@@ -25,7 +25,7 @@ import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
-final class InMemoryMemoryStore
+public final class InMemoryMemoryStore
         implements MemoryStore
 {
     private final Map<String, Memory> memories = new LinkedHashMap<>();

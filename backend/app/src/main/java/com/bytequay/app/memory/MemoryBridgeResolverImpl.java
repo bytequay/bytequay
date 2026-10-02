@@ -35,8 +35,8 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Offers the memory tool to development tasks and reviews whose workspace has memories. Spec checks and other restricted runs
- * get none. The tool only searches, reads and reports; nothing an agent sends changes a memory's text or sources.
+ * Offers the memory tool to development tasks and reviews whose workspace has memories and has memory on for them. Spec checks
+ * and other restricted runs get none. The tool only searches, reads and reports; nothing an agent sends changes a memory's text or sources.
  */
 @Component
 public class MemoryBridgeResolverImpl
@@ -59,10 +59,16 @@ public class MemoryBridgeResolverImpl
     public Optional<MemoryBridge> resolve(String taskId)
     {
         return tasks.find(TaskId.valueOf(taskId))
-                .filter(task -> task.state() == TaskState.OPEN && (task.interactive() || reviews.findReviewByTask(taskId).isPresent()))
-                .flatMap(AgentTask::workspaceId)
+                .filter(task -> task.state() == TaskState.OPEN)
+                .flatMap(task -> task.workspaceId().filter(workspaceId -> switchedOn(task, workspaceId)))
                 .filter(workspaceId -> !memories.list(workspaceId).isEmpty())
                 .map(workspaceId -> new MemoryBridge(arguments -> call(workspaceId, taskId, arguments)));
+    }
+
+    private boolean switchedOn(AgentTask task, String workspaceId)
+    {
+        MemorySwitches switches = memories.switches(workspaceId);
+        return reviews.findReviewByTask(task.id().toString()).isPresent() ? switches.reviews() : task.interactive() && switches.development();
     }
 
     String call(String workspaceId, String taskId, String json)

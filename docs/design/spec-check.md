@@ -13,7 +13,7 @@ and reads the result; nothing in between asks for a decision.
 
 ## 1. What the user does
 
-**Start.** The Spec checks page offers **Check against spec**, which asks for a
+**Start.** The Memory page offers **Check against spec**, which asks for a
 directory of the repository and opens its Spec check drawer; a row of the page
 opens the drawer of an earlier check. The drawer says what the check reads, at
 the monitored branch head: every page the directory's code links,
@@ -38,6 +38,11 @@ new-issue form in the in-app browser, pre-filled with that finding; the user
 submits it there. A body too long for the form's address is cut there and copied
 whole to the clipboard, and **Copy body** copies it at any time. **Dismiss** hides
 a finding and records why: filed on GitHub, not a real gap, or not worth filing.
+
+**Memory.** Each specification the check used becomes a SPEC memory scoped to the
+directory, citing the page, or widens the scope of the one it already has. A
+memory the user edited stays as it is, and a full workspace keeps the check going
+without one.
 Nothing is filed, commented or pushed without the user's click.
 
 ## 2. Which specs
@@ -136,7 +141,7 @@ whoever fixes the bug or builds the feature.
 
 A spec check is one workflow-owned task per check, reused across its turns while
 each turn completes normally on the same model. It is not interactive and opens
-only on the Spec checks page.
+only on the Memory page.
 
 - It may write tests in its own ByteQuay-owned worktree and run the project's
   build there, with network access for build dependencies, as

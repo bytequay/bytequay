@@ -1,0 +1,372 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { BookOpen, ChevronRight, FileText, GitPullRequest, Globe, Quote, TriangleAlert, User } from 'lucide-react';
+import { ConfirmDialog } from '../ConfirmDialog';
+import RepoAvatar from '../RepoAvatar';
+import Toast from '../Toast';
+import type { AgentRuntimeStopImpactDto, ModelSettingsDto, WorkspaceDto } from '../types';
+import type { ContextBuildViewDto, ContextSpecCheckDto } from '../repository-context/contracts';
+import { SpecCheckDrawer, type SpecCheckActions, type SpecCheckData } from '../repository-context/ContextSpecCheck';
+import { Icon, Spinner } from '../repository-context/icons';
+import { activeCheck, checkActive, checkProgress, modelLine, plural, shortDate, shortSha } from '../repository-context/model';
+import { CHECK_STATE, checkSummary, issueUrl, openFindings } from '../repository-context/specChecks';
+import type { MemoryDto, MemoryKind, MemoryPageDto } from './contracts';
+import { MemoryDrawer } from './MemoryDrawer';
+import { age, flagged, KIND_LABEL, kilobytes, matches, MEMORY_CHANGED, memoryFlags, sourceChip, type MemoryKindFilter, type MemorySourceFilter } from './model';
+import '../css/repository-context.css';
+import '../css/memory.css';
+
+const failure = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
+const KINDS: MemoryKind[] = ['RULE', 'SPEC'];
+type Drawer = { kind: 'spec'; directory: string | null } | { kind: 'memory'; id: string };
+
+/**
+ * The workspace's repository memory: what agents receive, what needs the user, the guideline files every turn reads, and the spec
+ * checks. Opening the page only reads local state; a check starts only from Check against spec.
+ */
+export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
+  const workspaceId = workspace.id;
+  const repository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
+  const [page, setPage] = useState<MemoryPageDto | null>(null);
+  const [checks, setChecks] = useState<ContextSpecCheckDto[] | null>(null);
+  const [build, setBuild] = useState<ContextBuildViewDto | null>(null);
+  const [models, setModels] = useState<ModelSettingsDto | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<{ id: number; text: string; undo: string | null } | null>(null);
+  const [drawer, setDrawer] = useState<Drawer | null>(null);
+  const [impact, setImpact] = useState<AgentRuntimeStopImpactDto | null>(null);
+  const [kind, setKind] = useState<MemoryKindFilter>('ALL');
+  const [source, setSource] = useState<MemorySourceFilter>('ANY');
+  const [query, setQuery] = useState('');
+  const [now, setNow] = useState(() => Date.now());
+  const mounted = useRef(true);
+  const inFlight = useRef(false);
+  const opener = useRef<HTMLElement | null>(null);
+  const panel = useRef<HTMLDivElement>(null);
+
+  const say = useCallback((text: string, undo: string | null = null) => setToast({ id: Date.now(), text, undo }), []);
+  const load = useCallback(async () => {
+    const [nextPage, nextChecks, nextBuild] = await Promise.all([window.bridge.getMemoryPage(workspaceId),
+      window.bridge.getRepositoryContextSpecChecks(workspaceId), window.bridge.getRepositoryContextBuild(workspaceId)]);
+    if (!mounted.current) return;
+    setPage(nextPage);
+    setChecks(nextChecks);
+    setBuild(nextBuild);
+    setLoadError(null);
+  }, [workspaceId]);
+
+  useEffect(() => {
+    mounted.current = true;
+    void load().catch(cause => { if (mounted.current) setLoadError(failure(cause)); });
+    void window.bridge.getModelSettings(workspaceId).then(value => { if (mounted.current) setModels(value); }).catch(() => {});
+    return () => { mounted.current = false; };
+  }, [load, workspaceId]);
+
+  const running = (checks !== null && activeCheck(checks) !== null) || build?.build?.outcome === 'RUNNING' || build?.build?.task?.state === 'OPEN';
+  // A check saves candidates and results during its turns, and between them says whether it goes on.
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => void load().catch(() => {}), 2000);
+    const clock = setInterval(() => setNow(Date.now()), 1000);
+    return () => { clearInterval(timer); clearInterval(clock); };
+  }, [load, running]);
+
+  const drawerOpen = drawer !== null;
+  useEffect(() => {
+    if (drawerOpen) panel.current?.focus();
+    else opener.current?.focus();
+  }, [drawerOpen]);
+
+  const perform = useCallback(async (operation: () => Promise<void>) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    setActionError(null);
+    try { await operation(); }
+    catch (cause) { if (mounted.current) { setActionError(failure(cause)); void load().catch(() => {}); } }
+    finally { inFlight.current = false; if (mounted.current) setBusy(false); }
+  }, [load]);
+
+  /** Applies a change the backend answered with the whole page, and tells the sidebar count. */
+  const change = useCallback((operation: () => Promise<MemoryPageDto>, done: () => void): void => void perform(async () => {
+    const next = await operation();
+    if (!mounted.current) return;
+    setPage(next);
+    window.dispatchEvent(new CustomEvent(MEMORY_CHANGED, { detail: workspaceId }));
+    done();
+  }), [perform, workspaceId]);
+
+  if (page === null || checks === null || build === null) {
+    return <div className="rcp"><div className="rcp-scroll"><div className="rcp-inner">
+      <h1 className="rcp-page-title">Memory</h1>
+      {loadError === null ? <p className="rcp-loading" role="status">Loading memory…</p>
+        : <div className="rcp-error" role="alert">Memory could not be loaded. {loadError}
+          <button type="button" className="rcp-link" onClick={() => void load().catch(cause => setLoadError(failure(cause)))}>Try again</button></div>}
+    </div></div></div>;
+  }
+
+  const data: SpecCheckData = { workspaceId, repository, checks, build, model: modelLine(models), now };
+  const actions: SpecCheckActions = {
+    start: (directory, specs) => void perform(async () => {
+      const started = await window.bridge.startRepositoryContextSpecCheck(workspaceId, { requestKey: crypto.randomUUID(),
+        expectedBuildSequence: build.buildRequestSequence, directory, specs });
+      if (!mounted.current) return;
+      setBuild(started.build);
+      setChecks(value => [...(value ?? []).filter(item => item.directory !== started.check.directory), started.check]);
+      say('Spec check started · findings appear as their tests fail');
+    }),
+    stop: taskId => void perform(async () => {
+      setBuild(await window.bridge.stopRepositoryContextBuild(workspaceId, taskId));
+      await load();
+      say('Spec check stopped · confirmed findings kept');
+    }),
+    dismissFinding: (check, candidateId, reason) => void perform(async () => {
+      const saved = await window.bridge.dismissRepositoryContextSpecFinding(workspaceId, check.id, candidateId, { reason });
+      if (!mounted.current) return;
+      setChecks(value => (value ?? []).map(item => item.id === saved.id ? saved : item));
+      say('Finding dismissed · nothing was sent to GitHub');
+    }),
+    // Opening GitHub's form writes nothing; the user files the issue there.
+    openIssue: candidate => void perform(async () => {
+      if (candidate.draft === null) return;
+      const { url, cut } = issueUrl(repository, candidate.draft);
+      if (cut) await navigator.clipboard.writeText(candidate.draft.body);
+      await window.bridge.openInAppBrowser(url);
+      say(cut ? 'The issue form opened with a shortened body · the full report is on the clipboard' : 'The issue form opened on GitHub · file it there');
+    }),
+    say,
+  };
+  const open = (next: Drawer) => {
+    if (document.activeElement instanceof HTMLElement) opener.current = document.activeElement;
+    setDrawer(next);
+  };
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === 'Escape' && drawer !== null && !event.defaultPrevented) { setDrawer(null); event.preventDefault(); }
+  };
+  const openUrl = (url: string): void => void window.bridge.openInAppBrowser(url);
+  const run = build.build;
+  const task = run?.task ?? null;
+  const settle = (operation: () => Promise<ContextBuildViewDto>): void => void perform(async () => { setBuild(await operation()); });
+  const ordered = [...checks].sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt));
+  const memories = page.memories;
+  const needs = memories.filter(flagged);
+  const visible = memories.filter(memory => matches(memory, kind, source, query));
+  const selected = drawer?.kind === 'memory' ? memories.find(memory => memory.id === drawer.id) ?? null : null;
+  const count = (predicate: (memory: MemoryDto) => boolean) => memories.filter(predicate).length;
+  const switches = page.switches;
+  const saveSwitches = (next: { reviews: boolean; development: boolean }) =>
+    change(() => window.bridge.saveMemorySwitches(workspaceId, next), () => say(next.reviews || next.development ? 'Memory switches saved' : 'Agents get no memory now'));
+  return <div className="rcp" onKeyDown={onKeyDown}>
+    <div className="rcp-content" inert={drawer !== null}>
+      <div className="rcp-scroll">
+        <div className="rcp-inner mem-inner">
+          <div className="rcp-head">
+            <div className="rcp-head__main">
+              <h1>Memory</h1>
+              <div className="rcp-head__meta">
+                <span className="rcp-repo"><RepoAvatar owner={workspace.monitoredOwner} repo={workspace.monitoredRepo} size={18} />{repository}</span>
+                {page.head !== null && <span className="mem-head">{shortSha(page.head)}</span>}
+                <Chip icon={<BookOpen size={14} />} count={count(memory => memory.kind === 'RULE')} title="rules" />
+                <Chip icon={<FileText size={14} />} count={count(memory => memory.kind === 'SPEC')} title="specs" />
+                <Chip icon={<GitPullRequest size={14} />} count={count(memory => memory.sources.some(item => item.pullRequest !== null))} title="from pull requests" />
+                <Chip icon={<User size={14} />} count={count(memory => memory.origin.user)} title="yours" />
+                <Chip icon={<Globe size={14} />} count={count(memory => memory.sources.some(item => item.kind === 'PAGE'))} title="from pages" />
+                <Chip icon={<TriangleAlert size={14} />} count={needs.length} title="need you" warn />
+              </div>
+            </div>
+            <div className="rcp-head__actions">
+              <button type="button" className="rcp-btn rcp-btn--primary" onClick={() => open({ kind: 'spec', directory: null })}><Icon name="bolt" size={13} />
+                Check against spec</button>
+            </div>
+          </div>
+          <div className="mem-switches" role="group" aria-label="Agents that get memory">
+            <span className="mem-muted">Agents use memory in</span>
+            <label><input type="checkbox" checked={switches.reviews} disabled={busy}
+              onChange={event => saveSwitches({ reviews: event.target.checked, development: switches.development })} />Reviews</label>
+            <label><input type="checkbox" checked={switches.development} disabled={busy}
+              onChange={event => saveSwitches({ reviews: switches.reviews, development: event.target.checked })} />Development tasks</label>
+          </div>
+          {actionError !== null && <div className="rcp-error" role="alert">{actionError}
+            <button type="button" className="rcp-link" onClick={() => setActionError(null)}>Dismiss</button></div>}
+          {run !== null && run.outcome === 'RUNNING' && <div className="rcp-status" role="status" aria-live="polite"><div className="rcp-status__row">
+            <span className="rcp-status__icon rcp-tone--blue"><Spinner size={14} /></span>
+            <div className="rcp-status__main">
+              <div className="rcp-status__headline">Checking {checks.find(check => check.id === run.checkId)?.directory ?? 'a directory'}</div>
+              {activeCheck(checks) !== null && <div className="rcp-status__text">{checkProgress(activeCheck(checks) as ContextSpecCheckDto)}</div>}
+              {run.activity.length > 0 && <div className="rcp-feed">{run.activity.slice(-3).map((line, index) =>
+                <div className={`rcp-feed__line rcp-tone--${line.tone === 'FAILED' ? 'red' : 'green'}`} key={index}>
+                  <span className="rcp-feed__mark">{line.tone === 'FAILED' ? '✕' : '✓'}</span><span className="rcp-feed__text">{line.text}</span></div>)}</div>}
+              {run.pendingApprovals > 0 && <div className="rcp-alert">This check is waiting for approval. Checks cannot be steered; stop it to end the pending request.</div>}
+              <div className="rcp-actions"><button type="button" className="rcp-btn rcp-btn--danger" disabled={busy || run.activeTurn?.cancellationRequestedAt != null}
+                onClick={() => actions.stop(run.taskId)}>Stop</button></div>
+            </div>
+          </div></div>}
+          {run !== null && run.outcome !== 'RUNNING' && task !== null && !build.canStart && <div className="rcp-alert">
+            {task.mutationClaim === 'RECOVERY' ? 'The last check’s agent process needs recovery before another check can start.'
+              : task.state === 'OPEN' ? 'The last check hasn’t settled yet. It usually finishes on its own.'
+                : 'The last check’s worktree is still retained. Clean it up before starting another check.'}
+            <div className="rcp-actions">
+              {task.mutationClaim === 'RECOVERY' && <button type="button" className="rcp-btn rcp-btn--sm" disabled={busy} onClick={() => void perform(async () => {
+                const found = await window.bridge.getRepositoryContextBuildStopImpact(workspaceId, task.id);
+                if (found.taskId !== task.id) throw new Error('The runtime belongs to another task.');
+                setImpact(found);
+              })}>Stop remaining processes</button>}
+              {task.state === 'OPEN' && run.activeTurn === null && <button type="button" className="rcp-btn rcp-btn--sm" disabled={busy}
+                onClick={() => settle(() => window.bridge.failRepositoryContextBuild(workspaceId, task.id, 'User ended the spec check.'))}>Mark failed</button>}
+              {task.state !== 'OPEN' && task.worktreeRemovedAt === null && <button type="button" className="rcp-btn rcp-btn--sm" disabled={busy}
+                onClick={() => settle(() => window.bridge.cleanupRepositoryContextBuild(workspaceId, task.id))}>Clean up worktree</button>}
+            </div>
+          </div>}
+
+          {needs.length > 0 && <section className="mem-section" aria-label="Needs you">
+            <h2 className="mem-section__title">Needs you · {needs.length}</h2>
+            <div className="mem-box">{needs.map(memory => {
+              const flag = memoryFlags(memory)[0];
+              return <button type="button" key={memory.id} className="mem-need" onClick={() => open({ kind: 'memory', id: memory.id })}>
+                <span className="mem-need__icon"><TriangleAlert size={15} aria-hidden="true" /></span>
+                <span className="mem-need__main"><span className="mem-need__title">{memory.text}</span>
+                  <span className="mem-need__meta"><span className="mem-warn">{flag.title}</span> · {flag.detail}</span></span>
+                <span className="rcp-age">{age(memory.reports.at(-1)?.at ?? memory.updatedAt, now)}</span>
+                <ChevronRight size={14} aria-hidden="true" className="mem-chevron" />
+              </button>;
+            })}</div>
+          </section>}
+
+          <section className="mem-section" aria-label="Memories">
+            <div className="mem-section__bar">
+              <h2 className="mem-section__title">Memories · {memories.length}</h2>
+              <span className="rcp-spacer" />
+              <div className="mem-tabs" role="group" aria-label="Kind">
+                {(['ALL', ...KINDS] as MemoryKindFilter[]).map(value => <button type="button" key={value} aria-pressed={kind === value}
+                  className={`mem-tab${kind === value ? ' is-on' : ''}`} onClick={() => setKind(value)}>
+                  {value === 'ALL' ? 'All' : KIND_LABEL[value].many} <span className="mem-muted">{value === 'ALL' ? memories.length : count(memory => memory.kind === value)}</span>
+                </button>)}
+              </div>
+              <select aria-label="Source" className="mem-select" value={source} onChange={event => setSource(event.target.value as MemorySourceFilter)}>
+                <option value="ANY">Any source</option>
+                <option value="PR">From pull requests</option>
+                <option value="USER">Yours</option>
+                <option value="PAGE">From pages</option>
+              </select>
+              <input type="search" aria-label="Filter memories" placeholder="Filter" className="mem-filter" value={query} onChange={event => setQuery(event.target.value)} />
+            </div>
+            {memories.length === 0
+              ? <div className="rcp-empty">No memory yet. A spec check remembers the specifications it used, and agents in reviews and development tasks
+                can search what is here.</div>
+              : visible.length === 0 ? <div className="rcp-empty">No memory matches these filters.</div>
+                : KINDS.map(group => {
+                  const items = visible.filter(memory => memory.kind === group);
+                  if (items.length === 0) return null;
+                  return <div className="mem-group" key={group}>
+                    <div className="mem-group__label">{KIND_LABEL[group].many} · {items.length}</div>
+                    <div className="mem-box">{items.map(memory => <MemoryRow key={memory.id} memory={memory} now={now}
+                      selected={selected?.id === memory.id} onOpen={() => open({ kind: 'memory', id: memory.id })} />)}</div>
+                  </div>;
+                })}
+          </section>
+
+          <section className="mem-section" aria-label="Spec checks">
+            <h2 className="mem-section__title">Spec checks · {ordered.length}</h2>
+            {ordered.length === 0
+              ? <div className="rcp-empty">No spec check yet. A check reads the pages a directory’s code links, decides which are specifications, and reproduces each
+                gap it finds with a test. Only a gap whose test fails is reported, and each specification it used becomes a memory.</div>
+              : <div className="mem-box">{ordered.map(check => {
+                const findings = openFindings(check).length;
+                return <button type="button" key={check.id} className={`rcp-review rcp-tone--${CHECK_STATE[check.state].tone}`}
+                  onClick={() => open({ kind: 'spec', directory: check.directory })}>
+                  <span className="rcp-review__main"><span className="rcp-review__title">{check.directory}
+                    {findings > 0 && ` · ${plural(findings, 'finding')} to file`}</span>
+                    <span className="rcp-review__meta"><span className="rcp-review__kind">{CHECK_STATE[check.state].label}</span><span className="rcp-sep">·</span>
+                      <span className="rcp-review__origin">{checkActive(check) ? checkProgress(check) : checkSummary(check)}</span></span></span>
+                  <span className="rcp-age">{shortDate(check.endedAt ?? check.startedAt, now)}</span>
+                </button>;
+              })}</div>}
+          </section>
+
+          <section className="mem-section" aria-label="Guidelines">
+            <h2 className="mem-section__title">Guidelines · {plural(page.guidelines.length, 'file')}</h2>
+            <div className="mem-muted">Every agent turn gets these files as reference data, read from the commit it starts at; reviews read their base branch.
+              Reviews also read the CLAUDE.md or AGENTS.md beside the paths they change.</div>
+            {page.guidelines.length === 0
+              ? <div className="rcp-empty">No CLAUDE.md, AGENTS.md, CONTRIBUTING.md or DEVELOPMENT.md at the root or in .github at the monitored head.</div>
+              : <div className="mem-box">{page.guidelines.map(file => <div className="mem-guideline" key={file.path}>
+                <FileText size={14} aria-hidden="true" className="mem-chevron" />
+                <span className="mem-guideline__path">{file.path}</span>
+                <span className={file.cut ? 'mem-warn' : 'mem-muted'}>{kilobytes(file.bytes)}{file.cut ? ', cut at 16 KB' : ''}</span>
+                <button type="button" className="rcp-link" onClick={() => openUrl(file.url)}>Open</button>
+              </div>)}</div>}
+          </section>
+        </div>
+      </div>
+    </div>
+    {drawer !== null && (drawer.kind === 'spec' || selected !== null) && <>
+      <div className="rcp-scrim" onClick={() => setDrawer(null)} />
+      <div ref={panel} className="rcp-drawer" role="dialog" aria-modal="true" aria-label={drawer.kind === 'spec' ? 'Spec check' : 'Memory'} tabIndex={-1}>
+        {drawer.kind === 'spec'
+          ? <SpecCheckDrawer key={drawer.directory ?? 'new'} data={data} actions={actions} busy={busy} directory={drawer.directory} onClose={() => setDrawer(null)} />
+          : selected !== null && <MemoryDrawer key={selected.id + ':' + selected.version} memory={selected} busy={busy} now={now} onClose={() => setDrawer(null)}
+            onOpen={openUrl}
+            onSave={text => change(() => window.bridge.editMemory(workspaceId, selected.id, selected.version, text), () => say('Memory saved · it is yours now'))}
+            onRestore={() => change(() => window.bridge.restoreMemory(workspaceId, selected.id, selected.version), () => say('Previous version restored'))}
+            onKeep={() => change(() => window.bridge.keepMemory(workspaceId, selected.id), () => say('Kept as it is'))}
+            onDelete={() => change(() => window.bridge.deleteMemory(workspaceId, selected.id), () => { setDrawer(null); say('Memory deleted', selected.id); })} />}
+      </div>
+    </>}
+    {impact !== null && <ConfirmDialog title="Stop remaining processes" confirmLabel="Stop processes" destructive busy={busy} onCancel={() => setImpact(null)}
+      onConfirm={() => settle(async () => {
+        const view = await window.bridge.stopRepositoryContextBuildRuntime(workspaceId, impact.taskId, impact.generation);
+        setImpact(null);
+        return view;
+      })}>
+      Stop the remaining agent runtime of this check. Its findings and worktree are kept. {impact.liveProcess ? 'An agent process is still running.' : 'No live agent process was reported.'}
+    </ConfirmDialog>}
+    {toast !== null && <Toast key={toast.id} text={toast.text} onDismiss={() => setToast(null)} durationMs={toast.undo === null ? undefined : 8000}
+      onUndo={toast.undo === null ? undefined : () => {
+        const id = toast.undo as string;
+        setToast(null);
+        change(() => window.bridge.undoDeleteMemory(workspaceId, id), () => say('Memory restored'));
+      }} />}
+  </div>;
+}
+
+/** An icon and a count; the sentence is on hover, and a zero shows nothing. */
+function Chip({ icon, count, title, warn = false }: { icon: ReactNode; count: number; title: string; warn?: boolean }) {
+  if (count === 0) return null;
+  return <span className={`mem-chip${warn ? ' mem-warn' : ''}`} title={`${count} ${title}`}>{icon}{count}</span>;
+}
+
+function MemoryRow({ memory, now, selected, onOpen }: { memory: MemoryDto; now: number; selected: boolean; onOpen: () => void }) {
+  const chip = sourceChip(memory);
+  const flag = memoryFlags(memory)[0];
+  return <button type="button" className={`mem-row${selected ? ' is-selected' : ''}`} onClick={onOpen}>
+    <span className="mem-row__main">
+      <span className="mem-row__text">{memory.text}</span>
+      <span className="mem-row__meta">
+        {memory.scope.length === 0 ? <span className="mem-scope">Repository</span> : memory.scope.map(path => <span key={path} className="mem-scope is-path">{path}</span>)}
+        <span className="mem-source-chip">{chip.kind === 'PR' ? <GitPullRequest size={13} aria-hidden="true" /> : <Globe size={13} aria-hidden="true" />}
+          <span>{chip.label}</span>{chip.more !== '' && <span className="mem-muted">{chip.more}</span>}</span>
+        {memory.origin.user && <span className="mem-source-chip"><User size={13} aria-hidden="true" />Yours</span>}
+        {flag !== undefined && <span className="mem-warn mem-source-chip"><TriangleAlert size={13} aria-hidden="true" />{flag.title}</span>}
+      </span>
+    </span>
+    <span className="mem-row__side">
+      <span className="mem-count" title={`Cited ${memory.cited} ${memory.cited === 1 ? 'time' : 'times'} by findings or answers`}><Quote size={13} aria-hidden="true" />
+        {memory.cited}</span>
+      <span className="rcp-age">{age(memory.createdAt, now)}</span>
+    </span>
+  </button>;
+}

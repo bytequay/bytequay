@@ -13,11 +13,22 @@
  */
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { settingsRoute } from '../settings/routes';
-import { specCheckDirectory, type ContextSpecCandidateDto, type ContextSpecCheckDto, type ContextSpecSourceDto } from './contracts';
+import { specCheckDirectory, type ContextBuildViewDto, type ContextSpecCandidateDto, type ContextSpecCheckDto, type ContextSpecSourceDto } from './contracts';
 import { Chevron, Icon } from './icons';
 import { activeCheck, CHECK_REPRODUCTIONS, checkActive, checkProgress, plural, shortDate, shortSha } from './model';
-import type { SpecCheckActions, SpecCheckData } from './SpecChecksPage';
 import { CHECK_STATE, checkSummary, codeLink, DISMISS_REASONS, MAX_SPECS, openFindings, specAddress, TYPE_LABEL, TYPE_TONE } from './specChecks';
+
+export type SpecCheckData = {
+  workspaceId: string; repository: string; checks: ContextSpecCheckDto[]; build: ContextBuildViewDto; model: { label: string; blocker: string | null }; now: number;
+};
+
+export type SpecCheckActions = {
+  start: (directory: string, specs: string[]) => void;
+  stop: (taskId: string) => void;
+  dismissFinding: (check: ContextSpecCheckDto, candidateId: string, reason: string) => void;
+  openIssue: (candidate: ContextSpecCandidateDto) => void;
+  say: (text: string) => void;
+};
 
 /** What a button that starts a check starts and on which model, or why it cannot start. */
 export function RunLine({ children, blocked = false, workspaceId }: { children: ReactNode; blocked?: boolean; workspaceId: string }) {

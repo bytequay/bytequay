@@ -14,8 +14,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { ContextBuildViewDto, ContextSpecCheckDto } from './contracts';
-import { SpecCheckDrawer } from './ContextSpecCheck';
-import type { SpecCheckActions, SpecCheckData } from './SpecChecksPage';
+import { SpecCheckDrawer, type SpecCheckActions, type SpecCheckData } from './ContextSpecCheck';
 
 const actions: SpecCheckActions = { start: () => {}, stop: () => {}, dismissFinding: () => {}, openIssue: () => {}, say: () => {} };
 const check: ContextSpecCheckDto = { id: 'check-1', directory: 'plugin/trino-iceberg/', baselineSha: 'a'.repeat(40), requestKey: 'key',

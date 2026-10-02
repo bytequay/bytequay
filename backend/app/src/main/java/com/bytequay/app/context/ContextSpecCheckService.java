@@ -27,6 +27,7 @@ import com.bytequay.app.context.ContextSpecCheck.Draft;
 import com.bytequay.app.context.ContextSpecCheck.Duplicate;
 import com.bytequay.app.context.ContextSpecCheck.Status;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.repository.github.GitHubSearchResponse;
 import com.bytequay.app.review.MavenCommands;
@@ -86,11 +87,12 @@ public class ContextSpecCheckService
     private final AgentTaskStore tasks;
     private final TaskLogStore logs;
     private final WorktreeService worktrees;
+    private final MemoryService memories;
     private final Clock clock;
 
     public ContextSpecCheckService(WorkspaceRepositoryService workspaces, GitCommandRunner git, ContextSpecCheckStore checks, ContextBuildService builds,
             ContextBuildStore buildStore, GitHubRepoClient github, CredentialService credentials, AgentTaskStore tasks, TaskLogStore logs,
-            WorktreeService worktrees, Clock clock)
+            WorktreeService worktrees, MemoryService memories, Clock clock)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.git = requireNonNull(git, "git is null");
@@ -102,6 +104,7 @@ public class ContextSpecCheckService
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.logs = requireNonNull(logs, "logs is null");
         this.worktrees = requireNonNull(worktrees, "worktrees is null");
+        this.memories = requireNonNull(memories, "memories is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -324,6 +327,7 @@ public class ContextSpecCheckService
                 ContextSpecCheck.MAX_CANDIDATES);
         ContextSpecCheck updated = checks.save(build.workspaceId(), Optional.of(check), check.withCandidates(candidates, checked.orElse(check.checkedAgainst()),
                 covered.isEmpty() ? check.covered() : covered, next.isEmpty() ? check.next() : next));
+        checked.ifPresent(specs -> memories.rememberSpecs(build.workspaceId(), check.directory(), specs, build.taskId()));
         return new Saved(saved, skipped, (int) updated.candidates().stream().filter(candidate -> candidate.status() == Status.PENDING).count(),
                 (int) updated.candidates().stream().filter(candidate -> candidate.status() == Status.ALREADY_REPORTED).count());
     }

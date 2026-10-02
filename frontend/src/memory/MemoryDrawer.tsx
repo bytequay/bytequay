@@ -1,0 +1,90 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import { useState } from 'react';
+import { Quote, Send, TriangleAlert } from 'lucide-react';
+import { Icon } from '../repository-context/icons';
+import type { MemoryDto } from './contracts';
+import { age, KIND_LABEL, memoryFlags, sourceHead } from './model';
+
+const MAX_TEXT_BYTES = 600;
+const utf8 = new TextEncoder();
+
+/** One memory: its text, where it applies, the sources it rests on with their quotes, and the user's edit, restore and delete. */
+export function MemoryDrawer({ memory, busy, now, onClose, onSave, onRestore, onKeep, onDelete, onOpen }: {
+  memory: MemoryDto; busy: boolean; now: number; onClose: () => void; onSave: (text: string) => void; onRestore: () => void; onKeep: () => void;
+  onDelete: () => void; onOpen: (url: string) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const flags = memoryFlags(memory);
+  const size = draft === null ? 0 : utf8.encode(draft.trim()).length;
+  return <>
+    <div className="rcp-drawer__head"><div className="rcp-drawer__top">
+      <span className="mem-kind">{KIND_LABEL[memory.kind].one}</span>
+      <span className="mem-muted">{memory.id}</span>
+      {memory.origin.user && <span className="mem-muted">Yours · agents won’t change it</span>}
+      <span className="rcp-spacer" />
+      <button type="button" className="rcp-close" aria-label="Close" onClick={onClose}><Icon name="close" size={14} /></button>
+    </div></div>
+    <div className="rcp-drawer__body mem-drawer">
+      {draft === null
+        ? <p className="mem-drawer__text">{memory.text}</p>
+        : <label className="mem-edit">{KIND_LABEL[memory.kind].one}
+          <textarea value={draft} rows={5} autoFocus onChange={event => setDraft(event.target.value)} />
+          <span className={`mem-edit__hint${size > MAX_TEXT_BYTES ? ' is-over' : ''}`}>{size} of {MAX_TEXT_BYTES} bytes, one paragraph. Editing makes it yours:
+            agents won’t change it.</span>
+        </label>}
+      <div className="mem-meta"><span>Applies to</span>
+        {memory.scope.length === 0 ? <span className="mem-scope">Repository</span> : memory.scope.map(path => <span key={path} className="mem-scope is-path">{path}</span>)}
+      </div>
+      <div className="mem-meta"><span>{memory.origin.description}</span>
+        <span className="mem-count" title={`Cited ${memory.cited} ${memory.cited === 1 ? 'time' : 'times'} by findings or answers`}><Quote size={13} aria-hidden="true" />
+          {memory.cited}</span>
+        <span className="mem-count" title={`Delivered to agents ${memory.delivered} ${memory.delivered === 1 ? 'time' : 'times'}`}><Send size={13} aria-hidden="true" />
+          {memory.delivered}</span>
+        <span>{age(memory.createdAt, now)}</span>
+      </div>
+      {flags.map(flag => <div key={flag.title} className="mem-flag"><TriangleAlert size={15} aria-hidden="true" />
+        <span className="mem-flag__text">{flag.title}: {flag.detail}</span>
+        {flag.title === 'Reported wrong' && <button type="button" className="rcp-link" disabled={busy} onClick={onKeep}>Keep as it is</button>}
+      </div>)}
+      <h3 className="mem-label">Sources · {memory.sources.length}</h3>
+      {memory.sources.map(source => {
+        const line = sourceHead(source);
+        return <div className="mem-source" key={source.url + (source.pullRequest?.part ?? '')}>
+          <div className="mem-source__head">{line.head}</div>
+          {source.quote !== '' && <div className="mem-source__quote">{source.quote}</div>}
+          <div className="mem-source__foot"><span>{line.note}</span>
+            <button type="button" className="rcp-link" onClick={() => onOpen(source.url)}>{line.link}</button></div>
+        </div>;
+      })}
+      {memory.previous !== null && <>
+        <h3 className="mem-label">Previous version</h3>
+        <div className="mem-previous">{memory.previous.text}</div>
+        <button type="button" className="rcp-link" disabled={busy || draft !== null} onClick={onRestore}>Restore</button>
+      </>}
+    </div>
+    <div className="rcp-drawer__foot mem-foot">
+      {draft === null
+        ? <>
+          <button type="button" className="rcp-btn rcp-btn--sm" disabled={busy} onClick={() => setDraft(memory.text)}>Edit</button>
+          <button type="button" className="rcp-btn rcp-btn--sm rcp-btn--danger" disabled={busy} onClick={onDelete}>Delete</button>
+        </>
+        : <>
+          <button type="button" className="rcp-btn rcp-btn--primary rcp-btn--sm" disabled={busy || draft.trim() === '' || size > MAX_TEXT_BYTES}
+            onClick={() => { onSave(draft); setDraft(null); }}>Save</button>
+          <button type="button" className="rcp-btn rcp-btn--sm" onClick={() => setDraft(null)}>Cancel</button>
+        </>}
+    </div>
+  </>;
+}

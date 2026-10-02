@@ -1568,7 +1568,7 @@ complete.
 
 ## Spec check activity
 
-The workspace's Spec checks page owns the spec check controls. A running check
+The workspace's Memory page owns the spec check controls. A running check
 shows its latest activity lines, Stop and the existing recovery controls; its
 task offers no interactive route or steering. Opening the page, synchronizing
 comments or restoring the app never starts a check.

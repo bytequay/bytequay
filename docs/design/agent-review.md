@@ -793,7 +793,8 @@ A new inline finding has this logical shape:
 ```
 
 `operationKey`, `title`, `body`, `validation`, `startAnchor`, and nonempty `evidence` are required;
-`endAnchor` is optional for a single line. A finding about the whole pull
+`endAnchor` is optional for a single line, and a defect may add a
+[`reproduction`](#reproduction). A finding about the whole pull
 request, such as a commit message or the description, has no lines: it passes
 `"scope": "pull_request"` instead of anchors, carries no severity, because a
 defect needs the lines it is in, and no `suggestion` block, because there are no
@@ -881,8 +882,9 @@ user action.
 
 Before the first save, the agent rereads each finding body as a publishable
 comment: specific claim, reachable trigger, consequence, and a brief real case
-when it helps. It retains material conditions but moves full reproduction setup,
-test code, commands, logs and source provenance into evidence. The backend
+when it helps. It retains material conditions but moves a reproducing test into
+the finding's reproduction, and other setup, commands, logs and source
+provenance into evidence. The backend
 rejects a regular body over 120 prose words or a `Nit:` body over 35, excluding
 fenced code, with a recoverable instruction to shorten it before
 storage. The existing 6000-character field bound remains. An `**Example**`
@@ -939,6 +941,97 @@ reported evidence and does not replace a test that can run in the worktree.
 Validate commit/finding references against the run. Incremental review
 updates the overall explanation and identifies what the new commits changed;
 it does not replace the summary with only a delta changelog.
+
+### Reproduction
+
+A reproduction is a test that shows the behavior a claim is about. ByteQuay
+records it from the worktree and the recorded command rather than from the
+agent's account of them, so the user can read it first and run it themselves.
+Two places carry one:
+
+- **A defect finding**, with a test that fails because of the defect. When the
+  agent's own test reproduces a defect, the finding carries it. Suggestions,
+  nits and whole-pull-request findings have none; their controls, source
+  traces and the output of existing tests stay in evidence.
+- **A discussion reply** through `review_reply` or
+  `reply_local_review_comment`, with a test that passes or fails. When the user
+  asks the agent to prove, check or explain a behavior, the agent answers with
+  a test whenever one can show it, and the reply states what the test shows.
+  Clarifications of a development task's learning cards stay read-only and
+  carry none.
+
+The review policy holds the test to these rules:
+
+- It is one new test in one new or existing test file, written in the module's
+  own framework and style. It creates its data with helpers that file or the
+  module's test fixtures already provide and adds the imports it uses. Pasted
+  at the recorded location, it runs with no other change.
+- Its name states the behavior it checks in the module's naming style, such as
+  `testPartitionNullCountUnknownWithDeletionVectors`, never `testRepro` or
+  `test1`.
+- Its assertions state the correct behavior. A failing test shows a defect and
+  can stay as the regression test once the defect is fixed; a passing test
+  shows that the behavior is correct.
+- A comment in the language's own syntax labels each decisive line with what
+  happens at the tested commit. A failing line gives both results as
+  `Fails: expected <expected>, actual <actual>`, where either side may be a
+  value, `success`, or an error, such as `// Fails: expected NULL, actual 1`
+  or `// Fails: expected success, actual IllegalStateException "…"`. A line
+  that passes says `Passes:` and what it shows. Example code in a finding body
+  or reply uses the same labels.
+
+`review_save_finding`, `review_reply` and `reply_local_review_comment` take the
+same optional object:
+
+```json
+"reproduction": {
+  "testPath": "plugin/trino-delta-lake/src/test/java/io/trino/plugin/deltalake/TestDeltaLakeConnectorTest.java",
+  "container": "class TestDeltaLakeConnectorTest",
+  "testName": "testPartitionNullCountUnknownWithDeletionVectors",
+  "command": "./mvnw test -pl plugin/trino-delta-lake -Dtest=TestDeltaLakeConnectorTest#testPartitionNullCountUnknownWithDeletionVectors"
+}
+```
+
+`container` says where the test goes: its class, `describe` block, module or
+package. `command` runs only this test from the repository root, exactly as the
+agent ran it in this turn. ByteQuay reads the run's exit code and output from
+the provider's recorded events and the test from the worktree, as
+[Spec check](spec-check.md) does, and compares the worktree with the commit it
+has checked out. It refuses, with a recoverable error:
+
+- on a finding: one without a severity, a run that passed, or a checked-out
+  commit other than the finding's reviewed commit;
+- a command with `cd`, pipes, redirects or `&&`, or one that does not contain
+  `testName`;
+- a command whose latest completed run in this turn is missing or shows a
+  build failure or no test run in its output;
+- a `testPath` that is not a file in the worktree, whose change against the
+  checked-out commit removes or edits a line, whose added lines do not contain
+  `testName`, or whose added lines exceed 12 KiB.
+
+The stored reproduction keeps those four fields, the checked-out commit, the
+test file's added lines with their line numbers, the exit code, the last 8 KiB
+of output, and every other worktree file that differs from that commit,
+ignored files excepted. That list tells the user when the test alone is not
+enough, such as a run with a fix the user asked for or with test edits the user
+saved in Code & Tests. Before the final run, the agent restores its own
+experiment edits that the test does not need and runs any control; it keeps the
+user's edits and the changes the user asked for. It saves right after the final
+run, while the test is still in the worktree. A finding revision that passes no
+reproduction keeps the previous one, which names the commit it ran at.
+
+The finding card shows a **Reproduction** disclosure under the body, open by
+default, and a reply shows the same block under its text. The block shows a
+failed or passed icon with the commit, the location as `container` and path,
+each added block with its line numbers and a copy button, and the command with
+a copy button. Other changed files appear as a warning icon with their count,
+listed on hover. The output is folded. On a finding, the validation explanation
+follows as its own line, stored on the finding rather than appended to the
+first evidence explanation. Evidence stays folded; a source read shows its path
+and lines, with its provenance in the hover title. **Copy conversation** and
+the **Request fix** handoff include reproductions. Publication is unchanged:
+**Add to my review** copies only the body, and the user pastes the test into
+their comment when they want it.
 
 ### Missing or incorrect output
 
@@ -1020,6 +1113,7 @@ not dump every PR comment into every prompt. Idle input starts a turn; busy
 input goes into the existing durable queue with a visible queued status.
 Route answers back to the selected discussion through `review_reply`; do not
 guess a target from prose or scatter one final response across all cards.
+A reply may carry a [reproduction](#reproduction).
 When a follow-up requests review findings, save each supported code-specific
 claim as a private finding anchored to the relevant frozen diff lines, including
 optional code or test improvements. This also applies to requests entered in

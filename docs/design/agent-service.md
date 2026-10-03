@@ -167,8 +167,10 @@ A separate fixed `LocalReviewBridge` exposes listing, replying, and changing
 resolution within the registered development or review-owned task. Both the task's root and its
 native children may use this local capability. Tool arguments cannot select
 another task, workspace, PR, or GitHub write. Mutation keys prevent duplicate
-replies after tool retries. Registration is revoked with the existing provider
-session. This bridge is available alongside ReviewBridge for review tasks. For
+replies after tool retries. A reply may carry a reproduction, recorded and
+shown as [Agent Review](agent-review.md#reproduction) describes.
+Registration is revoked with the existing provider session. This bridge is
+available alongside ReviewBridge for review tasks. For
 local review of development tasks, a policy-only `ReviewBridge` also activates
 the review execution profile and suppresses development delivery tools. No general tool registry,
 new runner, or remote publication capability is added.

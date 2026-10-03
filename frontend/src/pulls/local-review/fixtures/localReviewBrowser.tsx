@@ -542,6 +542,11 @@ async function sharedReviewEditor(): Promise<void> {
         && preview.querySelector('.md-suggestion__number')?.textContent === '12', 'Outgoing preview must preserve the exact two-line suggestion base');
       assert(editor.textContent?.includes('Posts to GitHub on Example.java R12–R13') === true && submissions.length === 1,
         'Opening an outgoing preview must retain its target without publishing');
+      const notice = editor.querySelector<HTMLElement>('.agr-composer__outgoing');
+      const actions = editor.querySelector('footer');
+      assert(notice !== null && actions !== null && editor.lastElementChild === notice
+        && notice.getBoundingClientRect().top >= actions.getBoundingClientRect().bottom,
+      'The outgoing notice must be at the bottom below the buttons at every card width');
       button(editor, 'Post now').click();
       assert(Number(submissions.length) === 2 && submissions[1].outgoing && submissions[1].body === suggestion,
         'Only an explicit outgoing action may pass the original suggestion fence to its callback');

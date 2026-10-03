@@ -99,7 +99,7 @@ GitHub timeline comments, review threads, and pending review comments. Destinati
 evidence, reactions, and actions are supplied by each caller. The private-card
 wrapper adds its tone and Local/Private chip; GitHub action handlers remain
 separate from private actions. All reply and edit composers reuse the shared
-Markdown editor.
+Markdown editor, with outgoing-text notices below its action buttons.
 Each card retains its own private discussion through the shared
 [Local review comments](agent-service.md#local-review-comments) components. Do not generate combined-result, evidence/test, coverage, or
 critical-issues cards. Nonblocking verification warnings, such as cloud tests

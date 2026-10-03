@@ -223,6 +223,7 @@ export default function MarkdownEditor({
   header?: ReactNode;
   /** Every action in the box keeps the text between the user and the agent. */
   isPrivate?: boolean;
+  /** Destination or other help text below the action buttons. */
   note?: ReactNode;
   /** Explains disabled actions; the live region stays mounted so a changed reason is announced. */
   statusMessage?: string | null;
@@ -306,10 +307,10 @@ export default function MarkdownEditor({
             onSubmit();
           }
         }} />
-      {note}
       <p id={statusId} className={statusMessage ? 'pull-diff-review__status' : 'sr-only'} role="status">{statusMessage}</p>
       {error && <span className="pull-diff-review__error" role="alert">{error}</span>}
       <footer>{children}</footer>
+      {note}
     </div>
   );
 }

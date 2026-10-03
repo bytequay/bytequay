@@ -102,6 +102,12 @@ describe('the Private label', () => {
     expect(reviewComposer('Posts to GitHub')).not.toContain('pull-diff-review__private');
   });
 
+  it('places the outgoing notice below the action buttons', () => {
+    const notice = 'Your outgoing text; the agent never sees these edits';
+    const markup = reviewComposer(notice);
+    expect(markup).toContain(`</footer><p class="pull-diff-review__nothing agr-composer__outgoing">${notice}</p></div>`);
+  });
+
   it('shows disabled reasons beside the actions and announces them to assistive technology', () => {
     const markup = lineComposer(true, true);
 
@@ -115,7 +121,7 @@ describe('the Private label', () => {
     expect(reviewComposer(null)).toMatch(/<p id="[^"]+" class="sr-only" role="status"><\/p>/);
   });
 
-  it('loads its stylesheet before pulls.css so the pending-comment editor can restyle it', () => {
+  it('loads the shared editor stylesheet and screen-reader utility', () => {
     const index = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
     const css = readFileSync(resolve(process.cwd(), 'src/css/markdown-editor.css'), 'utf8');
 

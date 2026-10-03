@@ -190,7 +190,7 @@ export default function ModelsPage({ settings, checkedAt, checking, error, onChe
       <h1>Models</h1>
       {error !== null && <div className="setw-error" role="alert">{error}</div>}
 
-      <div className="setw-section"><span className="setw-section-title">Agents</span></div>
+      <div className="setw-section"><span className="setw-section-title">Default models</span></div>
       <SettingsCard>
         {development !== undefined && (
           <AgentModelRow
@@ -213,6 +213,8 @@ export default function ModelsPage({ settings, checkedAt, checking, error, onChe
           />
         )}
       </SettingsCard>
+
+      <div className="setw-footnote">Used by all workspaces unless changed in Model overrides.</div>
 
       <div className="setw-section"><span className="setw-section-title">Providers</span></div>
       <SettingsCard footer={<AddAction label="Add API key" onClick={() => setAddingKey(true)} />}>

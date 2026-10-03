@@ -196,7 +196,7 @@ export function WorkspaceAgentsPage({
   return (
     <div className="setw-page">
       <Eyebrow workspace={workspace} />
-      <h1>Agents</h1>
+      <h1>Model overrides</h1>
       {error !== null && <div className="setw-error" role="alert">{error}</div>}
 
       <div className="setw-section"><span className="setw-section-title">Models for this workspace</span></div>

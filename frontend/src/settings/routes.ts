@@ -91,7 +91,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
   {
     section: 'ws-agents',
     group: 'Workspace',
-    label: 'Agents',
+    label: 'Model overrides',
     slug: 'agents',
     rows: ['Development', 'Review', 'Providers'],
   },

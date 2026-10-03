@@ -4937,8 +4937,10 @@ timestamps, and redacted diagnostics.
 
 ### 12.2 Workspace settings UI
 
-Workspace settings contains an **Agent providers** section with one row for
-each configured lane, initially Codex CLI and Claude CLI. Although CLI login is
+The app-wide **Models** page sets the default models and provider credentials.
+The workspace **Model overrides** page changes those defaults only for its
+repository and contains a **Providers** section with one row for each
+configured CLI lane, initially Codex CLI and Claude CLI. Although CLI login is
 machine-user scoped, it is shown here because readiness determines whether the
 selected provider can work in this workspace.
 

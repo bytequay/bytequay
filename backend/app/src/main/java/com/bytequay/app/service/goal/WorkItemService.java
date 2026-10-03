@@ -163,6 +163,23 @@ public class WorkItemService
         });
     }
 
+    /** Records a task result in the work item's history, once per operation; whether the item is done stays the user's decision. */
+    public void receipt(String workspaceId, String id, String operationId, String detail)
+    {
+        unitOfWork.execute(() -> {
+            WorkItem item = requireItem(workspaceId, id);
+            if (item.history().stream().anyMatch(event -> event.operationId().equals(operationId))) {
+                return null;
+            }
+            Instant now = clock.instant();
+            WorkItem updated = new WorkItem(id, workspaceId, item.goalId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(), item.state(),
+                    item.revision() + 1, item.links(), ImmutableList.<WorkItemEvent>builder().addAll(item.history())
+                            .add(new WorkItemEvent(operationId, "", "RECEIPT", detail, now)).build(), item.createdAt(), now);
+            update(updated, item.revision());
+            return null;
+        });
+    }
+
     public WorkItemView change(String workspaceId, String id, WorkItemCommand command)
     {
         return unitOfWork.execute(() -> {

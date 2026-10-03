@@ -85,8 +85,10 @@ changes remain open.
 
 Item 5 is in progress: a Practice card names an open issue the workspace holds,
 and Start opens that issue's composer with the prepared instruction; the task
-starts only when the user sends it. Task receipts and the learner profile from
-private cards remain.
+starts only when the user sends it. A completed turn of a Goal's task leaves a
+receipt in its work item's history, once per turn, and tells the agent. The
+learner profile from private cards remains; receipts for turns that ended while
+ByteQuay was stopped are not recovered yet.
 The following steps retain the full identity, source, recovery and verification
 requirements.
 

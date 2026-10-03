@@ -94,6 +94,19 @@ class TestWorkItemService
     }
 
     @Test
+    void aTaskResultIsRecordedOncePerTurnAndLeavesTheStateToTheUser()
+    {
+        String id = UUID.randomUUID().toString();
+        service.create("workspace", id, Optional.of("goal"), "Fix the checkpoint", WorkItem.Kind.DEVELOP, "Rows survive", WorkItem.CompletionRule.MERGED_DELIVERY);
+        service.receipt("workspace", id, "turn:1", "Task turn finished: the new test passes");
+        service.receipt("workspace", id, "turn:1", "Task turn finished: the new test passes");
+        WorkItemView item = service.list("workspace").getFirst();
+        assertThat(item.history()).filteredOn(event -> event.action().equals("RECEIPT")).singleElement()
+                .satisfies(event -> assertThat(event.detail()).isEqualTo("Task turn finished: the new test passes"));
+        assertThat(item.state()).isEqualTo(WorkItem.State.PLANNED);
+    }
+
+    @Test
     void acceptsLearningOnceRejectsStaleEditsAndRetainsHistoryOnReopenAndDetach()
     {
         String id = UUID.randomUUID().toString();

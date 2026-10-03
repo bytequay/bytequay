@@ -81,6 +81,7 @@ import com.bytequay.app.memory.RecipeChecks;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.goal.GoalReceipts;
 import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.CodeGraphMode;
@@ -368,6 +369,7 @@ public class AgentConfiguration
             RelatedWorkspaceContext relatedContext,
             MemoryDelivery memoryDelivery,
             RecipeChecks recipeChecks,
+            GoalReceipts goalReceipts,
             Clock agentClock,
             AgentProperties properties,
             AgentReviewStore reviews,
@@ -422,6 +424,7 @@ public class AgentConfiguration
                     public void finished(AgentTask task, AgentTurn turn)
                     {
                         recipeChecks.finished(task, turn);
+                        goalReceipts.finished(task, turn);
                     }
                 },
                 agentClock,

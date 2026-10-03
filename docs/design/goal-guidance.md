@@ -98,6 +98,12 @@ composer with the instruction filled in; the task, its work item and its source
 snapshot are created only when the user sends it, through the existing issue
 admission.
 
+When a turn of an interactive task completes and the task belongs to a Goal's
+work item, its final answer is recorded once in the item's history as a receipt,
+keyed by the turn, and the Goal's agent is told, so it can recommend what comes
+next. Development's own automatic turns and noninteractive runs are not recorded,
+and the item's state stays the user's decision.
+
 A new explicit same-source attempt without deleting the prior task, proposal
 acceptance into other work items, spec-check cards, Jira practice cards, course changes,
 work-item launch from the composer, automatic outcome harvesting, stale-note

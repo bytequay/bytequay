@@ -128,8 +128,8 @@ class TestContextSpecCheckService
         when(workspaces.requireReadableRepository(WORKSPACE)).thenReturn(new WorkspaceRepositoryContext(WORKSPACE, repository, 1, REPO, OptionalLong.empty(), REPO,
                 "origin", "origin", "main", ImmutableList.of()));
         when(builds.baseline(WORKSPACE)).thenReturn(Optional.of(new ContextBuildService.Baseline("main", SHA)));
-        when(git.run(repository, "rev-parse", "--verify", "--quiet", SHA + ":plugin/trino-delta-lake^{tree}")).thenReturn(new GitCommandRunner.Result(0, "tree", false));
-        when(git.run(repository, "rev-parse", "--verify", "--quiet", SHA + ":plugin/missing^{tree}")).thenReturn(new GitCommandRunner.Result(1, "", false));
+        when(git.run(repository, "cat-file", "-t", SHA + ":plugin/trino-delta-lake")).thenReturn(new GitCommandRunner.Result(0, "tree\n", false));
+        when(git.run(repository, "cat-file", "-t", SHA + ":plugin/missing")).thenReturn(new GitCommandRunner.Result(128, "", false));
         when(git.runLocalBoundedStdout(eq(repository), any(), anyInt(), any()))
                 .thenReturn(new GitCommandRunner.Result(0, SPEC + "#checkpoints\n" + SPEC + "#checkpoints\n", false));
         store.save(WORKSPACE, Optional.empty(), check(ContextSpecCheck.State.DONE, ImmutableList.of(candidate("c1", 3, Status.CONFIRMED),

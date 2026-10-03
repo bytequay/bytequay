@@ -33,7 +33,6 @@ import com.bytequay.app.repository.github.GitHubSearchResponse;
 import com.bytequay.app.review.MavenCommands;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
-import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.domain.RepoRef;
@@ -118,12 +117,7 @@ public class ContextSpecCheckService
 
     private List<ContextSpecSource> sources(String workspaceId, ContextBuildService.Baseline baseline, String directory)
     {
-        ContextLimits.pathPrefix(directory);
-        WorkspaceRepositoryContext workspace = workspaces.requireReadableRepository(workspaceId);
-        GitCommandRunner.Result tree = git.run(workspace.repository(), "rev-parse", "--verify", "--quiet",
-                baseline.sha() + ":" + directory.substring(0, directory.length() - 1) + "^{tree}");
-        checkArgument(tree.successful(), "%s is not a directory on %s at %s", directory, baseline.branch(), baseline.sha().substring(0, 12));
-        return ContextSpecSource.scan(git, workspace, baseline.sha(), directory);
+        return ContextSpecSource.scan(git, workspaces.requireReadableRepository(workspaceId), baseline, directory);
     }
 
     private ContextBuildService.Baseline baseline(String workspaceId)

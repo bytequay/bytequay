@@ -26,6 +26,7 @@ import java.nio.file.Path;
 import java.util.OptionalLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 
 class TestContextSpecSource
@@ -60,7 +61,7 @@ class TestContextSpecSource
         Files.writeString(repository.resolve("README.md"), PROTOCOL + "#outside-the-directory\n");
         command("add", ".");
         command("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "Fixture");
-        String baseline = command("rev-parse", "HEAD").strip();
+        ContextBuildService.Baseline baseline = new ContextBuildService.Baseline("main", command("rev-parse", "HEAD").strip());
 
         assertThat(ContextSpecSource.scan(git, workspace(), baseline, "plugin/delta/"))
                 .extracting(ContextSpecSource::url, ContextSpecSource::kind, ContextSpecSource::links, ContextSpecSource::sections)
@@ -73,7 +74,10 @@ class TestContextSpecSource
                         tuple("https://rfc.zeromq.org/spec/32/", ContextSpecSource.Kind.PAGE, 1, ImmutableList.of()),
                         tuple("https://github.com/delta-io/delta/blob/f5ebfbb/spark/src/main/scala/Checkpoints.scala", ContextSpecSource.Kind.REFERENCE_CODE, 1,
                                 ImmutableList.of("L40")));
-        assertThat(ContextSpecSource.scan(git, workspace(), baseline, "plugin/missing/")).isEmpty();
+        assertThatThrownBy(() -> ContextSpecSource.scan(git, workspace(), baseline, "plugin/missing/"))
+                .hasMessage("plugin/missing/ is not a directory on main at " + baseline.sha().substring(0, 12));
+        assertThatThrownBy(() -> ContextSpecSource.scan(git, workspace(), baseline, "plugin/delta/src/Features.java/"))
+                .hasMessageContaining("is not a directory on main");
     }
 
     private WorkspaceRepositoryContext workspace()

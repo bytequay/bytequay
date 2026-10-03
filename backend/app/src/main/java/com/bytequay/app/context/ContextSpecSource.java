@@ -67,13 +67,17 @@ public record ContextSpecSource(String url, Kind kind, int links, List<String> s
      * check to read; only what never is one is left out: build files' XML, license links, site home pages, and repository
      * pages other than files, such as issues and pull requests.
      */
-    static List<ContextSpecSource> scan(GitCommandRunner git, WorkspaceRepositoryContext workspace, String baseline, String directory)
+    static List<ContextSpecSource> scan(GitCommandRunner git, WorkspaceRepositoryContext workspace, ContextBuildService.Baseline baseline, String directory)
     {
         ContextLimits.pathPrefix(directory);
+        // Git reads `<rev>:<path>^{tree}` as a path ending in `^{tree}`, so the object's type tells a directory apart.
+        GitCommandRunner.Result type = git.run(workspace.repository(), "cat-file", "-t", baseline.sha() + ":" + directory.substring(0, directory.length() - 1));
+        checkArgument(type.successful() && type.output().strip().equals("tree"), "%s is not a directory on %s at %s", directory, baseline.branch(),
+                baseline.sha().substring(0, 12));
         Map<String, Integer> counts = new LinkedHashMap<>();
         Map<String, Set<String>> sections = new LinkedHashMap<>();
         GitCommandRunner.Result output = git.runLocalBoundedStdout(workspace.repository(), SCAN_TIMEOUT, SCAN_BYTES,
-                ImmutableList.of("grep", "--no-color", "-I", "-h", "-o", "-E", "-e", LINK, baseline, "--", ":(literal)" + directory,
+                ImmutableList.of("grep", "--no-color", "-I", "-h", "-o", "-E", "-e", LINK, baseline.sha(), "--", ":(literal)" + directory,
                         ":(exclude,glob)**/*.xml", ":(exclude,glob)**/*.xsd"));
         checkArgument((output.successful() || output.exitCode() == 1) && !output.truncated(), "The directory's code has too many links to scan");
         for (String line : output.output().split("\n")) {

@@ -133,8 +133,19 @@ export type GoalProposalDto = { title: string; objective: string; successDefinit
 /** A course the agent proposes: parts of ordered lessons, each naming what the user can do afterward. */
 export type GoalCourseDraftDto = { parts: { title: string; lessons: { title: string; outcome: string }[] }[] };
 
-/** What a card under the Goal control offers: research reads its scope and pages, a lesson card opens its lesson. */
-export type GoalCardDto = { kind: 'RESEARCH' | 'LESSON'; title: string; reason: string; scope: string; pages: string[]; workItemId: string | null };
+/**
+ * What a card under the Goal control offers: research reads its scope and pages, a lesson card opens its lesson, and a work card opens the
+ * composer of its issue with the scope as the instruction.
+ */
+export type GoalCardDto = {
+  kind: 'RESEARCH' | 'LESSON' | 'WORK';
+  title: string;
+  reason: string;
+  scope: string;
+  pages: string[];
+  workItemId: string | null;
+  issue: number | null;
+};
 
 /** A lesson of the goal's course, written once from its knowledge notes. */
 export type GoalLessonDto = {
@@ -184,12 +195,13 @@ export type GoalKnowledgeNoteDto = {
 function parseCard(value: unknown): GoalCardDto {
   const card = object(value, 'goal card');
   return {
-    kind: oneOf(card.kind, ['RESEARCH', 'LESSON'] as const, 'goal card kind'),
+    kind: oneOf(card.kind, ['RESEARCH', 'LESSON', 'WORK'] as const, 'goal card kind'),
     title: text(card.title, 'goal card title'),
     reason: text(card.reason, 'goal card reason'),
     scope: text(card.scope, 'goal card scope'),
     pages: parseList(card.pages, (entry) => text(entry, 'goal card page'), 'goal card pages'),
     workItemId: optionalText(card.workItemId),
+    issue: Number.isSafeInteger(card.issue) && (card.issue as number) > 0 ? card.issue as number : null,
   };
 }
 

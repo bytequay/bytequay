@@ -156,7 +156,7 @@ const COURSE: GoalExchangeDto = { ...ASKED, id: 'op-3', message: 'The research r
 } };
 const CARD: GoalRecommendationDto = { id: 'card-1', goalId: 'goal-1', state: 'SHOWN', taskId: null, createdAt: '2026-10-03T10:00:00Z',
   card: { kind: 'RESEARCH', title: 'Read the Iceberg specification', reason: 'You start from the specification', scope: 'Snapshots and manifests',
-    pages: ['https://iceberg.apache.org/spec/'], workItemId: null } };
+    pages: ['https://iceberg.apache.org/spec/'], workItemId: null, issue: null } };
 const NOTE: GoalKnowledgeNoteDto = { id: 'note-1', topic: 'Manifest lists', body: 'A snapshot lists its manifests in one manifest list.', savedAt: '2026-10-03T10:00:00Z',
   sources: [{ reference: 'https://iceberg.apache.org/spec/#manifest-lists', commit: null },
     { reference: 'apache/iceberg:core/src/main/java/org/apache/iceberg/ManifestLists.java', commit: 'c'.repeat(40) }] };
@@ -223,6 +223,8 @@ describe('goal guidance', () => {
       content: { explanation: '# Tables', exercise: 'Run one test.', observe: 'It passes.', check: 'What is a snapshot?' } }).content?.check).toBe('What is a snapshot?');
     expect(() => parseGoalLesson({ id: 'work-0', state: 'DRAFT' })).toThrow('Malformed goal lesson state');
     expect(parseGoalRecommendation({ ...CARD, card: { ...CARD.card, kind: 'LESSON', workItemId: 'work-0' } }).card.workItemId).toBe('work-0');
+    expect(parseGoalRecommendation({ ...CARD, card: { ...CARD.card, kind: 'WORK', issue: 31252 } }).card.issue).toBe(31252);
+    expect(parseGoalRecommendation({ ...CARD, card: { ...CARD.card, kind: 'WORK', issue: '31252' } }).card.issue).toBeNull();
   });
 
   it('offers directions from the repository and only the newest unaccepted proposal', () => {

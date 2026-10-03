@@ -28,7 +28,7 @@ const PILL_MARGIN = 8;
 /** Cards float under the pill when it sits this far above the page's bottom, and above it otherwise. */
 const ROOM_BELOW = 220;
 const MAX_CARDS = 3;
-const CARD_KINDS: Record<GoalRecommendationDto['card']['kind'], string> = { RESEARCH: 'Research', LESSON: 'Lesson' };
+const CARD_KINDS: Record<GoalRecommendationDto['card']['kind'], string> = { RESEARCH: 'Research', LESSON: 'Lesson', WORK: 'Practice' };
 
 function pillKey(page: string): string {
   return `bq.goal.pill.${page}`;
@@ -80,7 +80,7 @@ type Drag = { x: number; y: number; from: PillPosition; moved: boolean };
  * The workspace's pinned goal around one of its pages: a pill the user can drag anywhere, which
  * zooms into a floating, draggable and resizable window. ⌥G opens and closes it.
  */
-export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOpenTask, children }: {
+export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOpenTask, onStartIssue, children }: {
   /** Which workspace page this is; the pill remembers a place per page. */
   page: string;
   workspaceId: string;
@@ -88,6 +88,8 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
   goals: Goals;
   needsYou: ReadonlySet<string>;
   onOpenTask: (taskId: string) => void;
+  /** Opens the issue's task composer with an instruction the user reviews and sends. */
+  onStartIssue: (issue: number, instruction: string) => void;
   children: React.ReactNode;
 }): React.JSX.Element {
   const covered = useContext(LayerCovered);
@@ -248,12 +250,15 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
           <div className="goal-cards" role="region" aria-label="Recommended next steps"
             style={position.bottom > ROOM_BELOW ? { right: position.right, top: `calc(100% - ${position.bottom - 6}px)` } : { right: position.right, bottom: position.bottom + 44 }}>
             {shown.map((card) => <RecommendationCard key={card.id} card={card} onOpen={open}
-              onStart={() => (card.card.workItemId === null ? goals.startCard(goal.id, card.id) : goals.openLesson(goal.id, card.card.workItemId).then(() => {
+              onStart={() => (card.card.workItemId !== null ? goals.openLesson(goal.id, card.card.workItemId).then(() => {
                 // Start on a lesson card opens the lesson in the Goal window.
                 setLesson(card.card.workItemId);
                 setView('guide');
                 open();
                 goals.refresh();
+              }) : goals.startCard(goal.id, card.id).then(() => {
+                // A work card's task starts only when the user sends the composer it opens.
+                if (card.card.issue !== null) onStartIssue(card.card.issue, card.card.scope);
               }))}
               onDismiss={() => goals.dismissCard(goal.id, card.id)} />)}
           </div>

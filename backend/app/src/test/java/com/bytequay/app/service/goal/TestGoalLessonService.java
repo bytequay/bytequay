@@ -79,7 +79,8 @@ class TestGoalLessonService
     void aLessonIsWrittenOnceAndOpeningItStartsItsCard()
     {
         cards.save(new GoalRecommendation("card-1", "goal-1", "workspace", new GoalRecommendation.Card(GoalRecommendation.Kind.LESSON, "What a table is",
-                "You are ready", "Table metadata", ImmutableList.of(), Optional.of("lesson-1")), GoalRecommendation.State.SHOWN, Optional.empty(), "op-1", NOW, NOW));
+                "You are ready", "Table metadata", ImmutableList.of(), Optional.of("lesson-1"), Optional.empty()), GoalRecommendation.State.SHOWN, Optional.empty(), "op-1",
+                NOW, NOW));
         assertThat(service.open("workspace", "goal-1", "lesson-1").state()).isEqualTo(GoalLesson.State.WRITING);
         assertThat(service.open("workspace", "goal-1", "lesson-1").state()).isEqualTo(GoalLesson.State.WRITING);
         assertThat(queued).hasSize(1);
@@ -116,7 +117,8 @@ class TestGoalLessonService
     void finishingAcceptsTheLessonCompletesItsCardAndTellsTheAgentOnce()
     {
         cards.save(new GoalRecommendation("card-1", "goal-1", "workspace", new GoalRecommendation.Card(GoalRecommendation.Kind.LESSON, "What a table is",
-                "You are ready", "Table metadata", ImmutableList.of(), Optional.of("lesson-1")), GoalRecommendation.State.STARTED, Optional.empty(), "op-1", NOW, NOW));
+                "You are ready", "Table metadata", ImmutableList.of(), Optional.of("lesson-1"), Optional.empty()), GoalRecommendation.State.STARTED, Optional.empty(), "op-1",
+                NOW, NOW));
         service.finish("workspace", "goal-1", "lesson-1", "op-done");
         verify(work).change(eq("workspace"), eq("lesson-1"), any(WorkItemCommand.class));
         assertThat(cards.find("card-1")).map(GoalRecommendation::state).contains(GoalRecommendation.State.DONE);

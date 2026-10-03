@@ -81,7 +81,12 @@ it saves each lesson as an ordered Learn work item of the Goal, grouped by part.
 A lesson opens in the expanded Goal window, written once from the notes with its
 exercise and check; questions asked there carry the lesson, and Mark lesson done
 accepts its work item. Lesson cards open the lesson. Stale lessons and course
-changes remain open, as does item 5.
+changes remain open.
+
+Item 5 is in progress: a Practice card names an open issue the workspace holds,
+and Start opens that issue's composer with the prepared instruction; the task
+starts only when the user sends it. Task receipts and the learner profile from
+private cards remain.
 The following steps retain the full identity, source, recovery and verification
 requirements.
 

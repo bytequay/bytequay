@@ -58,7 +58,7 @@ class TestSqliteGoalExchangeStore
                 Optional.of(new GoalExchange.Question("Do you know the Iceberg specification?", ImmutableList.of("Yes", "Not yet"))),
                 Optional.of(new GoalExchange.Proposal("Iceberg reads", "Explain reads", "Trace a scan", "", "")),
                 Optional.of(new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH, "Read the Iceberg specification", "You start from the specification",
-                        "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty())), Optional.empty()),
+                        "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty())), Optional.empty()),
                 NOW.plusSeconds(2));
         GoalExchange failed = second.failed(Optional.empty(), "ByteQuay stopped before the agent answered.", NOW.plusSeconds(3));
         store.save(answered);

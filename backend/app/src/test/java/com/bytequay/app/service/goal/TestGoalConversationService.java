@@ -20,14 +20,17 @@ import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalExchange;
 import com.bytequay.core.domain.GoalRecommendation;
+import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.GoalExchangeStore;
+import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
@@ -52,6 +55,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
 
@@ -62,7 +66,7 @@ class TestGoalConversationService
             Optional.empty());
     private static final GoalExchange.Reply RESEARCH = new GoalExchange.Reply("Read the specification before the connector.", Optional.empty(), Optional.empty(),
             Optional.of(new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH, "Read the Iceberg specification", "You start from the specification",
-                    "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty())), Optional.empty());
+                    "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty())), Optional.empty());
     private static final GoalExchange.Reply PROPOSAL = new GoalExchange.Reply("I understand the goal.", Optional.empty(),
             Optional.of(new GoalExchange.Proposal("Iceberg reads", "Explain how reads plan files", "Trace a scan end to end", "Knows the specification", "Five hours a week")),
             Optional.empty(), Optional.empty());
@@ -76,18 +80,25 @@ class TestGoalConversationService
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final WorkItemService work = mock(WorkItemService.class);
     private final InMemoryGoalRecommendationStore cards = new InMemoryGoalRecommendationStore();
+    private final RepositoryIssueStore issues = mock(RepositoryIssueStore.class);
+    private final GoalResearchService research = mock(GoalResearchService.class);
+    private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
     private final GoalService goals = new GoalServiceImpl(goalStore, workspaces, work, mock(GoalReferenceReader.class), cards, Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
     private final Exchanges exchanges = new Exchanges();
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final GoalPlanner planner = mock(GoalPlanner.class);
     private final List<Runnable> queued = new ArrayList<>();
     private final Clock clock = Clock.fixed(Instant.parse("2026-10-03T10:00:00Z"), ZoneOffset.UTC);
-    private final GoalConversationService service = new GoalConversationService(goals, work, exchanges, cards, models, planner, clock, queued::add);
+    private final GoalConversationService service = new GoalConversationService(goals, work, exchanges, cards, workspaces, issues,
+            beans.getBeanProvider(GoalResearchService.class), models, planner, clock, queued::add);
 
     @BeforeEach
     void setUp()
     {
-        when(workspaces.findById("workspace")).thenReturn(Optional.of(mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE))));
+        Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspace.monitoredRepositoryId()).thenReturn(1L);
+        when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
+        beans.registerSingleton("goalResearchService", research);
         when(work.list("workspace")).thenReturn(ImmutableList.of());
         when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("workspace")))
                 .thenReturn(new AgentModelSetting(AgentModelType.DEVELOPMENT, true, "codex", "Codex", "gpt", "GPT", Optional.empty()));
@@ -259,10 +270,38 @@ class TestGoalConversationService
         queued.removeFirst().run();
         service.accept("workspace", goal.id(), "op-1", Optional.empty());
         GoalExchange.Reply unknown = new GoalExchange.Reply("Take the next lesson.", Optional.empty(), Optional.empty(), Optional.of(new GoalRecommendation.Card(
-                GoalRecommendation.Kind.LESSON, "What a table is", "You are ready", "Table metadata", ImmutableList.of(), Optional.of("not-a-lesson"))), Optional.empty());
+                GoalRecommendation.Kind.LESSON, "What a table is", "You are ready", "Table metadata", ImmutableList.of(), Optional.of("not-a-lesson"), Optional.empty())),
+                Optional.empty());
         doReturn(unknown).when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
         assertThat(cards.list(goal.id())).as("a card for a lesson outside the course is dropped").isEmpty();
+    }
+
+    @Test
+    void aWorkCardNamesAnOpenIssueAndStartWaitsForTheComposer()
+    {
+        GoalView goal = goals.create("workspace", "Delta Lake", "");
+        service.ask("workspace", goal.id(), "op-1", "Reads first");
+        doReturn(PROPOSAL).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        service.accept("workspace", goal.id(), "op-1", Optional.empty());
+        doReturn(work(404)).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        assertThat(cards.list(goal.id())).as("an issue the workspace does not hold open is dropped").isEmpty();
+
+        when(issues.find(1, 31252)).thenReturn(Optional.of(new RepositoryIssue(7, 31252, "Checkpoint drops rows", "", "bo", "",
+                "https://github.com/trinodb/trino/issues/31252", ImmutableList.of(), ImmutableList.of(), 0, Instant.EPOCH, Instant.EPOCH)));
+        service.ask("workspace", goal.id(), "op-2", "What can I practice?");
+        doReturn(work(31252)).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        GoalRecommendation card = cards.list(goal.id()).getFirst();
+        assertThat(card.card().issue()).contains(31252);
+
+        GoalRecommendation started = service.startCard("workspace", goal.id(), card.id());
+        assertThat(started.state()).isEqualTo(GoalRecommendation.State.STARTED);
+        assertThat(started.taskId()).as("the task starts only when the user sends the composer").isEmpty();
+        assertThat(service.startCard("workspace", goal.id(), card.id())).isEqualTo(started);
+        verifyNoInteractions(research);
     }
 
     @Test
@@ -309,6 +348,13 @@ class TestGoalConversationService
         assertThat(title).endsWith("…").hasSizeLessThanOrEqualTo(GoalConversationService.MAX_TITLE + 1);
         assertThat(title).doesNotContain("  ");
         assertThat(GoalConversationService.title("Iceberg\nsecond line")).isEqualTo("Iceberg");
+    }
+
+    private static GoalExchange.Reply work(int issue)
+    {
+        return new GoalExchange.Reply("Practice on a real gap.", Optional.empty(), Optional.empty(), Optional.of(new GoalRecommendation.Card(GoalRecommendation.Kind.WORK,
+                "Fix #" + issue, "You learned checkpoints", "Key add and remove actions by path and deletion vector.", ImmutableList.of(), Optional.empty(),
+                Optional.of(issue))), Optional.empty());
     }
 
     private static final class Exchanges

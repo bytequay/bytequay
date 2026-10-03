@@ -156,9 +156,9 @@ class TestGoalController
             throws Exception
     {
         GoalRecommendation card = new GoalRecommendation("card-1", "goal-1", "workspace", new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH,
-                "Read the Iceberg specification", "You start from the specification", "Snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty()),
+                "Read the Iceberg specification", "You start from the specification", "Snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty()),
                 GoalRecommendation.State.SHOWN, Optional.empty(), "op-1", NOW, NOW);
-        when(research.start("workspace", "goal-1", "card-1")).thenReturn(card.started(Optional.of("task-1"), NOW));
+        when(conversations.startCard("workspace", "goal-1", "card-1")).thenReturn(card.started(Optional.of("task-1"), NOW));
         mvc.perform(post("/api/workspaces/workspace/goals/goal-1/recommendations/card-1/start"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.state").value("STARTED"))

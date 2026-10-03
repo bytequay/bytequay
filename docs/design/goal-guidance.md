@@ -90,8 +90,16 @@ asked in the lesson carries it to the agent. Mark lesson done accepts the Learn
 work item and tells the agent, which may recommend the next lesson as a card;
 Start on a lesson card opens the lesson.
 
+Once the Goal is defined, the agent also sees the first page of the workspace's
+open issues from the local store and may recommend one as a Practice card, with
+the instruction a developer would give a coding agent for it. A card naming an
+issue the store does not hold open is dropped. Start opens that issue's ordinary
+composer with the instruction filled in; the task, its work item and its source
+snapshot are created only when the user sends it, through the existing issue
+admission.
+
 A new explicit same-source attempt without deleting the prior task, proposal
-acceptance into other work items, spec-check and work cards, course changes,
+acceptance into other work items, spec-check cards, Jira practice cards, course changes,
 work-item launch from the composer, automatic outcome harvesting, stale-note
 marking, a per-Goal model choice, request cancellation and discovery remain
 pending. The checklist

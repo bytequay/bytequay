@@ -174,6 +174,22 @@ async function issueToTask(): Promise<void> {
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
 
+async function preparedInstruction(): Promise<void> {
+  const f = fixture();
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    flushSync(() => root.render(<AgentTasksView workspaceId={f.workspaceId} sourceIssueNumber={7} bridge={f.bridge}
+      initialDraft="Retry the upload once on a timeout and add a test that times out today." onOpenTask={() => {}} onOpenReview={() => {}} />));
+    await settle(); await settle();
+    const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
+    assert(input !== null && input.value === 'Retry the upload once on a timeout and add a test that times out today.',
+      'A Goal’s prepared instruction survives the issue loading');
+    assert(f.created.length === 0, 'Opening the prepared composer never creates a task');
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
 async function refreshAndCancel(): Promise<void> {
   const f = fixture();
   const host = document.createElement('div'); document.body.append(host);
@@ -325,6 +341,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const cases: Array<[string, () => Promise<void>]> = [
     ['Issue Goal actions, composer, replay and linked workspace navigation', issueToTask],
     ['Source refresh preserves instructions and blocks Goals without launching', refreshAndCancel],
+    ['A Goal’s prepared instruction opens the issue composer without launching', preparedInstruction],
     ['Completed task retains source link after cache removal', retainedSource],
     ['Attention actions keep source navigation and launch separate', runAttentionActions],
   ];

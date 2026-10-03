@@ -24,7 +24,10 @@ import '../../css/base.css';
 const server = { goal: null as GoalDto | null, exchanges: [] as GoalExchangeDto[], notes: [] as GoalKnowledgeNoteDto[], asked: [] as string[], accepted: [] as string[],
   started: [] as string[], failNextAsk: false };
 const CARD: GoalCardDto = { kind: 'RESEARCH', title: 'Read the Iceberg specification', reason: 'You start from the specification',
-  scope: 'Table metadata, snapshots and manifests', pages: ['https://iceberg.apache.org/spec/'], workItemId: null };
+  scope: 'Table metadata, snapshots and manifests', pages: ['https://iceberg.apache.org/spec/'], workItemId: null, issue: null };
+const PRACTICE: GoalCardDto = { kind: 'WORK', title: 'Fix #31252', reason: 'You learned how checkpoints reconcile actions',
+  scope: 'Key checkpoint add and remove actions by path and deletion vector, and add a test that loses rows today.', pages: [], workItemId: null, issue: 31252 };
+const started: { issue: number; instruction: string }[] = [];
 const listeners = new Set<() => void>();
 const changed = (): void => listeners.forEach((listener) => listener());
 const unexpected = async (): Promise<never> => { throw new Error('Unexpected write'); };
@@ -46,10 +49,12 @@ const conversation: Omit<Goals, 'goals' | 'pinned'> = {
   knowledge: async () => server.notes,
   startCard: async (_goalId, recommendationId) => {
     server.started.push(recommendationId);
-    const started: GoalRecommendationDto = { ...server.goal.recommendations[0], state: 'STARTED', taskId: 'task-research' };
-    setCards([started]);
+    const card = server.goal.recommendations.find((candidate) => candidate.id === recommendationId);
+    const running: GoalRecommendationDto = { ...card, state: 'STARTED', taskId: card.card.kind === 'RESEARCH' ? 'task-research' : null };
+    setCards(server.goal.recommendations.map((candidate) => (candidate.id === recommendationId ? running : candidate)).filter((candidate) => candidate.card.kind !== 'WORK'
+      || candidate.state === 'SHOWN'));
     changed();
-    return started;
+    return running;
   },
   start: async (operationId, message) => {
     server.asked.push(operationId);
@@ -89,7 +94,8 @@ function Fixture(): React.JSX.Element {
   }, []);
   const goals: Goals = { ...conversation, goals: goal === null ? [] : [goal], pinned: goal };
   return (
-    <GoalLayer page="home" workspaceId="workspace" repository="trinodb/trino" goals={goals} needsYou={new Set()} onOpenTask={() => {}}>
+    <GoalLayer page="home" workspaceId="workspace" repository="trinodb/trino" goals={goals} needsYou={new Set()} onOpenTask={() => {}}
+      onStartIssue={(issue, instruction) => started.push({ issue, instruction })}>
       <main style={{ height: '100%' }}><h1>Workspace home</h1></main>
     </GoalLayer>
   );
@@ -176,6 +182,15 @@ export async function run(): Promise<boolean> {
     [...card.querySelectorAll('button')].find((candidate) => candidate.textContent === 'Start')?.click(); await settle(); await settle();
     assert(starts() === 1 && document.querySelector('.goal-cards') === null, 'Start begins the run and the card leaves the control');
     assert(text().includes('Researching: Read the Iceberg specification'), 'The Goal window shows the running research');
+
+    // Later the agent judges the user ready to practice on a real gap.
+    setCards([...server.goal.recommendations, { id: 'card-2', goalId: 'goal', card: PRACTICE, state: 'SHOWN', taskId: null, createdAt: NOW }]);
+    changed(); await settle();
+    const practice = document.querySelector('.goal-cards .goal-rec');
+    assert(practice !== null && practice.textContent?.includes('Practice') === true && practice.textContent.includes('Fix #31252'), 'A practice card floats with its kind');
+    [...practice.querySelectorAll('button')].find((candidate) => candidate.textContent === 'Start')?.click(); await settle(); await settle();
+    assert(started.length === 1 && started[0].issue === 31252 && started[0].instruction.startsWith('Key checkpoint add and remove actions'),
+      'Start opens the issue composer with the prepared instruction');
     return true;
   }
   finally { flushSync(() => root.unmount()); host.remove(); }

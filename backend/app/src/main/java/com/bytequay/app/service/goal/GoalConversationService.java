@@ -23,9 +23,12 @@ import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.store.GoalExchangeStore;
 import com.bytequay.core.store.GoalRecommendationStore;
+import com.bytequay.core.store.RepositoryIssueStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -63,6 +66,9 @@ public class GoalConversationService
     private final WorkItemService work;
     private final GoalExchangeStore exchanges;
     private final GoalRecommendationStore recommendations;
+    private final WorkspaceStore workspaces;
+    private final RepositoryIssueStore issues;
+    private final ObjectProvider<GoalResearchService> research;
     private final ModelSettingsService models;
     private final GoalPlanner planner;
     private final Clock clock;
@@ -73,18 +79,24 @@ public class GoalConversationService
 
     @Autowired
     public GoalConversationService(GoalService goals, WorkItemService work, GoalExchangeStore exchanges, GoalRecommendationStore recommendations,
-            ModelSettingsService models, GoalPlanner planner, Clock clock)
+            WorkspaceStore workspaces, RepositoryIssueStore issues, ObjectProvider<GoalResearchService> research, ModelSettingsService models, GoalPlanner planner,
+            Clock clock)
     {
-        this(goals, work, exchanges, recommendations, models, planner, clock, Executors.newFixedThreadPool(2, Thread.ofVirtual().name("goal-agent-", 0).factory()));
+        this(goals, work, exchanges, recommendations, workspaces, issues, research, models, planner, clock,
+                Executors.newFixedThreadPool(2, Thread.ofVirtual().name("goal-agent-", 0).factory()));
     }
 
     GoalConversationService(GoalService goals, WorkItemService work, GoalExchangeStore exchanges, GoalRecommendationStore recommendations,
-            ModelSettingsService models, GoalPlanner planner, Clock clock, Executor executor)
+            WorkspaceStore workspaces, RepositoryIssueStore issues, ObjectProvider<GoalResearchService> research, ModelSettingsService models, GoalPlanner planner,
+            Clock clock, Executor executor)
     {
         this.goals = requireNonNull(goals, "goals is null");
         this.work = requireNonNull(work, "work is null");
         this.exchanges = requireNonNull(exchanges, "exchanges is null");
         this.recommendations = requireNonNull(recommendations, "recommendations is null");
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.issues = requireNonNull(issues, "issues is null");
+        this.research = requireNonNull(research, "research is null");
         this.models = requireNonNull(models, "models is null");
         this.planner = requireNonNull(planner, "planner is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -224,6 +236,32 @@ public class GoalConversationService
         return planned;
     }
 
+    /**
+     * Start on a card: research begins its run; a work card is marked started while the composer opens with its instruction, and the task
+     * starts only when the user sends it.
+     */
+    public GoalRecommendation startCard(String workspaceId, String goalId, String recommendationId)
+    {
+        GoalRecommendation card = recommendations.find(recommendationId).filter(found -> found.goalId().equals(goalId) && found.workspaceId().equals(workspaceId))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Card not found"));
+        if (card.card().kind() == GoalRecommendation.Kind.RESEARCH) {
+            return research.getObject().start(workspaceId, goalId, recommendationId);
+        }
+        checkArgument(card.card().kind() == GoalRecommendation.Kind.WORK, "A lesson card opens its lesson.");
+        synchronized (writes) {
+            GoalRecommendation current = recommendations.find(recommendationId).orElseThrow();
+            if (current.state() == GoalRecommendation.State.STARTED) {
+                return current;
+            }
+            if (current.state() != GoalRecommendation.State.SHOWN) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "This card was already finished or dismissed.");
+            }
+            GoalRecommendation started = current.started(Optional.empty(), clock.instant());
+            recommendations.save(started);
+            return started;
+        }
+    }
+
     /** Not now on a card: it leaves the Goal control, and the agent does not offer the same card again. */
     public GoalRecommendation dismiss(String workspaceId, String goalId, String recommendationId)
     {
@@ -293,7 +331,10 @@ public class GoalConversationService
     {
         boolean lesson = card.workItemId().map(id -> goal.course().stream().flatMap(course -> course.parts().stream()).anyMatch(part -> part.lessons().contains(id))
                 && goal.items().stream().anyMatch(item -> item.id().equals(id) && item.state() != WorkItem.State.DONE && item.state() != WorkItem.State.DROPPED)).orElse(true);
-        if (!lesson) {
+        // A work card names an issue the workspace still holds open; the agent saw only that list.
+        boolean issue = card.issue().map(number -> workspaces.findById(goal.workspaceId())
+                .flatMap(workspace -> issues.find(workspace.monitoredRepositoryId(), number)).isPresent()).orElse(true);
+        if (!lesson || !issue) {
             return;
         }
         List<GoalRecommendation> cards = recommendations.list(goal.id());

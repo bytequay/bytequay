@@ -72,6 +72,8 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   const [openReview, setOpenReview] = useState<{ id: string; repo: string; number: number } | null>(null);
   // The launch chosen when development was started from an issue; the composer seeds itself with it.
   const [startLaunch, setStartLaunch] = useState<TaskLaunch>();
+  // The instruction a Goal's work card prepared for the issue's composer.
+  const [startDraft, setStartDraft] = useState<string>();
   const monitoredRepository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
   const agentScreens = tab === 'home' || tab === 'tasks';
   const taskDetail = tab === 'tasks' && (initialAgentTaskId !== null || initialAgentReviewId !== null);
@@ -190,6 +192,11 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       goals={goals}
       needsYou={needsYou}
       onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
+      onStartIssue={(number, instruction) => {
+        setStartLaunch(undefined);
+        setStartDraft(instruction);
+        window.location.hash = workspaceIssueTaskRoute(workspace.id, number);
+      }}
     >
       {renderPage()}
     </GoalLayer>
@@ -226,7 +233,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         repository={monitoredRepository}
         initialIssueNumber={initialIssueNumber}
         onSelectIssue={onSelectIssue}
-        onStartDevelopment={(number, launch) => { setStartLaunch(launch); window.location.hash = workspaceIssueTaskRoute(workspace.id, number); }}
+        onStartDevelopment={(number, launch) => { setStartLaunch(launch); setStartDraft(undefined); window.location.hash = workspaceIssueTaskRoute(workspace.id, number); }}
         onViewTask={link => { window.location.hash = workspaceAgentTaskRoute(link.workspaceId, link.taskId); }}
       />;
     }
@@ -277,6 +284,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
             repository={monitoredRepository}
             sourceIssueNumber={sourceIssueNumber}
             launch={sourceIssueNumber === null ? undefined : startLaunch}
+            initialDraft={sourceIssueNumber === null ? undefined : startDraft}
             onOpenCreatedTask={task => { window.location.hash = workspaceAgentTaskRoute(task.workspaceId, task.id); }}
             headerAction={overviewOpen || zoomedCherryPick ? undefined : overviewToggle}
             onOpenReview={review => review.number === null ? openReviewWorkspace(review) : setOpenReview({ id: review.id, repo: review.repo, number: review.number })}

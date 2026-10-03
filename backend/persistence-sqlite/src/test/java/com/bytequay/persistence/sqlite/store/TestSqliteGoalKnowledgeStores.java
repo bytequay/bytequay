@@ -74,7 +74,7 @@ class TestSqliteGoalKnowledgeStores
     private static GoalRecommendation card(String id, Instant at)
     {
         return new GoalRecommendation(id, "goal-1", "workspace-1", new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH, "Read the Iceberg specification",
-                "You start from the specification", "Snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty()), GoalRecommendation.State.SHOWN,
+                "You start from the specification", "Snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty()), GoalRecommendation.State.SHOWN,
                 Optional.empty(), "op-1", at, at);
     }
 

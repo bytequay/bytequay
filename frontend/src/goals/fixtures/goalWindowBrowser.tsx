@@ -72,7 +72,7 @@ export async function run(): Promise<boolean> {
   localStorage.removeItem('bq.goal.pill.home');
   const root = createRoot(host);
   const render = (page = 'home', covered = false): void => flushSync(() => root.render(<LayerCovered.Provider value={covered}>
-    <GoalLayer page={page} workspaceId="workspace" repository="trinodb/trino" goals={goals} needsYou={new Set()} onOpenTask={() => {}}>
+    <GoalLayer page={page} workspaceId="workspace" repository="trinodb/trino" goals={goals} needsYou={new Set()} onOpenTask={() => {}} onStartIssue={() => {}}>
       <main style={{ height: '100%', padding: 32 }}><h1>Workspace home</h1><p>The page stays in place while the goal is open.</p></main>
     </GoalLayer>
   </LayerCovered.Provider>));

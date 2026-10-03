@@ -150,11 +150,11 @@ public class GoalController
         return conversations.acceptCourse(workspaceId, goalId, request.exchangeId());
     }
 
-    /** Start on a card: the research it recommends begins as one read-only run. */
+    /** Start on a card: research begins its read-only run, and a work card is marked started while its composer opens. */
     @PostMapping("/{goalId}/recommendations/{recommendationId}/start")
     public GoalRecommendation startRecommendation(@PathVariable String workspaceId, @PathVariable String goalId, @PathVariable String recommendationId)
     {
-        return research.start(workspaceId, goalId, recommendationId);
+        return conversations.startCard(workspaceId, goalId, recommendationId);
     }
 
     @PostMapping("/{goalId}/recommendations/{recommendationId}/dismiss")

@@ -85,6 +85,8 @@ interface AgentTasksViewProps {
   onOpenSettings?: () => void;
   /** A launch chosen before the composer opened; the person may change it until the first message creates a task. */
   launch?: TaskLaunch;
+  /** An instruction prepared for the source issue, which the person reviews before sending. */
+  initialDraft?: string;
 }
 
 /** A task state reads as prose; the wire enum is never shown to the user. */
@@ -181,7 +183,7 @@ export function taskCreationCatalog(settings: ModelSettingsDto, sourceIssueNumbe
  * Everything creating a task needs: the list, the catalog, the chosen model, the draft, why
  * creation is blocked, and the create call itself — shared by the Tasks page and the Home hero.
  */
-export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpenTask, sourceIssueNumber = null, sourceJira = null, onOpenCreatedTask }: {
+export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpenTask, sourceIssueNumber = null, sourceJira = null, onOpenCreatedTask, initialDraft }: {
   workspaceId: string;
   sourceJira?: JiraIssue | null;
   /** A launch the caller chose; without one the workspace's Development agent decides. */
@@ -190,6 +192,8 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   onOpenTask: (taskId: string) => void;
   sourceIssueNumber?: number | null;
   onOpenCreatedTask?: (task: AgentTaskDto) => void;
+  /** A prepared instruction; the issue's default text does not replace it. */
+  initialDraft?: string;
 }) {
   // Home and the Tasks page remount on every tab switch; the last list paints the first frame, and
   // the mount still re-reads it.
@@ -201,7 +205,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   const [catalog, setCatalog] = useState<ModelSettingsDto | null>(null);
   const [laneId, setLaneId] = useState(initialLaunch?.laneId ?? INTERACTIVE_LANE_ID);
   const [selection, setSelection] = useState<TaskModelSelection | null>(null);
-  const [draft, setDraft] = useState(sourceJira === null ? '' : `Implement ${sourceJira.key}: ${sourceJira.title}`);
+  const [draft, setDraft] = useState(initialDraft ?? (sourceJira === null ? '' : `Implement ${sourceJira.key}: ${sourceJira.title}`));
   const [issue, setIssue] = useState<DevelopmentIssue | null>(null);
   const [sourceLoading, setSourceLoading] = useState(sourceIssueNumber !== null);
   const [sourceError, setSourceError] = useState<string | null>(null);
@@ -701,10 +705,11 @@ export default function AgentTasksView({
   inGoal,
   onOpenSettings,
   launch,
+  initialDraft,
 }: AgentTasksViewProps): React.JSX.Element {
   // Resolved when used, not when rendered: a static render has no window to reach.
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
-  const creation = useAgentTaskCreation({ workspaceId, initialLaunch: launch, bridge: live, onOpenTask, sourceIssueNumber, onOpenCreatedTask });
+  const creation = useAgentTaskCreation({ workspaceId, initialLaunch: launch, bridge: live, onOpenTask, sourceIssueNumber, onOpenCreatedTask, initialDraft });
   const { setTasks } = creation;
   const tasks = useMemo(() => freshest(creation.tasks, taskAttention.tasks), [creation.tasks, taskAttention.tasks]);
   const tasksRef = useRef(tasks);

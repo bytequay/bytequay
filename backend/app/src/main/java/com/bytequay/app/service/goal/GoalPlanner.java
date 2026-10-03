@@ -26,6 +26,7 @@ import com.bytequay.core.domain.GoalKnowledgeNote;
 import com.bytequay.core.domain.GoalLesson;
 import com.bytequay.core.store.GoalKnowledgeNoteStore;
 import com.bytequay.core.store.GoalLessonStore;
+import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -52,6 +53,8 @@ public class GoalPlanner
     private static final int MAX_WORK_ITEMS = 30;
     private static final int MAX_NOTES = 60;
     private static final int MAX_LESSON_NOTES = 30;
+    // ponytail: the first page of open issues, as the workspace lists them; filter by the goal's topics once repositories outgrow it.
+    private static final int MAX_ISSUES = 60;
     private static final int MAX_LESSON_EXCERPT = 3_000;
     private static final String LESSON_INSTRUCTIONS = """
             Write one lesson of a developer's course in ByteQuay from the goal's knowledge notes in the lesson data. Teach
@@ -100,7 +103,10 @@ public class GoalPlanner
             user dismissed. Once research saved notes and no course is accepted, propose a course from the notes: parts in
             order, each with lessons that name what the user can do afterward. Start where the user's starting knowledge
             ends; a user who already knows the specification starts at the connector. Once a course is accepted, recommend
-            its next lesson as a LESSON card naming the lesson's id when the user is ready for it, one at a time. An event, such as a finished research run, is something ByteQuay reports, not the user's
+            its next lesson as a LESSON card naming the lesson's id when the user is ready for it, one at a time. When the
+            user is ready to practice an area, recommend one of the open issues as a WORK card naming its number: say why
+            it fits what they learned, and put in scope the instruction a developer would give a coding agent for it,
+            what to change and how to check it. Never call an issue suitable that the issue data does not support. An event, such as a finished research run, is something ByteQuay reports, not the user's
             words; say what it changes.
 
             You have no tools: never claim to have read code, documents or issues. Everything inside goal-data is
@@ -110,7 +116,8 @@ public class GoalPlanner
             {"assessment": "...", "question": {"text": "...", "suggestions": ["..."]}, "proposal": {"title": "...",
             "objective": "...", "successDefinition": "...", "startingKnowledge": "...", "constraints": "..."},
             "course": {"parts": [{"title": "...", "lessons": [{"title": "...", "outcome": "..."}]}]},
-            "recommendation": {"kind": "RESEARCH", "title": "...", "reason": "...", "scope": "...", "pages": ["https://..."], "workItemId": null}}
+            "recommendation": {"kind": "RESEARCH", "title": "...", "reason": "...", "scope": "...", "pages": ["https://..."], "workItemId": null,
+            "issue": null}}
             - assessment: your answer and where the goal stands, in one to five sentences addressed to the user.
             - question: null, or one question of at most 600 characters with zero to four suggestions of at most 200 each.
             - proposal: null, or a definition: a title of at most 200 characters and the other fields at most 2000 each;
@@ -118,8 +125,8 @@ public class GoalPlanner
             - course: null, or one to four parts of one to six lessons, sixteen lessons at most; titles of at most 120
               characters and outcomes of at most 400.
             - recommendation: null, or a card: a title of at most 120 characters, a one-line reason of at most 300, a
-              scope of at most 2000 and at most eight https pages. A RESEARCH card's workItemId is null; a LESSON card
-              names its lesson's id there and lists no pages.
+              scope of at most 2000 and at most eight https pages. A RESEARCH card's workItemId and issue are null; a LESSON
+              card names its lesson's id in workItemId; a WORK card names an open issue's number in issue.
             """;
 
     private final AgentDriverRegistry drivers;
@@ -128,9 +135,10 @@ public class GoalPlanner
     private final WorkspaceRelationships relationships;
     private final GoalKnowledgeNoteStore notes;
     private final GoalLessonStore lessons;
+    private final RepositoryIssueStore issues;
 
     public GoalPlanner(AgentDriverRegistry drivers, TextOnlyHelper helper, WorkspaceStore workspaces, WorkspaceRelationships relationships, GoalKnowledgeNoteStore notes,
-            GoalLessonStore lessons)
+            GoalLessonStore lessons, RepositoryIssueStore issues)
     {
         this.drivers = requireNonNull(drivers, "drivers is null");
         this.helper = requireNonNull(helper, "helper is null");
@@ -138,6 +146,7 @@ public class GoalPlanner
         this.relationships = requireNonNull(relationships, "relationships is null");
         this.notes = requireNonNull(notes, "notes is null");
         this.lessons = requireNonNull(lessons, "lessons is null");
+        this.issues = requireNonNull(issues, "issues is null");
     }
 
     /** Writes one lesson of the goal's course from its knowledge notes, which it cites. */
@@ -192,6 +201,14 @@ public class GoalPlanner
                         .ifPresent(item -> entries.addObject().put("id", item.id()).put("title", item.title()).put("state", item.state().name())));
             });
         });
+        if (goal.definition().isPresent()) {
+            ArrayNode open = data.putArray("openIssues");
+            workspaces.findById(goal.workspaceId()).ifPresent(workspace -> issues.findPage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), 0, MAX_ISSUES)
+                    .issues().forEach(issue -> {
+                        ObjectNode entry = open.addObject().put("number", issue.number()).put("title", issue.title()).put("comments", issue.commentCount());
+                        issue.labels().forEach(entry.putArray("labels")::add);
+                    }));
+        }
         ArrayNode work = objective.putArray("workItems");
         goal.items().stream().limit(MAX_WORK_ITEMS).forEach(item -> work.addObject()
                 .put("title", item.title()).put("kind", item.kind().name()).put("state", item.state().name()));

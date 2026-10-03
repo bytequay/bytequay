@@ -44,7 +44,8 @@ public record GoalRecommendation(
     public enum Kind
     {
         RESEARCH,
-        LESSON
+        LESSON,
+        WORK
     }
 
     public enum State
@@ -92,9 +93,10 @@ public record GoalRecommendation(
 
     /**
      * What the card offers. A research card reads its scope at the workspace's monitored head, the checkouts of the workspaces it depends
-     * on, and the pages it names; a lesson card opens the lesson of its work item.
+     * on, and the pages it names; a lesson card opens the lesson of its work item; a work card prepares a task for one open issue, its scope
+     * the instruction the composer opens with.
      */
-    public record Card(Kind kind, String title, String reason, String scope, List<String> pages, Optional<String> workItemId)
+    public record Card(Kind kind, String title, String reason, String scope, List<String> pages, Optional<String> workItemId, Optional<Integer> issue)
     {
         public static final int MAX_PAGES = 8;
 
@@ -110,6 +112,8 @@ public record GoalRecommendation(
                     "pages are https addresses: %s", page));
             requireNonNull(workItemId, "workItemId is null");
             checkArgument(workItemId.isPresent() == (kind == Kind.LESSON), "a lesson card names its lesson, and only a lesson card does");
+            requireNonNull(issue, "issue is null");
+            checkArgument(issue.isPresent() == (kind == Kind.WORK), "a work card names its issue, and only a work card does");
         }
     }
 }

@@ -326,7 +326,7 @@ class TestBetterWordsService
 
     private BetterWordsService service(ModelSettingsService settings, WorkspaceStore workspaces, AgentDriverRegistry drivers, AgentResourceService resources)
     {
-        return new BetterWordsService(settings, workspaces, drivers, resources, skills);
+        return new BetterWordsService(settings, workspaces, new TextOnlyHelper(drivers, resources), skills);
     }
 
     private static WorkspaceStore workspaceStore(String workspaceId, RepoRef repository)

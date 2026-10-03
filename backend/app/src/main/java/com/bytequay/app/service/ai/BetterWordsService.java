@@ -13,45 +13,23 @@
  */
 package com.bytequay.app.service.ai;
 
-import com.bytequay.agent.core.AgentResourceService;
-import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TaskResources;
-import com.bytequay.agent.spi.AgentDriver;
-import com.bytequay.agent.spi.AgentDriverRegistry;
-import com.bytequay.agent.spi.AgentLaneId;
-import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.agent.spi.AgentSession;
-import com.bytequay.agent.spi.AgentSessionContext;
-import com.bytequay.agent.spi.AgentTurnCommand;
-import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
-import com.bytequay.agent.spi.ProviderApprovalDecision;
-import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.store.WorkspaceStore;
-import com.google.common.collect.ImmutableList;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.Duration;
 import java.util.Optional;
-import java.util.concurrent.CompletionException;
 
 import static java.util.Objects.requireNonNull;
 
 @Service
 public class BetterWordsService
 {
-    private static final Logger log = LoggerFactory.getLogger(BetterWordsService.class);
     private static final int MAXIMUM_INPUT_CHARACTERS = 20_000;
-    private static final Duration MAXIMUM_RUNTIME = Duration.ofSeconds(45);
+    private static final String FAILURE = "The selected model could not write the comment";
     private static final String INSTRUCTIONS = """
             Rewrite the developer-authored comment for a GitHub code review or related issue discussion.
             Use natural, precise, professional, friendly, and concise wording. Focus feedback on the code or behavior,
@@ -103,21 +81,18 @@ public class BetterWordsService
 
     private final ModelSettingsService modelSettings;
     private final WorkspaceStore workspaces;
-    private final AgentDriverRegistry drivers;
-    private final AgentResourceService resources;
+    private final TextOnlyHelper helper;
     private final AgentSkillService skills;
 
     public BetterWordsService(
             ModelSettingsService modelSettings,
             WorkspaceStore workspaces,
-            AgentDriverRegistry drivers,
-            AgentResourceService resources,
+            TextOnlyHelper helper,
             AgentSkillService skills)
     {
         this.modelSettings = requireNonNull(modelSettings, "modelSettings is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
-        this.drivers = requireNonNull(drivers, "drivers is null");
-        this.resources = requireNonNull(resources, "resources is null");
+        this.helper = requireNonNull(helper, "helper is null");
         this.skills = requireNonNull(skills, "skills is null");
     }
 
@@ -135,7 +110,7 @@ public class BetterWordsService
         }
         String requestedRepository = repository.trim();
 
-        String improved = write(selectedModel(requestedRepository, workspaceId), CLI_PROMPT.formatted(INSTRUCTIONS, comment), skills.instructions());
+        String improved = helper.answer(selectedModel(requestedRepository, workspaceId), CLI_PROMPT.formatted(INSTRUCTIONS, comment), skills.instructions(), FAILURE);
         if (improved.isBlank()) {
             throw new AgentUnavailableException("The selected model returned no rewritten comment.");
         }
@@ -160,7 +135,7 @@ public class BetterWordsService
             case AUTHOR -> DRAFT_INSTRUCTIONS;
             case REVIEWER -> REVIEWER_DRAFT_INSTRUCTIONS;
         };
-        String reply = write(selectedModel(repository.trim(), workspaceId), DRAFT_PROMPT.formatted(instructions, context), skills.instructions());
+        String reply = helper.answer(selectedModel(repository.trim(), workspaceId), DRAFT_PROMPT.formatted(instructions, context), skills.instructions(), FAILURE);
         if (reply.isBlank()) {
             throw new AgentUnavailableException("The selected model returned no reply.");
         }
@@ -181,83 +156,6 @@ public class BetterWordsService
         });
         // The user's own writing runs on the development default, which a workspace may override.
         return modelSettings.agentModel(AgentModelType.DEVELOPMENT, validWorkspaceId);
-    }
-
-    private String write(AgentModelSetting model, String prompt, String managedInstructions)
-    {
-        TaskId taskId = TaskId.random();
-        boolean processMayBeRunning = false;
-        AgentSession session = null;
-        try {
-            TaskResources taskResources = resources.allocate(taskId);
-            Path worktree = Files.createDirectory(taskResources.runtimeDirectory().resolve("better-words-worktree"));
-            AgentDriver driver = drivers.require(new AgentLaneId(model.configId()));
-            AgentSessionContext context = new AgentSessionContext(
-                    taskId.toString(),
-                    worktree,
-                    taskResources.runtimeDirectory(),
-                    taskResources.providerDirectory(),
-                    AgentPermissionPolicy.AUTO,
-                    Optional.empty(),
-                    (request, timeout) -> java.util.concurrent.CompletableFuture.completedFuture(
-                            ProviderApprovalDecision.deny()),
-                    Optional.of(model.model()),
-                    model.effort(),
-                    SessionAccess.TEXT_ONLY,
-                    Optional.empty(),
-                    managedInstructions);
-            processMayBeRunning = true;
-            session = driver.open(context, event -> {});
-            AgentTurnResult result = session.start(new AgentTurnCommand(
-                            TaskId.random().toString(),
-                            prompt,
-                            ImmutableList.of(),
-                            MAXIMUM_RUNTIME))
-                    .completion()
-                    .toCompletableFuture()
-                    .join();
-            if (!closeSession(session, taskId)) {
-                session = null;
-                throw new AgentUnavailableException("The writing-assistant provider could not be verified stopped.");
-            }
-            session = null;
-            processMayBeRunning = false;
-            if (result.state() != AgentTurnResult.State.COMPLETED) {
-                throw new AgentUnavailableException(
-                        "The selected model could not write the comment: "
-                                + result.terminalReason().orElse(result.state().name().toLowerCase()));
-            }
-            return result.finalResponse().orElse("");
-        }
-        catch (IOException e) {
-            throw new AgentUnavailableException("Could not prepare the writing assistant.", e);
-        }
-        catch (CompletionException e) {
-            throw new AgentUnavailableException("The selected model could not write the comment.", e.getCause());
-        }
-        finally {
-            if (session != null && closeSession(session, taskId)) {
-                processMayBeRunning = false;
-            }
-            if (processMayBeRunning) {
-                log.warn("Retaining writing-assistant resources because the provider may still be running for {}", taskId);
-            }
-            else {
-                resources.delete(taskId);
-            }
-        }
-    }
-
-    private static boolean closeSession(AgentSession session, TaskId taskId)
-    {
-        try {
-            session.close();
-            return true;
-        }
-        catch (RuntimeException failure) {
-            log.warn("Could not verify writing-assistant provider shutdown for {}", taskId, failure);
-            return false;
-        }
     }
 
     /** Who posts a drafted reply: the pull request's author, or a reviewer answering someone else's comment on it. */

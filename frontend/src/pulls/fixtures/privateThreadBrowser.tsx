@@ -40,6 +40,7 @@ const detail: PullRequestDetailDto = {
       path: 'src/Owner.java', line: 3, originalLine: 3, side: 'RIGHT',
       comments: [{ githubId: ROOT, actor: 'bob', actorAvatarUrl: null, actorBot: false, timestamp: AT, body: 'Rename `helper` to `resolveOwner`.',
         htmlUrl: null, reviewId: 50, inReplyToId: null, reactions: [] }] } },
+    { actor: 'alice', eventType: 'commented', timestamp: AT, body: 'Thanks, renaming it now.', githubId: 80, payload: EMPTY_TIMELINE_PAYLOAD },
   ],
 };
 const pr = remotePullRequest(detail, 'alice');
@@ -119,6 +120,12 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   try {
     flushSync(() => root.render(<Harness bridge={bridge} />));
     await settle();
+
+    await step('Only other people’s comments offer Ask agent', async () => {
+      const asks = host.querySelectorAll('.pr-ask-agent').length;
+      assert(asks === 1 && host.textContent?.includes('Thanks, renaming it now.') === true,
+        `Only bob's review comment may offer Ask agent, not alice's own comment; found ${asks}`);
+    });
 
     await step('Ask agent brings the thread forward and Cmd+Enter asks for the summary', async () => {
       button(host, 'Ask agent').click();

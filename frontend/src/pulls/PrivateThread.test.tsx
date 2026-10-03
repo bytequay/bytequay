@@ -46,7 +46,7 @@ function threads(over: Partial<PrivateThreads> = {}, value: TaskDiscussionDto | 
   };
 }
 
-const controls = (value: PrivateThreads): string => renderToStaticMarkup(<PrivateThreadControls threads={value} threadKey={KEY} />);
+const controls = (value: PrivateThreads, own = false): string => renderToStaticMarkup(<PrivateThreadControls threads={value} threadKey={KEY} own={own} />);
 const forward = (value: PrivateThreads, draft = false): string => renderToStaticMarkup(
   <PrivateThreadForward threads={value} threadKey={KEY} author="bob" avatarUrl={null} timestamp={AT} body="Please **rename** this."
     repository="o/r" viewerLogin="alice" onDraftReply={draft ? () => {} : undefined} />);
@@ -141,6 +141,13 @@ describe('private thread surfaces', () => {
     expect(controls(hidden)).toContain('Private thread hidden');
     expect(controls(hidden)).not.toContain('replies');
     expect(renderToStaticMarkup(<PrivateThreadTab threads={hidden} threadKey={KEY} />)).toBe('');
+  });
+
+  it('offers Ask agent only on other people’s comments, and keeps the chip of a thread behind the user’s own', () => {
+    expect(controls(threads({}, null), true)).toBe('');
+    const own = controls(threads(), true);
+    expect(own).toContain('Local · 2 replies ↑');
+    expect(own).not.toContain('Ask agent');
   });
 
   it('disables Ask agent once the task released its files', () => {

@@ -921,7 +921,8 @@ function CommentCard({ activity, viewerLogin, privateThreads, pr, onDetailUpdate
       timestamp={activity.timestamp}
       badge={reviewBadge(state)}
       reaction={reaction}
-      privateControls={privateThreads !== undefined && threadKey !== null && <PrivateThreadControls threads={privateThreads} threadKey={threadKey} />}
+      privateControls={privateThreads !== undefined && threadKey !== null && <PrivateThreadControls threads={privateThreads} threadKey={threadKey}
+        own={isViewerComment(activity.actor, viewerLogin)} />}
       actions={body ? {
         link: activity.payload.htmlUrl ?? pr.htmlUrl,
         markdown: body,
@@ -1232,7 +1233,8 @@ function ThreadComment({ comment, fallbackUrl, suggestion, viewerLogin, pr, onDe
         {comment.actorBot && <span className="pr-bot">Bot</span>}
       </>}
       menu={<>{reaction && <ReactionPicker action={reaction} />}
-        {privateThreads !== undefined && threadKey !== null && <PrivateThreadControls threads={privateThreads} threadKey={threadKey} />}
+        {privateThreads !== undefined && threadKey !== null && <PrivateThreadControls threads={privateThreads} threadKey={threadKey}
+          own={isViewerComment(comment.actor, viewerLogin)} />}
         {comment.body && <CardActionsMenu actions={{
           link: comment.htmlUrl ?? fallbackUrl,
           markdown: comment.body,

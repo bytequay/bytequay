@@ -146,8 +146,11 @@ export function PrivateThreadsStrip({ threads }: { threads: PrivateThreads }) {
   );
 }
 
-/** The header chip of a thread behind its comment, then Ask agent, which sit right before the comment's menu. */
-export function PrivateThreadControls({ threads, threadKey }: { threads: PrivateThreads; threadKey: string }) {
+/**
+ * The header chip of a thread behind its comment, then Ask agent, which sit right before the comment's menu. Only other people's
+ * comments offer Ask agent; a thread already behind the user's own comment keeps its chip.
+ */
+export function PrivateThreadControls({ threads, threadKey, own }: { threads: PrivateThreads; threadKey: string; own: boolean }) {
   const thread = held(threads, threadKey);
   const failed = thread !== null && !thread.pending && retryTarget(thread) !== null;
   return <>
@@ -164,10 +167,10 @@ export function PrivateThreadControls({ threads, threadKey }: { threads: Private
               : `Local · ${replies(thread)} ↑`}
       </button>
     )}
-    <button type="button" className="pr-ask-agent" disabled={threads.disabledReason !== null}
+    {!own && <button type="button" className="pr-ask-agent" disabled={threads.disabledReason !== null}
       title={threads.disabledReason ?? 'Ask the agent about this comment. Private.'} onClick={() => threads.setForward(threadKey)}>
       Ask agent
-    </button>
+    </button>}
   </>;
 }
 

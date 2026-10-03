@@ -1295,6 +1295,9 @@ function registerIpc(): void {
   ipcMain.handle('settings:models', (_event, workspaceId?: string) =>
     backendJson(`${backendBase()}/api/settings/models${workspaceId === undefined ? '' : `?workspaceId=${encodeURIComponent(workspaceId)}`}`)
       .then(parseModelSettings));
+  ipcMain.handle('settings:models:refresh', (_event, force = false) =>
+    backendJson(`${backendBase()}/api/settings/models/refresh?force=${force === true}`, { method: 'POST' })
+      .then(parseModelSettings));
   ipcMain.handle('settings:models:agent:set', (
     _event,
     type: string,

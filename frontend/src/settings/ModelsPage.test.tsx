@@ -142,6 +142,6 @@ describe('models page', () => {
     expect(markup).toContain('v0.153.4');
     expect(markup).toContain('sk-4f••••2a1');
     expect(markup).toContain('Add API key');
-    expect(markup).toContain('CLIs are detected automatically · checked 09:15');
+    expect(markup).toContain('Models and providers refresh automatically · checked 09:15');
   });
 });

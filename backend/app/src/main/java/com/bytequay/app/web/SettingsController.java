@@ -66,6 +66,13 @@ public class SettingsController
         return models.get(Optional.ofNullable(workspaceId));
     }
 
+    @PostMapping("/models/refresh")
+    public ModelSettings refreshModels(@RequestParam(defaultValue = "false") boolean force)
+    {
+        models.refreshCatalogs(force);
+        return models.get();
+    }
+
     @PutMapping("/models/agents/{type}")
     public ModelSettings setAgentModel(@PathVariable AgentModelType type, @RequestBody SelectionRequest request)
     {

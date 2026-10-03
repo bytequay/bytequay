@@ -21,6 +21,8 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -52,7 +54,9 @@ public class AgentCliUpdateJob
 
     void runUpdates()
     {
-        for (AgentProviderStatus status : drivers.statuses()) {
+        List<AgentProviderStatus> statuses = drivers.statuses();
+        models.refreshMissingCatalogs(statuses);
+        for (AgentProviderStatus status : statuses) {
             if (!status.available() && status.version().isEmpty()) {
                 continue;
             }

@@ -237,7 +237,7 @@ export function WorkspaceAgentsPage({
       <div className="setw-section"><span className="setw-section-title">Providers</span></div>
       <SettingsCard footer={
         <div className="setw-foot-row">
-          <span>{checkedAt === null ? 'Readiness is probed fresh, never cached' : `Last checked ${checkedAt}`}</span>
+          <span>{checkedAt === null ? 'Provider checks refresh in the background' : `Last checked ${checkedAt}`}</span>
           <button type="button" className="setw-btn" disabled={checking} onClick={onCheck}>
             <RefreshCw size={12} strokeWidth={2.2} color="#6e6e73" />
             <span>{checking ? 'Checking…' : 'Check again'}</span>

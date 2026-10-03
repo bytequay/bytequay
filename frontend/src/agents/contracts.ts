@@ -601,6 +601,7 @@ export function parseAgentModelSetting(value: unknown, path: string): AgentModel
 export function parseModelSettings(value: unknown): ModelSettingsDto {
   const source = object(value, 'modelSettings');
   return {
+    checkedAt: optionalText(source.checkedAt, 'modelSettings.checkedAt'),
     agents: list(source.agents, 'modelSettings.agents')
       .map((agent, index) => parseAgentModelSetting(agent, `modelSettings.agents[${index}]`)),
     providers: list(source.providers, 'modelSettings.providers')

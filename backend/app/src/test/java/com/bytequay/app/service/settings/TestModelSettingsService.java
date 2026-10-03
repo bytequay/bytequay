@@ -42,6 +42,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -57,6 +58,7 @@ class TestModelSettingsService
     private InMemoryAppSettingsStore settingsStore;
     private InMemoryModelApiKeyStore apiKeys;
     private ModelSettingsService service;
+    private Clock clock;
 
     @BeforeEach
     void setUp()
@@ -86,12 +88,14 @@ class TestModelSettingsService
         when(drivers.require(CODEX)).thenReturn(codexDriver);
         settingsStore = new InMemoryAppSettingsStore();
         apiKeys = new InMemoryModelApiKeyStore();
+        clock = mock(Clock.class);
+        when(clock.instant()).thenReturn(Instant.parse("2026-08-23T10:00:00Z"));
         service = new ModelSettingsService(
                 drivers,
                 apiKeys,
                 settingsStore,
                 new ObjectMapper(),
-                Clock.fixed(Instant.parse("2026-08-23T10:00:00Z"), ZoneOffset.UTC));
+                clock);
         service.seedCatalogs();
         service.refreshCatalogs();
     }
@@ -148,6 +152,7 @@ class TestModelSettingsService
                 "ready",
                 capabilities)));
 
+        service.refreshMissingCatalogs(drivers.statuses());
         var provider = service.get().providers().getFirst();
 
         assertThat(provider.capabilities()).isEqualTo(capabilities);
@@ -190,6 +195,7 @@ class TestModelSettingsService
         when(deepSeek.label()).thenReturn("DeepSeek · personal-deepseek");
         when(drivers.require(lane)).thenReturn(deepSeek);
 
+        service.refreshMissingCatalogs(drivers.statuses());
         var provider = service.get().providers().getFirst();
         assertThat(provider.models()).extracting(ModelOption::id)
                 .containsExactly("deepseek-flash", "deepseek-v4-pro");
@@ -306,6 +312,7 @@ class TestModelSettingsService
                         CODEX, Readiness.READY,
                         Optional.of("0.145.0"), "ready", AgentCapabilities.none())));
 
+        service.refreshMissingCatalogs(drivers.statuses());
         assertThat(service.get().agents()).allSatisfy(agent -> {
             assertThat(agent.explicit()).isFalse();
             assertThat(agent.configId()).isEqualTo("codex");
@@ -324,7 +331,42 @@ class TestModelSettingsService
                         CODEX, Readiness.CLI_MISSING,
                         Optional.empty(), "not installed", AgentCapabilities.none())));
 
+        service.refreshMissingCatalogs(drivers.statuses());
         assertThat(service.agentModel(AgentModelType.DEVELOPMENT).configId()).isEqualTo("claude");
+    }
+
+    @Test
+    void readingAndSavingSettingsNeverLaunchesProviderChecks()
+    {
+        clearInvocations(drivers, codexDriver);
+        service.get();
+        service.get(Optional.of("ws-1"));
+        service.agentModel(AgentModelType.DEVELOPMENT);
+        service.setAgentModel(AgentModelType.DEVELOPMENT, "codex", "gpt-5.6-sol", Optional.of("high"));
+        service.get();
+
+        verify(drivers, never()).statuses();
+        verify(codexDriver, never()).models();
+    }
+
+    @Test
+    void automaticRefreshReusesRecentChecksThenDiscoversNewModels()
+    {
+        clearInvocations(drivers, codexDriver);
+        service.refreshCatalogs(false);
+        verify(drivers, never()).statuses();
+        verify(codexDriver, never()).models();
+
+        when(clock.instant()).thenReturn(Instant.parse("2026-08-23T10:06:00Z"));
+        when(codexDriver.models()).thenReturn(ImmutableList.of(
+                new ProviderModel("gpt-6.1-sol", "GPT-6.1 Sol", "", ImmutableList.of("high"), Optional.of("high"), true,
+                        ImmutableList.of("text", "image"), ImmutableList.of())));
+        service.refreshCatalogs(false);
+
+        verify(drivers).statuses();
+        verify(codexDriver).models();
+        assertThat(service.get().providers().get(1).models()).extracting(ModelOption::id).containsExactly("gpt-6.1-sol");
+        assertThat(service.get().checkedAt()).contains(Instant.parse("2026-08-23T10:06:00Z"));
     }
 
     @Test
@@ -393,6 +435,7 @@ class TestModelSettingsService
                 new ObjectMapper(),
                 Clock.fixed(Instant.parse("2026-08-23T10:00:00Z"), ZoneOffset.UTC));
         upgraded.seedCatalogs();
+        upgraded.refreshCatalogs();
 
         var claude = upgraded.get().providers().getFirst();
         assertThat(claude.models()).extracting(ModelOption::name)
@@ -408,6 +451,7 @@ class TestModelSettingsService
                 new InMemoryAppSettingsStore(),
                 new ObjectMapper(),
                 Clock.fixed(Instant.parse("2026-08-23T10:00:00Z"), ZoneOffset.UTC));
+        unseeded.refreshCatalogs();
         var claude = unseeded.get().providers().getFirst();
         assertThat(claude.models()).isEmpty();
         assertThat(claude.selectedModel()).isEmpty();

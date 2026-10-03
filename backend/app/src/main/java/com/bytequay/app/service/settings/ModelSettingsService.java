@@ -32,6 +32,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -52,8 +54,8 @@ import static java.util.Objects.requireNonNull;
  * never written back, so "Review is the same as Development" stays an absent
  * row rather than a frozen copy.
  *
- * <p>CLI catalogs live in the settings store. Every app start re-probes each
- * available driver ({@code model/list} for Codex) and rewrites its catalog row;
+ * <p>CLI catalogs live in the settings store. Startup and background settings
+ * refreshes probe each available driver ({@code model/list} for Codex) and rewrite its catalog row;
  * Claude Code cannot enumerate models, so its row is seeded with the CLI
  * aliases ({@code opus}, {@code fable}, ...). The isolated DeepSeek key lane
  * uses ByteQuay's fixed two-model catalog. Model ids are the values providers
@@ -70,6 +72,7 @@ public class ModelSettingsService
     private static final String CATALOG_PREFIX = "model.catalog.";
     private static final String API_KEY_ID_PREFIX = "key:";
     private static final String DEEPSEEK_LANE_PREFIX = "deepseek-key-";
+    private static final Duration REFRESH_INTERVAL = Duration.ofMinutes(5);
     private static final Pattern ALIAS = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,63}");
 
     // Bootstrap data written into the settings store; after that the stored
@@ -102,6 +105,8 @@ public class ModelSettingsService
     private final AppSettingsStore settings;
     private final ObjectMapper mapper;
     private final Clock clock;
+    private volatile List<AgentProviderStatus> providerStatuses = ImmutableList.of();
+    private volatile Optional<Instant> checkedAt = Optional.empty();
 
     public ModelSettingsService(
             AgentDriverRegistry drivers,
@@ -142,6 +147,7 @@ public class ModelSettingsService
      */
     public void refreshMissingCatalogs(List<AgentProviderStatus> statuses)
     {
+        providerStatuses = ImmutableList.copyOf(statuses);
         // Takes statuses the caller already probed; re-probing to decide whether to probe is waste.
         refreshCatalogs(statuses, true);
     }
@@ -152,7 +158,19 @@ public class ModelSettingsService
      */
     public void refreshCatalogs()
     {
-        refreshCatalogs(drivers.statuses(), false);
+        refreshCatalogs(true);
+    }
+
+    /** Settings reads never wait for CLI or network probes; only refresh requests enter this lock. */
+    public synchronized void refreshCatalogs(boolean force)
+    {
+        if (!force && checkedAt.filter(at -> clock.instant().isBefore(at.plus(REFRESH_INTERVAL))).isPresent()) {
+            return;
+        }
+        List<AgentProviderStatus> statuses = drivers.statuses();
+        providerStatuses = ImmutableList.copyOf(statuses);
+        refreshCatalogs(statuses, false);
+        checkedAt = Optional.of(clock.instant());
     }
 
     private void refreshCatalogs(List<AgentProviderStatus> statuses, boolean onlyMissing)
@@ -209,7 +227,9 @@ public class ModelSettingsService
     public ModelSettings get(Optional<String> workspaceId)
     {
         requireNonNull(workspaceId, "workspaceId is null");
-        List<Provider> providers = drivers.statuses().stream()
+        List<Provider> providers = providerStatuses.stream()
+                .filter(status -> !status.laneId().value().startsWith(DEEPSEEK_LANE_PREFIX)
+                        || cliCatalog(status.laneId().value()).isPresent())
                 .map(this::provider)
                 .collect(toImmutableList());
         List<ApiKey> keys = apiKeys.findAll().stream()
@@ -221,7 +241,7 @@ public class ModelSettingsService
         List<AgentModelSetting> agents = Stream.of(AgentModelType.values())
                 .map(type -> agentModel(type, workspaceId))
                 .collect(toImmutableList());
-        return new ModelSettings(agents, providers, keys, keyProviders);
+        return new ModelSettings(agents, providers, keys, keyProviders, checkedAt);
     }
 
     /** Validates a provider model selection without changing saved settings. */
@@ -305,6 +325,7 @@ public class ModelSettingsService
             throw new IllegalArgumentException("An API key named " + trimmedAlias + " already exists.");
         }
         apiKeys.save(new ModelApiKey(trimmedAlias, provider, SecretMasker.mask(secret), clock.instant()), secret);
+        refreshCatalogs();
         return get();
     }
 
@@ -381,7 +402,7 @@ public class ModelSettingsService
      */
     private String defaultLaneId()
     {
-        return drivers.statuses().stream()
+        return providerStatuses.stream()
                 .filter(AgentProviderStatus::available)
                 .map(status -> status.laneId().value())
                 .filter(laneId -> !laneId.startsWith(DEEPSEEK_LANE_PREFIX))
@@ -557,7 +578,8 @@ public class ModelSettingsService
             List<AgentModelSetting> agents,
             List<Provider> providers,
             List<ApiKey> apiKeys,
-            List<KeyProvider> keyProviders) {}
+            List<KeyProvider> keyProviders,
+            Optional<Instant> checkedAt) {}
 
     public record Provider(
             String id,

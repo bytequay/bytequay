@@ -54,6 +54,7 @@ class TestAgentCliUpdateJob
         new AgentCliUpdateJob(drivers, models).runUpdates();
 
         var order = inOrder(claude, codex, models);
+        order.verify(models).refreshMissingCatalogs(drivers.statuses());
         order.verify(claude).update();
         order.verify(codex).update();
         order.verify(models).refreshCatalogs();

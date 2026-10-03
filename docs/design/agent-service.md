@@ -4954,6 +4954,16 @@ selected provider can work in this workspace.
 | Degraded | Available with named capability limitations | Check again |
 | Unavailable | Redacted actionable diagnostic | Check again |
 
+Settings reads render saved catalogs and the latest in-memory readiness snapshot
+without launching provider processes or making network requests. Opening a model
+settings page refreshes readiness and the existing catalogs in the background,
+reusing checks completed within five minutes. **Check** forces a refresh even
+inside that interval, and concurrent automatic refreshes share the completed
+result. A failed or empty catalog discovery preserves the last successful
+catalog. The displayed check time comes from the backend refresh, not the page
+visit. This display snapshot never replaces the fresh readiness gate at task
+creation or turn start.
+
 The sign-in action is a direct user action. In the first release ByteQuay shows
 the provider-owned command (for Claude,
 `CLAUDE_CONFIG_DIR='<ByteQuay Claude home>' claude auth login`) for the user to run

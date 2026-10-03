@@ -1208,6 +1208,7 @@ export type ModelApiKeyDto = {
 };
 
 export type ModelSettingsDto = {
+  checkedAt?: string | null;
   agents: AgentModelSettingDto[];
   providers: ModelProviderDto[];
   apiKeys: ModelApiKeyDto[];
@@ -1610,6 +1611,7 @@ export type Bridge = JiraBridge & {
   ) => Promise<{ sha: string }>;
 
   getModelSettings: (workspaceId?: string) => Promise<ModelSettingsDto>;
+  refreshModelSettings: (force?: boolean) => Promise<ModelSettingsDto>;
   setAgentModel: (
     type: AgentModelType,
     configId: string,

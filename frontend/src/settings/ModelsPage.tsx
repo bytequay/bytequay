@@ -218,6 +218,11 @@ export default function ModelsPage({ settings, checkedAt, checking, error, onChe
 
       <div className="setw-section"><span className="setw-section-title">Providers</span></div>
       <SettingsCard footer={<AddAction label="Add API key" onClick={() => setAddingKey(true)} />}>
+        {settings.providers.length === 0 && (
+          <SettingsRow title={checking ? 'Checking providers…' : 'Providers have not been checked yet'}>
+            <button type="button" className="setw-btn" disabled={checking} onClick={onCheck}>Check</button>
+          </SettingsRow>
+        )}
         {settings.providers.filter(provider => !isDeepSeekKeyLane(provider.id)).map(provider => {
           const status = providerStatusLabel(provider.readiness, checking, provider.id);
           return (
@@ -273,7 +278,7 @@ export default function ModelsPage({ settings, checkedAt, checking, error, onChe
         )}
       </SettingsCard>
       <div className="setw-footnote">
-        CLIs are detected automatically{checkedAt === null ? '' : ` · checked ${checkedAt}`}
+        Models and providers refresh automatically{checkedAt === null ? '' : ` · checked ${checkedAt}`}. Check fetches the latest available models.
       </div>
 
       {addingKey && (

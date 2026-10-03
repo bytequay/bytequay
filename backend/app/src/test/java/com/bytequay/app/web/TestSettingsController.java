@@ -40,6 +40,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -65,6 +66,16 @@ class TestSettingsController
         return standaloneSetup(controller)
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(appMapper()))
                 .build();
+    }
+
+    @Test
+    void modelRefreshDistinguishesAutomaticAndForcedChecks()
+            throws Exception
+    {
+        mvc().perform(post("/api/settings/models/refresh")).andExpect(status().isOk());
+        verify(models).refreshCatalogs(false);
+        mvc().perform(post("/api/settings/models/refresh").param("force", "true")).andExpect(status().isOk());
+        verify(models).refreshCatalogs(true);
     }
 
     @Test

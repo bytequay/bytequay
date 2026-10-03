@@ -66,7 +66,8 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   const [clearing, setClearing] = useState(false);
   const [models, setModels] = useState<ModelSettingsDto | null>(null);
   const [checking, setChecking] = useState(false);
-  const [checkedAt, setCheckedAt] = useState<string | null>(null);
+  const checkedAt = models?.checkedAt ? clockTime(new Date(models.checkedAt)) : null;
+  const modelRequest = useRef(0);
   const [skills, setSkills] = useState<AgentSkillDto[] | null>(null);
   const [skillsBusy, setSkillsBusy] = useState(false);
   const [graphMode, setGraphMode] = useState<CodeGraphMode | null>(null);
@@ -96,18 +97,23 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
     void window.bridge.getAppPreferences().then(setPreferences).catch(report);
   }, [report]);
 
-  const loadModels = useCallback(() => {
+  const loadModels = useCallback((force = false) => {
+    const request = ++modelRequest.current;
+    const receive = (value: ModelSettingsDto) => {
+      if (request !== modelRequest.current) return;
+      setModels(value);
+    };
+    setError(null);
     setChecking(true);
-    window.bridge.getModelSettings()
-      .then(value => { setModels(value); setCheckedAt(clockTime(new Date())); })
-      .catch(report)
-      .finally(() => setChecking(false));
+    // Paint saved choices before waiting for CLI startup, authentication, or model discovery.
+    return window.bridge.getModelSettings()
+      .then(receive)
+      .catch(failure => { if (request === modelRequest.current) report(failure); })
+      .then(() => window.bridge.refreshModelSettings(force))
+      .then(receive)
+      .catch(failure => { if (request === modelRequest.current) report(failure); })
+      .finally(() => { if (request === modelRequest.current) setChecking(false); });
   }, [report]);
-
-  useEffect(() => {
-    if (section !== 'models' && section !== 'ws-agents' && section !== 'workflow') return;
-    loadModels();
-  }, [section, loadModels]);
 
   useEffect(() => {
     if (section !== 'skills') return;
@@ -166,6 +172,13 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
 
   useEffect(() => { workspaceRef.current = workspaceId_; }, [workspaceId_]);
 
+  useEffect(() => {
+    if (section !== 'models' && section !== 'ws-agents' && section !== 'workflow') return;
+    let active = true;
+    void loadModels().then(() => { if (active && section === 'ws-agents') refreshWorkspaceSettings(); });
+    return () => { active = false; modelRequest.current += 1; };
+  }, [section, loadModels, refreshWorkspaceSettings]);
+
   // Clearing and loading live in one effect keyed on the workspace: separating them is how
   // re-picking the workspace already open blanked the page with nothing left to refill it.
   useEffect(() => {
@@ -216,7 +229,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
           setSigningIn(null);
           // Signing a lane in can change which provider the global default resolves to, so the
           // workspace rows that show that default have to be re-read too.
-          if (signedIn) { loadModels(); refreshWorkspaceSettings(); }
+          if (signedIn) void loadModels(true).then(refreshWorkspaceSettings);
         }}
       />
     )}
@@ -251,13 +264,21 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
             <AppearancePage preferences={preferences} error={error} onChange={savePreferences} />
           )}
           {section === 'browser' && <BrowserPage />}
+          {section === 'models' && models === null && (
+            <div className="setw-page">
+              <h1>Models</h1>
+              {error !== null && <div className="setw-error" role="alert">{error}</div>}
+              <div className="setw-row-empty">Loading saved models…</div>
+              {error !== null && <button type="button" className="setw-btn" onClick={() => loadModels(true)}>Try again</button>}
+            </div>
+          )}
           {section === 'models' && models !== null && (
             <ModelsPage
               settings={models}
               checking={checking}
               checkedAt={checkedAt}
               error={error}
-              onCheck={loadModels}
+              onCheck={() => loadModels(true)}
               onSignIn={providerId => setSigningIn({
                 laneId: providerId,
                 providerName: models.providers.find(provider => provider.id === providerId)?.label ?? providerId,
@@ -378,7 +399,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               onUseGlobal={type => {
                 window.bridge.clearWorkspaceAgentModel(workspace.id, type).then(refreshWorkspaceSettings).catch(report);
               }}
-              onCheck={loadModels}
+              onCheck={() => { void loadModels(true).then(refreshWorkspaceSettings); }}
               onSignIn={providerId => setSigningIn({
                 laneId: providerId,
                 providerName: models?.providers.find(provider => provider.id === providerId)?.label ?? providerId,

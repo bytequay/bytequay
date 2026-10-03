@@ -224,8 +224,10 @@ class TestSqliteWorkspaceStore
             jdbc.update("INSERT INTO commit_refresh_metadata (workspace_id, error) VALUES (?, 'retained')", workspace.id());
             jdbc.update("INSERT INTO workspace_remote_sources (id, workspace_id, name, url) VALUES (?, ?, 'extra', 'https://github.com/extra/project.git')",
                     workspace.id() + ":extra", workspace.id());
-            jdbc.update("INSERT INTO workspace_goal (id, workspace_id, title, description, pinned, items_json, created_at, updated_at) VALUES (?, ?, 'Goal', '', 1, '[]', ?, ?)",
+            jdbc.update("INSERT INTO goal (id, workspace_id, title, description, pinned, archived, created_at, updated_at) VALUES (?, ?, 'Goal', '', 1, 0, ?, ?)",
                     workspace.id() + ":goal", workspace.id(), NOW.toString(), NOW.toString());
+            jdbc.update("INSERT INTO work_item (id, workspace_id, revision, value) VALUES (?, ?, 0, '{}')", workspace.id() + ":work", workspace.id());
+            jdbc.update("INSERT INTO work_item_identity (id, work_item_id) VALUES (?, ?)", workspace.id() + ":source", workspace.id() + ":work");
             jdbc.update("""
                     INSERT INTO repository_memory (id, workspace_id, kind, text, scope_json, sources_json, origin_user, origin_description, version,
                         delivered, cited, reports_json, created_at, updated_at) VALUES (?, ?, 'RULE', 'Rule', '[]', '[]', 1, 'You', 1, 0, 0, '[]', ?, ?)
@@ -250,9 +252,10 @@ class TestSqliteWorkspaceStore
         assertThat(store.findById(removed.id())).isEmpty();
         assertThat(store.findAllRetained()).containsExactly(retained);
         assertThat(store.isWatched(retained.id())).isFalse();
-        for (String table : ImmutableList.of("workspace_credentials", "commit_refresh_metadata", "workspace_remote_sources", "workspace_goal", "repository_memory")) {
+        for (String table : ImmutableList.of("workspace_credentials", "commit_refresh_metadata", "workspace_remote_sources", "goal", "work_item", "repository_memory")) {
             assertThat(jdbc.queryForList("SELECT workspace_id FROM " + table, String.class)).containsExactly(retained.id());
         }
+        assertThat(jdbc.queryForList("SELECT work_item_id FROM work_item_identity", String.class)).containsExactly(retained.id() + ":work");
         assertThat(jdbc.queryForList("SELECT setting_key FROM app_settings", String.class))
                 .containsExactlyInAnyOrder("workspace.agentModel." + retained.id(), "workspace.commitsTargetBranch." + retained.id());
         assertThat(jdbc.queryForList("SELECT repository_id FROM repository_issue_sync ORDER BY repository_id", Long.class)).containsExactly(201L, 300L);

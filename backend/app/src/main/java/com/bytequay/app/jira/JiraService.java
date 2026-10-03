@@ -20,7 +20,9 @@ import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalSource;
+import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.store.JiraIssueTaskStore;
+import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.MissingNode;
@@ -69,10 +71,11 @@ public class JiraService
     private final ObjectProvider<AppSettingsService> appSettings;
     private final ObjectProvider<GoalService> goals;
     private final JiraActivityLog activity;
+    private final WorkItemStore workItems;
     private final ExecutorService reads = Executors.newVirtualThreadPerTaskExecutor();
 
     public JiraService(JiraConnections connections, JiraCache cache, JiraIssueTaskStore tasks, WorkspaceStore workspaces, ObjectProvider<AppSettingsService> appSettings,
-            ObjectProvider<GoalService> goals, JiraActivityLog activity)
+            ObjectProvider<GoalService> goals, JiraActivityLog activity, WorkItemStore workItems)
     {
         this.connections = requireNonNull(connections, "connections is null");
         this.cache = requireNonNull(cache, "cache is null");
@@ -83,6 +86,7 @@ public class JiraService
         // Goals read cached tickets through this service; resolve them only when a Goal marker changes.
         this.goals = requireNonNull(goals, "goals is null");
         this.activity = requireNonNull(activity, "activity is null");
+        this.workItems = requireNonNull(workItems, "workItems is null");
     }
 
     public List<JiraDtos.Board> boards(String connectionId, String cloudId, boolean refresh)
@@ -297,7 +301,7 @@ public class JiraService
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Assign a ByteQuay workspace before marking this ticket as a Goal.");
             }
             cache.write("goal." + segment(cloudId) + "." + segment(issueId), goal);
-            // The marked ticket gets its own workspace goal, named after it, and loses it when unmarked.
+            // The marked ticket gets its own workspace goal, named after it; unmarking keeps that goal only while it holds work.
             GoalSource source = new GoalSource(GoalItemKind.JIRA, GoalItem.jiraKey(connectionId, cloudId, issueId));
             if (goal) {
                 goals.getObject().seed(issue.workspace().orElseThrow().id(), source, issue.title());
@@ -317,6 +321,10 @@ public class JiraService
             WorkspaceException.requireWorkspace(workspaces, workspaceId);
             if (issue.task().filter(task -> !task.workspaceId().equals(workspaceId)).isPresent()) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "This ticket's development task belongs to another workspace.");
+            }
+            // A launch must match both this assignment and the work item's workspace; moving only one strands the ticket.
+            if (workItems.findByIdentity(WorkItemLink.jiraIdentity(cloudId, issueId)).filter(item -> !item.workspaceId().equals(workspaceId)).isPresent()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "This ticket's work item belongs to another workspace.");
             }
             cache.write("workspace." + segment(cloudId) + "." + segment(issueId), workspaceId);
             return detail(connectionId, cloudId, issueId, false);

@@ -1,6 +1,6 @@
 # Agent guided goals
 
-Status: Design proposal. Implementation has not started. This document specifies
+Status: Work-item foundation implemented; agent guidance remains planned. This document specifies
 the requested Goal conversation, discovery, guidance and durable progress panel,
 and the three lessons from the Plane comparison. The
 [implementation plan](goal-guidance-impl-tmp.md) lists actionable changes and
@@ -21,22 +21,49 @@ source and memory boundaries.
 
 ## Current implementation and the missing behavior
 
-The current Goal is a named workspace collection of issue, Jira, task and PR
-references. Users create it or mark an issue or ticket as a Goal, and add or
-remove references. The UI refreshes local state every fifteen seconds. It has
-list and board views, progress, Needs you, Blocked and recent activity; it has no
-planning conversation or agent that discovers and proposes work.
+Goals now group durable work items. Each item has an identity, kind, acceptance
+criteria, completion rule, revision, supporting links and retained decisions.
+The panel provides creation, scope editing, linking, explicit result acceptance,
+dropping, reopening and moving between Goals. Unmarking a source keeps its Goal
+while the Goal holds work and archives it otherwise. The Goal remembers its
+source, so marking the source again restores the kept Goal rather than starting
+a second one. Archiving a Goal retains its work, which remains accessible
+through saved work.
 
-The current progress projection treats an ended task, including a failed task,
-and a closed unmerged PR as Finished. An issue absent from a previously synced
-open cache is also treated as closed. The summary counts references, so adding
-an issue, its task and its PR counts three items even when they represent one
-outcome. These are implementation facts, not the completion rules proposed here.
+One item counts once regardless of its issue, Jira, task or PR links. Failed and
+completed tasks are ended activity, unmerged PR closure is not delivery, and
+missing cache entries are unknown. Done currently requires a user acceptance with
+recorded evidence and scope coverage; merged-delivery acceptance also requires a
+linked PR observed merged and every other linked PR merged or closed. A PR closed
+without merging is recorded as an abandoned attempt; it neither counts as
+delivery nor blocks the PR that replaced it. There is no automatic scope
+certification from a merged PR.
+
+GitHub and Jira task admission now reserve work-item source/task ownership in the
+same transaction as task creation. Canonical identities use GitHub host/issue ID
+or Jira cloud/issue ID, independently of Jira connection credentials. Accepted
+source snapshots are retained with the work and its newly admitted attempt.
+Admission refuses a source whose work item is Done, Dropped or in another
+workspace before preparing a worktree, and a Jira ticket cannot be reassigned
+away from its work item's workspace.
+The existing source services still reopen the current task by default. A new
+explicit same-source attempt without deleting the prior task, proposal acceptance,
+work-item launch from the composer, automatic outcome harvesting, Goal conversation
+and discovery remain pending. The checklist distinguishes these from implemented
+local planning behavior.
+
+The checked development database contained no Goals or issue/Jira task bindings.
+The final Goal mapping uses `goal`; work items and identity reservations use
+`work_item` and `work_item_identity`. No runtime data was reset, copied or deleted.
+The superseded empty `workspace_goal` table is not read or rewritten. This is an
+unreleased schema redesign, not a released-data migration contract.
 
 Relevant implementation entry points:
 
 - [Goal service](../../backend/app/src/main/java/com/bytequay/app/service/goal/GoalServiceImpl.java)
-  resolves reference states and searches existing local items.
+  groups accepted work. The [work-item service](../../backend/app/src/main/java/com/bytequay/app/service/goal/WorkItemService.java)
+  owns decisions and identity; the [reference reader](../../backend/app/src/main/java/com/bytequay/app/service/goal/GoalReferenceReader.java)
+  reads supporting activity without remote requests.
 - [Goal panel](../../frontend/src/goals/GoalPanel.tsx),
   [summary model](../../frontend/src/goals/model.ts) and
   [Goal loading](../../frontend/src/goals/useGoals.ts) implement the current UI.
@@ -48,30 +75,46 @@ Relevant implementation entry points:
 
 ## Product flow
 
-1. **Describe the goal.** In the existing Goal panel, New goal opens a composer:
-   “What would you like to achieve?” The workspace is explicit. The agent suggests
-   a short editable title from the user's request; naming is not a prerequisite.
-   Existing Goals gain the same conversation through Plan with agent.
-2. **Agree on the path.** The agent identifies the intended result, constraints,
-   likely steps and missing information. Ask a question only when its answer
-   materially changes the recommendation. Otherwise state a reasonable assumption
-   and present a small initial plan. The user can refine it in conversation.
+1. **Help the user find the goal.** Keep the floating Goal control and its resizable zoom window. New goal immediately offers a useful opening
+   question and two or three concrete directions grounded in the selected
+   workspace, alongside an optional free-text answer. A vague existing title
+   such as “Iceberg connector expertise” needs the same help: understand the
+   connector, review changes, or deliver a small fix imply different paths.
+   The user need not know a ticket, write a prompt, name the Goal or fill a form.
+   A locally rendered opening question needs no model request on panel read;
+   answering it starts guidance directly without a separate Plan with agent gate.
+2. **Clarify and agree on the path.** Use known objective, constraints, accepted
+   work and saved results before asking anything. Ask one consequential question
+   at a time, offer short suggested answers, and retain free text for correction.
+   Suggest a success definition, editable title and small initial path. State
+   assumptions about unknown experience or time; do not invent user preferences
+   or require a questionnaire before offering help. The agent prepares the next
+   question or proposal; the user makes the substantive decision.
 3. **Discover and propose work.** Read within the selected workspace and its
    connected, mapped Jira scope. Propose learning, investigation or development
    items, including local items with no external ticket. A recommendation names
    the reason, evidence, uncertainty, acceptance criteria and next action.
-4. **Accept and start separately.** Accept plan saves the selected work items and
-   their order. It allocates no execution task or worktree. Start on one item opens
-   the ordinary composer with the accepted goal, item and source context. The
-   user submits with the existing provider and automation choices.
+4. **Prepare the next action.** Accept plan saves the selected work items and
+   their order. It allocates no execution task or worktree. The agent immediately
+   identifies the next eligible item, explains why it comes first and supplies
+   its intended outcome, source context and execution request. Start opens the
+   ordinary composer with these fields and existing provider/automation defaults
+   already filled in. The user can review and submit without composing another
+   prompt or manually finding the source. Learning that needs no repository task
+   stays in the Goal conversation.
 5. **Guide the work.** Open task, View changes, Review result and Answer question
    lead to existing surfaces. Goal chat explains decisions and can propose a
    revised next step. An instruction intended to change an active task is handed
    to that task's existing composer or steering action, not injected silently.
-6. **Record and reconsider.** Task results, observed PR changes and user decisions
-   update the factual record. The agent writes a concise supported summary and
-   proposes what to do next. Accepted scope and order change only through a user
-   decision. The panel shows both current progress and the retained history.
+6. **Record, assess and rearrange recommendations.** Task results, observed PR
+   changes, blockers and user decisions update the factual record. The agent
+   explains where the Goal stands, what changed and what should happen next
+   without waiting for “what next?” or a manual discovery request. It can select
+   another ready item within accepted constraints and keep its suggestion current.
+   A proposed change to accepted scope, criteria, priority, order or dependencies
+   shows the specific change and its reason for the user to accept or adjust.
+   An unchanged plan needs no repeated approval. The panel retains both current
+   guidance and the decisions and outcomes that explain it.
 
 Example: “Help me make my first Iceberg contribution; I have a few hours each
 week.” The initial path might be learn the contribution process, investigate a
@@ -85,16 +128,60 @@ cannot be inferred from merged-PR counts. The user confirms such a Goal outcome.
 
 ## Goal panel and user decisions
 
-Keep the existing panel, pinning, workspace navigation, list and board. Add a
-Conversation view beside Overview and Work. Compact mode shows the objective,
-current summary, next recommendation and composer; the larger panel exposes the
-same records. Both Home surfaces open this same Goal.
+Enhance the current Goal surface in place. Preserve its floating control,
+pinning, Goal switcher, workspace navigation and expansion. Clicking the control
+zooms a floating window out from it without narrowing the underlying page. The
+header drags the window, its bottom-right corner resizes it, and expansion uses
+the same panel. Leaving the control/window area closes it automatically, except
+during a drag, resize or confirmation. Closing preserves drafts for reopening;
+Escape and the close button also dismiss it. Keep the window inside the page
+and respect reduced-motion preferences.
+The default view is guidance, with Work and History as secondary inspection
+views. A user should understand the current situation and useful next action
+before opening a transcript, search box or board. Both Home surfaces open this
+same Goal and the same current guidance.
+
+Use this information hierarchy in both the floating and expanded view:
+
+1. **Goal and current situation.** Show the title, a short agreed outcome and
+   one plain-language status such as Clarifying your goal, Checking candidates,
+   Working, Your decision needed, Waiting for review or Ready to conclude.
+   These are projections of current facts and guidance, not new durable
+   execution lifecycle states.
+2. **One useful agent intervention.** Show the current clarification or the
+   strongest next recommendation, with a short reason, relevant evidence and
+   one primary action. A clarification offers concrete answers and optional
+   text. Recommendations provide prepared actions such as Review proposed path,
+   Investigate this candidate, Review result or Respond to feedback. Urgent
+   approvals, failures and blockers take precedence over finding more tickets.
+3. **The path in context.** Show the current milestone and the next few accepted
+   steps in a compact ordered list. Make prerequisites and proposed changes
+   visible. Expand to inspect all work; empty columns and zero-valued counters
+   must not dominate an empty or uncertain Goal.
+4. **What changed and what remains.** Show a short supported result and the
+   latest meaningful event, with evidence and earlier decisions available on
+   demand. Keep numerical progress subordinate to these explanations.
+
+Use the app's existing typography, controls, neutral surfaces and blue actions.
+Avoid three equal-weight statistics tiles above the guidance. Use meaningful
+headings, readable body text, short paragraphs, restrained borders and room
+around the primary decision. The floating window uses a single column; expansion gives
+guidance and the path more room without showing two competing copies of the
+Goal panel. Preserve the draft, selected item and guidance revision when changing
+presentation. Render only one panel, and keep it out of keyboard navigation while closed or
+covered by another layer. Manual creation, source search and board management remain
+available under Work; they are not the opening task given to an unsure user.
+
+The floating control may show one short meaningful cue, such as Goal · 1 decision
+or Goal · Review ready, rather than a meaningless 0/0. It does not auto-open,
+interrupt work, animate repeatedly or notify for unchanged guidance. Opening it
+shows the saved current assessment immediately; panel reads stay local.
 
 | Content | What it contains | User actions |
 | --- | --- | --- |
 | Objective | Outcome, constraints, accepted success definition | Edit, discuss, pause guidance |
 | Path | Ordered accepted work items and explicit dependencies | Accept proposed changes, reorder, remove from scope |
-| Next recommendation | A small proposal with why, evidence and uncertainty | Accept, edit, skip, ask why |
+| Current guidance | One question or recommendation with why, evidence and uncertainty | Answer, accept, adjust, skip, ask why |
 | Work | Planned, Working and Done; blocked or waiting details | Start, open task, review result |
 | Results | Outcome, supporting evidence and what remains | Accept a result, reopen, inspect PR or artifact |
 | History and lessons | User decisions, verified events and attributed summaries | Read earlier decisions and evidence |
@@ -109,6 +196,33 @@ Proposal text and agent summaries are visibly distinct from observed facts.
 Show checked coverage and stale or unavailable evidence where it affects a
 decision. Preserve the user's draft and the last good panel on errors. Use
 keyboard-accessible controls and announce answering, saved and failed states.
+
+## Guidance follows the work
+
+The service prepares guidance from the latest accepted Goal, constraints, work
+items, source observations and saved results. It is responsible for choosing the
+next useful intervention; requiring the user to open Discover and invent a
+search prompt or to open Working and ask for status does not satisfy this design.
+
+| Situation | Agent responsibility | User decision |
+| --- | --- | --- |
+| No clear outcome or only a broad title | Ask the smallest useful question with concrete suggested answers | Choose or describe the intended outcome |
+| Outcome clear, no accepted path | Draft milestones, completion criteria and a suitable starting point | Accept or refine the proposed path |
+| Ready to find work | Discover within authorized scope and explain candidate fit and uncertainty | Choose a proposed candidate or direction |
+| Accepted work is ready | Prepare its task request and explain why it comes next | Start with the existing execution controls |
+| Work is running | Show observed activity and the current milestone; avoid unnecessary questions | Answer only when execution needs input |
+| Attempt failed or a blocker changed | Explain the impact and recommend recovery or other eligible work | Approve any changed scope or start the prepared recovery |
+| A result or review arrives | Summarize evidence and outstanding feedback; prepare the relevant review action | Review, accept a result or respond to feedback |
+| Milestone delivered | Save the result, reassess remaining work and recommend the next eligible step | Start it or accept a proposed plan change |
+| User returns later | Show saved situation, changes since their last decision and the next useful action | Continue without reconstructing context |
+
+Suggested answers are first-class Goal messages. Prepared actions reference
+validated work items, sources and existing task actions; agent text is never an
+executable command. One current guidance response contains a brief assessment,
+an optional consequential question with suggested answers, proposed plan changes
+and the next supported action. This extends the existing bounded planner reply,
+not a second workflow engine. Facts remain useful when generation is unavailable;
+show the last guidance with its stale/failed status and the specific retry remedy.
 
 ## Planning records and execution records
 
@@ -346,11 +460,14 @@ ask to narrow the request rather than silently omit required constraints.
 
 ## Updates and failure handling
 
-Creating a Goal through chat starts guidance and shows its behavior: suggest and
-summarize while ByteQuay is running, with Pause guidance and Update now controls.
-Existing manual Goals remain manual until Plan with agent is used. Manual chat
-still works while automatic guidance is paused. This document creates no running
-automation in the development environment.
+Creating a Goal through an answer or free-text message starts guidance and shows
+its behavior: clarify, suggest, reassess and summarize while ByteQuay is running,
+with Pause guidance and Update now controls. Existing manual Goals show a useful
+opening question without enabling model calls merely by being read. Answering
+that question starts guidance directly; no separate discovery setup or planning
+prompt is required. Explicitly paused Goals stay paused. Manual chat still works
+while automatic guidance is paused. This document creates no running automation
+in the development environment.
 
 Always record source/execution facts without requiring a model. Automatic guidance
 runs after meaningful linked task results, review/merge/blocker changes and user

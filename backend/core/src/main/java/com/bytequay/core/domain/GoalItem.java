@@ -20,7 +20,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * One pull request, issue, Jira ticket or task in a goal. The label and title are the ones it had
+ * One supporting reference on a work item. The label and title are the ones it had
  * when it was added, so an item that later leaves every local cache still reads as itself.
  *
  * @param key {@code owner/repo#number} for a pull request or issue, {@code connection:cloud:issue}

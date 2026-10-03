@@ -13,21 +13,19 @@
  */
 package com.bytequay.core.domain;
 
-import com.google.common.collect.ImmutableList;
-
 import java.time.Instant;
-import java.util.HashSet;
-import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * A workspace's local grouping of pull requests, issues, Jira tickets and tasks toward one outcome.
- * A goal never runs, and changing one never writes to GitHub or Jira. One goal per workspace is
- * pinned: the one its pages follow.
+ * A workspace objective. Work items retain their own identity and history outside this grouping.
+ *
+ * @param source the issue or Jira ticket whose Goal marking created this goal; kept after unmarking,
+ * so marking it again restores this goal rather than starting a second one
+ * @param unmarkedAt when that marking was removed while the goal held work
  */
 public record Goal(
         String id,
@@ -35,47 +33,48 @@ public record Goal(
         String title,
         String description,
         boolean pinned,
+        boolean archived,
         Optional<GoalSource> source,
-        List<GoalItem> items,
+        Optional<Instant> unmarkedAt,
         Instant createdAt,
         Instant updatedAt)
 {
     public Goal
     {
-        requireNonNull(id, "id is null");
-        requireNonNull(workspaceId, "workspaceId is null");
-        requireNonNull(title, "title is null");
+        checkText(id, "id");
+        checkText(workspaceId, "workspaceId");
+        checkText(title, "title", 500);
         requireNonNull(description, "description is null");
         requireNonNull(source, "source is null");
-        items = ImmutableList.copyOf(requireNonNull(items, "items is null"));
+        requireNonNull(unmarkedAt, "unmarkedAt is null");
+        checkArgument(source.isPresent() || unmarkedAt.isEmpty(), "only a goal created by marking a source can be unmarked");
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
-        checkArgument(!id.isBlank(), "id is blank");
-        checkArgument(!workspaceId.isBlank(), "workspaceId is blank");
-        checkArgument(!title.isBlank(), "title is blank");
-        Set<String> seen = new HashSet<>();
-        for (GoalItem item : items) {
-            checkArgument(seen.add(item.kind() + " " + item.key()), "goal lists %s %s twice", item.kind(), item.key());
-        }
     }
 
-    public boolean contains(GoalItemKind kind, String key)
+    /** The source while it is still marked as this goal. */
+    public Optional<GoalSource> markedSource()
     {
-        return items.stream().anyMatch(item -> item.is(kind, key));
-    }
-
-    public Goal withItems(List<GoalItem> replacement, Instant at)
-    {
-        return new Goal(id, workspaceId, title, description, pinned, source, replacement, createdAt, at);
+        return unmarkedAt.isPresent() ? Optional.empty() : source;
     }
 
     public Goal withPinned(boolean value, Instant at)
     {
-        return new Goal(id, workspaceId, title, description, value, source, items, createdAt, at);
+        return new Goal(id, workspaceId, title, description, value, archived, source, unmarkedAt, createdAt, at);
     }
 
     public Goal withText(String newTitle, String newDescription, Instant at)
     {
-        return new Goal(id, workspaceId, newTitle, newDescription, pinned, source, items, createdAt, at);
+        return new Goal(id, workspaceId, newTitle, newDescription, pinned, archived, source, unmarkedAt, createdAt, at);
+    }
+
+    public Goal withMarked(boolean value, Instant at)
+    {
+        return new Goal(id, workspaceId, title, description, pinned, archived, source, value ? Optional.empty() : Optional.of(at), createdAt, at);
+    }
+
+    public Goal archive(Instant at)
+    {
+        return new Goal(id, workspaceId, title, description, false, true, source, unmarkedAt, createdAt, at);
     }
 }

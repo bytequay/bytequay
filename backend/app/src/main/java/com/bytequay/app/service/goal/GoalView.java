@@ -30,7 +30,7 @@ public record GoalView(
         String description,
         boolean pinned,
         Optional<GoalSource> source,
-        List<GoalItemView> items,
+        List<WorkItemView> items,
         Instant createdAt,
         Instant updatedAt)
 {
@@ -41,7 +41,7 @@ public record GoalView(
         requireNonNull(title, "title is null");
         requireNonNull(description, "description is null");
         requireNonNull(source, "source is null");
-        items = ImmutableList.copyOf(requireNonNull(items, "items is null"));
+        items = ImmutableList.copyOf(items);
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
     }

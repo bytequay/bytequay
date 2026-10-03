@@ -27,7 +27,7 @@ The only new UI is a Goal action/badge, development action/source attachment, an
 - Proposed scope: one marker per canonical GitHub issue within this ByteQuay installation, shared across workspaces monitoring that issue. This refines the earlier per-workspace proposal so global and workspace views cannot disagree. Execution links retain their workspace identity.
 - Use stable issue identity and host/repository context, not title or issue number alone.
 - Marking a Goal prevents future launches from that issue. It never deletes, cancels or rewrites previously linked tasks; their history remains accessible through **View task**.
-- Marking also gives the issue's workspace a goal named after it, a local list of work items that never lists the marked issue itself; unmarking removes that goal. Goal marking still creates no parent/child editor.
+- Marking also gives the issue's workspace a goal named after it, a local list of work items that never lists the marked issue itself; unmarking archives that goal unless it holds work, which keeps it until marking the issue again restores it ([Agent guided goals](goal-guidance.md)). Goal marking still creates no parent/child editor.
 
 ### Starting development
 

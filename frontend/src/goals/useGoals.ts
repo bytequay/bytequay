@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getCached, setCached } from '../dataCache';
 import type { Bridge } from '../types';
-import type { GoalDto, GoalItemDto, GoalItemKind } from './contracts';
+import type { GoalDto, GoalItemDto, GoalItemKind, WorkItemDto, CreateWorkItem, WorkItemDecision } from './contracts';
 import type { GoalRef } from './model';
 
 /** Fired after any goal change so every view of the workspace's goals reads them again. */
@@ -23,10 +23,14 @@ export const GOALS_CHANGED = 'bytequay:goals-changed';
 /** Items change state as their pull requests, issues, tickets and tasks move; a local read. */
 const GOALS_POLL_MS = 15_000;
 
-export type GoalBridge = Pick<Bridge, 'listGoals' | 'createGoal' | 'updateGoal' | 'deleteGoal' | 'addGoalItem' | 'removeGoalItem' | 'searchGoalCandidates'>;
+export type GoalBridge = Pick<Bridge, 'listWorkItems' | 'createWorkItem' | 'decideWorkItem' | 'linkWorkItem' | 'listGoals' | 'createGoal' | 'updateGoal' | 'deleteGoal' | 'addGoalItem' | 'removeGoalItem' | 'searchGoalCandidates'>;
 
 export type Goals = {
   goals: GoalDto[];
+  workItems: WorkItemDto[];
+  createWork: (request: CreateWorkItem) => Promise<WorkItemDto>;
+  decideWork: (item: WorkItemDto, command: WorkItemDecision) => Promise<WorkItemDto>;
+  linkWork: (item: WorkItemDto, reference: GoalItemDto) => Promise<WorkItemDto>;
   /** The goal the workspace's pages follow; null until the workspace has one. */
   pinned: GoalDto | null;
   error: string | null;
@@ -96,15 +100,17 @@ export function toggleGoalItem(workspaceId: string, goalId: string, ref: GoalRef
 export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowBridge): Goals {
   const seed = `goals:${workspaceId}`;
   const [goals, setGoals] = useState<GoalDto[]>(() => getCached<GoalDto[]>(seed) ?? []);
+  const [workItems, setWorkItems] = useState<WorkItemDto[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
     const read = (): void => {
       if (document.hidden) return;
-      void Promise.resolve().then(() => bridge().listGoals(workspaceId)).then((found) => {
+      void Promise.all([bridge().listGoals(workspaceId), bridge().listWorkItems(workspaceId)]).then(([found, work]) => {
         if (!active) return;
         setGoals(found);
+        setWorkItems(work);
         setError(null);
       }, (failure: unknown) => {
         if (active) setError(failure instanceof Error ? failure.message : 'Goals could not be loaded');
@@ -134,8 +140,19 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
   // Kept the same across reads, so an open search is not repeated each time the goals refresh.
   const search = useCallback((query: string) => bridge().searchGoalCandidates(workspaceId, query), [bridge, workspaceId]);
 
+  const settleWork = useCallback((item: WorkItemDto): WorkItemDto => {
+    setWorkItems((current) => [...current.filter((existing) => existing.id !== item.id), item]);
+    setGoals((current) => current.map((goal) => ({ ...goal, items: [...goal.items.filter((existing) => existing.id !== item.id), ...(item.goalId === goal.id ? [item] : [])] })));
+    announce(workspaceId);
+    return item;
+  }, [workspaceId]);
+
   return useMemo(() => ({
     goals,
+    workItems,
+    createWork: (request) => bridge().createWorkItem(workspaceId, request).then(settleWork),
+    decideWork: (item, command) => bridge().decideWorkItem(workspaceId, item.id, command).then(settleWork),
+    linkWork: (item, reference) => bridge().linkWorkItem(workspaceId, item.id, item.revision, reference.kind, reference.key).then(settleWork),
     pinned: goals.find((goal) => goal.pinned) ?? null,
     error,
     create: (title) => bridge().createGoal(workspaceId, title, '').then(settle),
@@ -147,5 +164,5 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
     add: (goalId, kind, key) => bridge().addGoalItem(workspaceId, goalId, kind, key).then(settle).then(() => {}),
     removeItem: (goalId, kind, key) => bridge().removeGoalItem(workspaceId, goalId, kind, key).then(settle).then(() => {}),
     search,
-  }), [bridge, error, goals, search, settle, workspaceId]);
+  }), [bridge, error, goals, workItems, search, settle, settleWork, workspaceId]);
 }

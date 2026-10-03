@@ -23,7 +23,9 @@ import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.goal.GoalReferenceReader;
 import com.bytequay.app.service.goal.GoalService;
+import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.GoalItem;
@@ -33,6 +35,7 @@ import com.bytequay.core.domain.IssueGoal;
 import com.bytequay.core.domain.IssueTask;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssuePage;
+import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.RepositoryIssueStore;
@@ -64,12 +67,13 @@ public class IssueDevelopmentService
     private final GitHubRepoClient github;
     private final CredentialService credentials;
     private final Clock clock;
+    private final WorkItemService workItems;
     private final ObjectProvider<GoalService> goals;
     private final Striped<Lock> sourceLocks = Striped.lock(64);
 
     public IssueDevelopmentService(IssueDevelopmentStore sources, RepositoryIssueStore issues, WorkspaceStore workspaces,
             AgentTaskService tasks, AgentTaskStore taskStore, AgentUnitOfWork unitOfWork, GitHubRepoClient github,
-            CredentialService credentials, Clock clock, AgentTurnStore turns, ObjectProvider<GoalService> goals)
+            CredentialService credentials, Clock clock, AgentTurnStore turns, ObjectProvider<GoalService> goals, WorkItemService workItems)
     {
         this.sources = requireNonNull(sources, "sources is null");
         this.issues = requireNonNull(issues, "issues is null");
@@ -80,6 +84,7 @@ public class IssueDevelopmentService
         this.github = requireNonNull(github, "github is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.clock = requireNonNull(clock, "clock is null");
+        this.workItems = requireNonNull(workItems, "workItems is null");
         this.turns = requireNonNull(turns, "turns is null");
         // Resolved per marker change: goals read tasks, which reach this service while starting development.
         this.goals = requireNonNull(goals, "goals is null");
@@ -99,7 +104,7 @@ public class IssueDevelopmentService
         lock.lock();
         try {
             sources.saveGoal(new IssueGoal(HOST, issue.id(), workspace.monitoredRepository().fullName(), number, goal, clock.instant()));
-            // The marked issue gets its own workspace goal, named after it, and loses it when unmarked.
+            // Unmarking keeps the issue's goal only while it holds work.
             GoalSource source = new GoalSource(GoalItemKind.ISSUE, GoalItem.numberedKey(workspace.monitoredRepository().fullName(), number));
             if (goal) {
                 goals.getObject().seed(workspaceId, source, issue.title());
@@ -160,6 +165,7 @@ public class IssueDevelopmentService
             if (metadata(input.issueId()).isGoal()) {
                 throw new AgentConflictException("This issue is a Goal. Unmark it before starting development.");
             }
+            workItems.requireStartable(workspaceId, WorkItemLink.issueIdentity(HOST, input.issueId()));
             if (!cached.updatedAt().equals(input.updatedAt())) {
                 throw changed();
             }
@@ -188,6 +194,7 @@ public class IssueDevelopmentService
                 throw new AgentConflictException("Workspace issue repository changed. Refresh the issue before starting development.");
             }
             taskStore.insert(task);
+            workItems.recordAttempt(task, GoalReferenceReader.issueLink(source, clock.instant()));
             sources.insertTask(new IssueTask(task.id().toString(), task.workspaceId().orElseThrow(), source, Optional.of(instructions), clock.instant()));
             return null;
         });

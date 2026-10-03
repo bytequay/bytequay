@@ -11,21 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.persistence.sqlite.converter;
+package com.bytequay.persistence.sqlite.repository;
 
-import com.bytequay.core.domain.GoalItem;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.google.common.collect.ImmutableList;
-import jakarta.persistence.Converter;
+import com.bytequay.persistence.sqlite.entity.WorkItemIdentityEntity;
+import org.springframework.data.jpa.repository.JpaRepository;
 
-import java.util.List;
-
-@Converter
-public class GoalItemListConverter
-        extends JsonColumnConverter<List<GoalItem>>
+public interface WorkItemIdentityJpaRepository
+        extends JpaRepository<WorkItemIdentityEntity, String>
 {
-    GoalItemListConverter()
-    {
-        super(new TypeReference<>() {}, "goal item list", "[]", ImmutableList.of());
-    }
 }

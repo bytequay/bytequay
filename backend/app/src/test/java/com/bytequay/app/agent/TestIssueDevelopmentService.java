@@ -25,6 +25,7 @@ import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.goal.GoalService;
+import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalSource;
@@ -91,7 +92,7 @@ class TestIssueDevelopmentService
     @SuppressWarnings("unchecked")
     private final ObjectProvider<GoalService> goalsProvider = mock(ObjectProvider.class);
     private final IssueDevelopmentService service = new IssueDevelopmentService(sources, issues, workspaces, tasks, taskStore,
-            unitOfWork, github, credentials, Clock.fixed(NOW, ZoneOffset.UTC), turns, goalsProvider);
+            unitOfWork, github, credentials, Clock.fixed(NOW, ZoneOffset.UTC), turns, goalsProvider, mock(WorkItemService.class));
 
     @BeforeEach
     void setUp()

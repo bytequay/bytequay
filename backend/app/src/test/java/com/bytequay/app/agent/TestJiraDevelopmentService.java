@@ -25,6 +25,7 @@ import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.jira.JiraDtos;
 import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.jira.JiraService;
+import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.JiraIssueTask;
 import com.bytequay.core.domain.Workspace;
@@ -73,7 +74,8 @@ class TestJiraDevelopmentService
     private final TaskId taskId = TaskId.random();
     private final AgentTask task = mock(AgentTask.class, withSettings().mockMaker(MockMakers.INLINE));
     private final AtomicReference<JiraIssueTask> linked = new AtomicReference<>();
-    private final JiraDevelopmentService service = new JiraDevelopmentService(sources, workspaces, tasks, taskStore, turns, unitOfWork, jira, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final JiraDevelopmentService service = new JiraDevelopmentService(sources, workspaces, tasks, taskStore,
+            turns, unitOfWork, jira, Clock.fixed(NOW, ZoneOffset.UTC), mock(WorkItemService.class));
 
     @BeforeEach
     void setUp()

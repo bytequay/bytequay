@@ -12,14 +12,14 @@
  * limitations under the License.
  */
 
-import React, { useEffect, useState } from 'react';
-import { ChevronDown, Maximize2, Plus, Search, Trash2, X } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { ChevronDown, Maximize2, Minimize2, Plus, Search, Trash2, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
-import { Card, CardActions, Clickable, GoalIcon, IconButton, Pill, SourceIcon } from '../cards/Card';
+import { GoalIcon, SourceIcon } from '../cards/Card';
 import { relativeTime } from '../relativeTime';
-import type { GoalDto, GoalItemDto, GoalItemState } from './contracts';
+import type { GoalDto, GoalItemDto, WorkItemDto, WorkItemDecision, CreateWorkItem, CompletionRule, WorkItemKind } from './contracts';
 import {
-  GOAL_SOURCES, STATE_GROUPS, addable, itemsIn, progressWidths, recentActivity, refKey, ringDash, summarize, type GoalTab,
+  GOAL_SOURCES, STATE_GROUPS, addable, itemsIn, progressWidths, recentActivity, refKey, ringDash, summarize, itemNeedsYou, type GoalTab,
 } from './model';
 
 /** How much of a goal is finished, as a ring. */
@@ -34,11 +34,12 @@ export function GoalRing({ goal, size = 20 }: { goal: GoalDto | null; size?: num
 }
 
 function fraction(goal: GoalDto): string {
-  return `${goal.items.filter((item) => item.state === 'FINISHED').length}/${goal.items.length}`;
+  const summary = summarize(goal, new Set());
+  return `${summary.finished}/${summary.total}`;
 }
 
 export type GoalPanelProps = {
-  mode: 'dock' | 'drawer' | 'board';
+  mode: 'window' | 'board';
   /** "owner/repo", named where a search finds nothing. */
   repository: string;
   goals: GoalDto[];
@@ -54,17 +55,21 @@ export type GoalPanelProps = {
   onCreate: (title: string) => Promise<unknown>;
   onDelete: (goalId: string) => Promise<unknown>;
   onAdd: (item: GoalItemDto) => Promise<unknown>;
-  onRemove: (item: GoalItemDto) => void;
+  workItems: WorkItemDto[];
+  onCreateWork: (request: CreateWorkItem) => Promise<WorkItemDto>;
+  onDecide: (item: WorkItemDto, command: WorkItemDecision) => Promise<WorkItemDto>;
+  onLink: (item: WorkItemDto, reference: GoalItemDto) => Promise<WorkItemDto>;
   onOpenItem: (item: GoalItemDto) => void;
   search: (query: string) => Promise<GoalItemDto[]>;
 };
 
 /**
- * A goal's progress and items. The dock and the drawer list items by state with recent activity;
- * the board lays them out as Idle, Working and Finished columns. Every change here is local.
+ * A goal's progress and items, listed by state or expanded into board columns. Every change here is local.
  */
 export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
   const { mode, goal, onClose, onExpand } = props;
+  const [selected, setSelected] = useState<string | null>(null);
+  const item = props.workItems.find((value) => value.id === selected) ?? goal?.items.find((value) => value.id === selected);
   return (
     <div className={`goal-panel is-${mode}`} role="dialog" aria-label={goal === null ? 'Goal' : `Goal: ${goal.title}`}>
       <div className="goal-panel__head">
@@ -72,13 +77,12 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
           <GoalSwitcher {...props} />
           {goal?.pinned && <span className="goal-pinned">Pinned</span>}
           <span className="goal-spacer" />
-          {mode !== 'board' && goal !== null && onExpand !== undefined && (
-            <button type="button" className="goal-headbtn" title="Open full view to manage" aria-label="Open the goal board" onClick={onExpand}>
-              <Maximize2 size={15} strokeWidth={1.8} aria-hidden="true" />
+          {onExpand !== undefined && (
+            <button type="button" className="goal-headbtn" title={mode === 'board' ? 'Restore window size' : 'Expand goal'} aria-label={mode === 'board' ? 'Restore goal window' : 'Expand goal'} onClick={onExpand}>
+              {mode === 'board' ? <Minimize2 size={15} strokeWidth={1.8} aria-hidden="true" /> : <Maximize2 size={15} strokeWidth={1.8} aria-hidden="true" />}
             </button>
           )}
-          <button type="button" className="goal-headbtn" title={mode === 'dock' ? 'Collapse to Goal pill' : mode === 'board' ? 'Close full view' : 'Close'}
-            aria-label={mode === 'dock' ? 'Collapse the goal to its pill' : 'Close the goal'} onClick={onClose}>
+          <button type="button" className="goal-headbtn" title="Close (Esc)" aria-label="Close the goal" onClick={onClose}>
             <X size={15} strokeWidth={1.9} aria-hidden="true" />
           </button>
         </div>
@@ -89,7 +93,8 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
           </>
         )}
       </div>
-      {goal === null ? <NoGoal onCreate={props.onCreate} /> : mode === 'board' ? <GoalBoard {...props} goal={goal} /> : <GoalList {...props} goal={goal} />}
+      {item !== undefined ? <WorkDetails key={item.id} {...props} item={item} onBack={() => setSelected(null)} />
+        : goal === null ? <><NoGoal onCreate={props.onCreate} />{props.workItems.map((saved) => <button type="button" className="goal-work-card" key={saved.id} onClick={() => setSelected(saved.id)}>{saved.title} · {saved.state.toLowerCase()}</button>)}</> : <GoalWork {...props} goal={goal} onSelect={setSelected} />}
     </div>
   );
 }
@@ -133,15 +138,15 @@ function GoalSwitcher({ goals, goal, repository, onSwitch, onCreate, onDelete }:
           )}
           {goal !== null && goal.source === null && (
             <button type="button" role="menuitem" className="goal-menu__action is-danger" onClick={() => { setOpen(false); setConfirm(true); }}>
-              <Trash2 size={14} strokeWidth={1.8} aria-hidden="true" />Delete this goal
+              <Trash2 size={14} strokeWidth={1.8} aria-hidden="true" />Archive this goal
             </button>
           )}
         </div>
       )}
       {confirm && goal !== null && (
         <ConfirmDialog
-          title="Delete this goal?"
-          confirmLabel={busy ? 'Deleting…' : 'Delete goal'}
+          title="Archive this goal?"
+          confirmLabel={busy ? 'Archiving…' : 'Archive goal'}
           busy={busy}
           destructive
           onConfirm={() => {
@@ -150,7 +155,7 @@ function GoalSwitcher({ goals, goal, repository, onSwitch, onCreate, onDelete }:
           }}
           onCancel={() => setConfirm(false)}
         >
-          <p>“{goal.title}” and its list of items are removed from ByteQuay. The pull requests, issues, tickets and tasks stay as they are.</p>
+          <p>“{goal.title}” leaves the active Goal list. Its work items, decisions and history remain saved.</p>
         </ConfirmDialog>
       )}
     </>
@@ -173,14 +178,14 @@ function NoGoal({ onCreate }: { onCreate: (title: string) => Promise<unknown> })
   return (
     <div className="goal-panel__body goal-empty">
       <div className="goal-empty__title">No goal yet</div>
-      <div className="goal-empty__text">A goal groups pull requests, issues, Jira tickets and tasks toward one outcome. Marking an issue or ticket as a Goal also starts one.</div>
+      <div className="goal-empty__text">A goal groups accepted work toward an outcome. Each work item can link issues, tickets, tasks and pull requests. Marking an issue or ticket as a Goal also starts one.</div>
       <NameInput busy={busy} onCancel={() => {}} onSubmit={(title) => { setBusy(true); void onCreate(title).finally(() => setBusy(false)); }} />
     </div>
   );
 }
 
 /** Stored pull requests, issues, tickets and tasks to add, searched as the user types. */
-function useCandidates(goal: GoalDto, search: GoalPanelProps['search'], open: boolean): { query: string; setQuery: (query: string) => void; results: GoalItemDto[] } {
+function useCandidates(goal: Pick<GoalDto, 'items'>, search: GoalPanelProps['search'], open: boolean): { query: string; setQuery: (query: string) => void; results: GoalItemDto[] } {
   const [query, setQuery] = useState('');
   const [found, setFound] = useState<GoalItemDto[]>([]);
   useEffect(() => {
@@ -214,15 +219,16 @@ function Stats({ goal, needsYou, onTab }: { goal: GoalDto; needsYou: ReadonlySet
       <div>
         <div className="goal-progress__head">
           <span className="goal-progress__count">{summary.finished}</span>
-          <span className="goal-muted">of {summary.total} finished</span>
+          <span className="goal-muted">of {summary.total} done</span>
           <span className="goal-spacer" />
-          <span className="goal-mono">{Math.round((summary.finished / Math.max(1, summary.total)) * 100)}%</span>
+          <span className="goal-mono">{summary.total === 0 ? '—' : `${Math.round((summary.finished / Math.max(1, summary.total)) * 100)}%`}</span>
         </div>
         <div className="goal-progress"><span className="is-finished" style={{ width: widths.finished }} /><span className="is-working" style={{ width: widths.working }} /><span className="is-idle" /></div>
         <div className="goal-legend">
-          <span><i className="is-finished" />Finished {summary.finished}</span>
+          <span><i className="is-finished" />Done {summary.finished}</span>
           <span><i className="is-working" />Working {summary.working}</span>
-          <span><i className="is-idle" />Idle {summary.idle}</span>
+          <span><i className="is-idle" />Planned {summary.idle}</span>
+          {summary.dropped > 0 && <span>Dropped {summary.dropped}</span>}
         </div>
       </div>
       <div className="goal-tiles">
@@ -246,168 +252,154 @@ function Stats({ goal, needsYou, onTab }: { goal: GoalDto; needsYou: ReadonlySet
   );
 }
 
-function ItemRow({ item, needsYou, onOpen, onRemove }: { item: GoalItemDto; needsYou: boolean; onOpen: () => void; onRemove: () => void }): React.JSX.Element {
-  const source = GOAL_SOURCES[item.kind];
-  return (
-    <Clickable className={`goal-row card-row${item.state === 'FINISHED' ? ' is-finished' : ''}`} title={item.status} onOpen={onOpen}>
-      <SourceIcon source={source} tinted />
-      <span className="card-key">{item.label}</span>
-      <span className="goal-row__title">{item.title}</span>
-      {item.blocked && <Pill tone="red">Blocked</Pill>}
-      {needsYou && <span className="goal-needs" title="Needs you" />}
-      <CardActions>
-        <IconButton label={`Remove ${item.label} from the goal`} title="Remove from goal" tone="danger" onClick={onRemove}>
-          <X size={12} strokeWidth={2.2} aria-hidden="true" />
-        </IconButton>
-      </CardActions>
-    </Clickable>
-  );
-}
-
-function GoalList({ goal, needsYou, repository, now = Date.now(), search, onAdd, onRemove, onOpenItem }: GoalPanelProps & { goal: GoalDto }): React.JSX.Element {
+function GoalWork(props: GoalPanelProps & { goal: GoalDto; onSelect: (id: string) => void }): React.JSX.Element {
+  const { goal, needsYou, mode, onSelect } = props;
   const [tab, setTab] = useState<GoalTab>('all');
   const [adding, setAdding] = useState(false);
-  const [showFinished, setShowFinished] = useState(false);
-  const candidates = useCandidates(goal, search, adding);
-  const summary = summarize(goal, needsYou);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const candidates = useCandidates(goal, props.search, adding);
   const items = itemsIn(goal, tab, needsYou);
   const activity = recentActivity(goal);
-  return (
-    <div className="goal-panel__body">
-      <Stats goal={goal} needsYou={needsYou} onTab={setTab} />
-      <div>
-        <div className="goal-tabsrow">
-          <div className="goal-tabs" role="tablist" aria-label="Goal items">
-            {([['all', 'All', summary.total], ['needs', 'Needs you', summary.needs], ['blocked', 'Blocked', summary.blocked]] as const).map(([id, label, count]) => (
-              <button key={id} type="button" role="tab" aria-selected={tab === id} className={`goal-tab${tab === id ? ' is-active' : ''}`} onClick={() => setTab(id)}>
-                {label} {count}
-              </button>
-            ))}
-          </div>
-          <span className="goal-spacer" />
-          <button type="button" className="goal-add" aria-expanded={adding} onClick={() => { setAdding((value) => !value); candidates.setQuery(''); }}>
-            <Plus size={12} strokeWidth={2.4} aria-hidden="true" />Add
-          </button>
-        </div>
-        {adding && (
-          <div className="goal-search">
-            <div className="goal-search__field">
-              <Search size={14} strokeWidth={2} aria-hidden="true" />
-              <input autoFocus value={candidates.query} placeholder="Search PRs, issues, Jira tickets, tasks…" aria-label="Search items to add"
-                onChange={(event) => candidates.setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') setAdding(false); }} />
-            </div>
-            <div className="goal-search__results">
-              {candidates.results.map((item) => <Candidate key={refKey(item)} item={item} onAdd={onAdd} />)}
-              {candidates.results.length === 0 && <div className="goal-search__none">No matching items in {repository}</div>}
-            </div>
-          </div>
-        )}
+  return <div className={`goal-panel__body${mode === 'board' ? ' is-board' : ''}`}>
+    <Stats goal={goal} needsYou={needsYou} onTab={setTab} />
+    <div className="goal-tabsrow">
+      <div className="goal-tabs" role="tablist" aria-label="Goal work">
+        {(['all', 'needs', 'blocked'] as const).map((value) => <button type="button" role="tab" aria-selected={tab === value} key={value}
+          className={`goal-tab${tab === value ? ' is-active' : ''}`} onClick={() => setTab(value)}>{value === 'all' ? 'All work' : value === 'needs' ? 'Needs you' : 'Blocked'}</button>)}
       </div>
+      <button type="button" className="goal-add" onClick={() => setCreating((value) => !value)}>New work item</button>
+      <button type="button" className="goal-add" onClick={() => setAdding((value) => !value)}>Add existing</button>
+    </div>
+    {error !== null && <p role="alert">{error}</p>}
+    {creating && <NewWork goal={goal} onCreate={props.onCreateWork} onDone={(item) => { setCreating(false); onSelect(item.id); }} />}
+    {adding && <div className="goal-search">
+      <label className="goal-search__field"><Search size={14} aria-hidden="true" /><input aria-label="Search items to add" value={candidates.query}
+        placeholder="Search issues, tickets, tasks and PRs" onChange={(event) => candidates.setQuery(event.target.value)} /></label>
+      {candidates.results.map((item) => <Candidate key={refKey(item)} item={item} onAdd={(reference) => props.onAdd(reference).catch((failure: unknown) => {
+        setError(failure instanceof Error ? failure.message : 'Could not add work');
+      })} />)}
+      {props.workItems.filter((item) => item.goalId !== goal.id).map((item) => <div className="goal-result" key={item.id}>
+        <button type="button" className="goal-link goal-result__title" onClick={() => onSelect(item.id)}>{item.title}</button><button type="button" className="goal-link" onClick={() => {
+          void props.onDecide(item, { operationId: crypto.randomUUID(), expectedRevision: item.revision, action: 'MOVE', goalId: goal.id, detail: '' })
+            .catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'Could not move work'));
+        }}>{item.goalId === null ? 'Add work item' : 'Move here'}</button>
+      </div>)}
+    </div>}
+    <div className={mode === 'board' ? 'goal-columns' : 'goal-work-list'}>
       {STATE_GROUPS.map(({ state, label }) => {
         const rows = items.filter((item) => item.state === state);
-        if (rows.length === 0) return null;
-        const folded = state === 'FINISHED' && tab === 'all';
-        return (
-          <div key={state}>
-            <div className="goal-group">
-              <span className="goal-group__label">{label.toUpperCase()}</span>
-              <span className="goal-group__count">{rows.length}</span>
-              <span className="goal-spacer" />
-              {folded && <button type="button" className="goal-link" onClick={() => setShowFinished((value) => !value)}>{showFinished ? 'Hide' : `Show ${rows.length}`}</button>}
-            </div>
-            {(!folded || showFinished) && rows.map((item) => (
-              <ItemRow key={refKey(item)} item={item} needsYou={needsYou.has(refKey(item))} onOpen={() => onOpenItem(item)} onRemove={() => onRemove(item)} />
-            ))}
-          </div>
-        );
+        return <div className={mode === 'board' ? 'goal-column' : 'goal-work-group'} key={state}>
+          <div className="goal-group"><span className="goal-group__label">{label}</span><span className="goal-group__count">{rows.length}</span></div>
+          {rows.map((item) => <button type="button" className="goal-work-card" key={item.id} onClick={() => onSelect(item.id)}>
+            <span className="goal-work-card__title">{item.title}</span>
+            <span className="goal-muted">{item.kind.toLowerCase()} · {item.links.length} linked references</span>
+            {item.state !== 'DONE' && item.state !== 'DROPPED' && item.links.some((link) => link.status === 'Failed') && <span>Attempt failed — outcome still open</span>}
+            {item.links.some((link) => link.state === 'UNKNOWN') && <span>Some evidence is unavailable</span>}
+            {itemNeedsYou(item, needsYou) && <span>Needs you</span>}
+          </button>)}
+        </div>;
       })}
-      {goal.items.length === 0 && <div className="goal-muted goal-none">Add pull requests, issues, Jira tickets or tasks to follow them here.</div>}
-      {activity.length > 0 && (
-        <div>
-          <div className="goal-group"><span className="goal-group__label">RECENT ACTIVITY</span></div>
-          <div className="goal-activity">
-            {activity.map(({ item, text, at }) => (
-              <div className="goal-activity__row" key={`${refKey(item)} ${at}`}>
-                <SourceIcon source={GOAL_SOURCES[item.kind]} tinted />
-                <span className="goal-activity__text">{text}</span>
-                <span className="goal-activity__age">{relativeTime(at, { suffix: false, now })}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
-  );
+    {goal.items.length === 0 && <p className="goal-muted">Create a piece of work or add an existing source. Each outcome counts once.</p>}
+    {activity.length > 0 && <div><div className="goal-group">Recent decisions</div>{activity.map(({ item, text, at }, index) =>
+      <div className="goal-activity__row" key={`${item.id}-${index}`}><span className="goal-activity__text">{text}</span><span>{relativeTime(at, { now: props.now })}</span></div>)}</div>}
+  </div>;
 }
 
-const COLUMNS: { state: GoalItemState; label: string }[] = [
-  { state: 'IDLE', label: 'IDLE' },
-  { state: 'WORKING', label: 'WORKING' },
-  { state: 'FINISHED', label: 'FINISHED' },
-];
+function NewWork({ goal, onCreate, onDone }: { goal: GoalDto; onCreate: GoalPanelProps['onCreateWork']; onDone: (item: WorkItemDto) => void }): React.JSX.Element {
+  const [id] = useState(() => crypto.randomUUID());
+  const [title, setTitle] = useState('');
+  const [criteria, setCriteria] = useState('');
+  const [kind, setKind] = useState<WorkItemKind>('DEVELOP');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return <form className="goal-work-form" onSubmit={(event) => {
+    event.preventDefault(); setBusy(true); setError(null);
+    void onCreate({ id, goalId: goal.id, title: title.trim(), kind, acceptanceCriteria: criteria.trim(),
+      completionRule: kind === 'DEVELOP' ? 'MERGED_DELIVERY' : 'ACCEPTED_RESULT' }).then(onDone)
+      .catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'Could not save work')).finally(() => setBusy(false));
+  }}>
+    <label>Work item<input required maxLength={500} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+    <label>Kind<select value={kind} onChange={(event) => setKind(event.target.value as WorkItemKind)}>
+      <option value="DEVELOP">Develop</option><option value="LEARN">Learn</option><option value="INVESTIGATE">Investigate</option>
+    </select></label>
+    <label>What will count as success?<textarea required maxLength={10000} value={criteria} onChange={(event) => setCriteria(event.target.value)} /></label>
+    <p className="goal-muted">{kind === 'DEVELOP' ? 'Completion requires merged PR evidence and your acceptance of the covered scope.' : 'Completion requires your acceptance of a recorded result.'}</p>
+    {error !== null && <p role="alert">{error}</p>}
+    <button type="submit" className="goal-add" disabled={busy || title.trim() === '' || criteria.trim() === ''}>{busy ? 'Saving…' : 'Save work item'}</button>
+  </form>;
+}
 
-function GoalBoard({ goal, needsYou, repository, search, onAdd, onRemove, onOpenItem }: GoalPanelProps & { goal: GoalDto }): React.JSX.Element {
-  const [searching, setSearching] = useState(false);
-  const candidates = useCandidates(goal, search, searching);
-  const summary = summarize(goal, needsYou);
-  const widths = progressWidths(summary);
-  return (
-    <div className="goal-panel__body is-board">
-      <div className="goal-board__summary">
-        <div className="goal-board__progress">
-          <div className="goal-progress"><span className="is-finished" style={{ width: widths.finished }} /><span className="is-working" style={{ width: widths.working }} /><span className="is-idle" /></div>
-          <span className="goal-muted"><b>{summary.finished}</b> of {summary.total} finished</span>
-        </div>
-        <span className="goal-muted">PRs <b>{summary.prsMerged}</b> merged · {summary.prsOpen} open</span>
-        <span className="goal-board__needs"><b>{summary.needs}</b> need you</span>
-        <span className="goal-board__blocked"><b>{summary.blocked}</b> blocked</span>
-      </div>
-      <div className="goal-board__search">
-        <div className="goal-search__field is-board">
-          <Search size={14} strokeWidth={2} aria-hidden="true" />
-          <input value={candidates.query} placeholder="Add a PR, issue, Jira ticket or task to this goal…" aria-label="Search items to add"
-            onFocus={() => setSearching(true)} onChange={(event) => { candidates.setQuery(event.target.value); setSearching(true); }}
-            onKeyDown={(event) => { if (event.key === 'Escape') setSearching(false); }} />
-        </div>
-        {searching && (
-          <div className="goal-board__results">
-            {candidates.results.map((item) => <Candidate key={refKey(item)} item={item} onAdd={onAdd} board />)}
-            {candidates.results.length === 0 && <div className="goal-search__none">No matching items in {repository}</div>}
-            <div className="goal-board__done"><button type="button" className="goal-link is-muted" onClick={() => setSearching(false)}>Done</button></div>
-          </div>
-        )}
-      </div>
-      <div className="goal-columns">
-        {COLUMNS.map(({ state, label }) => {
-          const rows = goal.items.filter((item) => item.state === state);
-          return (
-            <div className="goal-column" key={state}>
-              <div className="goal-column__head"><i className={`is-${state.toLowerCase()}`} />{label}<span className="goal-group__count">{rows.length}</span></div>
-              {rows.map((item) => {
-                const source = GOAL_SOURCES[item.kind];
-                return (
-                  <Card compact className="goal-card" key={refKey(item)} onOpen={() => onOpenItem(item)}>
-                    <div className="goal-card__head">
-                      <SourceIcon source={source} tinted />
-                      <span className="card-key">{item.label}</span>
-                      <span className="goal-spacer" />
-                      {item.blocked && <Pill tone="red">Blocked</Pill>}
-                      {needsYou.has(refKey(item)) && <span className="goal-needs" title="Needs you" />}
-                      <CardActions>
-                        <IconButton label={`Remove ${item.label} from the goal`} title="Remove from goal" tone="danger" onClick={() => onRemove(item)}>
-                          <X size={11} strokeWidth={2.2} aria-hidden="true" />
-                        </IconButton>
-                      </CardActions>
-                    </div>
-                    <div className="goal-card__title">{item.title}</div>
-                    <div className="goal-card__sub">{item.status}</div>
-                  </Card>
-                );
-              })}
-            </div>
-          );
-        })}
-      </div>
+function WorkDetails(props: GoalPanelProps & { item: WorkItemDto; onBack: () => void }): React.JSX.Element {
+  const { item } = props;
+  const [title, setTitle] = useState(item.title);
+  const [criteria, setCriteria] = useState(item.acceptanceCriteria);
+  const [rule, setRule] = useState<CompletionRule>(item.completionRule);
+  const [draftRevision, setDraftRevision] = useState(item.revision);
+  const [detail, setDetail] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [targetGoal, setTargetGoal] = useState(item.goalId ?? '');
+  const requests = useRef(new Map<string, string>());
+  const candidates = useCandidates({ items: [item] }, props.search, adding);
+  const concluded = item.state === 'DONE' || item.state === 'DROPPED';
+  const change = (action: WorkItemDecision['action']): void => {
+    const payload = { expectedRevision: action === 'EDIT' ? draftRevision : item.revision, action, detail,
+      ...(action === 'EDIT' ? { title, acceptanceCriteria: criteria, completionRule: rule } : {}),
+      ...(action === 'MOVE' && targetGoal !== '' ? { goalId: targetGoal } : {}) };
+    const key = JSON.stringify(payload);
+    const operationId = requests.current.get(key) ?? crypto.randomUUID();
+    requests.current.set(key, operationId);
+    setBusy(true); setError(null);
+    void props.onDecide(item, { ...payload, operationId }).then((updated) => {
+      if (action === 'EDIT') setDraftRevision(updated.revision);
+      setDetail('');
+      if (action === 'MOVE') props.onBack();
+    }).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'Decision was not saved')).finally(() => setBusy(false));
+  };
+  return <div className="goal-panel__body goal-work-form">
+    <button type="button" className="goal-link" onClick={props.onBack}>Back to work</button>
+    <strong>{item.title}</strong><span>{item.state.toLowerCase()} · {item.kind.toLowerCase()}</span>
+    {error !== null && <p role="alert">{error}</p>}
+    <label>Title<input maxLength={500} disabled={concluded || busy} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+    <label>Acceptance criteria<textarea maxLength={10000} disabled={concluded || busy} value={criteria} onChange={(event) => setCriteria(event.target.value)} /></label>
+    <label>Completion rule<select disabled={concluded || busy} value={rule} onChange={(event) => setRule(event.target.value as CompletionRule)}>
+      <option value="MERGED_DELIVERY">Merged delivery</option><option value="ACCEPTED_RESULT">User accepted result</option>
+    </select></label>
+    {!concluded && <div className="goal-work-actions"><button type="button" className="goal-add" disabled={busy} onClick={() => change('EDIT')}>Save scope</button>
+      {draftRevision !== item.revision && <button type="button" className="goal-link" disabled={busy} onClick={() => {
+        setTitle(item.title); setCriteria(item.acceptanceCriteria); setRule(item.completionRule); setDraftRevision(item.revision);
+      }}>Reload saved scope</button>}</div>}
+    <div className="goal-group">Sources, attempts and delivery</div>
+    {item.links.map((link) => <button type="button" className="goal-result goal-work-link" key={refKey(link)} onClick={() => props.onOpenItem(link)}>
+      <SourceIcon source={GOAL_SOURCES[link.kind]} /><span>{link.label}</span><span className="goal-result__title">{link.title}</span><span>{link.status}</span>
+    </button>)}
+    {!concluded && <button type="button" className="goal-link" onClick={() => setAdding((value) => !value)}>Link source, task or PR</button>}
+    {adding && !concluded && <div><input aria-label="Search supporting work" value={candidates.query} onChange={(event) => candidates.setQuery(event.target.value)} />
+      {candidates.results.map((reference) => <Candidate key={refKey(reference)} item={reference} onAdd={(link) => props.onLink(item, link).catch((failure: unknown) => {
+        setError(failure instanceof Error ? failure.message : 'Could not link work');
+      })} />)}</div>}
+    <label>{concluded ? 'Reason to reopen' : 'Result, evidence and scope covered, or reason to drop'}
+      <textarea maxLength={10000} value={detail} onChange={(event) => setDetail(event.target.value)} /></label>
+    <div className="goal-work-actions">
+      {item.state === 'PLANNED' && <button type="button" className="goal-add" disabled={busy} onClick={() => change('BEGIN')}>Mark working</button>}
+      {!concluded && <button type="button" className="goal-add" disabled={busy || detail.trim() === '' || item.acceptanceCriteria.trim() === ''}
+        onClick={() => change('ACCEPT')}>Accept result</button>}
+      {!concluded && <button type="button" className="goal-link" disabled={busy || detail.trim() === ''} onClick={() => change('DROP')}>Drop from scope</button>}
+      {concluded && <button type="button" className="goal-add" disabled={busy || detail.trim() === ''} onClick={() => change('REOPEN')}>Reopen</button>}
     </div>
-  );
+    <p className="goal-muted">Accept result confirms all saved criteria are covered. Task completion and ticket closure alone do not complete this item.</p>
+    <label>Goal<select value={targetGoal} onChange={(event) => setTargetGoal(event.target.value)}>
+      <option value="">No Goal</option>
+      {item.goalId !== null && !props.goals.some((goal) => goal.id === item.goalId) && <option value={item.goalId}>Archived Goal</option>}
+      {props.goals.map((goal) => <option key={goal.id} value={goal.id}>{goal.title}</option>)}
+    </select></label>
+    <button type="button" className="goal-link" disabled={busy || targetGoal === (item.goalId ?? '')} onClick={() => change('MOVE')}>Move work item</button>
+    <div className="goal-group">History</div>
+    {[...item.history].reverse().map((event) => <div className="goal-work-history" key={event.operationId}>
+      <span className="goal-muted">{relativeTime(event.at, { now: props.now })}</span><p>{event.detail}</p>
+    </div>)}
+  </div>;
 }

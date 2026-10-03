@@ -23,9 +23,12 @@ import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.jira.JiraService;
+import com.bytequay.app.service.goal.GoalReferenceReader;
+import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.JiraIssueTask;
+import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.store.JiraIssueTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import org.springframework.stereotype.Service;
@@ -49,9 +52,10 @@ public class JiraDevelopmentService
     private final AgentUnitOfWork unitOfWork;
     private final JiraService jira;
     private final Clock clock;
+    private final WorkItemService workItems;
 
     public JiraDevelopmentService(JiraIssueTaskStore sources, WorkspaceStore workspaces, AgentTaskService tasks,
-            AgentTaskStore taskStore, AgentTurnStore turns, AgentUnitOfWork unitOfWork, JiraService jira, Clock clock)
+            AgentTaskStore taskStore, AgentTurnStore turns, AgentUnitOfWork unitOfWork, JiraService jira, Clock clock, WorkItemService workItems)
     {
         this.sources = requireNonNull(sources, "sources is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
@@ -61,6 +65,7 @@ public class JiraDevelopmentService
         this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
         this.jira = requireNonNull(jira, "jira is null");
         this.clock = requireNonNull(clock, "clock is null");
+        this.workItems = requireNonNull(workItems, "workItems is null");
     }
 
     public Optional<Source> source(String taskId)
@@ -94,6 +99,7 @@ public class JiraDevelopmentService
                 return create.apply(link.source());
             }
             requireRunnable(jira.issue(input.connectionId(), input.cloudId(), input.issueId()), input, workspaceId);
+            workItems.requireStartable(workspaceId, WorkItemLink.jiraIdentity(input.cloudId(), input.issueId()));
             JiraIssue fresh = jira.refreshIssue(input.connectionId(), input.cloudId(), input.issueId());
             requireRunnable(fresh, input, workspaceId);
             if (taskStore.find(taskId).isPresent()) {
@@ -134,6 +140,7 @@ public class JiraDevelopmentService
             String workspaceId = task.workspaceId().orElseThrow();
             workspaces.findById(workspaceId).orElseThrow(() -> WorkspaceException.notFound(workspaceId));
             taskStore.insert(task);
+            workItems.recordAttempt(task, GoalReferenceReader.jiraLink(source, clock.instant()));
             sources.insert(new JiraIssueTask(task.id().toString(), workspaceId, source, instructions, clock.instant()));
             return null;
         });

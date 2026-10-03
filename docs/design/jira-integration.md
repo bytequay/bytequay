@@ -64,7 +64,8 @@ The first release includes:
   provider/model/worktree composer; canceling the composer keeps the assignment
   without creating a task. View task opens the resulting task instead of creating
   another one. Marking a ticket as a Goal also gives its workspace a goal named
-  after it, which unmarking removes.
+  after it. Unmarking keeps that Goal while it holds accepted work and archives
+  it otherwise; marking the ticket again restores the kept Goal.
 - Show a ticket's subtasks (an epic's child work items) and its linked work
   items, grouped by how the ticket reads each link ("blocks", "is blocked by").
   Each row opens that ticket over the current one. Create a child with a summary
@@ -128,7 +129,10 @@ Workspace assignment is keyed by the same cloud/issue identity and persists
 separately from remote ticket snapshots in the existing SQLite-backed Jira local
 metadata store. It is shared across connections and survives refresh or restart.
 The workspace name is resolved from the current workspace record. A linked task
-owns the assignment and cannot be moved to another workspace. A missing workspace
+owns the assignment and cannot be moved to another workspace. A Goal work item
+for the ticket owns it the same way, because a launch must match both the
+assignment and the work item's workspace; that rejection is server-side only, so
+the field stays editable and reports it. A missing workspace
 leaves an unstarted ticket unassigned. Goal marking requires an assignment, and
 new development admission validates that its selected workspace matches it.
 The ticket's Details panel shows a ByteQuay workspace field for assigning or

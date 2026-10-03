@@ -13,7 +13,7 @@
  */
 
 import type { AttentionItem, AttentionSource } from '../home/attention';
-import type { GoalDto, GoalItemDto, GoalItemKind, GoalItemState } from './contracts';
+import type { GoalDto, GoalItemDto, GoalItemKind, WorkItemState, WorkItemDto } from './contracts';
 
 export type GoalRef = { kind: GoalItemKind; key: string };
 
@@ -45,7 +45,7 @@ export function attentionWorkspace(item: AttentionItem, workspaces: { id: string
 }
 
 export function goalHas(goal: GoalDto | null, ref: GoalRef | null): boolean {
-  return goal !== null && ref !== null && goal.items.some((item) => item.kind === ref.kind && item.key === ref.key);
+  return goal !== null && ref !== null && goal.items.some((item) => item.links.some((link) => link.kind === ref.kind && link.key === ref.key));
 }
 
 /** The items with activity the user has not acknowledged, snoozed or visited, whether or not Needs attention ranks them. */
@@ -62,20 +62,22 @@ export type GoalSummary = {
   prsOpen: number;
   needs: number;
   blocked: number;
+  dropped: number;
 };
 
 export function summarize(goal: GoalDto, needsYou: ReadonlySet<string>): GoalSummary {
-  const count = (state: GoalItemState) => goal.items.filter((item) => item.state === state).length;
-  const prs = goal.items.filter((item) => item.kind === 'PULL_REQUEST');
+  const count = (state: WorkItemState) => goal.items.filter((item) => item.state === state).length;
+  const prs = [...new Map(goal.items.flatMap((item) => item.links).filter((link) => link.kind === 'PULL_REQUEST').map((link) => [refKey(link), link])).values()];
   return {
-    total: goal.items.length,
-    finished: count('FINISHED'),
+    total: goal.items.filter((item) => item.state !== 'DROPPED').length,
+    finished: count('DONE'),
     working: count('WORKING'),
-    idle: count('IDLE'),
+    idle: count('PLANNED'),
     prsMerged: prs.filter((item) => item.status === 'Merged').length,
-    prsOpen: prs.filter((item) => item.state !== 'FINISHED').length,
-    needs: goal.items.filter((item) => needsYou.has(refKey(item))).length,
-    blocked: goal.items.filter((item) => item.blocked).length,
+    prsOpen: prs.filter((item) => item.state === 'WORKING').length,
+    needs: goal.items.filter((item) => itemNeedsYou(item, needsYou)).length,
+    blocked: goal.items.filter((item) => item.links.some((link) => link.blocked)).length,
+    dropped: count('DROPPED'),
   };
 }
 
@@ -94,29 +96,32 @@ export function ringDash(summary: GoalSummary): string {
 
 export type GoalTab = 'all' | 'needs' | 'blocked';
 
-export function itemsIn(goal: GoalDto, tab: GoalTab, needsYou: ReadonlySet<string>): GoalItemDto[] {
-  if (tab === 'needs') return goal.items.filter((item) => needsYou.has(refKey(item)));
-  if (tab === 'blocked') return goal.items.filter((item) => item.blocked);
+export function itemsIn(goal: GoalDto, tab: GoalTab, needsYou: ReadonlySet<string>): WorkItemDto[] {
+  if (tab === 'needs') return goal.items.filter((item) => itemNeedsYou(item, needsYou));
+  if (tab === 'blocked') return goal.items.filter((item) => item.links.some((link) => link.blocked));
   return goal.items;
 }
 
-export const STATE_GROUPS: { state: GoalItemState; label: string }[] = [
+export const STATE_GROUPS: { state: WorkItemState; label: string }[] = [
   { state: 'WORKING', label: 'Working' },
-  { state: 'IDLE', label: 'Idle' },
-  { state: 'FINISHED', label: 'Finished' },
+  { state: 'PLANNED', label: 'Planned' },
+  { state: 'DONE', label: 'Done' },
+  { state: 'DROPPED', label: 'Dropped' },
 ];
 
-/** The latest change ByteQuay knows of on each item, newest first. */
-export function recentActivity(goal: GoalDto, limit = 5): { item: GoalItemDto; text: string; at: string }[] {
-  return goal.items
-    .flatMap((item) => (item.activity === null ? [] : [{ item, text: item.activity.text, at: item.activity.at }]))
-    .sort((left, right) => Date.parse(right.at) - Date.parse(left.at))
-    .slice(0, limit);
+export function itemNeedsYou(item: WorkItemDto, needsYou: ReadonlySet<string>): boolean {
+  return item.links.some((link) => needsYou.has(refKey(link)));
+}
+
+/** Decisions remain visible even when the linked task or source is no longer stored. */
+export function recentActivity(goal: GoalDto, limit = 5): { item: WorkItemDto; text: string; at: string }[] {
+  return goal.items.flatMap((item) => item.history.map((event) => ({ item, text: event.detail, at: event.at })))
+    .sort((left, right) => Date.parse(right.at) - Date.parse(left.at)).slice(0, limit);
 }
 
 /** Search results not already in the goal, at most a handful per query. */
-export function addable(candidates: GoalItemDto[], goal: GoalDto, limit = 6): GoalItemDto[] {
-  const present = new Set(goal.items.map(refKey));
+export function addable(candidates: GoalItemDto[], goal: Pick<GoalDto, 'items'>, limit = 6): GoalItemDto[] {
+  const present = new Set(goal.items.flatMap((item) => item.links).map(refKey));
   return candidates.filter((candidate) => !present.has(refKey(candidate))).slice(0, limit);
 }
 

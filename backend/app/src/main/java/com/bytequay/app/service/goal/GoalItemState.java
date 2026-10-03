@@ -13,14 +13,12 @@
  */
 package com.bytequay.app.service.goal;
 
-/**
- * Where a goal item stands. Finished: a merged or closed pull request, a closed issue, a done
- * ticket, an ended task. Working: an open pull request, an issue with a development task, a ticket
- * in progress, a running task. Idle: everything else.
- */
+/** Activity of a linked source or attempt; this never determines whether its work item is Done. */
 public enum GoalItemState
 {
     IDLE,
     WORKING,
-    FINISHED
+    MERGED,
+    ENDED,
+    UNKNOWN
 }

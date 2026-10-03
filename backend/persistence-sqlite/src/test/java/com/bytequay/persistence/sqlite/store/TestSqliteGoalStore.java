@@ -17,7 +17,6 @@ import com.bytequay.core.domain.Goal;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalSource;
-import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -49,23 +48,25 @@ class TestSqliteGoalStore
     void savesItemsAndSourceAndReplacesTheStoredGoal()
     {
         GoalSource source = new GoalSource(GoalItemKind.JIRA, GoalItem.jiraKey("connection", "cloud", "10042"));
-        Goal seeded = new Goal("goal-1", "workspace-1", "Delta Lake correctness", "", true, Optional.of(source), ImmutableList.of(), NOW, NOW);
+        Goal seeded = new Goal("goal-1", "workspace-1", "Delta Lake correctness", "", true, false, Optional.of(source), Optional.empty(), NOW, NOW);
         Instant later = NOW.plusSeconds(1);
-        Goal other = new Goal("goal-2", "workspace-1", "Parquet performance", "Cut wasted reads", false, Optional.empty(), ImmutableList.of(), later, later);
+        Goal other = new Goal("goal-2", "workspace-1", "Parquet performance", "Cut wasted reads", false, false, Optional.empty(), Optional.empty(), later, later);
         store.save(seeded);
         store.save(other);
-        store.save(new Goal("goal-3", "workspace-2", "Elsewhere", "", true, Optional.empty(), ImmutableList.of(), NOW, NOW));
+        store.save(new Goal("goal-3", "workspace-2", "Elsewhere", "", true, false, Optional.empty(), Optional.empty(), NOW, NOW));
 
-        Goal withItems = seeded.withItems(ImmutableList.of(
-                new GoalItem(GoalItemKind.PULL_REQUEST, GoalItem.numberedKey("TrinoDB/Trino", 31264), "#31264", "Keep deletion vectors", NOW),
-                new GoalItem(GoalItemKind.TASK, UUID.randomUUID().toString(), "Task", "Fix checkpoints", NOW)), NOW.plusSeconds(5));
+        Goal withItems = seeded.withText("Accepted objective", "Saved plan", NOW.plusSeconds(5));
         store.save(withItems);
 
         assertThat(store.list("workspace-1")).containsExactly(withItems, other);
         assertThat(store.find("goal-1")).contains(withItems);
-        assertThat(withItems.items().get(0).key()).isEqualTo("trinodb/trino#31264");
         assertThat(store.findBySource(source)).containsExactly(withItems);
         assertThat(store.findBySource(new GoalSource(GoalItemKind.ISSUE, "trinodb/trino#1"))).isEmpty();
+        // Unmarking keeps the source, so marking it again finds this goal.
+        Goal unmarked = withItems.withMarked(false, NOW.plusSeconds(6));
+        store.save(unmarked);
+        assertThat(store.findBySource(source)).containsExactly(unmarked);
+        assertThat(unmarked.markedSource()).isEmpty();
 
         store.delete("goal-1");
         assertThat(store.list("workspace-1")).containsExactly(other);

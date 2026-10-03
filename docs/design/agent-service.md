@@ -3,8 +3,12 @@
 [Agent guided goals](goal-guidance.md) proposes a separate Goal conversation
 using bounded `TEXT_ONLY` helper sessions and work-item handoff into this existing
 task service. Planning creates no execution task or Git worktree. The proposal
-and its [implementation plan](goal-guidance-impl-tmp.md) are not implemented;
-they do not change the current execution, tool or publication contracts below.
+and its [implementation plan](goal-guidance-impl-tmp.md) distinguish the implemented
+local work-item foundation from the pending planner. Issue/Jira task creation
+reserves work-item source/task ownership in the existing transaction before the
+first turn; source snapshots remain available with work-item history. Planning
+adds no execution, tool or publication authority. Current-task reopening remains
+the admission default; explicit another-attempt launch is still pending.
 
 [WorkBench](workbench.md) owns the shared navigation, task-bound code access,
 and reviews of local development commits. Its source and hosting contracts
@@ -47,11 +51,13 @@ readiness, and acceptance gate for this extension.
 
 [Issue-backed Development](issue-development-plan.md) extends canonical
 interactive task creation with an optional accepted issue source. Local Goal
-classification prevents new launches. A durable source association is saved
+classification prevents new launches, as does a [Goal work item](goal-guidance.md)
+for the source that is Done, Dropped or in another workspace; both checks run
+before worktree preparation. A durable source association is saved
 with the task before its initial turn; replay reuses the task and accepted
 context. Source identity spans workspaces, while execution retains its explicit
-workspace. This adds no planning lifecycle or separate executor and does not
-change task completion or GitHub issue closure.
+workspace. The task records an attempt on the source's work item and adds no
+separate executor; it does not change task completion or GitHub issue closure.
 
 Issue development uses a fixed, read-only `read_issue_context` capability in the
 existing provider tool bridge. Its session binding selects the task's durable

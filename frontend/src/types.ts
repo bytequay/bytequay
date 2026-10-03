@@ -14,7 +14,7 @@
 
 import type { JiraBridge, JiraSourceRequest, JiraTaskSource } from './jira/contracts';
 import type { TeamActivityQuery, TeamActivitySnapshot, TeamCircleInput, TeamCreateInput, TeamDirectory, TeamMemberInput } from './teams/types';
-import type { GoalDto, GoalItemDto, GoalItemKind, GoalPatch } from './goals/contracts';
+import type { CreateWorkItem, WorkItemDto, WorkItemDecision, GoalDto, GoalItemDto, GoalItemKind, GoalPatch } from './goals/contracts';
 import { AgentEventEnvelope } from './agents/events';
 import type { AskCommentDiscussionRequest, AskDiscussionRequest, DiscussionQuery, DraftDiscussionReplyRequest, OpenDiscussionRequest, ResolveDiscussionRequest, RetryDiscussionRequest, TaskDiscussionDto } from './agents/discussions/contracts';
 import type { CreateDevelopmentLearningCommentRequest, CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';
@@ -1472,6 +1472,10 @@ export type Bridge = JiraBridge & {
   fetchWorkspaceIssueAttention: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
   setWorkspaceIssueGoal: (workspaceId: string, issueNumber: number, isGoal: boolean) => Promise<IssueDevelopmentDto>;
   /** The workspace's goals with every item read locally; nothing here writes to GitHub or Jira. */
+  listWorkItems: (workspaceId: string) => Promise<WorkItemDto[]>;
+  createWorkItem: (workspaceId: string, request: CreateWorkItem) => Promise<WorkItemDto>;
+  decideWorkItem: (workspaceId: string, itemId: string, command: WorkItemDecision) => Promise<WorkItemDto>;
+  linkWorkItem: (workspaceId: string, itemId: string, revision: number, kind: GoalItemKind, key: string) => Promise<WorkItemDto>;
   listGoals: (workspaceId: string) => Promise<GoalDto[]>;
   createGoal: (workspaceId: string, title: string, description: string) => Promise<GoalDto>;
   updateGoal: (workspaceId: string, goalId: string, patch: GoalPatch) => Promise<GoalDto>;

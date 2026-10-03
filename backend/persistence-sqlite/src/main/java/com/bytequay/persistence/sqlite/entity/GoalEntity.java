@@ -14,10 +14,8 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.Goal;
-import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalSource;
-import com.bytequay.persistence.sqlite.converter.GoalItemListConverter;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -28,13 +26,12 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
 
 @Entity
-@Table(name = "workspace_goal", indexes = {
-        @Index(name = "idx_workspace_goal_workspace", columnList = "workspace_id"),
-        @Index(name = "idx_workspace_goal_source", columnList = "source_kind,source_key")})
+@Table(name = "goal", indexes = {
+        @Index(name = "idx_goal_workspace", columnList = "workspace_id"),
+        @Index(name = "idx_goal_source", columnList = "source_kind,source_key")})
 public class GoalEntity
         extends AssignedIdEntity<String>
 {
@@ -61,9 +58,12 @@ public class GoalEntity
     @Column(name = "source_key")
     private String sourceKey;
 
-    @Column(name = "items_json", nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = GoalItemListConverter.class)
-    private List<GoalItem> items;
+    @Column(name = "unmarked_at")
+    @Convert(converter = InstantToTextConverter.class)
+    private Instant unmarkedAt;
+
+    @Column(nullable = false)
+    private boolean archived;
 
     @Column(name = "created_at", nullable = false)
     @Convert(converter = InstantToTextConverter.class)
@@ -90,13 +90,14 @@ public class GoalEntity
         pinned = goal.pinned();
         sourceKind = goal.source().map(source -> source.kind().name()).orElse(null);
         sourceKey = goal.source().map(GoalSource::key).orElse(null);
-        items = goal.items();
+        unmarkedAt = goal.unmarkedAt().orElse(null);
+        archived = goal.archived();
         updatedAt = goal.updatedAt();
     }
 
     public Goal toDomain()
     {
         Optional<GoalSource> source = sourceKind == null ? Optional.empty() : Optional.of(new GoalSource(GoalItemKind.valueOf(sourceKind), sourceKey));
-        return new Goal(id, workspaceId, title, description, pinned, source, items, createdAt, updatedAt);
+        return new Goal(id, workspaceId, title, description, pinned, archived, source, Optional.ofNullable(unmarkedAt), createdAt, updatedAt);
     }
 }

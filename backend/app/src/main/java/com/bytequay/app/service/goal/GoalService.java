@@ -20,12 +20,12 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Workspace goals: local groupings of pull requests, issues, Jira tickets and tasks. Every read
+ * Workspace goals: local groupings of accepted work items. Every read
  * comes from local stores and no change writes to GitHub or Jira or starts any work.
  */
 public interface GoalService
 {
-    /** The workspace's goals, oldest first, each item read from the local store for its kind. */
+    /** The workspace's goals, oldest first, each work item and its supporting links read locally. */
     List<GoalView> list(String workspaceId);
 
     /** A goal with no items; it is pinned when the workspace has no pinned goal yet. */
@@ -34,7 +34,7 @@ public interface GoalService
     /** Renames or re-describes the goal, and pins it when asked, which unpins the workspace's other goals. */
     GoalView update(String workspaceId, String goalId, Optional<String> title, Optional<String> description, boolean pin);
 
-    /** Removes the goal; when it was pinned, the workspace's oldest remaining goal is pinned. */
+    /** Archives the goal and retains its work; the oldest active goal inherits its pin. */
     void delete(String workspaceId, String goalId);
 
     /** Adds an item ByteQuay has stored locally; adding one already in the goal changes nothing. */
@@ -45,9 +45,9 @@ public interface GoalService
     /** Stored pull requests, issues, Jira tickets and tasks matching the query, for adding to a goal. */
     List<GoalItemView> candidates(String workspaceId, String query);
 
-    /** Gives an issue or Jira ticket marked as a Goal its workspace goal, named after it, unless it has one. */
+    /** Gives an issue or Jira ticket marked as a Goal its workspace goal, named after it, restoring the one that kept its work if any. */
     void seed(String workspaceId, GoalSource source, String title);
 
-    /** Removes the goals an issue or Jira ticket seeded, once it is no longer marked as a Goal. */
+    /** Unmarks a Goal that holds work, which keeps it and its source for a later marking, and archives a Goal that holds none. */
     void unseed(GoalSource source);
 }

@@ -13,7 +13,7 @@
  */
 import type { JiraLocation, JiraQuery, JiraTokenRequest } from './jira/contracts';
 import { parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamId, teamMemberId } from './teams/contracts';
-import { parseGoal, parseGoalItem, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
+import { parseWorkItem, type CreateWorkItem, type WorkItemDecision, parseGoal, parseGoalItem, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, screen, shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -1823,6 +1823,15 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/goal`,
       jsonInit('PATCH', { isGoal })));
   const goalsUrl = (workspaceId: string, path = '') => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/goals${path}`;
+  const workItemsUrl = (workspaceId: string, suffix = '') => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/work-items${suffix}`;
+  ipcMain.handle('work-items:list', (_event, workspaceId: string) =>
+    backendJson(workItemsUrl(workspaceId)).then(items => parseList(items, parseWorkItem, 'work items')));
+  ipcMain.handle('work-items:create', (_event, workspaceId: string, request: CreateWorkItem) =>
+    backendJson(workItemsUrl(workspaceId), jsonInit('POST', request)).then(parseWorkItem));
+  ipcMain.handle('work-items:decide', (_event, workspaceId: string, itemId: string, command: WorkItemDecision) =>
+    backendJson(workItemsUrl(workspaceId, `/${encodeURIComponent(itemId)}/decisions`), jsonInit('POST', command)).then(parseWorkItem));
+  ipcMain.handle('work-items:link', (_event, workspaceId: string, itemId: string, expectedRevision: number, kind: GoalItemKind, key: string) =>
+    backendJson(workItemsUrl(workspaceId, `/${encodeURIComponent(itemId)}/links`), jsonInit('POST', { expectedRevision, kind, key })).then(parseWorkItem));
   ipcMain.handle('goals:list', (_event, workspaceId: string) =>
     backendJson(goalsUrl(workspaceId)).then(goals => parseList(goals, parseGoal, 'goals')));
   ipcMain.handle('goals:create', (_event, workspaceId: string, title: string, description: string) =>

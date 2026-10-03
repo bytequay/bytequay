@@ -58,19 +58,25 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.service.goal.GoalReferenceReader;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.UserProfile;
+import com.bytequay.core.domain.WorkItem;
+import com.bytequay.core.domain.WorkItemEvent;
+import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.RepositoryIssueStore;
+import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -257,6 +263,9 @@ class TestAgentHttpApi
     @Autowired
     private RepositoryIssueStore issueRows;
 
+    @Autowired
+    private WorkItemStore workItems;
+
     @MockitoBean
     private GitHubRepoClient issueClient;
 
@@ -420,6 +429,60 @@ class TestAgentHttpApi
         assertThat(retained.path("issueSource")).isEqualTo(created.path("issueSource"));
         assertThat(post("/agent/tasks", request, null).getBody().path("id").asText()).isEqualTo(taskId);
         verify(issueClient).fetchOpenIssueSource("pat", workspace.monitoredRepository(), 7);
+    }
+
+    @Test
+    void issueLaunchRecordsOneWorkItemAndRefusesConcludedOrForeignWorkBeforeFetching()
+            throws Exception
+    {
+        Workspace workspace = workspaces.findById(workspaceId).orElseThrow();
+        when(credentials.resolveGitHubToken()).thenReturn("pat");
+        GitHubIssueSource started = cachedIssue(workspace, 8);
+        ResponseEntity<JsonNode> response = post("/agent/tasks", issueLaunch(started), null);
+        assertThat(response.getStatusCode()).as("create response: %s", response.getBody()).isEqualTo(HttpStatus.CREATED);
+        WorkItem work = workItems.findByIdentity(WorkItemLink.issueIdentity("github.com", started.issueId())).orElseThrow();
+        assertThat(workItems.findByIdentity(WorkItemLink.taskIdentity(response.getBody().required("id").asText()))).contains(work);
+        assertThat(work.workspaceId()).isEqualTo(workspaceId);
+        assertThat(work.state()).isEqualTo(WorkItem.State.WORKING);
+
+        GitHubIssueSource dropped = cachedIssue(workspace, 9);
+        saveWorkItem(workspaceId, GoalReferenceReader.issueLink(dropped, Instant.now()), WorkItem.State.DROPPED);
+        Map<String, Object> refusedLaunch = issueLaunch(dropped);
+        ResponseEntity<JsonNode> refused = post("/agent/tasks", refusedLaunch, null);
+        assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(refused.getBody().path("message").asText()).contains("Reopen the work item");
+        assertThat(get("/agent/tasks/" + refusedLaunch.get("taskId") + "?workspaceId=" + workspaceId).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+
+        GitHubIssueSource foreign = cachedIssue(workspace, 10);
+        saveWorkItem("other-workspace", GoalReferenceReader.issueLink(foreign, Instant.now()), WorkItem.State.PLANNED);
+        ResponseEntity<JsonNode> elsewhere = post("/agent/tasks", issueLaunch(foreign), null);
+        assertThat(elsewhere.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(elsewhere.getBody().path("message").asText()).contains("belongs to workspace other-workspace");
+        // Both refusals come before the issue fetch, and so before any worktree is prepared.
+        verify(issueClient, never()).fetchOpenIssueSource("pat", workspace.monitoredRepository(), 9);
+        verify(issueClient, never()).fetchOpenIssueSource("pat", workspace.monitoredRepository(), 10);
+    }
+
+    @Test
+    void jiraLaunchRefusesDroppedWorkBeforeRefreshingTheTicket()
+            throws Exception
+    {
+        Instant updated = Instant.parse("2026-09-16T00:00:00Z");
+        String issueId = "jira-" + UUID.randomUUID();
+        JiraIssue issue = new JiraIssue("connection", "cloud", issueId, "APP-8", "https://company.atlassian.net/browse/APP-8",
+                "Fix selection", "Jira body", "Story", new JiraDtos.Status("3", "In progress", "indeterminate"), Optional.empty(),
+                ImmutableList.of(), Optional.empty(), Optional.empty(), false, false, updated, Optional.empty(), Optional.empty(), ImmutableList.of(), false,
+                Optional.empty(), Optional.of(new JiraDtos.WorkspaceLink(workspaceId, "Workspace")));
+        when(jira.issue("connection", "cloud", issueId)).thenReturn(issue);
+        JiraIssueSource source = new JiraIssueSource("connection", "cloud", issueId, issue.key(), issue.url(), issue.title(), issue.body(), updated);
+        saveWorkItem(workspaceId, GoalReferenceReader.jiraLink(source, updated), WorkItem.State.DROPPED);
+        Map<String, Object> request = ImmutableMap.<String, Object>builder().putAll(createTaskBody("codex", "test-model", "Implement Jira selection"))
+                .put("jiraSource", ImmutableMap.<String, Object>builder().put("connectionId", "connection").put("cloudId", "cloud").put("issueId", issueId)
+                        .put("key", issue.key()).put("title", issue.title()).put("body", issue.body()).put("updatedAt", updated.toString()).buildOrThrow()).buildOrThrow();
+        ResponseEntity<JsonNode> response = post("/agent/tasks", request, null);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody().path("message").asText()).contains("Reopen the work item");
+        verify(jira, never()).refreshIssue("connection", "cloud", issueId);
     }
 
     @Test
@@ -1536,6 +1599,34 @@ class TestAgentHttpApi
                         "effort", "high",
                         "permissionPolicy", "AUTO",
                         "developmentAutomation", ImmutableMap.of("autoDraftPr", false, "autoCiFix", false, "reviewSummary", false)));
+    }
+
+    /** Caches open issue {@code number} in the workspace and serves it as the fresh GitHub read. */
+    private GitHubIssueSource cachedIssue(Workspace workspace, int number)
+    {
+        Instant updated = Instant.parse("2026-09-16T00:00:00Z");
+        long issueId = workspace.monitoredRepositoryId() * 1000 + number;
+        String repo = workspace.monitoredRepository().fullName();
+        GitHubIssueSource source = new GitHubIssueSource("github.com", issueId, repo, number, "https://github.com/" + repo + "/issues/" + number,
+                "Fix issue " + number, "Issue body", updated);
+        issueRows.saveSyncPage(workspace.monitoredRepositoryId(), ImmutableList.of(new RepositoryIssue(issueId, number, source.title(), source.body(),
+                "alice", "", source.url(), ImmutableList.of(), ImmutableList.of(), 0, updated, updated)), "issue-test-" + number);
+        when(issueClient.fetchOpenIssueSource("pat", workspace.monitoredRepository(), number)).thenReturn(source);
+        return source;
+    }
+
+    private Map<String, Object> issueLaunch(GitHubIssueSource source)
+    {
+        return ImmutableMap.<String, Object>builder().putAll(createTaskBody("codex", "test-model", "Implement " + source.title()))
+                .put("issueSource", ImmutableMap.of("issueId", source.issueId(), "number", source.number(), "updatedAt", source.updatedAt().toString())).buildOrThrow();
+    }
+
+    private void saveWorkItem(String ownerWorkspaceId, WorkItemLink source, WorkItem.State state)
+    {
+        Instant now = Instant.now();
+        WorkItemEvent planned = new WorkItemEvent("planned", "", "CREATED", "Planned", now);
+        workItems.insert(new WorkItem(UUID.randomUUID().toString(), ownerWorkspaceId, Optional.empty(), source.reference().title(), WorkItem.Kind.DEVELOP, "",
+                WorkItem.CompletionRule.MERGED_DELIVERY, state, 0, ImmutableList.of(source), ImmutableList.of(planned), now, now));
     }
 
     private JsonNode startTurn(String taskId, String message, String idempotencyKey)

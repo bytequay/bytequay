@@ -20,9 +20,12 @@ import com.bytequay.core.domain.GoalSource;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.JiraIssueTask;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.WorkItem;
+import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.JiraIssueTaskStore;
+import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -75,7 +78,8 @@ class TestJiraService
     private final GoalService goals = mock(GoalService.class);
     private final ObjectProvider<GoalService> goalsProvider = mock(ObjectProvider.class);
     private final JiraCache cache = new JiraCache(settings, mapper);
-    private final JiraService jira = new JiraService(remote, cache, tasks, workspaces, settingsProvider, goalsProvider, new JiraActivityLog(cache));
+    private final WorkItemStore workItems = mock(WorkItemStore.class);
+    private final JiraService jira = new JiraService(remote, cache, tasks, workspaces, settingsProvider, goalsProvider, new JiraActivityLog(cache), workItems);
     private final Map<String, String> saved = new HashMap<>();
 
     @BeforeEach
@@ -187,7 +191,7 @@ class TestJiraService
                 .contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
         when(goalsProvider.getObject()).thenReturn(goals);
         assertThat(jira.goal("connection", "cloud", "1001", true).issue().isGoal()).isTrue();
-        // Marking seeds the ticket's workspace goal; unmarking removes it. Neither reaches Jira.
+        // Marking seeds the ticket's workspace goal; unmarking unseeds it. Neither reaches Jira.
         GoalSource source = new GoalSource(GoalItemKind.JIRA, "connection:cloud:1001");
         verify(goals).seed("workspace", source, issue.title());
         assertThat(jira.goal("connection", "cloud", "1001", false).issue().isGoal()).isFalse();
@@ -195,7 +199,7 @@ class TestJiraService
         verifyNoInteractions(remote);
         assertThat(jira.refreshIssue("connection", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
         JiraCache reopenedCache = new JiraCache(settings, mapper);
-        JiraService reopened = new JiraService(remote, reopenedCache, tasks, workspaces, settingsProvider, goalsProvider, new JiraActivityLog(reopenedCache));
+        JiraService reopened = new JiraService(remote, reopenedCache, tasks, workspaces, settingsProvider, goalsProvider, new JiraActivityLog(reopenedCache), workItems);
         assertThat(reopened.issue("other", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace("workspace", "Renamed")));
         assertThat(reopened.issue("other", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "Renamed"));
@@ -217,6 +221,25 @@ class TestJiraService
         assertThat(jira.issue("connection", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
         assertThatThrownBy(() -> jira.assignWorkspace("connection", "cloud", "1001", "other-workspace")).hasMessageContaining("another workspace");
         assertThat(jira.assignWorkspace("connection", "cloud", "1001", "workspace").issue().task()).contains(new JiraDtos.TaskLink("task", "workspace"));
+        verifyNoInteractions(remote);
+    }
+
+    @Test
+    void workItemOwnsWorkspaceSoTheTicketStaysStartable()
+            throws Exception
+    {
+        JiraIssue issue = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", ticket());
+        cache.write("connection.cloud.issue.1001", issue);
+        cache.write("workspace.cloud.1001", "workspace");
+        when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace("workspace", "ByteQuay")));
+        when(workspaces.findById("other-workspace")).thenReturn(Optional.of(workspace("other-workspace", "Other")));
+        WorkItem owner = new WorkItem("work", "workspace", Optional.of("goal"), issue.title(), WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY,
+                WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), UPDATED, UPDATED);
+        when(workItems.findByIdentity(WorkItemLink.jiraIdentity("cloud", "1001"))).thenReturn(Optional.of(owner));
+        // Launches there would be refused by the work item, and here by the assignment.
+        assertThatThrownBy(() -> jira.assignWorkspace("connection", "cloud", "1001", "other-workspace")).hasMessageContaining("work item belongs to another workspace");
+        assertThat(jira.issue("connection", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
+        assertThat(jira.assignWorkspace("connection", "cloud", "1001", "workspace").issue().workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
         verifyNoInteractions(remote);
     }
 

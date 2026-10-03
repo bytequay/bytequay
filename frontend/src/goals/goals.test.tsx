@@ -17,7 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AttentionItem } from '../home/attention';
 import type { JiraIssue } from '../jira/contracts';
 import type { AgentTaskDto } from '../types';
-import type { GoalDto, GoalItemDto } from './contracts';
+import type { GoalDto, GoalItemDto, WorkItemDto } from './contracts';
 import { parseGoal } from './contracts';
 import { GoalPanel, type GoalPanelProps } from './GoalPanel';
 import {
@@ -33,14 +33,19 @@ function item(kind: GoalItemDto['kind'], key: string, label: string, state: Goal
 
 const ITEMS: GoalItemDto[] = [
   item('PULL_REQUEST', 'trinodb/trino#30925', '#30925', 'WORKING', 'Open', { activity: { text: '#30925 updated', at: '2026-09-27T08:00:00Z' } }),
-  item('PULL_REQUEST', 'trinodb/trino#30702', '#30702', 'FINISHED', 'Merged', { activity: { text: '#30702 merged', at: '2026-09-27T09:00:00Z' } }),
+  item('PULL_REQUEST', 'trinodb/trino#30702', '#30702', 'MERGED', 'Merged', { activity: { text: '#30702 merged', at: '2026-09-27T09:00:00Z' } }),
   item('ISSUE', 'trinodb/trino#31302', '#31302', 'IDLE', 'Open'),
   item('JIRA', 'connection:cloud:10412', 'TRINO-412', 'WORKING', 'Blocked', { blocked: true, activity: { text: 'TRINO-412 is Blocked', at: '2026-09-26T09:00:00Z' } }),
-  item('TASK', 'task-1', 'Task', 'FINISHED', 'Completed'),
+  item('TASK', 'task-1', 'Task', 'ENDED', 'Completed'),
 ];
 const GOAL: GoalDto = {
   id: 'goal-1', workspaceId: 'workspace-1', title: 'Iceberg & Delta Lake correctness for 482', description: 'Land the fixes before 482.', pinned: true,
-  source: null, items: ITEMS, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-27T00:00:00Z',
+  source: null, items: ITEMS.map((link, index): WorkItemDto => ({
+    id: `work-${index}`, workspaceId: 'workspace-1', goalId: 'goal-1', title: link.title, kind: 'DEVELOP', acceptanceCriteria: 'Verified fix',
+    completionRule: 'MERGED_DELIVERY', state: index === 1 ? 'DONE' : index === 2 ? 'PLANNED' : 'WORKING', revision: 0, links: [link],
+    history: link.activity === null ? [] : [{ operationId: `op-${index}`, action: 'ACCEPT', detail: link.activity.text, at: link.activity.at }],
+    createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-27T00:00:00Z',
+  })), createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-27T00:00:00Z',
 };
 
 function attention(extra: Partial<AttentionItem>): AttentionItem {
@@ -69,9 +74,9 @@ describe('goal model', () => {
 
   it('counts progress, pull requests, what needs you and what is blocked', () => {
     const needsYou = needsYouKeys([attention({}), attention({ type: 'issue', number: 31302 }), attention({ number: 1 })]);
-    expect(summarize(GOAL, needsYou)).toEqual({ total: 5, finished: 2, working: 2, idle: 1, prsMerged: 1, prsOpen: 1, needs: 2, blocked: 1 });
-    expect(itemsIn(GOAL, 'needs', needsYou).map((entry) => entry.label)).toEqual(['#30925', '#31302']);
-    expect(itemsIn(GOAL, 'blocked', needsYou).map((entry) => entry.label)).toEqual(['TRINO-412']);
+    expect(summarize(GOAL, needsYou)).toEqual({ total: 5, finished: 1, working: 3, idle: 1, prsMerged: 1, prsOpen: 1, needs: 2, blocked: 1, dropped: 0 });
+    expect(itemsIn(GOAL, 'needs', needsYou).map((entry) => entry.links[0].label)).toEqual(['#30925', '#31302']);
+    expect(itemsIn(GOAL, 'blocked', needsYou).map((entry) => entry.links[0].label)).toEqual(['TRINO-412']);
     expect(recentActivity(GOAL).map((entry) => entry.text)).toEqual(['#30702 merged', '#30925 updated', 'TRINO-412 is Blocked']);
     expect(goalHas(GOAL, { kind: 'TASK', key: 'task-1' })).toBe(true);
     expect(goalHas(null, { kind: 'TASK', key: 'task-1' })).toBe(false);
@@ -93,44 +98,35 @@ describe('goal model', () => {
 
   it('reads a goal the backend sends and refuses a malformed one', () => {
     expect(parseGoal(JSON.parse(JSON.stringify(GOAL)))).toEqual(GOAL);
-    expect(() => parseGoal({ ...GOAL, items: [{ ...ITEMS[0], state: 'DONE' }] })).toThrow('Malformed goal item state');
+    expect(() => parseGoal({ ...GOAL, items: [{ ...GOAL.items[0], state: 'FINISHED' }] })).toThrow('Malformed work item state');
     expect(() => parseGoal({ ...GOAL, pinned: 'yes' })).toThrow('Malformed goal pinned');
   });
 });
 
 function panel(props: Partial<GoalPanelProps>): string {
   return renderToStaticMarkup(
-    <GoalPanel mode="dock" repository="trinodb/trino" goals={[GOAL, { ...GOAL, id: 'goal-2', pinned: false }]} goal={GOAL}
+    <GoalPanel mode="window" repository="trinodb/trino" goals={[GOAL, { ...GOAL, id: 'goal-2', pinned: false }]} goal={GOAL}
       needsYou={new Set(['PULL_REQUEST trinodb/trino#30925'])} now={Date.parse('2026-09-27T12:00:00Z')}
       onClose={() => {}} onExpand={() => {}} onSwitch={() => {}} onCreate={async () => {}} onDelete={async () => {}}
-      onAdd={async () => {}} onRemove={() => {}} onOpenItem={() => {}} search={async () => []} {...props} />);
+      workItems={GOAL.items} onCreateWork={async () => GOAL.items[0]} onDecide={async () => GOAL.items[0]} onLink={async () => GOAL.items[0]} onAdd={async () => {}} onOpenItem={() => {}} search={async () => []} {...props} />);
 }
 
 describe('goal panel', () => {
-  it('lists working and idle items by state with finished ones folded, and what changed lately', () => {
+  it('shows one progress card per outcome and keeps ended tasks unfinished', () => {
     const markup = panel({});
-    expect(markup).toContain('GOAL</span><span class="goal-switch__pos">1 of 2</span>');
-    expect(markup).toContain('>Pinned<');
-    expect(markup).toContain('<span class="goal-progress__count">2</span><span class="goal-muted">of 5 finished</span>');
-    expect(markup).toContain('title="Open full view to manage"');
-    expect(markup).toMatch(/class="goal-group__label">WORKING<\/span><span class="goal-group__count">2</);
-    expect(markup).toMatch(/class="goal-group__label">IDLE<\/span><span class="goal-group__count">1</);
-    // Finished work starts folded.
-    expect(markup).toContain('>Show 2</button>');
-    expect(markup).not.toContain('#30702 title');
-    expect(markup).toContain('class="pill is-red">Blocked<');
-    expect(markup.match(/class="goal-needs"/g)).toHaveLength(1);
-    expect(markup).toContain('aria-label="Remove #30925 from the goal"');
-    expect(markup).toContain('>RECENT ACTIVITY<');
-    expect(markup).toContain('#30702 merged');
+    expect(markup).toContain('of 5 done');
+    expect(markup).toContain('>Done</span><span class="goal-group__count">1</span>');
+    expect(markup).toContain('>Working</span><span class="goal-group__count">3</span>');
+    expect(markup).toContain('Task title');
+    expect(markup).toContain('New work item');
+    expect(markup).toContain('Recent decisions');
   });
 
-  it('lays the board out as idle, working and finished columns', () => {
+  it('shows planned, working, done and dropped on the board', () => {
     const markup = panel({ mode: 'board' });
-    expect(markup).toContain('placeholder="Add a PR, issue, Jira ticket or task to this goal…"');
-    expect(markup).toMatch(/IDLE<span class="goal-group__count">1<\/span>.*WORKING<span class="goal-group__count">2<\/span>.*FINISHED<span class="goal-group__count">2</s);
+    expect(markup).toContain('class="goal-columns"');
+    for (const label of ['Planned', 'Working', 'Done', 'Dropped']) expect(markup).toContain(`>${label}</span>`);
     expect(markup).toContain('#30702 title');
-    expect(markup).not.toContain('title="Open full view to manage"');
   });
 
   it('offers a first goal where the workspace has none', () => {

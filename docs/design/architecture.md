@@ -556,6 +556,16 @@ the exact repository-and-number preview endpoint reads GitHub directly, includin
 and repositories without a workspace, without changing the open-only issue projection. The preview
 preserves GitHub's issue state and identifies issue-form URLs that actually refer to pull requests.
 
+Goal planning keeps the objective in `Goal` and accepted outcomes in `WorkItem`,
+with framework-free values and store ports in `core` and Hibernate adapters in
+`persistence-sqlite`. SQLite reserves one owner for each canonical issue/Jira
+source and task identity across workspaces. Decisions use revision checks and
+retry identities. Application-level source admission saves task, accepted source
+and work-item association in the same existing transaction. Goal reads project
+local reference activity; they never call a model or change outcome state.
+Explicit acceptance, reopening and Goal moves retain the item's identity and
+history. See [Goal guidance](goal-guidance.md) for current limits and later work.
+
 ### 6.3 Agent task flow
 
 The Codex/Claude adapters, backend task/event services, Electron bridge, and

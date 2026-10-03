@@ -14,7 +14,8 @@ historical checkpoint evidence and explicitly deferred future work.
   issue/ticket discovery, accepted work items, durable outcomes and automatic
   next-step guidance in the existing Goal panel. Its
   [implementation plan](goal-guidance-impl-tmp.md) covers trustworthy progress,
-  one record per outcome and clear organization. Implementation has not started.
+  one record per outcome and clear organization. The local work-item foundation
+  is implemented; Goal conversation, discovery and automatic guidance remain planned.
 
 - [Private circles](teams.md) defines account-local trusted circles, shared Home
   attention preference, the Circles page, bounded member activity, and observed

@@ -18,8 +18,10 @@ import com.bytequay.app.service.goal.GoalItemState;
 import com.bytequay.app.service.goal.GoalItemView;
 import com.bytequay.app.service.goal.GoalService;
 import com.bytequay.app.service.goal.GoalView;
+import com.bytequay.app.service.goal.WorkItemView;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalSource;
+import com.bytequay.core.domain.WorkItem;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -44,10 +46,13 @@ class TestGoalController
 {
     private static final Instant NOW = Instant.parse("2026-09-28T10:00:00Z");
     private static final GoalItemView MERGED = new GoalItemView(GoalItemKind.PULL_REQUEST, "trinodb/trino#30702", "#30702", "Retry Iceberg commits",
-            GoalItemState.FINISHED, "Merged", false, Optional.of("https://github.com/trinodb/trino/pull/30702"),
+            GoalItemState.MERGED, "Merged", false, Optional.of("https://github.com/trinodb/trino/pull/30702"),
             Optional.of(new GoalActivity("#30702 merged", NOW)), Optional.of(NOW));
     private static final GoalView GOAL = new GoalView("goal-1", "workspace", "Delta Lake correctness", "", true,
-            Optional.of(new GoalSource(GoalItemKind.ISSUE, "trinodb/trino#31000")), ImmutableList.of(MERGED), NOW, NOW);
+            Optional.of(new GoalSource(GoalItemKind.ISSUE, "trinodb/trino#31000")),
+            ImmutableList.of(new WorkItemView("work-1", "workspace", Optional.of("goal-1"), "Retry Iceberg commits", WorkItem.Kind.DEVELOP,
+                    "", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.WORKING, 0,
+                    ImmutableList.of(MERGED), ImmutableList.of(), NOW, NOW)), NOW, NOW);
 
     private final GoalService goals = mock(GoalService.class);
     private final MockMvc mvc = standaloneSetup(new GoalController(goals)).build();
@@ -61,12 +66,12 @@ class TestGoalController
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].pinned").value(true))
                 .andExpect(jsonPath("$[0].source.kind").value("ISSUE"))
-                .andExpect(jsonPath("$[0].items[0].kind").value("PULL_REQUEST"))
-                .andExpect(jsonPath("$[0].items[0].label").value("#30702"))
-                .andExpect(jsonPath("$[0].items[0].state").value("FINISHED"))
-                .andExpect(jsonPath("$[0].items[0].url").value("https://github.com/trinodb/trino/pull/30702"))
-                .andExpect(jsonPath("$[0].items[0].activity.text").value("#30702 merged"))
-                .andExpect(jsonPath("$[0].items[0].addedAt").exists());
+                .andExpect(jsonPath("$[0].items[0].links[0].kind").value("PULL_REQUEST"))
+                .andExpect(jsonPath("$[0].items[0].links[0].label").value("#30702"))
+                .andExpect(jsonPath("$[0].items[0].state").value("WORKING"))
+                .andExpect(jsonPath("$[0].items[0].links[0].url").value("https://github.com/trinodb/trino/pull/30702"))
+                .andExpect(jsonPath("$[0].items[0].links[0].activity.text").value("#30702 merged"))
+                .andExpect(jsonPath("$[0].items[0].links[0].addedAt").exists());
     }
 
     @Test

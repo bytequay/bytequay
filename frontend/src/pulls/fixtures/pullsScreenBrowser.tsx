@@ -14,7 +14,8 @@
 
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import type { AgentStreamMessage, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullTimelinePayloadDto } from '../../types';
+import type { AgentStreamMessage, AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullTimelinePayloadDto } from '../../types';
+import { SUMMARY_REQUEST, type AskCommentDiscussionRequest } from '../../agents/discussions/contracts';
 import PullOverview from '../PullOverview';
 import PullRequestTaskActions from '../PullRequestTaskActions';
 import PullsScreen, { remotePullRequest, ReviewDialog } from '../PullsScreen';
@@ -1031,6 +1032,82 @@ export async function runTitleEdit(): Promise<string> {
     detail = { ...detail, viewerCanWrite: false }; render();
     assert(host.querySelector('[aria-label="Edit pull request title"]') === null, 'Another author requires write permission');
     return 'Inline title edits preserve drafts and scope writes to the selected PR';
+  }
+  finally {
+    flushSync(() => root.unmount());
+    host.remove();
+    window.bridge = original;
+  }
+}
+
+export async function runPrivateThreads(): Promise<string> {
+  const at = '2026-10-01T00:00:00Z';
+  const detail: PullRequestDetailDto = {
+    id: 8, repo: 'owner/repo', number: 8, title: 'Resolve owners', htmlUrl: null, state: 'open', draft: false,
+    mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: at, updatedAt: at,
+    mergedAt: null, baseRef: 'main', headRef: 'feature', body: 'Resolves owners.', labels: [], assignees: [], milestone: null,
+    reviewers: [], additions: 1, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, checkRuns: [], unavailableSections: [],
+    viewerCanWrite: true,
+    recentActivity: [
+      { actor: 'carol', eventType: 'commented', timestamp: at, body: 'Should this cache be keyed by id?', githubId: 81, payload },
+      { actor: 'alice', eventType: 'commented', timestamp: at, body: 'Good point, checking.', githubId: 82, payload },
+    ],
+  };
+  const task: AgentTaskDto = { ...previewTask('workspace-1', 'development-task'), checkoutRemovedAt: null };
+  const asked: AskCommentDiscussionRequest[] = [];
+  const original = window.bridge;
+  const bridge = {
+    getUserProfile: async () => ({ login: 'alice', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
+      following: 0, bio: null, location: null, company: null, email: null }),
+    fetchPullRequestDetailByRef: async () => detail,
+    refreshPullRequestDetailByRef: async () => ({ full: true as const, detail, status: null }),
+    fetchPrDiffFiles: async () => [file('owner.txt')],
+    fetchPrDiffCommits: async () => commits,
+    findAgentReview: async () => null,
+    findPullRequestTask: async () => ({ workspaceId: task.workspaceId, taskId: task.id, taskState: 'OPEN', version: 1, linked: true }),
+    getAgentTask: async () => task,
+    listTaskDiscussions: async () => [],
+    askTaskDiscussionComment: async request => {
+      asked.push(request);
+      return { id: 'thread-1', taskId: request.taskId, turnId: 'review-comment', quote: request.key, occurrence: 1, resolved: false,
+        pending: true, providerLane: 'codex', version: 1, createdAt: at, updatedAt: at,
+        comment: { repo: request.repo, number: request.number, key: request.key },
+        messages: [{ id: 'hidden', author: 'USER', body: SUMMARY_REQUEST, createdAt: at, error: null }] };
+    },
+    listLocalReviewComments: async () => [],
+    listWorkspaces: async () => [],
+    fetchAttentionPrs: async () => [],
+    setPrAttentionHandled: async () => {},
+    fetchMergeMode: async () => ({ mergeQueue: false }),
+    recordRecentTouch: async () => {},
+  } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'fetchPrDiffFiles'
+    | 'fetchPrDiffCommits' | 'findAgentReview' | 'findPullRequestTask' | 'getAgentTask' | 'listTaskDiscussions' | 'askTaskDiscussionComment'
+    | 'listLocalReviewComments' | 'listWorkspaces' | 'fetchAttentionPrs' | 'setPrAttentionHandled' | 'fetchMergeMode' | 'recordRecentTouch'>;
+  Object.assign(window, { bridge });
+  const host = document.createElement('div');
+  host.style.width = '1200px';
+  host.style.height = '800px';
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    flushSync(() => root.render(<PullsScreen initialPr={{ repo: 'owner/repo', number: 8 }}
+      repositoryScope={{ workspaceId: 'workspace-1', repository: 'owner/repo' }} onClose={() => {}} />));
+    for (let attempt = 0; attempt < 30 && host.querySelector('.pr-private-strip') === null; attempt++) await settle();
+    assert(host.querySelector('.pr-private-strip') !== null && host.textContent?.includes('Should this cache be keyed by id?') === true,
+      'A pull request its development task owns must show the private threads strip on its page');
+    const asks = [...host.querySelectorAll<HTMLButtonElement>('.pr-ask-agent')];
+    assert(asks.length === 1, `Only carol's comment may offer Ask agent, not the viewer's own; found ${asks.length}`);
+    asks[0].click();
+    await settle();
+    const field = host.querySelector<HTMLTextAreaElement>('[aria-label="Private question to the agent"]');
+    assert(field !== null && host.textContent?.includes('on carol’s comment · only the agent sees this') === true,
+      'Ask agent must bring carol’s private thread forward');
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }));
+    await settle();
+    assert(asked.length === 1 && asked[0].taskId === task.id && asked[0].workspaceId === task.workspaceId
+      && asked[0].repo === 'owner/repo' && asked[0].number === 8 && asked[0].key === 'issue_comment:81' && asked[0].question === '',
+    `The development task must answer the page's question: ${JSON.stringify(asked)}`);
+    return 'The pull-request page hosts its development task’s private threads on other people’s comments';
   }
   finally {
     flushSync(() => root.unmount());

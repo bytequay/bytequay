@@ -24,7 +24,7 @@ import MarkdownBody from './MarkdownBody';
 import { remoteErrorMessage } from './PullOverview';
 import LocalCard, { LocalCardMessage } from './local-review/LocalCard';
 
-/** What the task screen supplies; absent everywhere else, so no other surface renders any of this. */
+/** What the conversation's host supplies; absent where the pull request has none, so nothing here renders there. */
 export type PrivateThreadSource = {
   /** This pull request's comment threads, by comment key. */
   threads: ReadonlyMap<string, TaskDiscussionDto>;

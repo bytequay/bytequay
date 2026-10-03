@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { Bell, Check, CircleSlash, Code, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, PanelRight, RefreshCw, UserRound, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
@@ -35,6 +35,8 @@ import MarkdownEditor from './MarkdownEditor';
 import BetterWordsButton from './BetterWordsButton';
 import PullOverview, { commentedCodeLines, CommentedCodeLine, isQueued, mergePullRequestWriteDetail, remoteErrorMessage, useViewer, type PullDetailUpdater } from './PullOverview';
 import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
+import { privateThreadSource, PrivateThreadsStrip, usePrivateThreads, type PrivateThreadSource } from './PrivateThread';
+import { useTaskDiscussions } from '../agents/discussions/useTaskDiscussions';
 import UserAvatar from '../UserAvatar';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
 import { reviewCommentGroups } from './lineRangeSelection';
@@ -792,6 +794,10 @@ export default function PullsScreen({
   const codeTaskLoading = reviewWorkspace === undefined && codeTaskKey !== null && codeTaskLookup?.key !== codeTaskKey;
   // The user's own pull request has Code & Tests only while a development task or a review holds a worktree for it.
   const codeTabShown = codeTask !== null || review !== null;
+  // Private threads on the conversation's comments belong to the development task Code & Tests reads.
+  const threadTask = codeTask === null ? null : { taskId: codeTask.id, workspaceId: codeTask.workspaceId };
+  const taskDiscussions = useTaskDiscussions(threadTask, { active: detailTab === 'overview' });
+  const privateThreads = threadTask === null || selectedPr === null ? undefined : privateThreadSource(taskDiscussions, selectedPr);
 
   useEffect(() => {
     setReviewContext(null);
@@ -1190,6 +1196,7 @@ export default function PullsScreen({
             </div>}
             {(detailTab === 'overview' || detailTab === 'files') && <DetailBody
               localReview={localReview}
+              privateThreads={privateThreads}
               ownReviewStream={reviewWorkspace === undefined}
               tab={detailTab}
               toolbarTarget={changesToolbar}
@@ -2032,7 +2039,7 @@ function ConflictIcon() {
 }
 
 function DetailBody({
-  tab, localReview, ownReviewStream, taskActions, toolbarTarget, defaultTreeOpen,
+  tab, localReview, privateThreads, ownReviewStream, taskActions, toolbarTarget, defaultTreeOpen,
   pr,
   detail,
   workspaceId,
@@ -2062,6 +2069,8 @@ function DetailBody({
   toolbarTarget?: HTMLElement | null;
   defaultTreeOpen?: boolean;
   localReview?: LocalReviewThreads;
+  /** The private threads of the conversation's host; absent when the pull request has none. */
+  privateThreads?: PrivateThreadSource;
   /** False in the review workspace, whose conversation pane already streams this review. */
   ownReviewStream: boolean;
   taskActions?: ReactNode;
@@ -2143,7 +2152,8 @@ function DetailBody({
       onDetailChange={onReviewPosted}
     /></div>;
   }
-  return <div className="pull-detail__body"><PullOverview
+  return <div className="pull-detail__body"><PullConversation
+    source={privateThreads}
     taskActions={taskActions}
     localReview={localReview}
     key={`${pr.repo.toLowerCase()}#${pr.number}`}
@@ -2154,6 +2164,15 @@ function DetailBody({
     onDetailUpdate={onDetailUpdate}
     onDetailChange={onDiscussionPosted}
   /></div>;
+}
+
+/** The conversation and its private threads, whose view state the key resets for each pull request. */
+function PullConversation({ source, ...overview }: { source?: PrivateThreadSource } & Omit<ComponentProps<typeof PullOverview>, 'privateThreads'>) {
+  const privateThreads = usePrivateThreads(source);
+  return <>
+    {privateThreads !== undefined && <PrivateThreadsStrip threads={privateThreads} />}
+    <PullOverview {...overview} privateThreads={privateThreads} />
+  </>;
 }
 
 export function RefreshIcon() {

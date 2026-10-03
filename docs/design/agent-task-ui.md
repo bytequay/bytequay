@@ -963,12 +963,18 @@ repository chip and three starting points that fill it as pills in one row
 above it, the repository's own **Needs attention** rows (drawn from the same
 candidates and ack/snooze store as the application Home, as described below),
 and the open tasks as a responsive
-grid of compact cards. A card names the task and its state (**Needs you**,
+grid of compact cards. Running development tasks and reviews come first,
+preserving their source order within the running and remaining groups. Reviews
+waiting for approval or recovery also remain visible; finished and stopped
+reviews stay in Tasks. A review card names its PR or local changes, shows its
+Review type and provider, and opens that exact review's workspace conversation.
+A card names the task and its state (**Needs you**,
 Running, Idle), then why it waits on the user or the start of what it last
 said, then its lane, model and age beside its pull request or what its checkout
 holds. The page reads the task list and `GET /agent/tasks/activity` on one
-short tick rather than each card polling its own task. Hovering a card shows
-Rename, which edits the name in place through the ordinary rename, and Hide
+short tick rather than each card polling its own task. Reviews use the same
+workspace workflow feed and refresh interval as Tasks. Hovering a development
+card shows Rename, which edits the name in place through the ordinary rename, and Hide
 from Home, which keeps a renderer-local per-workspace set
 (`bq.home.hiddenTasks.{workspaceId}`) and leaves the task in Tasks and the
 overview. A hidden card comes back on its own when its task needs recovery or

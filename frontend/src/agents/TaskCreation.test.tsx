@@ -52,7 +52,7 @@ const props = {
 
 describe.each(['Home', 'Tasks'])('first-message feedback on %s', (surface) => {
   const render = (overrides: Partial<typeof props>) => renderToStaticMarkup(surface === 'Home'
-    ? <AgentHomeView {...props} {...overrides} repository="bytequay/bytequay" onShowAll={() => {}} />
+    ? <AgentHomeView {...props} {...overrides} repository="bytequay/bytequay" onOpenReview={() => {}} onShowAll={() => {}} />
     : <AgentTaskList {...props} {...overrides} />);
 
   it('shows the submitted message and images while creation is pending, without mutable creation controls', () => {

@@ -16,7 +16,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { setCached } from '../dataCache';
 import { ATTENTION_SEED, type AttentionItem } from '../home/attention';
-import type { PullRequestDto } from '../types';
+import { reviewFixture, runningReviewFixture } from '../pulls/agent-review/fixtures/review';
+import type { AgentTaskDto, PullRequestDto } from '../types';
 import { useWorkspaceAttention } from '../workspaces/workspaceAttention';
 import AgentHome from './AgentHome';
 import AgentTasksView from './AgentTasksView';
@@ -33,7 +34,7 @@ function WorkspaceHome({ workspaceId }: { workspaceId: string }) {
   const attention = useWorkspaceAttention(workspaceId, 'octo/app', taskAttention);
   return (
     <AgentHome workspaceId={workspaceId} repository="octo/app" taskAttention={taskAttention} attention={attention}
-      bridge={createPreviewBridge(workspaceId)} onOpenTask={() => {}} onShowAll={() => {}} onStartIssue={() => {}} />
+      bridge={createPreviewBridge(workspaceId)} onOpenTask={() => {}} onOpenReview={() => {}} onShowAll={() => {}} onStartIssue={() => {}} />
   );
 }
 
@@ -90,6 +91,45 @@ describe('agent home on a return visit', () => {
 
     expect(markup).toMatch(/<span class="card-link" title="Clean up nits"><span class="card-src is-pr"><svg[^>]*>.*?<\/svg><\/span><span class="card-key">#31105<\/span><\/span>/);
     expect(markup).toContain('2 commits');
+  });
+
+  it('puts running development and review cards first and keeps reviews needing the user visible', () => {
+    const workspaceId = 'workspace-running';
+    const idle: AgentTaskDto = { ...previewTask(workspaceId, 'idle'), title: 'Newer idle task', mutationClaim: null };
+    const running = { ...idle, id: 'running', title: 'Older running task', updatedAt: '2026-08-01T00:00:00Z',
+      mutationClaim: { kind: 'TURN', ownerId: 'turn', acquiredAt: '2026-08-01T00:00:00Z' } };
+    setCached(`agent-tasks:${workspaceId}`, [
+      idle, running, { ...idle, id: 'automation', title: 'Delivery running', developmentContinuationUnfinished: true },
+      { ...running, id: 'archived', title: 'Archived task', archivedAt: '2026-08-02T00:00:00Z' },
+    ]);
+    const review = { ...runningReviewFixture(), workspaceId, pullRequest: { title: 'Running PR review', state: 'open', draft: false } };
+    setCached(`task-work:${workspaceId}`, {
+      reviews: [
+        reviewFixture({ id: 'finished', number: 1 }),
+        { ...review, id: 'stopped', number: 2, followUpPaused: true, activeTurn: null, task: { ...review.task, mutationClaim: null } },
+        { ...review, id: 'closed', number: 3, state: 'CLOSED' },
+        { ...review, id: 'approval', number: 4, pendingApprovals: 1, pullRequest: { ...review.pullRequest, title: 'Approval review' } },
+        review,
+        // Between review assignments there may be no live turn, but the review still runs.
+        { ...review, id: 'local', number: null, activeTurn: null, task: { ...review.task, mutationClaim: null } },
+        { ...review, id: 'recovery', number: 5, activeTurn: null, task: { ...review.task, mutationClaim: 'RECOVERY' },
+          pullRequest: { ...review.pullRequest, title: 'Recovery review' } },
+      ],
+      executions: [], runs: [], failed: [],
+    });
+
+    const markup = home(workspaceId);
+    expect(markup).toContain('Open tasks · 7');
+    expect([...markup.matchAll(/aria-label="Open (?:task|review): ([^"]+)"/g)].map(match => match[1])).toEqual([
+      'Older running task', 'Delivery running', '#30304 Running PR review', 'trinodb/trino · Local changes',
+      'Newer idle task', '#4 Approval review', '#5 Recovery review',
+    ]);
+    expect(markup.match(/>Running<\/span>/g)).toHaveLength(4);
+    expect(markup.match(/>Needs you<\/span>/g)).toHaveLength(2);
+    expect(markup).toContain('Review · Codex');
+    expect(markup).toContain('Approval needed');
+    expect(markup).toContain('Could not be shown to have stopped');
+    expect(markup).not.toContain('Rename task: #30304');
   });
 
   it('paints a window from its last state instead of an empty card', () => {

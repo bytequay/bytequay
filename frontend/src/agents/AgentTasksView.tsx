@@ -629,7 +629,7 @@ function failureMessage(failure: unknown): string {
 
 const NO_TASK_ATTENTION: TaskAttention = { items: [], tasks: [], activity: {}, refresh: () => {} };
 
-/** How often the Tasks page re-reads workflow activity. */
+/** How often Home and Tasks re-read workflow activity. */
 const WORK_POLL_MS = 5000;
 
 type WorkspaceWork = { reviews: AgentReviewDto[]; executions: CherryPickExecution[]; runs: CiAutofixRunDto[]; failed: string[] };
@@ -640,7 +640,7 @@ const NO_WORK: WorkspaceWork = { reviews: [], executions: [], runs: [], failed: 
  * The workspace's workflow runs, re-read while the page is visible. A source
  * that cannot be read keeps its last answer and is named until a read succeeds again.
  */
-function useWorkspaceWork(workspaceId: string, bridge: () => AgentBridgePort): WorkspaceWork {
+export function useWorkspaceWork(workspaceId: string, bridge: () => AgentBridgePort): WorkspaceWork {
   const seed = `task-work:${workspaceId}`;
   const [work, setWork] = useState<WorkspaceWork>(() => getCached<WorkspaceWork>(seed) ?? NO_WORK);
   useEffect(() => {

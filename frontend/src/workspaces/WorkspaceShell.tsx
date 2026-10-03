@@ -321,6 +321,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         goal={goalToggle}
         inGoal={(task) => goalHas(goals.pinned, { kind: 'TASK', key: task.id })}
         onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
+        onOpenReview={openReviewWorkspace}
         onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
         onShowAll={() => setOverviewOpen(true)}
         onOpenPullRequest={zoomPullRequest}

@@ -130,6 +130,7 @@ describe('agent home and overview', () => {
         onSelectProvider={() => {}}
         onCreate={() => {}}
         onOpenTask={() => {}}
+        onOpenReview={() => {}}
         onShowAll={() => {}}
       />);
 
@@ -189,6 +190,7 @@ describe('agent home and overview', () => {
         onSelectProvider={() => {}}
         onCreate={() => {}}
         onOpenTask={() => {}}
+        onOpenReview={() => {}}
         onShowAll={() => {}}
       />);
 

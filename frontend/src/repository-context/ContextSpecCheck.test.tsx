@@ -18,7 +18,7 @@ import { SpecCheckDrawer, type SpecCheckActions, type SpecCheckData } from './Co
 
 const actions: SpecCheckActions = { start: () => {}, stop: () => {}, dismissFinding: () => {}, openIssue: () => {}, say: () => {} };
 const check: ContextSpecCheckDto = { id: 'check-1', directory: 'plugin/trino-iceberg/', baselineSha: 'a'.repeat(40), requestKey: 'key',
-  specs: ['https://iceberg.apache.org/spec/'], checkedAgainst: [], labels: [], state: 'CHECKING', candidates: [], covered: [], next: [], reproductions: 0,
+  specs: ['https://iceberg.apache.org/spec/'], checkedAgainst: [], labels: [], state: 'CHECKING', candidates: [], covered: [], next: [], reproductions: 0, maxReproductions: 3,
   detail: null, startedAt: '2026-10-02T00:00:00Z', endedAt: null };
 const running: ContextBuildViewDto = { buildRequestSequence: 1, canStart: false, build: { kind: 'CHECK', requestKey: 'key', taskId: 'task', checkId: 'check-1', task: null,
   activeTurn: { cancellationRequestedAt: null }, pendingApprovals: 0, outcome: 'RUNNING', detail: null, activity: [] } };
@@ -32,6 +32,14 @@ describe('spec check drawer', () => {
     expect(markup).toContain('aria-label="Filter modules"');
     expect(markup).toContain('Listing the repository’s modules…');
     expect(markup).not.toContain('Check against spec');
+  });
+
+  it('lets the user pick how many candidates a new check reproduces, three by default', () => {
+    const markup = renderToStaticMarkup(<SpecCheckDrawer data={data([], { buildRequestSequence: 0, canStart: true, build: null })} actions={actions} busy={false}
+      directory="plugin/trino-delta-lake/" onClose={() => {}} />);
+    expect(markup).toContain('aria-label="Reproductions"');
+    expect(markup).toContain('<option value="3" selected="">3</option><option value="8">8</option>');
+    expect(markup).toContain('then up to 3 reproduction turns that write and run tests in its worktree');
   });
 
   it('marks the specifications the check proposed because the code does not link them', () => {

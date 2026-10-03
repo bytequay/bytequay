@@ -40,8 +40,8 @@ export function modelLine(models: ModelSettingsDto | null): { label: string; blo
   return { label, blocker: null };
 }
 
-/** A spec check reproduces at most this many candidates, most severe first. */
-export const CHECK_REPRODUCTIONS = 8;
+/** How many candidates the user lets a check reproduce, most severe first: each reproduction is a build. The first is the default. */
+export const REPRODUCTION_LIMITS: number[] = [3, 8];
 
 export function checkActive(check: ContextSpecCheckDto): boolean {
   return check.state === 'CHECKING' || check.state === 'REPRODUCING';
@@ -56,5 +56,5 @@ export function activeCheck(checks: ContextSpecCheckDto[]): ContextSpecCheckDto 
 export function checkProgress(check: ContextSpecCheckDto): string {
   if (check.state === 'CHECKING') return check.candidates.length === 0 ? 'Reading the specs and the code' : `${plural(check.candidates.length, 'candidate')} saved so far`;
   const waiting = check.candidates.filter(candidate => candidate.status === 'PENDING').length;
-  return `Reproduction ${check.reproductions} of up to ${Math.min(CHECK_REPRODUCTIONS, check.reproductions + waiting)}`;
+  return `Reproduction ${check.reproductions} of up to ${Math.min(check.maxReproductions, check.reproductions + waiting)}`;
 }

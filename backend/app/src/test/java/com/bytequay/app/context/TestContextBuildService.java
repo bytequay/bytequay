@@ -430,7 +430,7 @@ class TestContextBuildService
                 ImmutableList.of("plugin/iceberg/README.md:1-2"), "why", 2, Optional.empty(), status, Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty());
         return new ContextSpecCheck("check-1", DIRECTORY, SHA, "check", ImmutableList.of("https://example.com/spec"), ImmutableList.of("https://example.com/spec"),
-                ImmutableList.of(), ContextSpecCheck.State.REPRODUCING, ImmutableList.of(candidate), ImmutableList.of(), ImmutableList.of(), 1, Optional.empty(), NOW,
+                ImmutableList.of(), ContextSpecCheck.State.REPRODUCING, ImmutableList.of(candidate), ImmutableList.of(), ImmutableList.of(), 1, 8, Optional.empty(), NOW,
                 Optional.empty());
     }
 

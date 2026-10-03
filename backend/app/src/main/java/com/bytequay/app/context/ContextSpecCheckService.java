@@ -150,7 +150,8 @@ public class ContextSpecCheckService
                 request.requestKey(), request.specs(), ImmutableList.of(), labels(workspaces.requireReadableRepository(workspaceId).monitoredRepository()),
                 ContextSpecCheck.State.CHECKING,
                 earlier.map(ContextSpecCheck::kept).orElse(ImmutableList.of()), earlier.map(ContextSpecCheck::covered).orElse(ImmutableList.of()),
-                earlier.map(ContextSpecCheck::next).orElse(ImmutableList.of()), 0, Optional.empty(), Instant.now(clock), Optional.empty()));
+                earlier.map(ContextSpecCheck::next).orElse(ImmutableList.of()), 0, request.maxReproductions(), Optional.empty(), Instant.now(clock),
+                Optional.empty()));
         try {
             ContextBuildService.View view = builds.check(workspaceId, new ContextBuildService.Request(request.requestKey(), request.expectedBuildSequence()),
                     check.baselineSha(), new ContextBuild.Check(check.id(), check.directory(), Optional.empty(), planningBrief(check, earlier, found)));
@@ -527,7 +528,8 @@ public class ContextSpecCheckService
      */
     static String planningBrief(ContextSpecCheck check, Optional<ContextSpecCheck> earlier, List<ContextSpecSource> found)
     {
-        StringBuilder brief = new StringBuilder("Pages the directory's code links, most cited first; decide which are specifications the code implements:\n");
+        StringBuilder brief = new StringBuilder("Pages the user kept from the links in the directory's code, most cited first. Decide which are specifications "
+                + "the code implements; open a page only when its address and citations do not settle that, and read the most cited specification first:\n");
         StringBuilder reference = new StringBuilder();
         for (String spec : check.specs()) {
             Optional<ContextSpecSource> scanned = found.stream().filter(source -> source.url().equals(spec)).findFirst();
@@ -586,14 +588,19 @@ public class ContextSpecCheckService
         return Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
     }
 
-    public record StartRequest(String requestKey, long expectedBuildSequence, String directory, List<String> specs)
+    /**
+     * @param specs the linked pages the user kept and the ones they added; with none, the check proposes the specification
+     * @param maxReproductions how many candidates the check may reproduce, each with a build
+     */
+    public record StartRequest(String requestKey, long expectedBuildSequence, String directory, List<String> specs, int maxReproductions)
     {
         public StartRequest
         {
             ContextLimits.text(requestKey, "requestKey", 90);
+            checkArgument(maxReproductions >= 1 && maxReproductions <= ContextSpecCheck.MAX_REPRODUCTIONS, "A check reproduces 1 to %s candidates",
+                    ContextSpecCheck.MAX_REPRODUCTIONS);
             checkArgument(expectedBuildSequence >= 0, "Revisions must not be negative");
             ContextLimits.pathPrefix(directory);
-            // With none, the check proposes the specification the directory implements.
             specs = ImmutableList.copyOf(specs);
             ContextLimits.unique(specs, "specs", ContextSpecCheck.MAX_SPECS);
             specs.forEach(ContextLimits::documentationUrl);

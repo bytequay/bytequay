@@ -116,10 +116,10 @@ export type ContextSpecCandidateDto = {
 export type ContextSpecCheckDto = {
   id: string; directory: string; baselineSha: string; requestKey: string;
   specs: string[]; checkedAgainst: string[]; labels: string[]; state: ContextSpecCheckState; candidates: ContextSpecCandidateDto[]; covered: string[]; next: string[];
-  reproductions: number; detail: string | null; startedAt: string; endedAt: string | null;
+  reproductions: number; maxReproductions: number; detail: string | null; startedAt: string; endedAt: string | null;
 };
 /** Starts one check of a directory: the pages to find its specs among, and the sections, are the check's to choose. */
-export type StartContextSpecCheckRequest = { requestKey: string; expectedBuildSequence: number; directory: string; specs: string[] };
+export type StartContextSpecCheckRequest = { requestKey: string; expectedBuildSequence: number; directory: string; specs: string[]; maxReproductions: number };
 export type ContextSpecCheckStartedDto = { check: ContextSpecCheckDto; build: ContextBuildViewDto };
 
 /** A repository-relative directory as the backend takes it: no leading slash, a trailing one, no empty, '.' or '..' parts. */
@@ -174,7 +174,8 @@ export function parseContextSpecCheck(value: unknown): ContextSpecCheckDto {
   return { id: text(item.id, 'check id'), directory: text(item.directory, 'check directory'), baselineSha: text(item.baselineSha, 'check baseline'), requestKey: text(item.requestKey, 'check request key'), specs: strings(item.specs, 'check specs'),
     checkedAgainst: strings(item.checkedAgainst, 'checked specs'), labels: strings(item.labels, 'repository labels'), state: oneOf(item.state, ['CHECKING', 'REPRODUCING', 'DONE', 'STOPPED', 'FAILED'], 'check state'),
     candidates: array(item.candidates, 'spec candidates', specCandidate), covered: strings(item.covered, 'covered sections'), next: strings(item.next, 'next sections'),
-    reproductions: count(item.reproductions, 'reproductions'), detail: optionalText(item.detail, 'check detail'), startedAt: text(item.startedAt, 'check start'),
+    reproductions: count(item.reproductions, 'reproductions'), maxReproductions: count(item.maxReproductions, 'reproduction limit'),
+    detail: optionalText(item.detail, 'check detail'), startedAt: text(item.startedAt, 'check start'),
     endedAt: optionalText(item.endedAt, 'check end') };
 }
 export function parseContextSpecChecks(value: unknown): ContextSpecCheckDto[] {
@@ -185,10 +186,12 @@ export function parseContextSpecCheckStarted(value: unknown, workspaceId: string
   return { check: parseContextSpecCheck(item.check), build: parseContextBuildView(item.build, workspaceId) };
 }
 export function parseStartContextSpecCheckRequest(value: unknown): StartContextSpecCheckRequest {
-  const item = request(value, ['requestKey', 'expectedBuildSequence', 'directory', 'specs']);
+  const item = request(value, ['requestKey', 'expectedBuildSequence', 'directory', 'specs', 'maxReproductions']);
   const result = { requestKey: nonblank(item.requestKey, 'spec check request key'), expectedBuildSequence: count(item.expectedBuildSequence, 'expected build sequence'),
-    directory: parseSpecCheckDirectory(item.directory), specs: strings(item.specs, 'specs') };
-  if (result.specs.length === 0 || result.specs.length > 30 || result.specs.some(spec => !spec.startsWith('https://'))) malformed('specs');
+    directory: parseSpecCheckDirectory(item.directory), specs: strings(item.specs, 'specs'), maxReproductions: count(item.maxReproductions, 'reproduction limit') };
+  // With no page, the check proposes the specification the directory implements.
+  if (result.specs.length > 30 || result.specs.some(spec => !spec.startsWith('https://'))) malformed('specs');
+  if (result.maxReproductions < 1 || result.maxReproductions > 8) malformed('maxReproductions');
   return result;
 }
 /** Why a finding is dismissed, and the user's rule to remember for its file when they asked for that. */

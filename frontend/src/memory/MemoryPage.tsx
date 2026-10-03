@@ -130,9 +130,9 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
 
   const data: SpecCheckData = { workspaceId, repository, checks, build, model: modelLine(models), now };
   const actions: SpecCheckActions = {
-    start: (directory, specs) => void perform(async () => {
+    start: (directory, specs, maxReproductions) => void perform(async () => {
       const started = await window.bridge.startRepositoryContextSpecCheck(workspaceId, { requestKey: crypto.randomUUID(),
-        expectedBuildSequence: build.buildRequestSequence, directory, specs });
+        expectedBuildSequence: build.buildRequestSequence, directory, specs, maxReproductions });
       if (!mounted.current) return;
       setBuild(started.build);
       setChecks(value => [...(value ?? []).filter(item => item.directory !== started.check.directory), started.check]);

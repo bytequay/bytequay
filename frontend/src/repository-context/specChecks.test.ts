@@ -12,8 +12,8 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { parseDismissContextSpecFindingRequest, specCheckDirectory, type ContextSpecCandidateDto, type ContextSpecCheckDto } from './contracts';
-import { checkSummary, codeLink, findingFile, issueUrl, moduleRows, openFindings, pageLabel, specAddress } from './specChecks';
+import { parseDismissContextSpecFindingRequest, specCheckDirectory, type ContextSpecCandidateDto, type ContextSpecCheckDto, type ContextSpecSourceDto } from './contracts';
+import { checkSummary, codeLink, defaultPicks, findingFile, issueUrl, moduleRows, openFindings, pageLabel, specAddress } from './specChecks';
 
 const candidate = (id: string, type: ContextSpecCandidateDto['type'], status: ContextSpecCandidateDto['status'],
   patch: Partial<ContextSpecCandidateDto> = {}): ContextSpecCandidateDto => ({ id, type, predicted: type === 'BUG' ? 'DIVERGES' : type === 'FEATURE_REQUEST' ? 'REFUSES' : 'SKIPS_SHOULD',
@@ -22,7 +22,8 @@ const candidate = (id: string, type: ContextSpecCandidateDto['type'], status: Co
 const check = (candidates: ContextSpecCandidateDto[]): ContextSpecCheckDto => ({ id: 'check-1', directory: 'plugin/trino-delta-lake/', baselineSha: 'a'.repeat(40),
   requestKey: 'key', specs: ['https://example.com/spec'],
   checkedAgainst: ['https://example.com/spec'], labels: [],
-  state: 'DONE', candidates, covered: [], next: [], reproductions: 2, detail: null, startedAt: '2026-10-01T00:00:00Z', endedAt: '2026-10-01T01:00:00Z' });
+  state: 'DONE', candidates, covered: [], next: [], reproductions: 2, maxReproductions: 3, detail: null, startedAt: '2026-10-01T00:00:00Z',
+  endedAt: '2026-10-01T01:00:00Z' });
 
 describe('spec check report', () => {
   it('counts confirmed gaps by kind, then what the check could not use', () => {
@@ -52,6 +53,19 @@ describe('spec check modules', () => {
     expect(pageLabel('https://github.com/delta-io/delta')).toBe('delta-io/delta');
     expect(pageLabel('https://www.rfc-editor.org/rfc/rfc9110.html')).toBe('rfc-editor.org · rfc9110.html');
     expect(pageLabel('https://iceberg.apache.org/')).toBe('iceberg.apache.org');
+  });
+
+  it('starts a check with the pages the code cites like a specification, and the ones the last check used', () => {
+    const protocol = 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md';
+    const optimizations = 'https://docs.delta.io/latest/optimizations-oss.html';
+    const sources: ContextSpecSourceDto[] = [
+      { url: protocol, kind: 'PAGE', links: 32, sections: ['add-file-and-remove-file', 'deletion-vector-format'] },
+      { url: optimizations, kind: 'PAGE', links: 2, sections: [] },
+      { url: 'https://delta-users.slack.com/archives/GKTUWT03T/p1585760533005400', kind: 'PAGE', links: 1, sections: [] },
+      { url: 'https://github.com/delta-io/delta/blob/f5ebfbb/spark/src/main/scala/actions.scala', kind: 'REFERENCE_CODE', links: 3, sections: ['L1', 'L2', 'L3'] },
+    ];
+    expect(defaultPicks(sources, null)).toEqual([protocol]);
+    expect(defaultPicks(sources, { ...check([]), checkedAgainst: [optimizations] })).toEqual([protocol, optimizations]);
   });
 
   it('filters modules by every word of their path or page, keeping their rank', () => {

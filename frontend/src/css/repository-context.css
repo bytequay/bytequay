@@ -159,6 +159,11 @@
 .rcp-modules { max-height: 460px; overflow-y: auto; margin: 4px -8px 0; }
 .rcp-module { display: block; width: 100%; padding: 6px 8px; border: 0; border-radius: 6px; background: none; text-align: left; font-size: 12.5px; cursor: pointer; }
 .rcp-module:hover { background: #f6f8fa; }
+.rcp-spec-pick { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+.rcp-spec-pick input { flex: none; margin: 2px 0 0; }
+.rcp-start { display: flex; align-items: center; gap: 12px; }
+.rcp-limit { font-size: 12.5px; color: #57606a; }
+.rcp-limit select { margin-left: 4px; font-size: 12.5px; }
 .rcp-spec-toggle { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: none; padding: 0; text-align: left; cursor: pointer; }
 .rcp-spec-row { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; border-bottom: 1px solid #f0f1f3; font-size: 12.5px; }
 .rcp-spec-row__main { flex: 1; min-width: 0; }

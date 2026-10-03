@@ -28,18 +28,21 @@ import static java.util.Objects.requireNonNull;
  * The latest spec check of one directory: the pages it read to find the specs the code implements, the specs it checked against,
  * the candidate gaps its check turn found, and what reproducing each with a test showed. Only a confirmed candidate is a finding. A
  * later check of the directory keeps the findings.
+ *
+ * @param specs the pages the user kept from the directory's links, and the ones they added
+ * @param maxReproductions how many candidates the user let this check reproduce, most severe first; each is a build
  */
 public record ContextSpecCheck(
         String id, String directory, String baselineSha, String requestKey,
         List<String> specs, List<String> checkedAgainst, List<String> labels, State state, List<Candidate> candidates, List<String> covered, List<String> next,
-        int reproductions, Optional<String> detail, Instant startedAt, Optional<Instant> endedAt)
+        int reproductions, int maxReproductions, Optional<String> detail, Instant startedAt, Optional<Instant> endedAt)
 {
     /** The pages a check may read as specs: every page the directory's code links, and the ones the user adds; with none, it proposes its own. */
     public static final int MAX_SPECS = 30;
     /** A check may also propose this many specifications the code implements without linking them, after reading them. */
     public static final int MAX_PROPOSED = 2;
     public static final int MAX_CANDIDATES = 30;
-    /** A check reproduces at most this many candidates, most severe first. */
+    /** The most candidates a check may reproduce; the user picks this or fewer for each check. */
     public static final int MAX_REPRODUCTIONS = 8;
 
     public ContextSpecCheck
@@ -65,7 +68,8 @@ public record ContextSpecCheck(
         checkArgument(covered.size() <= 100 && next.size() <= 100, "Too many sections");
         covered.forEach(section -> ContextLimits.text(section, "covered section", 200));
         next.forEach(section -> ContextLimits.text(section, "next section", 200));
-        checkArgument(reproductions >= 0 && reproductions <= MAX_REPRODUCTIONS, "Invalid reproduction count");
+        checkArgument(maxReproductions >= 1 && maxReproductions <= MAX_REPRODUCTIONS, "A check reproduces 1 to %s candidates", MAX_REPRODUCTIONS);
+        checkArgument(reproductions >= 0 && reproductions <= maxReproductions, "Invalid reproduction count");
         requireNonNull(detail, "detail is null");
         detail.ifPresent(value -> ContextLimits.text(value, "check detail", 1000));
         requireNonNull(startedAt, "startedAt is null");
@@ -88,27 +92,28 @@ public record ContextSpecCheck(
     {
         checkArgument(!replacement.active(), "An ended check has a final state");
         String reason = switch (replacement) {
-            case DONE -> "Not reached: a check reproduces at most " + MAX_REPRODUCTIONS + " candidates, most severe first";
+            case DONE -> "Not reached: this check reproduces at most " + maxReproductions + (maxReproductions == 1 ? " candidate" : " candidates")
+                    + ", most severe first";
             case STOPPED -> "The check was stopped before reproducing it";
             default -> "The check failed before reproducing it";
         };
         List<Candidate> settled = candidates.stream().map(candidate -> candidate.status() == Status.PENDING || candidate.status() == Status.REPRODUCING
                 ? candidate.withResult(Status.NOT_REPRODUCED, candidate.test(), Optional.of(reason), Optional.empty()) : candidate).toList();
         return new ContextSpecCheck(id, directory, baselineSha, requestKey, specs, checkedAgainst, labels, replacement, settled,
-                covered, next, reproductions, why, startedAt, Optional.of(at));
+                covered, next, reproductions, maxReproductions, why, startedAt, Optional.of(at));
     }
 
     public ContextSpecCheck reproducing(Candidate candidate)
     {
         return new ContextSpecCheck(id, directory, baselineSha, requestKey, specs, checkedAgainst, labels, State.REPRODUCING,
                 replace(candidate.withResult(Status.REPRODUCING, Optional.empty(), Optional.empty(), Optional.empty())), covered, next,
-                reproductions + 1, detail, startedAt, endedAt);
+                reproductions + 1, maxReproductions, detail, startedAt, endedAt);
     }
 
     public ContextSpecCheck withCandidates(List<Candidate> replacement, List<String> checked, List<String> coveredSections, List<String> nextSections)
     {
         return new ContextSpecCheck(id, directory, baselineSha, requestKey, specs, checked, labels, state, replacement,
-                coveredSections, nextSections, reproductions, detail, startedAt, endedAt);
+                coveredSections, nextSections, reproductions, maxReproductions, detail, startedAt, endedAt);
     }
 
     public ContextSpecCheck withCandidate(Candidate replacement)
@@ -131,7 +136,7 @@ public record ContextSpecCheck(
     /** The next candidate to reproduce: most severe first, then in the order found; never one an open issue already reports. */
     public Optional<Candidate> nextToReproduce()
     {
-        if (reproductions >= MAX_REPRODUCTIONS) {
+        if (reproductions >= maxReproductions) {
             return Optional.empty();
         }
         return candidates.stream().filter(candidate -> candidate.status() == Status.PENDING)

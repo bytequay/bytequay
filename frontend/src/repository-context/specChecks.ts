@@ -11,10 +11,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { ContextSpecCandidateDto, ContextSpecCheckDto, ContextSpecModuleDto } from './contracts';
+import type { ContextSpecCandidateDto, ContextSpecCheckDto, ContextSpecModuleDto, ContextSpecSourceDto } from './contracts';
 import { plural } from './model';
 
 export const MAX_SPECS = 30;
+
+/**
+ * The linked pages a new check starts with: those the code cites in two sections or three times, which is how a specification shows,
+ * and the ones the last check of the directory used. Another engine's source code is only for comparison, so the user adds it.
+ */
+export function defaultPicks(sources: ContextSpecSourceDto[], previous: ContextSpecCheckDto | null): string[] {
+  return sources.filter(source => source.kind === 'PAGE' && (source.sections.length >= 2 || source.links >= 3 || previous?.checkedAgainst.includes(source.url) === true))
+    .map(source => source.url);
+}
 
 /** A page's short name in a module row: its repository and file on GitHub, else its host and last path part. */
 export function pageLabel(url: string): string {

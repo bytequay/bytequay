@@ -141,7 +141,7 @@ class TestContextSpecCheckService
         assertThatThrownBy(() -> service.sources(WORKSPACE, "plugin/missing/")).hasMessageContaining("plugin/missing/ is not a directory on main");
 
         ContextSpecCheckService.Started started = service.start(WORKSPACE,
-                new ContextSpecCheckService.StartRequest("start-key", 0, "plugin/trino-delta-lake/", ImmutableList.of(SPEC)));
+                new ContextSpecCheckService.StartRequest("start-key", 0, "plugin/trino-delta-lake/", ImmutableList.of(SPEC), 3));
 
         assertThat(started.check().directory()).isEqualTo("plugin/trino-delta-lake/");
         assertThat(started.check().state()).isEqualTo(ContextSpecCheck.State.CHECKING);
@@ -237,7 +237,23 @@ class TestContextSpecCheckService
         service.saveCandidates(read, ImmutableList.of(), Optional.of(ImmutableList.of(SPEC, iceberg, parquet)), ImmutableList.of(), ImmutableList.of(), this::searched);
         assertThat(current().checkedAgainst()).containsExactly(SPEC, iceberg, parquet);
         // A directory whose code links no page still starts a check, which proposes the specification.
-        assertThat(new ContextSpecCheckService.StartRequest("key", 0, "plugin/trino-iceberg/", ImmutableList.of()).specs()).isEmpty();
+        assertThat(new ContextSpecCheckService.StartRequest("key", 0, "plugin/trino-iceberg/", ImmutableList.of(), 3).specs()).isEmpty();
+    }
+
+    @Test
+    void aCheckReproducesNoMoreCandidatesThanTheUserAllowed()
+    {
+        ContextSpecCheck limited = new ContextSpecCheck("check-1", "plugin/trino-delta-lake/", SHA, "check-request", ImmutableList.of(SPEC), ImmutableList.of(),
+                ImmutableList.of(), ContextSpecCheck.State.CHECKING, ImmutableList.of(candidate("c1", 3, Status.PENDING), candidate("c2", 2, Status.PENDING)),
+                ImmutableList.of(), ImmutableList.of(), 0, 1, Optional.empty(), NOW, Optional.empty());
+
+        ContextSpecCheck reproducing = limited.reproducing(limited.nextToReproduce().orElseThrow());
+        assertThat(reproducing.candidate("c1").status()).isEqualTo(Status.REPRODUCING);
+        assertThat(reproducing.nextToReproduce()).isEmpty();
+        assertThat(reproducing.ended(ContextSpecCheck.State.DONE, Optional.empty(), NOW).candidate("c2").reason())
+                .contains("Not reached: this check reproduces at most 1 candidate, most severe first");
+        assertThatThrownBy(() -> new ContextSpecCheckService.StartRequest("key", 0, "plugin/trino-delta-lake/", ImmutableList.of(SPEC), 9))
+                .hasMessage("A check reproduces 1 to 8 candidates");
     }
 
     @Test
@@ -419,10 +435,10 @@ class TestContextSpecCheckService
         String scala = "https://github.com/delta-io/delta/blob/f5ebfbb/spark/src/main/scala/Checkpoints.scala";
         ContextSpecCheck earlier = new ContextSpecCheck("check-0", "plugin/trino-delta-lake/", SHA, "old",
                 ImmutableList.of(SPEC), ImmutableList.of(SPEC), ImmutableList.of(), ContextSpecCheck.State.DONE, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), 0,
-                Optional.empty(), NOW, Optional.of(NOW));
+                8, Optional.empty(), NOW, Optional.of(NOW));
         ContextSpecCheck withCode = new ContextSpecCheck(check.id(), check.directory(), check.baselineSha(), check.requestKey(), ImmutableList.of(SPEC, GUIDE, scala),
                 ImmutableList.of(), check.labels(), check.state(), check.candidates(),
-                check.covered(), check.next(), 0, Optional.empty(), NOW, Optional.empty());
+                check.covered(), check.next(), 0, 8, Optional.empty(), NOW, Optional.empty());
 
         String brief = ContextSpecCheckService.planningBrief(withCode, Optional.of(earlier), ImmutableList.of(
                 new ContextSpecSource(SPEC, ContextSpecSource.Kind.PAGE, 32, ImmutableList.of("checkpoints", "deletion-vectors")),
@@ -430,7 +446,8 @@ class TestContextSpecCheckService
 
         String propose = "The directory may implement a public specification its code never links, such as a table or file format, a protocol or an RFC. "
                 + "Propose up to 2 such addresses: read each with PAGE, and pass it in specs only when its text states rules the code must follow, never for a guide.\n";
-        assertThat(brief).startsWith("Pages the directory's code links, most cited first; decide which are specifications the code implements:\n"
+        assertThat(brief).startsWith("Pages the user kept from the links in the directory's code, most cited first. Decide which are specifications "
+                + "the code implements; open a page only when its address and citations do not settle that, and read the most cited specification first:\n"
                 + "- " + SPEC + " · cited 32 times · sections the code links: #checkpoints, #deletion-vectors\n"
                 + "- " + GUIDE + " · added by the user\n"
                 + "Reference implementations in another engine, for comparison only and never rules:\n- " + scala + " · cited 3 times\n"
@@ -438,9 +455,10 @@ class TestContextSpecCheckService
                 + "The last check used these as specifications: " + SPEC + "\n"
                 + "Directory: plugin/trino-delta-lake/\n");
         ContextSpecCheck unlinked = new ContextSpecCheck("check-2", "plugin/trino-iceberg/", SHA, "key", ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
-                ContextSpecCheck.State.CHECKING, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), 0, Optional.empty(), NOW, Optional.empty());
+                ContextSpecCheck.State.CHECKING, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), 0, 8, Optional.empty(), NOW, Optional.empty());
         assertThat(ContextSpecCheckService.planningBrief(unlinked, Optional.empty(), ImmutableList.of()))
-                .startsWith("Pages the directory's code links, most cited first; decide which are specifications the code implements:\n(none)\n" + propose);
+                .startsWith("Pages the user kept from the links in the directory's code, most cited first. Decide which are specifications "
+                    + "the code implements; open a page only when its address and citations do not settle that, and read the most cited specification first:\n(none)\n" + propose);
     }
 
     private Optional<Duplicate> searched(int number)
@@ -511,7 +529,7 @@ class TestContextSpecCheckService
     {
         return new ContextSpecCheck("check-1", "plugin/trino-delta-lake/", SHA, "check-request", ImmutableList.of(SPEC, GUIDE), ImmutableList.of(),
                 ImmutableList.of("delta-lake", "correctness"), state, candidates, ImmutableList.of(),
-                ImmutableList.of(), 0, Optional.empty(), NOW, state.active() ? Optional.empty() : Optional.of(NOW));
+                ImmutableList.of(), 0, 8, Optional.empty(), NOW, state.active() ? Optional.empty() : Optional.of(NOW));
     }
 
     private static ContextBuild build(Optional<ContextBuild.Reproduction> reproduction)

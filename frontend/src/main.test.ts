@@ -316,15 +316,20 @@ it('reads a directory’s spec sources and starts a check of it, refusing a forg
   expect(fetch).toHaveBeenLastCalledWith(base + '/modules', expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
   fetch.mockClear();
   expect(() => desktop.handlers.get('repository-context:spec-checks:sources')?.({}, 'workspace/one', 'plugin/../core/')).toThrow('Malformed spec check: directory');
-  const request = { requestKey: 'check-key', expectedBuildSequence: 2, directory: 'plugin/trino-iceberg/', specs: ['https://iceberg.apache.org/spec/'] };
+  const request = { requestKey: 'check-key', expectedBuildSequence: 2, directory: 'plugin/trino-iceberg/', specs: ['https://iceberg.apache.org/spec/'], maxReproductions: 3 };
   expect(() => desktop.handlers.get('repository-context:spec-checks:start')?.({}, 'workspace/one', { ...request, planId: 'plan' })).toThrow('unsupported request field');
+  expect(() => desktop.handlers.get('repository-context:spec-checks:start')?.({}, 'workspace/one', { ...request, maxReproductions: 9 }))
+    .toThrow('Malformed spec check: maxReproductions');
   expect(fetch).not.toHaveBeenCalled();
   const check: ContextSpecCheckDto = { id: 'check-1', directory: 'plugin/trino-iceberg/', baselineSha: 'a'.repeat(40), requestKey: 'check-key', specs: request.specs, checkedAgainst: [],
-    labels: [], state: 'CHECKING', candidates: [], covered: [], next: [], reproductions: 0, detail: null, startedAt: '2026-10-02T00:00:00Z', endedAt: null };
+    labels: [], state: 'CHECKING', candidates: [], covered: [], next: [], reproductions: 0, maxReproductions: 3, detail: null, startedAt: '2026-10-02T00:00:00Z', endedAt: null };
   fetch.mockImplementation(async () => new Response(JSON.stringify({ check, build: { buildRequestSequence: 3, canStart: false, build: null } })));
   await expect(desktop.handlers.get('repository-context:spec-checks:start')?.({}, 'workspace/one', request))
     .resolves.toEqual({ check, build: { buildRequestSequence: 3, canStart: false, build: null } });
   expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ method: 'POST', body: JSON.stringify(request) }));
+  // A directory whose code links no page still starts a check, which proposes the specification.
+  await desktop.handlers.get('repository-context:spec-checks:start')?.({}, 'workspace/one', { ...request, specs: [] });
+  expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ method: 'POST', body: JSON.stringify({ ...request, specs: [] }) }));
   fetch.mockImplementation(async () => new Response(JSON.stringify(check)));
   await expect(desktop.handlers.get('repository-context:spec-checks:dismiss')?.({}, 'workspace/one', 'check/1', 'c1', { reason: 'Filed on GitHub' })).resolves.toEqual(check);
   expect(fetch).toHaveBeenLastCalledWith(base + '/check%2F1/candidates/c1/dismiss', expect.objectContaining({ method: 'POST', body: JSON.stringify({ reason: 'Filed on GitHub' }) }));

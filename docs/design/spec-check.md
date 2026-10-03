@@ -5,7 +5,8 @@ Status: implemented. It adds one agent-service task,
 at most eight reproduction turns per check, and linking open issues that already
 report a gap instead of reproducing them. [Repository memory](repository-memory.md)
 changed where a check starts: a module or directory the user picks, not a
-learning-plan topic.
+learning-plan topic. To keep a check's cost in the user's hands, the user now
+picks the linked pages it reads and whether it reproduces 3 or 8 candidates.
 
 A spec check compares a directory's code with the specification it implements and
 reports gaps. It reports only gaps a test run has reproduced. The user starts it
@@ -26,17 +27,24 @@ typed directory path inside one can be checked as well. One scan of the
 repository at the monitored head ranks Trino's 98 modules in under a second,
 without a model.
 
-Once a module is picked, the drawer says what the check reads, at the monitored
-branch head: every page the directory's code links, with how often the code
-cites it ("Linked page · cited 32 times · 20 sections"), and other engines'
-source files as reference code. The check decides which pages are
-specifications by reading them; the user does not pick them. The user may add a
-spec address the code doesn't link, the check may propose one, and the user
-never picks sections: the check plans them. A new check of a directory is told
-which specs the last check used. Usually the user just starts. The run line
-states what the click starts: one task, a check turn and up to eight
-reproduction turns, and the model. One check or memory harvest runs at a time
-per workspace.
+Once a module is picked, the drawer lists the pages the directory's code links
+at the monitored branch head, with how often the code cites each ("Linked page ·
+cited 32 times · 20 sections"), and other engines' source files as reference
+code. Each has a checkbox, and the check reads only the checked pages. Pages the
+code cites in two sections or three times start checked, since that is how it
+cites a specification, and so do the ones the last check of the directory used;
+the other links fold below them, unchecked. Reference code is only for
+comparison, so it starts unchecked too: Spark's `DeletionVectorStore.scala`
+states no rule. The check decides which checked pages are specifications. The
+user may add a spec address the code doesn't link, the check may propose one,
+and the user never picks sections: the check plans them. A new check of a
+directory is told which specs the last check used.
+
+Each reproduction writes a test and runs a build, the most expensive part of a
+check, so the user picks how many candidates it may reproduce: 3, the default,
+or 8. Usually the user just starts. The run line states what the click starts:
+one task, a check turn and up to that many reproduction turns, and the model.
+One check or memory harvest runs at a time per workspace.
 
 **Finish.** The directory's row shows a summary and the count of findings to
 file, and its drawer shows the report. It says, for
@@ -131,7 +139,8 @@ pull requests. An open issue that already reports it becomes "already reported"
 with its link and is not reproduced. A closed one is reproduced, since the gap
 may have come back.
 
-**Reproduction turns.** One turn per candidate, most severe first, at most eight.
+**Reproduction turns.** One turn per candidate, most severe first, at most the
+3 or 8 the user picked.
 The task re-reads the code, since the candidate may be wrong, and writes the
 smallest test in the module's own style that asserts what the spec requires. It
 runs the test in its worktree as one command from the worktree root, without
@@ -199,8 +208,8 @@ Drafts use the repository's labels when they match (`correctness`,
 
 ## 6. Limits
 
-- One check at a time, at most eight reproduction turns per check. Candidates the
-  check did not reach end as not reproduced, with the reason.
+- One check at a time, at most the 3 or 8 reproduction turns the user picked.
+  Candidates the check did not reach end as not reproduced, with the reason.
 - A candidate needing containers, credentials or external services the task
   cannot start ends as not reproduced, with the reason.
 - A spec newer than the code describes features the code never claimed; those are

@@ -58,6 +58,8 @@ export type GoalDto = {
   /** Counts changes to the title, objective and definition; a proposal built from an older revision cannot be accepted. */
   revision: number;
   items: WorkItemDto[];
+  /** The cards still shown or running, newest first. */
+  recommendations: GoalRecommendationDto[];
   createdAt: string;
   updatedAt: string;
 };
@@ -109,6 +111,7 @@ export function parseGoal(value: unknown): GoalDto {
     },
     revision: revision(goal.revision, 'goal revision'),
     items: goal.items.map(parseWorkItem),
+    recommendations: parseList(goal.recommendations, parseGoalRecommendation, 'goal recommendations'),
     createdAt: text(goal.createdAt, 'goal created'),
     updatedAt: text(goal.updatedAt, 'goal updated'),
   };
@@ -116,17 +119,81 @@ export function parseGoal(value: unknown): GoalDto {
 
 export type GoalProposalDto = { title: string; objective: string; successDefinition: string; startingKnowledge: string; constraints: string };
 
+/** What a card under the Goal control offers; a research card reads its scope and pages. */
+export type GoalCardDto = { kind: 'RESEARCH'; title: string; reason: string; scope: string; pages: string[] };
+
+/** A card the agent floats under the Goal control: nothing starts until Start, and Not now dismisses it. */
+export type GoalRecommendationDto = {
+  id: string;
+  goalId: string;
+  card: GoalCardDto;
+  state: 'SHOWN' | 'STARTED' | 'DONE' | 'DISMISSED';
+  /** The run Start began. */
+  taskId: string | null;
+  createdAt: string;
+};
+
+/** What a research run learned for a goal, with the pages and files it rests on. */
+export type GoalKnowledgeNoteDto = {
+  id: string;
+  topic: string;
+  body: string;
+  /** A page address, or owner/repo:path with the commit it was read at. */
+  sources: { reference: string; commit: string | null }[];
+  savedAt: string;
+};
+
+function parseCard(value: unknown): GoalCardDto {
+  const card = object(value, 'goal card');
+  return {
+    kind: oneOf(card.kind, ['RESEARCH'] as const, 'goal card kind'),
+    title: text(card.title, 'goal card title'),
+    reason: text(card.reason, 'goal card reason'),
+    scope: text(card.scope, 'goal card scope'),
+    pages: parseList(card.pages, (entry) => text(entry, 'goal card page'), 'goal card pages'),
+  };
+}
+
+export function parseGoalRecommendation(value: unknown): GoalRecommendationDto {
+  const recommendation = object(value, 'goal recommendation');
+  return {
+    id: text(recommendation.id, 'goal recommendation id'),
+    goalId: text(recommendation.goalId, 'goal recommendation goal'),
+    card: parseCard(recommendation.card),
+    state: oneOf(recommendation.state, ['SHOWN', 'STARTED', 'DONE', 'DISMISSED'] as const, 'goal recommendation state'),
+    taskId: optionalText(recommendation.taskId),
+    createdAt: text(recommendation.createdAt, 'goal recommendation time'),
+  };
+}
+
+export function parseGoalKnowledgeNote(value: unknown): GoalKnowledgeNoteDto {
+  const note = object(value, 'goal note');
+  return {
+    id: text(note.id, 'goal note id'),
+    topic: text(note.topic, 'goal note topic'),
+    body: text(note.body, 'goal note body'),
+    sources: parseList(note.sources, (entry) => {
+      const source = object(entry, 'goal note source');
+      return { reference: text(source.reference, 'goal note source'), commit: optionalText(source.commit) };
+    }, 'goal note sources'),
+    savedAt: text(note.savedAt, 'goal note time'),
+  };
+}
+
 /** One message the user sent a goal's agent, and its answer once it arrives. */
 export type GoalExchangeDto = {
   id: string;
   goalId: string;
   message: string;
+  /** ByteQuay reported an event, such as a finished research run, rather than the user writing the message. */
+  automatic: boolean;
   inputRevision: number;
   state: 'PENDING' | 'ANSWERED' | 'FAILED';
   reply: {
     assessment: string;
     question: { text: string; suggestions: string[] } | null;
     proposal: GoalProposalDto | null;
+    recommendation: GoalCardDto | null;
   } | null;
   failure: string | null;
   askedAt: string;
@@ -141,6 +208,7 @@ export function parseGoalExchange(value: unknown): GoalExchangeDto {
     id: text(exchange.id, 'goal exchange id'),
     goalId: text(exchange.goalId, 'goal exchange goal'),
     message: text(exchange.message, 'goal exchange message'),
+    automatic: exchange.automatic === true,
     inputRevision: revision(exchange.inputRevision, 'goal exchange revision'),
     state: oneOf(exchange.state, ['PENDING', 'ANSWERED', 'FAILED'] as const, 'goal exchange state'),
     reply: reply === null ? null : {
@@ -156,6 +224,7 @@ export function parseGoalExchange(value: unknown): GoalExchangeDto {
         startingKnowledge: text(proposal.startingKnowledge, 'goal proposal knowledge'),
         constraints: text(proposal.constraints, 'goal proposal constraints'),
       },
+      recommendation: reply.recommendation === null || reply.recommendation === undefined ? null : parseCard(reply.recommendation),
     },
     failure: optionalText(exchange.failure),
     askedAt: text(exchange.askedAt, 'goal exchange time'),

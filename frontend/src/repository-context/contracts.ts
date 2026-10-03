@@ -15,11 +15,11 @@ export type ContextActivityDto = { at: string; text: string; tone: 'DONE' | 'FAI
 export type ContextBaselineDto = { branch: string; sha: string };
 /** How the current check turn ended; SAVED means the turn saved its candidates or its reproduction result. */
 export type ContextRunOutcome = 'RUNNING' | 'SAVED' | 'STOPPED' | 'FAILED';
-/** The workspace's current run, a spec check turn or a memory harvest: its task, whether it runs, and what its tools did. */
+/** The workspace's current run, a spec check turn, a memory harvest or a Goal's research: its task, whether it runs, and what its tools did. */
 export type ContextBuildViewDto = {
   buildRequestSequence: number; canStart: boolean;
   build: null | {
-    kind: 'CHECK' | 'HARVEST'; requestKey: string; taskId: string; checkId: string;
+    kind: 'CHECK' | 'HARVEST' | 'RESEARCH'; requestKey: string; taskId: string; checkId: string;
     task: null | { id: string; workspaceId: string; state: 'OPEN' | 'COMPLETED' | 'FAILED'; mutationClaim: string | null; worktreeRemovedAt: string | null };
     activeTurn: null | { cancellationRequestedAt: string | null };
     pendingApprovals: number; outcome: ContextRunOutcome; detail: string | null; activity: ContextActivityDto[];
@@ -83,7 +83,7 @@ export function parseContextBuildView(value: unknown, workspaceId: string): Cont
   const build = object(item.build, 'build');
   const task = build.task == null ? null : object(build.task, 'build task');
   const turn = build.activeTurn == null ? null : object(build.activeTurn, 'build turn');
-  result.build = { kind: oneOf(build.kind, ['CHECK', 'HARVEST'], 'run kind'), requestKey: text(build.requestKey, 'build request key'), taskId: text(build.taskId, 'build task id'), checkId: text(build.checkId, 'build check'),
+  result.build = { kind: oneOf(build.kind, ['CHECK', 'HARVEST', 'RESEARCH'], 'run kind'), requestKey: text(build.requestKey, 'build request key'), taskId: text(build.taskId, 'build task id'), checkId: text(build.checkId, 'build check'),
     task: task === null ? null : { id: text(task.id, 'task id'), workspaceId: text(task.workspaceId, 'task workspace'),
       state: oneOf(task.state, ['OPEN', 'COMPLETED', 'FAILED'], 'task state'), mutationClaim: optionalText(task.mutationClaim, 'task claim'),
       worktreeRemovedAt: optionalText(task.worktreeRemovedAt, 'task cleanup') },

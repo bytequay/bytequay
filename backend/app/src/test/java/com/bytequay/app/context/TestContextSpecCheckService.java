@@ -541,6 +541,6 @@ class TestContextSpecCheckService
     {
         return new ContextBuild(reproduction.isPresent() ? 2 : 1, "check-request", "sha256:" + "b".repeat(64), WORKSPACE, TASK.toString(),
                 new RepositoryIdentity("owner", "repository"), 1, REPO, SHA, "bytequay/check", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
-                NOW, capture, Optional.of(new ContextBuild.Check("check-1", "plugin/trino-delta-lake/", reproduction, "brief")), Optional.empty());
+                NOW, capture, Optional.of(new ContextBuild.Check("check-1", "plugin/trino-delta-lake/", reproduction, "brief")), Optional.empty(), Optional.empty());
     }
 }

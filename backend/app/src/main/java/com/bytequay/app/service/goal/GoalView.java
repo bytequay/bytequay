@@ -14,6 +14,7 @@
 package com.bytequay.app.service.goal;
 
 import com.bytequay.core.domain.GoalDefinition;
+import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.GoalSource;
 import com.google.common.collect.ImmutableList;
 
@@ -23,7 +24,11 @@ import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
-/** A goal with each item read from local stores, in the order the items were added. */
+/**
+ * A goal with each item read from local stores, in the order the items were added.
+ *
+ * @param recommendations the cards still shown or running, newest first
+ */
 public record GoalView(
         String id,
         String workspaceId,
@@ -34,6 +39,7 @@ public record GoalView(
         Optional<GoalDefinition> definition,
         long revision,
         List<WorkItemView> items,
+        List<GoalRecommendation> recommendations,
         Instant createdAt,
         Instant updatedAt)
 {
@@ -46,6 +52,7 @@ public record GoalView(
         requireNonNull(source, "source is null");
         requireNonNull(definition, "definition is null");
         items = ImmutableList.copyOf(items);
+        recommendations = ImmutableList.copyOf(recommendations);
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
     }

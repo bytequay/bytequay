@@ -12,10 +12,12 @@
  * limitations under the License.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getCached, setCached } from '../dataCache';
 import type { Bridge } from '../types';
-import type { GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, WorkItemDto, CreateWorkItem, WorkItemDecision } from './contracts';
+import type {
+  GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalKnowledgeNoteDto, GoalRecommendationDto, WorkItemDto, CreateWorkItem, WorkItemDecision,
+} from './contracts';
 import type { GoalRef } from './model';
 
 /** Fired after any goal change so every view of the workspace's goals reads them again. */
@@ -26,7 +28,8 @@ const GOALS_POLL_MS = 15_000;
 const ANSWER_POLL_MS = 1_500;
 
 export type GoalBridge = Pick<Bridge, 'listWorkItems' | 'createWorkItem' | 'decideWorkItem' | 'linkWorkItem' | 'listGoals' | 'createGoal' | 'updateGoal' | 'deleteGoal'
-  | 'addGoalItem' | 'removeGoalItem' | 'searchGoalCandidates' | 'startGoal' | 'listGoalExchanges' | 'askGoal' | 'retryGoalExchange' | 'acceptGoalDefinition'>;
+  | 'addGoalItem' | 'removeGoalItem' | 'searchGoalCandidates' | 'startGoal' | 'listGoalExchanges' | 'askGoal' | 'retryGoalExchange' | 'acceptGoalDefinition'
+  | 'startGoalRecommendation' | 'dismissGoalRecommendation' | 'listGoalKnowledge'>;
 
 export type Goals = {
   goals: GoalDto[];
@@ -51,13 +54,23 @@ export type Goals = {
   retry: (goalId: string, exchangeId: string) => Promise<GoalExchangeDto[]>;
   /** Accepts the definition an answer proposed, under the title the user kept or edited. */
   accept: (goalId: string, exchangeId: string, title: string) => Promise<GoalDto>;
+  /** Start on a card: the run it recommends begins. */
+  startCard: (goalId: string, recommendationId: string) => Promise<GoalRecommendationDto>;
+  /** Not now on a card; the agent does not offer it again. */
+  dismissCard: (goalId: string, recommendationId: string) => Promise<GoalRecommendationDto>;
+  knowledge: (goalId: string) => Promise<GoalKnowledgeNoteDto[]>;
+  /** Reads the goals again now, as when an answer may have floated a card. */
+  refresh: () => void;
 };
 
 const NO_EXCHANGES: GoalExchangeDto[] = [];
+const NO_NOTES: GoalKnowledgeNoteDto[] = [];
 
 /** A goal's conversation with its agent, as the panel shows it. */
 export type GoalConversation = {
   exchanges: GoalExchangeDto[];
+  /** What the goal's research runs saved. */
+  notes: GoalKnowledgeNoteDto[];
   error: string | null;
   ask: (operationId: string, message: string) => Promise<void>;
   retry: (exchangeId: string) => Promise<void>;
@@ -162,6 +175,17 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
   const search = useCallback((query: string) => bridge().searchGoalCandidates(workspaceId, query), [bridge, workspaceId]);
   // Kept the same across reads too, so an open conversation is not read again each time the goals refresh.
   const exchanges = useCallback((goalId: string) => bridge().listGoalExchanges(workspaceId, goalId), [bridge, workspaceId]);
+  const knowledge = useCallback((goalId: string) => bridge().listGoalKnowledge(workspaceId, goalId), [bridge, workspaceId]);
+  const refresh = useCallback(() => announce(workspaceId), [workspaceId]);
+
+  // A card that finished or was dismissed leaves the goal's cards; a started one stays until its run ends.
+  const settleCard = useCallback((card: GoalRecommendationDto): GoalRecommendationDto => {
+    const live = card.state === 'SHOWN' || card.state === 'STARTED';
+    setGoals((current) => current.map((goal) => (goal.id !== card.goalId ? goal
+      : { ...goal, recommendations: goal.recommendations.flatMap((existing) => (existing.id !== card.id ? [existing] : live ? [card] : [])) })));
+    announce(workspaceId);
+    return card;
+  }, [workspaceId]);
 
   const settleWork = useCallback((item: WorkItemDto): WorkItemDto => {
     setWorkItems((current) => [...current.filter((existing) => existing.id !== item.id), item]);
@@ -197,25 +221,43 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
     ask: (goalId, operationId, message) => bridge().askGoal(workspaceId, goalId, operationId, message),
     retry: (goalId, exchangeId) => bridge().retryGoalExchange(workspaceId, goalId, exchangeId),
     accept: (goalId, exchangeId, title) => bridge().acceptGoalDefinition(workspaceId, goalId, exchangeId, title).then(settle),
-  }), [bridge, error, exchanges, goals, workItems, search, settle, settleWork, workspaceId]);
+    startCard: (goalId, recommendationId) => bridge().startGoalRecommendation(workspaceId, goalId, recommendationId).then(settleCard),
+    dismissCard: (goalId, recommendationId) => bridge().dismissGoalRecommendation(workspaceId, goalId, recommendationId).then(settleCard),
+    knowledge,
+    refresh,
+  }), [bridge, error, exchanges, goals, knowledge, refresh, workItems, search, settle, settleCard, settleWork, workspaceId]);
 }
 
-/** The goal's conversation, read once it is first shown and again every moment while its agent is answering. */
-export function useGoalConversation(goals: Goals, goalId: string | null, shown: boolean): GoalConversation {
-  const [read, setRead] = useState<{ goalId: string; exchanges: GoalExchangeDto[] } | null>(null);
+/**
+ * The goal's conversation and notes, read once they are first shown, again whenever the goal's cards change, such as when a research run
+ * ends and its agent is told, and every moment while the agent is answering.
+ *
+ * @param cards a fingerprint of the goal's cards
+ */
+export function useGoalConversation(goals: Goals, goalId: string | null, shown: boolean, cards = ''): GoalConversation {
+  const [read, setRead] = useState<{ goalId: string; exchanges: GoalExchangeDto[]; notes: GoalKnowledgeNoteDto[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const exchanges = read !== null && read.goalId === goalId ? read.exchanges : NO_EXCHANGES;
+  const current = read !== null && read.goalId === goalId ? read : null;
+  const exchanges = current?.exchanges ?? NO_EXCHANGES;
+  const notes = current?.notes ?? NO_NOTES;
   const answering = exchanges.some((exchange) => exchange.state === 'PENDING');
-  const list = goals.exchanges;
+  const { exchanges: list, knowledge, refresh } = goals;
+  const wasAnswering = useRef(false);
+
+  // A settled answer may have floated a card, which the goals carry.
+  useEffect(() => {
+    if (wasAnswering.current && !answering) refresh();
+    wasAnswering.current = answering;
+  }, [answering, refresh]);
 
   useEffect(() => {
     if (goalId === null || !shown) return;
     let active = true;
     const load = (): void => {
       // A read that throws on the spot fails like any other, so the conversation never takes the page down.
-      void Promise.resolve().then(() => list(goalId)).then((found) => {
+      void Promise.resolve().then(() => Promise.all([list(goalId), knowledge(goalId)])).then(([found, saved]) => {
         if (!active) return;
-        setRead({ goalId, exchanges: found });
+        setRead({ goalId, exchanges: found, notes: saved });
         setError(null);
       }, (failure: unknown) => {
         if (active) setError(failure instanceof Error ? failure.message : 'The conversation could not be loaded');
@@ -224,16 +266,18 @@ export function useGoalConversation(goals: Goals, goalId: string | null, shown: 
     load();
     const timer = answering ? window.setInterval(load, ANSWER_POLL_MS) : undefined;
     return () => { active = false; window.clearInterval(timer); };
-  }, [answering, goalId, list, shown]);
+  }, [answering, cards, goalId, knowledge, list, shown]);
 
   return useMemo(() => {
-    const show = (found: GoalExchangeDto[]): void => { if (goalId !== null) setRead({ goalId, exchanges: found }); };
+    const show = (found: GoalExchangeDto[]): void => { if (goalId !== null) setRead((last) => ({ goalId, exchanges: found, notes: last?.goalId === goalId ? last.notes : [] })); };
     return {
       exchanges,
+      notes,
       error,
       ask: (operationId, message) => (goalId === null ? Promise.resolve() : goals.ask(goalId, operationId, message).then(show)),
       retry: (exchangeId) => (goalId === null ? Promise.resolve() : goals.retry(goalId, exchangeId).then(show)),
-      accept: (exchangeId, title) => (goalId === null ? Promise.resolve() : goals.accept(goalId, exchangeId, title).then(() => {})),
+      // Accepting tells the agent, whose answer is read at once.
+      accept: (exchangeId, title) => (goalId === null ? Promise.resolve() : goals.accept(goalId, exchangeId, title).then(() => goals.exchanges(goalId)).then(show)),
     };
-  }, [error, exchanges, goalId, goals]);
+  }, [error, exchanges, goalId, goals, notes]);
 }

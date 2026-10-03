@@ -1,7 +1,7 @@
 # Agent guided goals
 
-Status: Work-item foundation and the Goal conversation implemented;
-recommendations, research and courses remain planned. This document specifies the Goal conversation, research, courses,
+Status: Work-item foundation, the Goal conversation, recommendation cards and
+research runs implemented; courses, lessons and work handoff remain planned. This document specifies the Goal conversation, research, courses,
 discovery, guidance and durable progress panel, and three takeaways from the
 Plane comparison. The [implementation plan](goal-guidance-impl-tmp.md) lists
 actionable changes and acceptance checks.
@@ -63,10 +63,22 @@ definition, starting knowledge and constraints, and is refused once the Goal's
 text changed after the request was built. One exchange per Goal and two across
 the app run at a time; a request still pending at startup is marked interrupted.
 
+Once a definition is accepted, ByteQuay tells the agent, and its answer may
+recommend a research card: a scope and up to eight https pages. Cards float
+under the Goal control with Start and Not now; one of a kind waits at a time and
+a dismissed card is not offered again. Start begins a research run as the third
+kind of the workspace's restricted run, beside spec checks and memory harvests,
+at the monitored head with the checkouts of the workspace's Dependency
+workspaces. Its one tool, `goal_knowledge_save`, saves a note whose sources are
+https pages or files at a commit the run reads. A finished run completes the
+card and tells the agent what it saved; a failed one shows the card again. The
+Guide view lists the notes with their sources.
+
 A new explicit same-source attempt without deleting the prior task, proposal
-acceptance into work items, recommendation cards, research runs, courses,
-work-item launch from the composer, automatic outcome harvesting, a per-Goal
-model choice, request cancellation and discovery remain pending. The checklist
+acceptance into work items, courses and lessons, spec-check and work cards,
+work-item launch from the composer, automatic outcome harvesting, stale-note
+marking, a per-Goal model choice, request cancellation and discovery remain
+pending. The checklist
 distinguishes these from implemented behavior.
 
 The checked development database contained no Goals or issue/Jira task bindings.
@@ -82,8 +94,10 @@ Relevant implementation entry points:
   owns decisions and identity; the [reference reader](../../backend/app/src/main/java/com/bytequay/app/service/goal/GoalReferenceReader.java)
   reads supporting activity without remote requests.
 - The [Goal conversation](../../backend/app/src/main/java/com/bytequay/app/service/goal/GoalConversationService.java)
-  saves and answers exchanges; the [Goal planner](../../backend/app/src/main/java/com/bytequay/app/service/goal/GoalPlanner.java)
-  builds the tool-free request and validates its reply.
+  saves and answers exchanges and floats cards; the [Goal planner](../../backend/app/src/main/java/com/bytequay/app/service/goal/GoalPlanner.java)
+  builds the tool-free request and validates its reply. [Goal research](../../backend/app/src/main/java/com/bytequay/app/service/goal/GoalResearchService.java)
+  starts and settles research runs, and [its tool](../../backend/app/src/main/java/com/bytequay/app/service/goal/GoalResearchTools.java)
+  saves knowledge notes.
 - [Goal panel](../../frontend/src/goals/GoalPanel.tsx),
   [summary model](../../frontend/src/goals/model.ts) and
   [Goal loading](../../frontend/src/goals/useGoals.ts) implement the current UI.

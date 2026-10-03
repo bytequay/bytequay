@@ -18,6 +18,7 @@ import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.GoalExchange;
+import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.GoalExchangeStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -42,7 +43,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -53,20 +53,25 @@ import static org.mockito.Mockito.withSettings;
 class TestGoalConversationService
 {
     private static final GoalExchange.Reply QUESTION = new GoalExchange.Reply("You want to explain reads.",
-            Optional.of(new GoalExchange.Question("Do you know the Iceberg specification?", ImmutableList.of("Yes", "Not yet"))), Optional.empty());
+            Optional.of(new GoalExchange.Question("Do you know the Iceberg specification?", ImmutableList.of("Yes", "Not yet"))), Optional.empty(), Optional.empty());
+    private static final GoalExchange.Reply RESEARCH = new GoalExchange.Reply("Read the specification before the connector.", Optional.empty(), Optional.empty(),
+            Optional.of(new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH, "Read the Iceberg specification", "You start from the specification",
+                    "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"))));
     private static final GoalExchange.Reply PROPOSAL = new GoalExchange.Reply("I understand the goal.", Optional.empty(),
-            Optional.of(new GoalExchange.Proposal("Iceberg reads", "Explain how reads plan files", "Trace a scan end to end", "Knows the specification", "Five hours a week")));
+            Optional.of(new GoalExchange.Proposal("Iceberg reads", "Explain how reads plan files", "Trace a scan end to end", "Knows the specification", "Five hours a week")),
+            Optional.empty());
 
     private final InMemoryGoalStore goalStore = new InMemoryGoalStore();
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final WorkItemService work = mock(WorkItemService.class);
-    private final GoalService goals = new GoalServiceImpl(goalStore, workspaces, work, mock(GoalReferenceReader.class), Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
+    private final InMemoryGoalRecommendationStore cards = new InMemoryGoalRecommendationStore();
+    private final GoalService goals = new GoalServiceImpl(goalStore, workspaces, work, mock(GoalReferenceReader.class), cards, Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
     private final Exchanges exchanges = new Exchanges();
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final GoalPlanner planner = mock(GoalPlanner.class);
     private final List<Runnable> queued = new ArrayList<>();
     private final Clock clock = Clock.fixed(Instant.parse("2026-10-03T10:00:00Z"), ZoneOffset.UTC);
-    private final GoalConversationService service = new GoalConversationService(goals, exchanges, models, planner, clock, queued::add);
+    private final GoalConversationService service = new GoalConversationService(goals, exchanges, cards, models, planner, clock, queued::add);
 
     @BeforeEach
     void setUp()
@@ -91,7 +96,7 @@ class TestGoalConversationService
             assertThat(exchange.message()).isEqualTo("I want to become the Iceberg connector expert\nwith reads first");
         });
 
-        doReturn(QUESTION).when(planner).answer(any(), any(), anyList(), anyString());
+        doReturn(QUESTION).when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
         assertThat(service.list("workspace", goal.id())).singleElement().satisfies(exchange -> {
             assertThat(exchange.state()).isEqualTo(GoalExchange.State.ANSWERED);
@@ -110,7 +115,7 @@ class TestGoalConversationService
                 .hasMessageContaining("still answering");
         assertThat(service.ask("workspace", goal.id(), "op-1", "Reads first")).hasSize(1);
 
-        doThrow(new AgentUnavailableException("Codex is not signed in")).when(planner).answer(any(), any(), anyList(), anyString());
+        doThrow(new AgentUnavailableException("Codex is not signed in")).when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
         assertThat(service.list("workspace", goal.id())).singleElement().satisfies(exchange -> {
             assertThat(exchange.state()).isEqualTo(GoalExchange.State.FAILED);
@@ -121,7 +126,7 @@ class TestGoalConversationService
         service.retry("workspace", goal.id(), "op-1");
         service.retry("workspace", goal.id(), "op-1");
         assertThat(queued).hasSize(1);
-        doReturn(QUESTION).when(planner).answer(any(), any(), anyList(), anyString());
+        doReturn(QUESTION).when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
         assertThat(service.list("workspace", goal.id())).singleElement().satisfies(exchange -> assertThat(exchange.state()).isEqualTo(GoalExchange.State.ANSWERED));
         assertThatThrownBy(() -> service.retry("workspace", goal.id(), "op-1"))
@@ -133,7 +138,7 @@ class TestGoalConversationService
         doAnswer(invocation -> {
             assertThat(invocation.<List<GoalExchange>>getArgument(2)).extracting(GoalExchange::id).containsExactly("op-1");
             return PROPOSAL;
-        }).when(planner).answer(any(), any(), anyList(), anyString());
+        }).when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
         assertThat(service.list("workspace", goal.id())).extracting(GoalExchange::state).containsExactly(GoalExchange.State.ANSWERED, GoalExchange.State.ANSWERED);
     }
@@ -143,14 +148,14 @@ class TestGoalConversationService
     {
         GoalView goal = goals.create("workspace", "Iceberg", "");
         service.ask("workspace", goal.id(), "op-1", "Reads first");
-        doReturn(QUESTION).when(planner).answer(any(), any(), anyList(), anyString());
+        doReturn(QUESTION).when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
         assertThatThrownBy(() -> service.accept("workspace", goal.id(), "op-1", Optional.empty()))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("proposes no definition");
 
         service.ask("workspace", goal.id(), "op-2", "Yes");
-        doReturn(PROPOSAL).when(planner).answer(any(), any(), anyList(), anyString());
+        doReturn(PROPOSAL).when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
         GoalView defined = service.accept("workspace", goal.id(), "op-2", Optional.of("Iceberg reads, then writes"));
         assertThat(defined.title()).isEqualTo("Iceberg reads, then writes");
@@ -161,6 +166,8 @@ class TestGoalConversationService
             assertThat(definition.exchangeId()).isEqualTo("op-2");
         });
         assertThat(service.accept("workspace", goal.id(), "op-2", Optional.empty()).title()).isEqualTo("Iceberg reads, then writes");
+        assertThat(queued).as("accepting tells the agent once").hasSize(1);
+        queued.removeFirst().run();
 
         // A proposal asked before the user's own rename cannot overwrite it.
         service.ask("workspace", goal.id(), "op-3", "Change the title");
@@ -170,6 +177,55 @@ class TestGoalConversationService
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("The goal changed after this was proposed");
         assertThat(goals.list("workspace").getFirst().title()).isEqualTo("My title");
+    }
+
+    @Test
+    void theAgentFloatsACardOnlyOnceTheGoalIsDefinedAndNeverStacksOrRepeatsADismissedOne()
+    {
+        GoalView goal = goals.create("workspace", "Iceberg", "");
+        service.ask("workspace", goal.id(), "op-1", "Reads first");
+        doReturn(RESEARCH).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        assertThat(cards.list(goal.id())).as("an undefined goal gets no card").isEmpty();
+
+        service.ask("workspace", goal.id(), "op-2", "Yes");
+        doReturn(PROPOSAL).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        service.accept("workspace", goal.id(), "op-2", Optional.empty());
+        // Accepting tells the agent, which decides the next step without the user asking.
+        assertThat(exchanges.find("accepted:op-2")).hasValueSatisfying(event -> assertThat(event.automatic()).isTrue());
+        doReturn(RESEARCH).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        assertThat(goals.list("workspace").getFirst().recommendations()).singleElement().satisfies(card -> {
+            assertThat(card.card()).isEqualTo(RESEARCH.recommendation().orElseThrow());
+            assertThat(card.state()).isEqualTo(GoalRecommendation.State.SHOWN);
+        });
+
+        service.ask("workspace", goal.id(), "op-3", "Anything else?");
+        queued.removeFirst().run();
+        assertThat(cards.list(goal.id())).as("cards of one kind do not stack").hasSize(1);
+
+        GoalRecommendation shown = cards.list(goal.id()).getFirst();
+        assertThat(service.dismiss("workspace", goal.id(), shown.id()).state()).isEqualTo(GoalRecommendation.State.DISMISSED);
+        assertThat(goals.list("workspace").getFirst().recommendations()).isEmpty();
+        service.ask("workspace", goal.id(), "op-4", "What next?");
+        queued.removeFirst().run();
+        assertThat(cards.list(goal.id())).as("a dismissed card does not return unchanged").hasSize(1);
+        assertThatThrownBy(() -> service.dismiss("workspace", goal.id(), "missing")).isInstanceOf(ResponseStatusException.class).hasMessageContaining("Card not found");
+    }
+
+    @Test
+    void anEventIsToldOnceAndNeverWhileTheAgentAnswers()
+    {
+        GoalView goal = goals.create("workspace", "Iceberg", "");
+        service.tell("workspace", goal.id(), "research:task-1", "The research run saved 2 notes: Manifest lists; Snapshots.");
+        service.tell("workspace", goal.id(), "research:task-1", "The research run saved 2 notes: Manifest lists; Snapshots.");
+        service.tell("workspace", goal.id(), "research:task-2", "Another event while the first is answered");
+        assertThat(queued).hasSize(1);
+        assertThat(service.list("workspace", goal.id())).singleElement().satisfies(event -> {
+            assertThat(event.automatic()).isTrue();
+            assertThat(event.message()).startsWith("The research run saved 2 notes");
+        });
     }
 
     @Test
@@ -189,7 +245,7 @@ class TestGoalConversationService
         // An answer that arrives after its request was settled elsewhere does not overwrite that settlement.
         GoalExchange pending = exchanges.find("op-0").orElseThrow();
         exchanges.save(pending.failed(Optional.empty(), GoalConversationService.INTERRUPTED, Instant.EPOCH));
-        doReturn(QUESTION).when(planner).answer(any(), any(), anyList(), anyString());
+        doReturn(QUESTION).when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
         assertThat(exchanges.find("op-0")).map(GoalExchange::state).contains(GoalExchange.State.FAILED);
     }

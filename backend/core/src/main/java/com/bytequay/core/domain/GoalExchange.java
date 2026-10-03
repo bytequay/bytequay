@@ -28,6 +28,7 @@ import static java.util.Objects.requireNonNull;
  * the goal and these exchanges, never from a provider's session memory.
  *
  * @param id the operation id the client chose, so a resent message returns this exchange instead of asking again
+ * @param automatic whether ByteQuay reported an event, such as a finished research run, rather than the user writing the message
  * @param inputRevision the goal revision the request was built from; its proposal cannot be accepted once the goal moved on
  * @param model the provider configuration and model that answered or failed, such as "codex/gpt-6.1"
  */
@@ -36,6 +37,7 @@ public record GoalExchange(
         String goalId,
         String workspaceId,
         String message,
+        boolean automatic,
         long inputRevision,
         State state,
         Optional<String> model,
@@ -74,37 +76,48 @@ public record GoalExchange(
 
     public static GoalExchange ask(String id, String goalId, String workspaceId, String message, long inputRevision, Instant at)
     {
-        return new GoalExchange(id, goalId, workspaceId, message, inputRevision, State.PENDING, Optional.empty(), Optional.empty(), Optional.empty(), at, Optional.empty());
+        return new GoalExchange(id, goalId, workspaceId, message, false, inputRevision, State.PENDING, Optional.empty(), Optional.empty(), Optional.empty(), at,
+                Optional.empty());
+    }
+
+    /** Reports an event to the agent, which answers it like a message. */
+    public static GoalExchange told(String id, String goalId, String workspaceId, String event, long inputRevision, Instant at)
+    {
+        return new GoalExchange(id, goalId, workspaceId, event, true, inputRevision, State.PENDING, Optional.empty(), Optional.empty(), Optional.empty(), at,
+                Optional.empty());
     }
 
     public GoalExchange answered(String answeredBy, Reply answer, Instant at)
     {
-        return new GoalExchange(id, goalId, workspaceId, message, inputRevision, State.ANSWERED, Optional.of(answeredBy), Optional.of(answer), Optional.empty(),
-                askedAt, Optional.of(at));
+        return new GoalExchange(id, goalId, workspaceId, message, automatic, inputRevision, State.ANSWERED, Optional.of(answeredBy), Optional.of(answer),
+                Optional.empty(), askedAt, Optional.of(at));
     }
 
     public GoalExchange failed(Optional<String> triedBy, String reason, Instant at)
     {
-        return new GoalExchange(id, goalId, workspaceId, message, inputRevision, State.FAILED, triedBy, Optional.empty(), Optional.of(reason), askedAt, Optional.of(at));
+        return new GoalExchange(id, goalId, workspaceId, message, automatic, inputRevision, State.FAILED, triedBy, Optional.empty(), Optional.of(reason), askedAt,
+                Optional.of(at));
     }
 
     /** Asks again, built from the goal as it now stands. */
     public GoalExchange retried(long revision)
     {
-        return new GoalExchange(id, goalId, workspaceId, message, revision, State.PENDING, Optional.empty(), Optional.empty(), Optional.empty(), askedAt, Optional.empty());
+        return new GoalExchange(id, goalId, workspaceId, message, automatic, revision, State.PENDING, Optional.empty(), Optional.empty(), Optional.empty(), askedAt,
+                Optional.empty());
     }
 
     /**
-     * The agent's answer: where it thinks the goal stands, at most one question, and a definition to accept once it understands the goal.
+     * The agent's answer: where it thinks the goal stands, at most one question, a definition to accept once it understands the goal, and a
+     * card when it judges the next step is ready.
      */
-    public record Reply(String assessment, Optional<Question> question, Optional<Proposal> proposal)
+    public record Reply(String assessment, Optional<Question> question, Optional<Proposal> proposal, Optional<GoalRecommendation.Card> recommendation)
     {
         public Reply
         {
             checkText(assessment, "assessment", MAX_FIELD);
             requireNonNull(question, "question is null");
             requireNonNull(proposal, "proposal is null");
-            checkArgument(question.isPresent() || proposal.isPresent(), "a reply asks a question or proposes a definition");
+            requireNonNull(recommendation, "recommendation is null");
         }
     }
 

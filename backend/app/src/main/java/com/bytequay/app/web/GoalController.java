@@ -15,10 +15,13 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.service.goal.GoalConversationService;
 import com.bytequay.app.service.goal.GoalItemView;
+import com.bytequay.app.service.goal.GoalResearchService;
 import com.bytequay.app.service.goal.GoalService;
 import com.bytequay.app.service.goal.GoalView;
 import com.bytequay.core.domain.GoalExchange;
 import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.GoalKnowledgeNote;
+import com.bytequay.core.domain.GoalRecommendation;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -44,11 +47,13 @@ public class GoalController
 {
     private final GoalService goals;
     private final GoalConversationService conversations;
+    private final GoalResearchService research;
 
-    public GoalController(GoalService goals, GoalConversationService conversations)
+    public GoalController(GoalService goals, GoalConversationService conversations, GoalResearchService research)
     {
         this.goals = requireNonNull(goals, "goals is null");
         this.conversations = requireNonNull(conversations, "conversations is null");
+        this.research = requireNonNull(research, "research is null");
     }
 
     @GetMapping
@@ -131,6 +136,25 @@ public class GoalController
     {
         checkArgument(request != null && request.exchangeId() != null, "exchangeId is required");
         return conversations.accept(workspaceId, goalId, request.exchangeId(), Optional.ofNullable(request.title()));
+    }
+
+    /** Start on a card: the research it recommends begins as one read-only run. */
+    @PostMapping("/{goalId}/recommendations/{recommendationId}/start")
+    public GoalRecommendation startRecommendation(@PathVariable String workspaceId, @PathVariable String goalId, @PathVariable String recommendationId)
+    {
+        return research.start(workspaceId, goalId, recommendationId);
+    }
+
+    @PostMapping("/{goalId}/recommendations/{recommendationId}/dismiss")
+    public GoalRecommendation dismissRecommendation(@PathVariable String workspaceId, @PathVariable String goalId, @PathVariable String recommendationId)
+    {
+        return conversations.dismiss(workspaceId, goalId, recommendationId);
+    }
+
+    @GetMapping("/{goalId}/knowledge")
+    public List<GoalKnowledgeNote> knowledge(@PathVariable String workspaceId, @PathVariable String goalId)
+    {
+        return research.notes(workspaceId, goalId);
     }
 
     public record CreateGoalRequest(String title, String description) {}

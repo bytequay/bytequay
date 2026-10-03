@@ -213,6 +213,6 @@ class TestMemoryHarvestService
     {
         return new ContextBuild(1, "key", "sha256:" + "b".repeat(64), "workspace", "11111111-1111-4111-8111-111111111111", new RepositoryIdentity("trinodb", "trino"), 1,
                 REPOSITORY, HEAD, "bytequay/learn", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW, ContextBuild.Capture.empty(),
-                Optional.empty(), Optional.of(harvest));
+                Optional.empty(), Optional.of(harvest), Optional.empty());
     }
 }

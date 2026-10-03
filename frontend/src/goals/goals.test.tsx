@@ -17,11 +17,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AttentionItem } from '../home/attention';
 import type { JiraIssue } from '../jira/contracts';
 import type { AgentTaskDto } from '../types';
-import type { GoalDto, GoalExchangeDto, GoalItemDto, WorkItemDto } from './contracts';
-import { parseGoal, parseGoalExchange } from './contracts';
+import type { GoalDto, GoalExchangeDto, GoalItemDto, GoalKnowledgeNoteDto, GoalRecommendationDto, WorkItemDto } from './contracts';
+import { parseGoal, parseGoalExchange, parseGoalKnowledgeNote, parseGoalRecommendation } from './contracts';
 import { GoalPanel, type GoalPanelProps } from './GoalPanel';
 import {
-  addable, attentionWorkspace, goalDirections, goalHas, goalRef, itemsIn, needsYouKeys, openProposal, placePill, recentActivity, refKey, summarize,
+  addable, attentionWorkspace, goalDirections, goalHas, goalRef, itemsIn, needsYouKeys, openProposal, placePill, recentActivity, refKey, sourceUrl, summarize,
 } from './model';
 import { toggleGoalItem, useGoals, type GoalBridge, type GoalConversation, type Goals } from './useGoals';
 
@@ -40,7 +40,7 @@ const ITEMS: GoalItemDto[] = [
 ];
 const GOAL: GoalDto = {
   id: 'goal-1', workspaceId: 'workspace-1', title: 'Iceberg & Delta Lake correctness for 482', description: 'Land the fixes before 482.', pinned: true,
-  source: null, definition: null, revision: 0, items: ITEMS.map((link, index): WorkItemDto => ({
+  source: null, definition: null, revision: 0, recommendations: [], items: ITEMS.map((link, index): WorkItemDto => ({
     id: `work-${index}`, workspaceId: 'workspace-1', goalId: 'goal-1', title: link.title, kind: 'DEVELOP', acceptanceCriteria: 'Verified fix',
     completionRule: 'MERGED_DELIVERY', state: index === 1 ? 'DONE' : index === 2 ? 'PLANNED' : 'WORKING', revision: 0, links: [link],
     history: link.activity === null ? [] : [{ operationId: `op-${index}`, action: 'ACCEPT', detail: link.activity.text, at: link.activity.at }],
@@ -103,11 +103,11 @@ describe('goal model', () => {
   });
 });
 
-const NO_CONVERSATION: GoalConversation = { exchanges: [], error: null, ask: async () => {}, retry: async () => {}, accept: async () => {} };
+const NO_CONVERSATION: GoalConversation = { exchanges: [], notes: [], error: null, ask: async () => {}, retry: async () => {}, accept: async () => {} };
 
 function panel(props: Partial<GoalPanelProps>): string {
   return renderToStaticMarkup(
-    <GoalPanel mode="window" view="work" onView={() => {}} conversation={NO_CONVERSATION} onStart={async () => {}}
+    <GoalPanel mode="window" view="work" onView={() => {}} conversation={NO_CONVERSATION} onStart={async () => {}} onOpenTask={() => {}}
       repository="trinodb/trino" goals={[GOAL, { ...GOAL, id: 'goal-2', pinned: false }]} goal={GOAL}
       needsYou={new Set(['PULL_REQUEST trinodb/trino#30925'])} now={Date.parse('2026-09-27T12:00:00Z')}
       onClose={() => {}} onExpand={() => {}} onSwitch={() => {}} onCreate={async () => {}} onDelete={async () => {}}
@@ -139,16 +139,22 @@ describe('goal panel', () => {
   });
 });
 
-const ASKED: GoalExchangeDto = { id: 'op-1', goalId: 'goal-1', message: 'I want to become an Iceberg connector expert', inputRevision: 0,
+const ASKED: GoalExchangeDto = { id: 'op-1', goalId: 'goal-1', message: 'I want to become an Iceberg connector expert', automatic: false, inputRevision: 0,
   state: 'ANSWERED', failure: null, askedAt: '2026-10-03T10:00:00Z', reply: {
     assessment: 'You want to understand the connector deeply.',
-    question: { text: 'Do you already know the Iceberg specification?', suggestions: ['Yes', 'Not yet'] }, proposal: null,
+    question: { text: 'Do you already know the Iceberg specification?', suggestions: ['Yes', 'Not yet'] }, proposal: null, recommendation: null,
   } };
 const PROPOSED: GoalExchangeDto = { ...ASKED, id: 'op-2', message: 'Not yet', reply: {
   assessment: 'Start from the specification, then the connector.', question: null,
   proposal: { title: 'Iceberg connector expert', objective: 'Explain and change the Iceberg connector', successDefinition: 'Trace a scan end to end',
-    startingKnowledge: 'Knows Trino, not the specification', constraints: '' },
+    startingKnowledge: 'Knows Trino, not the specification', constraints: '' }, recommendation: null,
 } };
+const CARD: GoalRecommendationDto = { id: 'card-1', goalId: 'goal-1', state: 'SHOWN', taskId: null, createdAt: '2026-10-03T10:00:00Z',
+  card: { kind: 'RESEARCH', title: 'Read the Iceberg specification', reason: 'You start from the specification', scope: 'Snapshots and manifests',
+    pages: ['https://iceberg.apache.org/spec/'] } };
+const NOTE: GoalKnowledgeNoteDto = { id: 'note-1', topic: 'Manifest lists', body: 'A snapshot lists its manifests in one manifest list.', savedAt: '2026-10-03T10:00:00Z',
+  sources: [{ reference: 'https://iceberg.apache.org/spec/#manifest-lists', commit: null },
+    { reference: 'apache/iceberg:core/src/main/java/org/apache/iceberg/ManifestLists.java', commit: 'c'.repeat(40) }] };
 
 function conversation(exchanges: GoalExchangeDto[]): GoalConversation {
   return { ...NO_CONVERSATION, exchanges };
@@ -163,6 +169,26 @@ describe('goal guidance', () => {
     const defined: GoalDto = { ...GOAL, revision: 1, definition: { successDefinition: 'Trace a scan', startingKnowledge: '', constraints: '', exchangeId: 'op-2', acceptedAt: '2026-10-03T10:00:00Z' } };
     expect(parseGoal(JSON.parse(JSON.stringify(defined)))).toEqual(defined);
     expect(() => parseGoal({ ...GOAL, revision: -1 })).toThrow('Malformed goal revision');
+  });
+
+  it('reads cards and notes the backend sends and refuses a card of an unknown kind', () => {
+    expect(parseGoalRecommendation(JSON.parse(JSON.stringify({ ...CARD, workspaceId: 'workspace-1', exchangeId: 'op-1', updatedAt: CARD.createdAt })))).toEqual(CARD);
+    expect(() => parseGoalRecommendation({ ...CARD, card: { ...CARD.card, kind: 'TASK' } })).toThrow('Malformed goal card kind');
+    expect(parseGoalKnowledgeNote(JSON.parse(JSON.stringify({ ...NOTE, goalId: 'goal-1', taskId: 'task-1' })))).toEqual(NOTE);
+    expect(parseGoal(JSON.parse(JSON.stringify({ ...GOAL, recommendations: [CARD] }))).recommendations).toEqual([CARD]);
+    expect(sourceUrl(NOTE.sources[0])).toBe('https://iceberg.apache.org/spec/#manifest-lists');
+    expect(sourceUrl(NOTE.sources[1])).toBe(`https://github.com/apache/iceberg/blob/${'c'.repeat(40)}/core/src/main/java/org/apache/iceberg/ManifestLists.java`);
+  });
+
+  it('shows a running research run, what it learned and the events the agent was told', () => {
+    const markup = panel({ view: 'guide', goal: { ...GOAL, recommendations: [{ ...CARD, state: 'STARTED', taskId: 'task-1' }] },
+      conversation: { ...NO_CONVERSATION, notes: [NOTE], exchanges: [ASKED, { ...ASKED, id: 'op-9', automatic: true, message: 'The research run saved 1 note: Manifest lists.' }] } });
+    expect(markup).toContain('Researching: Read the Iceberg specification');
+    expect(markup).toContain('>Open run</button>');
+    expect(markup).toContain('What the agent learned · 1');
+    expect(markup).toContain('<summary>Manifest lists</summary>');
+    expect(markup).toContain(`ManifestLists.java @ ccccccc`);
+    expect(markup).toContain('<div class="goal-thread__event">The research run saved 1 note: Manifest lists.</div>');
   });
 
   it('offers directions from the repository and only the newest unaccepted proposal', () => {

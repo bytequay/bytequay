@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.GoalExchange;
+import com.bytequay.core.domain.GoalRecommendation;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -55,7 +56,9 @@ class TestSqliteGoalExchangeStore
 
         GoalExchange answered = first.answered("codex/gpt", new GoalExchange.Reply("You want to explain reads.",
                 Optional.of(new GoalExchange.Question("Do you know the Iceberg specification?", ImmutableList.of("Yes", "Not yet"))),
-                Optional.of(new GoalExchange.Proposal("Iceberg reads", "Explain reads", "Trace a scan", "", ""))), NOW.plusSeconds(2));
+                Optional.of(new GoalExchange.Proposal("Iceberg reads", "Explain reads", "Trace a scan", "", "")),
+                Optional.of(new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH, "Read the Iceberg specification", "You start from the specification",
+                        "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/")))), NOW.plusSeconds(2));
         GoalExchange failed = second.failed(Optional.empty(), "ByteQuay stopped before the agent answered.", NOW.plusSeconds(3));
         store.save(answered);
         store.save(failed);

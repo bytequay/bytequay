@@ -15,31 +15,45 @@ import React, { useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { GoalLayer } from '../GoalLayer';
-import type { GoalDto, GoalExchangeDto } from '../contracts';
+import type { GoalCardDto, GoalDto, GoalExchangeDto, GoalKnowledgeNoteDto, GoalRecommendationDto } from '../contracts';
 import type { Goals } from '../useGoals';
 import { assert, changeInput, settle } from '../../fixtures/harness';
 import '../../css/base.css';
 
 /** The backend as the Goal window sees it: one workspace whose agent answers when the journey says so. */
-const server = { goal: null as GoalDto | null, exchanges: [] as GoalExchangeDto[], asked: [] as string[], accepted: [] as string[], failNextAsk: false };
+const server = { goal: null as GoalDto | null, exchanges: [] as GoalExchangeDto[], notes: [] as GoalKnowledgeNoteDto[], asked: [] as string[], accepted: [] as string[],
+  started: [] as string[], failNextAsk: false };
+const CARD: GoalCardDto = { kind: 'RESEARCH', title: 'Read the Iceberg specification', reason: 'You start from the specification',
+  scope: 'Table metadata, snapshots and manifests', pages: ['https://iceberg.apache.org/spec/'] };
 const listeners = new Set<() => void>();
 const changed = (): void => listeners.forEach((listener) => listener());
 const unexpected = async (): Promise<never> => { throw new Error('Unexpected write'); };
 const NOW = '2026-10-03T10:00:00Z';
 
-function pending(id: string, message: string): GoalExchangeDto {
-  return { id, goalId: 'goal', message, inputRevision: 0, state: 'PENDING', reply: null, failure: null, askedAt: NOW };
+function pending(id: string, message: string, automatic = false): GoalExchangeDto {
+  return { id, goalId: 'goal', message, automatic, inputRevision: 0, state: 'PENDING', reply: null, failure: null, askedAt: NOW };
+}
+function setCards(cards: GoalRecommendationDto[]): void {
+  server.goal = { ...server.goal, recommendations: cards };
 }
 function answer(reply: GoalExchangeDto['reply']): void {
   server.exchanges = server.exchanges.map((exchange) => (exchange.state === 'PENDING' ? { ...exchange, state: 'ANSWERED', reply } : exchange));
 }
 const conversation: Omit<Goals, 'goals' | 'pinned'> = {
   workItems: [], error: null, create: unexpected, pin: async () => {}, remove: unexpected, add: unexpected, removeItem: unexpected, search: async () => [],
-  createWork: unexpected, decideWork: unexpected, linkWork: unexpected, retry: unexpected,
+  createWork: unexpected, decideWork: unexpected, linkWork: unexpected, retry: unexpected, dismissCard: unexpected, refresh: changed,
+  knowledge: async () => server.notes,
+  startCard: async (_goalId, recommendationId) => {
+    server.started.push(recommendationId);
+    const started: GoalRecommendationDto = { ...server.goal.recommendations[0], state: 'STARTED', taskId: 'task-research' };
+    setCards([started]);
+    changed();
+    return started;
+  },
   start: async (operationId, message) => {
     server.asked.push(operationId);
     server.goal = { id: 'goal', workspaceId: 'workspace', title: message, description: '', pinned: true, source: null, definition: null, revision: 0,
-      items: [], createdAt: NOW, updatedAt: NOW };
+      items: [], recommendations: [], createdAt: NOW, updatedAt: NOW };
     server.exchanges = [pending(operationId, message)];
     changed();
     return server.goal;
@@ -58,6 +72,8 @@ const conversation: Omit<Goals, 'goals' | 'pinned'> = {
     server.accepted.push(title);
     server.goal = { ...server.goal, title, description: 'Explain and change the Iceberg connector', revision: 1, definition: {
       successDefinition: 'Trace a scan end to end', startingKnowledge: 'Knows Trino', constraints: '', exchangeId, acceptedAt: NOW } };
+    // The backend tells the agent the definition was accepted.
+    server.exchanges = [...server.exchanges, pending(`accepted:${exchangeId}`, 'The user accepted the goal definition.', true)];
     changed();
     return server.goal;
   },
@@ -92,6 +108,7 @@ function text(): string {
   return document.querySelector('.goal-window')?.textContent ?? '';
 }
 const asked = (): number => server.asked.length;
+const starts = (): number => server.started.length;
 
 /** Waits for the open conversation's next read while its agent answers. */
 async function nextRead(): Promise<void> {
@@ -116,7 +133,7 @@ export async function run(): Promise<boolean> {
     assert(text().includes('Thinking…') && button('Send').disabled, 'The pending answer shows and holds the next message');
     assert(composer().value === '', 'The sent message leaves the composer');
 
-    answer({ assessment: 'You want to understand the connector deeply.', proposal: null,
+    answer({ assessment: 'You want to understand the connector deeply.', proposal: null, recommendation: null,
       question: { text: 'Do you already know the Iceberg specification?', suggestions: ['Yes', 'Not yet'] } });
     await nextRead();
     assert(text().includes('Do you already know the Iceberg specification?'), 'The question arrives without reopening the window');
@@ -128,13 +145,13 @@ export async function run(): Promise<boolean> {
     button('Send').click(); await settle(); await settle();
     assert(asked() === 3 && server.asked[1] === server.asked[2], 'Resending the same draft reuses its operation');
 
-    answer({ assessment: 'You can spend five hours a week.', proposal: null,
+    answer({ assessment: 'You can spend five hours a week.', proposal: null, recommendation: null,
       question: { text: 'Do you want to learn first or start on real work?', suggestions: ['Learn first', 'Real work first'] } });
     await nextRead();
     button('Learn first').click(); await settle(); await settle();
     assert(asked() === 4 && server.exchanges.at(-1)?.message === 'Learn first', 'A suggested answer is sent as the user\'s reply');
 
-    answer({ assessment: 'Start from the specification, then the connector.', question: null, proposal: {
+    answer({ assessment: 'Start from the specification, then the connector.', question: null, recommendation: null, proposal: {
       title: 'Iceberg connector expert', objective: 'Explain and change the Iceberg connector', successDefinition: 'Trace a scan end to end',
       startingKnowledge: 'Knows Trino', constraints: 'Five hours a week' } });
     await nextRead();
@@ -146,6 +163,18 @@ export async function run(): Promise<boolean> {
     assert(server.accepted.length === 1 && server.accepted[0] === 'Trino Iceberg connector expert', 'Accepting saves the edited title');
     assert(document.querySelector('.goal-proposal') === null && text().includes('Success means'), 'The accepted definition replaces the proposal');
     assert(document.querySelector('.goal-panel__title')?.textContent === 'Trino Iceberg connector expert', 'The goal takes the accepted title');
+    assert(text().includes('The user accepted the goal definition.') && text().includes('Thinking…'), 'Accepting tells the agent, which answers at once');
+
+    // The agent judges research is the next step; the backend floats its card when it saves the answer.
+    answer({ assessment: 'Read the specification before the connector.', question: null, proposal: null, recommendation: CARD });
+    setCards([{ id: 'card-1', goalId: 'goal', card: CARD, state: 'SHOWN', taskId: null, createdAt: NOW }]);
+    await nextRead(); await settle();
+    const card = document.querySelector('.goal-cards .goal-rec');
+    assert(card !== null && card.textContent?.includes('Read the Iceberg specification') === true, 'The recommended research floats under the Goal control');
+    assert(starts() === 0, 'Nothing starts until Start');
+    [...card.querySelectorAll('button')].find((candidate) => candidate.textContent === 'Start')?.click(); await settle(); await settle();
+    assert(starts() === 1 && document.querySelector('.goal-cards') === null, 'Start begins the run and the card leaves the control');
+    assert(text().includes('Researching: Read the Iceberg specification'), 'The Goal window shows the running research');
     return true;
   }
   finally { flushSync(() => root.unmount()); host.remove(); }

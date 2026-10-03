@@ -17,9 +17,12 @@ import { ChevronDown, Maximize2, Minimize2, Plus, Search, Trash2, X } from 'luci
 import { ConfirmDialog } from '../ConfirmDialog';
 import { GoalIcon, SourceIcon } from '../cards/Card';
 import { relativeTime } from '../relativeTime';
-import type { GoalDto, GoalItemDto, GoalProposalDto, WorkItemDto, WorkItemDecision, CreateWorkItem, CompletionRule, WorkItemKind } from './contracts';
+import type {
+  GoalDto, GoalItemDto, GoalKnowledgeNoteDto, GoalProposalDto, WorkItemDto, WorkItemDecision, CreateWorkItem, CompletionRule, WorkItemKind,
+} from './contracts';
 import {
-  GOAL_SOURCES, STATE_GROUPS, addable, goalDirections, itemsIn, openProposal, progressWidths, recentActivity, refKey, ringDash, summarize, itemNeedsYou, type GoalTab,
+  GOAL_SOURCES, STATE_GROUPS, addable, goalDirections, itemsIn, openProposal, progressWidths, recentActivity, refKey, ringDash, sourceUrl, summarize, itemNeedsYou,
+  type GoalTab,
 } from './model';
 import type { GoalConversation } from './useGoals';
 
@@ -69,6 +72,7 @@ export type GoalPanelProps = {
   onDecide: (item: WorkItemDto, command: WorkItemDecision) => Promise<WorkItemDto>;
   onLink: (item: WorkItemDto, reference: GoalItemDto) => Promise<WorkItemDto>;
   onOpenItem: (item: GoalItemDto) => void;
+  onOpenTask: (taskId: string) => void;
   search: (query: string) => Promise<GoalItemDto[]>;
 };
 
@@ -107,7 +111,7 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
         </div>
       </div>
       {item !== undefined ? <WorkDetails key={item.id} {...props} item={item} onBack={() => setSelected(null)} />
-        : view === 'guide' ? <GoalGuide goal={goal} repository={props.repository} conversation={props.conversation} onStart={props.onStart} />
+        : view === 'guide' ? <GoalGuide goal={goal} repository={props.repository} conversation={props.conversation} onStart={props.onStart} onOpenTask={props.onOpenTask} />
           : goal === null ? <><NoGoal onCreate={props.onCreate} />{props.workItems.map((saved) => <button type="button" className="goal-work-card" key={saved.id} onClick={() => setSelected(saved.id)}>{saved.title} · {saved.state.toLowerCase()}</button>)}</> : <GoalWork {...props} goal={goal} onSelect={setSelected} />}
     </div>
   );
@@ -117,7 +121,7 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
  * The agent's side of the goal: "What do you want to achieve?" while there is nothing to go on, then the conversation, the
  * question's suggested answers and a definition to accept. The opening is written locally; only a message asks the model.
  */
-function GoalGuide({ goal, repository, conversation, onStart }: Pick<GoalPanelProps, 'goal' | 'repository' | 'conversation' | 'onStart'>): React.JSX.Element {
+function GoalGuide({ goal, repository, conversation, onStart, onOpenTask }: Pick<GoalPanelProps, 'goal' | 'repository' | 'conversation' | 'onStart' | 'onOpenTask'>): React.JSX.Element {
   const { exchanges } = conversation;
   const [error, setError] = useState<string | null>(null);
   const last = exchanges.at(-1);
@@ -142,7 +146,7 @@ function GoalGuide({ goal, repository, conversation, onStart }: Pick<GoalPanelPr
       ) : (
         <ol className="goal-thread" aria-label="Conversation with the goal's agent">
           {exchanges.map((exchange) => <li key={exchange.id} className="goal-thread__turn">
-            <div className="goal-thread__user">{exchange.message}</div>
+            <div className={exchange.automatic ? 'goal-thread__event' : 'goal-thread__user'}>{exchange.message}</div>
             {exchange.state === 'PENDING' && <div className="goal-thread__agent is-pending" role="status">Thinking…</div>}
             {exchange.state === 'FAILED' && <div className="goal-thread__agent is-failed">
               <span>{exchange.failure}</span>
@@ -159,10 +163,31 @@ function GoalGuide({ goal, repository, conversation, onStart }: Pick<GoalPanelPr
         </ol>
       )}
       {question !== null && question.suggestions.length > 0 && <Choices choices={question.suggestions} onPick={pick} />}
+      {goal?.recommendations.filter((card) => card.state === 'STARTED').map((card) => <div key={card.id} className="goal-guide__running" role="status">
+        <span>Researching: {card.card.title}</span>
+        {card.taskId !== null && <button type="button" className="goal-link" onClick={() => onOpenTask(card.taskId)}>Open run</button>}
+      </div>)}
+      {conversation.notes.length > 0 && <Notes notes={conversation.notes} />}
       {open !== null && <Proposal key={open.exchangeId} proposal={open.proposal} onAccept={(title) => conversation.accept(open.exchangeId, title)} />}
       {(error ?? conversation.error) !== null && <p className="goal-guide__error" role="alert">{error ?? conversation.error}</p>}
       <Composer answering={answering} placeholder={goal === null ? 'I want to…' : question === null ? 'Ask about this goal' : 'Answer in your own words'} onSend={send} />
     </div>
+  );
+}
+
+/** What the goal's research saved, each note with the pages and files it rests on. */
+function Notes({ notes }: { notes: GoalKnowledgeNoteDto[] }): React.JSX.Element {
+  return (
+    <section className="goal-notes" aria-label="Knowledge notes">
+      <div className="goal-group">What the agent learned · {notes.length}</div>
+      {notes.map((note) => <details key={note.id} className="goal-note">
+        <summary>{note.topic}</summary>
+        <p>{note.body}</p>
+        <ul>{note.sources.map((source) => <li key={source.reference + (source.commit ?? '')}>
+          <a href={sourceUrl(source)} target="_blank" rel="noreferrer">{source.commit === null ? source.reference : `${source.reference} @ ${source.commit.slice(0, 7)}`}</a>
+        </li>)}</ul>
+      </details>)}
+    </section>
   );
 }
 

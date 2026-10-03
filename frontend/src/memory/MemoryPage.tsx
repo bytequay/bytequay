@@ -33,6 +33,8 @@ import '../css/repository-context.css';
 import '../css/memory.css';
 
 const KINDS: MemoryKind[] = ['RULE', 'RECIPE', 'SPEC'];
+/** What the workspace's one restricted run is called where a message names it. */
+const RUN_NAMES: Record<NonNullable<ContextBuildViewDto['build']>['kind'], string> = { CHECK: 'check', HARVEST: 'harvest', RESEARCH: 'research run' };
 type Drawer = { kind: 'spec'; directory: string | null } | { kind: 'memory'; id: string } | { kind: 'replay'; id: string };
 
 /**
@@ -247,9 +249,9 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
             </div>
           </div></div>}
           {run !== null && run.outcome !== 'RUNNING' && task !== null && !build.canStart && <div className="rcp-alert">
-            {task.mutationClaim === 'RECOVERY' ? `The last ${run.kind === 'CHECK' ? 'check' : 'harvest'}’s agent process needs recovery before another run can start.`
-              : task.state === 'OPEN' ? `The last ${run.kind === 'CHECK' ? 'check' : 'harvest'} hasn’t settled yet. It usually finishes on its own.`
-                : `The last ${run.kind === 'CHECK' ? 'check' : 'harvest'}’s worktree is still retained. Clean it up before starting another run.`}
+            {task.mutationClaim === 'RECOVERY' ? `The last ${RUN_NAMES[run.kind]}’s agent process needs recovery before another run can start.`
+              : task.state === 'OPEN' ? `The last ${RUN_NAMES[run.kind]} hasn’t settled yet. It usually finishes on its own.`
+                : `The last ${RUN_NAMES[run.kind]}’s worktree is still retained. Clean it up before starting another run.`}
             <div className="rcp-actions">
               {task.mutationClaim === 'RECOVERY' && <button type="button" className="rcp-btn rcp-btn--sm" disabled={busy} onClick={() => void perform(async () => {
                 const found = await window.bridge.getRepositoryContextBuildStopImpact(workspaceId, task.id);

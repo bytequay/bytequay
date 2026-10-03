@@ -18,7 +18,9 @@ import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalExchange;
+import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.store.GoalExchangeStore;
+import com.bytequay.core.store.GoalRecommendationStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +31,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -53,6 +56,7 @@ public class GoalConversationService
 
     private final GoalService goals;
     private final GoalExchangeStore exchanges;
+    private final GoalRecommendationStore recommendations;
     private final ModelSettingsService models;
     private final GoalPlanner planner;
     private final Clock clock;
@@ -62,15 +66,18 @@ public class GoalConversationService
     private final Object writes = new Object();
 
     @Autowired
-    public GoalConversationService(GoalService goals, GoalExchangeStore exchanges, ModelSettingsService models, GoalPlanner planner, Clock clock)
+    public GoalConversationService(GoalService goals, GoalExchangeStore exchanges, GoalRecommendationStore recommendations, ModelSettingsService models,
+            GoalPlanner planner, Clock clock)
     {
-        this(goals, exchanges, models, planner, clock, Executors.newFixedThreadPool(2, Thread.ofVirtual().name("goal-agent-", 0).factory()));
+        this(goals, exchanges, recommendations, models, planner, clock, Executors.newFixedThreadPool(2, Thread.ofVirtual().name("goal-agent-", 0).factory()));
     }
 
-    GoalConversationService(GoalService goals, GoalExchangeStore exchanges, ModelSettingsService models, GoalPlanner planner, Clock clock, Executor executor)
+    GoalConversationService(GoalService goals, GoalExchangeStore exchanges, GoalRecommendationStore recommendations, ModelSettingsService models, GoalPlanner planner,
+            Clock clock, Executor executor)
     {
         this.goals = requireNonNull(goals, "goals is null");
         this.exchanges = requireNonNull(exchanges, "exchanges is null");
+        this.recommendations = requireNonNull(recommendations, "recommendations is null");
         this.models = requireNonNull(models, "models is null");
         this.planner = requireNonNull(planner, "planner is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -125,6 +132,22 @@ public class GoalConversationService
         return exchanges.list(goalId);
     }
 
+    /** Tells the goal's agent about an event, unless it is already answering; repeating the same operation tells it once. */
+    public void tell(String workspaceId, String goalId, String operationId, String event)
+    {
+        GoalExchange exchange;
+        synchronized (writes) {
+            GoalView goal = goal(workspaceId, goalId);
+            // ponytail: an event while the agent answers is dropped; the next request still reads the cards and notes it would report.
+            if (exchanges.find(operationId).isPresent() || exchanges.list(goalId).stream().anyMatch(earlier -> earlier.state() == GoalExchange.State.PENDING)) {
+                return;
+            }
+            exchange = GoalExchange.told(operationId, goalId, workspaceId, event, goal.revision(), clock.instant());
+            exchanges.save(exchange);
+        }
+        dispatch(exchange);
+    }
+
     /** Asks again for the goal's last message after it failed or was interrupted. */
     public List<GoalExchange> retry(String workspaceId, String goalId, String exchangeId)
     {
@@ -147,7 +170,7 @@ public class GoalConversationService
         return exchanges.list(goalId);
     }
 
-    /** Accepts the definition an answer proposed, optionally under a title the user edited. */
+    /** Accepts the definition an answer proposed, optionally under a title the user edited, and lets the agent say what comes next. */
     public GoalView accept(String workspaceId, String goalId, String exchangeId, Optional<String> title)
     {
         GoalExchange exchange = exchanges.find(exchangeId).filter(candidate -> candidate.goalId().equals(goalId) && candidate.workspaceId().equals(workspaceId))
@@ -155,7 +178,29 @@ public class GoalConversationService
         GoalExchange.Proposal proposal = exchange.reply().flatMap(GoalExchange.Reply::proposal)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "This answer proposes no definition."));
         GoalDefinition definition = new GoalDefinition(proposal.successDefinition(), proposal.startingKnowledge(), proposal.constraints(), exchangeId, clock.instant());
-        return goals.define(workspaceId, goalId, exchange.inputRevision(), title.filter(value -> !value.isBlank()).orElse(proposal.title()), proposal.objective(), definition);
+        GoalView defined = goals.define(workspaceId, goalId, exchange.inputRevision(), title.filter(value -> !value.isBlank()).orElse(proposal.title()),
+                proposal.objective(), definition);
+        tell(workspaceId, goalId, "accepted:" + exchangeId, "The user accepted the goal definition.");
+        return defined;
+    }
+
+    /** Not now on a card: it leaves the Goal control, and the agent does not offer the same card again. */
+    public GoalRecommendation dismiss(String workspaceId, String goalId, String recommendationId)
+    {
+        synchronized (writes) {
+            goal(workspaceId, goalId);
+            GoalRecommendation card = recommendations.find(recommendationId).filter(found -> found.goalId().equals(goalId))
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Card not found"));
+            if (card.state() == GoalRecommendation.State.DISMISSED) {
+                return card;
+            }
+            if (card.state() != GoalRecommendation.State.SHOWN) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "A started card cannot be dismissed.");
+            }
+            GoalRecommendation dismissed = card.dismissed(clock.instant());
+            recommendations.save(dismissed);
+            return dismissed;
+        }
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -173,13 +218,15 @@ public class GoalConversationService
     void answer(GoalExchange exchange)
     {
         Optional<String> model = Optional.empty();
+        Optional<GoalView> read = Optional.empty();
         GoalExchange settled;
         try {
             GoalView goal = goal(exchange.workspaceId(), exchange.goalId());
+            read = Optional.of(goal);
             AgentModelSetting setting = models.agentModel(AgentModelType.DEVELOPMENT, Optional.of(exchange.workspaceId()));
             model = Optional.of(setting.configId() + "/" + setting.model());
             List<GoalExchange> earlier = exchanges.list(goal.id()).stream().takeWhile(candidate -> !candidate.id().equals(exchange.id())).collect(toImmutableList());
-            settled = exchange.answered(model.orElseThrow(), planner.answer(setting, goal, earlier, exchange.message()), clock.instant());
+            settled = exchange.answered(model.orElseThrow(), planner.answer(setting, goal, earlier, exchange), clock.instant());
         }
         catch (RuntimeException failure) {
             log.debug("Goal exchange {} failed", exchange.id(), failure);
@@ -190,7 +237,25 @@ public class GoalConversationService
             // Only the request this job was given is settled; a restart's settlement or a later retry replaced any other.
             if (exchanges.find(exchange.id()).filter(exchange::equals).isPresent()) {
                 exchanges.save(settled);
+                Optional<GoalRecommendation.Card> card = settled.reply().flatMap(GoalExchange.Reply::recommendation);
+                if (card.isPresent() && read.flatMap(GoalView::definition).isPresent()) {
+                    recommend(read.orElseThrow(), settled, card.orElseThrow());
+                }
             }
+        }
+    }
+
+    /** Floats the card unless one of its kind is still waiting or running, or the user dismissed the same card. */
+    private void recommend(GoalView goal, GoalExchange exchange, GoalRecommendation.Card card)
+    {
+        List<GoalRecommendation> cards = recommendations.list(goal.id());
+        boolean waiting = cards.stream().anyMatch(existing -> existing.card().kind() == card.kind()
+                && (existing.state() == GoalRecommendation.State.SHOWN || existing.state() == GoalRecommendation.State.STARTED));
+        boolean dismissed = cards.stream().anyMatch(existing -> existing.state() == GoalRecommendation.State.DISMISSED && existing.card().equals(card));
+        if (!waiting && !dismissed) {
+            Instant now = clock.instant();
+            recommendations.save(new GoalRecommendation("card-" + exchange.id(), goal.id(), goal.workspaceId(), card, GoalRecommendation.State.SHOWN, Optional.empty(),
+                    exchange.id(), now, now));
         }
     }
 

@@ -39,7 +39,8 @@ public record ReviewTool(String name, String description, Map<String, Object> in
             "repository_context_spec_candidates",
             "repository_context_spec_result",
             "repository_context_harvest_threads",
-            "repository_context_harvest_save");
+            "repository_context_harvest_save",
+            "goal_knowledge_save");
 
     /** A tool only the root agent may call, which is every tool that saves or changes review state. */
     public ReviewTool(String name, String description, Map<String, Object> inputSchema, Function<String, String> call)

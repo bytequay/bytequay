@@ -13,7 +13,7 @@
  */
 import type { JiraLocation, JiraQuery, JiraTokenRequest } from './jira/contracts';
 import { parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamId, teamMemberId } from './teams/contracts';
-import { parseWorkItem, type CreateWorkItem, type WorkItemDecision, parseGoal, parseGoalExchange, parseGoalItem, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
+import { parseWorkItem, type CreateWorkItem, type WorkItemDecision, parseGoal, parseGoalExchange, parseGoalItem, parseGoalKnowledgeNote, parseGoalRecommendation, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, screen, shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -1860,6 +1860,14 @@ function registerIpc(): void {
     backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/exchanges/${encodeURIComponent(exchangeId)}/retry`), { method: 'POST' }).then(exchanges));
   ipcMain.handle('goals:accept', (_event, workspaceId: string, goalId: string, exchangeId: string, title: string) =>
     backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/definition`), jsonInit('POST', { exchangeId, title })).then(parseGoal));
+  const recommendationUrl = (workspaceId: string, goalId: string, recommendationId: string, action: string) =>
+    goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/recommendations/${encodeURIComponent(recommendationId)}/${action}`);
+  ipcMain.handle('goals:recommendations:start', (_event, workspaceId: string, goalId: string, recommendationId: string) =>
+    backendJson(recommendationUrl(workspaceId, goalId, recommendationId, 'start'), { method: 'POST' }).then(parseGoalRecommendation));
+  ipcMain.handle('goals:recommendations:dismiss', (_event, workspaceId: string, goalId: string, recommendationId: string) =>
+    backendJson(recommendationUrl(workspaceId, goalId, recommendationId, 'dismiss'), { method: 'POST' }).then(parseGoalRecommendation));
+  ipcMain.handle('goals:knowledge', (_event, workspaceId: string, goalId: string) =>
+    backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/knowledge`)).then(notes => parseList(notes, parseGoalKnowledgeNote, 'goal notes')));
   ipcMain.handle('workspaces:issues:refresh', (_event, workspaceId: string) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/refresh`, {
       method: 'POST',

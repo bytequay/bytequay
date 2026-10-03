@@ -20,6 +20,7 @@ import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.app.context.ContextSpecCheckTools;
 import com.bytequay.app.memory.MemoryHarvestTools;
+import com.bytequay.app.service.goal.GoalResearchTools;
 import com.google.common.collect.ImmutableList;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -29,7 +30,7 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Answers the provider broker from durable review or spec check ownership. Looked up lazily: the broker is built
+ * Answers the provider broker from durable review, spec check, harvest or research ownership. Looked up lazily: the broker is built
  * before the review service, whose task execution depends on the drivers the broker serves.
  */
 @Component
@@ -39,14 +40,16 @@ public class ReviewBridgeResolverImpl
     private final ObjectProvider<ReviewTools> tools;
     private final ObjectProvider<ContextSpecCheckTools> checks;
     private final ObjectProvider<MemoryHarvestTools> harvests;
+    private final ObjectProvider<GoalResearchTools> research;
     private final AgentTaskStore tasks;
 
     public ReviewBridgeResolverImpl(ObjectProvider<ReviewTools> tools, ObjectProvider<ContextSpecCheckTools> checks, ObjectProvider<MemoryHarvestTools> harvests,
-            AgentTaskStore tasks)
+            ObjectProvider<GoalResearchTools> research, AgentTaskStore tasks)
     {
         this.tools = requireNonNull(tools, "tools is null");
         this.checks = requireNonNull(checks, "checks is null");
         this.harvests = requireNonNull(harvests, "harvests is null");
+        this.research = requireNonNull(research, "research is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
     }
 
@@ -55,6 +58,7 @@ public class ReviewBridgeResolverImpl
     {
         return checks.getObject().bridge(taskId)
                 .or(() -> harvests.getObject().bridge(taskId))
+                .or(() -> research.getObject().bridge(taskId))
                 .or(() -> tools.getObject().bridge(taskId))
                 .or(() -> tasks.find(TaskId.valueOf(taskId))
                 .filter(task -> task.interactive() && task.state() == TaskState.OPEN)

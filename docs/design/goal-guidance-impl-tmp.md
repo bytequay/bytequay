@@ -1,7 +1,7 @@
 # Agent guided goals implementation plan
 
-Status: Work-item foundation and the Goal conversation implemented.
-Recommendations, research and courses remain planned. The [Goal guidance design](goal-guidance.md) owns the product and
+Status: Work-item foundation, the Goal conversation, recommendation cards and
+research runs implemented. Courses, lessons and work handoff remain planned. The [Goal guidance design](goal-guidance.md) owns the product and
 behavior contract; this checklist records delivery order, concrete actions and
 proof required.
 
@@ -66,7 +66,15 @@ message, input revision, model, validated reply or failure. The reply carries an
 assessment, one question with suggested answers and an optional definition;
 accepting it saves the title, objective, success definition, starting knowledge
 and constraints behind a revision check. A proposed path arrives with the course
-in item 4. Items 3 to 5 remain.
+in item 4.
+
+Item 3 is implemented. Accepting a definition tells the agent, whose answer may
+float a research card under the Goal control; Start runs one read-only research
+turn on the shared restricted-run slot, reading the workspace and its Dependency
+checkouts, and `goal_knowledge_save` stores sourced notes. A finished run tells
+the agent what it saved. Stale-note marking, the repository-memory Remember offer
+and verification that a cited page was read in the run remain open. Items 4 and
+5 remain.
 The following steps retain the full identity, source, recovery and verification
 requirements.
 

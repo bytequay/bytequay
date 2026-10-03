@@ -17,11 +17,14 @@ import com.bytequay.app.service.goal.GoalActivity;
 import com.bytequay.app.service.goal.GoalConversationService;
 import com.bytequay.app.service.goal.GoalItemState;
 import com.bytequay.app.service.goal.GoalItemView;
+import com.bytequay.app.service.goal.GoalResearchService;
 import com.bytequay.app.service.goal.GoalService;
 import com.bytequay.app.service.goal.GoalView;
 import com.bytequay.app.service.goal.WorkItemView;
 import com.bytequay.core.domain.GoalExchange;
 import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.GoalKnowledgeNote;
+import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.GoalSource;
 import com.bytequay.core.domain.WorkItem;
 import com.google.common.collect.ImmutableList;
@@ -54,11 +57,12 @@ class TestGoalController
             Optional.of(new GoalSource(GoalItemKind.ISSUE, "trinodb/trino#31000")), Optional.empty(), 0,
             ImmutableList.of(new WorkItemView("work-1", "workspace", Optional.of("goal-1"), "Retry Iceberg commits", WorkItem.Kind.DEVELOP,
                     "", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.WORKING, 0,
-                    ImmutableList.of(MERGED), ImmutableList.of(), NOW, NOW)), NOW, NOW);
+                    ImmutableList.of(MERGED), ImmutableList.of(), NOW, NOW)), ImmutableList.of(), NOW, NOW);
 
     private final GoalService goals = mock(GoalService.class);
     private final GoalConversationService conversations = mock(GoalConversationService.class);
-    private final MockMvc mvc = standaloneSetup(new GoalController(goals, conversations)).build();
+    private final GoalResearchService research = mock(GoalResearchService.class);
+    private final MockMvc mvc = standaloneSetup(new GoalController(goals, conversations, research)).build();
 
     @Test
     void listsGoalsWithTheirItemsReadLocally()
@@ -118,7 +122,7 @@ class TestGoalController
                 .andExpect(jsonPath("$.definition").value(nullValue()));
 
         GoalExchange answered = GoalExchange.ask("op-2", "goal-1", "workspace", "Reads first", 0, NOW).answered("codex/gpt", new GoalExchange.Reply("You want to start with reads.",
-                Optional.of(new GoalExchange.Question("Do you know the Iceberg specification?", ImmutableList.of("Yes", "Not yet"))), Optional.empty()), NOW);
+                Optional.of(new GoalExchange.Question("Do you know the Iceberg specification?", ImmutableList.of("Yes", "Not yet"))), Optional.empty(), Optional.empty()), NOW);
         when(conversations.ask("workspace", "goal-1", "op-2", "Reads first")).thenReturn(ImmutableList.of(answered));
         mvc.perform(post("/api/workspaces/workspace/goals/goal-1/exchanges").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"operationId\":\"op-2\",\"message\":\"Reads first\"}"))
@@ -135,6 +139,33 @@ class TestGoalController
 
         mvc.perform(post("/api/workspaces/workspace/goals/goal-1/exchanges/op-2/retry")).andExpect(status().isOk());
         verify(conversations).retry("workspace", "goal-1", "op-2");
+    }
+
+    @Test
+    void startsAndDismissesCardsAndReadsTheGoalsNotes()
+            throws Exception
+    {
+        GoalRecommendation card = new GoalRecommendation("card-1", "goal-1", "workspace", new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH,
+                "Read the Iceberg specification", "You start from the specification", "Snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/")),
+                GoalRecommendation.State.SHOWN, Optional.empty(), "op-1", NOW, NOW);
+        when(research.start("workspace", "goal-1", "card-1")).thenReturn(card.started("task-1", NOW));
+        mvc.perform(post("/api/workspaces/workspace/goals/goal-1/recommendations/card-1/start"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.state").value("STARTED"))
+                .andExpect(jsonPath("$.taskId").value("task-1"))
+                .andExpect(jsonPath("$.card.pages[0]").value("https://iceberg.apache.org/spec/"));
+
+        when(conversations.dismiss("workspace", "goal-1", "card-1")).thenReturn(card.dismissed(NOW));
+        mvc.perform(post("/api/workspaces/workspace/goals/goal-1/recommendations/card-1/dismiss"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.state").value("DISMISSED"));
+
+        when(research.notes("workspace", "goal-1")).thenReturn(ImmutableList.of(new GoalKnowledgeNote("note-1", "goal-1", "workspace", "Manifest lists",
+                "A snapshot lists its manifests.", ImmutableList.of(new GoalKnowledgeNote.Source("trinodb/trino:core/A.java", Optional.of("a".repeat(40)))), "task-1", NOW)));
+        mvc.perform(get("/api/workspaces/workspace/goals/goal-1/knowledge"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].topic").value("Manifest lists"))
+                .andExpect(jsonPath("$[0].sources[0].commit").value("a".repeat(40)));
     }
 
     @Test

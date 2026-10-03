@@ -14,7 +14,7 @@
 
 import type { JiraBridge, JiraSourceRequest, JiraTaskSource } from './jira/contracts';
 import type { TeamActivityQuery, TeamActivitySnapshot, TeamCircleInput, TeamCreateInput, TeamDirectory, TeamMemberInput } from './teams/types';
-import type { CreateWorkItem, WorkItemDto, WorkItemDecision, GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalPatch } from './goals/contracts';
+import type { CreateWorkItem, WorkItemDto, WorkItemDecision, GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalKnowledgeNoteDto, GoalPatch, GoalRecommendationDto } from './goals/contracts';
 import { AgentEventEnvelope } from './agents/events';
 import type { AskCommentDiscussionRequest, AskDiscussionRequest, DiscussionQuery, DraftDiscussionReplyRequest, OpenDiscussionRequest, ResolveDiscussionRequest, RetryDiscussionRequest, TaskDiscussionDto } from './agents/discussions/contracts';
 import type { CreateDevelopmentLearningCommentRequest, CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';
@@ -1490,6 +1490,10 @@ export type Bridge = JiraBridge & {
   askGoal: (workspaceId: string, goalId: string, operationId: string, message: string) => Promise<GoalExchangeDto[]>;
   retryGoalExchange: (workspaceId: string, goalId: string, exchangeId: string) => Promise<GoalExchangeDto[]>;
   acceptGoalDefinition: (workspaceId: string, goalId: string, exchangeId: string, title: string) => Promise<GoalDto>;
+  /** Start on a card under the Goal control: the research it recommends begins as one read-only run. */
+  startGoalRecommendation: (workspaceId: string, goalId: string, recommendationId: string) => Promise<GoalRecommendationDto>;
+  dismissGoalRecommendation: (workspaceId: string, goalId: string, recommendationId: string) => Promise<GoalRecommendationDto>;
+  listGoalKnowledge: (workspaceId: string, goalId: string) => Promise<GoalKnowledgeNoteDto[]>;
   refreshWorkspaceIssues: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
   fetchWorkspaceIssueDetail: (workspaceId: string, issueNumber: number) => Promise<WorkspaceIssueDetailDto>;
   refreshWorkspaceIssueDetail: (workspaceId: string, issueNumber: number) => Promise<WorkspaceIssueDetailDto>;

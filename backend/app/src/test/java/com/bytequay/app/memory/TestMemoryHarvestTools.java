@@ -149,7 +149,7 @@ class TestMemoryHarvestTools
         ContextBuild harvest = build(1);
         store.save(Optional.empty(), new ContextBuild(harvest.sequence(), harvest.requestKey(), harvest.requestDigest(), WORKSPACE, TASK.toString(),
                 harvest.physicalRepository(), 1, harvest.repository(), harvest.baselineSha(), harvest.branch(), harvest.laneId(), harvest.defaults(), Instant.EPOCH,
-                ContextBuild.Capture.empty(), Optional.of(new ContextBuild.Check("check-1", "plugin/x/", Optional.empty(), "brief")), Optional.empty()));
+                ContextBuild.Capture.empty(), Optional.of(new ContextBuild.Check("check-1", "plugin/x/", Optional.empty(), "brief")), Optional.empty(), Optional.empty()));
         assertThat(tools.bridge(TASK.toString())).isEmpty();
     }
 
@@ -174,6 +174,6 @@ class TestMemoryHarvestTools
                         .collect(toImmutableList()));
         return new ContextBuild(1, "harvest-request", "sha256:" + "b".repeat(64), WORKSPACE, TASK.toString(), new RepositoryIdentity("trinodb", "trino"), 1,
                 RepoRef.of("trinodb", "trino"), "a".repeat(40), "bytequay/learn", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH,
-                ContextBuild.Capture.empty(), Optional.empty(), Optional.of(harvest));
+                ContextBuild.Capture.empty(), Optional.empty(), Optional.of(harvest), Optional.empty());
     }
 }

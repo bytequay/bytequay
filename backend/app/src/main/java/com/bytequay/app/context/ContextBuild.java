@@ -26,18 +26,20 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * The workspace's latest restricted run, a spec check turn or a memory harvest, and what its tools recorded; execution state belongs to
- * its agent task. One run at a time per workspace.
+ * The workspace's latest restricted run, a spec check turn, a memory harvest or a Goal's research, and what its tools recorded; execution
+ * state belongs to its agent task. One run at a time per workspace.
  */
 public record ContextBuild(
         long sequence, String requestKey, String requestDigest, String workspaceId, String taskId,
         RepositoryIdentity physicalRepository, long repositoryId, RepoRef repository, String baselineSha, String branch,
-        String laneId, AgentTaskDefaults defaults, Instant requestedAt, Capture capture, Optional<Check> check, Optional<Harvest> harvest)
+        String laneId, AgentTaskDefaults defaults, Instant requestedAt, Capture capture, Optional<Check> check, Optional<Harvest> harvest,
+        Optional<Research> research)
 {
     public ContextBuild
     {
@@ -56,13 +58,14 @@ public record ContextBuild(
         requireNonNull(capture, "capture is null");
         requireNonNull(check, "check is null");
         requireNonNull(harvest, "harvest is null");
-        checkArgument(check.isPresent() != harvest.isPresent(), "A run is a spec check or a harvest");
+        requireNonNull(research, "research is null");
+        checkArgument(Stream.of(check, harvest, research).filter(Optional::isPresent).count() == 1, "A run is a spec check, a harvest or a research run");
     }
 
-    /** The spec check or harvest this run works for. */
+    /** The spec check, harvest or research this run works for. */
     public String workId()
     {
-        return check.map(Check::checkId).orElseGet(() -> harvest.orElseThrow().harvestId());
+        return check.map(Check::checkId).or(() -> harvest.map(Harvest::harvestId)).orElseGet(() -> research.orElseThrow().researchId());
     }
 
     /** Keyed by sequence as well: one task takes a check's planning turn and then a turn per reproduction. */
@@ -74,7 +77,37 @@ public record ContextBuild(
     public ContextBuild withCapture(Capture replacement)
     {
         return new ContextBuild(sequence, requestKey, requestDigest, workspaceId, taskId, physicalRepository, repositoryId, repository, baselineSha, branch,
-                laneId, defaults, requestedAt, replacement, check, harvest);
+                laneId, defaults, requestedAt, replacement, check, harvest, research);
+    }
+
+    /**
+     * A research run for a goal: the card's scope and pages, and the checkouts of the workspaces the goal's workspace depends on, each at
+     * the commit the run reads.
+     *
+     * @param researchId the recommendation card that started it
+     */
+    public record Research(String researchId, String goalId, String goalTitle, String objective, String scope, List<String> pages, List<Related> related)
+    {
+        public Research
+        {
+            ContextLimits.text(researchId, "research id", 100);
+            ContextLimits.text(goalId, "goal id", 100);
+            ContextLimits.text(goalTitle, "goal title", 500);
+            requireNonNull(objective, "objective is null");
+            ContextLimits.text(scope, "research scope", 4_000);
+            pages = ImmutableList.copyOf(pages);
+            related = ImmutableList.copyOf(related);
+        }
+    }
+
+    public record Related(String repository, String path, String commit)
+    {
+        public Related
+        {
+            ContextLimits.text(repository, "related repository", 200);
+            ContextLimits.text(path, "related checkout", 1_000);
+            checkArgument(commit.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Invalid related commit");
+        }
     }
 
     /**

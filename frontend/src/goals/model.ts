@@ -13,7 +13,7 @@
  */
 
 import type { AttentionItem, AttentionSource } from '../home/attention';
-import type { GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalProposalDto, WorkItemState, WorkItemDto } from './contracts';
+import type { GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalKnowledgeNoteDto, GoalProposalDto, WorkItemState, WorkItemDto } from './contracts';
 
 export type GoalRef = { kind: GoalItemKind; key: string };
 
@@ -164,4 +164,11 @@ export function openProposal(goal: GoalDto | null, exchanges: GoalExchangeDto[])
   const last = exchanges.at(-1);
   if (last === undefined || last.reply === null || last.reply.proposal === null || goal?.definition?.exchangeId === last.id) return null;
   return { exchangeId: last.id, proposal: last.reply.proposal };
+}
+
+/** Where a note's source is read: the page itself, or the file on GitHub at the commit the research read it at. */
+export function sourceUrl(source: GoalKnowledgeNoteDto['sources'][number]): string {
+  if (source.commit === null) return source.reference;
+  const colon = source.reference.indexOf(':');
+  return `https://github.com/${source.reference.slice(0, colon)}/blob/${source.commit}/${source.reference.slice(colon + 1)}`;
 }

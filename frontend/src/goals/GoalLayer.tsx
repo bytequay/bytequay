@@ -13,9 +13,10 @@
  */
 
 import React, { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Card, Pill } from '../cards/Card';
 import { zoomReference } from '../githubReference';
 import { LayerCovered } from '../Zoom';
-import type { GoalItemDto } from './contracts';
+import type { GoalItemDto, GoalRecommendationDto } from './contracts';
 import { GoalPanel, GoalRing, type GoalPanelView } from './GoalPanel';
 import { GoalWindow } from './GoalWindow';
 import { placePill, summarize, type PillPosition } from './model';
@@ -24,6 +25,10 @@ import '../css/goals.css';
 
 const DRAG_THRESHOLD = 4;
 const PILL_MARGIN = 8;
+/** Cards float under the pill when it sits this far above the page's bottom, and above it otherwise. */
+const ROOM_BELOW = 220;
+const MAX_CARDS = 3;
+const CARD_KINDS: Record<GoalRecommendationDto['card']['kind'], string> = { RESEARCH: 'Research' };
 
 function pillKey(page: string): string {
   return `bq.goal.pill.${page}`;
@@ -140,7 +145,9 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
   }, [close, covered, opened, open]);
 
   const goal = goals.pinned;
-  const conversation = useGoalConversation(goals, goal?.id ?? null, visited);
+  const cards = goal?.recommendations ?? [];
+  const conversation = useGoalConversation(goals, goal?.id ?? null, visited, cards.map((card) => `${card.id}:${card.state}`).join(','));
+  const shown = cards.filter((card) => card.state === 'SHOWN').slice(0, MAX_CARDS);
   const panel = (full: boolean, toggle: () => void, onClose: () => void) => (
     <GoalPanel
       mode={full ? 'board' : 'window'}
@@ -163,6 +170,7 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
       onDecide={goals.decideWork}
       onLink={goals.linkWork}
       onOpenItem={(item) => openGoalItem(item, workspaceId, onOpenTask)}
+      onOpenTask={onOpenTask}
       search={goals.search}
     />
   );
@@ -231,10 +239,47 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
           {summary !== null && summary.total > 0 && <span className="goal-mono">{summary.finished}/{summary.total}</span>}
           {summary !== null && summary.needs > 0 && <span className="goal-pill__needs" title="Needs you">{summary.needs}</span>}
         </button>
+        {goal !== null && shown.length > 0 && (
+          <div className="goal-cards" role="region" aria-label="Recommended next steps"
+            style={position.bottom > ROOM_BELOW ? { right: position.right, top: `calc(100% - ${position.bottom - 6}px)` } : { right: position.right, bottom: position.bottom + 44 }}>
+            {shown.map((card) => <RecommendationCard key={card.id} card={card} onOpen={open}
+              onStart={() => goals.startCard(goal.id, card.id)} onDismiss={() => goals.dismissCard(goal.id, card.id)} />)}
+          </div>
+        )}
         {visited && <GoalWindow anchor={pillRef} open={opened} onClose={close}>
           {({ full, toggle, close: closeWindow }) => panel(full, toggle, closeWindow)}
         </GoalWindow>}
       </div>
     </div>
+  );
+}
+
+/** A next step the agent recommends; Start begins it and Not now dismisses it. Opening the card shows the goal's guidance. */
+function RecommendationCard({ card, onOpen, onStart, onDismiss }: {
+  card: GoalRecommendationDto;
+  onOpen: () => void;
+  onStart: () => Promise<unknown>;
+  onDismiss: () => Promise<unknown>;
+}): React.JSX.Element {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const act = (event: React.MouseEvent, action: () => Promise<unknown>): void => {
+    event.stopPropagation();
+    setBusy(true);
+    setError(null);
+    void action().catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The card could not be updated')).finally(() => setBusy(false));
+  };
+  const kind = CARD_KINDS[card.card.kind];
+  return (
+    <Card compact className="goal-rec" label={`${kind}: ${card.card.title}`} title={card.card.scope} onOpen={onOpen}>
+      <Pill>{kind}</Pill>
+      <div className="goal-rec__title">{card.card.title}</div>
+      <div className="goal-rec__reason">{card.card.reason}</div>
+      {error !== null && <div className="goal-rec__error" role="alert">{error}</div>}
+      <div className="goal-rec__actions">
+        <button type="button" className="goal-add" disabled={busy} onClick={(event) => act(event, onStart)}>Start</button>
+        <button type="button" className="goal-link is-muted" disabled={busy} onClick={(event) => act(event, onDismiss)}>Not now</button>
+      </div>
+    </Card>
   );
 }

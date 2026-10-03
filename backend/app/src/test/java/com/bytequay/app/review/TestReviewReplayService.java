@@ -198,22 +198,22 @@ class TestReviewReplayService
     private PullReplay pull(Optional<String> firstReviewHead)
     {
         List<SubmittedReview> submitted = ImmutableList.of(
-                new SubmittedReview("alice", false, "MEMBER", "COMMENTED", FIRST_REVIEW.minusSeconds(60), Optional.of(firstHead)),
-                new SubmittedReview("ci-bot", true, "MEMBER", "COMMENTED", FIRST_REVIEW.minusSeconds(30), Optional.of(firstHead)),
-                new SubmittedReview("bo", false, "MEMBER", "CHANGES_REQUESTED", FIRST_REVIEW, firstReviewHead),
-                new SubmittedReview("cy", false, "OWNER", "APPROVED", FIRST_REVIEW.plusSeconds(3600), Optional.of(laterHead)));
+                new SubmittedReview("alice", false, true, "COMMENTED", FIRST_REVIEW.minusSeconds(60), Optional.of(firstHead)),
+                new SubmittedReview("ci-bot", true, true, "COMMENTED", FIRST_REVIEW.minusSeconds(30), Optional.of(firstHead)),
+                new SubmittedReview("bo", false, true, "CHANGES_REQUESTED", FIRST_REVIEW, firstReviewHead),
+                new SubmittedReview("cy", false, true, "APPROVED", FIRST_REVIEW.plusSeconds(3600), Optional.of(laterHead)));
         List<ThreadStart> threads = ImmutableList.of(
-                thread("bo", "MEMBER", "plugin/x/A.java", 14, firstHead),
-                thread("alice", "MEMBER", "plugin/x/A.java", 1, firstHead),
-                thread("eve", "CONTRIBUTOR", "plugin/x/A.java", 2, firstHead),
-                thread("cy", "OWNER", "plugin/x/B.java", 1, laterHead));
+                thread("bo", true, "plugin/x/A.java", 14, firstHead),
+                thread("alice", true, "plugin/x/A.java", 1, firstHead),
+                thread("eve", false, "plugin/x/A.java", 2, firstHead),
+                thread("cy", true, "plugin/x/B.java", 1, laterHead));
         return new PullReplay(NUMBER, "Add a property", "https://github.com/trinodb/trino/pull/31201", true, "alice", "master", Optional.of(merge), submitted, threads);
     }
 
-    private static ThreadStart thread(String author, String association, String path, int line, String commit)
+    private static ThreadStart thread(String author, boolean maintainer, String path, int line, String commit)
     {
         return new ThreadStart(path, "RIGHT", Optional.empty(), Optional.empty(), Optional.of(line), Optional.empty(),
-                new Note("note-" + author, author, false, association, "Please check this.", "https://github.com/trinodb/trino/pull/31201#discussion_" + author,
+                new Note("note-" + author, author, false, maintainer, "Please check this.", "https://github.com/trinodb/trino/pull/31201#discussion_" + author,
                         FIRST_REVIEW), Optional.of(commit));
     }
 

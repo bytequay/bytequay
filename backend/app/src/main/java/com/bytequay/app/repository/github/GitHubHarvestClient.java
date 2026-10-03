@@ -29,6 +29,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.get;
@@ -38,6 +40,7 @@ import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -48,13 +51,14 @@ import static java.util.Objects.requireNonNull;
 public class GitHubHarvestClient
 {
     private static final int SEARCH_RESULTS = 100;
-    private static final String NOTE_FIELDS = "id body url authorAssociation author { __typename login }";
+    private static final String NOTE_FIELDS = "id body url author { __typename login }";
     private static final String QUERY = """
             query($owner:String!,$repo:String!,$number:Int!) {
               repository(owner:$owner,name:$repo) { pullRequest(number:$number) {
                 number title url merged closedAt
-                reviewThreads(first:100) { nodes { id isResolved isOutdated path comments(first:30) { nodes { %1$s createdAt } } } }
-                reviews(first:100) { nodes { %1$s submittedAt } }
+                reviewThreads(first:100) { nodes { id isResolved isOutdated path
+                  comments(first:30) { nodes { %1$s createdAt pullRequestReview { authorCanPushToRepository } } } } }
+                reviews(first:100) { nodes { %1$s submittedAt authorCanPushToRepository } }
                 comments(first:100) { nodes { %1$s createdAt } }
               } }
             }
@@ -63,9 +67,9 @@ public class GitHubHarvestClient
             query($owner:String!,$repo:String!,$number:Int!) {
               repository(owner:$owner,name:$repo) { pullRequest(number:$number) {
                 number title url merged baseRefName author { __typename login } mergeCommit { oid }
-                reviews(first:100) { nodes { author { __typename login } authorAssociation state submittedAt commit { oid } } }
+                reviews(first:100) { nodes { author { __typename login } authorCanPushToRepository state submittedAt commit { oid } } }
                 reviewThreads(first:100) { nodes { path diffSide line startLine originalLine originalStartLine
-                  comments(first:1) { nodes { %1$s createdAt originalCommit { oid } } } } }
+                  comments(first:1) { nodes { %1$s createdAt originalCommit { oid } pullRequestReview { authorCanPushToRepository } } } } }
               } }
             }
             """.formatted(NOTE_FIELDS);
@@ -108,13 +112,17 @@ public class GitHubHarvestClient
         }
         List<ReviewThread> threads = nodes(pull.path("reviewThreads")).stream()
                 .map(thread -> new ReviewThread(thread.path("id").asText(), thread.path("isResolved").asBoolean(), thread.path("isOutdated").asBoolean(),
-                        Optional.ofNullable(thread.path("path").textValue()), nodes(thread.path("comments")).stream().map(comment -> note(comment, "createdAt"))
-                        .collect(toImmutableList())))
+                        Optional.ofNullable(thread.path("path").textValue()), nodes(thread.path("comments")).stream()
+                        .map(comment -> note(comment, "createdAt", canPush(comment.path("pullRequestReview")))).collect(toImmutableList())))
                 .collect(toImmutableList());
+        List<Note> reviews = nodes(pull.path("reviews")).stream().map(review -> note(review, "submittedAt", canPush(review))).collect(toImmutableList());
+        // Only reviews say whether their author can push, so a conversation comment is a maintainer's when its author reviewed this pull request
+        // with push access.
+        Set<String> maintainers = Stream.concat(reviews.stream(), threads.stream().flatMap(thread -> thread.comments().stream()))
+                .filter(Note::maintainer).map(Note::author).collect(toImmutableSet());
         return Optional.of(new PullDiscussion(pull.path("number").asInt(), pull.path("title").asText(), pull.path("url").asText(), pull.path("merged").asBoolean(),
-                Instant.parse(pull.path("closedAt").asText()), threads,
-                nodes(pull.path("reviews")).stream().map(review -> note(review, "submittedAt")).collect(toImmutableList()),
-                nodes(pull.path("comments")).stream().map(comment -> note(comment, "createdAt")).collect(toImmutableList())));
+                Instant.parse(pull.path("closedAt").asText()), threads, reviews,
+                nodes(pull.path("comments")).stream().map(comment -> note(comment, "createdAt", maintainers.contains(login(comment)))).collect(toImmutableList())));
     }
 
     /** A pull request's submitted reviews, with the head each was given on, and the first comment of each review thread; empty when it is gone. */
@@ -126,8 +134,8 @@ public class GitHubHarvestClient
         }
         JsonNode author = pull.path("author");
         List<SubmittedReview> reviews = nodes(pull.path("reviews")).stream().filter(review -> review.path("submittedAt").isTextual())
-                .map(review -> new SubmittedReview(review.path("author").path("login").asText("ghost"), bot(review.path("author")),
-                        review.path("authorAssociation").asText("NONE"), review.path("state").asText(""), Instant.parse(review.path("submittedAt").asText()),
+                .map(review -> new SubmittedReview(login(review), bot(review.path("author")), canPush(review), review.path("state").asText(""),
+                        Instant.parse(review.path("submittedAt").asText()),
                         Optional.ofNullable(review.path("commit").path("oid").textValue())))
                 .collect(toImmutableList());
         List<ThreadStart> threads = nodes(pull.path("reviewThreads")).stream()
@@ -135,7 +143,7 @@ public class GitHubHarvestClient
                 .map(thread -> {
                     JsonNode first = nodes(thread.path("comments")).getFirst();
                     return new ThreadStart(thread.path("path").asText(), thread.path("diffSide").asText("RIGHT"), line(thread, "line"), line(thread, "startLine"),
-                            line(thread, "originalLine"), line(thread, "originalStartLine"), note(first, "createdAt"),
+                            line(thread, "originalLine"), line(thread, "originalStartLine"), note(first, "createdAt", canPush(first.path("pullRequestReview"))),
                             Optional.ofNullable(first.path("originalCommit").path("oid").textValue()));
                 })
                 .collect(toImmutableList());
@@ -171,17 +179,23 @@ public class GitHubHarvestClient
         return "Bot".equals(author.path("__typename").asText()) || author.path("login").asText("").endsWith("[bot]");
     }
 
-    private static boolean maintainer(String association)
+    /**
+     * A maintainer is someone who can push to the repository. GitHub's author association is no proxy for that: MEMBER also covers
+     * organization members who can only triage.
+     */
+    private static boolean canPush(JsonNode review)
     {
-        return association.equals("OWNER") || association.equals("MEMBER") || association.equals("COLLABORATOR");
+        return review.path("authorCanPushToRepository").asBoolean(false);
     }
 
-    private static Note note(JsonNode node, String timeField)
+    private static String login(JsonNode node)
     {
-        JsonNode author = node.path("author");
-        String login = author.path("login").asText("ghost");
-        return new Note(node.path("id").asText(), login, bot(author),
-                node.path("authorAssociation").asText("NONE"), node.path("body").asText(""), node.path("url").asText(""),
+        return node.path("author").path("login").asText("ghost");
+    }
+
+    private static Note note(JsonNode node, String timeField, boolean maintainer)
+    {
+        return new Note(node.path("id").asText(), login(node), bot(node.path("author")), maintainer, node.path("body").asText(""), node.path("url").asText(""),
                 Instant.parse(node.path(timeField).asText("1970-01-01T00:00:00Z")));
     }
 
@@ -221,15 +235,9 @@ public class GitHubHarvestClient
     /**
      * A comment, review body or reply as GitHub reports it.
      *
-     * @param association GitHub's author association: OWNER, MEMBER and COLLABORATOR are the repository's maintainers
+     * @param maintainer whether its author can push to the repository
      */
-    public record Note(String id, String author, boolean bot, String association, String body, String url, Instant at)
-    {
-        public boolean maintainer()
-        {
-            return GitHubHarvestClient.maintainer(association);
-        }
-    }
+    public record Note(String id, String author, boolean bot, boolean maintainer, String body, String url, Instant at) {}
 
     /**
      * A pull request as its reviewers saw it, for replaying its review.
@@ -253,21 +261,16 @@ public class GitHubHarvestClient
     /**
      * A submitted review and the head it was given on.
      *
+     * @param maintainer whether its author can push to the repository
      * @param commit the pull request's head at the review; GitHub drops it once a force-push lets that commit be collected
      */
-    public record SubmittedReview(String author, boolean bot, String association, String state, Instant at, Optional<String> commit)
+    public record SubmittedReview(String author, boolean bot, boolean maintainer, String state, Instant at, Optional<String> commit)
     {
         public SubmittedReview
         {
             requireNonNull(author, "author is null");
-            requireNonNull(association, "association is null");
             requireNonNull(at, "at is null");
             requireNonNull(commit, "commit is null");
-        }
-
-        public boolean maintainer()
-        {
-            return GitHubHarvestClient.maintainer(association);
         }
     }
 

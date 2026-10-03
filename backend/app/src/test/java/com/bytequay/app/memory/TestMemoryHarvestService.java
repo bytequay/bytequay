@@ -85,16 +85,16 @@ class TestMemoryHarvestService
     void keepsTheThreadsAMaintainerSpokeInAndSkipsBotsUnexplainedClosesAndThreadsReadBefore()
     {
         PullDiscussion merged = new PullDiscussion(31201, "Add a property", url(31201), true, at(1), ImmutableList.of(
-                thread("t1", note("n1", "bo", "MEMBER", "Please document the property."), note("n2", "alice", "CONTRIBUTOR", "Done.")),
-                thread("t2", note("n3", "carol", "CONTRIBUTOR", "Nice.")),
-                thread("t3", note("n4", "ci[bot]", "NONE", "Build passed.")),
-                thread("t4", note("n5", "bo", "MEMBER", "Already read."))),
-                ImmutableList.of(note("r1", "bo", "OWNER", "Use the existing helper."), note("r2", "dave", "CONTRIBUTOR", "LGTM")),
-                ImmutableList.of(note("k1", "bo", "COLLABORATOR", "Thanks, merging.")));
+                thread("t1", note("n1", "bo", true, "Please document the property."), note("n2", "alice", false, "Done.")),
+                thread("t2", note("n3", "carol", false, "Nice.")),
+                thread("t3", note("n4", "ci[bot]", false, "Build passed.")),
+                thread("t4", note("n5", "bo", true, "Already read."))),
+                ImmutableList.of(note("r1", "bo", true, "Use the existing helper."), note("r2", "dave", false, "LGTM")),
+                ImmutableList.of(note("k1", "bo", true, "Thanks, merging.")));
         PullDiscussion unexplained = new PullDiscussion(31202, "Rejected idea", url(31202), false, at(2), ImmutableList.of(
-                thread("t5", note("n6", "bo", "MEMBER", "Hmm."))), ImmutableList.of(), ImmutableList.of(note("k2", "alice", "CONTRIBUTOR", "Closing.")));
+                thread("t5", note("n6", "bo", true, "Hmm."))), ImmutableList.of(), ImmutableList.of(note("k2", "alice", false, "Closing.")));
         PullDiscussion explained = new PullDiscussion(31203, "Delete in finish()", url(31203), false, at(3), ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(note("k3", "dana", "MEMBER", "Closing: the abort path already owns this cleanup.")));
+                ImmutableList.of(note("k3", "dana", true, "Closing: the abort path already owns this cleanup.")));
 
         MemoryHarvestService.Harvested harvested = MemoryHarvestService.harvest(ImmutableList.of(merged, unexplained, explained), ImmutableList.of("t4"));
 
@@ -133,7 +133,7 @@ class TestMemoryHarvestService
     {
         when(github.closedPulls("token", REPOSITORY, "alice")).thenReturn(ImmutableList.of(new ClosedPull(103, "Quiet", at(3), true)));
         when(github.discussion("token", REPOSITORY, 103)).thenReturn(Optional.of(new PullDiscussion(103, "Quiet", url(103), true, at(3), ImmutableList.of(),
-                ImmutableList.of(), ImmutableList.of(note("k1", "alice", "CONTRIBUTOR", "Thanks")))));
+                ImmutableList.of(), ImmutableList.of(note("k1", "alice", false, "Thanks")))));
 
         MemoryHarvestService.Started started = harvests.start("workspace", new ContextBuildService.Request("key", 0), Optional.empty(), Optional.empty());
 
@@ -185,7 +185,7 @@ class TestMemoryHarvestService
 
     private static PullDiscussion discussion(int number, Instant closedAt, String threadId)
     {
-        return new PullDiscussion(number, "Pull " + number, url(number), true, closedAt, ImmutableList.of(thread(threadId, note(threadId + "-n", "bo", "MEMBER",
+        return new PullDiscussion(number, "Pull " + number, url(number), true, closedAt, ImmutableList.of(thread(threadId, note(threadId + "-n", "bo", true,
                 "Please keep this rule."))), ImmutableList.of(), ImmutableList.of());
     }
 
@@ -194,9 +194,9 @@ class TestMemoryHarvestService
         return new ReviewThread(id, true, false, Optional.of("plugin/x/A.java"), ImmutableList.copyOf(notes));
     }
 
-    private static Note note(String id, String author, String association, String body)
+    private static Note note(String id, String author, boolean maintainer, String body)
     {
-        return new Note(id, author, author.endsWith("[bot]"), association, body, "https://github.com/trinodb/trino/pull/1#" + id, NOW);
+        return new Note(id, author, author.endsWith("[bot]"), maintainer, body, "https://github.com/trinodb/trino/pull/1#" + id, NOW);
     }
 
     private static String url(int number)

@@ -49,11 +49,11 @@ it('shows newly discovered PRs from the local attention broadcast without repeat
   expect(result).toContain('newly discovered PRs');
 }, 30_000);
 
-it('hosts private threads on the pull-request page for other people’s comments', async () => {
-  const result = await runBrowserFixture<string>({
+it('hosts a task’s or a review’s private threads on the pull-request page for other people’s comments', async () => {
+  const results = await runBrowserFixture<string[]>({
     prefix: 'bytequay-pull-private-threads-', entry: 'src/pulls/fixtures/pullsScreenBrowser.tsx', global: 'PullAttentionTests', styles: true,
     width: 1250, height: 850,
-    body: "const results = await window.webContents.executeJavaScript('PullAttentionTests.runPrivateThreads()');",
+    body: `const results = await window.webContents.executeJavaScript('(async () => [await PullAttentionTests.runPrivateThreads(), await PullAttentionTests.runPrivateThreads("review")])()');`,
   });
-  expect(result).toContain('private threads');
+  expect(results).toHaveLength(2);
 }, 30_000);

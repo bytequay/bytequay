@@ -13,7 +13,7 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { isSummaryRequest, parseCommentSummary, SUMMARY_REQUEST, type DiscussionMessageDto, type TaskDiscussionDto } from '../agents/discussions/contracts';
+import { ANSWERING_ELSEWHERE, isSummaryRequest, parseCommentSummary, SUMMARY_REQUEST, type DiscussionMessageDto, type TaskDiscussionDto } from '../agents/discussions/contracts';
 import type { TaskDiscussions } from '../agents/discussions/useTaskDiscussions';
 import {
   commentExcerpt, hiddenThreadCount, PrivateThreadControls, PrivateThreadForward, privateThreadKey, privateThreadSource, PrivateThreadsStrip,
@@ -40,7 +40,7 @@ function thread(over: Partial<TaskDiscussionDto> = {}): TaskDiscussionDto {
 
 function threads(over: Partial<PrivateThreads> = {}, value: TaskDiscussionDto | null = thread()): PrivateThreads {
   return {
-    threads: new Map(value === null ? [] : [[KEY, value]]), busy: false, disabledReason: null, forward: null, show: true,
+    threads: new Map(value === null ? [] : [[KEY, value]]), busy: false, busyReason: ANSWERING_ELSEWHERE, disabledReason: null, forward: null, show: true,
     ask: async () => {}, resolve: async () => {}, retry: async () => {}, draftReply: async () => '', drafts: new Map(), setForward: () => {}, setShow: () => {}, setDraft: () => {},
     ...over,
   };
@@ -177,6 +177,8 @@ describe('private thread surfaces', () => {
 
   it('holds the send while another question on the task is answering', () => {
     expect(forward(threads({ forward: KEY, busy: true }))).toContain('The agent is answering another question on this task');
+    expect(forward(threads({ forward: KEY, busy: true, busyReason: 'The agent is answering another question on this review' })))
+      .toContain('The agent is answering another question on this review');
   });
 
   it('keeps an unsent question in the view state, so a remounted card shows it again', () => {

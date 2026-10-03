@@ -15,7 +15,7 @@
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { AgentStreamMessage, AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullTimelinePayloadDto } from '../../types';
-import { SUMMARY_REQUEST, type AskCommentDiscussionRequest } from '../../agents/discussions/contracts';
+import { SUMMARY_REQUEST, type TaskDiscussionDto } from '../../agents/discussions/contracts';
 import PullOverview from '../PullOverview';
 import PullRequestTaskActions from '../PullRequestTaskActions';
 import PullsScreen, { remotePullRequest, ReviewDialog } from '../PullsScreen';
@@ -1040,7 +1040,7 @@ export async function runTitleEdit(): Promise<string> {
   }
 }
 
-export async function runPrivateThreads(): Promise<string> {
+export async function runPrivateThreads(answeredBy: 'task' | 'review' = 'task'): Promise<string> {
   const at = '2026-10-01T00:00:00Z';
   const detail: PullRequestDetailDto = {
     id: 8, repo: 'owner/repo', number: 8, title: 'Resolve owners', htmlUrl: null, state: 'open', draft: false,
@@ -1054,7 +1054,11 @@ export async function runPrivateThreads(): Promise<string> {
     ],
   };
   const task: AgentTaskDto = { ...previewTask('workspace-1', 'development-task'), checkoutRemovedAt: null };
-  const asked: AskCommentDiscussionRequest[] = [];
+  const review = reviewFixture({ repo: 'owner/repo', number: 8, workspaceId: 'workspace-1' });
+  const asked: { taskId: string; reviewId: string | null; key: string; question: string }[] = [];
+  const pending = (taskId: string, key: string): TaskDiscussionDto => ({ id: 'thread-1', taskId, turnId: 'review-comment', quote: key, occurrence: 1,
+    resolved: false, pending: true, providerLane: 'codex', version: 1, createdAt: at, updatedAt: at, comment: { repo: 'owner/repo', number: 8, key },
+    messages: [{ id: 'hidden', author: 'USER', body: SUMMARY_REQUEST, createdAt: at, error: null }] });
   const original = window.bridge;
   const bridge = {
     getUserProfile: async () => ({ login: 'alice', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
@@ -1063,16 +1067,20 @@ export async function runPrivateThreads(): Promise<string> {
     refreshPullRequestDetailByRef: async () => ({ full: true as const, detail, status: null }),
     fetchPrDiffFiles: async () => [file('owner.txt')],
     fetchPrDiffCommits: async () => commits,
-    findAgentReview: async () => null,
-    findPullRequestTask: async () => ({ workspaceId: task.workspaceId, taskId: task.id, taskState: 'OPEN', version: 1, linked: true }),
+    // A pull request with both hosts would show the task's threads, so each run offers only the one it tests.
+    findAgentReview: async () => answeredBy === 'review' ? review : null,
+    findPullRequestTask: async () => answeredBy === 'task'
+      ? { workspaceId: task.workspaceId, taskId: task.id, taskState: 'OPEN', version: 1, linked: true } : null,
     getAgentTask: async () => task,
     listTaskDiscussions: async () => [],
     askTaskDiscussionComment: async request => {
-      asked.push(request);
-      return { id: 'thread-1', taskId: request.taskId, turnId: 'review-comment', quote: request.key, occurrence: 1, resolved: false,
-        pending: true, providerLane: 'codex', version: 1, createdAt: at, updatedAt: at,
-        comment: { repo: request.repo, number: request.number, key: request.key },
-        messages: [{ id: 'hidden', author: 'USER', body: SUMMARY_REQUEST, createdAt: at, error: null }] };
+      asked.push({ taskId: request.taskId, reviewId: null, key: request.key, question: request.question });
+      return pending(request.taskId, request.key);
+    },
+    listReviewCommentThreads: async () => [],
+    askReviewCommentThread: async (reviewId, key, question) => {
+      asked.push({ taskId: review.task.id, reviewId, key, question });
+      return pending(review.task.id, key);
     },
     listLocalReviewComments: async () => [],
     listWorkspaces: async () => [],
@@ -1082,7 +1090,8 @@ export async function runPrivateThreads(): Promise<string> {
     recordRecentTouch: async () => {},
   } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'fetchPrDiffFiles'
     | 'fetchPrDiffCommits' | 'findAgentReview' | 'findPullRequestTask' | 'getAgentTask' | 'listTaskDiscussions' | 'askTaskDiscussionComment'
-    | 'listLocalReviewComments' | 'listWorkspaces' | 'fetchAttentionPrs' | 'setPrAttentionHandled' | 'fetchMergeMode' | 'recordRecentTouch'>;
+    | 'listReviewCommentThreads' | 'askReviewCommentThread' | 'listLocalReviewComments' | 'listWorkspaces' | 'fetchAttentionPrs'
+    | 'setPrAttentionHandled' | 'fetchMergeMode' | 'recordRecentTouch'>;
   Object.assign(window, { bridge });
   const host = document.createElement('div');
   host.style.width = '1200px';
@@ -1094,7 +1103,7 @@ export async function runPrivateThreads(): Promise<string> {
       repositoryScope={{ workspaceId: 'workspace-1', repository: 'owner/repo' }} onClose={() => {}} />));
     for (let attempt = 0; attempt < 30 && host.querySelector('.pr-private-strip') === null; attempt++) await settle();
     assert(host.querySelector('.pr-private-strip') !== null && host.textContent?.includes('Should this cache be keyed by id?') === true,
-      'A pull request its development task owns must show the private threads strip on its page');
+      `A pull request with a ${answeredBy} to answer must show the private threads strip on its page`);
     const asks = [...host.querySelectorAll<HTMLButtonElement>('.pr-ask-agent')];
     assert(asks.length === 1, `Only carol's comment may offer Ask agent, not the viewer's own; found ${asks.length}`);
     asks[0].click();
@@ -1104,10 +1113,13 @@ export async function runPrivateThreads(): Promise<string> {
       'Ask agent must bring carol’s private thread forward');
     field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }));
     await settle();
-    assert(asked.length === 1 && asked[0].taskId === task.id && asked[0].workspaceId === task.workspaceId
-      && asked[0].repo === 'owner/repo' && asked[0].number === 8 && asked[0].key === 'issue_comment:81' && asked[0].question === '',
-    `The development task must answer the page's question: ${JSON.stringify(asked)}`);
-    return 'The pull-request page hosts its development task’s private threads on other people’s comments';
+    const expected = answeredBy === 'task'
+      ? { taskId: task.id, reviewId: null, key: 'issue_comment:81', question: '' }
+      : { taskId: review.task.id, reviewId: review.id, key: 'issue_comment:81', question: '' };
+    assert(JSON.stringify(asked) === JSON.stringify([expected]), `The ${answeredBy} must answer the page's question: ${JSON.stringify(asked)}`);
+    return answeredBy === 'task'
+      ? 'The pull-request page hosts its development task’s private threads on other people’s comments'
+      : 'The pull-request page hosts its review’s private threads on other people’s comments';
   }
   finally {
     flushSync(() => root.unmount());

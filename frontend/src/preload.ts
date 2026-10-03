@@ -451,6 +451,12 @@ const bridge: Bridge = {
   resumeAgentReview: reviewId => ipcRenderer.invoke('review:resume', reviewId),
   updateAgentReview: reviewId => ipcRenderer.invoke('review:update', reviewId),
   endAgentReview: reviewId => ipcRenderer.invoke('review:end', reviewId),
+  listReviewCommentThreads: reviewId => ipcRenderer.invoke('review:comment-threads:list', reviewId),
+  askReviewCommentThread: (reviewId, key, question) => ipcRenderer.invoke('review:comment-threads:ask', reviewId, key, question),
+  resolveReviewCommentThread: (reviewId, discussionId, resolved, expectedVersion) =>
+    ipcRenderer.invoke('review:comment-threads:resolve', reviewId, discussionId, resolved, expectedVersion),
+  retryReviewCommentThread: (reviewId, discussionId, messageId) => ipcRenderer.invoke('review:comment-threads:retry', reviewId, discussionId, messageId),
+  draftReviewCommentReply: (reviewId, discussionId) => ipcRenderer.invoke('review:comment-threads:draft-reply', reviewId, discussionId),
   readWorktreeChanges: (host, request) => ipcRenderer.invoke('code:changes', host, request),
   listCodeFiles: host => ipcRenderer.invoke('code:files', host),
   readCodeFile: (host, path, expectedRevision) => ipcRenderer.invoke('code:file', host, path, expectedRevision),

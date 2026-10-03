@@ -17,7 +17,7 @@ import Avatar from '../Avatar';
 import { relativeTime } from '../relativeTime';
 import { ANSWERING_ELSEWHERE, isSummaryRequest, parseCommentSummary, type CommentSummaryDto, type TaskDiscussionDto } from '../agents/discussions/contracts';
 import { replyCount, retryTarget } from '../agents/discussions/DiscussionFooter';
-import type { TaskDiscussions } from '../agents/discussions/useTaskDiscussions';
+import type { DiscussionBridgePort, TaskDiscussions } from '../agents/discussions/useTaskDiscussions';
 import type { PullCommentTarget, PullRequestDto } from '../types';
 import ReviewComposer from './agent-review/ReviewComposer';
 import MarkdownBody from './MarkdownBody';
@@ -29,6 +29,8 @@ export type PrivateThreadSource = {
   /** This pull request's comment threads, by comment key. */
   threads: ReadonlyMap<string, TaskDiscussionDto>;
   busy: boolean;
+  /** Why a send waits while another question on the host is answering. */
+  busyReason: string;
   disabledReason: string | null;
   ask: (key: string, question: string) => Promise<void>;
   resolve: (thread: TaskDiscussionDto, resolved: boolean) => Promise<void>;
@@ -60,13 +62,15 @@ export function hiddenThreadCount(threads: PrivateThreads): number {
   return threads.show ? 0 : [...threads.threads.values()].filter(thread => thread.messages.length > 0).length;
 }
 
-/** The task's private threads on one pull request's comments, keyed by comment. */
-export function privateThreadSource(discussions: TaskDiscussions, pr: Pick<PullRequestDto, 'repo' | 'number'>): PrivateThreadSource {
+/** The host task's private threads on one pull request's comments, keyed by comment. */
+export function privateThreadSource(discussions: TaskDiscussions, pr: Pick<PullRequestDto, 'repo' | 'number'>,
+  busyReason = ANSWERING_ELSEWHERE): PrivateThreadSource {
   return {
     threads: new Map(discussions.commentThreads.flatMap(thread => thread.comment !== null
       && thread.comment.repo.toLowerCase() === pr.repo.toLowerCase() && thread.comment.number === pr.number
       ? [[thread.comment.key, thread] as const] : [])),
     busy: discussions.busy,
+    busyReason,
     disabledReason: discussions.disabledReason,
     ask: async (key, question) => {
       await discussions.askComment({ repo: pr.repo, number: pr.number, key, question });
@@ -74,6 +78,20 @@ export function privateThreadSource(discussions: TaskDiscussions, pr: Pick<PullR
     resolve: (thread, resolved) => discussions.resolve(thread.id, resolved, thread.version),
     retry: (thread, messageId) => discussions.retry(thread.id, messageId),
     draftReply: thread => discussions.draftReply(thread.id),
+  };
+}
+
+/** A review's private threads through the review routes, which reach its workflow-owned task; a review hosts no passage discussions. */
+export function reviewThreadBridge(reviewId: string): DiscussionBridgePort {
+  const passage = async (): Promise<never> => { throw new Error('A review hosts no passage discussions.'); };
+  return {
+    listTaskDiscussions: () => window.bridge.listReviewCommentThreads(reviewId),
+    askTaskDiscussionComment: request => window.bridge.askReviewCommentThread(reviewId, request.key, request.question),
+    resolveTaskDiscussion: request => window.bridge.resolveReviewCommentThread(reviewId, request.discussionId, request.resolved, request.expectedVersion),
+    retryTaskDiscussion: request => window.bridge.retryReviewCommentThread(reviewId, request.discussionId, request.messageId),
+    draftTaskDiscussionReply: request => window.bridge.draftReviewCommentReply(reviewId, request.discussionId),
+    openTaskDiscussion: passage,
+    askTaskDiscussion: passage,
   };
 }
 
@@ -270,7 +288,7 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
           ariaLabel="Private question to the agent"
           placeholder={started ? 'Reply to the agent…' : `Ask about ${author}’s comment…`}
           primaryLabel={started ? 'Reply' : 'Ask agent'} allowEmpty={!started}
-          disabledReason={threads.busy ? (thread?.pending === true ? 'Wait for the agent’s answer' : ANSWERING_ELSEWHERE) : null}
+          disabledReason={threads.busy ? (thread?.pending === true ? 'Wait for the agent’s answer' : threads.busyReason) : null}
           secondary={started && thread !== undefined ? <button type="button" disabled={sending}
             onClick={() => { void run(() => threads.resolve(thread, true)).then(done => { if (done) threads.setForward(null); }); }}>
             Resolve locally</button> : undefined}
@@ -316,7 +334,7 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
             <div className="pr-private-retry" role="alert">
               <span>{failure.error ?? (isSummaryRequest(failure) ? 'The summary was interrupted.' : 'The answer was interrupted.')}</span>
               <button type="button" disabled={threads.busy || sending || threads.disabledReason !== null}
-                title={threads.busy ? ANSWERING_ELSEWHERE : undefined}
+                title={threads.busy ? threads.busyReason : undefined}
                 onClick={() => { void run(() => threads.retry(thread, failure.id)); }}>Retry</button>
             </div>
           )}

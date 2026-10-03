@@ -35,7 +35,7 @@ import MarkdownEditor from './MarkdownEditor';
 import BetterWordsButton from './BetterWordsButton';
 import PullOverview, { commentedCodeLines, CommentedCodeLine, isQueued, mergePullRequestWriteDetail, remoteErrorMessage, useViewer, type PullDetailUpdater } from './PullOverview';
 import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
-import { privateThreadSource, PrivateThreadsStrip, usePrivateThreads, type PrivateThreadSource } from './PrivateThread';
+import { privateThreadSource, PrivateThreadsStrip, reviewThreadBridge, usePrivateThreads, type PrivateThreadSource } from './PrivateThread';
 import { useTaskDiscussions } from '../agents/discussions/useTaskDiscussions';
 import UserAvatar from '../UserAvatar';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
@@ -794,10 +794,18 @@ export default function PullsScreen({
   const codeTaskLoading = reviewWorkspace === undefined && codeTaskKey !== null && codeTaskLookup?.key !== codeTaskKey;
   // The user's own pull request has Code & Tests only while a development task or a review holds a worktree for it.
   const codeTabShown = codeTask !== null || review !== null;
-  // Private threads on the conversation's comments belong to the development task Code & Tests reads.
-  const threadTask = codeTask === null ? null : { taskId: codeTask.id, workspaceId: codeTask.workspaceId };
-  const taskDiscussions = useTaskDiscussions(threadTask, { active: detailTab === 'overview' });
-  const privateThreads = threadTask === null || selectedPr === null ? undefined : privateThreadSource(taskDiscussions, selectedPr);
+  // Private threads on the conversation's comments belong to the development task Code & Tests reads, else to the review the
+  // pane shows. There is no host while the task lookup runs, so one host's threads never show before the other's.
+  const threadReview = codeTask !== null || codeTaskLoading || review === null || review.replay !== undefined || review.number === null ? null : review;
+  const threadHost = codeTask !== null ? { taskId: codeTask.id, workspaceId: codeTask.workspaceId }
+    : threadReview === null ? null : { taskId: threadReview.task.id, workspaceId: threadReview.workspaceId };
+  const taskDiscussions = useTaskDiscussions(threadHost, {
+    active: detailTab === 'overview',
+    bridge: threadReview === null ? undefined : reviewThreadBridge(threadReview.id),
+    disabledReason: threadReview?.state === 'CLOSED' ? 'This review has ended, so its threads are read-only' : null,
+  });
+  const privateThreads = threadHost === null || selectedPr === null ? undefined
+    : privateThreadSource(taskDiscussions, selectedPr, threadReview === null ? undefined : 'The agent is answering another question on this review');
 
   useEffect(() => {
     setReviewContext(null);

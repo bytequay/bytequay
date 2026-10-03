@@ -365,7 +365,7 @@ describe('PullOverview', () => {
         comments: [comment(73, 'Root comment'), comment(75, 'Reply in the middle', 73), comment(null, 'Unkeyed reply', 73)] } },
     ] });
     const threads = (forward: string | null = null): PrivateThreads => ({
-      threads: new Map(), busy: false, disabledReason: null, forward, show: true,
+      threads: new Map(), busy: false, busyReason: 'Answering elsewhere', disabledReason: null, forward, show: true,
       ask: async () => {}, resolve: async () => {}, retry: async () => {}, draftReply: async () => '', drafts: new Map(), setForward: () => {}, setShow: () => {}, setDraft: () => {},
     });
     const render = (privateThreads?: PrivateThreads) => renderToStaticMarkup(

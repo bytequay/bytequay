@@ -27,7 +27,7 @@ import static java.util.Objects.requireNonNull;
  * A card the agent floats under the Goal control. What it names starts only when the user presses Start; Not now dismisses it, and the
  * same card is not offered again.
  *
- * @param taskId the run Start began, kept once it finished
+ * @param taskId the run Start began, kept once it finished; a lesson card starts no run
  * @param exchangeId the exchange whose answer recommended it
  */
 public record GoalRecommendation(
@@ -43,7 +43,8 @@ public record GoalRecommendation(
 {
     public enum Kind
     {
-        RESEARCH
+        RESEARCH,
+        LESSON
     }
 
     public enum State
@@ -62,15 +63,20 @@ public record GoalRecommendation(
         requireNonNull(card, "card is null");
         requireNonNull(state, "state is null");
         requireNonNull(taskId, "taskId is null");
-        checkArgument(taskId.isPresent() == (state == State.STARTED || state == State.DONE), "only a started card has a run");
+        checkArgument(taskId.isEmpty() || state == State.STARTED || state == State.DONE, "only a started card has a run");
         checkText(exchangeId, "exchangeId");
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
     }
 
-    public GoalRecommendation started(String task, Instant at)
+    public GoalRecommendation started(Optional<String> task, Instant at)
     {
-        return new GoalRecommendation(id, goalId, workspaceId, card, State.STARTED, Optional.of(task), exchangeId, createdAt, at);
+        return new GoalRecommendation(id, goalId, workspaceId, card, State.STARTED, task, exchangeId, createdAt, at);
+    }
+
+    public GoalRecommendation done(Instant at)
+    {
+        return new GoalRecommendation(id, goalId, workspaceId, card, State.DONE, taskId, exchangeId, createdAt, at);
     }
 
     /** A finished run completes the card; a failed one shows it again, so Start can retry. */
@@ -86,9 +92,9 @@ public record GoalRecommendation(
 
     /**
      * What the card offers. A research card reads its scope at the workspace's monitored head, the checkouts of the workspaces it depends
-     * on, and the pages it names.
+     * on, and the pages it names; a lesson card opens the lesson of its work item.
      */
-    public record Card(Kind kind, String title, String reason, String scope, List<String> pages)
+    public record Card(Kind kind, String title, String reason, String scope, List<String> pages, Optional<String> workItemId)
     {
         public static final int MAX_PAGES = 8;
 
@@ -102,6 +108,8 @@ public record GoalRecommendation(
             checkArgument(pages.size() <= MAX_PAGES, "a card names at most %s pages", MAX_PAGES);
             pages.forEach(page -> checkArgument(page.startsWith("https://") && page.length() <= 500 && page.chars().noneMatch(Character::isWhitespace),
                     "pages are https addresses: %s", page));
+            requireNonNull(workItemId, "workItemId is null");
+            checkArgument(workItemId.isPresent() == (kind == Kind.LESSON), "a lesson card names its lesson, and only a lesson card does");
         }
     }
 }

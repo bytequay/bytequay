@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getCached, setCached } from '../dataCache';
 import type { Bridge } from '../types';
 import type {
-  GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalKnowledgeNoteDto, GoalRecommendationDto, WorkItemDto, CreateWorkItem, WorkItemDecision,
+  GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalKnowledgeNoteDto, GoalLessonDto, GoalRecommendationDto, WorkItemDto, CreateWorkItem, WorkItemDecision,
 } from './contracts';
 import type { GoalRef } from './model';
 
@@ -29,7 +29,7 @@ const ANSWER_POLL_MS = 1_500;
 
 export type GoalBridge = Pick<Bridge, 'listWorkItems' | 'createWorkItem' | 'decideWorkItem' | 'linkWorkItem' | 'listGoals' | 'createGoal' | 'updateGoal' | 'deleteGoal'
   | 'addGoalItem' | 'removeGoalItem' | 'searchGoalCandidates' | 'startGoal' | 'listGoalExchanges' | 'askGoal' | 'retryGoalExchange' | 'acceptGoalDefinition'
-  | 'acceptGoalCourse' | 'startGoalRecommendation' | 'dismissGoalRecommendation' | 'listGoalKnowledge'>;
+  | 'acceptGoalCourse' | 'startGoalRecommendation' | 'dismissGoalRecommendation' | 'listGoalKnowledge' | 'openGoalLesson' | 'readGoalLesson' | 'finishGoalLesson'>;
 
 export type Goals = {
   goals: GoalDto[];
@@ -50,7 +50,7 @@ export type Goals = {
   /** Starts a goal from the user's first answer; it becomes the one the pages follow. */
   start: (operationId: string, message: string) => Promise<GoalDto>;
   exchanges: (goalId: string) => Promise<GoalExchangeDto[]>;
-  ask: (goalId: string, operationId: string, message: string) => Promise<GoalExchangeDto[]>;
+  ask: (goalId: string, operationId: string, message: string, lessonId?: string | null) => Promise<GoalExchangeDto[]>;
   retry: (goalId: string, exchangeId: string) => Promise<GoalExchangeDto[]>;
   /** Accepts the definition an answer proposed, under the title the user kept or edited. */
   accept: (goalId: string, exchangeId: string, title: string) => Promise<GoalDto>;
@@ -63,6 +63,10 @@ export type Goals = {
   knowledge: (goalId: string) => Promise<GoalKnowledgeNoteDto[]>;
   /** Reads the goals again now, as when an answer may have floated a card. */
   refresh: () => void;
+  /** Opens a lesson of the goal's course, writing it the first time. */
+  openLesson: (goalId: string, lessonId: string) => Promise<GoalLessonDto>;
+  readLesson: (goalId: string, lessonId: string) => Promise<GoalLessonDto>;
+  finishLesson: (goalId: string, lessonId: string, operationId: string) => Promise<GoalDto>;
 };
 
 const NO_EXCHANGES: GoalExchangeDto[] = [];
@@ -74,10 +78,13 @@ export type GoalConversation = {
   /** What the goal's research runs saved. */
   notes: GoalKnowledgeNoteDto[];
   error: string | null;
-  ask: (operationId: string, message: string) => Promise<void>;
+  ask: (operationId: string, message: string, lessonId?: string | null) => Promise<void>;
   retry: (exchangeId: string) => Promise<void>;
   accept: (exchangeId: string, title: string) => Promise<void>;
   acceptCourse: (exchangeId: string) => Promise<void>;
+  openLesson: (lessonId: string) => Promise<GoalLessonDto>;
+  readLesson: (lessonId: string) => Promise<GoalLessonDto>;
+  finishLesson: (lessonId: string, operationId: string) => Promise<void>;
 };
 
 const windowBridge = (): GoalBridge => window.bridge;
@@ -180,6 +187,9 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
   const exchanges = useCallback((goalId: string) => bridge().listGoalExchanges(workspaceId, goalId), [bridge, workspaceId]);
   const knowledge = useCallback((goalId: string) => bridge().listGoalKnowledge(workspaceId, goalId), [bridge, workspaceId]);
   const refresh = useCallback(() => announce(workspaceId), [workspaceId]);
+  // Kept the same across reads, so an open lesson is not opened again each time the goals refresh.
+  const openLesson = useCallback((goalId: string, lessonId: string) => bridge().openGoalLesson(workspaceId, goalId, lessonId), [bridge, workspaceId]);
+  const readLesson = useCallback((goalId: string, lessonId: string) => bridge().readGoalLesson(workspaceId, goalId, lessonId), [bridge, workspaceId]);
 
   // A card that finished or was dismissed leaves the goal's cards; a started one stays until its run ends.
   const settleCard = useCallback((card: GoalRecommendationDto): GoalRecommendationDto => {
@@ -221,7 +231,7 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
       return goal;
     }),
     exchanges,
-    ask: (goalId, operationId, message) => bridge().askGoal(workspaceId, goalId, operationId, message),
+    ask: (goalId, operationId, message, lessonId) => bridge().askGoal(workspaceId, goalId, operationId, message, lessonId),
     retry: (goalId, exchangeId) => bridge().retryGoalExchange(workspaceId, goalId, exchangeId),
     accept: (goalId, exchangeId, title) => bridge().acceptGoalDefinition(workspaceId, goalId, exchangeId, title).then(settle),
     acceptCourse: (goalId, exchangeId) => bridge().acceptGoalCourse(workspaceId, goalId, exchangeId).then(settle),
@@ -229,7 +239,10 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
     dismissCard: (goalId, recommendationId) => bridge().dismissGoalRecommendation(workspaceId, goalId, recommendationId).then(settleCard),
     knowledge,
     refresh,
-  }), [bridge, error, exchanges, goals, knowledge, refresh, workItems, search, settle, settleCard, settleWork, workspaceId]);
+    openLesson,
+    readLesson,
+    finishLesson: (goalId, lessonId, operationId) => bridge().finishGoalLesson(workspaceId, goalId, lessonId, operationId).then(settle),
+  }), [bridge, error, exchanges, goals, knowledge, openLesson, readLesson, refresh, workItems, search, settle, settleCard, settleWork, workspaceId]);
 }
 
 /**
@@ -245,7 +258,9 @@ export function useGoalConversation(goals: Goals, goalId: string | null, shown: 
   const exchanges = current?.exchanges ?? NO_EXCHANGES;
   const notes = current?.notes ?? NO_NOTES;
   const answering = exchanges.some((exchange) => exchange.state === 'PENDING');
-  const { exchanges: list, knowledge, refresh } = goals;
+  const { exchanges: list, knowledge, refresh, openLesson, readLesson } = goals;
+  const openOne = useCallback((lessonId: string) => (goalId === null ? Promise.reject(new Error('There is no goal')) : openLesson(goalId, lessonId)), [goalId, openLesson]);
+  const readOne = useCallback((lessonId: string) => (goalId === null ? Promise.reject(new Error('There is no goal')) : readLesson(goalId, lessonId)), [goalId, readLesson]);
   const wasAnswering = useRef(false);
 
   // A settled answer may have floated a card, which the goals carry.
@@ -278,11 +293,16 @@ export function useGoalConversation(goals: Goals, goalId: string | null, shown: 
       exchanges,
       notes,
       error,
-      ask: (operationId, message) => (goalId === null ? Promise.resolve() : goals.ask(goalId, operationId, message).then(show)),
+      ask: (operationId, message, lessonId) => (goalId === null ? Promise.resolve() : goals.ask(goalId, operationId, message, lessonId).then(show)),
       retry: (exchangeId) => (goalId === null ? Promise.resolve() : goals.retry(goalId, exchangeId).then(show)),
       // Accepting tells the agent, whose answer is read at once.
       accept: (exchangeId, title) => (goalId === null ? Promise.resolve() : goals.accept(goalId, exchangeId, title).then(() => goals.exchanges(goalId)).then(show)),
       acceptCourse: (exchangeId) => (goalId === null ? Promise.resolve() : goals.acceptCourse(goalId, exchangeId).then(() => goals.exchanges(goalId)).then(show)),
+      openLesson: openOne,
+      readLesson: readOne,
+      // Finishing tells the agent, whose answer is read at once.
+      finishLesson: (lessonId, operationId) => (goalId === null ? Promise.resolve()
+        : goals.finishLesson(goalId, lessonId, operationId).then(() => goals.exchanges(goalId)).then(show)),
     };
-  }, [error, exchanges, goalId, goals, notes]);
+  }, [error, exchanges, goalId, goals, notes, openOne, readOne]);
 }

@@ -1,7 +1,8 @@
 # Agent guided goals implementation plan
 
-Status: Work-item foundation, the Goal conversation, recommendation cards and
-research runs implemented. Courses, lessons and work handoff remain planned. The [Goal guidance design](goal-guidance.md) owns the product and
+Status: Work-item foundation, the Goal conversation, recommendation cards,
+research runs, courses and lessons implemented. Work handoff and the learner
+profile remain planned. The [Goal guidance design](goal-guidance.md) owns the product and
 behavior contract; this checklist records delivery order, concrete actions and
 proof required.
 
@@ -75,9 +76,12 @@ checkouts, and `goal_knowledge_save` stores sourced notes. A finished run tells
 the agent what it saved. Stale-note marking, the repository-memory Remember offer
 and verification that a cited page was read in the run remain open.
 
-Item 4 is in progress: the agent proposes a course from the notes, and accepting
+Item 4 is implemented: the agent proposes a course from the notes, and accepting
 it saves each lesson as an ordered Learn work item of the Goal, grouped by part.
-Writing lessons and opening one in the Goal window remain, as does item 5.
+A lesson opens in the expanded Goal window, written once from the notes with its
+exercise and check; questions asked there carry the lesson, and Mark lesson done
+accepts its work item. Lesson cards open the lesson. Stale lessons and course
+changes remain open, as does item 5.
 The following steps retain the full identity, source, recovery and verification
 requirements.
 

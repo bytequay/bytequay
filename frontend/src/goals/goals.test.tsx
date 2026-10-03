@@ -18,7 +18,7 @@ import type { AttentionItem } from '../home/attention';
 import type { JiraIssue } from '../jira/contracts';
 import type { AgentTaskDto } from '../types';
 import type { GoalDto, GoalExchangeDto, GoalItemDto, GoalKnowledgeNoteDto, GoalRecommendationDto, WorkItemDto } from './contracts';
-import { parseGoal, parseGoalExchange, parseGoalKnowledgeNote, parseGoalRecommendation } from './contracts';
+import { parseGoal, parseGoalExchange, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation } from './contracts';
 import { GoalPanel, type GoalPanelProps } from './GoalPanel';
 import {
   addable, attentionWorkspace, goalDirections, goalHas, goalRef, itemsIn, needsYouKeys, openCourse, openProposal, placePill, recentActivity, refKey, sourceUrl, summarize,
@@ -104,11 +104,11 @@ describe('goal model', () => {
 });
 
 const NO_CONVERSATION: GoalConversation = { exchanges: [], notes: [], error: null, ask: async () => {}, retry: async () => {}, accept: async () => {},
-  acceptCourse: async () => {} };
+  acceptCourse: async () => {}, openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {} };
 
 function panel(props: Partial<GoalPanelProps>): string {
   return renderToStaticMarkup(
-    <GoalPanel mode="window" view="work" onView={() => {}} conversation={NO_CONVERSATION} onStart={async () => {}} onOpenTask={() => {}}
+    <GoalPanel mode="window" view="work" onView={() => {}} conversation={NO_CONVERSATION} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
       repository="trinodb/trino" goals={[GOAL, { ...GOAL, id: 'goal-2', pinned: false }]} goal={GOAL}
       needsYou={new Set(['PULL_REQUEST trinodb/trino#30925'])} now={Date.parse('2026-09-27T12:00:00Z')}
       onClose={() => {}} onExpand={() => {}} onSwitch={() => {}} onCreate={async () => {}} onDelete={async () => {}}
@@ -140,7 +140,7 @@ describe('goal panel', () => {
   });
 });
 
-const ASKED: GoalExchangeDto = { id: 'op-1', goalId: 'goal-1', message: 'I want to become an Iceberg connector expert', automatic: false, inputRevision: 0,
+const ASKED: GoalExchangeDto = { id: 'op-1', goalId: 'goal-1', message: 'I want to become an Iceberg connector expert', automatic: false, lessonId: null, inputRevision: 0,
   state: 'ANSWERED', failure: null, askedAt: '2026-10-03T10:00:00Z', reply: {
     assessment: 'You want to understand the connector deeply.',
     question: { text: 'Do you already know the Iceberg specification?', suggestions: ['Yes', 'Not yet'] }, proposal: null, recommendation: null, course: null,
@@ -156,7 +156,7 @@ const COURSE: GoalExchangeDto = { ...ASKED, id: 'op-3', message: 'The research r
 } };
 const CARD: GoalRecommendationDto = { id: 'card-1', goalId: 'goal-1', state: 'SHOWN', taskId: null, createdAt: '2026-10-03T10:00:00Z',
   card: { kind: 'RESEARCH', title: 'Read the Iceberg specification', reason: 'You start from the specification', scope: 'Snapshots and manifests',
-    pages: ['https://iceberg.apache.org/spec/'] } };
+    pages: ['https://iceberg.apache.org/spec/'], workItemId: null } };
 const NOTE: GoalKnowledgeNoteDto = { id: 'note-1', topic: 'Manifest lists', body: 'A snapshot lists its manifests in one manifest list.', savedAt: '2026-10-03T10:00:00Z',
   sources: [{ reference: 'https://iceberg.apache.org/spec/#manifest-lists', commit: null },
     { reference: 'apache/iceberg:core/src/main/java/org/apache/iceberg/ManifestLists.java', commit: 'c'.repeat(40) }] };
@@ -212,6 +212,17 @@ describe('goal guidance', () => {
     expect(accepted).toContain('aria-label="Course"');
     expect(accepted).toContain('1. Iceberg tables');
     expect(accepted).toContain('#30925 title');
+    expect(accepted).toContain('<button type="button" class="goal-course__open">#30925 title</button>');
+
+    const lesson = panel({ view: 'guide', goal: { ...GOAL, course }, lesson: 'work-0' });
+    expect(lesson).toContain('Back to guidance');
+    expect(lesson).toContain('After this lesson you can: Verified fix');
+    expect(lesson).toContain('Opening the lesson…');
+    expect(lesson).not.toContain('Proposed course');
+    expect(parseGoalLesson({ id: 'work-0', state: 'READY', failure: null, model: 'codex/gpt',
+      content: { explanation: '# Tables', exercise: 'Run one test.', observe: 'It passes.', check: 'What is a snapshot?' } }).content?.check).toBe('What is a snapshot?');
+    expect(() => parseGoalLesson({ id: 'work-0', state: 'DRAFT' })).toThrow('Malformed goal lesson state');
+    expect(parseGoalRecommendation({ ...CARD, card: { ...CARD.card, kind: 'LESSON', workItemId: 'work-0' } }).card.workItemId).toBe('work-0');
   });
 
   it('offers directions from the repository and only the newest unaccepted proposal', () => {

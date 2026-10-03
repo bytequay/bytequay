@@ -15,12 +15,14 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.service.goal.GoalConversationService;
 import com.bytequay.app.service.goal.GoalItemView;
+import com.bytequay.app.service.goal.GoalLessonService;
 import com.bytequay.app.service.goal.GoalResearchService;
 import com.bytequay.app.service.goal.GoalService;
 import com.bytequay.app.service.goal.GoalView;
 import com.bytequay.core.domain.GoalExchange;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalKnowledgeNote;
+import com.bytequay.core.domain.GoalLesson;
 import com.bytequay.core.domain.GoalRecommendation;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -33,6 +35,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Optional;
@@ -48,12 +51,14 @@ public class GoalController
     private final GoalService goals;
     private final GoalConversationService conversations;
     private final GoalResearchService research;
+    private final GoalLessonService lessons;
 
-    public GoalController(GoalService goals, GoalConversationService conversations, GoalResearchService research)
+    public GoalController(GoalService goals, GoalConversationService conversations, GoalResearchService research, GoalLessonService lessons)
     {
         this.goals = requireNonNull(goals, "goals is null");
         this.conversations = requireNonNull(conversations, "conversations is null");
         this.research = requireNonNull(research, "research is null");
+        this.lessons = requireNonNull(lessons, "lessons is null");
     }
 
     @GetMapping
@@ -122,7 +127,7 @@ public class GoalController
     public List<GoalExchange> ask(@PathVariable String workspaceId, @PathVariable String goalId, @RequestBody MessageRequest request)
     {
         checkArgument(request != null && request.operationId() != null, "operationId is required");
-        return conversations.ask(workspaceId, goalId, request.operationId(), request.message());
+        return conversations.ask(workspaceId, goalId, request.operationId(), request.message(), Optional.ofNullable(request.lessonId()));
     }
 
     @PostMapping("/{goalId}/exchanges/{exchangeId}/retry")
@@ -158,6 +163,26 @@ public class GoalController
         return conversations.dismiss(workspaceId, goalId, recommendationId);
     }
 
+    /** Opens a lesson of the goal's course, asking for it to be written the first time; opening it is what Start means on its card. */
+    @PostMapping("/{goalId}/lessons/{lessonId}")
+    public GoalLesson openLesson(@PathVariable String workspaceId, @PathVariable String goalId, @PathVariable String lessonId)
+    {
+        return lessons.open(workspaceId, goalId, lessonId);
+    }
+
+    @GetMapping("/{goalId}/lessons/{lessonId}")
+    public GoalLesson lesson(@PathVariable String workspaceId, @PathVariable String goalId, @PathVariable String lessonId)
+    {
+        return lessons.find(workspaceId, goalId, lessonId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "The lesson is not written yet"));
+    }
+
+    @PostMapping("/{goalId}/lessons/{lessonId}/done")
+    public GoalView finishLesson(@PathVariable String workspaceId, @PathVariable String goalId, @PathVariable String lessonId, @RequestBody OperationRequest request)
+    {
+        checkArgument(request != null && request.operationId() != null, "operationId is required");
+        return lessons.finish(workspaceId, goalId, lessonId, request.operationId());
+    }
+
     @GetMapping("/{goalId}/knowledge")
     public List<GoalKnowledgeNote> knowledge(@PathVariable String workspaceId, @PathVariable String goalId)
     {
@@ -166,7 +191,14 @@ public class GoalController
 
     public record CreateGoalRequest(String title, String description) {}
 
-    public record MessageRequest(String operationId, String message) {}
+    /**
+     * A message to the goal's agent.
+     *
+     * @param lessonId the lesson the user asks about, if any
+     */
+    public record MessageRequest(String operationId, String message, String lessonId) {}
+
+    public record OperationRequest(String operationId) {}
 
     public record AcceptRequest(String exchangeId, String title) {}
 

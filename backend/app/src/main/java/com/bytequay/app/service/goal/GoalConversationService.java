@@ -121,6 +121,12 @@ public class GoalConversationService
     /** Sends the agent a message; resending the same operation returns the conversation without asking again. */
     public List<GoalExchange> ask(String workspaceId, String goalId, String operationId, String message)
     {
+        return ask(workspaceId, goalId, operationId, message, Optional.empty());
+    }
+
+    /** Sends the agent a message about the lesson the user has open, whose content the agent reads with it. */
+    public List<GoalExchange> ask(String workspaceId, String goalId, String operationId, String message, Optional<String> lessonId)
+    {
         GoalExchange exchange;
         synchronized (writes) {
             GoalView goal = goal(workspaceId, goalId);
@@ -132,7 +138,7 @@ public class GoalConversationService
             if (exchanges.list(goalId).stream().anyMatch(earlier -> earlier.state() == GoalExchange.State.PENDING)) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "The agent is still answering your last message.");
             }
-            exchange = GoalExchange.ask(operationId, goalId, workspaceId, message(message), goal.revision(), clock.instant());
+            exchange = GoalExchange.ask(operationId, goalId, workspaceId, message(message), goal.revision(), clock.instant()).about(lessonId);
             exchanges.save(exchange);
         }
         dispatch(exchange);
@@ -279,9 +285,17 @@ public class GoalConversationService
         }
     }
 
-    /** Floats the card unless one of its kind is still waiting or running, or the user dismissed the same card. */
+    /**
+     * Floats the card unless one of its kind is still waiting or running, or the user dismissed the same card. A lesson card must name an
+     * unfinished lesson of the goal's course.
+     */
     private void recommend(GoalView goal, GoalExchange exchange, GoalRecommendation.Card card)
     {
+        boolean lesson = card.workItemId().map(id -> goal.course().stream().flatMap(course -> course.parts().stream()).anyMatch(part -> part.lessons().contains(id))
+                && goal.items().stream().anyMatch(item -> item.id().equals(id) && item.state() != WorkItem.State.DONE && item.state() != WorkItem.State.DROPPED)).orElse(true);
+        if (!lesson) {
+            return;
+        }
         List<GoalRecommendation> cards = recommendations.list(goal.id());
         boolean waiting = cards.stream().anyMatch(existing -> existing.card().kind() == card.kind()
                 && (existing.state() == GoalRecommendation.State.SHOWN || existing.state() == GoalRecommendation.State.STARTED));

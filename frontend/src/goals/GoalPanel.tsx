@@ -12,13 +12,14 @@
  * limitations under the License.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown, Maximize2, Minimize2, Plus, Search, Trash2, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { GoalIcon, SourceIcon } from '../cards/Card';
+import MarkdownBody from '../pulls/MarkdownBody';
 import { relativeTime } from '../relativeTime';
 import type {
-  GoalCourseDraftDto, GoalDto, GoalItemDto, GoalKnowledgeNoteDto, GoalProposalDto, WorkItemDto, WorkItemDecision, CreateWorkItem, CompletionRule, WorkItemKind,
+  GoalCourseDraftDto, GoalDto, GoalItemDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalProposalDto, WorkItemDto, WorkItemDecision, CreateWorkItem, CompletionRule, WorkItemKind,
 } from './contracts';
 import {
   GOAL_SOURCES, STATE_GROUPS, addable, goalDirections, itemsIn, openCourse, openProposal, progressWidths, recentActivity, refKey, ringDash, sourceUrl, summarize, itemNeedsYou,
@@ -49,6 +50,9 @@ export type GoalPanelProps = {
   /** The goal's guidance, or its work items; the layer keeps the choice across window and board. */
   view: GoalPanelView;
   onView: (view: GoalPanelView) => void;
+  /** The lesson open in the window, which takes the guidance's place. */
+  lesson: string | null;
+  onLesson: (lessonId: string | null) => void;
   conversation: GoalConversation;
   /** Starts a goal from the user's answer while the workspace shows none. */
   onStart: (operationId: string, message: string) => Promise<unknown>;
@@ -80,7 +84,14 @@ export type GoalPanelProps = {
  * A goal's progress and items, listed by state or expanded into board columns. Every change here is local.
  */
 export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
-  const { mode, goal, view, onClose, onExpand } = props;
+  const { mode, goal, view, lesson, onClose, onExpand } = props;
+  const opened = useRef<string | null>(null);
+  // A lesson opens in the expanded window; restoring the window afterwards keeps it there.
+  useEffect(() => {
+    if (lesson !== null && lesson !== opened.current && mode === 'window') onExpand?.();
+    opened.current = lesson;
+  }, [lesson, mode, onExpand]);
+  const lessonItem = lesson === null ? undefined : goal?.items.find((value) => value.id === lesson);
   const [selected, setSelected] = useState<string | null>(null);
   const item = props.workItems.find((value) => value.id === selected) ?? goal?.items.find((value) => value.id === selected);
   return (
@@ -110,8 +121,11 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
             className={`goal-tab${view === value ? ' is-active' : ''}`} onClick={() => { setSelected(null); props.onView(value); }}>{value === 'guide' ? 'Guide' : 'Work'}</button>)}
         </div>
       </div>
-      {item !== undefined ? <WorkDetails key={item.id} {...props} item={item} onBack={() => setSelected(null)} />
-        : view === 'guide' ? <GoalGuide goal={goal} repository={props.repository} conversation={props.conversation} onStart={props.onStart} onOpenTask={props.onOpenTask} />
+      {lessonItem !== undefined && goal !== null ? <LessonView key={lessonItem.id} goal={goal} item={lessonItem} repository={props.repository}
+        conversation={props.conversation} onBack={() => props.onLesson(null)} />
+        : item !== undefined ? <WorkDetails key={item.id} {...props} item={item} onBack={() => setSelected(null)} />
+        : view === 'guide' ? <GoalGuide goal={goal} repository={props.repository} conversation={props.conversation} onStart={props.onStart} onOpenTask={props.onOpenTask}
+          onLesson={props.onLesson} />
           : goal === null ? <><NoGoal onCreate={props.onCreate} />{props.workItems.map((saved) => <button type="button" className="goal-work-card" key={saved.id} onClick={() => setSelected(saved.id)}>{saved.title} · {saved.state.toLowerCase()}</button>)}</> : <GoalWork {...props} goal={goal} onSelect={setSelected} />}
     </div>
   );
@@ -121,7 +135,8 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
  * The agent's side of the goal: "What do you want to achieve?" while there is nothing to go on, then the conversation, the
  * question's suggested answers and a definition to accept. The opening is written locally; only a message asks the model.
  */
-function GoalGuide({ goal, repository, conversation, onStart, onOpenTask }: Pick<GoalPanelProps, 'goal' | 'repository' | 'conversation' | 'onStart' | 'onOpenTask'>): React.JSX.Element {
+function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLesson }: Pick<GoalPanelProps, 'goal' | 'repository' | 'conversation' | 'onStart' | 'onOpenTask'
+  | 'onLesson'>): React.JSX.Element {
   const { exchanges } = conversation;
   const [error, setError] = useState<string | null>(null);
   const last = exchanges.at(-1);
@@ -138,7 +153,7 @@ function GoalGuide({ goal, repository, conversation, onStart, onOpenTask }: Pick
   return (
     <div className="goal-panel__body goal-guide">
       {goal?.definition != null && <Definition definition={goal.definition} />}
-      {goal?.course != null && <Course goal={goal} />}
+      {goal?.course != null && <Course goal={goal} onLesson={onLesson} />}
       {opening ? (
         <div className="goal-guide__opening">
           <div className="goal-guide__ask">{goal === null ? 'What do you want to achieve?' : `What does “${goal.title}” mean to you?`}</div>
@@ -178,6 +193,70 @@ function GoalGuide({ goal, repository, conversation, onStart, onOpenTask }: Pick
   );
 }
 
+/**
+ * One lesson in the Goal window: written once from the goal's notes, its explanation, exercise and check, and questions about it that the
+ * agent answers with the lesson in view. Done is the user's decision.
+ */
+function LessonView({ goal, item, repository, conversation, onBack }: {
+  goal: GoalDto;
+  item: WorkItemDto;
+  repository: string;
+  conversation: GoalConversation;
+  onBack: () => void;
+}): React.JSX.Element {
+  const { openLesson, readLesson, finishLesson } = conversation;
+  const [lesson, setLesson] = useState<GoalLessonDto | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [operation] = useState(() => crypto.randomUUID());
+  const [busy, setBusy] = useState(false);
+  const part = goal.course?.parts.find((candidate) => candidate.lessons.includes(item.id))?.title ?? '';
+  const open = useCallback((): void => {
+    setError(null);
+    void openLesson(item.id).then(setLesson, (failure: unknown) => setError(failure instanceof Error ? failure.message : 'The lesson could not be opened'));
+  }, [item.id, openLesson]);
+  useEffect(open, [open]);
+  const writing = lesson?.state === 'WRITING';
+  useEffect(() => {
+    if (!writing) return;
+    const timer = window.setInterval(() => { void readLesson(item.id).then(setLesson, () => {}); }, 1_500);
+    return () => window.clearInterval(timer);
+  }, [item.id, readLesson, writing]);
+  const questions = conversation.exchanges.filter((exchange) => exchange.lessonId === item.id);
+  const answering = conversation.exchanges.at(-1)?.state === 'PENDING';
+  return (
+    <div className="goal-panel__body goal-lesson">
+      <button type="button" className="goal-link goal-lesson__back" onClick={onBack}>Back to guidance</button>
+      <div className="goal-lesson__part">{part}</div>
+      <div className="goal-lesson__title">{item.title}</div>
+      <div className="goal-lesson__outcome">After this lesson you can: {item.acceptanceCriteria}</div>
+      {lesson === null && error === null && <p className="goal-muted" role="status">Opening the lesson…</p>}
+      {writing && <p className="goal-muted" role="status">Writing the lesson from the goal’s notes…</p>}
+      {lesson?.state === 'FAILED' && <p className="goal-guide__error" role="alert">{lesson.failure}{' '}
+        <button type="button" className="goal-link" onClick={open}>Write again</button></p>}
+      {lesson?.content != null && <>
+        <MarkdownBody className="goal-lesson__explanation" body={lesson.content.explanation} repository={repository} />
+        <section className="goal-lesson__section"><div className="goal-group">Exercise</div><MarkdownBody body={lesson.content.exercise} repository={repository} /></section>
+        <section className="goal-lesson__section"><div className="goal-group">What to observe</div><p>{lesson.content.observe}</p></section>
+        <section className="goal-lesson__section"><div className="goal-group">Check</div><p>{lesson.content.check}</p></section>
+      </>}
+      {error !== null && <p className="goal-guide__error" role="alert">{error}</p>}
+      {item.state === 'DONE' ? <p className="goal-muted">Done</p> : <button type="button" className="goal-add goal-lesson__done" disabled={busy || lesson?.content == null}
+        onClick={() => {
+          setBusy(true); setError(null);
+          void finishLesson(item.id, operation).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The lesson was not marked done'))
+            .finally(() => setBusy(false));
+        }}>{busy ? 'Saving…' : 'Mark lesson done'}</button>}
+      {questions.length > 0 && <ol className="goal-thread" aria-label="Questions about this lesson">{questions.map((exchange) => <li key={exchange.id} className="goal-thread__turn">
+        <div className="goal-thread__user">{exchange.message}</div>
+        {exchange.state === 'PENDING' && <div className="goal-thread__agent is-pending" role="status">Thinking…</div>}
+        {exchange.state === 'FAILED' && <div className="goal-thread__agent is-failed">{exchange.failure}</div>}
+        {exchange.reply !== null && <div className="goal-thread__agent"><p>{exchange.reply.assessment}</p></div>}
+      </li>)}</ol>}
+      <Composer answering={answering} placeholder="Ask about this lesson" onSend={(operationId, message) => conversation.ask(operationId, message, item.id)} />
+    </div>
+  );
+}
+
 /** A course the agent proposes; accepting it saves each lesson as a Learn work item and starts nothing. */
 function CourseProposal({ course, onAccept }: { course: GoalCourseDraftDto; onAccept: () => Promise<unknown> }): React.JSX.Element {
   const [busy, setBusy] = useState(false);
@@ -200,8 +279,8 @@ function CourseProposal({ course, onAccept }: { course: GoalCourseDraftDto; onAc
   );
 }
 
-/** The accepted course, each lesson where it stands. */
-function Course({ goal }: { goal: GoalDto }): React.JSX.Element {
+/** The accepted course, each lesson where it stands; a lesson opens in the Goal window. */
+function Course({ goal, onLesson }: { goal: GoalDto; onLesson: (lessonId: string) => void }): React.JSX.Element {
   const lessons = new Map(goal.items.map((item) => [item.id, item]));
   return (
     <section className="goal-course" aria-label="Course">
@@ -209,7 +288,8 @@ function Course({ goal }: { goal: GoalDto }): React.JSX.Element {
         <div className="goal-course__title">{index + 1}. {part.title}</div>
         <ol className="goal-course__lessons">{part.lessons.map((id) => lessons.get(id)).filter((lesson) => lesson !== undefined).map((lesson) =>
           <li key={lesson.id} className={`is-${lesson.state.toLowerCase()}`}>
-            <span>{lesson.title}</span><span className="goal-course__outcome">{lesson.state === 'DONE' ? 'Done' : lesson.acceptanceCriteria}</span>
+            <button type="button" className="goal-course__open" onClick={() => onLesson(lesson.id)}>{lesson.title}</button>
+            <span className="goal-course__outcome">{lesson.state === 'DONE' ? 'Done' : lesson.acceptanceCriteria}</span>
           </li>)}</ol>
       </div>)}
     </section>

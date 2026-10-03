@@ -98,7 +98,7 @@ public class GoalResearchService
         if (run.outcome() != ContextBuildService.Outcome.RUNNING) {
             throw new IllegalArgumentException("The research run could not start" + run.detail().map(detail -> ": " + detail).orElse("."));
         }
-        GoalRecommendation started = card.started(run.taskId(), clock.instant());
+        GoalRecommendation started = card.started(Optional.of(run.taskId()), clock.instant());
         recommendations.save(started);
         return started;
     }

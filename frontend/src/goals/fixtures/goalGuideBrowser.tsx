@@ -24,14 +24,14 @@ import '../../css/base.css';
 const server = { goal: null as GoalDto | null, exchanges: [] as GoalExchangeDto[], notes: [] as GoalKnowledgeNoteDto[], asked: [] as string[], accepted: [] as string[],
   started: [] as string[], failNextAsk: false };
 const CARD: GoalCardDto = { kind: 'RESEARCH', title: 'Read the Iceberg specification', reason: 'You start from the specification',
-  scope: 'Table metadata, snapshots and manifests', pages: ['https://iceberg.apache.org/spec/'] };
+  scope: 'Table metadata, snapshots and manifests', pages: ['https://iceberg.apache.org/spec/'], workItemId: null };
 const listeners = new Set<() => void>();
 const changed = (): void => listeners.forEach((listener) => listener());
 const unexpected = async (): Promise<never> => { throw new Error('Unexpected write'); };
 const NOW = '2026-10-03T10:00:00Z';
 
 function pending(id: string, message: string, automatic = false): GoalExchangeDto {
-  return { id, goalId: 'goal', message, automatic, inputRevision: 0, state: 'PENDING', reply: null, failure: null, askedAt: NOW };
+  return { id, goalId: 'goal', message, automatic, lessonId: null, inputRevision: 0, state: 'PENDING', reply: null, failure: null, askedAt: NOW };
 }
 function setCards(cards: GoalRecommendationDto[]): void {
   server.goal = { ...server.goal, recommendations: cards };
@@ -42,6 +42,7 @@ function answer(reply: GoalExchangeDto['reply']): void {
 const conversation: Omit<Goals, 'goals' | 'pinned'> = {
   workItems: [], error: null, create: unexpected, pin: async () => {}, remove: unexpected, add: unexpected, removeItem: unexpected, search: async () => [],
   createWork: unexpected, decideWork: unexpected, linkWork: unexpected, retry: unexpected, dismissCard: unexpected, acceptCourse: unexpected, refresh: changed,
+  openLesson: unexpected, readLesson: unexpected, finishLesson: unexpected,
   knowledge: async () => server.notes,
   startCard: async (_goalId, recommendationId) => {
     server.started.push(recommendationId);

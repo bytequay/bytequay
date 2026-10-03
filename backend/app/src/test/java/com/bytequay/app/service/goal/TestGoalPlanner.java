@@ -21,11 +21,13 @@ import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalExchange;
 import com.bytequay.core.domain.GoalKnowledgeNote;
+import com.bytequay.core.domain.GoalLesson;
 import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.GoalKnowledgeNoteStore;
+import com.bytequay.core.store.GoalLessonStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
@@ -46,7 +48,7 @@ class TestGoalPlanner
 {
     private static final Instant NOW = Instant.parse("2026-10-03T10:00:00Z");
     private static final GoalRecommendation.Card CARD = new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH, "Read the Iceberg specification",
-            "You start from the specification", "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"));
+            "You start from the specification", "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty());
 
     @Test
     void acceptsOnlyAReplyInTheNamedShape()
@@ -116,7 +118,10 @@ class TestGoalPlanner
         GoalKnowledgeNoteStore notes = mock(GoalKnowledgeNoteStore.class);
         when(notes.list("goal-1")).thenReturn(ImmutableList.of(new GoalKnowledgeNote("note-1", "goal-1", "workspace", "Manifest lists", "A snapshot lists its manifests.",
                 ImmutableList.of(new GoalKnowledgeNote.Source("https://iceberg.apache.org/spec/#manifest-lists", Optional.empty())), "task", NOW)));
-        GoalPlanner planner = new GoalPlanner(mock(AgentDriverRegistry.class), mock(TextOnlyHelper.class), workspaces, relationships, notes);
+        GoalLessonStore lessons = mock(GoalLessonStore.class);
+        when(lessons.find("lesson-1")).thenReturn(Optional.of(GoalLesson.writing("lesson-1", "goal-1", "workspace", NOW).written("codex/gpt",
+                new GoalLesson.Content("A table is a tree of metadata.", "Read TableMetadata.", "Snapshots are listed.", "What does a snapshot point to?"), NOW)));
+        GoalPlanner planner = new GoalPlanner(mock(AgentDriverRegistry.class), mock(TextOnlyHelper.class), workspaces, relationships, notes, lessons);
 
         GoalView goal = new GoalView("goal-1", "workspace", "Iceberg connector expert", "", true, Optional.empty(),
                 Optional.of(new GoalDefinition("Explain a scan", "Knows the specification", "Five hours a week", "op-0", NOW)), 1,
@@ -146,6 +151,19 @@ class TestGoalPlanner
                 .contains("\"part\" : \"Iceberg tables\"", "\"state\" : \"DONE\"");
         assertThat(planner.prompt(goal, earlier, GoalExchange.told("research:task", "goal-1", "workspace", "The research run saved 1 note: Manifest lists.", 1, NOW)))
                 .contains("\"event\" : \"The research run saved 1 note: Manifest lists.\"");
+        assertThat(planner.prompt(goal, earlier, GoalExchange.ask("op-lesson", "goal-1", "workspace", "Why a tree?", 1, NOW).about(Optional.of("lesson-1"))))
+                .contains("\"openLesson\"", "\"explanation\" : \"A table is a tree of metadata.\"", "\"message\" : \"Why a tree?\"");
+
+        String lesson = planner.lessonPrompt(goal, goal.items().getFirst(), "Iceberg tables", notes.list("goal-1"));
+        assertThat(lesson.indexOf("untrusted reference data")).isLessThan(lesson.indexOf("<lesson-data>"));
+        assertThat(lesson).contains("\"part\" : \"Iceberg tables\"", "\"outcome\" : \"Explain metadata\"", "https://iceberg.apache.org/spec/#manifest-lists",
+                "\"startingKnowledge\" : \"Knows the specification\"");
+        assertThat(GoalPlanner.parse("""
+                {"explanation": "# Tables", "exercise": "Run one test.", "observe": "It passes.", "check": "What is a snapshot?"}""", GoalLesson.Content.class).check())
+                .isEqualTo("What is a snapshot?");
+        assertThatThrownBy(() -> GoalPlanner.parse("""
+                {"explanation": "# Tables", "exercise": "Run one test.", "observe": "It passes."}""", GoalLesson.Content.class))
+                .isInstanceOf(AgentUnavailableException.class);
     }
 
     private static Workspace workspace(String owner, String repo)

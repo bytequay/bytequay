@@ -28,7 +28,7 @@ const PILL_MARGIN = 8;
 /** Cards float under the pill when it sits this far above the page's bottom, and above it otherwise. */
 const ROOM_BELOW = 220;
 const MAX_CARDS = 3;
-const CARD_KINDS: Record<GoalRecommendationDto['card']['kind'], string> = { RESEARCH: 'Research' };
+const CARD_KINDS: Record<GoalRecommendationDto['card']['kind'], string> = { RESEARCH: 'Research', LESSON: 'Lesson' };
 
 function pillKey(page: string): string {
   return `bq.goal.pill.${page}`;
@@ -99,6 +99,8 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
   const [position, setPosition] = useState<PillPosition>({ right: 24, bottom: 24 });
   const [drag, setDrag] = useState<Drag | null>(null);
   const [view, setView] = useState<GoalPanelView>('guide');
+  // The lesson open in the Goal window, if any.
+  const [lesson, setLesson] = useState<string | null>(null);
   const dragged = useRef(false);
   // The last spot a drag reached, which a release can report before the move that set it renders.
   const dropped = useRef<PillPosition | null>(null);
@@ -108,6 +110,7 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
     setSaved(loadPosition(page));
     setOpened(false);
     setVisited(false);
+    setLesson(null);
   }, [page, workspaceId]);
 
   // Placed again whenever the page or its composer changes size, so a growing draft never slides under the pill.
@@ -153,6 +156,8 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
       mode={full ? 'board' : 'window'}
       view={view}
       onView={setView}
+      lesson={lesson}
+      onLesson={setLesson}
       conversation={conversation}
       onStart={(operationId, message) => goals.start(operationId, message)}
       repository={repository}
@@ -243,7 +248,14 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
           <div className="goal-cards" role="region" aria-label="Recommended next steps"
             style={position.bottom > ROOM_BELOW ? { right: position.right, top: `calc(100% - ${position.bottom - 6}px)` } : { right: position.right, bottom: position.bottom + 44 }}>
             {shown.map((card) => <RecommendationCard key={card.id} card={card} onOpen={open}
-              onStart={() => goals.startCard(goal.id, card.id)} onDismiss={() => goals.dismissCard(goal.id, card.id)} />)}
+              onStart={() => (card.card.workItemId === null ? goals.startCard(goal.id, card.id) : goals.openLesson(goal.id, card.card.workItemId).then(() => {
+                // Start on a lesson card opens the lesson in the Goal window.
+                setLesson(card.card.workItemId);
+                setView('guide');
+                open();
+                goals.refresh();
+              }))}
+              onDismiss={() => goals.dismissCard(goal.id, card.id)} />)}
           </div>
         )}
         {visited && <GoalWindow anchor={pillRef} open={opened} onClose={close}>

@@ -64,5 +64,15 @@ public record GoalKnowledgeNote(String id, String goalId, String workspaceId, St
             checkArgument(commit.isEmpty() ? reference.startsWith("https://") && reference.chars().noneMatch(Character::isWhitespace)
                     : FILE.matcher(reference).matches(), "a source is an https page or a file as owner/repo:path at a commit: %s", reference);
         }
+
+        /** Where the source is read: the page itself, or the file on GitHub at the commit it was read at. */
+        public String url()
+        {
+            if (commit.isEmpty()) {
+                return reference;
+            }
+            int colon = reference.indexOf(':');
+            return "https://github.com/" + reference.substring(0, colon) + "/blob/" + commit.orElseThrow() + "/" + reference.substring(colon + 1);
+        }
     }
 }

@@ -29,6 +29,7 @@ import static java.util.Objects.requireNonNull;
  *
  * @param id the operation id the client chose, so a resent message returns this exchange instead of asking again
  * @param automatic whether ByteQuay reported an event, such as a finished research run, rather than the user writing the message
+ * @param lessonId the lesson the user asked about, whose content the agent reads with the question
  * @param inputRevision the goal revision the request was built from; its proposal cannot be accepted once the goal moved on
  * @param model the provider configuration and model that answered or failed, such as "codex/gpt-6.1"
  */
@@ -38,6 +39,7 @@ public record GoalExchange(
         String workspaceId,
         String message,
         boolean automatic,
+        Optional<String> lessonId,
         long inputRevision,
         State state,
         Optional<String> model,
@@ -62,6 +64,7 @@ public record GoalExchange(
         checkText(goalId, "goalId");
         checkText(workspaceId, "workspaceId");
         checkText(message, "message", MAX_MESSAGE);
+        requireNonNull(lessonId, "lessonId is null");
         checkArgument(inputRevision >= 0, "inputRevision is negative");
         requireNonNull(state, "state is null");
         requireNonNull(model, "model is null");
@@ -76,33 +79,38 @@ public record GoalExchange(
 
     public static GoalExchange ask(String id, String goalId, String workspaceId, String message, long inputRevision, Instant at)
     {
-        return new GoalExchange(id, goalId, workspaceId, message, false, inputRevision, State.PENDING, Optional.empty(), Optional.empty(), Optional.empty(), at,
+        return new GoalExchange(id, goalId, workspaceId, message, false, Optional.empty(), inputRevision, State.PENDING, Optional.empty(), Optional.empty(), Optional.empty(), at,
                 Optional.empty());
     }
 
     /** Reports an event to the agent, which answers it like a message. */
     public static GoalExchange told(String id, String goalId, String workspaceId, String event, long inputRevision, Instant at)
     {
-        return new GoalExchange(id, goalId, workspaceId, event, true, inputRevision, State.PENDING, Optional.empty(), Optional.empty(), Optional.empty(), at,
+        return new GoalExchange(id, goalId, workspaceId, event, true, Optional.empty(), inputRevision, State.PENDING, Optional.empty(), Optional.empty(), Optional.empty(), at,
                 Optional.empty());
     }
 
     public GoalExchange answered(String answeredBy, Reply answer, Instant at)
     {
-        return new GoalExchange(id, goalId, workspaceId, message, automatic, inputRevision, State.ANSWERED, Optional.of(answeredBy), Optional.of(answer),
+        return new GoalExchange(id, goalId, workspaceId, message, automatic, lessonId, inputRevision, State.ANSWERED, Optional.of(answeredBy), Optional.of(answer),
                 Optional.empty(), askedAt, Optional.of(at));
     }
 
     public GoalExchange failed(Optional<String> triedBy, String reason, Instant at)
     {
-        return new GoalExchange(id, goalId, workspaceId, message, automatic, inputRevision, State.FAILED, triedBy, Optional.empty(), Optional.of(reason), askedAt,
+        return new GoalExchange(id, goalId, workspaceId, message, automatic, lessonId, inputRevision, State.FAILED, triedBy, Optional.empty(), Optional.of(reason), askedAt,
                 Optional.of(at));
+    }
+
+    public GoalExchange about(Optional<String> lesson)
+    {
+        return new GoalExchange(id, goalId, workspaceId, message, automatic, lesson, inputRevision, state, model, reply, failure, askedAt, answeredAt);
     }
 
     /** Asks again, built from the goal as it now stands. */
     public GoalExchange retried(long revision)
     {
-        return new GoalExchange(id, goalId, workspaceId, message, automatic, revision, State.PENDING, Optional.empty(), Optional.empty(), Optional.empty(), askedAt,
+        return new GoalExchange(id, goalId, workspaceId, message, automatic, lessonId, revision, State.PENDING, Optional.empty(), Optional.empty(), Optional.empty(), askedAt,
                 Optional.empty());
     }
 

@@ -1,7 +1,8 @@
 # Agent guided goals
 
-Status: Work-item foundation, the Goal conversation, recommendation cards and
-research runs implemented; courses, lessons and work handoff remain planned. This document specifies the Goal conversation, research, courses,
+Status: Work-item foundation, the Goal conversation, recommendation cards,
+research runs, courses and lessons implemented; work handoff and the learner
+profile remain planned. This document specifies the Goal conversation, research, courses,
 discovery, guidance and durable progress panel, and three takeaways from the
 Plane comparison. The [implementation plan](goal-guidance-impl-tmp.md) lists
 actionable changes and acceptance checks.
@@ -81,8 +82,16 @@ criteria, and records the parts and their order on the Goal; nothing starts. The
 same proposal accepted again creates nothing new, and a Goal keeps its first
 course. The Guide view shows the course with each lesson's state.
 
+A lesson opens in the expanded Goal window. The first time, a tool-free request
+writes it from the Goal's notes: an explanation in Markdown that links the notes'
+sources, one exercise, what to observe and a short check; reopening it needs no
+model call, and a failed or interrupted write is retried on opening. A question
+asked in the lesson carries it to the agent. Mark lesson done accepts the Learn
+work item and tells the agent, which may recommend the next lesson as a card;
+Start on a lesson card opens the lesson.
+
 A new explicit same-source attempt without deleting the prior task, proposal
-acceptance into other work items, lessons, spec-check and work cards, course changes,
+acceptance into other work items, spec-check and work cards, course changes,
 work-item launch from the composer, automatic outcome harvesting, stale-note
 marking, a per-Goal model choice, request cancellation and discovery remain
 pending. The checklist

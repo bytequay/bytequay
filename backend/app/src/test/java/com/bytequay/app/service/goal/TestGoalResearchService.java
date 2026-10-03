@@ -59,7 +59,7 @@ class TestGoalResearchService
     private static final String HEAD = "a".repeat(40);
     private static final String ICEBERG = "c".repeat(40);
     private static final GoalRecommendation CARD = new GoalRecommendation("card-1", "goal-1", "workspace", new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH,
-            "Read the Iceberg specification", "You start from the specification", "Snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/")),
+            "Read the Iceberg specification", "You start from the specification", "Snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty()),
             GoalRecommendation.State.SHOWN, Optional.empty(), "op-1", NOW, NOW);
 
     private final GoalService goals = mock(GoalService.class);
@@ -126,7 +126,7 @@ class TestGoalResearchService
     @Test
     void aFinishedRunCompletesItsCardAndTellsTheAgentWhatItSaved()
     {
-        cards.save(CARD.started("task-1", NOW));
+        cards.save(CARD.started(Optional.of("task-1"), NOW));
         when(notes.list("goal-1")).thenReturn(ImmutableList.of(note("Manifest lists", "task-1"), note("Snapshots", "task-1"), note("Older", "task-0")));
         service.finish(build("task-1"), true);
         assertThat(cards.find("card-1")).map(GoalRecommendation::state).contains(GoalRecommendation.State.DONE);
@@ -136,7 +136,7 @@ class TestGoalResearchService
     @Test
     void aFailedRunShowsItsCardAgain()
     {
-        cards.save(CARD.started("task-1", NOW));
+        cards.save(CARD.started(Optional.of("task-1"), NOW));
         service.finish(build("task-1"), false);
         assertThat(cards.find("card-1")).hasValueSatisfying(card -> {
             assertThat(card.state()).isEqualTo(GoalRecommendation.State.SHOWN);

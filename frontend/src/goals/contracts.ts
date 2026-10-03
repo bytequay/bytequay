@@ -133,8 +133,32 @@ export type GoalProposalDto = { title: string; objective: string; successDefinit
 /** A course the agent proposes: parts of ordered lessons, each naming what the user can do afterward. */
 export type GoalCourseDraftDto = { parts: { title: string; lessons: { title: string; outcome: string }[] }[] };
 
-/** What a card under the Goal control offers; a research card reads its scope and pages. */
-export type GoalCardDto = { kind: 'RESEARCH'; title: string; reason: string; scope: string; pages: string[] };
+/** What a card under the Goal control offers: research reads its scope and pages, a lesson card opens its lesson. */
+export type GoalCardDto = { kind: 'RESEARCH' | 'LESSON'; title: string; reason: string; scope: string; pages: string[]; workItemId: string | null };
+
+/** A lesson of the goal's course, written once from its knowledge notes. */
+export type GoalLessonDto = {
+  id: string;
+  state: 'WRITING' | 'READY' | 'FAILED';
+  content: { explanation: string; exercise: string; observe: string; check: string } | null;
+  failure: string | null;
+};
+
+export function parseGoalLesson(value: unknown): GoalLessonDto {
+  const lesson = object(value, 'goal lesson');
+  const content = lesson.content === null || lesson.content === undefined ? null : object(lesson.content, 'goal lesson content');
+  return {
+    id: text(lesson.id, 'goal lesson id'),
+    state: oneOf(lesson.state, ['WRITING', 'READY', 'FAILED'] as const, 'goal lesson state'),
+    content: content === null ? null : {
+      explanation: text(content.explanation, 'goal lesson explanation'),
+      exercise: text(content.exercise, 'goal lesson exercise'),
+      observe: text(content.observe, 'goal lesson observation'),
+      check: text(content.check, 'goal lesson check'),
+    },
+    failure: optionalText(lesson.failure),
+  };
+}
 
 /** A card the agent floats under the Goal control: nothing starts until Start, and Not now dismisses it. */
 export type GoalRecommendationDto = {
@@ -160,11 +184,12 @@ export type GoalKnowledgeNoteDto = {
 function parseCard(value: unknown): GoalCardDto {
   const card = object(value, 'goal card');
   return {
-    kind: oneOf(card.kind, ['RESEARCH'] as const, 'goal card kind'),
+    kind: oneOf(card.kind, ['RESEARCH', 'LESSON'] as const, 'goal card kind'),
     title: text(card.title, 'goal card title'),
     reason: text(card.reason, 'goal card reason'),
     scope: text(card.scope, 'goal card scope'),
     pages: parseList(card.pages, (entry) => text(entry, 'goal card page'), 'goal card pages'),
+    workItemId: optionalText(card.workItemId),
   };
 }
 
@@ -201,6 +226,8 @@ export type GoalExchangeDto = {
   message: string;
   /** ByteQuay reported an event, such as a finished research run, rather than the user writing the message. */
   automatic: boolean;
+  /** The lesson the user asked about. */
+  lessonId: string | null;
   inputRevision: number;
   state: 'PENDING' | 'ANSWERED' | 'FAILED';
   reply: {
@@ -224,6 +251,7 @@ export function parseGoalExchange(value: unknown): GoalExchangeDto {
     goalId: text(exchange.goalId, 'goal exchange goal'),
     message: text(exchange.message, 'goal exchange message'),
     automatic: exchange.automatic === true,
+    lessonId: optionalText(exchange.lessonId),
     inputRevision: revision(exchange.inputRevision, 'goal exchange revision'),
     state: oneOf(exchange.state, ['PENDING', 'ANSWERED', 'FAILED'] as const, 'goal exchange state'),
     reply: reply === null ? null : {

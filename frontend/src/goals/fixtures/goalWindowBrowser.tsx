@@ -33,7 +33,8 @@ const goals: Goals = { goals: [goal], pinned: goal, workItems: [], error: null, 
   remove: async () => {}, add: async () => {}, removeItem: async () => {}, search: async () => [],
   createWork: unexpected, decideWork: unexpected, linkWork: unexpected,
   start: unexpected, exchanges: async () => [], ask: unexpected, retry: unexpected, accept: unexpected,
-  acceptCourse: unexpected, startCard: unexpected, dismissCard: unexpected, knowledge: async () => [], refresh: () => {} };
+  acceptCourse: unexpected, startCard: unexpected, dismissCard: unexpected, knowledge: async () => [], refresh: () => {},
+  openLesson: unexpected, readLesson: unexpected, finishLesson: unexpected };
 
 function element<T extends HTMLElement = HTMLElement>(selector: string): T {
   const found = document.querySelector<T>(selector);

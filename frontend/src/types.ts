@@ -14,7 +14,7 @@
 
 import type { JiraBridge, JiraSourceRequest, JiraTaskSource } from './jira/contracts';
 import type { TeamActivityQuery, TeamActivitySnapshot, TeamCircleInput, TeamCreateInput, TeamDirectory, TeamMemberInput } from './teams/types';
-import type { CreateWorkItem, WorkItemDto, WorkItemDecision, GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalKnowledgeNoteDto, GoalPatch, GoalRecommendationDto } from './goals/contracts';
+import type { CreateWorkItem, WorkItemDto, WorkItemDecision, GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalKnowledgeNoteDto, GoalLessonDto, GoalPatch, GoalRecommendationDto } from './goals/contracts';
 import { AgentEventEnvelope } from './agents/events';
 import type { AskCommentDiscussionRequest, AskDiscussionRequest, DiscussionQuery, DraftDiscussionReplyRequest, OpenDiscussionRequest, ResolveDiscussionRequest, RetryDiscussionRequest, TaskDiscussionDto } from './agents/discussions/contracts';
 import type { CreateDevelopmentLearningCommentRequest, CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';
@@ -1487,7 +1487,8 @@ export type Bridge = JiraBridge & {
   /** Starts a goal from the user's answer to "What do you want to achieve?"; its agent answers in the background. */
   startGoal: (workspaceId: string, operationId: string, message: string) => Promise<GoalDto>;
   listGoalExchanges: (workspaceId: string, goalId: string) => Promise<GoalExchangeDto[]>;
-  askGoal: (workspaceId: string, goalId: string, operationId: string, message: string) => Promise<GoalExchangeDto[]>;
+  /** @param lessonId the lesson the user asks about, whose content the agent reads with the question */
+  askGoal: (workspaceId: string, goalId: string, operationId: string, message: string, lessonId?: string | null) => Promise<GoalExchangeDto[]>;
   retryGoalExchange: (workspaceId: string, goalId: string, exchangeId: string) => Promise<GoalExchangeDto[]>;
   acceptGoalDefinition: (workspaceId: string, goalId: string, exchangeId: string, title: string) => Promise<GoalDto>;
   /** Accepts a proposed course: each lesson becomes a Learn work item of the goal, and nothing starts. */
@@ -1496,6 +1497,11 @@ export type Bridge = JiraBridge & {
   startGoalRecommendation: (workspaceId: string, goalId: string, recommendationId: string) => Promise<GoalRecommendationDto>;
   dismissGoalRecommendation: (workspaceId: string, goalId: string, recommendationId: string) => Promise<GoalRecommendationDto>;
   listGoalKnowledge: (workspaceId: string, goalId: string) => Promise<GoalKnowledgeNoteDto[]>;
+  /** Opens a lesson of the goal's course, writing it the first time; opening it is what Start means on its card. */
+  openGoalLesson: (workspaceId: string, goalId: string, lessonId: string) => Promise<GoalLessonDto>;
+  readGoalLesson: (workspaceId: string, goalId: string, lessonId: string) => Promise<GoalLessonDto>;
+  /** Done is the user's decision: accepts the lesson's work item and tells the goal's agent. */
+  finishGoalLesson: (workspaceId: string, goalId: string, lessonId: string, operationId: string) => Promise<GoalDto>;
   refreshWorkspaceIssues: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
   fetchWorkspaceIssueDetail: (workspaceId: string, issueNumber: number) => Promise<WorkspaceIssueDetailDto>;
   refreshWorkspaceIssueDetail: (workspaceId: string, issueNumber: number) => Promise<WorkspaceIssueDetailDto>;

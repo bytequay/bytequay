@@ -17,6 +17,7 @@ import com.bytequay.app.service.goal.GoalActivity;
 import com.bytequay.app.service.goal.GoalConversationService;
 import com.bytequay.app.service.goal.GoalItemState;
 import com.bytequay.app.service.goal.GoalItemView;
+import com.bytequay.app.service.goal.GoalLessonService;
 import com.bytequay.app.service.goal.GoalResearchService;
 import com.bytequay.app.service.goal.GoalService;
 import com.bytequay.app.service.goal.GoalView;
@@ -24,6 +25,7 @@ import com.bytequay.app.service.goal.WorkItemView;
 import com.bytequay.core.domain.GoalExchange;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalKnowledgeNote;
+import com.bytequay.core.domain.GoalLesson;
 import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.GoalSource;
 import com.bytequay.core.domain.WorkItem;
@@ -62,7 +64,8 @@ class TestGoalController
     private final GoalService goals = mock(GoalService.class);
     private final GoalConversationService conversations = mock(GoalConversationService.class);
     private final GoalResearchService research = mock(GoalResearchService.class);
-    private final MockMvc mvc = standaloneSetup(new GoalController(goals, conversations, research)).build();
+    private final GoalLessonService lessons = mock(GoalLessonService.class);
+    private final MockMvc mvc = standaloneSetup(new GoalController(goals, conversations, research, lessons)).build();
 
     @Test
     void listsGoalsWithTheirItemsReadLocally()
@@ -124,7 +127,7 @@ class TestGoalController
         GoalExchange answered = GoalExchange.ask("op-2", "goal-1", "workspace", "Reads first", 0, NOW).answered("codex/gpt", new GoalExchange.Reply("You want to start with reads.",
                 Optional.of(new GoalExchange.Question("Do you know the Iceberg specification?", ImmutableList.of("Yes", "Not yet"))), Optional.empty(), Optional.empty(),
                 Optional.empty()), NOW);
-        when(conversations.ask("workspace", "goal-1", "op-2", "Reads first")).thenReturn(ImmutableList.of(answered));
+        when(conversations.ask("workspace", "goal-1", "op-2", "Reads first", Optional.empty())).thenReturn(ImmutableList.of(answered));
         mvc.perform(post("/api/workspaces/workspace/goals/goal-1/exchanges").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"operationId\":\"op-2\",\"message\":\"Reads first\"}"))
                 .andExpect(status().isOk())
@@ -153,9 +156,9 @@ class TestGoalController
             throws Exception
     {
         GoalRecommendation card = new GoalRecommendation("card-1", "goal-1", "workspace", new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH,
-                "Read the Iceberg specification", "You start from the specification", "Snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/")),
+                "Read the Iceberg specification", "You start from the specification", "Snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty()),
                 GoalRecommendation.State.SHOWN, Optional.empty(), "op-1", NOW, NOW);
-        when(research.start("workspace", "goal-1", "card-1")).thenReturn(card.started("task-1", NOW));
+        when(research.start("workspace", "goal-1", "card-1")).thenReturn(card.started(Optional.of("task-1"), NOW));
         mvc.perform(post("/api/workspaces/workspace/goals/goal-1/recommendations/card-1/start"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.state").value("STARTED"))
@@ -173,6 +176,31 @@ class TestGoalController
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].topic").value("Manifest lists"))
                 .andExpect(jsonPath("$[0].sources[0].commit").value("a".repeat(40)));
+    }
+
+    @Test
+    void opensReadsAndFinishesLessons()
+            throws Exception
+    {
+        when(lessons.open("workspace", "goal-1", "lesson-1")).thenReturn(GoalLesson.writing("lesson-1", "goal-1", "workspace", NOW));
+        mvc.perform(post("/api/workspaces/workspace/goals/goal-1/lessons/lesson-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.state").value("WRITING"));
+        when(lessons.find("workspace", "goal-1", "lesson-1")).thenReturn(Optional.of(GoalLesson.writing("lesson-1", "goal-1", "workspace", NOW).written("codex/gpt",
+                new GoalLesson.Content("# Tables", "Run one test.", "It passes.", "What is a snapshot?"), NOW)));
+        mvc.perform(get("/api/workspaces/workspace/goals/goal-1/lessons/lesson-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.check").value("What is a snapshot?"));
+        when(lessons.find("workspace", "goal-1", "lesson-2")).thenReturn(Optional.empty());
+        mvc.perform(get("/api/workspaces/workspace/goals/goal-1/lessons/lesson-2")).andExpect(status().isNotFound());
+        when(lessons.finish("workspace", "goal-1", "lesson-1", "op-9")).thenReturn(GOAL);
+        mvc.perform(post("/api/workspaces/workspace/goals/goal-1/lessons/lesson-1/done").contentType(MediaType.APPLICATION_JSON).content("{\"operationId\":\"op-9\"}"))
+                .andExpect(status().isOk());
+        verify(lessons).finish("workspace", "goal-1", "lesson-1", "op-9");
+
+        mvc.perform(post("/api/workspaces/workspace/goals/goal-1/exchanges").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"operationId\":\"op-10\",\"message\":\"Why a tree?\",\"lessonId\":\"lesson-1\"}")).andExpect(status().isOk());
+        verify(conversations).ask("workspace", "goal-1", "op-10", "Why a tree?", Optional.of("lesson-1"));
     }
 
     @Test

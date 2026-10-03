@@ -942,3 +942,15 @@ button.goal-tile:hover {
 .goal-course__lessons li { display: grid; gap: 1px; }
 .goal-course__outcome { font-size: 12px; line-height: 17px; color: #57606a; overflow-wrap: anywhere; }
 .goal-course__lessons li.is-done > span:first-child { color: #57606a; text-decoration: line-through; }
+
+.goal-course__open { padding: 0; border: 0; background: transparent; color: #0969da; font: inherit; text-align: left; cursor: pointer; }
+.goal-course__open:focus-visible { outline: 2px solid var(--control-strong); outline-offset: 1px; }
+.goal-course__lessons li.is-done > .goal-course__open { color: #57606a; text-decoration: line-through; }
+.goal-lesson { gap: 10px; }
+.goal-lesson__back { justify-self: start; padding: 0; }
+.goal-lesson__part { font-size: 11px; letter-spacing: 0.4px; text-transform: uppercase; color: #57606a; }
+.goal-lesson__title { font-size: 15px; line-height: 21px; }
+.goal-lesson__outcome { font-size: 12.5px; line-height: 18px; color: #57606a; }
+.goal-lesson__explanation { font-size: 13px; line-height: 20px; }
+.goal-lesson__section p { margin: 4px 0 0; font-size: 13px; line-height: 19px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.goal-lesson__done { justify-self: start; }

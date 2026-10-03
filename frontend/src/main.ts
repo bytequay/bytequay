@@ -13,7 +13,7 @@
  */
 import type { JiraLocation, JiraQuery, JiraTokenRequest } from './jira/contracts';
 import { parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamId, teamMemberId } from './teams/contracts';
-import { parseWorkItem, type CreateWorkItem, type WorkItemDecision, parseGoal, parseGoalExchange, parseGoalItem, parseGoalKnowledgeNote, parseGoalRecommendation, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
+import { parseWorkItem, type CreateWorkItem, type WorkItemDecision, parseGoal, parseGoalExchange, parseGoalItem, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, screen, shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -1854,8 +1854,8 @@ function registerIpc(): void {
     backendJson(goalsUrl(workspaceId, '/conversation'), jsonInit('POST', { operationId, message })).then(parseGoal));
   ipcMain.handle('goals:exchanges', (_event, workspaceId: string, goalId: string) =>
     backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/exchanges`)).then(exchanges));
-  ipcMain.handle('goals:ask', (_event, workspaceId: string, goalId: string, operationId: string, message: string) =>
-    backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/exchanges`), jsonInit('POST', { operationId, message })).then(exchanges));
+  ipcMain.handle('goals:ask', (_event, workspaceId: string, goalId: string, operationId: string, message: string, lessonId: string | null) =>
+    backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/exchanges`), jsonInit('POST', { operationId, message, lessonId })).then(exchanges));
   ipcMain.handle('goals:retry', (_event, workspaceId: string, goalId: string, exchangeId: string) =>
     backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/exchanges/${encodeURIComponent(exchangeId)}/retry`), { method: 'POST' }).then(exchanges));
   ipcMain.handle('goals:accept', (_event, workspaceId: string, goalId: string, exchangeId: string, title: string) =>
@@ -1868,6 +1868,14 @@ function registerIpc(): void {
     backendJson(recommendationUrl(workspaceId, goalId, recommendationId, 'start'), { method: 'POST' }).then(parseGoalRecommendation));
   ipcMain.handle('goals:recommendations:dismiss', (_event, workspaceId: string, goalId: string, recommendationId: string) =>
     backendJson(recommendationUrl(workspaceId, goalId, recommendationId, 'dismiss'), { method: 'POST' }).then(parseGoalRecommendation));
+  const lessonUrl = (workspaceId: string, goalId: string, lessonId: string, suffix = '') =>
+    goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/lessons/${encodeURIComponent(lessonId)}${suffix}`);
+  ipcMain.handle('goals:lessons:open', (_event, workspaceId: string, goalId: string, lessonId: string) =>
+    backendJson(lessonUrl(workspaceId, goalId, lessonId), { method: 'POST' }).then(parseGoalLesson));
+  ipcMain.handle('goals:lessons:read', (_event, workspaceId: string, goalId: string, lessonId: string) =>
+    backendJson(lessonUrl(workspaceId, goalId, lessonId)).then(parseGoalLesson));
+  ipcMain.handle('goals:lessons:done', (_event, workspaceId: string, goalId: string, lessonId: string, operationId: string) =>
+    backendJson(lessonUrl(workspaceId, goalId, lessonId, '/done'), jsonInit('POST', { operationId })).then(parseGoal));
   ipcMain.handle('goals:knowledge', (_event, workspaceId: string, goalId: string) =>
     backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/knowledge`)).then(notes => parseList(notes, parseGoalKnowledgeNote, 'goal notes')));
   ipcMain.handle('workspaces:issues:refresh', (_event, workspaceId: string) =>

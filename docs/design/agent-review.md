@@ -1207,6 +1207,14 @@ turn is retried automatically once; a persistent launch failure ends with its re
 pending, the control shows that startup is in progress and
 preserves the previous result until the new projection arrives.
 
+Questions about the pull request's GitHub comments are not review questions.
+The review's task hosts a private thread per comment, answered in a read-only
+discussion session from the review's saved results, as
+[Review Triage](review-triage.md) §4.6 specifies. Those threads use their own
+review-scoped routes and never start a turn, enter the queue, call a review
+tool, or change findings, the summary or runs. Automatic catch-up does not wait
+for them.
+
 ## 8. Incremental review
 
 For a new frozen head `H2`, use the last fully completed reviewed head `H1`,

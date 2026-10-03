@@ -2,8 +2,8 @@
 
 A discussion thread is a short, private, read-only conversation about one
 quoted passage of a completed assistant answer in an agent task or, as a
-private thread, about one review comment on the task's pull request, as
-defined in [Review Triage](review-triage.md). The reader
+private thread, about one review comment on the pull request its task works on
+or reviews, as defined in [Review Triage](review-triage.md). The reader
 highlights part of an answer, asks about it, and receives a brief reply in a
 thread folded under that answer. The task's own conversation is never touched.
 
@@ -705,8 +705,8 @@ opens a thread from the transcript, and it closes with its ×; opening a thread
 again restores it.
 
 Transcript footers, the Discussions panel and its tab count show only
-discussions without `comment`. Private threads show in the task's
-pull-request tab ([Review Triage](review-triage.md) §8).
+discussions without `comment`. Private threads show in pull-request
+conversations that have a host ([Review Triage](review-triage.md) §8).
 
 ### 8.1 Where a footer sits
 

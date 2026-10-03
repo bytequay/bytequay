@@ -1,14 +1,16 @@
 # Review Triage
 
-Review triage gives each GitHub comment on a task's own pull request a
-**private thread**. That thread is a read-only
-[task discussion](discussion-threads.md) about that one comment, and only the
-user and the agent see it. The user asks about a comment with **Ask agent**.
-When the task's **Auto review summary** option is on, the agent opens that
-thread by itself for each new review comment and posts a summary: what the
-comment asks, whether it holds, why, whether to act, the plan, and the size of
-the work. Triage never replies on GitHub and never edits code. A reply
-reaches GitHub only when the user presses Comment on a draft the agent wrote.
+Review triage gives each GitHub comment a **private thread** on a pull request
+that has an agent to answer it: a development task's own pull request, or a
+pull request with an [agent review](agent-review.md). That thread is a
+read-only [task discussion](discussion-threads.md) about that one comment, and
+only the user and the agent see it. The user asks about a comment with
+**Ask agent**. When a development task's **Auto review summary** option is on,
+the agent opens that thread by itself for each new review comment and posts a
+summary: what the comment asks, whether it holds, why, whether to act, the
+plan, and the size of the work. Triage never replies on GitHub and never edits
+code. A reply reaches GitHub only when the user presses Comment on a draft the
+agent wrote.
 
 This document is the implementation contract. The interfaces below are the
 boundary: implementation follows them rather than rediscovering them.
@@ -18,47 +20,66 @@ boundary: implementation follows them rather than rediscovering them.
 A private thread is a **task discussion with a review-comment anchor**. It is
 not a new service, table, agent task or turn.
 
+Its **host** is the agent task whose agent answers it:
+
+- the development task that owns the pull request, for the user's own work;
+- the reviewer task of the pull request's agent review, for any pull request
+  the user reviews with an agent, other people's included.
+
+Both hosts store the same discussion row and run the same read-only session.
+They differ only in the premise that session starts from and in the reader's
+role (section 4.6).
+
 The problem it solves is that a review on a task's pull request leaves the user
 reading each comment, checking the code, and deciding what to do. Without it,
 the only agent help is the task composer, which starts a write-capable turn and
-mixes the question into the working conversation.
+mixes the question into the working conversation. A reviewer has the same gap
+on someone else's pull request: their review agent answers questions about its
+own summary and findings as review turns, which wait behind a running review
+and cannot be about another person's comment.
 
 Five properties follow, and everything else in this design serves them:
 
 1. **Private.** Nothing a thread holds reaches GitHub. The remote review stays
    exactly what the reviewers and the user wrote there.
-2. **Grounded.** A thread starts from the task's own history and reads the task
-   worktree, so an answer is checked against the code, not the comment's
-   wording.
+2. **Grounded.** A thread starts from its host's own work, a task's history or
+   a review's saved results, and reads the host's worktree, so an answer is
+   checked against the code, not the comment's wording.
 3. **Contained.** A thread explains. The session that answers cannot write to
    the repository, reach the network, or call a ByteQuay tool, whatever the
    prompt or a comment says.
 4. **Advisory.** A summary changes nothing. Work starts only when the user
    sends a turn, and a reply is posted only by the user's Comment click.
 5. **One thread per comment.** A GitHub comment has at most one private thread
-   on a task, whether the user or the watcher opened it.
+   on each host, whether the user or the watcher opened it.
 
 There is one mechanism with two entry points. **Ask agent** on a comment asks
 by a click. The **watcher** starts summaries after a dashboard refresh, for
-tasks whose Auto review summary option is on.
+development tasks whose Auto review summary option is on.
 
 ## 2. Boundary
 
-| Concern | Private thread | Passage discussion | Local review comment | CI Autofix |
-| --- | --- | --- | --- | --- |
-| Started by | Ask agent on a comment, or the watcher (opt-in per task) | the reader highlighting a passage | the user on a file line or a report card | the user, or delivery after a verified draft |
-| Premise | task history through the latest answered turn, plus a snapshot of the comment | task history through the anchored turn, plus the quote | the thread, sent to the task agent | failing checks and their logs |
-| Durable identity | one `task_discussion` row per task and comment | one `task_discussion` row per passage | local review thread rows | CI Autofix run rows and a CI task |
-| Repository access | read-only, sandbox-denied writes | read-only, sandbox-denied writes | the task turn's own access | read and write in its worktree |
-| GitHub writes | none; a drafted reply is posted by the user's existing Comment action | none | none | push and bounded check reruns |
-| Summary | one JSON verdict, validated | none | none | none |
-| Concurrency | the task's one read-only session | the task's one read-only session | a task turn, or the task's queue | its own task |
+| Concern | Private thread | Passage discussion | Local review comment | Review question | CI Autofix |
+| --- | --- | --- | --- | --- | --- |
+| Started by | Ask agent on a comment, or the watcher (opt-in per development task) | the reader highlighting a passage | the user on a file line or a report card | Ask agent on a review's summary card or finding | the user, or delivery after a verified draft |
+| Premise | the host's work (a task's history through its latest answered turn, or a review's saved results), plus a snapshot of the comment | task history through the anchored turn, plus the quote | the thread, sent to the task agent | the review's own conversation | failing checks and their logs |
+| Durable identity | one `task_discussion` row per host and comment | one `task_discussion` row per passage | local review thread rows | review message rows | CI Autofix run rows and a CI task |
+| Repository access | read-only, sandbox-denied writes | read-only, sandbox-denied writes | the task turn's own access | the review turn's own access | read and write in its worktree |
+| GitHub writes | none; a drafted reply is posted by the user's existing Comment action | none | none | none | push and bounded check reruns |
+| Summary | one JSON verdict, validated | none | none | none | none |
+| Concurrency | the host's one read-only session | the task's one read-only session | a task turn, or the task's queue | a review turn, or the review's queue | its own task |
 
 [Local review comments](agent-service.md) are the other private threads beside
 a task's pull request, but each question there starts a task turn with local
 delivery. A private thread on a GitHub comment must stay advisory and
 contained, so it is a read-only discussion instead. It reuses that surface's
 thread card, message row and composer (section 8.3), not its service.
+
+For the same reason, a thread hosted by a review is not a review question. A
+review question is a review turn: it waits behind a running review, and it may
+revise the summary or save findings ([Agent Review](agent-review.md) §7). A
+thread answers beside the review, even while a run is busy, and never enters
+the review's assignments, queue, tools or results.
 
 A private thread inherits every discussion rule not named in this document:
 scratch resources per question, a discarding event sink, process ownership by
@@ -71,15 +92,19 @@ Autofix's write loop.
 Not in scope:
 - a bulk "Do all";
 - re-checking an edited comment;
-- other people's pull requests;
-- the user's own pull requests that have no task;
+- a pull request with no host: no development task holding its worktree and no
+  agent review;
+- Auto review summary on a review host;
+- a thread on a replay review, which reads past code rather than today's
+  comments;
 - saving a lesson from a private thread (section 8.6).
 
 ## 3. Process flow
 
 ```
-ASK AGENT
-  the user picks Ask agent on a comment in the task's pull-request tab
+ASK AGENT, TASK HOST
+  the user picks Ask agent on a comment in a conversation whose host is a
+  development task
         |
         v
   POST /agent/tasks/{taskId}/discussions/comments   { repo, number, key, question }
@@ -98,6 +123,28 @@ ASK AGENT
   +-- send: comment preamble + task history + comment snapshot + question
   +-- a summary request: validate the verdict; store it, or record the error
   +-- any other question: store the plain answer
+
+ASK AGENT, REVIEW HOST
+  the user picks Ask agent on a comment in a conversation whose host is the
+  pull request's agent review
+        |
+        v
+  POST /api/agent-review/{reviewId}/comment-threads   { key, question }
+        |
+        v
+  askReviewComment
+  +-- the review is open, is not a replay, names a pull request, and its task
+  |   holds its worktree
+  +-- claim the review task's slot; refuse when a discussion is answering
+  +-- the comment's thread exists?  blank question + messages: return it
+  +-- no thread: resolve the key in the review's own pull request's cached
+  |   detail only, snapshot it, render the review premise, create
+  +-- record the question; a blank one is the hidden summary request
+        |
+        v   (virtual thread, the discussion runner)
+  read-only session on the review task's lane and model, approvals denied
+  +-- send: reviewer preamble + review premise + comment snapshot + question
+  +-- answers and summaries are stored exactly as for a task host
 
 AUTO REVIEW SUMMARY
   a scheduled or manual dashboard refresh publishes PullRequestsRefreshed
@@ -127,7 +174,7 @@ DRAFT WITH AGENT
   thread as data; the text fills that GitHub thread's reply editor, and the
   user's Comment is the only thing that posts it
 
-AFTER THE TASK RELEASES ITS FILES
+AFTER THE HOST RELEASES ITS FILES (task cleanup, or End review)
   asking, drafting, follow-ups, and the watcher stop; every thread stays
   readable
 ```
@@ -288,7 +335,8 @@ question of at most 16,000 characters; a blank question is valid.
 `TaskPullRequestOwnership.owns(task, repo, number, false)`: a private thread
 writes nothing, so a merged pull request still takes questions. It reads the
 pull request only through `PullRequestStore` and `PrDetailStore.find`, by way
-of `ReviewCommentReader`, and injects no GitHub client.
+of `ReviewCommentReader`, and injects no GitHub client. A review host never
+reaches these task-addressed methods; its entry points are in section 4.6.
 
 `DefaultTaskDiscussionService` changes:
 
@@ -313,7 +361,8 @@ of `ReviewCommentReader`, and injects no GitHub client.
   there is none. `askComment` and `summarize` render it before they store
   anything, so that refusal leaves nothing behind, and hand it to their first
   run. A Retry, a re-seed after a lost session, and a fanned-out thread's first
-  follow-up render it again.
+  follow-up render it again. A review host's thread renders the review premise
+  instead (section 4.6).
 - **Prompt.** A run with no session renders `renderComments` for a private
   thread and `render` for a passage. Both share one tail, so a first run and a
   re-seed come from one renderer.
@@ -364,7 +413,8 @@ summary never lands on a pull request the tab does not show.
 
 The comment prompt is assembled in this order. A re-seed adds the thread's
 prior messages before the question, exactly as for a passage discussion. A
-resumed session receives only the question.
+resumed session receives only the question. A review host changes the first
+paragraph and the premise (section 4.6).
 
 ```text
 You are answering the pull request author's private questions about review
@@ -480,9 +530,10 @@ POST /agent/tasks/{taskId}/discussions/{id}/reply-draft?workspaceId=   -> { text
 
 Every existing discussion route is unchanged, and Resolve locally and Reopen
 use the existing `PATCH` with its `resolved` flag. Each new route resolves the
-task through `tasks.getInteractive` first. Keys resolve only inside the named
-pull request's cached detail, so a client can never bring text from another
-pull request into a thread.
+task through `tasks.getInteractive` first, so these routes keep refusing a
+review's task; a review host has its own routes (section 4.6). Keys resolve
+only inside the named pull request's cached detail, so a client can never
+bring text from another pull request into a thread.
 
 The renderer reaches the routes through `ipcMain.handle` channels in
 `frontend/src/main.ts`:
@@ -501,6 +552,134 @@ the view's `turnId`, `quote` and `occurrence` carry the anchor's values, and
 clients ignore them. `frontend/src/agents/discussions/contracts.ts` parses the
 field and adds `SUMMARY_REQUEST` and `parseCommentSummary`, which returns the
 verdict or null.
+
+### 4.6 Review host
+
+An agent review hosts private threads on its own pull request through its
+reviewer task. A thread is that task's `task_discussion`, so the per-task slot,
+the cap of 100, Retry, the verdict contract and the session runner apply
+unchanged. The session runs on the review task's lane and model, in the
+review's worktree, beside whatever the review is doing.
+
+`TaskDiscussionService` gains a review-addressed family beside the
+task-addressed one:
+
+```java
+/** The review task's private threads, as list returns a task's. */
+List<TaskDiscussionView> listReviewThreads(String reviewId);
+
+/** askComment on the review's own pull request, answered by its reviewer task. */
+TaskDiscussionView askReviewComment(String reviewId, String key, String question);
+
+TaskDiscussionView retryReviewThread(String reviewId, String discussionId, String messageId);
+
+TaskDiscussionView resolveReviewThread(String reviewId, String discussionId, boolean resolved, long expectedVersion);
+
+String draftReviewReply(String reviewId, String discussionId);
+```
+
+Each resolves the review through `AgentReviewStore.findReview` and its task
+through `AgentTaskService.get`, never `getInteractive`. None goes through
+`AgentReviewService`: answering a thread is not a review operation, so it takes
+no review lock and triggers no reconciliation.
+
+- **Asking.** `askReviewComment`, `retryReviewThread` and `draftReviewReply`
+  require an open review that is not a replay, names a pull request, and whose
+  task holds its worktree. Otherwise they refuse with one of:
+  - "This review has ended, so its threads are read-only";
+  - "A replay reviews past code, so it has no private threads";
+  - "This review has no pull request".
+- **Reading.** `listReviewThreads` and `resolveReviewThread` also work on an
+  ended review, so its threads stay readable and can be resolved.
+- **Identity.** The pull request is the review's own `repo` and `number`; the
+  client never names one. A key resolves only in that pull request's cached
+  detail, through `ReviewCommentReader`. A discussion id must belong to the
+  review's task.
+
+**Premise.** A thread's run without a provider session renders its host's
+premise. The host is a review when `AgentReviewStore.findReviewByTask` finds
+one for the thread's task; nothing on the row records it. A review saves its
+work through review tools, which the task history leaves out, so that history
+would hold little but ByteQuay's review requests. The review premise reads the
+review's saved records instead:
+
+```text
+--- review so far ---
+
+{"head":"…","purpose":"…","commits":[{"sha":"…","explanation":"…"}],
+ "findings":[{"title":"…","severity":"high","state":"OPEN","path":"…","range":"R118–R131","body":"…"}],
+ "candidates":[{"claim":"…","outcome":"REJECTED","conclusion":"…"}]}
+```
+
+- `head`, `purpose` and `commits` come from the newest run with a saved
+  summary; `head` is that run's frozen head.
+- `findings` holds every finding of the review, oldest first. A finding's
+  `outdated` is present only when true.
+- `candidates` holds the newest run's investigation candidates with their
+  latest validation outcome and conclusion. They carry the review's own
+  disposition of the comments it read as leads, so a thread does not silently
+  contradict the review.
+- Cuts by characters: purpose 4,000; each explanation 2,000; title 300; body
+  4,000; claim 1,000; conclusion 1,000. Absent values are omitted. A review
+  with no results yet renders empty lists rather than refusing, because the
+  code is a thread's real premise.
+- It is rendered for every run without a session, so a thread starts from the
+  review's current results.
+- A premise over `TaskDiscussion.MAX_SEED_CHARACTERS` is refused with "This
+  review is too long to ask about".
+
+**Prompt.** A review host's prompt is the comment prompt of section 4.3 with
+the review premise in place of the task history, and with this first
+paragraph:
+
+```text
+You are answering a reviewer's private questions about comments on a pull
+request you reviewed. Check each point against the code in this worktree and
+against your review below. Explain only; do not implement, reply on GitHub,
+or continue the review.
+```
+
+Its sentence "The working tree may be mid-edit by the task's own agent." reads
+"The working tree may hold your review's experiments or move to a newer
+head." A summary keeps the verdict of section 5; its `do` says whether the pull
+request should change for the comment.
+
+**Draft reply.** `BetterWordsService.draftReply` takes the reader's role. A
+review host drafts as a reviewer: in the reviewer's voice, with what the notes
+concluded, agreeing and adding what supports the point, or explaining briefly
+and politely why it does not hold. A task host keeps the author's
+instructions.
+
+**Routes and bridge.** The routes live in `ReviewController` beside the other
+review-scoped routes and delegate to the methods above:
+
+```
+GET   /api/agent-review/{reviewId}/comment-threads                                 -> [TaskDiscussionView]
+POST  /api/agent-review/{reviewId}/comment-threads             { key, question }   -> TaskDiscussionView
+PATCH /api/agent-review/{reviewId}/comment-threads/{id}        { resolved, expectedVersion }
+                                                                                   -> TaskDiscussionView
+POST  /api/agent-review/{reviewId}/comment-threads/{id}/messages/{messageId}/retry -> TaskDiscussionView
+POST  /api/agent-review/{reviewId}/comment-threads/{id}/reply-draft               -> { text }
+```
+
+| Channel | Preload method |
+| --- | --- |
+| `review:comment-threads:list` | `listReviewCommentThreads` |
+| `review:comment-threads:ask` | `askReviewCommentThread` |
+| `review:comment-threads:resolve` | `resolveReviewCommentThread` |
+| `review:comment-threads:retry` | `retryReviewCommentThread` |
+| `review:comment-threads:draft-reply` | `draftReviewCommentReply` |
+
+The renderer reuses `useTaskDiscussions` with a `DiscussionBridgePort` backed
+by these channels. The port's passage methods refuse, because a review hosts no
+passage discussions.
+
+**Unchanged.** The watcher, Auto review summary, and the review's own
+questions. A review-hosted thread starts no review turn, adds no queue entry,
+records no review message, holds no worktree claim, calls no review tool, and
+changes no finding, summary or run. A review's automatic catch-up does not wait
+for a thread, so it can move the checkout while one answers; the prompt says
+so.
 
 ## 5. Verdict contract
 
@@ -573,6 +752,8 @@ No new table and no new column.
 - A private thread is a `task_discussion` row. `ReviewCommentAnchor` lives in
   the JSON payload with the rest of the aggregate. The anchor columns hold
   `review-comment` and the key's hash.
+- A review-hosted thread is a row of the reviewer task. The host kind is not
+  stored: the review's link to its task is the only discriminator.
 - A private thread stores no seed (section 4.1). Its payload is the snapshot
   and the messages.
 - A summary is an AGENT message holding a verdict. There is no separate
@@ -582,22 +763,41 @@ No new table and no new column.
 
 ## 8. Surface
 
-Everything here exists only in the task's pull-request tab. `SidePanel` in
-`frontend/src/agents/AgentTaskScreen.tsx` builds a `PrivateThreadSource` from
-`useTaskDiscussions` for interactive tasks. `TaskPullRequestView` adds its view
-state and passes one optional `privateThreads` prop down through
-`PullOverview`, `TimelineItem`, `ReviewGroup`, `ReviewThread`, `ThreadComment`
-and `CommentCard`, drilled like `workspaceId`. The Files tab, Code & Tests,
-the full-width pull-request page and other people's pull requests pass
-nothing and render without any of it. The backend repeats the ownership check.
+Everything here exists only in a pull-request conversation that has a host:
+
+- **The task's pull-request tab.** `SidePanel` in
+  `frontend/src/agents/AgentTaskScreen.tsx` builds a `PrivateThreadSource` from
+  `useTaskDiscussions` for interactive tasks. Its host is always that task.
+- **The pull-request page and the review workspace.** `PullsScreen` picks one
+  host by the rule its Changes tab already applies to Ask agent on diff lines:
+  the development task that owns the pull request while it holds its worktree,
+  which is the task Code & Tests reads; otherwise the review the pane shows,
+  unless that review is a replay or names no pull request. The review
+  workspace always takes its own review. While the task lookup is loading
+  there is no host, so the page never shows one host's threads and then the
+  other's. An ended review's threads are readable wherever that review is
+  opened, such as its Tasks row.
+
+`usePrivateThreads(source)` in `frontend/src/pulls/PrivateThread.tsx` holds the
+view state that `TaskPullRequestView` holds today: the forward thread, Show or
+Hide, and the drafts. Both surfaces share it, and it resets when the
+conversation remounts. The surface passes one optional `privateThreads` prop
+down through `PullOverview`, `TimelineItem`, `ReviewGroup`, `ReviewThread`,
+`ThreadComment` and `CommentCard`, drilled like `workspaceId`. The Files tab
+and Code & Tests pass nothing and render without any of it. The backend
+repeats every check.
 
 ### 8.1 Entry
 
-Every GitHub comment with a body and an id gets an **Ask agent** button, with
-the title "Ask the agent about this comment. Private.", right before its
-`···` menu. That includes review-thread comments (replies in mid-thread too),
-review body cards, and issue comments. The Reply and Resolve bar at the bottom
-of a thread is unchanged.
+Every GitHub comment with a body and an id that someone other than the
+signed-in user wrote gets an **Ask agent** button, with the title "Ask the
+agent about this comment. Private.", right before its `···` menu. Bots count
+as other people. That includes review-thread comments (replies in mid-thread
+too), review body cards, and issue comments. The user's own comments get no
+button; a thread already behind one keeps its chip and tab. The rule is the
+surface's own: the backend does not know the signed-in user, and asking about
+one's own comment would be harmless. The Reply and Resolve bar at the bottom of
+a thread is unchanged.
 
 Clicking Ask agent brings that comment's thread forward. A thread with no row
 yet is client-only until its first send, so Cancel or moving to another
@@ -643,9 +843,9 @@ At most one thread is forward per pull-request view.
   - The placeholder is "Ask about `<author>`'s comment…", or "Reply to the agent…" once the thread has messages.
   - Beside the send button sits Cancel while the thread has no messages, and Resolve locally once it has. `ReviewComposer` gains one optional slot that replaces its Cancel button; Escape still cancels.
   - The send button is **Ask agent** on the first send, allowed empty, which asks for the summary. Later it is **Reply**, which needs text.
-  - While any discussion on the task is answering, send is blocked with the reason "The agent is answering another question on this task", and the draft is kept.
+  - While any discussion on the host is answering, send is blocked with the reason "The agent is answering another question on this task", or "… on this review" for a review host, and the draft is kept.
   - The tab holds each thread's unsent text by comment, so bringing another comment forward, going back, or a GitHub resolve that remounts the card does not lose it.
-  - A task that released its files shows its reason instead of the composer.
+  - A host that released its files shows its reason instead of the composer; an ended review shows "This review has ended, so its threads are read-only".
 - **Resolved.** A resolved thread shows "The GitHub thread is unchanged." and
   Reopen.
 - **Resolve locally, Reopen.** Resolve locally sends the thread back. Reopen
@@ -750,6 +950,12 @@ shows the reason when it is refused.
 | The task's worktree is removed | Asking and drafting are refused; every thread stays readable. |
 | The task holds 100 comment threads | Further threads are refused; nothing is evicted, and passage discussions are unaffected. |
 | The draft cannot be produced | The editor stays as it was, and the reason shows in the thread footer. |
+| A pull request has both a development task holding its worktree and a review | The page's threads are the task's; the review's threads show in its review workspace. |
+| The review is a replay or names no pull request | No Ask agent is offered, and the review routes refuse. |
+| The review ended or released its worktree | Asking, Retry and drafting are refused; its threads stay readable and resolvable wherever that review is opened. |
+| A newer review follows an ended one | The page shows the new review's threads; the ended review keeps its own. |
+| The review's checkout moves to a newer head while a thread answers | The session reads what is checked out. The prompt says the tree may move, and the comment's commit names the version under discussion. |
+| A review's premise exceeds the seed budget | Asking is refused with "This review is too long to ask about", and nothing is stored. |
 
 ## 10. Safety invariants
 
@@ -764,10 +970,14 @@ shows the reason when it is refused.
 5. Automatic summaries run only on the user's own task pull requests, only for
    tasks started with Auto review summary on, and only for comments by people
    other than the author and not bots, created after the task.
-6. At most one read-only session runs per task, and no two threads share a
-   provider session.
+6. At most one read-only session runs per host task, and no two threads share
+   a provider session.
 7. Reviewer text is carried and rendered as data, never as instructions or
    markup.
+8. A review-hosted thread never starts a review turn, enters the review's
+   queue, calls a review tool, or changes its findings, summary or runs.
+9. The review routes reach only their review task's threads and their review's
+   own pull request; the task routes keep refusing a review's task.
 
 ## 11. Delivery order
 
@@ -793,6 +1003,17 @@ Each step compiles and passes the project gates on its own.
 8. **Discussion session from a prompt.** The runner takes a finished prompt and
    returns its result, unchanged in behavior.
 9. **Watcher.** `summarize` and `ReviewSummaryWatcher`.
+10. **Shared view state.** `usePrivateThreads` and `privateThreadSource` move
+    into `PrivateThread.tsx`, unchanged in behavior.
+11. **Other people's comments only.** The user's own comments lose Ask agent
+    on every surface.
+12. **Task host on the pull-request page.** The host rule in `PullsScreen` for
+    a development task, the strip, and the prop through `DetailBody`. No
+    backend change.
+13. **Review host, backend.** The review-addressed methods, the review premise
+    and preamble, the reviewer draft instructions, and the review routes.
+14. **Review host, frontend.** The review channels, the bridge port, and the
+    review branch of the host rule.
 
 Deleting a task's discussions with the task, and an over-long answer that is
 misread as a lost session, are gaps in passage discussions that this design
@@ -838,25 +1059,49 @@ neither needs nor changes. They are fixed separately.
 12. Draft with agent fills the reply editor with a mention of the commenter and
     shows the draft badge. `replyToReviewComment` is called only by Comment,
     exactly once.
-13. Without the task screen's prop, the conversation renders no Ask agent, no
-    chip, no tab and no strip. Given a list holding private threads, the
-    transcript footers, the Discussions panel's turn groups and the tab count
-    are what they are without them.
+13. Without a host, the conversation renders no Ask agent, no chip, no tab and
+    no strip. Given a list holding private threads, the transcript footers,
+    the Discussions panel's turn groups and the tab count are what they are
+    without them.
 14. A private thread's stored row holds no seed, and a review card's key
     resolves when the cached reviews section is unavailable.
+15. The pull-request page shows a development task's threads, the same ones
+    its pull-request tab shows, while that task owns the pull request and
+    holds its worktree. Without one, an open review's threads show. A replay
+    review, a review with no pull request, or no host at all offers nothing.
+16. Ask agent on a reviewed pull request stores the thread on the review's
+    task. The first prompt holds the review premise, with the review's purpose,
+    findings and candidate conclusions, and no task history; a re-seed renders
+    the current premise.
+17. A review-hosted question asked while a review turn runs is answered with no
+    turn row, queue entry, review message or worktree claim, and the review's
+    findings and runs are unchanged.
+18. The review routes refuse a key outside the review's pull request, a
+    discussion of another task, and asking, Retry or drafting on an ended or
+    replay review. Listing and resolving an ended review's threads still work,
+    and the task routes refuse a review's task.
+19. Draft with agent on a review host uses the reviewer's instructions, and on
+    a task host the author's.
+20. A comment by the signed-in user shows no Ask agent on any surface, while a
+    bot's or another person's does; a thread already behind the user's own
+    comment still shows its chip and tab.
 
 ## 13. Cross-references
 
 These designs carry the parts of this one that change them:
 
 - [Design index](design.md): the Review Triage entry.
+- [Agent Review](agent-review.md) §7: a review's task hosts private threads on
+  its pull request's GitHub comments, outside review turns, through
+  review-scoped routes.
 - [Agent Service](agent-service.md) §1: the per-task in-flight guard, a private
   thread and a batch summary as the task's one read-only discussion session,
   and Review Triage as a read-only workflow that registers no tool.
 - [Discussion Threads](discussion-threads.md): the review-comment anchor and
   optional seed, the per-task slot and Retry of an orphaned question, the
   separate cap of 100, `askComment`, `summarize`, `draftReply` and their
-  routes, and passage surfaces that show only discussions without `comment`.
+  routes, passage surfaces that show only discussions without `comment`, and
+  a private thread's host.
 - [CI Autofix Service](ci-autofix-service.md): the opening's pointer to this
   design.
 - [Development Task Delivery](development-delivery.md) §2: the Auto review

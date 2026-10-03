@@ -75,11 +75,12 @@ historical checkpoint evidence and explicitly deferred future work.
   selected turn, one thread per passage, a reply-count footer in the transcript
   and a task side-panel tab. A discussion is not an agent task and never enters
   the task's own conversation, event log, outbox or stream.
-- [Review Triage](review-triage.md) gives each GitHub comment on a task's own
-  pull request a private, read-only thread with the agent. Ask agent opens one;
-  the per-task Auto review summary option has the agent summarize each new
-  review comment. It never replies on GitHub or edits code, and a drafted reply
-  is posted only by the user.
+- [Review Triage](review-triage.md) gives each GitHub comment a private,
+  read-only thread with an agent, on a development task's own pull request or
+  on a pull request with an agent review. Ask agent opens one; a development
+  task's Auto review summary option has the agent summarize each new review
+  comment. It never replies on GitHub or edits code, and a drafted reply is
+  posted only by the user.
 - [Repository memory](repository-memory.md) is the approved redesign that
   replaced the repository-context notes. Agents get the repository's guideline
   files and short rules captured where the information appears: pull request

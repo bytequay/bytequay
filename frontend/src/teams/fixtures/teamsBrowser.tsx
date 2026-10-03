@@ -17,11 +17,12 @@ import { createRoot, type Root } from 'react-dom/client';
 import AppSidebar, { type AppPage } from '../../AppSidebar';
 import { assert, settle } from '../../fixtures/harness';
 import { pr } from '../../pulls/fixtures/pullRequest';
+import CirclesGrid from '../../home/CirclesGrid';
 import type { Bridge, PullRequestDto } from '../../types';
 import TeamsPage from '../TeamsPage';
 import { membersOf } from '../activity';
 import type { TeamActivityEvent, TeamActivityQuery, TeamActivitySnapshot, TeamDirectory, TeamMember, TeamStatistics } from '../types';
-import { GITHUB_ACCOUNT_CHANGED, updateTeams } from '../useTeams';
+import { GITHUB_ACCOUNT_CHANGED, updateTeams, useTeams } from '../useTeams';
 import '../../css/base.css';
 import '../../css/home.css';
 import '../../css/pulls.css';
@@ -211,6 +212,7 @@ async function mount(initial = seededDirectory(), { home = false, observations =
   window.location.hash = home ? '#/home' : '#/teams';
   document.body.innerHTML = '<div id="root"></div>';
   function Surface() {
+    const teams = useTeams();
     const [page, setPage] = useState<AppPage>(home ? 'home' : 'teams');
     useEffect(() => {
       const changed = () => setPage(window.location.hash === '#/home' ? 'home' : 'teams');
@@ -222,7 +224,9 @@ async function mount(initial = seededDirectory(), { home = false, observations =
         onWorkspaceTab={noOp} canGoBack={false} canGoForward={false} onBack={noOp} onForward={noOp}
         browserRailVisible={false} onToggleBrowserRail={noOp} />
       <main className="app-content">{page === 'teams' ? <TeamsPage />
-        : <div style={{ padding: 36, maxWidth: 620 }}><h1>Home</h1></div>}</main>
+        : <div style={{ padding: 36 }}><h1>Home</h1>
+          <CirclesGrid key={teams.directory?.accountLogin ?? ''} directory={teams.directory} attention={[]} viewerLogin={teams.directory?.accountLogin ?? null} />
+        </div>}</main>
     </div>;
   }
   const host = document.getElementById('root');
@@ -451,10 +455,34 @@ async function homeNavigation() {
   assert(f.refreshes === 0, 'Opening circles must use local data without remote collection');
 }
 
+async function homeCreation() {
+  const f = await mount({ accountLogin: 'viewer', circles: [] }, { home: true });
+  await click('+ Add circle');
+  assert(document.querySelector('dialog[open]') !== null && window.location.hash === '#/home', 'Home must open the creation dialog in place');
+  await click('Cancel');
+  assert(document.querySelector('dialog') === null && f.created.length === 0, 'Cancel must close without creating a circle');
+  await click('+ Add circle');
+  await input('Circle name', 'Home reviewers');
+  await input('Filter cached contributors', 'alice');
+  await press('Filter cached contributors', 'Enter');
+  f.failCreate('Save failed');
+  await click('Create circle');
+  assert(document.querySelector('.cir-alert')?.textContent?.includes('Save failed') === true, 'Home must retain the dialog and show save errors');
+  f.failCreate(null);
+  await click('Create circle');
+  assert(document.querySelector('dialog') === null && window.location.hash === '#/home', 'Saving must close the dialog and stay on Home');
+  assert(document.querySelector('[data-circle-id="circle-1"]')?.textContent?.includes('Home reviewers') === true && f.directory.circles[0]?.members[0]?.login === 'alice',
+    'The new circle and selected people must appear immediately');
+  await click('+ Add circle');
+  await f.switchAccount({ accountLogin: 'other', circles: [] });
+  assert(document.querySelector('dialog') === null && document.querySelector('[data-circle-id]') === null, 'Switching accounts must discard the open dialog and old circles');
+  assert(f.refreshes === 0, 'Creating from Home must not start a collection pass');
+}
+
 export async function run() {
   const results: { name: string; error?: string }[] = [];
   const scenarios = { firstUse, saveFailure, membersAndUndo, activityWording, insightsDrill, personPanel, needsYou, refreshFailure,
-    accountSwitchDuringRefresh, rememberedView, avatarChoice, homeNavigation };
+    accountSwitchDuringRefresh, rememberedView, avatarChoice, homeNavigation, homeCreation };
   for (const [name, scenario] of Object.entries(scenarios)) {
     try { await scenario(); results.push({ name }); }
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }

@@ -19,7 +19,7 @@ import CirclesGrid from './CirclesGrid';
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
-it('draws one tile per circle and hides when there are none', () => {
+it('draws one tile per circle and offers creation even when there are none', () => {
   const directory: TeamDirectory = { accountLogin: 'viewer', circles: [{
     id: 'c1', name: 'Connectors', description: '', avatar: { color: 'blue', shape: 'square' }, repositories: [],
     members: [1, 2, 3, 4, 5].map(id => ({ githubId: id, login: `u${id}`, name: '', avatarUrl: '' })),
@@ -31,7 +31,11 @@ it('draws one tile per circle and hides when there are none', () => {
   expect(html.match(/class="avatar/g)).toHaveLength(3);
   expect(html).toContain('2 others');
   expect(html).toContain('<b>0</b> need you');
-  expect(renderToStaticMarkup(<CirclesGrid directory={{ accountLogin: 'viewer', circles: [] }} attention={[]} viewerLogin="viewer" />)).toBe('');
+  expect(html).toContain('+ Add circle');
+  const empty = renderToStaticMarkup(<CirclesGrid directory={{ accountLogin: 'viewer', circles: [] }} attention={[]} viewerLogin="viewer" />);
+  expect(empty).toContain('+ Add circle');
+  expect(empty).toContain('No circles yet.');
+  expect(renderToStaticMarkup(<CirclesGrid directory={null} attention={[]} viewerLogin="viewer" />)).toBe('');
 });
 
 it('opens the Circles page on the circle and keeps the last tab', () => {

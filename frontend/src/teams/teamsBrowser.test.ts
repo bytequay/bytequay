@@ -51,6 +51,6 @@ it('manages private circles and inspects recorded activity in Chromium', async (
       }
     `,
   });
-  expect(results).toHaveLength(13);
+  expect(results).toHaveLength(14);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, 90_000);

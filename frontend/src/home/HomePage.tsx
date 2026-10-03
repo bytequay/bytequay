@@ -336,6 +336,7 @@ function HomePage({
         onWatch={() => setShowModal(true)}
       />
       <CirclesGrid
+        key={teams.directory?.accountLogin ?? ''}
         directory={teams.directory}
         attention={visibleAttention(candidates, handled, Date.now())}
         viewerLogin={login ?? null}

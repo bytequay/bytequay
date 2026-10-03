@@ -11,11 +11,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useState } from 'react';
 import Avatar from '../Avatar';
-import { CircleIcon } from '../teams/CircleDialog';
+import { remoteErrorMessage } from '../pulls/PullOverview';
+import CircleDialog, { CircleIcon } from '../teams/CircleDialog';
+import { parseTeamCreateInput } from '../teams/contracts';
 import { circleNeeds } from '../teams/priority';
 import { openCircle } from '../teams/TeamsPage';
-import type { TeamDirectory } from '../teams/types';
+import type { TeamCreateInput, TeamDirectory } from '../teams/types';
+import { updateTeams } from '../teams/useTeams';
 import type { AttentionItem } from './attention';
 
 type Props = {
@@ -27,13 +31,32 @@ type Props = {
 
 /** "Circles": one tile per circle, like the repo tiles; a click opens that circle. */
 function CirclesGrid({ directory, attention, viewerLogin }: Props) {
-  if (directory === null || directory.circles.length === 0) return null;
+  const [creating, setCreating] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function createCircle(value: TeamCreateInput) {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try {
+      updateTeams(await window.bridge.createTeam(parseTeamCreateInput(value)));
+      setCreating(false);
+    }
+    catch (failure) { setError(remoteErrorMessage(failure)); }
+    finally { setBusy(false); }
+  }
+
+  if (directory === null) return null;
   const account = directory.accountLogin;
   return (
     <div className="home-section">
       <div className="home-section__header">
         <span className="home-section__title">Circles</span>
+        <button type="button" className="home-section__action" aria-haspopup="dialog" onClick={() => { setError(null); setCreating(true); }}>
+          + Add circle
+        </button>
       </div>
+      {directory.circles.length === 0 && <div className="hp-empty">No circles yet.</div>}
       <div className="home-repo-grid">
         {directory.circles.map(circle => {
           const open = () => openCircle(account, circle.id);
@@ -70,6 +93,8 @@ function CirclesGrid({ directory, attention, viewerLogin }: Props) {
           );
         })}
       </div>
+      {creating && <CircleDialog circle={null} circles={directory.circles} busy={busy} error={error}
+        onSave={createCircle} onCancel={() => setCreating(false)} onClearError={() => setError(null)} />}
     </div>
   );
 }

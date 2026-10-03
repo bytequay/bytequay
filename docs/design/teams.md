@@ -42,6 +42,10 @@ top layer: popover, dialog, then the person panel. The first visit opens All
 circles on Needs you; later visits reopen the last circle and view used with the
 same account.
 
+Home's Circles heading includes Add circle, even before the first circle exists.
+It opens the same creation dialog in place; saving updates the Home tiles and
+keeps the user on Home.
+
 Removing a person from a circle and acknowledging or snoozing an item offer an
 immediate Undo. Removal is undone by re-adding the stored GitHub ID. The person
 panel's circle menu adds and removes that person across circles directly.

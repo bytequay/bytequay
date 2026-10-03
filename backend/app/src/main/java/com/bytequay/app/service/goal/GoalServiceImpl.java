@@ -19,8 +19,10 @@ import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.GoalSource;
+import com.bytequay.core.domain.GoalTopic;
 import com.bytequay.core.store.GoalRecommendationStore;
 import com.bytequay.core.store.GoalStore;
+import com.bytequay.core.store.GoalTopicStore;
 import com.bytequay.core.store.WorkspaceStore;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -47,18 +49,20 @@ public class GoalServiceImpl
     private final WorkItemService work;
     private final GoalReferenceReader references;
     private final GoalRecommendationStore recommendations;
+    private final GoalTopicStore topics;
     private final Clock clock;
     // ponytail: one lock for local Goal edits; split by workspace if edits ever contend.
     private final Object writes = new Object();
 
     public GoalServiceImpl(GoalStore goals, WorkspaceStore workspaces, WorkItemService work, GoalReferenceReader references, GoalRecommendationStore recommendations,
-            Clock clock)
+            GoalTopicStore topics, Clock clock)
     {
         this.goals = requireNonNull(goals, "goals is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.work = requireNonNull(work, "work is null");
         this.references = requireNonNull(references, "references is null");
         this.recommendations = requireNonNull(recommendations, "recommendations is null");
+        this.topics = requireNonNull(topics, "topics is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -67,7 +71,7 @@ public class GoalServiceImpl
     {
         requireWorkspace(workspaces, workspaceId);
         List<WorkItemView> items = work.list(workspaceId);
-        return active(workspaceId).stream().map(goal -> view(goal, items, live(goal))).collect(toImmutableList());
+        return active(workspaceId).stream().map(goal -> view(goal, items, live(goal), topics.list(goal.id()))).collect(toImmutableList());
     }
 
     @Override
@@ -232,7 +236,7 @@ public class GoalServiceImpl
 
     private GoalView view(Goal goal)
     {
-        return view(goal, work.list(goal.workspaceId()), live(goal));
+        return view(goal, work.list(goal.workspaceId()), live(goal), topics.list(goal.id()));
     }
 
     private List<GoalRecommendation> live(Goal goal)
@@ -242,10 +246,10 @@ public class GoalServiceImpl
                 .sorted(Comparator.comparing(GoalRecommendation::createdAt).reversed()).collect(toImmutableList());
     }
 
-    private static GoalView view(Goal goal, List<WorkItemView> items, List<GoalRecommendation> cards)
+    private static GoalView view(Goal goal, List<WorkItemView> items, List<GoalRecommendation> cards, List<GoalTopic> known)
     {
         return new GoalView(goal.id(), goal.workspaceId(), goal.title(), goal.description(), goal.pinned(), goal.markedSource(), goal.definition(), goal.revision(),
-                goal.course(), items.stream().filter(item -> item.goalId().filter(goal.id()::equals).isPresent()).collect(toImmutableList()), cards,
+                goal.course(), items.stream().filter(item -> item.goalId().filter(goal.id()::equals).isPresent()).collect(toImmutableList()), cards, known,
                 goal.createdAt(), goal.updatedAt());
     }
 }

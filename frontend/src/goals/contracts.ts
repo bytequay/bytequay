@@ -62,6 +62,8 @@ export type GoalDto = {
   items: WorkItemDto[];
   /** The cards still shown or running, newest first. */
   recommendations: GoalRecommendationDto[];
+  /** What the user knows, topic by topic, and the evidence behind each level. */
+  topics: GoalTopicDto[];
   createdAt: string;
   updatedAt: string;
 };
@@ -123,12 +125,27 @@ export function parseGoal(value: unknown): GoalDto {
     },
     items: goal.items.map(parseWorkItem),
     recommendations: parseList(goal.recommendations, parseGoalRecommendation, 'goal recommendations'),
+    topics: parseList(goal.topics, (entry) => {
+      const topic = object(entry, 'goal topic');
+      if (typeof topic.userSet !== 'boolean') throw new Error('Malformed goal topic owner');
+      return {
+        topic: text(topic.topic, 'goal topic'),
+        level: oneOf(topic.level, TOPIC_LEVELS, 'goal topic level'),
+        evidence: parseList(topic.evidence, (value) => text(value, 'goal topic evidence'), 'goal topic evidence'),
+        userSet: topic.userSet,
+      };
+    }, 'goal topics'),
     createdAt: text(goal.createdAt, 'goal created'),
     updatedAt: text(goal.updatedAt, 'goal updated'),
   };
 }
 
 export type GoalProposalDto = { title: string; objective: string; successDefinition: string; startingKnowledge: string; constraints: string };
+
+export const TOPIC_LEVELS = ['NEW', 'LEARNING', 'PRACTICED', 'STRONG'] as const;
+export type TopicLevel = typeof TOPIC_LEVELS[number];
+/** What the user knows about one topic; a level they set is theirs, and the agent leaves it alone. */
+export type GoalTopicDto = { topic: string; level: TopicLevel; evidence: string[]; userSet: boolean };
 
 /** A course the agent proposes: parts of ordered lessons, each naming what the user can do afterward. */
 export type GoalCourseDraftDto = { parts: { title: string; lessons: { title: string; outcome: string }[] }[] };

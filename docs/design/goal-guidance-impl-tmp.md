@@ -1,8 +1,7 @@
 # Agent guided goals implementation plan
 
-Status: Work-item foundation, the Goal conversation, recommendation cards,
-research runs, courses and lessons implemented. Work handoff and the learner
-profile remain planned. The [Goal guidance design](goal-guidance.md) owns the product and
+Status: The first implementation slice is complete. The later items of Steps 3
+to 6 below remain as listed. The [Goal guidance design](goal-guidance.md) owns the product and
 behavior contract; this checklist records delivery order, concrete actions and
 proof required.
 
@@ -83,12 +82,14 @@ exercise and check; questions asked there carry the lesson, and Mark lesson done
 accepts its work item. Lesson cards open the lesson. Stale lessons and course
 changes remain open.
 
-Item 5 is in progress: a Practice card names an open issue the workspace holds,
+Item 5 is implemented: a Practice card names an open issue the workspace holds,
 and Start opens that issue's composer with the prepared instruction; the task
 starts only when the user sends it. A completed turn of a Goal's task leaves a
-receipt in its work item's history, once per turn, and tells the agent. The
-learner profile from private cards remains; receipts for turns that ended while
-ByteQuay was stopped are not recovered yet.
+receipt in its work item's history, once per turn, and tells the agent. Each
+request carries the user's newest private-card questions and the topic levels;
+a question cited as evidence changes a level, and the levels steer the next
+recommendation. Receipts for turns that ended while ByteQuay was stopped are not
+recovered yet, and a model run against real data is still to be done.
 The following steps retain the full identity, source, recovery and verification
 requirements.
 

@@ -47,7 +47,7 @@ function Fixture(): React.JSX.Element {
   const [lesson, setLesson] = useState<string | null>(null);
   const [exchanges, setExchanges] = useState<GoalExchangeDto[]>([]);
   const goal: GoalDto = { id: 'goal', workspaceId: 'workspace', title: 'Iceberg connector expert', description: '', pinned: true, source: null, definition: null,
-    revision: 1, course: { exchangeId: 'op-0', parts: [{ title: 'Iceberg tables', lessons: ['lesson-1'] }], acceptedAt: NOW }, items: [item], recommendations: [],
+    revision: 1, course: { exchangeId: 'op-0', parts: [{ title: 'Iceberg tables', lessons: ['lesson-1'] }], acceptedAt: NOW }, items: [item], recommendations: [], topics: [],
     createdAt: NOW, updatedAt: NOW };
   // The app keeps these the same across renders, so an open lesson is not opened again.
   const lessons = useMemo<Pick<GoalConversation, 'openLesson' | 'readLesson' | 'finishLesson'>>(() => ({
@@ -58,7 +58,7 @@ function Fixture(): React.JSX.Element {
   }), []);
   const conversation: GoalConversation = {
     ...lessons,
-    exchanges, notes: [], error: null, retry: async () => {}, accept: async () => {}, acceptCourse: async () => {},
+    exchanges, notes: [], error: null, retry: async () => {}, accept: async () => {}, acceptCourse: async () => {}, correctTopic: async () => {},
     ask: async (operationId, message, lessonId) => {
       server.asked.push(lessonId);
       setExchanges([{ id: operationId, goalId: 'goal', message, automatic: false, lessonId: lessonId ?? null, inputRevision: 1, state: 'ANSWERED', failure: null,

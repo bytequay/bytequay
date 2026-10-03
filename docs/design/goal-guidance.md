@@ -1,8 +1,10 @@
 # Agent guided goals
 
-Status: Work-item foundation, the Goal conversation, recommendation cards,
-research runs, courses and lessons implemented; work handoff and the learner
-profile remain planned. This document specifies the Goal conversation, research, courses,
+Status: The first slice is implemented: work items, the Goal conversation,
+recommendation cards, research runs, courses and lessons, practice cards that
+open a prepared composer, task receipts and the learner profile. Discovery
+beyond the workspace's open issues, spec-check cards and the later steps of the
+plan remain. This document specifies the Goal conversation, research, courses,
 discovery, guidance and durable progress panel, and three takeaways from the
 Plane comparison. The [implementation plan](goal-guidance-impl-tmp.md) lists
 actionable changes and acceptance checks.
@@ -103,6 +105,14 @@ work item, its final answer is recorded once in the item's history as a receipt,
 keyed by the turn, and the Goal's agent is told, so it can recommend what comes
 next. Development's own automatic turns and noninteractive runs are not recorded,
 and the item's state stays the user's decision.
+
+Each request also carries the user's twenty newest questions from their private
+cards in every workspace (passage and comment discussions, local review
+comments and review questions, without ByteQuay's own summary requests) and the
+Goal's topic levels. The agent may change a topic's level, New, Learning,
+Practiced or Strong, citing the questions, lessons or work items it rests on;
+ByteQuay keeps only evidence that exists and never changes a level the user set.
+The Guide view lists what the user knows, and the user can correct any level.
 
 A new explicit same-source attempt without deleting the prior task, proposal
 acceptance into other work items, spec-check cards, Jira practice cards, course changes,

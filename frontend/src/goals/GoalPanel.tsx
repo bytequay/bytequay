@@ -19,13 +19,14 @@ import { GoalIcon, SourceIcon } from '../cards/Card';
 import MarkdownBody from '../pulls/MarkdownBody';
 import { relativeTime } from '../relativeTime';
 import type {
-  GoalCourseDraftDto, GoalDto, GoalItemDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalProposalDto, WorkItemDto, WorkItemDecision, CreateWorkItem, CompletionRule, WorkItemKind,
+  GoalCourseDraftDto, GoalDto, GoalItemDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalProposalDto, GoalTopicDto, TopicLevel, WorkItemDto, WorkItemDecision, CreateWorkItem, CompletionRule, WorkItemKind,
 } from './contracts';
 import {
   GOAL_SOURCES, STATE_GROUPS, addable, goalDirections, itemsIn, openCourse, openProposal, progressWidths, recentActivity, refKey, ringDash, sourceUrl, summarize, itemNeedsYou,
   type GoalTab,
 } from './model';
 import type { GoalConversation } from './useGoals';
+import { TOPIC_LEVELS } from './contracts';
 
 /** How much of a goal is finished, as a ring. */
 export function GoalRing({ goal, size = 20 }: { goal: GoalDto | null; size?: number }): React.JSX.Element {
@@ -185,6 +186,7 @@ function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLess
         {card.taskId !== null && <button type="button" className="goal-link" onClick={() => onOpenTask(card.taskId)}>Open run</button>}
       </div>)}
       {conversation.notes.length > 0 && <Notes notes={conversation.notes} />}
+      {goal !== null && goal.topics.length > 0 && <Known topics={goal.topics} onCorrect={conversation.correctTopic} />}
       {open !== null && <Proposal key={open.exchangeId} proposal={open.proposal} onAccept={(title) => conversation.accept(open.exchangeId, title)} />}
       {course !== null && <CourseProposal key={course.exchangeId} course={course.course} onAccept={() => conversation.acceptCourse(course.exchangeId)} />}
       {(error ?? conversation.error) !== null && <p className="goal-guide__error" role="alert">{error ?? conversation.error}</p>}
@@ -295,6 +297,29 @@ function Course({ goal, onLesson }: { goal: GoalDto; onLesson: (lessonId: string
     </section>
   );
 }
+
+/** What the agent believes the user knows, topic by topic; the user's own level wins and the agent leaves it alone. */
+function Known({ topics, onCorrect }: { topics: GoalTopicDto[]; onCorrect: (topic: string, level: TopicLevel) => Promise<unknown> }): React.JSX.Element {
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <section className="goal-known" aria-label="What you know">
+      <div className="goal-group">What you know</div>
+      {topics.map((topic) => <label key={topic.topic} className="goal-known__row" title={topic.evidence.join(', ')}>
+        <span className="goal-known__topic">{topic.topic}</span>
+        <select value={topic.level} aria-label={`Your level in ${topic.topic}`} onChange={(event) => {
+          setError(null);
+          void onCorrect(topic.topic, event.target.value as TopicLevel).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The level was not saved'));
+        }}>
+          {TOPIC_LEVELS.map((level) => <option key={level} value={level}>{LEVEL_NAMES[level]}</option>)}
+        </select>
+        {topic.userSet && <span className="goal-muted">set by you</span>}
+      </label>)}
+      {error !== null && <p className="goal-guide__error" role="alert">{error}</p>}
+    </section>
+  );
+}
+
+const LEVEL_NAMES: Record<TopicLevel, string> = { NEW: 'New', LEARNING: 'Learning', PRACTICED: 'Practiced', STRONG: 'Strong' };
 
 /** What the goal's research saved, each note with the pages and files it rests on. */
 function Notes({ notes }: { notes: GoalKnowledgeNoteDto[] }): React.JSX.Element {

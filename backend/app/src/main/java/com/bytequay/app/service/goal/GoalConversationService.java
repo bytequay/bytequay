@@ -20,9 +20,11 @@ import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalExchange;
 import com.bytequay.core.domain.GoalRecommendation;
+import com.bytequay.core.domain.GoalTopic;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.store.GoalExchangeStore;
 import com.bytequay.core.store.GoalRecommendationStore;
+import com.bytequay.core.store.GoalTopicStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -38,6 +40,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -46,6 +49,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -69,6 +73,8 @@ public class GoalConversationService
     private final WorkspaceStore workspaces;
     private final RepositoryIssueStore issues;
     private final ObjectProvider<GoalResearchService> research;
+    private final GoalQuestions questions;
+    private final GoalTopicStore topics;
     private final ModelSettingsService models;
     private final GoalPlanner planner;
     private final Clock clock;
@@ -79,16 +85,16 @@ public class GoalConversationService
 
     @Autowired
     public GoalConversationService(GoalService goals, WorkItemService work, GoalExchangeStore exchanges, GoalRecommendationStore recommendations,
-            WorkspaceStore workspaces, RepositoryIssueStore issues, ObjectProvider<GoalResearchService> research, ModelSettingsService models, GoalPlanner planner,
-            Clock clock)
+            WorkspaceStore workspaces, RepositoryIssueStore issues, ObjectProvider<GoalResearchService> research, GoalQuestions questions, GoalTopicStore topics,
+            ModelSettingsService models, GoalPlanner planner, Clock clock)
     {
-        this(goals, work, exchanges, recommendations, workspaces, issues, research, models, planner, clock,
+        this(goals, work, exchanges, recommendations, workspaces, issues, research, questions, topics, models, planner, clock,
                 Executors.newFixedThreadPool(2, Thread.ofVirtual().name("goal-agent-", 0).factory()));
     }
 
     GoalConversationService(GoalService goals, WorkItemService work, GoalExchangeStore exchanges, GoalRecommendationStore recommendations,
-            WorkspaceStore workspaces, RepositoryIssueStore issues, ObjectProvider<GoalResearchService> research, ModelSettingsService models, GoalPlanner planner,
-            Clock clock, Executor executor)
+            WorkspaceStore workspaces, RepositoryIssueStore issues, ObjectProvider<GoalResearchService> research, GoalQuestions questions, GoalTopicStore topics,
+            ModelSettingsService models, GoalPlanner planner, Clock clock, Executor executor)
     {
         this.goals = requireNonNull(goals, "goals is null");
         this.work = requireNonNull(work, "work is null");
@@ -97,6 +103,8 @@ public class GoalConversationService
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.issues = requireNonNull(issues, "issues is null");
         this.research = requireNonNull(research, "research is null");
+        this.questions = requireNonNull(questions, "questions is null");
+        this.topics = requireNonNull(topics, "topics is null");
         this.models = requireNonNull(models, "models is null");
         this.planner = requireNonNull(planner, "planner is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -319,8 +327,48 @@ public class GoalConversationService
                 if (card.isPresent() && read.flatMap(GoalView::definition).isPresent()) {
                     recommend(read.orElseThrow(), settled, card.orElseThrow());
                 }
+                if (read.isPresent()) {
+                    learn(read.orElseThrow(), settled.reply().map(GoalExchange.Reply::topics).orElse(ImmutableList.of()));
+                }
             }
         }
+    }
+
+    /**
+     * Saves the levels the agent changed, each with the evidence it cited that exists: one of the user's recent questions, or one of the
+     * goal's lessons or work items. A level the user set stays theirs.
+     */
+    private void learn(GoalView goal, List<GoalTopic.Change> changes)
+    {
+        if (changes.isEmpty()) {
+            return;
+        }
+        Set<String> known = new HashSet<>();
+        questions.recent(GoalPlanner.MAX_QUESTIONS).forEach(question -> known.add(question.id()));
+        goal.items().forEach(item -> {
+            known.add("lesson:" + item.id());
+            known.add("work:" + item.id());
+        });
+        for (GoalTopic.Change change : changes) {
+            List<String> evidence = change.evidence().stream().filter(known::contains).collect(toImmutableList());
+            String id = GoalTopic.id(goal.id(), change.topic());
+            if (evidence.isEmpty() || topics.find(id).filter(GoalTopic::userSet).isPresent()) {
+                continue;
+            }
+            topics.save(new GoalTopic(id, goal.id(), goal.workspaceId(), change.topic().strip(), change.level(), evidence, false, clock.instant()));
+        }
+    }
+
+    /** The user's own assessment of a topic, which the agent leaves alone from then on. */
+    public GoalView correctTopic(String workspaceId, String goalId, String topic, GoalTopic.Level level)
+    {
+        synchronized (writes) {
+            GoalView goal = goal(workspaceId, goalId);
+            String id = GoalTopic.id(goalId, checkText(topic, "topic", 120));
+            List<String> evidence = topics.find(id).map(GoalTopic::evidence).orElse(ImmutableList.of());
+            topics.save(new GoalTopic(id, goalId, goal.workspaceId(), topic.strip(), level, evidence, true, clock.instant()));
+        }
+        return goal(workspaceId, goalId);
     }
 
     /**

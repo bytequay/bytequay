@@ -20,10 +20,12 @@ import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalExchange;
 import com.bytequay.core.domain.GoalRecommendation;
+import com.bytequay.core.domain.GoalTopic;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.GoalExchangeStore;
+import com.bytequay.core.store.GoalTopicStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -63,18 +65,19 @@ class TestGoalConversationService
 {
     private static final GoalExchange.Reply QUESTION = new GoalExchange.Reply("You want to explain reads.",
             Optional.of(new GoalExchange.Question("Do you know the Iceberg specification?", ImmutableList.of("Yes", "Not yet"))), Optional.empty(), Optional.empty(),
-            Optional.empty());
+            Optional.empty(), ImmutableList.of());
     private static final GoalExchange.Reply RESEARCH = new GoalExchange.Reply("Read the specification before the connector.", Optional.empty(), Optional.empty(),
             Optional.of(new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH, "Read the Iceberg specification", "You start from the specification",
-                    "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty())), Optional.empty());
+                    "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty())), Optional.empty(), ImmutableList.of());
     private static final GoalExchange.Reply PROPOSAL = new GoalExchange.Reply("I understand the goal.", Optional.empty(),
             Optional.of(new GoalExchange.Proposal("Iceberg reads", "Explain how reads plan files", "Trace a scan end to end", "Knows the specification", "Five hours a week")),
-            Optional.empty(), Optional.empty());
+            Optional.empty(), Optional.empty(), ImmutableList.of());
     private static final GoalExchange.Reply COURSE = new GoalExchange.Reply("Here is a course from the notes.", Optional.empty(), Optional.empty(), Optional.empty(),
             Optional.of(new GoalCourse.Draft(ImmutableList.of(
                     new GoalCourse.DraftPart("Iceberg tables", ImmutableList.of(new GoalCourse.DraftLesson("What a table is", "Explain metadata, snapshots and manifests"),
                             new GoalCourse.DraftLesson("Follow a snapshot", "Trace a snapshot to its data files"))),
-                    new GoalCourse.DraftPart("The Trino connector", ImmutableList.of(new GoalCourse.DraftLesson("Plan a scan", "Explain how splits are planned")))))));
+                    new GoalCourse.DraftPart("The Trino connector", ImmutableList.of(new GoalCourse.DraftLesson("Plan a scan", "Explain how splits are planned")))))),
+            ImmutableList.of());
 
     private final InMemoryGoalStore goalStore = new InMemoryGoalStore();
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
@@ -83,14 +86,17 @@ class TestGoalConversationService
     private final RepositoryIssueStore issues = mock(RepositoryIssueStore.class);
     private final GoalResearchService research = mock(GoalResearchService.class);
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
-    private final GoalService goals = new GoalServiceImpl(goalStore, workspaces, work, mock(GoalReferenceReader.class), cards, Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
+    private final Topics topics = new Topics();
+    private final GoalQuestions questions = mock(GoalQuestions.class);
+    private final GoalService goals = new GoalServiceImpl(goalStore, workspaces, work, mock(GoalReferenceReader.class), cards, topics,
+            Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
     private final Exchanges exchanges = new Exchanges();
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final GoalPlanner planner = mock(GoalPlanner.class);
     private final List<Runnable> queued = new ArrayList<>();
     private final Clock clock = Clock.fixed(Instant.parse("2026-10-03T10:00:00Z"), ZoneOffset.UTC);
     private final GoalConversationService service = new GoalConversationService(goals, work, exchanges, cards, workspaces, issues,
-            beans.getBeanProvider(GoalResearchService.class), models, planner, clock, queued::add);
+            beans.getBeanProvider(GoalResearchService.class), questions, topics, models, planner, clock, queued::add);
 
     @BeforeEach
     void setUp()
@@ -271,7 +277,7 @@ class TestGoalConversationService
         service.accept("workspace", goal.id(), "op-1", Optional.empty());
         GoalExchange.Reply unknown = new GoalExchange.Reply("Take the next lesson.", Optional.empty(), Optional.empty(), Optional.of(new GoalRecommendation.Card(
                 GoalRecommendation.Kind.LESSON, "What a table is", "You are ready", "Table metadata", ImmutableList.of(), Optional.of("not-a-lesson"), Optional.empty())),
-                Optional.empty());
+                Optional.empty(), ImmutableList.of());
         doReturn(unknown).when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
         assertThat(cards.list(goal.id())).as("a card for a lesson outside the course is dropped").isEmpty();
@@ -302,6 +308,31 @@ class TestGoalConversationService
         assertThat(started.taskId()).as("the task starts only when the user sends the composer").isEmpty();
         assertThat(service.startCard("workspace", goal.id(), card.id())).isEqualTo(started);
         verifyNoInteractions(research);
+    }
+
+    @Test
+    void aPrivateQuestionChangesATopicLevelUnlessTheUserSetIt()
+    {
+        GoalView goal = goals.create("workspace", "Iceberg", "");
+        when(questions.recent(GoalPlanner.MAX_QUESTIONS)).thenReturn(ImmutableList.of(new GoalQuestions.Question("discussion:q-1", "What is a manifest list?",
+                "Task Fix scan planning", Instant.EPOCH)));
+        service.ask("workspace", goal.id(), "op-1", "What next?");
+        doReturn(levels(new GoalTopic.Change("Manifests", GoalTopic.Level.NEW, ImmutableList.of("discussion:q-1", "discussion:invented")),
+                new GoalTopic.Change("Snapshots", GoalTopic.Level.STRONG, ImmutableList.of("discussion:invented")))).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        assertThat(goals.list("workspace").getFirst().topics()).singleElement().satisfies(topic -> {
+            assertThat(topic.topic()).isEqualTo("Manifests");
+            assertThat(topic.level()).isEqualTo(GoalTopic.Level.NEW);
+            assertThat(topic.evidence()).as("only evidence that exists is kept").containsExactly("discussion:q-1");
+            assertThat(topic.userSet()).isFalse();
+        });
+
+        assertThat(service.correctTopic("workspace", goal.id(), "Manifests", GoalTopic.Level.LEARNING).topics())
+                .singleElement().satisfies(topic -> assertThat(topic.userSet()).isTrue());
+        service.ask("workspace", goal.id(), "op-2", "And now?");
+        doReturn(levels(new GoalTopic.Change("manifests", GoalTopic.Level.STRONG, ImmutableList.of("discussion:q-1")))).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        assertThat(goals.list("workspace").getFirst().topics()).singleElement().satisfies(topic -> assertThat(topic.level()).isEqualTo(GoalTopic.Level.LEARNING));
     }
 
     @Test
@@ -354,7 +385,36 @@ class TestGoalConversationService
     {
         return new GoalExchange.Reply("Practice on a real gap.", Optional.empty(), Optional.empty(), Optional.of(new GoalRecommendation.Card(GoalRecommendation.Kind.WORK,
                 "Fix #" + issue, "You learned checkpoints", "Key add and remove actions by path and deletion vector.", ImmutableList.of(), Optional.empty(),
-                Optional.of(issue))), Optional.empty());
+                Optional.of(issue))), Optional.empty(), ImmutableList.of());
+    }
+
+    private static GoalExchange.Reply levels(GoalTopic.Change... changes)
+    {
+        return new GoalExchange.Reply("You asked about manifests.", Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.copyOf(changes));
+    }
+
+    private static final class Topics
+            implements GoalTopicStore
+    {
+        private final Map<String, GoalTopic> topics = new LinkedHashMap<>();
+
+        @Override
+        public Optional<GoalTopic> find(String topicId)
+        {
+            return Optional.ofNullable(topics.get(topicId));
+        }
+
+        @Override
+        public List<GoalTopic> list(String goalId)
+        {
+            return topics.values().stream().filter(topic -> topic.goalId().equals(goalId)).collect(toImmutableList());
+        }
+
+        @Override
+        public void save(GoalTopic topic)
+        {
+            topics.put(topic.id(), topic);
+        }
     }
 
     private static final class Exchanges

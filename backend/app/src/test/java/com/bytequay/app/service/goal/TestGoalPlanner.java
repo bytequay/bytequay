@@ -23,6 +23,7 @@ import com.bytequay.core.domain.GoalExchange;
 import com.bytequay.core.domain.GoalKnowledgeNote;
 import com.bytequay.core.domain.GoalLesson;
 import com.bytequay.core.domain.GoalRecommendation;
+import com.bytequay.core.domain.GoalTopic;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssuePage;
@@ -30,6 +31,7 @@ import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.GoalKnowledgeNoteStore;
 import com.bytequay.core.store.GoalLessonStore;
+import com.bytequay.core.store.GoalTopicStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -92,6 +94,13 @@ class TestGoalPlanner
                 "scope": "s", "pages": [], "workItemId": null, "issue": null}}"""))
                 .hasMessageContaining("a work card names its issue");
         assertThat(GoalPlanner.parse("""
+                {"assessment": "Manifests are new to you.", "question": null, "proposal": null, "course": null, "recommendation": null,
+                "topics": [{"topic": "Manifests", "level": "NEW", "evidence": ["discussion:q-1"]}]}""").topics())
+                .containsExactly(new GoalTopic.Change("Manifests", GoalTopic.Level.NEW, ImmutableList.of("discussion:q-1")));
+        assertThatThrownBy(() -> GoalPlanner.parse("""
+                {"assessment": "x", "question": null, "proposal": null, "course": null, "recommendation": null,
+                "topics": [{"topic": "Manifests", "level": "EXPERT", "evidence": ["discussion:q-1"]}]}""")).isInstanceOf(AgentUnavailableException.class);
+        assertThat(GoalPlanner.parse("""
                 {"assessment": "A course from the notes.", "question": null, "proposal": null, "recommendation": null, "course": {"parts": [
                 {"title": "Iceberg tables", "lessons": [{"title": "What a table is", "outcome": "Explain metadata, snapshots and manifests"}]}]}}""").course())
                 .hasValueSatisfying(course -> assertThat(course.parts().getFirst().lessons().getFirst().outcome()).isEqualTo("Explain metadata, snapshots and manifests"));
@@ -137,16 +146,23 @@ class TestGoalPlanner
         GoalLessonStore lessons = mock(GoalLessonStore.class);
         when(lessons.find("lesson-1")).thenReturn(Optional.of(GoalLesson.writing("lesson-1", "goal-1", "workspace", NOW).written("codex/gpt",
                 new GoalLesson.Content("A table is a tree of metadata.", "Read TableMetadata.", "Snapshots are listed.", "What does a snapshot point to?"), NOW)));
-        GoalPlanner planner = new GoalPlanner(mock(AgentDriverRegistry.class), mock(TextOnlyHelper.class), workspaces, relationships, notes, lessons, issues);
+        GoalQuestions questions = mock(GoalQuestions.class);
+        when(questions.recent(GoalPlanner.MAX_QUESTIONS)).thenReturn(ImmutableList.of(new GoalQuestions.Question("discussion:q-1", "What is a manifest list?",
+                "Task Fix scan planning", NOW)));
+        GoalTopicStore topics = mock(GoalTopicStore.class);
+        when(topics.list("goal-1")).thenReturn(ImmutableList.of(new GoalTopic("goal-1:manifests", "goal-1", "workspace", "Manifests", GoalTopic.Level.NEW,
+                ImmutableList.of("discussion:q-1"), true, NOW)));
+        GoalPlanner planner = new GoalPlanner(mock(AgentDriverRegistry.class), mock(TextOnlyHelper.class), workspaces, relationships, notes, lessons, issues, questions,
+                topics);
 
         GoalView goal = new GoalView("goal-1", "workspace", "Iceberg connector expert", "", true, Optional.empty(),
                 Optional.of(new GoalDefinition("Explain a scan", "Knows the specification", "Five hours a week", "op-0", NOW)), 1,
                 Optional.of(new GoalCourse("op-5", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1"))), NOW)),
                 ImmutableList.of(new WorkItemView("lesson-1", "workspace", Optional.of("goal-1"), "What a table is", WorkItem.Kind.LEARN, "Explain metadata",
                         WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.DONE, 2, ImmutableList.of(), ImmutableList.of(), NOW, NOW)),
-                ImmutableList.of(new GoalRecommendation("card-1", "goal-1", "workspace", CARD, GoalRecommendation.State.SHOWN, Optional.empty(), "op-0", NOW, NOW)), NOW, NOW);
+                ImmutableList.of(new GoalRecommendation("card-1", "goal-1", "workspace", CARD, GoalRecommendation.State.SHOWN, Optional.empty(), "op-0", NOW, NOW)), ImmutableList.of(), NOW, NOW);
         GoalExchange.Reply reply = new GoalExchange.Reply("You want reads first.", Optional.of(new GoalExchange.Question("Which area?", ImmutableList.of())), Optional.empty(),
-                Optional.empty(), Optional.empty());
+                Optional.empty(), Optional.empty(), ImmutableList.of());
         ImmutableList<GoalExchange> earlier = IntStream.range(0, GoalPlanner.MAX_EARLIER + 2)
                 .mapToObj(index -> GoalExchange.ask("op-" + index, "goal-1", "workspace", "Message " + index, 0, NOW.plusSeconds(index)).answered("codex/gpt", reply, NOW))
                 .collect(toImmutableList());
@@ -165,7 +181,8 @@ class TestGoalPlanner
                 .contains("\"title\" : \"Read the Iceberg specification\"", "\"state\" : \"SHOWN\"")
                 .contains("\"knowledgeNotes\" : [ \"Manifest lists\" ]")
                 .contains("\"part\" : \"Iceberg tables\"", "\"state\" : \"DONE\"")
-                .contains("\"number\" : 31252", "\"labels\" : [ \"delta-lake\" ]");
+                .contains("\"number\" : 31252", "\"labels\" : [ \"delta-lake\" ]")
+                .contains("\"id\" : \"discussion:q-1\"", "\"text\" : \"What is a manifest list?\"", "\"setByUser\" : true");
         assertThat(planner.prompt(goal, earlier, GoalExchange.told("research:task", "goal-1", "workspace", "The research run saved 1 note: Manifest lists.", 1, NOW)))
                 .contains("\"event\" : \"The research run saved 1 note: Manifest lists.\"");
         assertThat(planner.prompt(goal, earlier, GoalExchange.ask("op-lesson", "goal-1", "workspace", "Why a tree?", 1, NOW).about(Optional.of("lesson-1"))))

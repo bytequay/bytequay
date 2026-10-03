@@ -17,6 +17,7 @@ import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.GoalSource;
+import com.bytequay.core.domain.GoalTopic;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
@@ -30,6 +31,7 @@ import static java.util.Objects.requireNonNull;
  *
  * @param course the learning path the user accepted
  * @param recommendations the cards still shown or running, newest first
+ * @param topics what the user knows, topic by topic
  */
 public record GoalView(
         String id,
@@ -43,6 +45,7 @@ public record GoalView(
         Optional<GoalCourse> course,
         List<WorkItemView> items,
         List<GoalRecommendation> recommendations,
+        List<GoalTopic> topics,
         Instant createdAt,
         Instant updatedAt)
 {
@@ -57,6 +60,7 @@ public record GoalView(
         requireNonNull(course, "course is null");
         items = ImmutableList.copyOf(items);
         recommendations = ImmutableList.copyOf(recommendations);
+        topics = ImmutableList.copyOf(topics);
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
     }

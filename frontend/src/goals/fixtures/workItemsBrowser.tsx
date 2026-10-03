@@ -39,10 +39,10 @@ async function decisionsSurviveFailure(): Promise<void> {
   function Fixture(): React.JSX.Element {
     const [item, setItem] = useState(initial);
     const goal: GoalDto = { id: 'goal', workspaceId: 'workspace', title: 'First contribution', description: '', pinned: true, source: null,
-      definition: null, revision: 0, course: null, items: item.goalId === 'goal' ? [item] : [], recommendations: [], createdAt: now, updatedAt: now };
+      definition: null, revision: 0, course: null, items: item.goalId === 'goal' ? [item] : [], recommendations: [], topics: [], createdAt: now, updatedAt: now };
     return <GoalPanel mode="window" view="work" onView={() => {}} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
       conversation={{ exchanges: [], notes: [], error: null, ask: async () => {}, retry: async () => {}, accept: async () => {}, acceptCourse: async () => {},
-        openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {} }}
+        openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {} }}
       repository="org/repo" goal={goal} goals={[goal]} workItems={[item]} needsYou={new Set()}
       onClose={() => {}} onSwitch={() => {}} onCreate={async () => {}} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
       search={async () => []} onCreateWork={async () => item} onLink={async () => item}

@@ -40,7 +40,7 @@ const ITEMS: GoalItemDto[] = [
 ];
 const GOAL: GoalDto = {
   id: 'goal-1', workspaceId: 'workspace-1', title: 'Iceberg & Delta Lake correctness for 482', description: 'Land the fixes before 482.', pinned: true,
-  source: null, definition: null, revision: 0, course: null, recommendations: [], items: ITEMS.map((link, index): WorkItemDto => ({
+  source: null, definition: null, revision: 0, course: null, recommendations: [], topics: [], items: ITEMS.map((link, index): WorkItemDto => ({
     id: `work-${index}`, workspaceId: 'workspace-1', goalId: 'goal-1', title: link.title, kind: 'DEVELOP', acceptanceCriteria: 'Verified fix',
     completionRule: 'MERGED_DELIVERY', state: index === 1 ? 'DONE' : index === 2 ? 'PLANNED' : 'WORKING', revision: 0, links: [link],
     history: link.activity === null ? [] : [{ operationId: `op-${index}`, action: 'ACCEPT', detail: link.activity.text, at: link.activity.at }],
@@ -104,7 +104,8 @@ describe('goal model', () => {
 });
 
 const NO_CONVERSATION: GoalConversation = { exchanges: [], notes: [], error: null, ask: async () => {}, retry: async () => {}, accept: async () => {},
-  acceptCourse: async () => {}, openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {} };
+  acceptCourse: async () => {}, openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {},
+  correctTopic: async () => {} };
 
 function panel(props: Partial<GoalPanelProps>): string {
   return renderToStaticMarkup(
@@ -225,6 +226,18 @@ describe('goal guidance', () => {
     expect(parseGoalRecommendation({ ...CARD, card: { ...CARD.card, kind: 'LESSON', workItemId: 'work-0' } }).card.workItemId).toBe('work-0');
     expect(parseGoalRecommendation({ ...CARD, card: { ...CARD.card, kind: 'WORK', issue: 31252 } }).card.issue).toBe(31252);
     expect(parseGoalRecommendation({ ...CARD, card: { ...CARD.card, kind: 'WORK', issue: '31252' } }).card.issue).toBeNull();
+  });
+
+  it('shows what the user knows with a level they can correct', () => {
+    const known = { ...GOAL, topics: [{ topic: 'Manifests', level: 'LEARNING' as const, evidence: ['discussion:q-1'], userSet: false },
+      { topic: 'Snapshots', level: 'STRONG' as const, evidence: [] as string[], userSet: true }] };
+    expect(parseGoal(JSON.parse(JSON.stringify(known))).topics).toEqual(known.topics);
+    expect(() => parseGoal({ ...known, topics: [{ ...known.topics[0], level: 'EXPERT' }] })).toThrow('Malformed goal topic level');
+    const markup = panel({ view: 'guide', goal: known });
+    expect(markup).toContain('What you know');
+    expect(markup).toContain('aria-label="Your level in Manifests"');
+    expect(markup).toMatch(/<option value="LEARNING" selected="">Learning<\/option>/);
+    expect(markup).toContain('set by you');
   });
 
   it('offers directions from the repository and only the newest unaccepted proposal', () => {

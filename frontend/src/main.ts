@@ -1876,6 +1876,8 @@ function registerIpc(): void {
     backendJson(lessonUrl(workspaceId, goalId, lessonId)).then(parseGoalLesson));
   ipcMain.handle('goals:lessons:done', (_event, workspaceId: string, goalId: string, lessonId: string, operationId: string) =>
     backendJson(lessonUrl(workspaceId, goalId, lessonId, '/done'), jsonInit('POST', { operationId })).then(parseGoal));
+  ipcMain.handle('goals:topics', (_event, workspaceId: string, goalId: string, topic: string, level: string) =>
+    backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/topics`), jsonInit('PUT', { topic, level })).then(parseGoal));
   ipcMain.handle('goals:knowledge', (_event, workspaceId: string, goalId: string) =>
     backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/knowledge`)).then(notes => parseList(notes, parseGoalKnowledgeNote, 'goal notes')));
   ipcMain.handle('workspaces:issues:refresh', (_event, workspaceId: string) =>

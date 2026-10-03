@@ -24,12 +24,14 @@ import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalKnowledgeNote;
 import com.bytequay.core.domain.GoalLesson;
 import com.bytequay.core.domain.GoalRecommendation;
+import com.bytequay.core.domain.GoalTopic;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -183,6 +185,14 @@ public class GoalController
         return lessons.finish(workspaceId, goalId, lessonId, request.operationId());
     }
 
+    /** The user's own assessment of a topic, which the agent leaves alone from then on. */
+    @PutMapping("/{goalId}/topics")
+    public GoalView correctTopic(@PathVariable String workspaceId, @PathVariable String goalId, @RequestBody TopicRequest request)
+    {
+        checkArgument(request != null && request.topic() != null && request.level() != null, "topic and level are required");
+        return conversations.correctTopic(workspaceId, goalId, request.topic(), request.level());
+    }
+
     @GetMapping("/{goalId}/knowledge")
     public List<GoalKnowledgeNote> knowledge(@PathVariable String workspaceId, @PathVariable String goalId)
     {
@@ -199,6 +209,8 @@ public class GoalController
     public record MessageRequest(String operationId, String message, String lessonId) {}
 
     public record OperationRequest(String operationId) {}
+
+    public record TopicRequest(String topic, GoalTopic.Level level) {}
 
     public record AcceptRequest(String exchangeId, String title) {}
 

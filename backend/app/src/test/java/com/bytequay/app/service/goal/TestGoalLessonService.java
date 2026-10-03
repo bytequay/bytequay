@@ -136,7 +136,7 @@ class TestGoalLessonService
                 WorkItem.CompletionRule.ACCEPTED_RESULT, state, 1, ImmutableList.of(), ImmutableList.of(), NOW, NOW);
         when(goals.list("workspace")).thenReturn(ImmutableList.of(new GoalView("goal-1", "workspace", "Iceberg", "", true, Optional.empty(), Optional.empty(), 1,
                 Optional.of(new GoalCourse("op-0", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1"))), NOW)),
-                ImmutableList.of(lesson), ImmutableList.of(), NOW, NOW)));
+                ImmutableList.of(lesson), ImmutableList.of(), ImmutableList.of(), NOW, NOW)));
     }
 
     private static final class Lessons

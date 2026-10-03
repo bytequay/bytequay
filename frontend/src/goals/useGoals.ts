@@ -16,7 +16,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getCached, setCached } from '../dataCache';
 import type { Bridge } from '../types';
 import type {
-  GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalKnowledgeNoteDto, GoalLessonDto, GoalRecommendationDto, WorkItemDto, CreateWorkItem, WorkItemDecision,
+  GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalKnowledgeNoteDto, GoalLessonDto, GoalRecommendationDto, TopicLevel, WorkItemDto, CreateWorkItem,
+  WorkItemDecision,
 } from './contracts';
 import type { GoalRef } from './model';
 
@@ -29,7 +30,8 @@ const ANSWER_POLL_MS = 1_500;
 
 export type GoalBridge = Pick<Bridge, 'listWorkItems' | 'createWorkItem' | 'decideWorkItem' | 'linkWorkItem' | 'listGoals' | 'createGoal' | 'updateGoal' | 'deleteGoal'
   | 'addGoalItem' | 'removeGoalItem' | 'searchGoalCandidates' | 'startGoal' | 'listGoalExchanges' | 'askGoal' | 'retryGoalExchange' | 'acceptGoalDefinition'
-  | 'acceptGoalCourse' | 'startGoalRecommendation' | 'dismissGoalRecommendation' | 'listGoalKnowledge' | 'openGoalLesson' | 'readGoalLesson' | 'finishGoalLesson'>;
+  | 'acceptGoalCourse' | 'startGoalRecommendation' | 'dismissGoalRecommendation' | 'listGoalKnowledge' | 'openGoalLesson' | 'readGoalLesson' | 'finishGoalLesson'
+  | 'setGoalTopic'>;
 
 export type Goals = {
   goals: GoalDto[];
@@ -67,6 +69,8 @@ export type Goals = {
   openLesson: (goalId: string, lessonId: string) => Promise<GoalLessonDto>;
   readLesson: (goalId: string, lessonId: string) => Promise<GoalLessonDto>;
   finishLesson: (goalId: string, lessonId: string, operationId: string) => Promise<GoalDto>;
+  /** The user's own assessment of a topic. */
+  setTopic: (goalId: string, topic: string, level: TopicLevel) => Promise<GoalDto>;
 };
 
 const NO_EXCHANGES: GoalExchangeDto[] = [];
@@ -85,6 +89,7 @@ export type GoalConversation = {
   openLesson: (lessonId: string) => Promise<GoalLessonDto>;
   readLesson: (lessonId: string) => Promise<GoalLessonDto>;
   finishLesson: (lessonId: string, operationId: string) => Promise<void>;
+  correctTopic: (topic: string, level: TopicLevel) => Promise<void>;
 };
 
 const windowBridge = (): GoalBridge => window.bridge;
@@ -242,6 +247,7 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
     openLesson,
     readLesson,
     finishLesson: (goalId, lessonId, operationId) => bridge().finishGoalLesson(workspaceId, goalId, lessonId, operationId).then(settle),
+    setTopic: (goalId, topic, level) => bridge().setGoalTopic(workspaceId, goalId, topic, level).then(settle),
   }), [bridge, error, exchanges, goals, knowledge, openLesson, readLesson, refresh, workItems, search, settle, settleCard, settleWork, workspaceId]);
 }
 
@@ -303,6 +309,7 @@ export function useGoalConversation(goals: Goals, goalId: string | null, shown: 
       // Finishing tells the agent, whose answer is read at once.
       finishLesson: (lessonId, operationId) => (goalId === null ? Promise.resolve()
         : goals.finishLesson(goalId, lessonId, operationId).then(() => goals.exchanges(goalId)).then(show)),
+      correctTopic: (topic, level) => (goalId === null ? Promise.resolve() : goals.setTopic(goalId, topic, level).then(() => {})),
     };
   }, [error, exchanges, goalId, goals, notes, openOne, readOne]);
 }

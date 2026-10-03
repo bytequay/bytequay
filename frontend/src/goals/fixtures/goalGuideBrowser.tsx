@@ -45,7 +45,7 @@ function answer(reply: GoalExchangeDto['reply']): void {
 const conversation: Omit<Goals, 'goals' | 'pinned'> = {
   workItems: [], error: null, create: unexpected, pin: async () => {}, remove: unexpected, add: unexpected, removeItem: unexpected, search: async () => [],
   createWork: unexpected, decideWork: unexpected, linkWork: unexpected, retry: unexpected, dismissCard: unexpected, acceptCourse: unexpected, refresh: changed,
-  openLesson: unexpected, readLesson: unexpected, finishLesson: unexpected,
+  openLesson: unexpected, readLesson: unexpected, finishLesson: unexpected, setTopic: unexpected,
   knowledge: async () => server.notes,
   startCard: async (_goalId, recommendationId) => {
     server.started.push(recommendationId);
@@ -59,7 +59,7 @@ const conversation: Omit<Goals, 'goals' | 'pinned'> = {
   start: async (operationId, message) => {
     server.asked.push(operationId);
     server.goal = { id: 'goal', workspaceId: 'workspace', title: message, description: '', pinned: true, source: null, definition: null, revision: 0,
-      course: null, items: [], recommendations: [], createdAt: NOW, updatedAt: NOW };
+      course: null, items: [], recommendations: [], topics: [], createdAt: NOW, updatedAt: NOW };
     server.exchanges = [pending(operationId, message)];
     changed();
     return server.goal;

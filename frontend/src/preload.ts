@@ -183,6 +183,7 @@ const bridge: Bridge = {
   startGoalRecommendation: (workspaceId, goalId, recommendationId) => ipcRenderer.invoke('goals:recommendations:start', workspaceId, goalId, recommendationId),
   dismissGoalRecommendation: (workspaceId, goalId, recommendationId) => ipcRenderer.invoke('goals:recommendations:dismiss', workspaceId, goalId, recommendationId),
   listGoalKnowledge: (workspaceId, goalId) => ipcRenderer.invoke('goals:knowledge', workspaceId, goalId),
+  setGoalTopic: (workspaceId, goalId, topic, level) => ipcRenderer.invoke('goals:topics', workspaceId, goalId, topic, level),
   openGoalLesson: (workspaceId, goalId, lessonId) => ipcRenderer.invoke('goals:lessons:open', workspaceId, goalId, lessonId),
   readGoalLesson: (workspaceId, goalId, lessonId) => ipcRenderer.invoke('goals:lessons:read', workspaceId, goalId, lessonId),
   finishGoalLesson: (workspaceId, goalId, lessonId, operationId) => ipcRenderer.invoke('goals:lessons:done', workspaceId, goalId, lessonId, operationId),

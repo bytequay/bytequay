@@ -28,6 +28,7 @@ import com.bytequay.core.domain.GoalKnowledgeNote;
 import com.bytequay.core.domain.GoalLesson;
 import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.GoalSource;
+import com.bytequay.core.domain.GoalTopic;
 import com.bytequay.core.domain.WorkItem;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
@@ -59,7 +61,7 @@ class TestGoalController
             Optional.of(new GoalSource(GoalItemKind.ISSUE, "trinodb/trino#31000")), Optional.empty(), 0, Optional.empty(),
             ImmutableList.of(new WorkItemView("work-1", "workspace", Optional.of("goal-1"), "Retry Iceberg commits", WorkItem.Kind.DEVELOP,
                     "", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.WORKING, 0,
-                    ImmutableList.of(MERGED), ImmutableList.of(), NOW, NOW)), ImmutableList.of(), NOW, NOW);
+                    ImmutableList.of(MERGED), ImmutableList.of(), NOW, NOW)), ImmutableList.of(), ImmutableList.of(), NOW, NOW);
 
     private final GoalService goals = mock(GoalService.class);
     private final GoalConversationService conversations = mock(GoalConversationService.class);
@@ -126,7 +128,7 @@ class TestGoalController
 
         GoalExchange answered = GoalExchange.ask("op-2", "goal-1", "workspace", "Reads first", 0, NOW).answered("codex/gpt", new GoalExchange.Reply("You want to start with reads.",
                 Optional.of(new GoalExchange.Question("Do you know the Iceberg specification?", ImmutableList.of("Yes", "Not yet"))), Optional.empty(), Optional.empty(),
-                Optional.empty()), NOW);
+                Optional.empty(), ImmutableList.of()), NOW);
         when(conversations.ask("workspace", "goal-1", "op-2", "Reads first", Optional.empty())).thenReturn(ImmutableList.of(answered));
         mvc.perform(post("/api/workspaces/workspace/goals/goal-1/exchanges").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"operationId\":\"op-2\",\"message\":\"Reads first\"}"))
@@ -201,6 +203,17 @@ class TestGoalController
         mvc.perform(post("/api/workspaces/workspace/goals/goal-1/exchanges").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"operationId\":\"op-10\",\"message\":\"Why a tree?\",\"lessonId\":\"lesson-1\"}")).andExpect(status().isOk());
         verify(conversations).ask("workspace", "goal-1", "op-10", "Why a tree?", Optional.of("lesson-1"));
+    }
+
+    @Test
+    void theUserCorrectsATopicLevel()
+            throws Exception
+    {
+        when(conversations.correctTopic("workspace", "goal-1", "Manifests", GoalTopic.Level.LEARNING)).thenReturn(GOAL);
+        mvc.perform(put("/api/workspaces/workspace/goals/goal-1/topics").contentType(MediaType.APPLICATION_JSON).content("{\"topic\":\"Manifests\",\"level\":\"LEARNING\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.topics").isArray());
+        verify(conversations).correctTopic("workspace", "goal-1", "Manifests", GoalTopic.Level.LEARNING);
     }
 
     @Test

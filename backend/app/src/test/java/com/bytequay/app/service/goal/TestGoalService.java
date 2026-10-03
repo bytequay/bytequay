@@ -19,6 +19,7 @@ import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalSource;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.GoalTopicStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,7 +44,7 @@ class TestGoalService
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final WorkItemService work = mock(WorkItemService.class);
     private final GoalService service = new GoalServiceImpl(store, workspaces, work, mock(GoalReferenceReader.class), new InMemoryGoalRecommendationStore(),
-            Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
+            mock(GoalTopicStore.class), Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
     private final GoalSource source = new GoalSource(GoalItemKind.ISSUE, "org/repo#1");
 
     @BeforeEach

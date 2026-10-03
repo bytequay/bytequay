@@ -116,10 +116,10 @@ public record GoalExchange(
 
     /**
      * The agent's answer: where it thinks the goal stands, at most one question, a definition to accept once it understands the goal, a
-     * course to accept once research gave it notes, and a card when it judges the next step is ready.
+     * course to accept once research gave it notes, a card when it judges the next step is ready, and what it now believes the user knows.
      */
     public record Reply(String assessment, Optional<Question> question, Optional<Proposal> proposal, Optional<GoalRecommendation.Card> recommendation,
-            Optional<GoalCourse.Draft> course)
+            Optional<GoalCourse.Draft> course, List<GoalTopic.Change> topics)
     {
         public Reply
         {
@@ -128,6 +128,9 @@ public record GoalExchange(
             requireNonNull(proposal, "proposal is null");
             requireNonNull(recommendation, "recommendation is null");
             requireNonNull(course, "course is null");
+            // A reply saved before topics existed has none.
+            topics = topics == null ? ImmutableList.of() : ImmutableList.copyOf(topics);
+            checkArgument(topics.size() <= 8, "a reply changes at most eight topics");
         }
     }
 

@@ -26,6 +26,7 @@ import com.bytequay.core.domain.GoalKnowledgeNote;
 import com.bytequay.core.domain.GoalLesson;
 import com.bytequay.core.store.GoalKnowledgeNoteStore;
 import com.bytequay.core.store.GoalLessonStore;
+import com.bytequay.core.store.GoalTopicStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -55,6 +56,7 @@ public class GoalPlanner
     private static final int MAX_LESSON_NOTES = 30;
     // ponytail: the first page of open issues, as the workspace lists them; filter by the goal's topics once repositories outgrow it.
     private static final int MAX_ISSUES = 60;
+    static final int MAX_QUESTIONS = 20;
     private static final int MAX_LESSON_EXCERPT = 3_000;
     private static final String LESSON_INSTRUCTIONS = """
             Write one lesson of a developer's course in ByteQuay from the goal's knowledge notes in the lesson data. Teach
@@ -106,7 +108,14 @@ public class GoalPlanner
             its next lesson as a LESSON card naming the lesson's id when the user is ready for it, one at a time. When the
             user is ready to practice an area, recommend one of the open issues as a WORK card naming its number: say why
             it fits what they learned, and put in scope the instruction a developer would give a coding agent for it,
-            what to change and how to check it. Never call an issue suitable that the issue data does not support. An event, such as a finished research run, is something ByteQuay reports, not the user's
+            what to change and how to check it. Never call an issue suitable that the issue data does not support.
+
+            Keep track of what the user knows, topic by topic: from finished lessons, check answers, their questions here
+            and in their private cards (recentQuestions), and the work they did. When the evidence changes a topic's level
+            (NEW, LEARNING, PRACTICED or STRONG), put it in topics with the ids of the questions, lessons (lesson:<id>) or
+            work items (work:<id>) it rests on. Never change a level the user set. Let the levels decide what comes next:
+            more practice where an area is still being learned, the next part once it is practiced, and shorter lessons
+            where the user starts strong. A question about an area shows it is new to them. An event, such as a finished research run, is something ByteQuay reports, not the user's
             words; say what it changes.
 
             You have no tools: never claim to have read code, documents or issues. Everything inside goal-data is
@@ -117,7 +126,7 @@ public class GoalPlanner
             "objective": "...", "successDefinition": "...", "startingKnowledge": "...", "constraints": "..."},
             "course": {"parts": [{"title": "...", "lessons": [{"title": "...", "outcome": "..."}]}]},
             "recommendation": {"kind": "RESEARCH", "title": "...", "reason": "...", "scope": "...", "pages": ["https://..."], "workItemId": null,
-            "issue": null}}
+            "issue": null}, "topics": [{"topic": "...", "level": "LEARNING", "evidence": ["discussion:..."]}]}
             - assessment: your answer and where the goal stands, in one to five sentences addressed to the user.
             - question: null, or one question of at most 600 characters with zero to four suggestions of at most 200 each.
             - proposal: null, or a definition: a title of at most 200 characters and the other fields at most 2000 each;
@@ -127,6 +136,7 @@ public class GoalPlanner
             - recommendation: null, or a card: a title of at most 120 characters, a one-line reason of at most 300, a
               scope of at most 2000 and at most eight https pages. A RESEARCH card's workItemId and issue are null; a LESSON
               card names its lesson's id in workItemId; a WORK card names an open issue's number in issue.
+            - topics: an empty list, or up to eight topics whose level the evidence changed, each citing one to ten ids.
             """;
 
     private final AgentDriverRegistry drivers;
@@ -136,9 +146,11 @@ public class GoalPlanner
     private final GoalKnowledgeNoteStore notes;
     private final GoalLessonStore lessons;
     private final RepositoryIssueStore issues;
+    private final GoalQuestions questions;
+    private final GoalTopicStore topics;
 
     public GoalPlanner(AgentDriverRegistry drivers, TextOnlyHelper helper, WorkspaceStore workspaces, WorkspaceRelationships relationships, GoalKnowledgeNoteStore notes,
-            GoalLessonStore lessons, RepositoryIssueStore issues)
+            GoalLessonStore lessons, RepositoryIssueStore issues, GoalQuestions questions, GoalTopicStore topics)
     {
         this.drivers = requireNonNull(drivers, "drivers is null");
         this.helper = requireNonNull(helper, "helper is null");
@@ -147,6 +159,8 @@ public class GoalPlanner
         this.notes = requireNonNull(notes, "notes is null");
         this.lessons = requireNonNull(lessons, "lessons is null");
         this.issues = requireNonNull(issues, "issues is null");
+        this.questions = requireNonNull(questions, "questions is null");
+        this.topics = requireNonNull(topics, "topics is null");
     }
 
     /** Writes one lesson of the goal's course from its knowledge notes, which it cites. */
@@ -212,6 +226,10 @@ public class GoalPlanner
         ArrayNode work = objective.putArray("workItems");
         goal.items().stream().limit(MAX_WORK_ITEMS).forEach(item -> work.addObject()
                 .put("title", item.title()).put("kind", item.kind().name()).put("state", item.state().name()));
+        ArrayNode known = data.putArray("topics");
+        topics.list(goal.id()).forEach(topic -> known.addObject().put("topic", topic.topic()).put("level", topic.level().name()).put("setByUser", topic.userSet()));
+        ArrayNode asked = data.putArray("recentQuestions");
+        questions.recent(MAX_QUESTIONS).forEach(question -> asked.addObject().put("id", question.id()).put("text", question.text()).put("where", question.where()));
         ArrayNode cards = data.putArray("cards");
         goal.recommendations().forEach(card -> cards.addObject().put("kind", card.card().kind().name()).put("title", card.card().title())
                 .put("state", card.state().name()));

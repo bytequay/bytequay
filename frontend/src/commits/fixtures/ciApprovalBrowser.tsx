@@ -72,8 +72,11 @@ async function scenario(parentTaskId: string | null): Promise<{ name: string; er
   flushSync(() => root.render(<ProgressView executionId="range-1" workspaceId="workspace-1" upstreamSlug={null}
     onBackToTasks={() => {}} onStartAnotherRange={() => {}} />));
   try {
+    const allowButton = (): HTMLButtonElement | null => host.querySelector<HTMLButtonElement>('button[aria-label="Allow once: CI Autofix · Allow Codex command"]');
     await settle();
-    const allow = host.querySelector<HTMLButtonElement>('button[aria-label="Allow once: CI Autofix · Allow Codex command"]');
+    // The view reads the run and then its approvals, which can take more than one frame while other browser checks run.
+    for (let frame = 0; frame < 45 && parentTaskId === null && allowButton() === null; frame++) await settle();
+    const allow = allowButton();
     if (parentTaskId !== null) {
       assert(allow === null && reads === 0, 'A development-owned CI run must stay on its source Task screen');
       return { name };

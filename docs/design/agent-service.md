@@ -580,7 +580,7 @@ protocol-stream correction below, also verified.
   process. The driver persists Codex thread and turn references and maps App
   Server JSON-RPC notifications into `ProviderAgentEvent`.
 - The compatibility spike selects Codex CLI/App Server `0.151.0` exactly as a
-  reference fixture. Production independently configures `0.156.1` as its
+  reference fixture. Production independently configures `0.159.3` as its
   minimum Codex CLI version, automatically upgrades older installations at startup to
   that exact configured release through npm, and keeps equal or newer versions.
   Readiness, catalog discovery, and task launch require the configured
@@ -588,7 +588,7 @@ protocol-stream correction below, also verified.
   version checks cannot bypass that gate. A reported mismatch includes a
   versioned installation command in its diagnostic.
   The reference fixture and its recorded
-  passes remain historical protocol evidence; they do not establish a v0.156.1
+  passes remain historical protocol evidence; they do not establish a v0.159.3
   executable compatibility pass. The detected version text is retained for
   status and incompatibility diagnostics. The product accepted the experimental
   dependency for the first task release; CP11
@@ -4060,7 +4060,7 @@ task isolation and quiescent recovery. CP4 and the later rich-task checkpoints
 are implemented, CP11 passed, and the shipped surface is ungated.
 
 That exact fixture and its projection remain reference-only. Production sets
-`bytequay.agent.codex-minimum-version=0.156.1` in
+`bytequay.agent.codex-minimum-version=0.159.3` in
 `backend/app/src/main/resources/application.properties`; future releases can
 raise the minimum by updating that property. The driver checks the configured
 Codex executable with `--version` for readiness, display, and diagnostics.
@@ -5076,7 +5076,7 @@ proved:
    surface, and passes per-turn process launch/resume, cross-task process isolation,
    approval-ceiling, sandbox, active-item closure, background-terminal, image,
    steering, and reconnect tests against the configured minimum Codex CLI,
-   currently `0.156.1`. Older installations are upgraded at startup to that exact release;
+   currently `0.159.3`. Older installations are upgraded at startup to that exact release;
    equal or newer versions pass the version gate. A version that remains below
    the minimum or cannot be read fails readiness; a protocol incompatibility
    must also report the detected running version. The reference fixture's

@@ -804,7 +804,7 @@ renderer crashes detach the native surface and expose a reload action.
   risk. ByteQuay uses its background-terminal API but not the removed
   experimental environment family. A fixed v0.151.0 reference fixture
   generates bindings with experimental definitions enabled. Production sets
-  `bytequay.agent.codex-minimum-version` to `0.156.1`. At startup it upgrades
+  `bytequay.agent.codex-minimum-version` to `0.159.3`. At startup it upgrades
   an older installed Codex CLI to that exact configured release through npm
   and keeps equal or newer versions. Readiness, catalog discovery, and task
   launch check the configured executable against the minimum, including after

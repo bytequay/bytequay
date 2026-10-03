@@ -207,7 +207,7 @@ currently marks the `app-server` command as experimental and unsupported for
 production workloads. ByteQuay accepted that dependency for the first
 release and reconfirmed it when CP11 passed. The
 fixed reference-schema fixture remains historical protocol evidence. Production
-independently configures `0.156.1` as its minimum Codex CLI version, upgrades
+independently configures `0.159.3` as its minimum Codex CLI version, upgrades
 older installations at startup to that exact configured release through npm, and keeps
 equal or newer versions. Readiness requires the configured executable to meet
 the minimum after any upgrade; failed or unreadable version checks cannot
@@ -1153,7 +1153,7 @@ unsupported, and unavailable lanes are disabled with an actionable link to
 worktree is created until a fresh backend readiness check succeeds; the
 backend repeats this gate so stale UI status cannot race task creation.
 For Codex, `unsupported` includes a required protocol or capability failure or
-a reported version below the configured minimum, currently `0.156.1`, or an
+a reported version below the configured minimum, currently `0.159.3`, or an
 unparseable reported version. The diagnostic shows the detected CLI version
 and the required minimum where relevant. Failed or empty
 version reads make the lane temporarily unavailable with the probe diagnostic.
@@ -1558,7 +1558,7 @@ complete.
 - Shipping explicitly accepts App Server's experimental maturity, maintains
   reference bindings, and passes the compatibility
   suite. Production sets a configurable minimum Codex CLI version, currently
-  `0.156.1`, upgrades older installations at startup to that exact release, and keeps equal
+  `0.159.3`, upgrades older installations at startup to that exact release, and keeps equal
   or newer versions. Readiness rejects an executable that remains below the
   minimum or whose version cannot be read. A real incompatibility fails the
   affected operation with the detected version and an actionable issue-report

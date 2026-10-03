@@ -807,21 +807,21 @@ class TestCodexCliDriver
     @Test
     void usesTheConfiguredMinimumForReadinessAndInstallation()
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.153.4");
-        CodexCliDriver driver = driver(supervisor, "0.155.2", Duration.ofSeconds(30));
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.156.1");
+        CodexCliDriver driver = driver(supervisor, "0.159.3", Duration.ofSeconds(30));
 
         AgentProviderStatus status = driver.probe();
 
         assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.UNSUPPORTED);
-        assertThat(status.version()).contains("0.153.4");
-        assertThat(driver.update()).hasValueSatisfying(output -> assertThat(output).contains("to 0.155.2"));
-        assertThat(supervisor.updateCommand).containsExactly("npm", "install", "--global", "@openai/codex@0.155.2");
+        assertThat(status.version()).contains("0.156.1");
+        assertThat(driver.update()).hasValueSatisfying(output -> assertThat(output).contains("to 0.159.3"));
+        assertThat(supervisor.updateCommand).containsExactly("npm", "install", "--global", "@openai/codex@0.159.3");
         assertThat(driver.models()).isNotEmpty();
 
-        supervisor.versionOutput("codex-cli 0.154.0");
-        assertThatThrownBy(driver::models).hasMessageContaining("minimum version 0.155.2");
+        supervisor.versionOutput("codex-cli 0.159.2");
+        assertThatThrownBy(driver::models).hasMessageContaining("minimum version 0.159.3");
         assertThatThrownBy(() -> driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
-                .hasMessageContaining("minimum version 0.155.2");
+                .hasMessageContaining("minimum version 0.159.3");
     }
 
     @Test

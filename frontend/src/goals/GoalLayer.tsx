@@ -16,10 +16,10 @@ import React, { useCallback, useContext, useEffect, useLayoutEffect, useRef, use
 import { zoomReference } from '../githubReference';
 import { LayerCovered } from '../Zoom';
 import type { GoalItemDto } from './contracts';
-import { GoalPanel, GoalRing } from './GoalPanel';
+import { GoalPanel, GoalRing, type GoalPanelView } from './GoalPanel';
 import { GoalWindow } from './GoalWindow';
 import { placePill, summarize, type PillPosition } from './model';
-import type { Goals } from './useGoals';
+import { useGoalConversation, type Goals } from './useGoals';
 import '../css/goals.css';
 
 const DRAG_THRESHOLD = 4;
@@ -93,6 +93,7 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
   const [saved, setSaved] = useState<PillPosition | null>(() => loadPosition(page));
   const [position, setPosition] = useState<PillPosition>({ right: 24, bottom: 24 });
   const [drag, setDrag] = useState<Drag | null>(null);
+  const [view, setView] = useState<GoalPanelView>('guide');
   const dragged = useRef(false);
   // The last spot a drag reached, which a release can report before the move that set it renders.
   const dropped = useRef<PillPosition | null>(null);
@@ -139,9 +140,14 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
   }, [close, covered, opened, open]);
 
   const goal = goals.pinned;
+  const conversation = useGoalConversation(goals, goal?.id ?? null, visited);
   const panel = (full: boolean, toggle: () => void, onClose: () => void) => (
     <GoalPanel
       mode={full ? 'board' : 'window'}
+      view={view}
+      onView={setView}
+      conversation={conversation}
+      onStart={(operationId, message) => goals.start(operationId, message)}
       repository={repository}
       goals={goals.goals}
       goal={goal}
@@ -222,7 +228,7 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
           </svg>
           <GoalRing goal={goal} />
           <span className="goal-pill__title">{goal === null ? 'Goal' : goal.title}</span>
-          {summary !== null && <span className="goal-mono">{summary.finished}/{summary.total}</span>}
+          {summary !== null && summary.total > 0 && <span className="goal-mono">{summary.finished}/{summary.total}</span>}
           {summary !== null && summary.needs > 0 && <span className="goal-pill__needs" title="Needs you">{summary.needs}</span>}
         </button>
         {visited && <GoalWindow anchor={pillRef} open={opened} onClose={close}>

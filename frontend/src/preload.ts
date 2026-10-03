@@ -174,6 +174,11 @@ const bridge: Bridge = {
   addGoalItem: (workspaceId, goalId, kind, key) => ipcRenderer.invoke('goals:items:add', workspaceId, goalId, kind, key),
   removeGoalItem: (workspaceId, goalId, kind, key) => ipcRenderer.invoke('goals:items:remove', workspaceId, goalId, kind, key),
   searchGoalCandidates: (workspaceId, query) => ipcRenderer.invoke('goals:candidates', workspaceId, query),
+  startGoal: (workspaceId, operationId, message) => ipcRenderer.invoke('goals:start', workspaceId, operationId, message),
+  listGoalExchanges: (workspaceId, goalId) => ipcRenderer.invoke('goals:exchanges', workspaceId, goalId),
+  askGoal: (workspaceId, goalId, operationId, message) => ipcRenderer.invoke('goals:ask', workspaceId, goalId, operationId, message),
+  retryGoalExchange: (workspaceId, goalId, exchangeId) => ipcRenderer.invoke('goals:retry', workspaceId, goalId, exchangeId),
+  acceptGoalDefinition: (workspaceId, goalId, exchangeId, title) => ipcRenderer.invoke('goals:accept', workspaceId, goalId, exchangeId, title),
   refreshWorkspaceIssues: workspaceId => ipcRenderer.invoke('workspaces:issues:refresh', workspaceId),
   fetchWorkspaceIssueDetail: (workspaceId, issueNumber) =>
     ipcRenderer.invoke('workspaces:issues:detail', workspaceId, issueNumber),

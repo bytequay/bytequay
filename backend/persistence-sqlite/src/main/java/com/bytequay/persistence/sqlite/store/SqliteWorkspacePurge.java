@@ -114,7 +114,8 @@ final class SqliteWorkspacePurge
                 ) WHERE workspace_id = :workspaceId
                 """, parameters);
         update("DELETE FROM work_item_identity WHERE work_item_id IN (SELECT id FROM work_item WHERE workspace_id = :workspaceId)", parameters);
-        for (String table : ImmutableList.of("workspace_remote_sources", "workspace_credentials", "commit_refresh_metadata", "goal", "work_item", "repository_memory")) {
+        for (String table : ImmutableList.of(
+                "workspace_remote_sources", "workspace_credentials", "commit_refresh_metadata", "goal", "goal_exchange", "work_item", "repository_memory")) {
             update("DELETE FROM " + table + " WHERE workspace_id = :workspaceId", parameters);
         }
         // Matched by prefix, not by exact key: these settings are per workspace and now also per

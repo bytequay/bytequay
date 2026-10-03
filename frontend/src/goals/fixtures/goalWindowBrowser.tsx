@@ -27,11 +27,12 @@ declare global {
 }
 
 const goal: GoalDto = { id: 'goal', workspaceId: 'workspace', title: 'Iceberg connector expertise', description: 'Learn, investigate and contribute.',
-  pinned: true, source: null, items: [], createdAt: '', updatedAt: '' };
+  pinned: true, source: null, definition: null, revision: 0, items: [], createdAt: '', updatedAt: '' };
+const unexpected = async (): Promise<never> => { throw new Error('Unexpected write'); };
 const goals: Goals = { goals: [goal], pinned: goal, workItems: [], error: null, create: async () => goal, pin: async () => {},
   remove: async () => {}, add: async () => {}, removeItem: async () => {}, search: async () => [],
-  createWork: async () => { throw new Error('Unexpected write'); }, decideWork: async () => { throw new Error('Unexpected write'); },
-  linkWork: async () => { throw new Error('Unexpected write'); } };
+  createWork: unexpected, decideWork: unexpected, linkWork: unexpected,
+  start: unexpected, exchanges: async () => [], ask: unexpected, retry: unexpected, accept: unexpected };
 
 function element<T extends HTMLElement = HTMLElement>(selector: string): T {
   const found = document.querySelector<T>(selector);
@@ -93,6 +94,8 @@ export async function run(): Promise<boolean> {
     const resized = pane.getBoundingClientRect();
     assert(resized.width > moved.width + 100 && resized.height > moved.height + 40 && !pane.hidden, 'Native grip enlarges the open window');
 
+    assert(pane.textContent?.includes('What does “Iceberg connector expertise” mean to you?') === true, 'A goal without a conversation opens on its question');
+    button('Work').click(); await settle();
     button('New work item').click(); await settle();
     changeInput(element<HTMLTextAreaElement>('.goal-work-form textarea'), 'Keep this draft'); await settle();
     const form = element('.goal-work-form');

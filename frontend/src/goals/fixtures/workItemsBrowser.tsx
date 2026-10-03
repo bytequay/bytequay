@@ -39,8 +39,10 @@ async function decisionsSurviveFailure(): Promise<void> {
   function Fixture(): React.JSX.Element {
     const [item, setItem] = useState(initial);
     const goal: GoalDto = { id: 'goal', workspaceId: 'workspace', title: 'First contribution', description: '', pinned: true, source: null,
-      items: item.goalId === 'goal' ? [item] : [], createdAt: now, updatedAt: now };
-    return <GoalPanel mode="window" repository="org/repo" goal={goal} goals={[goal]} workItems={[item]} needsYou={new Set()}
+      definition: null, revision: 0, items: item.goalId === 'goal' ? [item] : [], createdAt: now, updatedAt: now };
+    return <GoalPanel mode="window" view="work" onView={() => {}} onStart={async () => {}}
+      conversation={{ exchanges: [], error: null, ask: async () => {}, retry: async () => {}, accept: async () => {} }}
+      repository="org/repo" goal={goal} goals={[goal]} workItems={[item]} needsYou={new Set()}
       onClose={() => {}} onSwitch={() => {}} onCreate={async () => {}} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
       search={async () => []} onCreateWork={async () => item} onLink={async () => item}
       onDecide={async (_item, command) => {

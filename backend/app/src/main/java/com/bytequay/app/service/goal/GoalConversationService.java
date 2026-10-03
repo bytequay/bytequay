@@ -1,0 +1,236 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.service.goal;
+
+import com.bytequay.app.service.settings.AgentModelSetting;
+import com.bytequay.app.service.settings.AgentModelType;
+import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.core.domain.GoalDefinition;
+import com.bytequay.core.domain.GoalExchange;
+import com.bytequay.core.store.GoalExchangeStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.time.Clock;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Objects.requireNonNull;
+
+/**
+ * A goal's conversation with its agent. Each message is saved before the agent is asked and answered off the request thread, one at a
+ * time per goal and two at a time across the app. Nothing here starts work, creates a branch or writes to GitHub or Jira.
+ */
+@Service
+public class GoalConversationService
+{
+    static final int MAX_TITLE = 120;
+    static final String INTERRUPTED = "ByteQuay stopped before the agent answered.";
+    private static final Logger log = LoggerFactory.getLogger(GoalConversationService.class);
+
+    private final GoalService goals;
+    private final GoalExchangeStore exchanges;
+    private final ModelSettingsService models;
+    private final GoalPlanner planner;
+    private final Clock clock;
+    private final Executor executor;
+    // The requests this process is answering; a pending exchange outside it was interrupted.
+    private final Set<String> running = ConcurrentHashMap.newKeySet();
+    private final Object writes = new Object();
+
+    @Autowired
+    public GoalConversationService(GoalService goals, GoalExchangeStore exchanges, ModelSettingsService models, GoalPlanner planner, Clock clock)
+    {
+        this(goals, exchanges, models, planner, clock, Executors.newFixedThreadPool(2, Thread.ofVirtual().name("goal-agent-", 0).factory()));
+    }
+
+    GoalConversationService(GoalService goals, GoalExchangeStore exchanges, ModelSettingsService models, GoalPlanner planner, Clock clock, Executor executor)
+    {
+        this.goals = requireNonNull(goals, "goals is null");
+        this.exchanges = requireNonNull(exchanges, "exchanges is null");
+        this.models = requireNonNull(models, "models is null");
+        this.planner = requireNonNull(planner, "planner is null");
+        this.clock = requireNonNull(clock, "clock is null");
+        this.executor = requireNonNull(executor, "executor is null");
+    }
+
+    /** The goal's exchanges, oldest first. */
+    public List<GoalExchange> list(String workspaceId, String goalId)
+    {
+        goal(workspaceId, goalId);
+        return exchanges.list(goalId);
+    }
+
+    /** Starts a goal from the user's first answer, makes it the one the pages follow, and asks its agent. */
+    public GoalView start(String workspaceId, String operationId, String message)
+    {
+        GoalExchange exchange;
+        synchronized (writes) {
+            Optional<GoalExchange> existing = exchanges.find(operationId);
+            if (existing.isPresent()) {
+                checkArgument(existing.get().workspaceId().equals(workspaceId), "The operation belongs to another workspace.");
+                return goal(workspaceId, existing.get().goalId());
+            }
+            String text = message(message);
+            GoalView created = goals.create(workspaceId, title(text), "");
+            GoalView pinned = goals.update(workspaceId, created.id(), Optional.empty(), Optional.empty(), true);
+            exchange = GoalExchange.ask(operationId, pinned.id(), workspaceId, text, pinned.revision(), clock.instant());
+            exchanges.save(exchange);
+        }
+        dispatch(exchange);
+        return goal(workspaceId, exchange.goalId());
+    }
+
+    /** Sends the agent a message; resending the same operation returns the conversation without asking again. */
+    public List<GoalExchange> ask(String workspaceId, String goalId, String operationId, String message)
+    {
+        GoalExchange exchange;
+        synchronized (writes) {
+            GoalView goal = goal(workspaceId, goalId);
+            Optional<GoalExchange> existing = exchanges.find(operationId);
+            if (existing.isPresent()) {
+                checkArgument(existing.get().goalId().equals(goalId), "The operation belongs to another goal.");
+                return exchanges.list(goalId);
+            }
+            if (exchanges.list(goalId).stream().anyMatch(earlier -> earlier.state() == GoalExchange.State.PENDING)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "The agent is still answering your last message.");
+            }
+            exchange = GoalExchange.ask(operationId, goalId, workspaceId, message(message), goal.revision(), clock.instant());
+            exchanges.save(exchange);
+        }
+        dispatch(exchange);
+        return exchanges.list(goalId);
+    }
+
+    /** Asks again for the goal's last message after it failed or was interrupted. */
+    public List<GoalExchange> retry(String workspaceId, String goalId, String exchangeId)
+    {
+        GoalExchange retried;
+        synchronized (writes) {
+            GoalView goal = goal(workspaceId, goalId);
+            List<GoalExchange> conversation = exchanges.list(goalId);
+            GoalExchange exchange = conversation.stream().filter(candidate -> candidate.id().equals(exchangeId)).findFirst()
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
+            if (exchange.state() == GoalExchange.State.PENDING) {
+                return conversation;
+            }
+            if (exchange.state() != GoalExchange.State.FAILED || !conversation.getLast().id().equals(exchangeId)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Only the last message can be asked again, after it failed.");
+            }
+            retried = exchange.retried(goal.revision());
+            exchanges.save(retried);
+        }
+        dispatch(retried);
+        return exchanges.list(goalId);
+    }
+
+    /** Accepts the definition an answer proposed, optionally under a title the user edited. */
+    public GoalView accept(String workspaceId, String goalId, String exchangeId, Optional<String> title)
+    {
+        GoalExchange exchange = exchanges.find(exchangeId).filter(candidate -> candidate.goalId().equals(goalId) && candidate.workspaceId().equals(workspaceId))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
+        GoalExchange.Proposal proposal = exchange.reply().flatMap(GoalExchange.Reply::proposal)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "This answer proposes no definition."));
+        GoalDefinition definition = new GoalDefinition(proposal.successDefinition(), proposal.startingKnowledge(), proposal.constraints(), exchangeId, clock.instant());
+        return goals.define(workspaceId, goalId, exchange.inputRevision(), title.filter(value -> !value.isBlank()).orElse(proposal.title()), proposal.objective(), definition);
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void settleInterrupted()
+    {
+        synchronized (writes) {
+            for (GoalExchange exchange : exchanges.pending()) {
+                if (!running.contains(exchange.id())) {
+                    exchanges.save(exchange.failed(Optional.empty(), INTERRUPTED, clock.instant()));
+                }
+            }
+        }
+    }
+
+    void answer(GoalExchange exchange)
+    {
+        Optional<String> model = Optional.empty();
+        GoalExchange settled;
+        try {
+            GoalView goal = goal(exchange.workspaceId(), exchange.goalId());
+            AgentModelSetting setting = models.agentModel(AgentModelType.DEVELOPMENT, Optional.of(exchange.workspaceId()));
+            model = Optional.of(setting.configId() + "/" + setting.model());
+            List<GoalExchange> earlier = exchanges.list(goal.id()).stream().takeWhile(candidate -> !candidate.id().equals(exchange.id())).collect(toImmutableList());
+            settled = exchange.answered(model.orElseThrow(), planner.answer(setting, goal, earlier, exchange.message()), clock.instant());
+        }
+        catch (RuntimeException failure) {
+            log.debug("Goal exchange {} failed", exchange.id(), failure);
+            String reason = failure instanceof ResponseStatusException status ? status.getReason() : failure.getMessage();
+            settled = exchange.failed(model, reason == null || reason.isBlank() ? "The agent could not answer." : reason, clock.instant());
+        }
+        synchronized (writes) {
+            // Only the request this job was given is settled; a restart's settlement or a later retry replaced any other.
+            if (exchanges.find(exchange.id()).filter(exchange::equals).isPresent()) {
+                exchanges.save(settled);
+            }
+        }
+    }
+
+    private void dispatch(GoalExchange exchange)
+    {
+        running.add(exchange.id());
+        executor.execute(() -> {
+            try {
+                answer(exchange);
+            }
+            catch (RuntimeException failure) {
+                log.warn("Goal exchange {} was not settled", exchange.id(), failure);
+            }
+            finally {
+                running.remove(exchange.id());
+            }
+        });
+    }
+
+    private GoalView goal(String workspaceId, String goalId)
+    {
+        return goals.list(workspaceId).stream().filter(goal -> goal.id().equals(goalId)).findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Goal not found"));
+    }
+
+    private static String message(String message)
+    {
+        checkArgument(message != null && !message.isBlank(), "Write a message first.");
+        checkArgument(message.strip().length() <= GoalExchange.MAX_MESSAGE, "The message is too long.");
+        return message.strip();
+    }
+
+    /** A new goal's working title: the first line of the user's first answer, which the accepted definition replaces. */
+    static String title(String message)
+    {
+        String line = message.lines().findFirst().orElse("").strip().replaceAll("\\s+", " ");
+        if (line.length() <= MAX_TITLE) {
+            return line;
+        }
+        int cut = line.lastIndexOf(' ', MAX_TITLE - 1);
+        return line.substring(0, cut > MAX_TITLE / 2 ? cut : MAX_TITLE - 1) + "…";
+    }
+}

@@ -36,6 +36,16 @@ export type GoalItemDto = {
   addedAt: string | null;
 };
 
+/** What the user agreed the goal means, accepted from one of the agent's proposals. */
+export type GoalDefinitionDto = {
+  successDefinition: string;
+  startingKnowledge: string;
+  constraints: string;
+  /** The exchange whose proposal was accepted. */
+  exchangeId: string;
+  acceptedAt: string;
+};
+
 export type GoalDto = {
   id: string;
   workspaceId: string;
@@ -44,6 +54,9 @@ export type GoalDto = {
   pinned: boolean;
   /** The issue or Jira ticket marked as a Goal that this goal stands for. */
   source: { kind: GoalItemKind; key: string } | null;
+  definition: GoalDefinitionDto | null;
+  /** Counts changes to the title, objective and definition; a proposal built from an older revision cannot be accepted. */
+  revision: number;
   items: WorkItemDto[];
   createdAt: string;
   updatedAt: string;
@@ -69,9 +82,15 @@ export function parseGoalItem(value: unknown): GoalItemDto {
   };
 }
 
+function revision(value: unknown, what: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) throw new Error(`Malformed ${what}`);
+  return value as number;
+}
+
 export function parseGoal(value: unknown): GoalDto {
   const goal = object(value, 'goal');
   const origin = goal.source === null || goal.source === undefined ? null : object(goal.source, 'goal source');
+  const definition = goal.definition === null || goal.definition === undefined ? null : object(goal.definition, 'goal definition');
   if (typeof goal.pinned !== 'boolean') throw new Error('Malformed goal pinned');
   if (!Array.isArray(goal.items)) throw new Error('Malformed goal items');
   return {
@@ -81,9 +100,65 @@ export function parseGoal(value: unknown): GoalDto {
     description: text(goal.description, 'goal description'),
     pinned: goal.pinned,
     source: origin === null ? null : { kind: oneOf(origin.kind, GOAL_ITEM_KINDS, 'goal source kind'), key: text(origin.key, 'goal source key') },
+    definition: definition === null ? null : {
+      successDefinition: text(definition.successDefinition, 'goal success definition'),
+      startingKnowledge: text(definition.startingKnowledge, 'goal starting knowledge'),
+      constraints: text(definition.constraints, 'goal constraints'),
+      exchangeId: text(definition.exchangeId, 'goal definition exchange'),
+      acceptedAt: text(definition.acceptedAt, 'goal definition time'),
+    },
+    revision: revision(goal.revision, 'goal revision'),
     items: goal.items.map(parseWorkItem),
     createdAt: text(goal.createdAt, 'goal created'),
     updatedAt: text(goal.updatedAt, 'goal updated'),
+  };
+}
+
+export type GoalProposalDto = { title: string; objective: string; successDefinition: string; startingKnowledge: string; constraints: string };
+
+/** One message the user sent a goal's agent, and its answer once it arrives. */
+export type GoalExchangeDto = {
+  id: string;
+  goalId: string;
+  message: string;
+  inputRevision: number;
+  state: 'PENDING' | 'ANSWERED' | 'FAILED';
+  reply: {
+    assessment: string;
+    question: { text: string; suggestions: string[] } | null;
+    proposal: GoalProposalDto | null;
+  } | null;
+  failure: string | null;
+  askedAt: string;
+};
+
+export function parseGoalExchange(value: unknown): GoalExchangeDto {
+  const exchange = object(value, 'goal exchange');
+  const reply = exchange.reply === null || exchange.reply === undefined ? null : object(exchange.reply, 'goal reply');
+  const question = reply === null || reply.question === null || reply.question === undefined ? null : object(reply.question, 'goal question');
+  const proposal = reply === null || reply.proposal === null || reply.proposal === undefined ? null : object(reply.proposal, 'goal proposal');
+  return {
+    id: text(exchange.id, 'goal exchange id'),
+    goalId: text(exchange.goalId, 'goal exchange goal'),
+    message: text(exchange.message, 'goal exchange message'),
+    inputRevision: revision(exchange.inputRevision, 'goal exchange revision'),
+    state: oneOf(exchange.state, ['PENDING', 'ANSWERED', 'FAILED'] as const, 'goal exchange state'),
+    reply: reply === null ? null : {
+      assessment: text(reply.assessment, 'goal assessment'),
+      question: question === null ? null : {
+        text: text(question.text, 'goal question'),
+        suggestions: parseList(question.suggestions, (entry) => text(entry, 'goal suggestion'), 'goal suggestions'),
+      },
+      proposal: proposal === null ? null : {
+        title: text(proposal.title, 'goal proposal title'),
+        objective: text(proposal.objective, 'goal proposal objective'),
+        successDefinition: text(proposal.successDefinition, 'goal proposal success'),
+        startingKnowledge: text(proposal.startingKnowledge, 'goal proposal knowledge'),
+        constraints: text(proposal.constraints, 'goal proposal constraints'),
+      },
+    },
+    failure: optionalText(exchange.failure),
+    askedAt: text(exchange.askedAt, 'goal exchange time'),
   };
 }
 

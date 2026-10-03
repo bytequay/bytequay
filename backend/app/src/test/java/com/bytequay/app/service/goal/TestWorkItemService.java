@@ -64,7 +64,7 @@ class TestWorkItemService
     void setUp()
     {
         when(workspaces.findById("workspace")).thenReturn(Optional.of(mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE))));
-        goals.save(new Goal("goal", "workspace", "Objective", "", true, false, Optional.empty(), Optional.empty(), NOW, NOW));
+        goals.save(new Goal("goal", "workspace", "Objective", "", true, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW));
         when(references.related(eq("workspace"), any())).thenAnswer(call -> ImmutableList.of(call.getArgument(1)));
         when(references.view(eq("workspace"), any())).thenAnswer(call -> {
             GoalItem link = call.getArgument(1);

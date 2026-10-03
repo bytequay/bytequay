@@ -1,7 +1,7 @@
 # Agent guided goals
 
-Status: Work-item foundation implemented; agent guidance, research and courses
-remain planned. This document specifies the Goal conversation, research, courses,
+Status: Work-item foundation and the Goal conversation implemented;
+recommendations, research and courses remain planned. This document specifies the Goal conversation, research, courses,
 discovery, guidance and durable progress panel, and three takeaways from the
 Plane comparison. The [implementation plan](goal-guidance-impl-tmp.md) lists
 actionable changes and acceptance checks.
@@ -48,11 +48,26 @@ source snapshots are retained with the work and its newly admitted attempt.
 Admission refuses a source whose work item is Done, Dropped or in another
 workspace before preparing a worktree, and a Jira ticket cannot be reassigned
 away from its work item's workspace.
-The existing source services still reopen the current task by default. A new
-explicit same-source attempt without deleting the prior task, proposal acceptance,
-work-item launch from the composer, automatic outcome harvesting, Goal conversation
-and discovery remain pending. The checklist distinguishes these from implemented
-local planning behavior.
+The existing source services still reopen the current task by default.
+
+The Goal window opens on guidance. A workspace without a Goal, or a Goal with no
+conversation and no definition, asks what the user wants to achieve and offers
+three directions written from the repository name without a model request. Each
+message is saved as a Goal exchange before a tool-free request to the workspace
+Development model, rebuilt from the Goal, its accepted definition, its work
+items and its recent exchanges. The reply must be one JSON object with an
+assessment, at most one question with up to four suggested answers, and an
+optional proposed definition; anything else fails the exchange, which the user
+can ask again. Accepting a proposal saves its title, objective, success
+definition, starting knowledge and constraints, and is refused once the Goal's
+text changed after the request was built. One exchange per Goal and two across
+the app run at a time; a request still pending at startup is marked interrupted.
+
+A new explicit same-source attempt without deleting the prior task, proposal
+acceptance into work items, recommendation cards, research runs, courses,
+work-item launch from the composer, automatic outcome harvesting, a per-Goal
+model choice, request cancellation and discovery remain pending. The checklist
+distinguishes these from implemented behavior.
 
 The checked development database contained no Goals or issue/Jira task bindings.
 The final Goal mapping uses `goal`; work items and identity reservations use
@@ -66,6 +81,9 @@ Relevant implementation entry points:
   groups accepted work. The [work-item service](../../backend/app/src/main/java/com/bytequay/app/service/goal/WorkItemService.java)
   owns decisions and identity; the [reference reader](../../backend/app/src/main/java/com/bytequay/app/service/goal/GoalReferenceReader.java)
   reads supporting activity without remote requests.
+- The [Goal conversation](../../backend/app/src/main/java/com/bytequay/app/service/goal/GoalConversationService.java)
+  saves and answers exchanges; the [Goal planner](../../backend/app/src/main/java/com/bytequay/app/service/goal/GoalPlanner.java)
+  builds the tool-free request and validates its reply.
 - [Goal panel](../../frontend/src/goals/GoalPanel.tsx),
   [summary model](../../frontend/src/goals/model.ts) and
   [Goal loading](../../frontend/src/goals/useGoals.ts) implement the current UI.

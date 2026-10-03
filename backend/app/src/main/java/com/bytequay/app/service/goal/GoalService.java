@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.goal;
 
+import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalSource;
 
@@ -33,6 +34,12 @@ public interface GoalService
 
     /** Renames or re-describes the goal, and pins it when asked, which unpins the workspace's other goals. */
     GoalView update(String workspaceId, String goalId, Optional<String> title, Optional<String> description, boolean pin);
+
+    /**
+     * Saves a definition the user accepted, with the title and objective it proposed. Accepting the same proposal again changes nothing;
+     * a proposal built before the goal's last change is refused.
+     */
+    GoalView define(String workspaceId, String goalId, long expectedRevision, String title, String objective, GoalDefinition definition);
 
     /** Archives the goal and retains its work; the oldest active goal inherits its pin. */
     void delete(String workspaceId, String goalId);

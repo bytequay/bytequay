@@ -13,9 +13,11 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.service.goal.GoalConversationService;
 import com.bytequay.app.service.goal.GoalItemView;
 import com.bytequay.app.service.goal.GoalService;
 import com.bytequay.app.service.goal.GoalView;
+import com.bytequay.core.domain.GoalExchange;
 import com.bytequay.core.domain.GoalItemKind;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -35,16 +37,18 @@ import java.util.Optional;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** Local workspace goals; nothing here reaches GitHub or Jira. */
+/** Local workspace goals and their conversations; nothing here reaches GitHub or Jira. */
 @RestController
 @RequestMapping("/api/workspaces/{workspaceId}/goals")
 public class GoalController
 {
     private final GoalService goals;
+    private final GoalConversationService conversations;
 
-    public GoalController(GoalService goals)
+    public GoalController(GoalService goals, GoalConversationService conversations)
     {
         this.goals = requireNonNull(goals, "goals is null");
+        this.conversations = requireNonNull(conversations, "conversations is null");
     }
 
     @GetMapping
@@ -94,7 +98,46 @@ public class GoalController
         return goals.candidates(workspaceId, q);
     }
 
+    /** Starts a goal from the user's answer to "What do you want to achieve?" and asks its agent. */
+    @PostMapping("/conversation")
+    @ResponseStatus(HttpStatus.CREATED)
+    public GoalView start(@PathVariable String workspaceId, @RequestBody MessageRequest request)
+    {
+        checkArgument(request != null && request.operationId() != null, "operationId is required");
+        return conversations.start(workspaceId, request.operationId(), request.message());
+    }
+
+    @GetMapping("/{goalId}/exchanges")
+    public List<GoalExchange> exchanges(@PathVariable String workspaceId, @PathVariable String goalId)
+    {
+        return conversations.list(workspaceId, goalId);
+    }
+
+    @PostMapping("/{goalId}/exchanges")
+    public List<GoalExchange> ask(@PathVariable String workspaceId, @PathVariable String goalId, @RequestBody MessageRequest request)
+    {
+        checkArgument(request != null && request.operationId() != null, "operationId is required");
+        return conversations.ask(workspaceId, goalId, request.operationId(), request.message());
+    }
+
+    @PostMapping("/{goalId}/exchanges/{exchangeId}/retry")
+    public List<GoalExchange> retry(@PathVariable String workspaceId, @PathVariable String goalId, @PathVariable String exchangeId)
+    {
+        return conversations.retry(workspaceId, goalId, exchangeId);
+    }
+
+    @PostMapping("/{goalId}/definition")
+    public GoalView accept(@PathVariable String workspaceId, @PathVariable String goalId, @RequestBody AcceptRequest request)
+    {
+        checkArgument(request != null && request.exchangeId() != null, "exchangeId is required");
+        return conversations.accept(workspaceId, goalId, request.exchangeId(), Optional.ofNullable(request.title()));
+    }
+
     public record CreateGoalRequest(String title, String description) {}
+
+    public record MessageRequest(String operationId, String message) {}
+
+    public record AcceptRequest(String exchangeId, String title) {}
 
     public record UpdateGoalRequest(String title, String description, Boolean pinned) {}
 

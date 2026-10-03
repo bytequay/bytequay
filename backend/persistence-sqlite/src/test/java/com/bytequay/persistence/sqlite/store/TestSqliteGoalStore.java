@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.Goal;
+import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalSource;
@@ -48,12 +49,14 @@ class TestSqliteGoalStore
     void savesItemsAndSourceAndReplacesTheStoredGoal()
     {
         GoalSource source = new GoalSource(GoalItemKind.JIRA, GoalItem.jiraKey("connection", "cloud", "10042"));
-        Goal seeded = new Goal("goal-1", "workspace-1", "Delta Lake correctness", "", true, false, Optional.of(source), Optional.empty(), NOW, NOW);
+        Goal seeded = new Goal("goal-1", "workspace-1", "Delta Lake correctness", "", true, false, Optional.of(source), Optional.empty(), Optional.empty(), 0,
+                NOW, NOW);
         Instant later = NOW.plusSeconds(1);
-        Goal other = new Goal("goal-2", "workspace-1", "Parquet performance", "Cut wasted reads", false, false, Optional.empty(), Optional.empty(), later, later);
+        Goal other = new Goal("goal-2", "workspace-1", "Parquet performance", "Cut wasted reads", false, false, Optional.empty(), Optional.empty(), Optional.empty(), 0,
+                later, later);
         store.save(seeded);
         store.save(other);
-        store.save(new Goal("goal-3", "workspace-2", "Elsewhere", "", true, false, Optional.empty(), Optional.empty(), NOW, NOW));
+        store.save(new Goal("goal-3", "workspace-2", "Elsewhere", "", true, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW));
 
         Goal withItems = seeded.withText("Accepted objective", "Saved plan", NOW.plusSeconds(5));
         store.save(withItems);
@@ -67,6 +70,14 @@ class TestSqliteGoalStore
         store.save(unmarked);
         assertThat(store.findBySource(source)).containsExactly(unmarked);
         assertThat(unmarked.markedSource()).isEmpty();
+
+        // Pinning leaves the revision; a definition moves it, so a proposal from before it cannot be accepted.
+        Goal defined = unmarked.withPinned(false, NOW.plusSeconds(7))
+                .withDefinition("Iceberg reads", "Explain how reads plan files", new GoalDefinition("Explain a scan", "", "Five hours a week", "exchange-1", NOW),
+                        NOW.plusSeconds(8));
+        store.save(defined);
+        assertThat(store.find("goal-1")).contains(defined);
+        assertThat(defined.revision()).isEqualTo(2);
 
         store.delete("goal-1");
         assertThat(store.list("workspace-1")).containsExactly(other);

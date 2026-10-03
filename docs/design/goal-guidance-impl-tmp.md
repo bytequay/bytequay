@@ -1,7 +1,7 @@
 # Agent guided goals implementation plan
 
-Status: Work-item foundation implemented. Agent guidance, research and courses
-remain planned. The [Goal guidance design](goal-guidance.md) owns the product and
+Status: Work-item foundation and the Goal conversation implemented.
+Recommendations, research and courses remain planned. The [Goal guidance design](goal-guidance.md) owns the product and
 behavior contract; this checklist records delivery order, concrete actions and
 proof required.
 
@@ -58,6 +58,15 @@ The slice follows the design's reference journey, thinly:
 
 This slice spans Steps 3 through 5. A scripted conversation, attractive static
 panel, renamed manual buttons or an unconnected chat box does not complete it.
+
+Progress: items 1 and 2 are implemented. The Guide view is the panel's default
+and opens on "what do you want to achieve?" with three local directions; free
+text or a suggested answer starts the Goal. Durable Goal exchanges record the
+message, input revision, model, validated reply or failure. The reply carries an
+assessment, one question with suggested answers and an optional definition;
+accepting it saves the title, objective, success definition, starting knowledge
+and constraints behind a revision check. A proposed path arrives with the course
+in item 4. Items 3 to 5 remain.
 The following steps retain the full identity, source, recovery and verification
 requirements.
 

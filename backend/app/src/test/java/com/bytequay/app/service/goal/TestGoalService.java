@@ -14,6 +14,7 @@
 package com.bytequay.app.service.goal;
 
 import com.bytequay.core.domain.Goal;
+import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalSource;
 import com.bytequay.core.domain.Workspace;
@@ -22,6 +23,7 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -29,6 +31,7 @@ import java.time.ZoneOffset;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
@@ -46,6 +49,28 @@ class TestGoalService
     {
         when(workspaces.findById("workspace")).thenReturn(Optional.of(mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE))));
         when(work.list("workspace")).thenReturn(ImmutableList.of());
+    }
+
+    @Test
+    void anAcceptedDefinitionIsRevisionCheckedAndRepeatable()
+    {
+        GoalView goal = service.create("workspace", "Iceberg", "");
+        // Pinning leaves the revision a pending proposal was built from.
+        service.update("workspace", goal.id(), Optional.empty(), Optional.empty(), true);
+        GoalDefinition definition = new GoalDefinition("Explain a scan", "Knows the specification", "", "exchange-1", Instant.EPOCH);
+        GoalView defined = service.define("workspace", goal.id(), 0, "Iceberg reads", "Explain reads", definition);
+        assertThat(defined.title()).isEqualTo("Iceberg reads");
+        assertThat(defined.description()).isEqualTo("Explain reads");
+        assertThat(defined.definition()).contains(definition);
+        assertThat(defined.revision()).isEqualTo(1);
+        assertThat(service.define("workspace", goal.id(), 0, "Iceberg reads", "Explain reads", definition)).isEqualTo(defined);
+
+        service.update("workspace", goal.id(), Optional.of("My own title"), Optional.empty(), false);
+        GoalDefinition stale = new GoalDefinition("Explain a scan", "", "", "exchange-2", Instant.EPOCH);
+        assertThatThrownBy(() -> service.define("workspace", goal.id(), 1, "Iceberg reads", "Explain reads", stale))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("The goal changed after this was proposed");
+        assertThat(service.list("workspace").getFirst().title()).isEqualTo("My own title");
     }
 
     @Test

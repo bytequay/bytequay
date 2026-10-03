@@ -13,7 +13,7 @@
  */
 
 import type { AttentionItem, AttentionSource } from '../home/attention';
-import type { GoalDto, GoalItemDto, GoalItemKind, WorkItemState, WorkItemDto } from './contracts';
+import type { GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalProposalDto, WorkItemState, WorkItemDto } from './contracts';
 
 export type GoalRef = { kind: GoalItemKind; key: string };
 
@@ -151,4 +151,17 @@ export function placePill(saved: PillPosition | null, pill: Box, page: Box, comp
   const top = page.height - placed.bottom - pill.height;
   const overlaps = left < composer.right && left + pill.width > composer.left && top < composer.bottom && top + pill.height > composer.top;
   return overlaps ? { right: placed.right, bottom: clamp(above, page.height - pill.height - PILL_MARGIN) } : placed;
+}
+
+/** Starting points for "What do you want to achieve?", written from the workspace's repository without asking a model. */
+export function goalDirections(repository: string): string[] {
+  const name = repository.slice(repository.lastIndexOf('/') + 1) || repository;
+  return [`Understand how ${name} works, one area at a time`, `Fix real bugs in ${name} and get them merged`, `Review ${name} pull requests with confidence`];
+}
+
+/** The definition the user can still accept: the newest answer's, unless it is the one already accepted. */
+export function openProposal(goal: GoalDto | null, exchanges: GoalExchangeDto[]): { exchangeId: string; proposal: GoalProposalDto } | null {
+  const last = exchanges.at(-1);
+  if (last === undefined || last.reply === null || last.reply.proposal === null || goal?.definition?.exchangeId === last.id) return null;
+  return { exchangeId: last.id, proposal: last.reply.proposal };
 }

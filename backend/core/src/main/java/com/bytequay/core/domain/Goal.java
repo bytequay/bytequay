@@ -26,6 +26,8 @@ import static java.util.Objects.requireNonNull;
  * @param source the issue or Jira ticket whose Goal marking created this goal; kept after unmarking,
  * so marking it again restores this goal rather than starting a second one
  * @param unmarkedAt when that marking was removed while the goal held work
+ * @param definition what the user agreed the goal means, accepted from one of the agent's proposals
+ * @param revision counts changes to the goal's text and definition; a proposal built from an older revision cannot be accepted
  */
 public record Goal(
         String id,
@@ -36,6 +38,8 @@ public record Goal(
         boolean archived,
         Optional<GoalSource> source,
         Optional<Instant> unmarkedAt,
+        Optional<GoalDefinition> definition,
+        long revision,
         Instant createdAt,
         Instant updatedAt)
 {
@@ -48,6 +52,8 @@ public record Goal(
         requireNonNull(source, "source is null");
         requireNonNull(unmarkedAt, "unmarkedAt is null");
         checkArgument(source.isPresent() || unmarkedAt.isEmpty(), "only a goal created by marking a source can be unmarked");
+        requireNonNull(definition, "definition is null");
+        checkArgument(revision >= 0, "revision is negative");
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
     }
@@ -60,21 +66,27 @@ public record Goal(
 
     public Goal withPinned(boolean value, Instant at)
     {
-        return new Goal(id, workspaceId, title, description, value, archived, source, unmarkedAt, createdAt, at);
+        return new Goal(id, workspaceId, title, description, value, archived, source, unmarkedAt, definition, revision, createdAt, at);
     }
 
     public Goal withText(String newTitle, String newDescription, Instant at)
     {
-        return new Goal(id, workspaceId, newTitle, newDescription, pinned, archived, source, unmarkedAt, createdAt, at);
+        boolean changed = !newTitle.equals(title) || !newDescription.equals(description);
+        return new Goal(id, workspaceId, newTitle, newDescription, pinned, archived, source, unmarkedAt, definition, changed ? revision + 1 : revision, createdAt, at);
     }
 
     public Goal withMarked(boolean value, Instant at)
     {
-        return new Goal(id, workspaceId, title, description, pinned, archived, source, value ? Optional.empty() : Optional.of(at), createdAt, at);
+        return new Goal(id, workspaceId, title, description, pinned, archived, source, value ? Optional.empty() : Optional.of(at), definition, revision, createdAt, at);
     }
 
     public Goal archive(Instant at)
     {
-        return new Goal(id, workspaceId, title, description, false, true, source, unmarkedAt, createdAt, at);
+        return new Goal(id, workspaceId, title, description, false, true, source, unmarkedAt, definition, revision, createdAt, at);
+    }
+
+    public Goal withDefinition(String newTitle, String objective, GoalDefinition accepted, Instant at)
+    {
+        return new Goal(id, workspaceId, newTitle, objective, pinned, archived, source, unmarkedAt, Optional.of(accepted), revision + 1, createdAt, at);
     }
 }

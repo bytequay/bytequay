@@ -14,8 +14,10 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.Goal;
+import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalSource;
+import com.bytequay.persistence.sqlite.converter.GoalDefinitionConverter;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -65,6 +67,14 @@ public class GoalEntity
     @Column(nullable = false)
     private boolean archived;
 
+    // Nullable columns: SQLite cannot add a NOT NULL column without a default to a table that already has rows.
+    @Column(columnDefinition = "TEXT")
+    @Convert(converter = GoalDefinitionConverter.class)
+    private GoalDefinition definition;
+
+    @Column
+    private Long revision;
+
     @Column(name = "created_at", nullable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
@@ -92,12 +102,15 @@ public class GoalEntity
         sourceKey = goal.source().map(GoalSource::key).orElse(null);
         unmarkedAt = goal.unmarkedAt().orElse(null);
         archived = goal.archived();
+        definition = goal.definition().orElse(null);
+        revision = goal.revision();
         updatedAt = goal.updatedAt();
     }
 
     public Goal toDomain()
     {
         Optional<GoalSource> source = sourceKind == null ? Optional.empty() : Optional.of(new GoalSource(GoalItemKind.valueOf(sourceKind), sourceKey));
-        return new Goal(id, workspaceId, title, description, pinned, archived, source, Optional.ofNullable(unmarkedAt), createdAt, updatedAt);
+        return new Goal(id, workspaceId, title, description, pinned, archived, source, Optional.ofNullable(unmarkedAt), Optional.ofNullable(definition),
+                revision == null ? 0 : revision, createdAt, updatedAt);
     }
 }

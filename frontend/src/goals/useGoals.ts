@@ -15,15 +15,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { getCached, setCached } from '../dataCache';
 import type { Bridge } from '../types';
-import type { GoalDto, GoalItemDto, GoalItemKind, WorkItemDto, CreateWorkItem, WorkItemDecision } from './contracts';
+import type { GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, WorkItemDto, CreateWorkItem, WorkItemDecision } from './contracts';
 import type { GoalRef } from './model';
 
 /** Fired after any goal change so every view of the workspace's goals reads them again. */
 export const GOALS_CHANGED = 'bytequay:goals-changed';
 /** Items change state as their pull requests, issues, tickets and tasks move; a local read. */
 const GOALS_POLL_MS = 15_000;
+/** How often an open conversation reads again while its agent is answering; a local read. */
+const ANSWER_POLL_MS = 1_500;
 
-export type GoalBridge = Pick<Bridge, 'listWorkItems' | 'createWorkItem' | 'decideWorkItem' | 'linkWorkItem' | 'listGoals' | 'createGoal' | 'updateGoal' | 'deleteGoal' | 'addGoalItem' | 'removeGoalItem' | 'searchGoalCandidates'>;
+export type GoalBridge = Pick<Bridge, 'listWorkItems' | 'createWorkItem' | 'decideWorkItem' | 'linkWorkItem' | 'listGoals' | 'createGoal' | 'updateGoal' | 'deleteGoal'
+  | 'addGoalItem' | 'removeGoalItem' | 'searchGoalCandidates' | 'startGoal' | 'listGoalExchanges' | 'askGoal' | 'retryGoalExchange' | 'acceptGoalDefinition'>;
 
 export type Goals = {
   goals: GoalDto[];
@@ -41,6 +44,24 @@ export type Goals = {
   add: (goalId: string, kind: GoalItemKind, key: string) => Promise<void>;
   removeItem: (goalId: string, kind: GoalItemKind, key: string) => Promise<void>;
   search: (query: string) => Promise<GoalItemDto[]>;
+  /** Starts a goal from the user's first answer; it becomes the one the pages follow. */
+  start: (operationId: string, message: string) => Promise<GoalDto>;
+  exchanges: (goalId: string) => Promise<GoalExchangeDto[]>;
+  ask: (goalId: string, operationId: string, message: string) => Promise<GoalExchangeDto[]>;
+  retry: (goalId: string, exchangeId: string) => Promise<GoalExchangeDto[]>;
+  /** Accepts the definition an answer proposed, under the title the user kept or edited. */
+  accept: (goalId: string, exchangeId: string, title: string) => Promise<GoalDto>;
+};
+
+const NO_EXCHANGES: GoalExchangeDto[] = [];
+
+/** A goal's conversation with its agent, as the panel shows it. */
+export type GoalConversation = {
+  exchanges: GoalExchangeDto[];
+  error: string | null;
+  ask: (operationId: string, message: string) => Promise<void>;
+  retry: (exchangeId: string) => Promise<void>;
+  accept: (exchangeId: string, title: string) => Promise<void>;
 };
 
 const windowBridge = (): GoalBridge => window.bridge;
@@ -139,6 +160,8 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
 
   // Kept the same across reads, so an open search is not repeated each time the goals refresh.
   const search = useCallback((query: string) => bridge().searchGoalCandidates(workspaceId, query), [bridge, workspaceId]);
+  // Kept the same across reads too, so an open conversation is not read again each time the goals refresh.
+  const exchanges = useCallback((goalId: string) => bridge().listGoalExchanges(workspaceId, goalId), [bridge, workspaceId]);
 
   const settleWork = useCallback((item: WorkItemDto): WorkItemDto => {
     setWorkItems((current) => [...current.filter((existing) => existing.id !== item.id), item]);
@@ -164,5 +187,53 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
     add: (goalId, kind, key) => bridge().addGoalItem(workspaceId, goalId, kind, key).then(settle).then(() => {}),
     removeItem: (goalId, kind, key) => bridge().removeGoalItem(workspaceId, goalId, kind, key).then(settle).then(() => {}),
     search,
-  }), [bridge, error, goals, workItems, search, settle, settleWork, workspaceId]);
+    start: (operationId, message) => bridge().startGoal(workspaceId, operationId, message).then((goal) => {
+      // The new goal is pinned, so the one pinned before is not any more.
+      setGoals((current) => [...current.filter((existing) => existing.id !== goal.id).map((existing) => ({ ...existing, pinned: false })), goal]);
+      announce(workspaceId);
+      return goal;
+    }),
+    exchanges,
+    ask: (goalId, operationId, message) => bridge().askGoal(workspaceId, goalId, operationId, message),
+    retry: (goalId, exchangeId) => bridge().retryGoalExchange(workspaceId, goalId, exchangeId),
+    accept: (goalId, exchangeId, title) => bridge().acceptGoalDefinition(workspaceId, goalId, exchangeId, title).then(settle),
+  }), [bridge, error, exchanges, goals, workItems, search, settle, settleWork, workspaceId]);
+}
+
+/** The goal's conversation, read once it is first shown and again every moment while its agent is answering. */
+export function useGoalConversation(goals: Goals, goalId: string | null, shown: boolean): GoalConversation {
+  const [read, setRead] = useState<{ goalId: string; exchanges: GoalExchangeDto[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const exchanges = read !== null && read.goalId === goalId ? read.exchanges : NO_EXCHANGES;
+  const answering = exchanges.some((exchange) => exchange.state === 'PENDING');
+  const list = goals.exchanges;
+
+  useEffect(() => {
+    if (goalId === null || !shown) return;
+    let active = true;
+    const load = (): void => {
+      // A read that throws on the spot fails like any other, so the conversation never takes the page down.
+      void Promise.resolve().then(() => list(goalId)).then((found) => {
+        if (!active) return;
+        setRead({ goalId, exchanges: found });
+        setError(null);
+      }, (failure: unknown) => {
+        if (active) setError(failure instanceof Error ? failure.message : 'The conversation could not be loaded');
+      });
+    };
+    load();
+    const timer = answering ? window.setInterval(load, ANSWER_POLL_MS) : undefined;
+    return () => { active = false; window.clearInterval(timer); };
+  }, [answering, goalId, list, shown]);
+
+  return useMemo(() => {
+    const show = (found: GoalExchangeDto[]): void => { if (goalId !== null) setRead({ goalId, exchanges: found }); };
+    return {
+      exchanges,
+      error,
+      ask: (operationId, message) => (goalId === null ? Promise.resolve() : goals.ask(goalId, operationId, message).then(show)),
+      retry: (exchangeId) => (goalId === null ? Promise.resolve() : goals.retry(goalId, exchangeId).then(show)),
+      accept: (exchangeId, title) => (goalId === null ? Promise.resolve() : goals.accept(goalId, exchangeId, title).then(() => {})),
+    };
+  }, [error, exchanges, goalId, goals]);
 }

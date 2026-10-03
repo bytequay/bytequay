@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.goal;
 
+import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalSource;
 import com.google.common.collect.ImmutableList;
 
@@ -30,6 +31,8 @@ public record GoalView(
         String description,
         boolean pinned,
         Optional<GoalSource> source,
+        Optional<GoalDefinition> definition,
+        long revision,
         List<WorkItemView> items,
         Instant createdAt,
         Instant updatedAt)
@@ -41,6 +44,7 @@ public record GoalView(
         requireNonNull(title, "title is null");
         requireNonNull(description, "description is null");
         requireNonNull(source, "source is null");
+        requireNonNull(definition, "definition is null");
         items = ImmutableList.copyOf(items);
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");

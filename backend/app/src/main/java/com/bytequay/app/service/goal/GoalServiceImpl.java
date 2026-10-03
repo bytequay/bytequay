@@ -14,6 +14,7 @@
 package com.bytequay.app.service.goal;
 
 import com.bytequay.core.domain.Goal;
+import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalSource;
 import com.bytequay.core.store.GoalStore;
@@ -69,7 +70,7 @@ public class GoalServiceImpl
         synchronized (writes) {
             Instant now = clock.instant();
             Goal goal = new Goal(UUID.randomUUID().toString(), workspaceId, checkText(title, "title", 500).trim(), description.trim(),
-                    unpinned(workspaceId), false, Optional.empty(), Optional.empty(), now, now);
+                    unpinned(workspaceId), false, Optional.empty(), Optional.empty(), Optional.empty(), 0, now, now);
             goals.save(goal);
             return view(goal);
         }
@@ -90,6 +91,24 @@ public class GoalServiceImpl
             }
             goals.save(updated);
             return view(updated);
+        }
+    }
+
+    @Override
+    public GoalView define(String workspaceId, String goalId, long expectedRevision, String title, String objective, GoalDefinition definition)
+    {
+        requireWorkspace(workspaces, workspaceId);
+        synchronized (writes) {
+            Goal goal = goal(workspaceId, goalId);
+            if (goal.definition().map(GoalDefinition::exchangeId).filter(definition.exchangeId()::equals).isPresent()) {
+                return view(goal);
+            }
+            if (goal.revision() != expectedRevision) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "The goal changed after this was proposed. Ask again for an updated proposal.");
+            }
+            Goal defined = goal.withDefinition(checkText(title, "title", 500).trim(), objective.trim(), definition, clock.instant());
+            goals.save(defined);
+            return view(defined);
         }
     }
 
@@ -138,7 +157,7 @@ public class GoalServiceImpl
             }
             Instant now = clock.instant();
             goals.save(new Goal(UUID.randomUUID().toString(), workspaceId, checkText(title, "title", 500).trim(), "", unpinned(workspaceId), false,
-                    Optional.of(source), Optional.empty(), now, now));
+                    Optional.of(source), Optional.empty(), Optional.empty(), 0, now, now));
         }
     }
 
@@ -193,7 +212,7 @@ public class GoalServiceImpl
 
     private static GoalView view(Goal goal, List<WorkItemView> items)
     {
-        return new GoalView(goal.id(), goal.workspaceId(), goal.title(), goal.description(), goal.pinned(), goal.markedSource(),
+        return new GoalView(goal.id(), goal.workspaceId(), goal.title(), goal.description(), goal.pinned(), goal.markedSource(), goal.definition(), goal.revision(),
                 items.stream().filter(item -> item.goalId().filter(goal.id()::equals).isPresent()).collect(toImmutableList()), goal.createdAt(), goal.updatedAt());
     }
 }

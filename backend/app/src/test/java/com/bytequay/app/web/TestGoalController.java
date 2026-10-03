@@ -14,11 +14,13 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.service.goal.GoalActivity;
+import com.bytequay.app.service.goal.GoalConversationService;
 import com.bytequay.app.service.goal.GoalItemState;
 import com.bytequay.app.service.goal.GoalItemView;
 import com.bytequay.app.service.goal.GoalService;
 import com.bytequay.app.service.goal.GoalView;
 import com.bytequay.app.service.goal.WorkItemView;
+import com.bytequay.core.domain.GoalExchange;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalSource;
 import com.bytequay.core.domain.WorkItem;
@@ -49,13 +51,14 @@ class TestGoalController
             GoalItemState.MERGED, "Merged", false, Optional.of("https://github.com/trinodb/trino/pull/30702"),
             Optional.of(new GoalActivity("#30702 merged", NOW)), Optional.of(NOW));
     private static final GoalView GOAL = new GoalView("goal-1", "workspace", "Delta Lake correctness", "", true,
-            Optional.of(new GoalSource(GoalItemKind.ISSUE, "trinodb/trino#31000")),
+            Optional.of(new GoalSource(GoalItemKind.ISSUE, "trinodb/trino#31000")), Optional.empty(), 0,
             ImmutableList.of(new WorkItemView("work-1", "workspace", Optional.of("goal-1"), "Retry Iceberg commits", WorkItem.Kind.DEVELOP,
                     "", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.WORKING, 0,
                     ImmutableList.of(MERGED), ImmutableList.of(), NOW, NOW)), NOW, NOW);
 
     private final GoalService goals = mock(GoalService.class);
-    private final MockMvc mvc = standaloneSetup(new GoalController(goals)).build();
+    private final GoalConversationService conversations = mock(GoalConversationService.class);
+    private final MockMvc mvc = standaloneSetup(new GoalController(goals, conversations)).build();
 
     @Test
     void listsGoalsWithTheirItemsReadLocally()
@@ -100,6 +103,38 @@ class TestGoalController
 
         mvc.perform(delete("/api/workspaces/workspace/goals/goal-1")).andExpect(status().isNoContent());
         verify(goals).delete("workspace", "goal-1");
+    }
+
+    @Test
+    void startsAndContinuesTheGoalConversation()
+            throws Exception
+    {
+        when(conversations.start("workspace", "op-1", "Become an Iceberg connector expert")).thenReturn(GOAL);
+        mvc.perform(post("/api/workspaces/workspace/goals/conversation").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"operationId\":\"op-1\",\"message\":\"Become an Iceberg connector expert\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value("goal-1"))
+                .andExpect(jsonPath("$.revision").value(0))
+                .andExpect(jsonPath("$.definition").value(nullValue()));
+
+        GoalExchange answered = GoalExchange.ask("op-2", "goal-1", "workspace", "Reads first", 0, NOW).answered("codex/gpt", new GoalExchange.Reply("You want to start with reads.",
+                Optional.of(new GoalExchange.Question("Do you know the Iceberg specification?", ImmutableList.of("Yes", "Not yet"))), Optional.empty()), NOW);
+        when(conversations.ask("workspace", "goal-1", "op-2", "Reads first")).thenReturn(ImmutableList.of(answered));
+        mvc.perform(post("/api/workspaces/workspace/goals/goal-1/exchanges").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"operationId\":\"op-2\",\"message\":\"Reads first\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].state").value("ANSWERED"))
+                .andExpect(jsonPath("$[0].reply.question.suggestions[1]").value("Not yet"))
+                .andExpect(jsonPath("$[0].reply.proposal").value(nullValue()));
+
+        when(conversations.accept("workspace", "goal-1", "op-2", Optional.of("Iceberg reads"))).thenReturn(GOAL);
+        mvc.perform(post("/api/workspaces/workspace/goals/goal-1/definition").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"exchangeId\":\"op-2\",\"title\":\"Iceberg reads\"}"))
+                .andExpect(status().isOk());
+        verify(conversations).accept("workspace", "goal-1", "op-2", Optional.of("Iceberg reads"));
+
+        mvc.perform(post("/api/workspaces/workspace/goals/goal-1/exchanges/op-2/retry")).andExpect(status().isOk());
+        verify(conversations).retry("workspace", "goal-1", "op-2");
     }
 
     @Test

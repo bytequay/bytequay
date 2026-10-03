@@ -17,13 +17,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AttentionItem } from '../home/attention';
 import type { JiraIssue } from '../jira/contracts';
 import type { AgentTaskDto } from '../types';
-import type { GoalDto, GoalItemDto, WorkItemDto } from './contracts';
-import { parseGoal } from './contracts';
+import type { GoalDto, GoalExchangeDto, GoalItemDto, WorkItemDto } from './contracts';
+import { parseGoal, parseGoalExchange } from './contracts';
 import { GoalPanel, type GoalPanelProps } from './GoalPanel';
 import {
-  addable, attentionWorkspace, goalHas, goalRef, itemsIn, needsYouKeys, placePill, recentActivity, refKey, summarize,
+  addable, attentionWorkspace, goalDirections, goalHas, goalRef, itemsIn, needsYouKeys, openProposal, placePill, recentActivity, refKey, summarize,
 } from './model';
-import { toggleGoalItem, useGoals, type GoalBridge, type Goals } from './useGoals';
+import { toggleGoalItem, useGoals, type GoalBridge, type GoalConversation, type Goals } from './useGoals';
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -40,7 +40,7 @@ const ITEMS: GoalItemDto[] = [
 ];
 const GOAL: GoalDto = {
   id: 'goal-1', workspaceId: 'workspace-1', title: 'Iceberg & Delta Lake correctness for 482', description: 'Land the fixes before 482.', pinned: true,
-  source: null, items: ITEMS.map((link, index): WorkItemDto => ({
+  source: null, definition: null, revision: 0, items: ITEMS.map((link, index): WorkItemDto => ({
     id: `work-${index}`, workspaceId: 'workspace-1', goalId: 'goal-1', title: link.title, kind: 'DEVELOP', acceptanceCriteria: 'Verified fix',
     completionRule: 'MERGED_DELIVERY', state: index === 1 ? 'DONE' : index === 2 ? 'PLANNED' : 'WORKING', revision: 0, links: [link],
     history: link.activity === null ? [] : [{ operationId: `op-${index}`, action: 'ACCEPT', detail: link.activity.text, at: link.activity.at }],
@@ -103,9 +103,12 @@ describe('goal model', () => {
   });
 });
 
+const NO_CONVERSATION: GoalConversation = { exchanges: [], error: null, ask: async () => {}, retry: async () => {}, accept: async () => {} };
+
 function panel(props: Partial<GoalPanelProps>): string {
   return renderToStaticMarkup(
-    <GoalPanel mode="window" repository="trinodb/trino" goals={[GOAL, { ...GOAL, id: 'goal-2', pinned: false }]} goal={GOAL}
+    <GoalPanel mode="window" view="work" onView={() => {}} conversation={NO_CONVERSATION} onStart={async () => {}}
+      repository="trinodb/trino" goals={[GOAL, { ...GOAL, id: 'goal-2', pinned: false }]} goal={GOAL}
       needsYou={new Set(['PULL_REQUEST trinodb/trino#30925'])} now={Date.parse('2026-09-27T12:00:00Z')}
       onClose={() => {}} onExpand={() => {}} onSwitch={() => {}} onCreate={async () => {}} onDelete={async () => {}}
       workItems={GOAL.items} onCreateWork={async () => GOAL.items[0]} onDecide={async () => GOAL.items[0]} onLink={async () => GOAL.items[0]} onAdd={async () => {}} onOpenItem={() => {}} search={async () => []} {...props} />);
@@ -133,6 +136,79 @@ describe('goal panel', () => {
     const markup = panel({ goals: [], goal: null });
     expect(markup).toContain('No goal yet');
     expect(markup).toContain('aria-label="Goal name"');
+  });
+});
+
+const ASKED: GoalExchangeDto = { id: 'op-1', goalId: 'goal-1', message: 'I want to become an Iceberg connector expert', inputRevision: 0,
+  state: 'ANSWERED', failure: null, askedAt: '2026-10-03T10:00:00Z', reply: {
+    assessment: 'You want to understand the connector deeply.',
+    question: { text: 'Do you already know the Iceberg specification?', suggestions: ['Yes', 'Not yet'] }, proposal: null,
+  } };
+const PROPOSED: GoalExchangeDto = { ...ASKED, id: 'op-2', message: 'Not yet', reply: {
+  assessment: 'Start from the specification, then the connector.', question: null,
+  proposal: { title: 'Iceberg connector expert', objective: 'Explain and change the Iceberg connector', successDefinition: 'Trace a scan end to end',
+    startingKnowledge: 'Knows Trino, not the specification', constraints: '' },
+} };
+
+function conversation(exchanges: GoalExchangeDto[]): GoalConversation {
+  return { ...NO_CONVERSATION, exchanges };
+}
+
+describe('goal guidance', () => {
+  it('reads an exchange and a definition the backend sends and refuses a malformed one', () => {
+    expect(parseGoalExchange(JSON.parse(JSON.stringify({ ...PROPOSED, workspaceId: 'workspace-1', model: 'codex/gpt', answeredAt: null })))).toEqual(PROPOSED);
+    expect(parseGoalExchange({ ...ASKED, state: 'PENDING', reply: null })).toMatchObject({ state: 'PENDING', reply: null });
+    expect(() => parseGoalExchange({ ...ASKED, state: 'THINKING' })).toThrow('Malformed goal exchange state');
+    expect(() => parseGoalExchange({ ...ASKED, reply: { ...ASKED.reply, question: { text: 'q', suggestions: 'Yes' } } })).toThrow('Malformed goal suggestions');
+    const defined: GoalDto = { ...GOAL, revision: 1, definition: { successDefinition: 'Trace a scan', startingKnowledge: '', constraints: '', exchangeId: 'op-2', acceptedAt: '2026-10-03T10:00:00Z' } };
+    expect(parseGoal(JSON.parse(JSON.stringify(defined)))).toEqual(defined);
+    expect(() => parseGoal({ ...GOAL, revision: -1 })).toThrow('Malformed goal revision');
+  });
+
+  it('offers directions from the repository and only the newest unaccepted proposal', () => {
+    expect(goalDirections('trinodb/trino')).toEqual(['Understand how trino works, one area at a time', 'Fix real bugs in trino and get them merged',
+      'Review trino pull requests with confidence']);
+    expect(openProposal(GOAL, [ASKED, PROPOSED])).toEqual({ exchangeId: 'op-2', proposal: PROPOSED.reply.proposal });
+    expect(openProposal(GOAL, [PROPOSED, ASKED])).toBeNull();
+    expect(openProposal({ ...GOAL, definition: { successDefinition: 's', startingKnowledge: '', constraints: '', exchangeId: 'op-2', acceptedAt: '' } }, [ASKED, PROPOSED])).toBeNull();
+  });
+
+  it('opens on what the user wants to achieve, with directions and no model call', () => {
+    const empty = panel({ view: 'guide', goals: [], goal: null });
+    expect(empty).toContain('What do you want to achieve?');
+    expect(empty).toContain('Review trino pull requests with confidence');
+    expect(empty).toContain('aria-label="Message the goal&#x27;s agent"');
+    expect(empty).not.toContain('No goal yet');
+    const vague = panel({ view: 'guide', goal: { ...GOAL, items: [] } });
+    expect(vague).toContain('What does “Iceberg &amp; Delta Lake correctness for 482” mean to you?');
+  });
+
+  it('shows the conversation, the question’s answers and a definition to accept', () => {
+    const pending = panel({ view: 'guide', conversation: conversation([{ ...ASKED, state: 'PENDING', reply: null }]) });
+    expect(pending).toContain('role="status"');
+    expect(pending).toContain('Thinking…');
+    expect(pending).toMatch(/<button type="submit" class="goal-add" disabled="">Send<\/button>/);
+
+    const asked = panel({ view: 'guide', conversation: conversation([ASKED]) });
+    expect(asked).toContain('Do you already know the Iceberg specification?');
+    expect(asked).toContain('>Not yet</button>');
+    expect(asked).not.toContain('Proposed goal');
+
+    const proposed = panel({ view: 'guide', conversation: conversation([ASKED, PROPOSED]) });
+    expect(proposed).toContain('Proposed goal');
+    expect(proposed).toContain('value="Iceberg connector expert"');
+    expect(proposed).toContain('Trace a scan end to end');
+    expect(proposed).toContain('>Accept goal</button>');
+
+    const failed = panel({ view: 'guide', conversation: conversation([{ ...ASKED, state: 'FAILED', reply: null, failure: 'Codex is not signed in' }]) });
+    expect(failed).toContain('Codex is not signed in');
+    expect(failed).toContain('>Ask again</button>');
+
+    const defined = panel({ view: 'guide', goal: { ...GOAL, definition: { successDefinition: 'Trace a scan end to end', startingKnowledge: 'Knows Trino', constraints: '',
+      exchangeId: 'op-2', acceptedAt: '2026-10-03T10:00:00Z' } }, conversation: conversation([ASKED, PROPOSED]) });
+    expect(defined).toContain('Success means');
+    expect(defined).toContain('You already know');
+    expect(defined).not.toContain('Proposed goal');
   });
 });
 

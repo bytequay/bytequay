@@ -14,7 +14,7 @@
 
 import type { JiraBridge, JiraSourceRequest, JiraTaskSource } from './jira/contracts';
 import type { TeamActivityQuery, TeamActivitySnapshot, TeamCircleInput, TeamCreateInput, TeamDirectory, TeamMemberInput } from './teams/types';
-import type { CreateWorkItem, WorkItemDto, WorkItemDecision, GoalDto, GoalItemDto, GoalItemKind, GoalPatch } from './goals/contracts';
+import type { CreateWorkItem, WorkItemDto, WorkItemDecision, GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalPatch } from './goals/contracts';
 import { AgentEventEnvelope } from './agents/events';
 import type { AskCommentDiscussionRequest, AskDiscussionRequest, DiscussionQuery, DraftDiscussionReplyRequest, OpenDiscussionRequest, ResolveDiscussionRequest, RetryDiscussionRequest, TaskDiscussionDto } from './agents/discussions/contracts';
 import type { CreateDevelopmentLearningCommentRequest, CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';
@@ -1484,6 +1484,12 @@ export type Bridge = JiraBridge & {
   addGoalItem: (workspaceId: string, goalId: string, kind: GoalItemKind, key: string) => Promise<GoalDto>;
   removeGoalItem: (workspaceId: string, goalId: string, kind: GoalItemKind, key: string) => Promise<GoalDto>;
   searchGoalCandidates: (workspaceId: string, query: string) => Promise<GoalItemDto[]>;
+  /** Starts a goal from the user's answer to "What do you want to achieve?"; its agent answers in the background. */
+  startGoal: (workspaceId: string, operationId: string, message: string) => Promise<GoalDto>;
+  listGoalExchanges: (workspaceId: string, goalId: string) => Promise<GoalExchangeDto[]>;
+  askGoal: (workspaceId: string, goalId: string, operationId: string, message: string) => Promise<GoalExchangeDto[]>;
+  retryGoalExchange: (workspaceId: string, goalId: string, exchangeId: string) => Promise<GoalExchangeDto[]>;
+  acceptGoalDefinition: (workspaceId: string, goalId: string, exchangeId: string, title: string) => Promise<GoalDto>;
   refreshWorkspaceIssues: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
   fetchWorkspaceIssueDetail: (workspaceId: string, issueNumber: number) => Promise<WorkspaceIssueDetailDto>;
   refreshWorkspaceIssueDetail: (workspaceId: string, issueNumber: number) => Promise<WorkspaceIssueDetailDto>;

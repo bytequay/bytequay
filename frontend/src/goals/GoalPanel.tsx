@@ -17,10 +17,11 @@ import { ChevronDown, Maximize2, Minimize2, Plus, Search, Trash2, X } from 'luci
 import { ConfirmDialog } from '../ConfirmDialog';
 import { GoalIcon, SourceIcon } from '../cards/Card';
 import { relativeTime } from '../relativeTime';
-import type { GoalDto, GoalItemDto, WorkItemDto, WorkItemDecision, CreateWorkItem, CompletionRule, WorkItemKind } from './contracts';
+import type { GoalDto, GoalItemDto, GoalProposalDto, WorkItemDto, WorkItemDecision, CreateWorkItem, CompletionRule, WorkItemKind } from './contracts';
 import {
-  GOAL_SOURCES, STATE_GROUPS, addable, itemsIn, progressWidths, recentActivity, refKey, ringDash, summarize, itemNeedsYou, type GoalTab,
+  GOAL_SOURCES, STATE_GROUPS, addable, goalDirections, itemsIn, openProposal, progressWidths, recentActivity, refKey, ringDash, summarize, itemNeedsYou, type GoalTab,
 } from './model';
+import type { GoalConversation } from './useGoals';
 
 /** How much of a goal is finished, as a ring. */
 export function GoalRing({ goal, size = 20 }: { goal: GoalDto | null; size?: number }): React.JSX.Element {
@@ -38,8 +39,16 @@ function fraction(goal: GoalDto): string {
   return `${summary.finished}/${summary.total}`;
 }
 
+export type GoalPanelView = 'guide' | 'work';
+
 export type GoalPanelProps = {
   mode: 'window' | 'board';
+  /** The goal's guidance, or its work items; the layer keeps the choice across window and board. */
+  view: GoalPanelView;
+  onView: (view: GoalPanelView) => void;
+  conversation: GoalConversation;
+  /** Starts a goal from the user's answer while the workspace shows none. */
+  onStart: (operationId: string, message: string) => Promise<unknown>;
   /** "owner/repo", named where a search finds nothing. */
   repository: string;
   goals: GoalDto[];
@@ -67,7 +76,7 @@ export type GoalPanelProps = {
  * A goal's progress and items, listed by state or expanded into board columns. Every change here is local.
  */
 export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
-  const { mode, goal, onClose, onExpand } = props;
+  const { mode, goal, view, onClose, onExpand } = props;
   const [selected, setSelected] = useState<string | null>(null);
   const item = props.workItems.find((value) => value.id === selected) ?? goal?.items.find((value) => value.id === selected);
   return (
@@ -92,10 +101,129 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
             {goal.description !== '' && <div className="goal-panel__desc">{goal.description}</div>}
           </>
         )}
+        <div className="goal-tabs goal-panel__views" role="tablist" aria-label="Goal views">
+          {(['guide', 'work'] as const).map((value) => <button type="button" role="tab" aria-selected={view === value} key={value}
+            className={`goal-tab${view === value ? ' is-active' : ''}`} onClick={() => { setSelected(null); props.onView(value); }}>{value === 'guide' ? 'Guide' : 'Work'}</button>)}
+        </div>
       </div>
       {item !== undefined ? <WorkDetails key={item.id} {...props} item={item} onBack={() => setSelected(null)} />
-        : goal === null ? <><NoGoal onCreate={props.onCreate} />{props.workItems.map((saved) => <button type="button" className="goal-work-card" key={saved.id} onClick={() => setSelected(saved.id)}>{saved.title} · {saved.state.toLowerCase()}</button>)}</> : <GoalWork {...props} goal={goal} onSelect={setSelected} />}
+        : view === 'guide' ? <GoalGuide goal={goal} repository={props.repository} conversation={props.conversation} onStart={props.onStart} />
+          : goal === null ? <><NoGoal onCreate={props.onCreate} />{props.workItems.map((saved) => <button type="button" className="goal-work-card" key={saved.id} onClick={() => setSelected(saved.id)}>{saved.title} · {saved.state.toLowerCase()}</button>)}</> : <GoalWork {...props} goal={goal} onSelect={setSelected} />}
     </div>
+  );
+}
+
+/**
+ * The agent's side of the goal: "What do you want to achieve?" while there is nothing to go on, then the conversation, the
+ * question's suggested answers and a definition to accept. The opening is written locally; only a message asks the model.
+ */
+function GoalGuide({ goal, repository, conversation, onStart }: Pick<GoalPanelProps, 'goal' | 'repository' | 'conversation' | 'onStart'>): React.JSX.Element {
+  const { exchanges } = conversation;
+  const [error, setError] = useState<string | null>(null);
+  const last = exchanges.at(-1);
+  const answering = last?.state === 'PENDING';
+  const question = last?.state === 'ANSWERED' ? last.reply?.question ?? null : null;
+  const open = openProposal(goal, exchanges);
+  const send = (operationId: string, message: string): Promise<unknown> => (goal === null ? onStart(operationId, message) : conversation.ask(operationId, message));
+  const pick = (answer: string): void => {
+    setError(null);
+    void send(crypto.randomUUID(), answer).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The answer was not sent'));
+  };
+  const opening = goal === null || (exchanges.length === 0 && goal.definition === null);
+  return (
+    <div className="goal-panel__body goal-guide">
+      {goal?.definition != null && <Definition definition={goal.definition} />}
+      {opening ? (
+        <div className="goal-guide__opening">
+          <div className="goal-guide__ask">{goal === null ? 'What do you want to achieve?' : `What does “${goal.title}” mean to you?`}</div>
+          <div className="goal-guide__hint">Pick a direction or say it in your own words. The agent asks what it needs, then proposes a goal for you to accept.</div>
+          <Choices choices={goalDirections(repository)} onPick={pick} />
+        </div>
+      ) : (
+        <ol className="goal-thread" aria-label="Conversation with the goal's agent">
+          {exchanges.map((exchange) => <li key={exchange.id} className="goal-thread__turn">
+            <div className="goal-thread__user">{exchange.message}</div>
+            {exchange.state === 'PENDING' && <div className="goal-thread__agent is-pending" role="status">Thinking…</div>}
+            {exchange.state === 'FAILED' && <div className="goal-thread__agent is-failed">
+              <span>{exchange.failure}</span>
+              {exchange === last && <button type="button" className="goal-link" onClick={() => {
+                setError(null);
+                void conversation.retry(exchange.id).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'Could not ask again'));
+              }}>Ask again</button>}
+            </div>}
+            {exchange.reply !== null && <div className="goal-thread__agent">
+              <p>{exchange.reply.assessment}</p>
+              {exchange.reply.question !== null && <p className="goal-thread__question">{exchange.reply.question.text}</p>}
+            </div>}
+          </li>)}
+        </ol>
+      )}
+      {question !== null && question.suggestions.length > 0 && <Choices choices={question.suggestions} onPick={pick} />}
+      {open !== null && <Proposal key={open.exchangeId} proposal={open.proposal} onAccept={(title) => conversation.accept(open.exchangeId, title)} />}
+      {(error ?? conversation.error) !== null && <p className="goal-guide__error" role="alert">{error ?? conversation.error}</p>}
+      <Composer answering={answering} placeholder={goal === null ? 'I want to…' : question === null ? 'Ask about this goal' : 'Answer in your own words'} onSend={send} />
+    </div>
+  );
+}
+
+function Choices({ choices, onPick }: { choices: string[]; onPick: (choice: string) => void }): React.JSX.Element {
+  return <div className="goal-choices">{choices.map((choice) => <button type="button" className="goal-choice" key={choice} onClick={() => onPick(choice)}>{choice}</button>)}</div>;
+}
+
+function Definition({ definition }: { definition: NonNullable<GoalDto['definition']> }): React.JSX.Element {
+  return (
+    <dl className="goal-definition" aria-label="Agreed goal">
+      <dt>Success means</dt><dd>{definition.successDefinition}</dd>
+      {definition.startingKnowledge !== '' && <><dt>You already know</dt><dd>{definition.startingKnowledge}</dd></>}
+      {definition.constraints !== '' && <><dt>Constraints</dt><dd>{definition.constraints}</dd></>}
+    </dl>
+  );
+}
+
+function Proposal({ proposal, onAccept }: { proposal: GoalProposalDto; onAccept: (title: string) => Promise<unknown> }): React.JSX.Element {
+  const [title, setTitle] = useState(proposal.title);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <section className="goal-proposal" aria-label="Proposed goal">
+      <div className="goal-proposal__label">Proposed goal</div>
+      <input aria-label="Goal title" maxLength={500} value={title} onChange={(event) => setTitle(event.target.value)} />
+      <dl className="goal-definition">
+        <dt>Objective</dt><dd>{proposal.objective}</dd>
+        <dt>Success means</dt><dd>{proposal.successDefinition}</dd>
+        {proposal.startingKnowledge !== '' && <><dt>You already know</dt><dd>{proposal.startingKnowledge}</dd></>}
+        {proposal.constraints !== '' && <><dt>Constraints</dt><dd>{proposal.constraints}</dd></>}
+      </dl>
+      {error !== null && <p className="goal-guide__error" role="alert">{error}</p>}
+      <button type="button" className="goal-add" disabled={busy || title.trim() === ''} onClick={() => {
+        setBusy(true); setError(null);
+        void onAccept(title.trim()).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The goal was not saved')).finally(() => setBusy(false));
+      }}>{busy ? 'Saving…' : 'Accept goal'}</button>
+    </section>
+  );
+}
+
+/** The user's own words to the agent; a resend after a lost answer keeps its operation, so the agent is asked once. */
+function Composer({ answering, placeholder, onSend }: { answering: boolean; placeholder: string; onSend: (operationId: string, message: string) => Promise<unknown> }): React.JSX.Element {
+  const [draft, setDraft] = useState('');
+  const [operation, setOperation] = useState(() => crypto.randomUUID());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = (): void => {
+    const message = draft.trim();
+    if (message === '' || busy || answering) return;
+    setBusy(true); setError(null);
+    void onSend(operation, message).then(() => { setDraft(''); setOperation(crypto.randomUUID()); },
+      (failure: unknown) => setError(failure instanceof Error ? failure.message : 'The message was not sent')).finally(() => setBusy(false));
+  };
+  return (
+    <form className="goal-composer" onSubmit={(event) => { event.preventDefault(); submit(); }}>
+      <textarea aria-label="Message the goal's agent" rows={2} maxLength={4000} value={draft} placeholder={placeholder}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); } }} />
+      {error !== null && <p className="goal-guide__error" role="alert">{error}</p>}
+      <button type="submit" className="goal-add" disabled={busy || answering || draft.trim() === ''}>{busy ? 'Sending…' : 'Send'}</button>
+    </form>
   );
 }
 

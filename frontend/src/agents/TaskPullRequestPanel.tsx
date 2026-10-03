@@ -13,14 +13,13 @@
  */
 
 import { GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft } from 'lucide-react';
-import React, { useState } from 'react';
+import React from 'react';
 import type { LocalReviewThreads } from '../pulls/local-review/types';
 import PullChanges, { DiffViewer, type AgentReviewProjection, type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
 import PullOverview, { type PullDetailUpdater } from '../pulls/PullOverview';
-import { PrivateThreadsStrip, type PrivateThreads, type PrivateThreadSource } from '../pulls/PrivateThread';
+import { PrivateThreadsStrip, usePrivateThreads, type PrivateThreadSource } from '../pulls/PrivateThread';
 import { canSubmitReview } from '../pulls/PullsScreen';
 import type { PullRequestDetailSource } from '../pulls/usePullRequestDetail';
-import type { TaskDiscussions } from './discussions/useTaskDiscussions';
 import type {
   DiffCommitDto,
   DiffFileDto,
@@ -74,23 +73,6 @@ export function PullRequestStateIcon({ pullRequest, size, className }: {
   return <Icon className={['agt-pr-icon', state === null ? null : `is-${state}`, className].filter(Boolean).join(' ')} size={size} aria-hidden="true" />;
 }
 
-/** The task's private threads on one pull request's comments, keyed by comment. */
-export function privateThreadSource(discussions: TaskDiscussions, pr: Pick<PullRequestDto, 'repo' | 'number'>): PrivateThreadSource {
-  return {
-    threads: new Map(discussions.commentThreads.flatMap(thread => thread.comment !== null
-      && thread.comment.repo.toLowerCase() === pr.repo.toLowerCase() && thread.comment.number === pr.number
-      ? [[thread.comment.key, thread] as const] : [])),
-    busy: discussions.busy,
-    disabledReason: discussions.disabledReason,
-    ask: async (key, question) => {
-      await discussions.askComment({ repo: pr.repo, number: pr.number, key, question });
-    },
-    resolve: (thread, resolved) => discussions.resolve(thread.id, resolved, thread.version),
-    retry: (thread, messageId) => discussions.retry(thread.id, messageId),
-    draftReply: thread => discussions.draftReply(thread.id),
-  };
-}
-
 export type TaskPullRequestDetail = PullRequestDetailSource;
 
 /** What a panel rendered without a live bridge — a static render, a preview, a test — has read. */
@@ -142,9 +124,7 @@ export function TaskPullRequestView({
   onDetailUpdate: PullDetailUpdater;
   onDetailChange: (detail: PullRequestDetailDto) => void;
 }): React.JSX.Element {
-  const [forward, setForward] = useState<string | null>(null);
-  const [show, setShow] = useState(true);
-  const [drafts, setDrafts] = useState<ReadonlyMap<string, string>>(() => new Map());
+  const privateThreads = usePrivateThreads(source);
   if (detail === null) {
     return (
       <div className="agt-muted agt-panel__empty">
@@ -152,23 +132,6 @@ export function TaskPullRequestView({
       </div>
     );
   }
-  const privateThreads: PrivateThreads | undefined = source === undefined ? undefined : {
-    ...source, forward, show, drafts,
-    setDraft: (key, draft) => setDrafts(current => {
-      const next = new Map(current);
-      if (draft === '') next.delete(key);
-      else next.set(key, draft);
-      return next;
-    }),
-    setForward: key => {
-      setForward(key);
-      if (key !== null) setShow(true);
-    },
-    setShow: next => {
-      setShow(next);
-      if (!next) setForward(null);
-    },
-  };
   return (
     <>
       {privateThreads !== undefined && <PrivateThreadsStrip threads={privateThreads} />}

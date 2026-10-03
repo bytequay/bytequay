@@ -15,10 +15,9 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { isSummaryRequest, parseCommentSummary, SUMMARY_REQUEST, type DiscussionMessageDto, type TaskDiscussionDto } from '../agents/discussions/contracts';
 import type { TaskDiscussions } from '../agents/discussions/useTaskDiscussions';
-import { privateThreadSource } from '../agents/TaskPullRequestPanel';
 import {
-  commentExcerpt, hiddenThreadCount, PrivateThreadControls, PrivateThreadForward, privateThreadKey, PrivateThreadsStrip, PrivateThreadTab,
-  withMention, type PrivateThreads,
+  commentExcerpt, hiddenThreadCount, PrivateThreadControls, PrivateThreadForward, privateThreadKey, privateThreadSource, PrivateThreadsStrip,
+  PrivateThreadTab, withMention, type PrivateThreads,
 } from './PrivateThread';
 
 const KEY = 'review_comment:7';

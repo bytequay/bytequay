@@ -37,6 +37,7 @@ import '../css/agents.css';
 import { relativeTime } from '../relativeTime';
 import { useRenameDraft } from '../renameDraft';
 import { remoteErrorMessage } from '../pulls/PullOverview';
+import { privateThreadSource } from '../pulls/PrivateThread';
 import { canSubmitReview, PullDetailHeader } from '../pulls/PullsScreen';
 import CodeTestsTab from '../pulls/code-tests/CodeTestsTab';
 import WorktreeChanges from '../pulls/code-tests/WorktreeChanges';
@@ -142,7 +143,6 @@ PullRequestStateIcon,
 samePullRequest,
 TaskChangesView,
 TaskPullRequestView,
-privateThreadSource,
 taskPullRequest,
 type TaskPullRequestChanges,
 type TaskPullRequestDetail

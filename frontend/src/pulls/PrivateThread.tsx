@@ -17,7 +17,8 @@ import Avatar from '../Avatar';
 import { relativeTime } from '../relativeTime';
 import { ANSWERING_ELSEWHERE, isSummaryRequest, parseCommentSummary, type CommentSummaryDto, type TaskDiscussionDto } from '../agents/discussions/contracts';
 import { replyCount, retryTarget } from '../agents/discussions/DiscussionFooter';
-import type { PullCommentTarget } from '../types';
+import type { TaskDiscussions } from '../agents/discussions/useTaskDiscussions';
+import type { PullCommentTarget, PullRequestDto } from '../types';
 import ReviewComposer from './agent-review/ReviewComposer';
 import MarkdownBody from './MarkdownBody';
 import { remoteErrorMessage } from './PullOverview';
@@ -57,6 +58,47 @@ export function privateThreadKey(kind: PullCommentTarget, githubId: number): str
 
 export function hiddenThreadCount(threads: PrivateThreads): number {
   return threads.show ? 0 : [...threads.threads.values()].filter(thread => thread.messages.length > 0).length;
+}
+
+/** The task's private threads on one pull request's comments, keyed by comment. */
+export function privateThreadSource(discussions: TaskDiscussions, pr: Pick<PullRequestDto, 'repo' | 'number'>): PrivateThreadSource {
+  return {
+    threads: new Map(discussions.commentThreads.flatMap(thread => thread.comment !== null
+      && thread.comment.repo.toLowerCase() === pr.repo.toLowerCase() && thread.comment.number === pr.number
+      ? [[thread.comment.key, thread] as const] : [])),
+    busy: discussions.busy,
+    disabledReason: discussions.disabledReason,
+    ask: async (key, question) => {
+      await discussions.askComment({ repo: pr.repo, number: pr.number, key, question });
+    },
+    resolve: (thread, resolved) => discussions.resolve(thread.id, resolved, thread.version),
+    retry: (thread, messageId) => discussions.retry(thread.id, messageId),
+    draftReply: thread => discussions.draftReply(thread.id),
+  };
+}
+
+/** Adds the view state a conversation keeps over its private threads; it resets when the conversation remounts. */
+export function usePrivateThreads(source: PrivateThreadSource | undefined): PrivateThreads | undefined {
+  const [forward, setForward] = useState<string | null>(null);
+  const [show, setShow] = useState(true);
+  const [drafts, setDrafts] = useState<ReadonlyMap<string, string>>(() => new Map());
+  return source === undefined ? undefined : {
+    ...source, forward, show, drafts,
+    setDraft: (key, draft) => setDrafts(current => {
+      const next = new Map(current);
+      if (draft === '') next.delete(key);
+      else next.set(key, draft);
+      return next;
+    }),
+    setForward: key => {
+      setForward(key);
+      if (key !== null) setShow(true);
+    },
+    setShow: next => {
+      setShow(next);
+      if (!next) setForward(null);
+    },
+  };
 }
 
 /** One line of a comment, stripped of the markdown that reads as noise when it cannot render. */

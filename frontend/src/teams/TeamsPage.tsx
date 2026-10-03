@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { Book, Check, ChevronDown, LockKeyhole, Pencil, Plus, RefreshCw, TriangleAlert, UserPlus, Users, X } from 'lucide-react';
+import { Check, ChevronDown, LockKeyhole, Pencil, Plus, RefreshCw, TriangleAlert, UserPlus, Users, X } from 'lucide-react';
 import Avatar from '../Avatar';
 import { ConfirmDialog } from '../ConfirmDialog';
 import Toast from '../Toast';
@@ -29,7 +29,7 @@ import NeedsYou, { useLiveAttention, type Notify } from './NeedsYou';
 import PersonPanel from './PersonPanel';
 import { circleNeeds } from './priority';
 import TeamPeoplePicker from './TeamPeoplePicker';
-import type { TeamActivityFilter, TeamCircle, TeamCoverage, TeamCreateInput, TeamDirectory, TeamMember, TeamMemberInput } from './types';
+import type { CircleAvatar, TeamActivityFilter, TeamCircle, TeamCoverage, TeamCreateInput, TeamDirectory, TeamMember, TeamMemberInput } from './types';
 import { GITHUB_ACCOUNT_CHANGED, updateTeams, useTeams } from './useTeams';
 import { useTeamActivity } from './useTeamActivity';
 import './teams.css';
@@ -43,6 +43,7 @@ type View = { circleId: string | null; tab: Tab };
 const TEMPLATES = ['Internal engineering', 'Trusted OSS', 'Connector maintainers'];
 const PERIODS = [7, 30, 90];
 const VIEW_KEY = 'bytequay.circles.view.v1';
+const ALL_CIRCLES: CircleAvatar = { color: 'gray', shape: 'circle' };
 
 const scopeShort = (circle: TeamCircle) => circle.repositories.length === 0 ? 'Any repository'
   : `${circle.repositories[0].split('/')[1]}${circle.repositories.length > 1 ? ` +${circle.repositories.length - 1}` : ''}`;
@@ -76,7 +77,7 @@ export function openCircle(account: string, circleId: string): void {
   window.location.hash = '#/teams';
 }
 
-/** Moves focus through a list of buttons with the arrow keys, as the circle list and the views do. */
+/** Moves focus through a list of buttons with the arrow keys, as the circle menu and the views do. */
 function arrowFocus(event: ReactKeyboardEvent<HTMLElement>, keys: [string, string], select?: (button: HTMLButtonElement) => void): void {
   if (event.key !== keys[0] && event.key !== keys[1]) return;
   const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>(':scope > button')];
@@ -278,102 +279,100 @@ export default function TeamsPage() {
 
   const coverage = activity.snapshot?.coverage ?? null;
   const status = activity.refreshing ? { tone: 'busy', text: 'Refreshing…' } : activity.refreshError ? { tone: 'failed', text: 'Refresh failed' }
-    : { tone: coverage?.partial ? 'partial' : 'ok', text: `${coverage?.partial ? 'Partial · ' : ''}${coverage?.lastRefreshedAt ? `Updated ${ago(coverage.lastRefreshedAt)}` : 'Not collected yet'}` };
+    : { tone: coverage?.partial ? 'partial' : 'ok', text: coverage?.lastRefreshedAt ? `${coverage.partial ? 'Partial ·' : 'Updated'} ${ago(coverage.lastRefreshedAt)}` : 'Not collected yet' };
   const title = circle?.name ?? 'All circles';
-  const description = circle ? circle.description
-    : `${everyone.length} ${everyone.length === 1 ? 'person' : 'people'} in ${circles.length} ${circles.length === 1 ? 'circle' : 'circles'} · private to you`;
   const counts: Partial<Record<Tab, number>> = { needs: needs.length, members: members.length };
   const emptyScope = personMember?.login ?? (circle ? `people in ${circle.name}` : 'people in your circles');
 
   return <div className="cir-page">
-    <section className="cir-pane" aria-label="Circles">
-      <div className="cir-pane__head">
-        <span className="cir-pane__title">Circles</span><span className="cir-muted">{circles.length}</span><span className="cir-spacer" />
-        <button type="button" className="cir-iconbtn" aria-label="New circle" title="New circle" onClick={() => openCreate('')}><Plus size={16} strokeWidth={1.9} aria-hidden="true" /></button>
-      </div>
-      <nav className="cir-pane__list" aria-label="Circle list" onKeyDown={event => arrowFocus(event, ['ArrowUp', 'ArrowDown'])}>
-        <button type="button" className={`cir-pane__row${circle === null ? ' is-current' : ''}`} aria-current={circle === null ? 'page' : undefined} onClick={() => selectCircle(null)}>
-          <span className="cir-initial" aria-hidden="true"><Users size={14} /></span>
-          <span className="cir-pane__name">All circles</span><span className="cir-muted">{everyone.length}</span>
-        </button>
-        <span className="cir-pane__rule" aria-hidden="true" />
-        {circles.map(item => <button type="button" key={item.id} title={item.name} className={`cir-pane__row${circle?.id === item.id ? ' is-current' : ''}`}
-          aria-current={circle?.id === item.id ? 'page' : undefined} onClick={() => selectCircle(item.id)}>
-          <CircleIcon avatar={item.avatar} />
-          <span className="cir-stack"><span className="cir-pane__name">{item.name}</span><span className="cir-pane__meta">{people(item.members.length)} · {scopeShort(item)}</span></span>
-        </button>)}
-      </nav>
-      <div className="cir-pane__foot"><LockKeyhole size={12} strokeWidth={2} aria-hidden="true" />Private to you · no one is notified</div>
-    </section>
-
     <main className="cir-main">
       <div className="cir-work">
         <header className="bq-page-header">
-          <div className="bq-page-header__main">
-            <div className="cir-anchor cir-switcher">
-              <button type="button" className="cir-switcher__button" aria-haspopup="menu" aria-expanded={popover === 'switcher'} onClick={() => toggle('switcher')}>
-                <Users size={13} aria-hidden="true" />Circles<ChevronDown size={12} strokeWidth={2.2} aria-hidden="true" />
+          <div className="cir-anchor cir-switcher">
+            <h1 className="bq-page-header__title">
+              <button type="button" className="cir-switcher__button" aria-haspopup="menu" aria-expanded={popover === 'switcher'}
+                title={circle?.description || 'Switch circle'} onClick={() => toggle('switcher')}>
+                <CircleIcon avatar={circle?.avatar ?? ALL_CIRCLES} size="dot" /><span className="cir-ellipsis">{title}</span>
+                <ChevronDown size={14} strokeWidth={2.2} aria-hidden="true" />
               </button>
-              {popover === 'switcher' && <Switcher circles={circles} current={circle} everyone={everyone.length} onSelect={selectCircle}
-                onCreate={() => openCreate('')} onClose={() => setPopover(null)} />}
-            </div>
-            <h1 className="bq-page-header__title" title={title}>{title}</h1>
-            {description && <p className="bq-page-header__text">{description}</p>}
-            {circle && <div className="bq-page-header__meta">
-              <button type="button" className="cir-people" onClick={() => setTab('members')}>
-                {members.length > 0 && <span className="cir-avatars">{members.slice(0, 5).map(member =>
-                  <Avatar key={member.githubId} login={member.login} avatarUrl={member.avatarUrl} size={22} />)}</span>}
-                {members.length > 5 && <span className="cir-muted">+{members.length - 5}</span>}
-                <span>{people(members.length)}</span>
-              </button>
-              <span className="cir-scope" title="Repository scope filters activity. It doesn’t watch repositories or change access.">
-                <Book size={13} aria-hidden="true" /><span className="cir-ellipsis">{circle.repositories.length > 0 ? circle.repositories.join(', ') : 'Any repository with recorded activity'}</span>
-              </span>
-            </div>}
+            </h1>
+            {popover === 'switcher' && <Switcher circles={circles} current={circle} needsOf={scope => circleNeeds(attention.live, scope, viewerLogin).length}
+              onSelect={selectCircle} onCreate={() => openCreate('')} onClose={() => setPopover(null)} />}
+          </div>
+          <div className="bq-page-header__meta">
+            <button type="button" className="cir-people" onClick={() => setTab('members')}>
+              {members.length > 0 && <span className="cir-avatars">{members.slice(0, 5).map(member =>
+                <Avatar key={member.githubId} login={member.login} avatarUrl={member.avatarUrl} size={20} />)}</span>}
+              <span>{people(members.length)}</span>
+            </button>
+            <span className="cir-sep" aria-hidden="true">·</span>
+            {circle ? <span className="cir-ellipsis" title="Repository scope filters activity. It doesn’t watch repositories or change access.">
+              {circle.repositories.length > 0 ? circle.repositories.join(', ') : 'Any repository'}
+            </span> : <span className="cir-ellipsis">{circles.length} {circles.length === 1 ? 'circle' : 'circles'}</span>}
           </div>
           <div className="bq-page-header__actions cir-anchor">
             {circle ? <>
-              <button type="button" className="bq-button" aria-haspopup="dialog" aria-expanded={popover === 'add'} onClick={() => {
+              <button type="button" className="cir-iconbtn" aria-label="Add people" title="Add people" aria-haspopup="dialog" aria-expanded={popover === 'add'} onClick={() => {
                 const opening = popover !== 'add';
                 setTab('members');
                 setPopover(opening ? 'add' : null);
-              }}><UserPlus aria-hidden="true" />Add people</button>
-              <button type="button" className="bq-button" onClick={() => { setError(null); setPopover(null); setEditing({ circle, name: circle.name }); }}>
-                <Pencil aria-hidden="true" />Edit
+              }}><UserPlus size={15} strokeWidth={1.9} aria-hidden="true" /></button>
+              <button type="button" className="cir-iconbtn" aria-label="Edit circle" title="Edit circle"
+                onClick={() => { setError(null); setPopover(null); setEditing({ circle, name: circle.name }); }}>
+                <Pencil size={14} strokeWidth={1.9} aria-hidden="true" />
               </button>
               {popover === 'add' && <TeamPeoplePicker key={circle.id} circle={circle} circles={circles} busy={busy}
                 onAdd={member => addMember(circle, member)} onClose={() => setPopover(null)} />}
-            </> : <button type="button" className="bq-button" onClick={() => openCreate('')}><Plus aria-hidden="true" />New circle</button>}
+            </> : <button type="button" className="cir-iconbtn" aria-label="New circle" title="New circle" onClick={() => openCreate('')}>
+              <Plus size={16} strokeWidth={1.9} aria-hidden="true" />
+            </button>}
           </div>
         </header>
 
-        <nav className="bq-page-tabs" role="tablist" aria-label="Circle views"
-          onKeyDown={event => arrowFocus(event, ['ArrowLeft', 'ArrowRight'], button => setTab(TABS[Number(button.dataset.index)][0]))}>
-          {TABS.map(([id, label], index) => <button key={id} type="button" role="tab" data-index={index} aria-selected={tab === id} tabIndex={tab === id ? 0 : -1}
-            title={`⌘${index + 1}`} className="bq-page-tabs__tab" onClick={() => setTab(id)}>
-            {label}{counts[id] !== undefined && <span className="bq-page-tabs__count">{counts[id]}</span>}
-          </button>)}
-        </nav>
-
-        <div className="bq-page-filters">
-          {tab !== 'members' && <div className="cir-anchor">
-            <button type="button" className="cir-select" aria-haspopup="listbox" aria-expanded={popover === 'person'} aria-label="Person" onClick={() => toggle('person')}>
-              {personMember ? <Avatar login={personMember.login} avatarUrl={personMember.avatarUrl} size={16} /> : <Users size={14} aria-hidden="true" />}
-              <span className="cir-ellipsis">{personMember?.login ?? 'Everyone'}</span><ChevronDown size={12} strokeWidth={2.2} aria-hidden="true" />
-            </button>
-            {popover === 'person' && <PersonFilter members={members} selected={personMember} onClose={() => setPopover(null)}
-              onSelect={id => { setPerson(id); setPopover(null); setLimit(100); }} />}
-          </div>}
-          {tab === 'needs' ? <span className="cir-muted">Current backlog · not limited by period</span> : <>
-            <div className="atn-filters" role="group" aria-label="Period">
-              {PERIODS.map(value => <button key={value} type="button" aria-pressed={period === value} title={`Past ${value} days`}
-                className={`atn-filter${period === value ? ' is-active' : ''}`} onClick={() => { setPeriod(value); setLimit(100); }}>{value}d</button>)}
-              <button type="button" aria-pressed={period === 'custom'} title="Custom period, 1–90 days" className={`atn-filter${period === 'custom' ? ' is-active' : ''}`}
-                onClick={() => setPeriod('custom')}>Custom</button>
+        <div className="bq-page-tabs">
+          <nav className="bq-page-tabs__list" role="tablist" aria-label="Circle views"
+            onKeyDown={event => arrowFocus(event, ['ArrowLeft', 'ArrowRight'], button => setTab(TABS[Number(button.dataset.index)][0]))}>
+            {TABS.map(([id, label], index) => <button key={id} type="button" role="tab" data-index={index} aria-selected={tab === id} tabIndex={tab === id ? 0 : -1}
+              title={`⌘${index + 1}`} className="bq-page-tabs__tab" onClick={() => setTab(id)}>
+              {label}{counts[id] !== undefined && <span className="bq-page-tabs__count">{counts[id]}</span>}
+            </button>)}
+          </nav>
+          <div className="bq-page-tabs__tools">
+            {tab !== 'members' && <>
+              <div className="cir-anchor cir-person-select">
+                <button type="button" className="cir-select" aria-haspopup="listbox" aria-expanded={popover === 'person'} aria-label="Person" title="Filter by person"
+                  onClick={() => toggle('person')}>
+                  {personMember ? <Avatar login={personMember.login} avatarUrl={personMember.avatarUrl} size={16} /> : <Users size={14} aria-hidden="true" />}
+                  <span className="cir-ellipsis">{personMember?.login ?? 'Everyone'}</span><ChevronDown size={12} strokeWidth={2.2} aria-hidden="true" />
+                </button>
+                {popover === 'person' && <PersonFilter members={members} selected={personMember} onClose={() => setPopover(null)}
+                  onSelect={id => { setPerson(id); setPopover(null); setLimit(100); }} />}
+              </div>
+              <span className="cir-divider" aria-hidden="true" />
+            </>}
+            <div className="cir-anchor cir-status-group">
+              <button type="button" className={`cir-status is-${status.tone}`} aria-haspopup="dialog" aria-expanded={popover === 'coverage'}
+                title={tab === 'needs' ? 'Current backlog · not limited by period' : undefined} onClick={() => toggle('coverage')}>
+                <span className="cir-status__dot" aria-hidden="true" /><span className="cir-ellipsis">{status.text}</span>
+              </button>
+              <button type="button" className="cir-iconbtn" aria-label="Refresh activity" title="Refresh (runs one bounded collection pass)"
+                disabled={activity.refreshing} onClick={refresh}>
+                {activity.refreshing ? <span className="cir-spinner" aria-hidden="true" /> : <RefreshCw size={14} strokeWidth={2} aria-hidden="true" />}
+              </button>
+              {popover === 'coverage' && <CoveragePopover coverage={coverage} refreshError={activity.refreshError} onRefresh={refresh} onClose={() => setPopover(null)} />}
             </div>
-            {period === 'custom' && <label className="cir-days">Past<input type="number" min={1} max={90} value={customDays} aria-label="Past days, 1 to 90"
-              onChange={event => { const value = Math.round(Number(event.target.value)); if (value >= 1 && value <= 90) { setCustomDays(value); setLimit(100); } }} />days</label>}
-          </>}
+          </div>
+        </div>
+
+        {tab !== 'needs' && <div className="bq-page-filters">
+          <div className="atn-filters" role="group" aria-label="Period">
+            {PERIODS.map(value => <button key={value} type="button" aria-pressed={period === value} title={`Past ${value} days`}
+              className={`atn-filter${period === value ? ' is-active' : ''}`} onClick={() => { setPeriod(value); setLimit(100); }}>{value}d</button>)}
+            <button type="button" aria-pressed={period === 'custom'} title="Custom period, 1–90 days" className={`atn-filter${period === 'custom' ? ' is-active' : ''}`}
+              onClick={() => setPeriod('custom')}>Custom</button>
+          </div>
+          {period === 'custom' && <label className="cir-days">Past<input type="number" min={1} max={90} value={customDays} aria-label="Past days, 1 to 90"
+            onChange={event => { const value = Math.round(Number(event.target.value)); if (value >= 1 && value <= 90) { setCustomDays(value); setLimit(100); } }} />days</label>}
           {tab === 'activity' && (metric === null
             ? <div className="atn-filters" role="group" aria-label="Activity type">
               {ACTIVITY_TYPES.map(([id, label]) => <button key={id} type="button" aria-pressed={type === id} className={`atn-filter${type === id ? ' is-active' : ''}`}
@@ -382,18 +381,7 @@ export default function TeamsPage() {
             : <span className="cir-metric-chip">From Insights: <span className="cir-strong">{METRICS[metric]}</span>
               <button type="button" aria-label="Clear metric filter" onClick={() => { setMetric(null); setLimit(100); }}><X size={12} strokeWidth={2.2} aria-hidden="true" /></button>
             </span>)}
-          <span className="cir-spacer" />
-          <div className="cir-anchor cir-status-group">
-            <button type="button" className={`cir-status is-${status.tone}`} aria-haspopup="dialog" aria-expanded={popover === 'coverage'} onClick={() => toggle('coverage')}>
-              <span className="cir-status__dot" aria-hidden="true" />{status.text}
-            </button>
-            <button type="button" className="bq-button cir-refresh" aria-label="Refresh activity" title="Refresh (runs one bounded collection pass)"
-              disabled={activity.refreshing} onClick={refresh}>
-              {activity.refreshing ? <span className="cir-spinner" aria-hidden="true" /> : <RefreshCw aria-hidden="true" />}
-            </button>
-            {popover === 'coverage' && <CoveragePopover coverage={coverage} refreshError={activity.refreshError} onRefresh={refresh} onClose={() => setPopover(null)} />}
-          </div>
-        </div>
+        </div>}
 
         <div className="cir-body">
           {activity.refreshError && <div className="cir-banner" role="alert">
@@ -430,26 +418,35 @@ export default function TeamsPage() {
   </div>;
 }
 
-function Switcher({ circles, current, everyone, onSelect, onCreate, onClose }: {
+function Switcher({ circles, current, needsOf, onSelect, onCreate, onClose }: {
   circles: TeamCircle[];
   current: TeamCircle | null;
-  everyone: number;
+  needsOf: (scope: TeamCircle[]) => number;
   onSelect: (id: string | null) => void;
   onCreate: () => void;
   onClose: () => void;
 }) {
   const host = usePopoverDismiss(onClose, true);
-  const row = (circle: TeamCircle | null, name: string, count: number) => <button type="button" role="menuitem" key={circle?.id ?? 'all'} className="cir-menu__item"
-    onClick={() => onSelect(circle?.id ?? null)}>
-    <span className="cir-menu__check">{(current?.id ?? null) === (circle?.id ?? null) && <Check size={14} strokeWidth={2.2} aria-hidden="true" />}</span>
-    {circle ? <CircleIcon avatar={circle.avatar} size="small" /> : <span className="cir-initial is-small" aria-hidden="true"><Users size={11} /></span>}
-    <span className="cir-ellipsis">{name}</span><span className="cir-muted">{count} people</span>
-  </button>;
-  return <div ref={host} className="cir-popover cir-menu cir-switcher__menu" role="menu" aria-label="Circles">
-    {row(null, 'All circles', everyone)}
-    {circles.map(item => row(item, item.name, item.members.length))}
+  const row = (circle: TeamCircle | null) => {
+    const name = circle?.name ?? 'All circles';
+    const selected = (current?.id ?? null) === (circle?.id ?? null);
+    const needs = needsOf(circle ? [circle] : circles);
+    return <button type="button" role="menuitemradio" aria-checked={selected} key={circle?.id ?? 'all'} title={name} className="cir-menu__item"
+      onClick={() => onSelect(circle?.id ?? null)}>
+      <CircleIcon avatar={circle?.avatar ?? ALL_CIRCLES} size="dot" />
+      <span className="cir-stack"><span className="cir-menu__name">{name}</span>
+        <span className="cir-menu__meta">{circle ? `${people(circle.members.length)} · ${scopeShort(circle)}` : 'Everyone across your circles'}</span></span>
+      {needs > 0 && <span className="cir-muted" title={`${needs} ${needs === 1 ? 'needs' : 'need'} you`}>{needs}</span>}
+      <span className="cir-menu__check">{selected && <Check size={14} strokeWidth={2.2} aria-hidden="true" />}</span>
+    </button>;
+  };
+  return <div ref={host} className="cir-popover cir-menu cir-switcher__menu" role="menu" aria-label="Circles" onKeyDown={event => arrowFocus(event, ['ArrowUp', 'ArrowDown'])}>
+    <div className="cir-label">Circles</div>
+    {row(null)}
+    {circles.map(row)}
     <span className="cir-menu__rule" aria-hidden="true" />
-    <button type="button" role="menuitem" className="cir-menu__item" onClick={onCreate}><span className="cir-menu__check"><Plus size={14} aria-hidden="true" /></span>New circle</button>
+    <button type="button" role="menuitem" className="cir-menu__item" onClick={onCreate}><Plus size={14} aria-hidden="true" />New circle</button>
+    <div className="cir-menu__note"><LockKeyhole size={12} strokeWidth={2} aria-hidden="true" />Private to you · no one is notified</div>
   </div>;
 }
 
@@ -522,18 +519,9 @@ function LoadingRows() {
 }
 
 function LoadingPage() {
-  return <>
-    <section className="cir-pane" aria-label="Circles">
-      <div className="cir-pane__head"><span className="cir-pane__title">Circles</span></div>
-      <div className="cir-skeleton cir-skeleton--pane" role="status" aria-label="Loading circles">
-        {[0, 1, 2, 3, 4].map(index => <div key={index} className="cir-skeleton__row"><span className="cir-skeleton__tile" />
-          <span className="cir-stack"><span className="cir-skeleton__line" /><span className="cir-skeleton__line is-short" /></span></div>)}
-      </div>
-    </section>
-    <main className="cir-main"><div className="cir-work cir-loading">
-      <span className="cir-skeleton__line is-title" /><span className="cir-skeleton__line is-text" />
-      <div className="cir-loading__note"><span className="cir-spinner" aria-hidden="true" />Loading your circles and recorded activity…</div>
-      <LoadingRows />
-    </div></main>
-  </>;
+  return <main className="cir-main"><div className="cir-work cir-loading">
+    <span className="cir-skeleton__line is-title" /><span className="cir-skeleton__line is-text" />
+    <div className="cir-loading__note"><span className="cir-spinner" aria-hidden="true" />Loading your circles and recorded activity…</div>
+    <LoadingRows />
+  </div></main>;
 }

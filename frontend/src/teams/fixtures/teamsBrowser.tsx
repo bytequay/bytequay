@@ -85,6 +85,16 @@ function button(label: string, host: ParentNode = document): HTMLButtonElement {
 
 const settled = async () => { await settle(); await settle(); };
 async function click(label: string, host: ParentNode = document) { button(label, host).click(); await settled(); }
+
+/** Opens the title's circle menu, and picks a circle from it when named. */
+async function switcher(name?: string): Promise<HTMLElement> {
+  document.querySelector<HTMLButtonElement>('.cir-switcher__button')?.click();
+  await settled();
+  const menu = document.querySelector<HTMLElement>('.cir-switcher__menu');
+  assert(menu !== null, 'The title must open the circle menu');
+  if (name !== undefined) await click(name, menu);
+  return menu;
+}
 const text = () => document.body.textContent ?? '';
 
 async function input(label: string, value: string): Promise<void> {
@@ -247,7 +257,7 @@ async function mount(initial = seededDirectory(), { home = false, observations =
 
 async function firstUse() {
   const f = await mount({ accountLogin: 'viewer', circles: [] });
-  assert(text().includes('Keep the people you review close') && document.querySelector('.cir-pane') === null, 'No circles must explain circles without a list');
+  assert(text().includes('Keep the people you review close') && document.querySelector('.cir-switcher') === null, 'No circles must explain circles without a switcher');
   await click('Trusted OSS');
   assert(document.querySelector<HTMLInputElement>('[aria-label="Circle name"]')?.value === 'Trusted OSS', 'A suggested name must prefill the dialog');
   await input('Circle name', ' ');
@@ -289,7 +299,7 @@ async function saveFailure() {
 
 async function membersAndUndo() {
   const f = await mount();
-  await click('Trusted OSS', document.querySelector('.cir-pane') ?? document);
+  await switcher('Trusted OSS');
   await openTab('Members');
   assert(document.querySelectorAll('.cir-table [role="listitem"]').length === 2, 'Members must list the circle’s people');
   assert(document.querySelector('.cir-table [role="listitem"] .cir-member__circles')?.textContent === 'Also in Platform team', 'Members must name a person’s other circles');
@@ -325,7 +335,7 @@ async function activityWording() {
 
 async function insightsDrill() {
   const f = await mount();
-  await click('Trusted OSS', document.querySelector('.cir-pane') ?? document);
+  await switcher('Trusted OSS');
   await openTab('Insights');
   const tile = [...document.querySelectorAll<HTMLButtonElement>('.cir-tile')].find(item => item.textContent?.includes('PRs reviewed'));
   assert(tile?.querySelector('.cir-tile__value')?.textContent === '12', 'The scope tile must total its people');
@@ -345,7 +355,7 @@ async function insightsDrill() {
 
 async function personPanel() {
   const f = await mount();
-  await click('Trusted OSS', document.querySelector('.cir-pane') ?? document);
+  await switcher('Trusted OSS');
   await openTab('Members');
   await click('Open alice');
   const panel = document.querySelector('.cir-person');
@@ -373,6 +383,9 @@ async function needsYou() {
   const words = comment.textContent?.trim().split(/\s+/) ?? [];
   assert(words.length === 100 && words[99].endsWith('…'), 'The unfolded comment must stop at a hundred words');
   assert(document.querySelector('.bq-page-tabs [aria-selected="true"] .bq-page-tabs__count')?.textContent === '1', 'The tab must count the backlog');
+  const counts = [...(await switcher()).querySelectorAll('[role="menuitemradio"]')].map(item => `${item.getAttribute('title')}:${item.querySelector('[title$="you"]')?.textContent ?? ''}`);
+  assert(counts.join() === 'All circles:1,Trusted OSS:1,Platform team:', 'The circle menu must count what needs you in each circle’s scope');
+  await press('', 'Escape');
   await click('Acknowledge #24830', rows[0]);
   assert(document.querySelector('.cir-needs') === null && text().includes('Nothing needs you right now'), 'Acknowledging must clear the row');
   assert(Object.keys(JSON.parse(window.localStorage.getItem('bytequay.attention.handled.v1') ?? '{}')).includes('trinodb/trino#24830'), 'Handling must reach Home too');
@@ -400,7 +413,7 @@ async function refreshFailure() {
 
 async function accountSwitchDuringRefresh() {
   const f = await mount();
-  await click('Trusted OSS', document.querySelector('.cir-pane') ?? document);
+  await switcher('Trusted OSS');
   await openTab('Activity');
   f.delayRefresh(); await click('Refresh activity');
   assert(button('Refresh activity').disabled, 'The delayed refresh must be in flight');
@@ -418,7 +431,7 @@ async function accountSwitchDuringRefresh() {
 
 async function rememberedView() {
   await mount();
-  await click('Platform team', document.querySelector('.cir-pane') ?? document);
+  await switcher('Platform team');
   await press('', '4', { metaKey: true });
   assert(selectedTab() === 'Insights', '⌘4 must open Insights');
   await mount(seededDirectory(), { keepStorage: true });
@@ -436,14 +449,14 @@ async function avatarChoice() {
   assert(preview?.classList.contains('is-pink') === true && preview.classList.contains('is-circle') && preview.textContent === '', 'The preview must follow the pick');
   await click('Create circle');
   assert(JSON.stringify(f.directory.circles[2]?.avatar) === '{"color":"pink","shape":"circle"}', 'Create must save the avatar');
-  const tile = document.querySelector('.cir-pane [title="Reviewers"] .cir-avatar');
-  assert(tile?.classList.contains('is-pink') === true && tile.classList.contains('is-circle'), 'The circle list must draw the avatar');
-  await click('Edit');
+  const tile = document.querySelector('.cir-switcher__button .cir-avatar');
+  assert(tile?.classList.contains('is-pink') === true && tile.classList.contains('is-circle'), 'The title must draw the avatar');
+  await click('Edit circle');
   await click('Green');
   await click('Square', document.querySelector('[aria-label="Avatar shape"]') ?? document);
   await click('Save changes');
   assert(JSON.stringify(f.directory.circles[2]?.avatar) === '{"color":"green","shape":"square"}', 'Edit must save a changed avatar');
-  assert(document.querySelector('.cir-pane [title="Reviewers"] .cir-avatar')?.classList.contains('is-green') === true, 'The list must redraw the changed avatar');
+  assert(document.querySelector('.cir-switcher__button .cir-avatar')?.classList.contains('is-green') === true, 'The title must redraw the changed avatar');
 }
 
 async function homeNavigation() {
@@ -505,12 +518,13 @@ export function commentShown(): boolean {
   return box !== null && getComputedStyle(box).display !== 'none';
 }
 
-export async function showPreview(view: 'needs' | 'activity' | 'members' | 'insights' | 'person' | 'create' | 'edit' | 'empty' | 'remove' = 'needs') {
+export async function showPreview(view: 'needs' | 'activity' | 'members' | 'insights' | 'person' | 'create' | 'edit' | 'empty' | 'remove' | 'switcher' = 'needs') {
   if (view === 'empty') { await mount({ accountLogin: 'viewer', circles: [] }); return; }
   await mount(seededDirectory(), { prs: [alicePr()] });
   if (view === 'create') { await click('New circle'); await input('Circle name', 'Review friends'); await input('Filter cached contributors', 'a'); return; }
-  await click('Trusted OSS', document.querySelector('.cir-pane') ?? document);
-  if (view === 'edit') { await click('Edit'); return; }
+  await switcher('Trusted OSS');
+  if (view === 'edit') { await click('Edit circle'); return; }
+  if (view === 'switcher') { await switcher(); return; }
   if (view === 'activity') {
     await openTab('Activity');
     const group = document.querySelector('.cir-group');

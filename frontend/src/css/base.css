@@ -366,50 +366,37 @@ textarea {
 }
 
 /* ── Page chrome ─────────────────────────────────────────────
-   A page's header, its view tabs and its filter bar, in that order under the window's drag area. */
+   A page's one-row header, its view tabs with the page's tools beside them, and a view's filter bar, in that order under
+   the window's drag area. */
 .bq-page-header {
   position: relative;
   flex: none;
   display: flex;
-  align-items: flex-start;
-  gap: 16px;
-  padding: 22px 28px 0;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 28px 0;
 }
 
-.bq-page-header__main { flex: 1; min-width: 0; }
-
 .bq-page-header__title {
-  display: -webkit-box;
   margin: 0;
-  overflow: hidden;
   color: var(--text-1);
   font-size: 20px;
   font-weight: 600;
   line-height: 26px;
   letter-spacing: -0.2px;
-  text-wrap: pretty;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
 }
 
-.bq-page-header__text {
-  max-width: 720px;
-  margin: 3px 0 0;
-  color: var(--text-3);
-  font-size: 13px;
-  line-height: 18px;
-  text-wrap: pretty;
-  overflow-wrap: anywhere;
-}
-
+/* A zero basis gives the meta line only the leftover room, so it truncates before the title does. */
 .bq-page-header__meta {
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 6px 14px;
-  margin-top: 10px;
+  gap: 8px;
+  overflow: hidden;
   color: var(--text-2);
   font-size: 12.5px;
+  white-space: nowrap;
 }
 
 .bq-page-header__actions {
@@ -417,18 +404,33 @@ textarea {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding-top: 2px;
+  gap: 2px;
 }
 
 .bq-page-tabs {
   flex: none;
   display: flex;
   align-items: flex-end;
-  gap: 22px;
-  margin-top: 16px;
+  gap: 16px;
+  margin-top: 8px;
   padding: 0 28px;
   border-bottom: 1px solid var(--border);
+}
+
+.bq-page-tabs__list {
+  flex: none;
+  display: flex;
+  gap: 22px;
+}
+
+.bq-page-tabs__tools {
+  flex: 1;
+  align-self: center;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .bq-page-tabs__tab {

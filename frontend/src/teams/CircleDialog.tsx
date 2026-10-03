@@ -25,7 +25,7 @@ type Selected = { githubId: number; login: string; avatarUrl: string };
 const SHOWN = 50;
 
 /** A circle's avatar: a plain block of the color and shape chosen for it. */
-export function CircleIcon({ avatar, size = 'medium' }: { avatar: CircleAvatar; size?: 'small' | 'medium' | 'large' }) {
+export function CircleIcon({ avatar, size = 'medium' }: { avatar: CircleAvatar; size?: 'dot' | 'small' | 'medium' | 'large' }) {
   return <span className={`cir-avatar is-${size} is-${avatar.color} is-${avatar.shape}`} aria-hidden="true" />;
 }
 

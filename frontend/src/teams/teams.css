@@ -1,6 +1,6 @@
 /* ── Circles ─────────────────────────────────────────────
-   A circle list, one work surface with four views, and a person panel beside the work. The page header, tabs
-   and filter bar are the shared bq-page-* chrome; rows and pills come from cards.css. */
+   A circle switcher in the page title, one work surface with four views, and a person panel beside the work. The page
+   header, tabs and filter bar are the shared bq-page-* chrome; rows and pills come from cards.css. */
 
 .cir-page { display: flex; height: 100%; min-height: 0; background: #ffffff; color: var(--text-1); font-size: 14px; line-height: 20px; }
 .cir-spacer { flex: 1; }
@@ -12,7 +12,7 @@
 .cir-anchor { position: relative; }
 .cir-mono { font-family: var(--mono); }
 
-:is(.cir-iconbtn, .cir-pane__row, .cir-switcher__button, .cir-people, .cir-select, .cir-status, .cir-more, .cir-link, .cir-tile, .cir-count,
+:is(.cir-iconbtn, .cir-switcher__button, .cir-people, .cir-select, .cir-status, .cir-more, .cir-link, .cir-tile, .cir-count,
   .cir-cell, .cir-person-link, .cir-metric, .cir-with, .cir-need, .cir-recent__row, .cir-tag, .cir-menu__item, .cir-template, .cir-suggestion,
   .cir-token__x, .cir-back, .cir-metric-chip button):focus-visible {
   outline: 2px solid var(--accent);
@@ -29,28 +29,9 @@
 .cir-spinner { flex: none; width: 12px; height: 12px; box-sizing: border-box; border: 2px solid #dadadb; border-top-color: var(--accent); border-radius: 50%;
   animation: bq-spin 0.8s linear infinite; }
 
-/* ── Circle list ── */
-.cir-pane { flex: none; display: flex; flex-direction: column; width: 232px; min-height: 0; border-right: 1px solid var(--border); background: #ffffff; }
-.cir-pane__head { flex: none; display: flex; align-items: center; gap: 6px; height: 40px; margin-top: 8px; padding: 0 8px 0 16px; }
-.cir-pane__title { font-size: 13px; font-weight: 600; }
-.cir-pane__head .cir-muted { font-size: 12px; }
-.cir-pane__list { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 1px; padding: 2px 8px 8px; overflow-y: auto; }
-.cir-pane__row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; border: 0; border-radius: 7px; background: transparent;
-  color: var(--text-2); font: inherit; text-align: left; cursor: pointer; }
-.cir-pane__row:hover { background: rgba(0, 0, 0, 0.05); }
-.cir-pane__row.is-current { background: rgba(0, 0, 0, 0.06); color: var(--text-1); }
-.cir-pane__row > .cir-muted { font-size: 12px; }
-.cir-pane__name { flex: 1; min-width: 0; overflow: hidden; font-size: 13.5px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
-.cir-pane__meta { overflow: hidden; color: var(--text-3); font-size: 11.5px; line-height: 15px; text-overflow: ellipsis; white-space: nowrap; }
-.cir-pane__rule { flex: none; height: 1px; margin: 5px 8px; background: var(--border); }
-.cir-pane__foot { flex: none; display: flex; align-items: center; gap: 7px; padding: 10px 16px; border-top: 1px solid var(--border); color: var(--text-3);
-  font-size: 11.5px; line-height: 16px; }
-.cir-initial { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; background: #f4f4f5;
-  color: #57606a; font-size: 11.5px; font-weight: 600; }
-.cir-initial.is-small { width: 18px; height: 18px; border-radius: 5px; }
-
 /* A circle's avatar: a plain block of a palette color, as a rounded square or a circle. */
 .cir-avatar { flex: none; display: inline-block; width: 24px; height: 24px; border-radius: 6px; }
+.cir-avatar.is-dot { width: 10px; height: 10px; border-radius: 3px; }
 .cir-avatar.is-small { width: 18px; height: 18px; border-radius: 5px; }
 .cir-avatar.is-large { width: 32px; height: 32px; border-radius: 8px; }
 .cir-avatar.is-circle { border-radius: 50%; }
@@ -68,21 +49,28 @@
 .cir-work { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; container: cir-work / inline-size; }
 .cir-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 28px 32px; }
 
-.cir-switcher { display: none; margin-bottom: 6px; }
-.cir-switcher__button { display: inline-flex; align-items: center; gap: 6px; height: 24px; margin-left: -6px; padding: 0 8px 0 6px; border: 0; border-radius: 6px;
-  background: transparent; color: var(--text-2); font: inherit; font-size: 12.5px; cursor: pointer; }
-.cir-switcher__button:hover { background: rgba(31, 35, 40, 0.06); }
-.cir-switcher__menu { top: 28px; left: -6px; width: 300px; max-height: 360px; }
+/* The page title is the circle switcher. */
+.cir-switcher { flex: 0 1 auto; min-width: 0; }
+.cir-switcher__button { display: flex; align-items: center; gap: 9px; margin-left: -6px; padding: 4px 8px 4px 6px; border: 0; border-radius: 8px;
+  background: transparent; color: inherit; font: inherit; letter-spacing: inherit; cursor: pointer; }
+.cir-switcher__button:hover, .cir-switcher__button[aria-expanded="true"] { background: rgba(31, 35, 40, 0.06); }
+.cir-switcher__button > svg { flex: none; color: #57606a; }
+.cir-switcher__menu { top: calc(100% + 6px); left: -6px; width: 300px; max-height: 420px; }
+.cir-switcher__menu > .cir-label { margin: 0; padding: 6px 8px 4px; }
+.cir-switcher__menu .cir-menu__item { gap: 10px; }
+.cir-switcher__menu .cir-menu__item[aria-checked="true"] { background: #f6f8fa; }
+.cir-switcher__menu .cir-menu__item > svg { flex: none; margin: 0 -2px; color: #57606a; }
+.cir-switcher__menu .cir-menu__check { color: var(--accent); }
+.cir-menu__item > .cir-stack { flex: 1; }
+.cir-menu__name { overflow: hidden; font-size: 13.5px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }
+.cir-menu__meta { overflow: hidden; color: var(--text-3); font-size: 11.5px; line-height: 15px; text-overflow: ellipsis; white-space: nowrap; }
 
 .cir-people { flex: none; display: inline-flex; align-items: center; gap: 8px; margin-left: -2px; padding: 2px 6px 2px 2px; border: 0; border-radius: 14px;
   background: transparent; color: var(--text-2); font: inherit; font-size: 12.5px; white-space: nowrap; cursor: pointer; }
 .cir-people:hover { background: rgba(31, 35, 40, 0.06); }
 .cir-avatars { display: inline-flex; margin-right: 1px; }
 .cir-avatars > .avatar { margin-right: -5px; box-shadow: 0 0 0 2px #ffffff; }
-.cir-scope { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
-.cir-scope > svg { flex: none; color: var(--text-3); }
-
-.bq-page-header__actions .cir-add { top: 40px; right: 0; width: 330px; }
+.bq-page-header__actions .cir-add { top: 34px; right: 0; width: 330px; }
 .cir-add .pr-people-picker { position: static; width: 100%; border: 0; border-radius: 0; box-shadow: none; }
 .cir-add .pr-people-picker__list { max-height: 300px; }
 .cir-popover__foot { padding: 8px 14px; border-top: 1px solid var(--border); color: var(--text-3); font-size: 11.5px; line-height: 16px; }
@@ -98,18 +86,18 @@
 .cir-menu__item > .cir-muted { margin-left: auto; font-size: 11.5px; white-space: nowrap; }
 .cir-menu__check { flex: none; display: inline-flex; justify-content: center; width: 18px; }
 .cir-menu__rule { display: block; height: 1px; margin: 4px 6px; background: var(--border); }
-.cir-menu__note { padding: 6px 8px 2px; color: var(--text-3); font-size: 11.5px; }
-.cir-person-filter { top: 32px; left: 0; width: 290px; max-height: 340px; }
+.cir-menu__note { display: flex; align-items: center; gap: 7px; padding: 6px 8px 2px; color: var(--text-3); font-size: 11.5px; }
+.cir-person-filter { top: 32px; right: 0; width: 290px; max-height: 340px; }
 .cir-check { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; box-sizing: border-box;
   border: 1px solid #c8c9cc; border-radius: 4px; background: #ffffff; color: #ffffff; }
 .cir-check.is-on { border-color: var(--text-1); background: var(--text-1); }
 
-/* ── Filter bar ── */
-.cir-select { display: inline-flex; align-items: center; gap: 7px; max-width: 260px; height: 28px; padding: 0 8px; border: 1px solid var(--control-border);
-  border-radius: 6px; background: #ffffff; box-shadow: var(--shadow-sm); color: var(--text-1); font: inherit; font-size: 12.5px; cursor: pointer; }
-.cir-select:hover { background: var(--control-hover); }
-.cir-select > svg:last-child { flex: none; color: #57606a; }
-.bq-page-filters > .cir-muted { font-size: 12.5px; white-space: nowrap; }
+/* ── Tab tools and filter bar ── */
+.cir-person-select { min-width: 0; }
+.cir-select { display: flex; align-items: center; gap: 7px; max-width: 260px; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent;
+  color: var(--text-1); font: inherit; font-size: 12.5px; cursor: pointer; }
+.cir-select:hover, .cir-select[aria-expanded="true"] { background: rgba(31, 35, 40, 0.06); }
+.cir-select > svg { flex: none; color: #57606a; }
 .bq-page-filters .atn-filters { margin-left: 0; }
 .cir-days { display: inline-flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 12.5px; }
 .cir-days input { width: 56px; height: 28px; box-sizing: border-box; padding: 0 8px; border: 1px solid var(--control-border); border-radius: 6px; font: inherit; font-size: 12.5px; }
@@ -119,17 +107,16 @@
 .cir-metric-chip button { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%;
   background: transparent; color: inherit; cursor: pointer; }
 .cir-metric-chip button:hover { background: rgba(9, 105, 218, 0.12); }
-.cir-status-group { display: flex; align-items: center; gap: 2px; }
-.cir-status { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent;
+.cir-status-group { min-width: 0; display: flex; align-items: center; gap: 2px; }
+.cir-status { display: inline-flex; align-items: center; gap: 7px; min-width: 0; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent;
   color: #57606a; font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; }
 .cir-status:hover { background: rgba(31, 35, 40, 0.06); }
-.cir-status__dot { width: 7px; height: 7px; border-radius: 50%; background: #1a7f37; }
+.cir-status__dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: #1a7f37; }
 .cir-status.is-busy .cir-status__dot { background: var(--accent); }
 .cir-status.is-partial { color: #9a6700; }
 .cir-status.is-partial .cir-status__dot { background: #d4a72c; }
 .cir-status.is-failed { color: #cf222e; }
 .cir-status.is-failed .cir-status__dot { background: #cf222e; }
-.bq-button.cir-refresh { width: 28px; height: 28px; padding: 0; }
 .cir-coverage { top: 34px; right: 0; width: 340px; padding: 14px; color: var(--text-2); font-size: 12.5px; line-height: 18px; }
 .cir-coverage p { margin: 6px 0 0; }
 .cir-coverage__errors { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: #fff8c5; color: #633c01;
@@ -379,23 +366,15 @@
 .cir-loading { padding: 28px 28px 0; }
 .cir-loading__note { display: flex; align-items: center; gap: 8px; margin: 26px 0 14px; color: var(--text-3); font-size: 12.5px; }
 .cir-skeleton { display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border); border-radius: 10px; }
-.cir-skeleton--pane { gap: 6px; padding: 4px 16px; border: 0; }
 .cir-skeleton__row { display: flex; align-items: center; gap: 12px; padding: 14px; border-top: 1px solid #f4f4f5; animation: bq-pulse 1.4s ease-in-out infinite; }
-.cir-skeleton--pane .cir-skeleton__row { gap: 10px; padding: 6px 0; border: 0; }
 .cir-skeleton__row .cir-stack { flex: 1; gap: 6px; }
-.cir-skeleton__dot, .cir-skeleton__tile { flex: none; width: 16px; height: 16px; border-radius: 50%; background: #f0f0f2; }
-.cir-skeleton__tile { width: 24px; height: 24px; border-radius: 6px; }
+.cir-skeleton__dot { flex: none; width: 16px; height: 16px; border-radius: 50%; background: #f0f0f2; }
 .cir-skeleton__line { display: block; width: 62%; height: 10px; border-radius: 4px; background: #f0f0f2; }
 .cir-skeleton__line.is-short { width: 38%; height: 8px; background: #f4f4f5; }
 .cir-skeleton__line.is-title { width: 220px; height: 18px; margin-bottom: 10px; }
 .cir-skeleton__line.is-text { width: 340px; }
 
 @keyframes cir-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-
-@media (max-width: 1179px) {
-  .cir-pane { display: none; }
-  .cir-switcher { display: block; }
-}
 
 @media (prefers-reduced-motion: reduce) {
   .cir-spinner, .cir-skeleton__row, .cir-popover, .cir-person { animation: none; }

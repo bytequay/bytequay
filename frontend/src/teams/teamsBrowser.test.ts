@@ -38,7 +38,7 @@ it('manages private circles and inspects recorded activity in Chromium', async (
         await mkdir(screenshots, { recursive: true });
         for (const width of [1500, 1100]) {
           window.setContentSize(width, 900);
-          for (const view of ['needs', 'activity', 'members', 'insights', 'person', 'create', 'edit', 'empty', 'remove']) {
+          for (const view of ['needs', 'switcher', 'activity', 'members', 'insights', 'person', 'create', 'edit', 'empty', 'remove']) {
             await window.webContents.executeJavaScript('TeamsBrowserTests.showPreview(' + JSON.stringify(view) + ')');
             await new Promise(resolve => setTimeout(resolve, 150));
             await writeFile(join(screenshots, 'bytequay-circles-' + view + '-' + width + '.png'), (await window.webContents.capturePage()).toPNG());

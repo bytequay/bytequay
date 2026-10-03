@@ -27,6 +27,7 @@ import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.RunningTurn;
+import com.bytequay.app.service.ai.BetterWordsService.ReplyVoice;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AgentSkillService;
@@ -53,6 +54,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -142,9 +144,12 @@ class TestBetterWordsService
         ModelSettingsService settings = mock(ModelSettingsService.class);
         when(settings.agentModel(eq(AgentModelType.DEVELOPMENT), eq(Optional.of("ws-1")))).thenReturn(developmentModel("claude", "sonnet"));
         AgentResourceService resources = mock(AgentResourceService.class);
-        Path runtime = temporaryDirectory.resolve("draft-runtime");
-        Files.createDirectories(runtime.resolve("provider"));
-        when(resources.allocate(any())).thenReturn(new TaskResources(runtime, runtime.resolve("events.jsonl"), runtime.resolve("blobs"), runtime.resolve("provider")));
+        // Every draft gets fresh scratch, as the real allocator gives each its own task id.
+        when(resources.allocate(any())).thenAnswer(call -> {
+            Path runtime = temporaryDirectory.resolve("draft-runtime-" + call.getArgument(0));
+            Files.createDirectories(runtime.resolve("provider"));
+            return new TaskResources(runtime, runtime.resolve("events.jsonl"), runtime.resolve("blobs"), runtime.resolve("provider"));
+        });
         AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
         AgentDriver driver = mock(AgentDriver.class);
         AgentSession session = mock(AgentSession.class);
@@ -157,7 +162,7 @@ class TestBetterWordsService
         BetterWordsService service = service(settings, workspaceStore("ws-1", RepoRef.of("owner", "repo")), drivers, resources);
         String context = "{\"comment\":{\"kind\":\"review_comment\",\"body\":\"Rename it.\"},\"thread\":[{\"from\":\"agent\",\"text\":\"It holds.\"}]}";
 
-        assertThat(service.draftReply(context, REPOSITORY, Optional.of("ws-1"))).isEqualTo("Good catch, I will rename it.");
+        assertThat(service.draftReply(context, REPOSITORY, Optional.of("ws-1"), ReplyVoice.AUTHOR)).isEqualTo("Good catch, I will rename it.");
 
         ArgumentCaptor<AgentSessionContext> sessionContext = ArgumentCaptor.forClass(AgentSessionContext.class);
         verify(driver).open(sessionContext.capture(), any(AgentEventSink.class));
@@ -171,9 +176,16 @@ class TestBetterWordsService
         assertThat(command.getValue().maximumRuntime()).isEqualTo(Duration.ofSeconds(45));
         verify(resources).delete(any());
 
-        assertThatThrownBy(() -> service.draftReply(" ", REPOSITORY, Optional.of("ws-1")))
+        // A reviewer answers someone else's comment, so it neither promises a change nor speaks for the author.
+        assertThat(service.draftReply(context, REPOSITORY, Optional.of("ws-1"), ReplyVoice.REVIEWER)).isEqualTo("Good catch, I will rename it.");
+        verify(session, times(2)).start(command.capture());
+        assertThat(command.getValue().message())
+                .contains("Draft a reply that a reviewer of this pull request will post", "Reply in the reviewer's voice", "<reply-context>\n" + context)
+                .doesNotContain("the pull request author will post");
+
+        assertThatThrownBy(() -> service.draftReply(" ", REPOSITORY, Optional.of("ws-1"), ReplyVoice.AUTHOR))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.draftReply("x".repeat(20_001), REPOSITORY, Optional.of("ws-1")))
+        assertThatThrownBy(() -> service.draftReply("x".repeat(20_001), REPOSITORY, Optional.of("ws-1"), ReplyVoice.AUTHOR))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("too long");
     }

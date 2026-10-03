@@ -37,6 +37,7 @@ import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.service.ai.BetterWordsService;
+import com.bytequay.app.service.ai.BetterWordsService.ReplyVoice;
 import com.bytequay.core.discussion.DiscussionAnchor;
 import com.bytequay.core.discussion.DiscussionMessage;
 import com.bytequay.core.discussion.DiscussionQuotes;
@@ -44,6 +45,9 @@ import com.bytequay.core.discussion.DiscussionSession;
 import com.bytequay.core.discussion.ReviewCommentAnchor;
 import com.bytequay.core.discussion.TaskDiscussion;
 import com.bytequay.core.discussion.TaskDiscussionStore;
+import com.bytequay.core.review.AgentReview;
+import com.bytequay.core.review.AgentReviewStore;
+import com.bytequay.core.review.ReviewNotFoundException;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -69,6 +73,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import static com.bytequay.app.discussion.DiscussionPrompt.SUMMARY_REQUEST;
 import static com.bytequay.app.discussion.DiscussionPrompt.isSummaryRequest;
@@ -102,6 +107,7 @@ public class DefaultTaskDiscussionService
     private final TaskPullRequestOwnership ownership;
     private final ReviewCommentReader comments;
     private final BetterWordsService writer;
+    private final AgentReviewStore reviews;
     // One slot per task holds the ids of the discussions its one read-only session is answering. In
     // flight is not durable: after a restart nothing is running, and a persisted running row would be
     // a lie needing a recovery sweep. The read route projects this map instead.
@@ -118,9 +124,10 @@ public class DefaultTaskDiscussionService
             Clock clock,
             TaskPullRequestOwnership ownership,
             ReviewCommentReader comments,
-            BetterWordsService writer)
+            BetterWordsService writer,
+            AgentReviewStore reviews)
     {
-        this(store, tasks, resources, drivers, logStore, clock, ownership, comments, writer, Executors.newVirtualThreadPerTaskExecutor());
+        this(store, tasks, resources, drivers, logStore, clock, ownership, comments, writer, reviews, Executors.newVirtualThreadPerTaskExecutor());
     }
 
     /** Lets a test run the answer on the calling thread rather than waiting on a virtual one. */
@@ -134,6 +141,7 @@ public class DefaultTaskDiscussionService
             TaskPullRequestOwnership ownership,
             ReviewCommentReader comments,
             BetterWordsService writer,
+            AgentReviewStore reviews,
             Executor answers)
     {
         this.answers = requireNonNull(answers, "answers is null");
@@ -146,6 +154,7 @@ public class DefaultTaskDiscussionService
         this.ownership = requireNonNull(ownership, "ownership is null");
         this.comments = requireNonNull(comments, "comments is null");
         this.writer = requireNonNull(writer, "writer is null");
+        this.reviews = requireNonNull(reviews, "reviews is null");
     }
 
     @Override
@@ -174,7 +183,11 @@ public class DefaultTaskDiscussionService
     @Override
     public TaskDiscussionView retry(String workspaceId, String taskId, String discussionId, String messageId)
     {
-        AgentTask task = askableTask(workspaceId, taskId);
+        return retry(askableTask(workspaceId, taskId), discussionId, messageId);
+    }
+
+    private TaskDiscussionView retry(AgentTask task, String discussionId, String messageId)
+    {
         return claimed(task, slot -> {
             TaskDiscussion discussion = discussion(task, discussionId);
             List<DiscussionMessage> messages = discussion.messages();
@@ -197,7 +210,11 @@ public class DefaultTaskDiscussionService
     @Override
     public TaskDiscussionView resolve(String workspaceId, String taskId, String discussionId, boolean resolved, long expectedVersion)
     {
-        AgentTask task = tasks.getInteractive(requireNonNull(workspaceId, "workspaceId is null"), TaskId.valueOf(taskId));
+        return resolve(tasks.getInteractive(requireNonNull(workspaceId, "workspaceId is null"), TaskId.valueOf(taskId)), discussionId, resolved, expectedVersion);
+    }
+
+    private TaskDiscussionView resolve(AgentTask task, String discussionId, boolean resolved, long expectedVersion)
+    {
         TaskDiscussion discussion = discussion(task, discussionId);
         if (discussion.version() != expectedVersion) {
             throw new AgentConflictException("This discussion changed while you were reading it");
@@ -210,7 +227,11 @@ public class DefaultTaskDiscussionService
     @Override
     public List<TaskDiscussionView> list(String workspaceId, String taskId)
     {
-        AgentTask task = tasks.getInteractive(requireNonNull(workspaceId, "workspaceId is null"), TaskId.valueOf(taskId));
+        return views(tasks.getInteractive(requireNonNull(workspaceId, "workspaceId is null"), TaskId.valueOf(taskId)));
+    }
+
+    private List<TaskDiscussionView> views(AgentTask task)
+    {
         // Also read the slot before the rows: an answer stored and released between the two would
         // otherwise show its question as neither pending nor answered, which reads as a failure.
         Set<String> before = ImmutableSet.copyOf(answering.getOrDefault(task.id().toString(), ImmutableSet.of()));
@@ -228,6 +249,16 @@ public class DefaultTaskDiscussionService
         if (!ownership.owns(task, command.repo(), command.number(), false)) {
             throw new AgentConflictException("This pull request is not this task's");
         }
+        return askComment(task, command, () -> seed(task.id(), Optional.empty()).text());
+    }
+
+    /**
+     * Asks on the host task's thread for one comment of the command's pull request.
+     *
+     * @param premise renders what a new thread starts from, before anything is stored, so a refusal leaves nothing behind
+     */
+    private TaskDiscussionView askComment(AgentTask task, AskCommentCommand command, Supplier<String> premise)
+    {
         return claimed(task, slot -> {
             Optional<TaskDiscussion> existing = store.findByAnchor(task.id().toString(), ReviewCommentAnchor.TURN, ReviewCommentAnchor.hash(command.key()));
             checkArgument(existing.flatMap(TaskDiscussion::comment)
@@ -246,8 +277,7 @@ public class DefaultTaskDiscussionService
                 ReviewCommentAnchor comment = comments.find(command.repo(), command.number(), command.key())
                         .orElseThrow(() -> new IllegalArgumentException("That comment is not in this pull request"));
                 requireCommentThreadRoom(store.listByTask(task.id().toString()));
-                // Rendered before anything is stored, so a task with no answer yet leaves no thread behind.
-                history = Optional.of(seed(task.id(), Optional.empty()).text());
+                history = Optional.of(premise.get());
                 thread = store.insertOrGet(commentThread(UUID.randomUUID().toString(), task, comment, ImmutableList.of(), clock.instant()));
             }
             return submit(task, thread, command.question().isBlank() ? SUMMARY_REQUEST : command.question(), slot, history);
@@ -314,14 +344,85 @@ public class DefaultTaskDiscussionService
     @Override
     public String draftReply(String workspaceId, String taskId, String discussionId)
     {
-        AgentTask task = askableTask(workspaceId, taskId);
+        return draftReply(askableTask(workspaceId, taskId), discussionId, ReplyVoice.AUTHOR);
+    }
+
+    private String draftReply(AgentTask task, String discussionId, ReplyVoice voice)
+    {
         TaskDiscussion thread = discussion(task, discussionId);
         ReviewCommentAnchor comment = thread.comment()
                 .orElseThrow(() -> new IllegalArgumentException("Only a private thread on a review comment can draft a reply"));
         if (thread.messages().stream().noneMatch(message -> message.author() == DiscussionMessage.Author.AGENT)) {
             throw new AgentConflictException("Ask the agent before drafting a reply");
         }
-        return writer.draftReply(replyContext(comment, thread.messages()), comment.repo(), task.workspaceId());
+        return writer.draftReply(replyContext(comment, thread.messages()), comment.repo(), task.workspaceId(), voice);
+    }
+
+    @Override
+    public List<TaskDiscussionView> listReviewThreads(String reviewId)
+    {
+        return views(reviewTask(requireReview(reviewId)));
+    }
+
+    @Override
+    public TaskDiscussionView askReviewComment(String reviewId, String key, String question)
+    {
+        AgentReview review = requireReview(reviewId);
+        AgentTask task = askableReviewTask(review);
+        // The review's own pull request; a client never names another one.
+        return askComment(task, new AskCommentCommand(review.workspaceId(), review.taskId(), review.repo(), review.number().getAsInt(), key, question),
+                () -> reviewPremise(review));
+    }
+
+    @Override
+    public TaskDiscussionView retryReviewThread(String reviewId, String discussionId, String messageId)
+    {
+        return retry(askableReviewTask(requireReview(reviewId)), discussionId, messageId);
+    }
+
+    @Override
+    public TaskDiscussionView resolveReviewThread(String reviewId, String discussionId, boolean resolved, long expectedVersion)
+    {
+        return resolve(reviewTask(requireReview(reviewId)), discussionId, resolved, expectedVersion);
+    }
+
+    @Override
+    public String draftReviewReply(String reviewId, String discussionId)
+    {
+        return draftReply(askableReviewTask(requireReview(reviewId)), discussionId, ReplyVoice.REVIEWER);
+    }
+
+    private AgentReview requireReview(String reviewId)
+    {
+        return reviews.findReview(requireNonNull(reviewId, "reviewId is null"))
+                .orElseThrow(() -> new ReviewNotFoundException("Review not found: " + reviewId));
+    }
+
+    /** Not getInteractive: a review's task is workflow-owned, and only the review routes reach it. */
+    private AgentTask reviewTask(AgentReview review)
+    {
+        return tasks.get(TaskId.valueOf(review.taskId()));
+    }
+
+    /** A review answers while it is open, about today's pull request, from its working copy. */
+    private AgentTask askableReviewTask(AgentReview review)
+    {
+        if (review.replay().isPresent()) {
+            throw new AgentConflictException("A replay reviews past code, so it has no private threads");
+        }
+        if (review.number().isEmpty()) {
+            throw new AgentConflictException("This review has no pull request");
+        }
+        AgentTask task = reviewTask(review);
+        if (review.state() != AgentReview.State.OPEN || task.taskWorktree().isEmpty() || task.worktreeRemovedAt().isPresent()) {
+            throw new AgentConflictException("This review has ended, so its threads are read-only");
+        }
+        return task;
+    }
+
+    private String reviewPremise(AgentReview review)
+    {
+        return ReviewPremise.render(reviews.listRuns(review.id()), reviews.listFindings(review.id()));
     }
 
     private AgentTask askableTask(String workspaceId, String taskId)
@@ -574,11 +675,21 @@ public class DefaultTaskDiscussionService
         // A resumed conversation already holds the preamble, the premise and the exchange;
         // sending them again would duplicate the whole thread in its context.
         String prompt = resume.isPresent() ? lastQuestion(discussion) : discussion.comment()
-                .map(comment -> DiscussionPrompt.renderComments(history.orElseGet(() -> seed(task.id(), Optional.empty()).text()),
-                        ImmutableList.of(comment.snapshot()), earlier(discussion), lastQuestion(discussion)))
+                .map(comment -> commentPrompt(task, discussion, comment, history))
                 .orElseGet(() -> DiscussionPrompt.render(discussion.seed().orElseThrow(), discussion.anchor().quote(), earlier(discussion), lastQuestion(discussion)));
         Answered answered = converse(task, discussion.providerModel(), resume, prompt, MAXIMUM_RUNTIME);
         record(discussion.id(), answered.result(), answered.reference());
+    }
+
+    /** A review's agent answers as the reviewer's assistant, from what the review saved; a task's agent from the task's history. */
+    private String commentPrompt(AgentTask task, TaskDiscussion discussion, ReviewCommentAnchor comment, Optional<String> premise)
+    {
+        List<String> snapshots = ImmutableList.of(comment.snapshot());
+        Optional<AgentReview> review = reviews.findReviewByTask(task.id().toString());
+        if (review.isPresent()) {
+            return DiscussionPrompt.renderReviewComments(premise.orElseGet(() -> reviewPremise(review.orElseThrow())), snapshots, earlier(discussion), lastQuestion(discussion));
+        }
+        return DiscussionPrompt.renderComments(premise.orElseGet(() -> seed(task.id(), Optional.empty()).text()), snapshots, earlier(discussion), lastQuestion(discussion));
     }
 
     /** One question in a disposable read-only session on the task's worktree; approvals are denied and events discarded. */

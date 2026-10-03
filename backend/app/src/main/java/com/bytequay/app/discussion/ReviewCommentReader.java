@@ -172,7 +172,7 @@ public final class ReviewCommentReader
     }
 
     /** The first {@code limit} characters, never splitting a surrogate pair, with {@code marker} when cut. */
-    private static String head(String text, int limit, String marker)
+    static String head(String text, int limit, String marker)
     {
         if (text.length() <= limit) {
             return text;

@@ -89,6 +89,29 @@ public interface TaskDiscussionService
     /** Drafts a GitHub reply from one comment thread; stores nothing and posts nothing. */
     String draftReply(String workspaceId, String taskId, String discussionId);
 
+    /** The private threads a review's task holds on its pull request's comments; an ended review's stay readable. */
+    List<TaskDiscussionView> listReviewThreads(String reviewId);
+
+    /**
+     * {@link #askComment} on the review's own pull request, answered by the review's task from what the review saved
+     * rather than from the task's history.
+     *
+     * @throws com.bytequay.core.review.ReviewNotFoundException when there is no such review
+     * @throws com.bytequay.agent.core.AgentConflictException when the review is a replay, names no pull request, has ended or
+     *         released its working copy, is already answering, or holds {@link #MAXIMUM_COMMENT_THREADS_PER_TASK} threads
+     * @throws IllegalArgumentException when the key is not in that pull request's cached detail
+     */
+    TaskDiscussionView askReviewComment(String reviewId, String key, String question);
+
+    /** {@link #retry} on a thread the review's task holds, while the review can still answer. */
+    TaskDiscussionView retryReviewThread(String reviewId, String discussionId, String messageId);
+
+    /** {@link #resolve} on a thread the review's task holds, which works on an ended review too. */
+    TaskDiscussionView resolveReviewThread(String reviewId, String discussionId, boolean resolved, long expectedVersion);
+
+    /** {@link #draftReply} in the reviewer's voice, from a thread the review's task holds. */
+    String draftReviewReply(String reviewId, String discussionId);
+
     /**
      * A task holds at most this many passage discussions. Each owns one persisted provider conversation, so
      * the bound covers provider-side transcripts on disk as well as rows.

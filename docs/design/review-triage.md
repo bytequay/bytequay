@@ -650,8 +650,9 @@ concluded, agreeing and adding what supports the point, or explaining briefly
 and politely why it does not hold. A task host keeps the author's
 instructions.
 
-**Routes and bridge.** The routes live in `ReviewController` beside the other
-review-scoped routes and delegate to the methods above:
+**Routes and bridge.** The routes live in `ReviewThreadController`, under the
+same `/api/agent-review` path as the other review-scoped routes, and delegate
+to the methods above:
 
 ```
 GET   /api/agent-review/{reviewId}/comment-threads                                 -> [TaskDiscussionView]

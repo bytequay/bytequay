@@ -35,6 +35,7 @@ import com.bytequay.core.discussion.DiscussionMessage;
 import com.bytequay.core.discussion.DiscussionQuotes;
 import com.bytequay.core.discussion.TaskDiscussion;
 import com.bytequay.core.discussion.TaskDiscussionStore;
+import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.google.common.collect.ImmutableList;
@@ -70,7 +71,7 @@ class TestDefaultTaskDiscussionService
 
     private final DefaultTaskDiscussionService service = new DefaultTaskDiscussionService(
             store, tasks, resources, drivers, logStore, Clock.fixed(NOW, ZoneOffset.UTC), mock(TaskPullRequestOwnership.class),
-            new ReviewCommentReader(mock(PullRequestStore.class), mock(PrDetailStore.class)), mock(BetterWordsService.class));
+            new ReviewCommentReader(mock(PullRequestStore.class), mock(PrDetailStore.class)), mock(BetterWordsService.class), mock(AgentReviewStore.class));
 
     @Test
     void refusesAskingOnceTheWorktreeIsReleasedAfterCompletion()

@@ -223,7 +223,7 @@ describe('DiffViewer', () => {
       }}
     />);
 
-    expect(html.match(/<details class="pull-diff-pending" open="">/g)).toHaveLength(3);
+    expect(html.match(/<details class="lrc is-github pr-inline-thread pull-diff-pending" open="">/g)).toHaveLength(3);
     expect(html).toContain('Comment on line <strong>L96</strong>');
     expect(html).toContain('Comment on line <strong>R96</strong>');
     expect(html).toContain('Comment on lines <strong>R95–R97</strong>');
@@ -284,7 +284,7 @@ describe('DiffViewer', () => {
     expect(html).toContain('A reply in this discussion');
     expect(html).toContain('src="https://example.com/bob.png"');
     expect(html).toContain('src="https://example.com/carol.png"');
-    expect(html).toContain('<details class="pr-thread-row"><summary>');
+    expect(html).toContain('<details class="lrc is-github pr-thread-row"><summary class="lrc__head">');
     expect(html).toContain('Resolved discussion');
     expect(html).toContain('>Unresolve</button>');
     expect(html).toContain('>Resolve</button>');
@@ -504,7 +504,7 @@ describe('pending review comments', () => {
 
     expect(html).toContain('aria-label="Edit pending review comment"');
     expect(html).toContain('>Cancel</button>');
-    expect(html).toContain(`<button type="submit" class="is-primary"${disabled ? ' disabled=""' : ''}>Save</button>`);
+    expect(html).toContain(`<button type="button" class="is-primary"${disabled ? ' disabled=""' : ''}>Save</button>`);
     expect(html).not.toContain('>Edit</button>');
     expect(html).not.toContain('>Discard</button>');
   });

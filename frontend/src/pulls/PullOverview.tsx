@@ -44,6 +44,7 @@ import MarkdownBody, { GitHubReferenceLink, linkIssueNumbers, toggleMarkdownTask
 import { EMPTY_TIMELINE_PAYLOAD } from './model';
 import { PullRequestIcon } from './PullRowItem';
 import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
+import MarkdownEditor from './MarkdownEditor';
 import { PrivateThreadControls, PrivateThreadForward, PrivateThreadTab, privateThreadKey, withMention, type PrivateThreads } from './PrivateThread';
 import type { TaskDiscussionDto } from '../agents/discussions/contracts';
 
@@ -913,26 +914,12 @@ function CommentCard({ activity, viewerLogin, privateThreads, pr, onDetailUpdate
   // The backend resolves review: keys from the same reviewed event this card renders.
   const threadKey = privateThreads === undefined || body === null || commentId === null ? null
     : privateThreadKey(activity.eventType === 'reviewed' ? 'review' : 'issue_comment', commentId);
-  const header = (
-    <CardHeader
-      actor={actor}
-      avatarUrl={activity.payload.actorAvatarUrl}
-      bot={activity.payload.actorBot}
-      timestamp={activity.timestamp}
-      badge={reviewBadge(state)}
-      reaction={reaction}
-      privateControls={privateThreads !== undefined && threadKey !== null && <PrivateThreadControls threads={privateThreads} threadKey={threadKey}
-        own={isViewerComment(activity.actor, viewerLogin)} />}
-      actions={body ? {
-        link: activity.payload.htmlUrl ?? pr.htmlUrl,
-        markdown: body,
-        onQuote: () => onQuote(body),
-        onEdit: canEdit ? () => setEditDraft(body) : undefined,
-      } : undefined}
-    />
-  );
+  const badge = reviewBadge(state);
   if (!body) {
-    return <article className="pr-card pr-review-event">{header}</article>;
+    return <article className="pr-card pr-review-event">
+      <CardHeader actor={actor} avatarUrl={activity.payload.actorAvatarUrl} bot={activity.payload.actorBot}
+        timestamp={activity.timestamp} badge={badge} reaction={reaction} />
+    </article>;
   }
   if (privateThreads !== undefined && threadKey !== null && privateThreads.forward === threadKey) {
     return (
@@ -943,15 +930,25 @@ function CommentCard({ activity, viewerLogin, privateThreads, pr, onDetailUpdate
     );
   }
   return (
-    <article className="pr-card pr-comment-card">
-      {privateThreads !== undefined && threadKey !== null && <PrivateThreadTab threads={privateThreads} threadKey={threadKey} />}
-      {header}
-      {editDraft !== null && commentId !== null
-        ? <CommentEditor pr={pr} target={activity.eventType === 'reviewed' ? 'review' : 'issue_comment'} commentId={commentId}
-          body={body} draft={editDraft} onDraftChange={setEditDraft} onDetailUpdate={onDetailUpdate} onClose={() => setEditDraft(null)} />
-        : <MarkdownBody body={body} repository={pr.repo} />}
-      <Reactions reactions={reaction?.reactions ?? activity.payload.reactions} reaction={reaction} />
-    </article>
+    <ReviewThreadCard className="pr-comment-card" resolved={false} controls={null}>
+      <ReviewThreadMessage timestamp={activity.timestamp}
+        author={<UserAvatar login={actor} avatarUrl={activity.payload.actorAvatarUrl} size={22} showLogin />}
+        tag={<>{activity.payload.actorBot && <span className="pr-bot">Bot</span>}
+          {badge && <span className={`pr-review-badge ${badge.className}`}>{badge.text}</span>}</>}
+        menu={<>{reaction && <ReactionPicker action={reaction} />}
+          {privateThreads !== undefined && threadKey !== null && <PrivateThreadControls threads={privateThreads} threadKey={threadKey}
+            own={isViewerComment(activity.actor, viewerLogin)} />}
+          <CardActionsMenu actions={{ link: activity.payload.htmlUrl ?? pr.htmlUrl, markdown: body,
+            onQuote: () => onQuote(body), onEdit: canEdit ? () => setEditDraft(body) : undefined }} />
+        </>}
+        reactions={<Reactions reactions={reaction?.reactions ?? activity.payload.reactions} reaction={reaction} />}>
+        {editDraft !== null && commentId !== null
+          ? <CommentEditor pr={pr} target={activity.eventType === 'reviewed' ? 'review' : 'issue_comment'} commentId={commentId}
+            body={body} draft={editDraft} onDraftChange={setEditDraft} onDetailUpdate={onDetailUpdate} onClose={() => setEditDraft(null)} />
+          : <MarkdownBody body={body} repository={pr.repo} />}
+        {privateThreads !== undefined && threadKey !== null && <PrivateThreadTab threads={privateThreads} threadKey={threadKey} />}
+      </ReviewThreadMessage>
+    </ReviewThreadCard>
   );
 }
 
@@ -1028,7 +1025,6 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
   const [posting, setPosting] = useState(false);
   const [changingResolution, setChangingResolution] = useState(false);
   const [optimisticResolved, setOptimisticResolved] = useState<boolean | null>(null);
-  // Held here rather than in ThreadComment: resolving re-parents the comments, which remounts them.
   const [edit, setEdit] = useState<{ commentId: number; draft: string } | null>(null);
   const [error, setError] = useState('');
   const [drafting, setDrafting] = useState(false);
@@ -1132,59 +1128,45 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
   };
   const discard = () => { setReplying(false); setBody(''); setPreview(false); setError(''); setDrafted(false); };
   const controls = drafting ? (
-    <footer className="pr-thread-draft" role="status">
+    <footer className="lrc__foot pr-thread-draft" role="status">
       <LoaderCircle className="pr-task-spinner" size={14} aria-hidden="true" /> Agent is drafting a reply from your private thread…
     </footer>
   ) : replying ? (
-    <footer className="pr-thread-reply">
-      {drafted && <div className="pr-thread-draft__head">
-        <span className="pr-thread-draft__badge">Draft · not posted</span>
-        <span>Written by the agent from your private thread. Edit it before you post.</span>
-      </div>}
-      <div className="pr-thread-reply__tabs" role="group" aria-label="Reply editor mode">
-        <button className={!preview ? 'is-active' : ''} type="button" aria-pressed={!preview}
-          onClick={() => {
-            setPreview(false);
-            requestAnimationFrame(() => textareaRef.current?.focus());
-          }}>Write</button>
-        <button className={preview ? 'is-active' : ''} type="button" aria-pressed={preview}
-          onClick={() => setPreview(true)}>Preview</button>
-      </div>
-      {preview && <MarkdownBody body={body || 'Nothing to preview.'} repository={pr.repo} suggestion={suggestion} />}
-      <textarea ref={textareaRef} autoFocus={!drafted} hidden={preview} aria-label="Reply to review thread" value={body} rows={4}
-        placeholder="Reply to this thread…" onChange={event => setBody(event.target.value)}
-        onKeyDown={event => {
-          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-            event.preventDefault();
-            // An agent draft posts only by the Comment click, never by the private composer's send key.
-            if (!drafted) void submit();
-          }
-        }} />
-      {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}
-      <div className="pr-thread-reply__actions">
-        {drafted && <span className="pr-thread-draft__note">Posts to GitHub as you</span>}
+    <footer className="lrc__foot is-composing">
+      <MarkdownEditor value={body} onChange={setBody} repository={pr.repo} suggestion={suggestion}
+        textareaRef={textareaRef} autoFocus={!drafted} preview={preview} onPreviewChange={setPreview}
+        ariaLabel="Reply to review thread" placeholder="Reply to this thread…" busy={posting} error={error}
+        // An agent draft posts only by the Comment click, never by the private composer's send key.
+        onSubmit={drafted ? undefined : () => { void submit(); }}
+        header={drafted && <div className="pr-thread-draft__head">
+          <span className="pr-thread-draft__badge">Draft · not posted</span>
+          <span>Written by the agent from your private thread. Edit it before you post.</span>
+        </div>}
+        note={drafted && <span className="pr-thread-draft__note">Posts to GitHub as you</span>}>
         <BetterWordsButton text={body} textareaRef={textareaRef} repository={pr.repo} workspaceId={workspaceId}
           disabled={preview || posting}
           onError={failure => setError(failure === null ? '' : remoteErrorMessage(failure))} />
-        <button type="button" onClick={discard}>{drafted ? 'Discard' : 'Cancel'}</button>
+        <button type="button" disabled={posting} onClick={discard}>{drafted ? 'Discard' : 'Cancel'}</button>
         <button className="is-primary" type="button" disabled={posting || !body.trim()}
           onClick={() => { void submit(); }}>{drafted ? posting ? 'Commenting…' : 'Comment' : posting ? 'Replying…' : 'Reply'}</button>
-      </div>
+      </MarkdownEditor>
     </footer>
   ) : (
-    <footer>
-      <button className="pr-thread-reply__open" type="button" disabled={!rootCommentId}
+    <footer className="lrc__foot">
+      <button className="lrc__ask" type="button" disabled={!rootCommentId}
         onClick={() => { setError(''); setPreview(false); setReplying(true); }}>Reply</button>
       {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}
-      <button className="pr-thread-resolve" type="button" disabled={!rootCommentId || changingResolution}
+      <button className="lrc__action" type="button" disabled={!rootCommentId || changingResolution}
         onClick={() => { void changeResolution(); }}>
         {resolved ? 'Unresolve' : 'Resolve'}
       </button>
     </footer>
   );
   return (
-    <ReviewThreadCard location={location} resolved={resolved} outdated={payload.outdated}
-      code={commentedLines.map((line, index) => <CommentedCodeLine key={line.lineNumber ?? index} line={line} />)} controls={controls}>
+    <ReviewThreadCard title={<span className="lrc__title">{location}</span>} resolved={resolved} outdated={payload.outdated}
+      code={!resolved && commentedLines.length > 0 && <div className="lrc__code">
+        {commentedLines.map((line, index) => <CommentedCodeLine key={line.lineNumber ?? index} line={line} />)}
+      </div>} controls={controls}>
       {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl} suggestion={suggestion}
         viewerLogin={viewerLogin} pr={pr} onDetailUpdate={onDetailUpdate} onQuote={quoteReply} edit={edit} onEditChange={setEdit}
         privateThreads={privateThreads}
@@ -1293,32 +1275,13 @@ export function CommentEditor({ pr, target, commentId, body, draft, suggestion, 
     }
   };
   return (
-    <div className="pr-thread-reply pr-comment-editor">
-      <div className="pr-thread-reply__tabs" role="group" aria-label="Comment editor mode">
-        <button className={!preview ? 'is-active' : ''} type="button" aria-pressed={!preview}
-          onClick={() => {
-            setPreview(false);
-            requestAnimationFrame(() => textareaRef.current?.focus());
-          }}>Write</button>
-        <button className={preview ? 'is-active' : ''} type="button" aria-pressed={preview}
-          onClick={() => setPreview(true)}>Preview</button>
-      </div>
-      {preview && <MarkdownBody body={draft || 'Nothing to preview.'} repository={pr.repo} suggestion={suggestion} />}
-      <textarea ref={textareaRef} autoFocus hidden={preview} aria-label="Edit comment" value={draft} rows={4}
-        onChange={event => onDraftChange(event.target.value)}
-        onKeyDown={event => {
-          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-            event.preventDefault();
-            void save();
-          }
-        }} />
-      {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}
-      <div className="pr-thread-reply__actions">
-        <button type="button" disabled={saving} onClick={onClose}>Cancel</button>
-        <button className="is-primary" type="button" disabled={!canSave}
-          onClick={() => { void save(); }}>{saving ? 'Updating…' : 'Update comment'}</button>
-      </div>
-    </div>
+    <MarkdownEditor value={draft} onChange={onDraftChange} repository={pr.repo} suggestion={suggestion}
+      textareaRef={textareaRef} autoFocus ariaLabel="Edit comment" preview={preview} onPreviewChange={setPreview}
+      busy={saving} error={error} onSubmit={() => { void save(); }}>
+      <button type="button" disabled={saving} onClick={onClose}>Cancel</button>
+      <button className="is-primary" type="button" disabled={!canSave}
+        onClick={() => { void save(); }}>{saving ? 'Updating…' : 'Update comment'}</button>
+    </MarkdownEditor>
   );
 }
 
@@ -1474,15 +1437,13 @@ type CardActions = {
   onEdit?: () => void;
 };
 
-export function CardHeader({ actor, avatarUrl, bot = false, timestamp, badge, reaction, privateControls, actions }: {
+export function CardHeader({ actor, avatarUrl, bot = false, timestamp, badge, reaction, actions }: {
   actor: string;
   avatarUrl?: string | null;
   bot?: boolean;
   timestamp: string | null;
   badge?: { text: string; className: string } | null;
   reaction?: ReactionAction;
-  /** Rendered between the reaction picker and the actions menu. */
-  privateControls?: ReactNode;
   actions?: CardActions;
 }) {
   return (
@@ -1491,9 +1452,8 @@ export function CardHeader({ actor, avatarUrl, bot = false, timestamp, badge, re
       {bot && <span className="pr-bot">Bot</span>}
       {timestamp && <><span>·</span><time>{relativeTime(timestamp)}</time></>}
       {badge && <span className={`pr-review-badge ${badge.className}`}>{badge.text}</span>}
-      {(reaction || privateControls || actions) && <div className="pr-card__menu">
+      {(reaction || actions) && <div className="pr-card__menu">
         {reaction && <ReactionPicker action={reaction} />}
-        {privateControls}
         {actions && <CardActionsMenu actions={actions} />}
       </div>}
     </header>

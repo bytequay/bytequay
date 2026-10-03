@@ -1812,9 +1812,11 @@ export function ReviewDialog({
             {outgoing.map(({ key, comment, remove, save }) => {
               const lines = codeLines(comment);
               return <ReviewThreadCard key={key} resolved={false} controls={null}
-                location={<><code title={comment.path}>{comment.path}</code>
-                  {comment.commitId !== null && <span> · commit {comment.commitId.slice(0, 7)}</span>}</>}
-                code={lines.map((line, index) => <CommentedCodeLine key={line.lineNumber ?? index} line={line} />)}>
+                title={<span className="lrc__title"><code title={comment.path}>{comment.path}</code>
+                  {comment.commitId !== null && <span> · commit {comment.commitId.slice(0, 7)}</span>}</span>}
+                code={lines.length > 0 && <div className="lrc__code">
+                  {lines.map((line, index) => <CommentedCodeLine key={line.lineNumber ?? index} line={line} />)}
+                </div>}>
                 <ReviewThreadMessage timestamp={null}
                   author={<>{viewer && <UserAvatar login={viewer.login} avatarUrl={viewer.avatarUrl} size={22} showLogin />}
                     <span className="pull-diff-pending__badge">Pending</span></>}

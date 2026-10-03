@@ -94,9 +94,12 @@ by Findings.
 
 Every private card (change intention with a green header, a commit's design and
 implementation with a blue header, and findings and local review comments in
-the teal **Local** treatment) is the one local card component. It shares no
-markup with the GitHub review thread card, so changing either never restyles
-the other, and every surface that shows private cards follows the local card.
+the teal **Local** treatment) uses the same base frame and message layout as
+GitHub timeline comments, review threads, and pending review comments. Destination badges, code,
+evidence, reactions, and actions are supplied by each caller. The private-card
+wrapper adds its tone and Local/Private chip; GitHub action handlers remain
+separate from private actions. All reply and edit composers reuse the shared
+Markdown editor.
 Each card retains its own private discussion through the shared
 [Local review comments](agent-service.md#local-review-comments) components. Do not generate combined-result, evidence/test, coverage, or
 critical-issues cards. Nonblocking verification warnings, such as cloud tests

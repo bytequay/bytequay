@@ -45,7 +45,7 @@ export type PrivateThreads = PrivateThreadSource & {
   show: boolean;
   /**
    * Each thread's unsent text, by comment key. Held here, not in the card: the card remounts whenever
-   * another comment comes forward or its GitHub thread is resolved and re-parents it.
+   * another comment comes forward.
    */
   drafts: ReadonlyMap<string, string>;
   setForward: (key: string | null) => void;

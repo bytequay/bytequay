@@ -12,16 +12,14 @@
  * limitations under the License.
  */
 import type { ReactNode } from 'react';
-import { Bot, ChevronRight, CircleCheck, GitCommitHorizontal, Lock, Target } from 'lucide-react';
-import { relativeTime } from '../../relativeTime';
+import { Bot, GitCommitHorizontal, Lock, Target } from 'lucide-react';
+import { ReviewThreadCard, ReviewThreadMessage } from '../ReviewThreadCard';
 
 /** A change's intention, one commit's design notes, or a review comment about code. */
 export type LocalCardTone = 'purpose' | 'commit' | 'local';
 
 /**
- * The one frame every private card draws: local review threads, agent findings and summary cards.
- * None of them ever reaches GitHub, so the chip says so wherever the card is placed. The GitHub
- * review thread card is a separate component and shares none of this markup.
+ * Private destination and tone on the shared review frame. Actions stay with each caller.
  */
 export default function LocalCard({ tone = 'local', title, badges, chip, resolved = false, outdated = false, open, code, children, controls, attributes }: {
   tone?: LocalCardTone;
@@ -38,20 +36,12 @@ export default function LocalCard({ tone = 'local', title, badges, chip, resolve
   attributes?: Record<`data-${string}`, string>;
 }) {
   const Icon = tone === 'purpose' ? Target : tone === 'commit' ? GitCommitHorizontal : null;
-  return <details className={`lrc is-${tone}`} open={open ?? !resolved} {...attributes}>
-    <summary className="lrc__head">
-      <ChevronRight className="lrc__chevron" size={14} strokeWidth={2} aria-hidden="true" />
-      {Icon !== null && <Icon className="lrc__icon" size={16} strokeWidth={2} aria-hidden="true" />}
-      {title}
-      {outdated && <span className="lrc__badge is-warn">Outdated</span>}
-      {badges}
-      {resolved && <span className="lrc__resolved"><CircleCheck size={14} aria-hidden="true" />Resolved</span>}
-      <span className="lrc__chip"><Lock size={11} strokeWidth={2} aria-hidden="true" />{chip ?? (tone === 'local' ? 'Local' : 'Private')}</span>
-    </summary>
-    {code}
+  return <ReviewThreadCard tone={tone} title={title} badges={badges} resolved={resolved} outdated={outdated}
+    defaultOpen={open} code={code} controls={controls} attributes={attributes}
+    icon={Icon !== null && <Icon className="lrc__icon" size={16} strokeWidth={2} aria-hidden="true" />}
+    chip={<span className="lrc__chip"><Lock size={11} strokeWidth={2} aria-hidden="true" />{chip ?? (tone === 'local' ? 'Local' : 'Private')}</span>}>
     {children}
-    {controls}
-  </details>;
+  </ReviewThreadCard>;
 }
 
 export function LocalCardMessage({ avatar, author, tag, timestamp, menu, children }: {
@@ -62,13 +52,9 @@ export function LocalCardMessage({ avatar, author, tag, timestamp, menu, childre
   menu?: ReactNode;
   children: ReactNode;
 }) {
-  return <div className="lrc-message">
-    <div className="lrc-message__head">
-      {avatar}<strong>{author}</strong>{tag}<time>{relativeTime(timestamp)}</time>
-      {menu && <span className="lrc-message__menu">{menu}</span>}
-    </div>
-    <div className="lrc-message__body">{children}</div>
-  </div>;
+  return <ReviewThreadMessage className="" avatar={avatar} author={<strong>{author}</strong>} tag={tag} timestamp={timestamp} menu={menu}>
+    {children}
+  </ReviewThreadMessage>;
 }
 
 /** A summary card names what it explains; a commit's own title is already on its timeline row. */

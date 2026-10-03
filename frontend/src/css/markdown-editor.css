@@ -6,7 +6,7 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
-/* The shared Markdown editor. It loads before pulls.css so the pending-comment editor there can restyle it. */
+/* Shared by review comments, private questions and outgoing drafts. */
 .pull-diff-review { display: grid; width: 100%; max-width: 780px; min-width: 0; gap: 8px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; padding: 10px 12px 12px; font-family: var(--font-sans); container-type: inline-size; }
 .pull-diff-review strong { font-size: var(--ui-font-size); font-weight: 600; }
 .pull-diff-review__header { display: flex; align-items: center; gap: 8px; }

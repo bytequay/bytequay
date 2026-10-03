@@ -381,8 +381,8 @@ describe('PullOverview', () => {
       const html = render(threads());
       expect(html.match(/>Ask agent</g)).toHaveLength(4);
       expect(html.match(/>Ask agent<\/button><div class="pr-card-actions/g)).toHaveLength(4);
-      // The review body and the issue comment carry it in their card header; the description does not.
-      expect(html.match(/<div class="pr-card__menu">(?:(?!<\/header>).)*?>Ask agent</gs)).toHaveLength(2);
+      // Timeline comments and inline replies share the message header; the description stays separate.
+      expect(html.match(/class="lrc-message__menu"(?:(?!class="lrc-message__body").)*?>Ask agent</gs)).toHaveLength(4);
       const description = html.slice(html.indexOf('pr-card pr-description'), html.indexOf('</article>', html.indexOf('pr-card pr-description')));
       expect(description).not.toContain('Ask agent');
     });
@@ -950,10 +950,10 @@ describe('PullOverview', () => {
 
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
 
-    expect(html).toContain('<details class="pr-inline-thread" open=""><summary><span class="pr-thread-chevron" aria-hidden="true">›</span>');
-    expect(html).toContain('class="pr-thread-reply__open"');
-    expect(html).toContain('class="pr-thread-comment__menu"');
-    expect(html).toContain('>Reply</button><button class="pr-thread-resolve"');
+    expect(html).toContain('<details class="lrc is-github pr-inline-thread" open=""><summary class="lrc__head">');
+    expect(html).toContain('class="lrc__ask"');
+    expect(html).toContain('class="lrc-message__menu"');
+    expect(html).toContain('>Reply</button><button class="lrc__action"');
     expect(html).toContain('>Resolve</button>');
     expect(html).not.toContain('<strong>Reply</strong>');
   });
@@ -993,7 +993,7 @@ describe('PullOverview', () => {
       { lineNumber: 41, prefix: '-', text: 'gone' },
     ]);
     expect(commentedCodeLines(patch, 'RIGHT', null, 3)).toEqual([]);
-    expect(html).toContain('<code>src/PageSourceProvider.java</code><span class="pr-thread-outdated">Outdated</span>');
+    expect(html).toContain('<code>src/PageSourceProvider.java</code></span><span class="lrc__badge is-warn">Outdated</span>');
     expect(html).toContain('class="pr-commented-code-line is-add"');
     expect(html).toContain('pr-commented-code-line__number">44</span>');
     expect(html).toContain('<code>    interface MemoryUsageTracker</code>');
@@ -1050,10 +1050,10 @@ describe('PullOverview', () => {
 
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
 
-    expect(html).toContain('<details class="pr-thread-row"><summary><span class="pr-thread-chevron" aria-hidden="true">›</span>');
-    expect(html).not.toContain('<details class="pr-thread-row" open="">');
-    expect(html).toContain('class="pr-thread-row__comments"');
-    expect(html).toContain('class="pr-thread-reply__open"');
+    expect(html).toContain('<details class="lrc is-github pr-thread-row"><summary class="lrc__head">');
+    expect(html).not.toContain('<details class="lrc is-github pr-thread-row" open="">');
+    expect(html).toContain('class="lrc-message pr-thread-comment"');
+    expect(html).toContain('class="lrc__ask"');
     expect(html).toContain('>Unresolve</button>');
   });
 
@@ -1123,7 +1123,7 @@ describe('PullOverview', () => {
         actor: 'bob', eventType: 'review_thread', timestamp: '2026-08-20T09:35:00Z', body: null, githubId: 4,
         payload: { ...emptyPayload, path: 'src/Example.java', side: 'RIGHT', line: 12, comments: [comment(99, 'bob'), comment(100, 'carol')] },
       }} />);
-    const [own, other] = html.split('class="pr-thread-comment"').slice(1);
+    const [own, other] = html.split('class="lrc-message pr-thread-comment"').slice(1);
 
     expect(own).toContain('>Edit</button>');
     expect(other).toContain('Comment by carol');
@@ -1151,7 +1151,7 @@ describe('PullOverview', () => {
     const html = renderToStaticMarkup(<CommentEditor pr={pullRequest()} target="review_comment" commentId={99}
       body="First draft" draft="First draft" onDraftChange={() => {}} onDetailUpdate={() => {}} onClose={() => {}} />);
 
-    expect(html).toContain('aria-label="Edit comment" rows="4">First draft</textarea>');
+    expect(html).toMatch(/aria-label="Edit comment"[^>]*>First draft<\/textarea>/);
     expect(html).toContain('<button class="is-primary" type="button" disabled="">Update comment</button>');
   });
 
@@ -1314,10 +1314,10 @@ describe('PullOverview', () => {
       const renderedBody = '<p>Please update the <strong>interruption wording</strong>.</p>';
       expect(html.split(renderedBody)).toHaveLength(2);
       expect(html.indexOf(renderedBody)).toBeLessThan(html.indexOf('RewriteCast.java:R67'));
-      expect(html).toContain('class="pr-card pr-comment-card"');
+      expect(html).toContain('class="lrc is-github pr-comment-card"');
     }
     else {
-      expect(html).not.toContain('class="pr-card pr-comment-card"');
+      expect(html).not.toContain('class="lrc is-github pr-comment-card"');
     }
   });
 

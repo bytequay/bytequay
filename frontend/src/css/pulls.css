@@ -764,11 +764,9 @@
 .pr-timeline::before { position: absolute; z-index: 0; top: 26px; bottom: 20px; left: 30px; width: 1px; background: #d8dee4; content: ''; }
 .pr-timeline > * { position: relative; z-index: 1; }
 .pr-card,
-.pr-inline-thread,
 .pr-checks,
 .pr-composer { overflow: hidden; border: 1px solid #e6eaee; border-radius: 11px; background: #fff; }
 .pull-request-overview .pr-card,
-.pull-request-overview .pr-inline-thread,
 .pull-request-overview .pr-checks,
 .pull-request-overview .pr-composer { border-radius: 14px; }
 .pr-card__header { display: flex; min-height: 40px; align-items: center; gap: 7px; border-bottom: 1px solid #e1e7eb; border-radius: 10px 10px 0 0; background: #f6f8fa; padding: 7px 16px; color: #59636e; font-size: 13.5px; }
@@ -778,9 +776,7 @@
 .pr-timeline > :has(.pr-reaction-picker.is-open),
 .pr-timeline > :has(.pr-card-actions.is-open) { z-index: 5; }
 .pr-card:has(.pr-reaction-picker.is-open),
-.pr-card:has(.pr-card-actions.is-open),
-.pr-inline-thread:has(.pr-card-actions.is-open),
-.pr-thread-row:has(.pr-card-actions.is-open) { overflow: visible; }
+.pr-card:has(.pr-card-actions.is-open) { overflow: visible; }
 .pr-card-actions { position: relative; display: inline-grid; }
 .pr-card-actions__trigger { display: grid; width: 32px; height: 32px; place-items: center; border: 0; border-radius: 8px; background: transparent; color: inherit; padding: 0; cursor: pointer; }
 .pr-card-actions__trigger:hover,
@@ -942,37 +938,22 @@
 .pr-commit-event time { color: #59636e; }
 .pr-label { display: inline-flex; border-radius: 999px; color: #5d3b3b; padding: 2px 9px; font-size: 11.5px; font-weight: 600; }
 
-.pr-thread-row { margin-left: 43px; overflow: hidden; border: 1px solid #e4e8ec; border-radius: 10px; background: #f6f8fa; }
-.pr-thread-row > summary,
-.pr-inline-thread > summary { display: grid; min-height: 39px; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 8px; color: #59636e; cursor: pointer; list-style: none; }
-.pr-thread-row > summary { background: #f6f0ff; padding: 7px 14px; }
-.pr-thread-row > summary::-webkit-details-marker,
-.pr-inline-thread > summary::-webkit-details-marker { display: none; }
-.pr-thread-row > summary code,
-.pr-inline-thread > summary code { overflow: hidden; font-family: var(--font-mono); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.pr-thread-chevron { display: inline-block; justify-self: center; transition: transform 120ms ease; }
-.pr-thread-row[open] > summary .pr-thread-chevron,
-.pr-inline-thread[open] > summary .pr-thread-chevron { transform: rotate(90deg); }
-.pr-thread-row__resolved { display: inline-flex; align-items: center; gap: 5px; }
-.pr-thread-row__resolved svg { color: #8250df; }
-.pr-thread-row__comments { border-top: 1px solid #d8dee4; background: #fff; }
-
-/* One private card for every local surface: local review threads, agent findings and summary cards.
-   It shares no markup with the GitHub thread card above, so neither restyles the other. A tone sets
-   the header colors; "local" is the review-comment tone that says the card never reaches GitHub. */
+/* Shared review-card layout. Destination and summary tones only change its accents. */
 .lrc {
   --lrc-bar: #f6f8fa; --lrc-ink: #1f2328; --lrc-icon: #57606a; --lrc-rule: #d8dee4; --lrc-hover: #eff2f5;
   --lrc-chip: #57606a; --lrc-chip-border: #d0d7de;
   overflow: hidden; margin-left: 43px; border: 1px solid #d8dee4; border-radius: 12px; background: #fff;
   color: var(--text-1); font-family: var(--font-sans); font-size: var(--ui-font-size); line-height: 1.4;
 }
+.lrc.is-github { --lrc-bar: #fff8e6; }
+.lrc.is-github.pr-thread-row { --lrc-bar: #f6f0ff; }
 .lrc.is-purpose { --lrc-bar: #effbf2; --lrc-ink: #116329; --lrc-icon: #1a7f37; --lrc-rule: #cfecd7; --lrc-hover: #e6f6ea; }
 .lrc.is-commit { --lrc-bar: #eef6ff; --lrc-ink: #0a3069; --lrc-icon: #0969da; --lrc-rule: #d2e5fa; --lrc-hover: #e3efff; }
 .lrc.is-local {
   --lrc-bar: #eaf6f4; --lrc-icon: #1b7c72; --lrc-rule: #d3ebe7; --lrc-hover: #e8f5f3; --lrc-chip: #1b6a62; --lrc-chip-border: #bfe0da;
   border-color: #c5e4df; background: #fbfdfd; box-shadow: 0 1px 0 rgba(31, 35, 40, 0.04);
 }
-.lrc:has(.pr-card-actions.is-open) { overflow: visible; }
+.lrc:has(.pr-card-actions.is-open), .lrc:has(.pr-reaction-picker.is-open) { overflow: visible; }
 .lrc__head { display: flex; min-height: 40px; align-items: center; flex-wrap: wrap; gap: 6px 10px; background: var(--lrc-bar); color: var(--lrc-ink); padding: 9px 14px; cursor: pointer; list-style: none; }
 .lrc__head::-webkit-details-marker { display: none; }
 .lrc__chevron { flex: none; color: var(--lrc-icon); transition: transform 120ms ease; }
@@ -990,7 +971,7 @@
 .lrc__badge.is-ready { border-color: #4ac26b; color: #1a7f37; }
 .lrc__badge.is-danger { border-color: #ff8182; color: #cf222e; }
 /* Each section under the header draws the rule above it, so a folded card shows none. */
-.lrc > :not(summary, .agr-thread), .lrc > .agr-thread > .lrc-message { border-top: 1px solid var(--lrc-rule); }
+.lrc > :not(summary, .agr-thread):not(:first-child), .lrc > .agr-thread > .lrc-message { border-top: 1px solid var(--lrc-rule); }
 .lrc__code .pr-commented-code-line { border-bottom: 0; }
 .lrc__code .pr-local-review__snapshot { border-bottom: 1px solid var(--lrc-rule); }
 .lrc-message { padding: 12px 16px 14px; }
@@ -1001,6 +982,7 @@
 .lrc-message__menu { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-left: auto; }
 .lrc-message__body { margin-top: 8px; overflow-wrap: anywhere; }
 .lrc-message__body > .markdown-body { padding: 0; }
+.lrc-message > .pr-reactions { padding: 8px 0 0; }
 .lrc-bot { display: inline-grid; width: 22px; height: 22px; flex: none; place-items: center; border-radius: 6px; background: #24292f; color: #fff; }
 .lrc__foot { display: flex; min-height: 50px; align-items: center; flex-wrap: wrap; gap: 6px; padding: 8px 12px 8px 16px; }
 .lrc__foot.is-composing { display: block; padding: 12px 16px; }
@@ -1035,7 +1017,7 @@
 .pr-private-chip.is-resolved { border-color: #b9dccd; background: #f3f8f6; color: #1a6b50; }
 .pr-private-chip.is-hidden { height: 22px; border-color: #d0d7de; border-radius: 11px; background: #fff; color: #57606a; padding: 0 9px; font-size: 11.5px; }
 .pr-private-chip__check { display: inline-flex; width: 16px; height: 16px; align-items: center; justify-content: center; border-radius: 50%; background: #1a7f37; color: #fff; font-size: 10px; }
-.pr-thread-comment:has(> .pr-private-tab), .pr-card:has(> .pr-private-tab) { position: relative; }
+.pr-thread-comment:has(.pr-private-tab) { position: relative; }
 .pr-private-tab { position: absolute; z-index: 1; top: 10px; right: 0; bottom: 10px; width: 6px; border: 0; border-radius: 5px 0 0 5px; background: #8fceb5; padding: 0; cursor: pointer; transition: width 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, top 0.18s ease, bottom 0.18s ease; }
 .pr-private-tab:hover { top: 4px; bottom: 4px; width: 30px; background: #4f9f80; box-shadow: -4px 0 12px rgba(31, 35, 40, 0.25); }
 .pr-private-forward { border-bottom: 1px solid #d8dee4; background: #fafbfc; padding: 8px 12px 12px; }
@@ -1069,40 +1051,13 @@
 .pr-thread-draft__head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: #57606a; font-size: 12px; }
 .pr-thread-draft__badge { border: 1px solid #d4a72c; border-radius: 10px; color: #9a6700; padding: 0 8px; font-weight: 600; line-height: 18px; white-space: nowrap; }
 .pr-thread-draft__note { align-self: center; color: #57606a; font-size: 12px; }
-.pr-inline-thread { margin-left: 43px; }
-.pr-inline-thread > summary { overflow: hidden; background: #fff8e6; padding: 9px 14px; white-space: nowrap; }
-.pr-inline-thread[open] > summary { border-bottom: 1px solid #d8dee4; }
-.pr-thread-outdated { flex: 0 0 auto; border: 1px solid #d4a72c; border-radius: 999px; background: #fff8c5; color: #7d4e00; padding: 2px 8px; font-size: 11.5px; font-weight: 600; }
 .pr-commented-code-line { display: grid; overflow-x: auto; grid-template-columns: 58px 24px minmax(max-content, 1fr); margin: 0; border-bottom: 1px solid #d8dee4; background: #f6f8fa; color: #59636e; font-family: var(--font-mono); font-size: 13px; line-height: 1.9; }
 .pr-commented-code-line.is-add { background: #dafbe1; color: #116329; }
 .pr-commented-code-line.is-del { background: #ffebe9; color: #a40e26; }
 .pr-commented-code-line__number { padding-right: 8px; text-align: right; }
 .pr-commented-code-line__marker { text-align: center; }
 .pr-commented-code-line code { padding-right: 13px; font: inherit; }
-.pr-thread-comment { border-bottom: 1px solid #d8dee4; background: #fff; }
-.pr-thread-comment__author { display: flex; align-items: center; gap: 7px; padding: 12px 16px 0; color: #59636e; font-size: 12px; }
-.pr-thread-comment__author strong { color: #24292f; font-size: 14px; }
-.pr-thread-comment__author time { margin-left: 2px; }
-.pr-thread-comment__menu { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
-.pr-thread-comment .markdown-body { padding-top: 10px; }
-.pr-inline-thread > footer, .pr-thread-row__comments > footer { display: flex; min-height: 50px; align-items: center; padding: 10px 16px; }
-.pr-inline-thread > footer > button, .pr-thread-row__comments > footer > button { border: 0; border-radius: 7px; background: transparent; color: #59636e; padding: 6px 11px; }
-.pr-inline-thread > footer .pr-thread-reply__open, .pr-thread-row__comments > footer .pr-thread-reply__open { color: #24292f; padding-left: 0; font-weight: 400; }
-.pr-inline-thread > footer .pr-thread-resolve, .pr-thread-row__comments > footer .pr-thread-resolve { margin-left: auto; }
-.pr-inline-thread > footer .pr-thread-resolve:not(:disabled):hover, .pr-thread-row__comments > footer .pr-thread-resolve:not(:disabled):hover { background: #eaeef2; }
-.pr-thread-reply { display: grid !important; gap: 9px; background: #f6f8fa; }
-.pr-thread-reply__tabs { display: flex; gap: 2px; }
-.pr-thread-reply__tabs button { border: 0; border-radius: 6px; background: transparent; color: #59636e; padding: 5px 9px; }
-.pr-thread-reply__tabs button.is-active { border: 1px solid #d0d7de; background: #fff; color: #24292f; }
-.pr-thread-reply textarea { width: 100%; min-height: 76px; field-sizing: content; resize: vertical; border: 1px solid var(--accent); border-radius: 8px; outline: 0; background: #fff; color: #24292f; padding: 11px 13px; font: inherit; font-size: var(--ui-font-size); }
-.pr-thread-reply > .markdown-body { min-height: 76px; border: 1px solid #d0d7de; border-radius: 8px; background: #fff; padding: 11px 13px; font-size: var(--ui-font-size); }
 .pr-thread-reply__error { color: #cf222e; font-size: var(--ui-font-size); }
-.pr-thread-reply__actions { display: flex; justify-content: flex-end; gap: 8px; }
-.pr-thread-reply__actions button { border: 1px solid #d0d7de; border-radius: 7px; background: #f6f8fa; color: #24292f; padding: 6px 11px; }
-.pr-thread-reply__actions button.is-primary { border-color: #1a7f37; background: #1f883d; color: #fff; }
-.pr-thread-reply__actions button:disabled { opacity: 0.45; }
-.pr-comment-editor { padding: 10px 16px 14px; }
-.pr-thread-reply__actions button.pr-better-words,
 .pr-review-sheet__content > button.pr-better-words,
 .pr-composer > footer button.pr-better-words {
   margin-right: auto;
@@ -1111,7 +1066,6 @@
   color: #6639ba;
   font-weight: 500;
 }
-.pr-thread-reply__actions button.pr-better-words.is-discard,
 .pr-review-sheet__content > button.pr-better-words.is-discard,
 .pr-composer > footer button.pr-better-words.is-discard { color: #cf222e; }
 
@@ -1323,27 +1277,16 @@
 .pull-diff-code tr:is(.is-review-composer, .is-pending-review, .is-review-thread) > td { background: linear-gradient(to right, #f6f8fa 84px, #fff 84px); padding: 10px 12px 10px 90px; }
 .pull-diff-code tr:is(.is-review-composer, .is-pending-review, .is-review-thread).is-add > td { background: linear-gradient(to right, var(--diff-add-num) 84px, var(--diff-add) 84px); }
 .pull-diff-code tr:is(.is-review-composer, .is-pending-review, .is-review-thread).is-del > td { background: linear-gradient(to right, var(--diff-del-num) 84px, var(--diff-del) 84px); }
-.pull-diff-pending { width: 100%; max-width: 780px; overflow: hidden; border: 1px solid #d0d7de; border-radius: 8px; background: #fff; color: #24292f; font-family: var(--font-sans); line-height: 1.4; }
-.pull-diff-pending summary { display: flex; min-height: 38px; align-items: center; gap: 8px; cursor: pointer; list-style: none; background: #fff8e6; padding: 8px 12px; color: #59636e; user-select: none; }
-.pull-diff-pending summary::-webkit-details-marker { display: none; }
-.pull-diff-pending summary strong { color: #24292f; font-weight: 600; }
-.pull-diff-pending__chevron { flex: 0 0 auto; font-size: 20px; line-height: 1; transition: transform 120ms ease; }
-.pull-diff-pending[open] .pull-diff-pending__chevron { transform: rotate(90deg); }
-.pull-diff-pending__badge { margin-left: auto; border: 1px solid #bf8700; border-radius: 999px; color: #9a6700; padding: 2px 8px; font-size: 10.5px; font-weight: 600; }
-.pull-diff-pending__body { border-top: 1px solid #d8dee4; }
-.pull-diff-pending__body .markdown-body { padding: 12px 14px; }
-.pull-diff-pending__actions { display: flex; justify-content: flex-end; gap: 7px; padding: 0 14px 12px; }
-.pull-diff-pending__actions button { border: 1px solid #d0d7de; border-radius: 6px; background: #fff; color: #24292f; padding: 5px 9px; font: inherit; }
+.pull-diff-pending { width: 100%; max-width: 780px; margin-left: 0; }
+.pull-diff-pending__badge { border: 1px solid #bf8700; border-radius: 999px; color: #9a6700; padding: 2px 8px; font-size: 10.5px; font-weight: 600; }
+.pull-diff-pending__actions { justify-content: flex-end; }
 .pull-diff-pending__actions button.is-destructive { color: #cf222e; }
-.pull-diff-pending__editor { border: 0; border-top: 1px solid #d8dee4; border-radius: 0; }
 /* Every review card hosted beside code — a diff row, the diff's thread list, or either Code & Tests host — gets the
    same box and the same type, so a finding reads identically wherever it is placed. Each host sets a different
    inherited font: the diff table is monospace at 12px, the Code & Tests hosts sit inside the editor. */
-:is(.pull-diff-code, .pull-diff-threads, .ct-inline-card, .ct-unplaced__card) :is(.pr-inline-thread, .pr-thread-row, .lrc, .agr-finding) {
+:is(.pull-diff-code, .pull-diff-threads, .ct-inline-card, .ct-unplaced__card) :is(.lrc, .agr-finding) {
   max-width: 780px; margin-left: 0; font-family: var(--font-sans); font-size: var(--ui-font-size); line-height: 1.4;
 }
-.pull-diff-code :is(.pr-inline-thread, .pr-thread-row) > summary { font-size: var(--font-size-sm); font-weight: 400; }
-.pull-diff-code :is(.pr-inline-thread, .pr-thread-row) > summary strong { font-weight: inherit; }
 .pull-diff-threads { display: grid; gap: 10px; padding: 12px; background: #f6f8fa; }
 .pull-diff-threads > p { margin: 0; color: #59636e; font-size: var(--ui-font-size); }
 .pull-changes__loading { border: 1px solid #d5dbe1; border-radius: 8px; background: #fff; color: #59636e; padding: 14px; font-size: var(--ui-font-size); }
@@ -1384,10 +1327,6 @@
 .pull-commit-picker__body { margin: 0; padding: 0 16px 12px 70px; background: linear-gradient(#d0d7de, #d0d7de) calc(70px + 120ch) 0 / 1px 100% no-repeat local, #f6f8fa; color: var(--text-1); font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5; white-space: pre; overflow-x: auto; }
 .pr-review-sheet__pending { display: grid; flex: 0 0 auto; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .pr-review-sheet__pending .pr-inline-thread { margin: 0; }
-.pr-review-sheet__pending .pr-thread-comment { border-bottom: 0; }
-.pr-review-sheet__pending .pull-diff-pending__badge { margin-left: 0; }
-/* The sheet unbolds its own labels; a comment card keeps the timeline's author weight. */
-.pr-review-sheet__pending .pr-thread-comment__author strong { font-weight: bold; }
 .pr-review-sheet__edit,
 .pr-review-sheet__remove { border: 0; background: transparent; padding: 3px; }
 .pr-review-sheet__edit { color: var(--accent); }
@@ -1408,8 +1347,6 @@
   .pr-overview__number { font-size: 18px; }
   .pull-detail__toolbar { align-items: flex-start; flex-wrap: wrap; }
   .pull-detail__header-actions { margin-left: auto; }
-  .pr-thread-row,
-  .pr-inline-thread,
   .lrc { margin-left: 34px; }
 }
 

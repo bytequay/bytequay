@@ -32,6 +32,7 @@ import { buildFileTree, type FileTreeItem } from './fileTree';
 import BetterWordsButton from './BetterWordsButton';
 import MarkdownBody, { type SuggestionBase } from './MarkdownBody';
 import MarkdownEditor from './MarkdownEditor';
+import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
 import CopyLinkButton from '../CopyLinkButton';
 import { remoteErrorMessage, ReviewThread, threadCommentedLines, useViewer, type PullDetailUpdater } from './PullOverview';
 import type { ReviewNavigationTarget } from './agent-review/AgentReviewTab';
@@ -1292,31 +1293,24 @@ export function PendingReviewCard({ comment, viewer, repository, suggestion, edi
   const startLabel = `${startSide === 'RIGHT' ? 'R' : 'L'}${comment.startLine ?? comment.line}`;
 
   return (
-    <details className="pull-diff-pending" open>
-      <summary>
-        <span className="pull-diff-pending__chevron" aria-hidden="true">›</span>
-        <Avatar login={viewer?.login ?? ''} avatarUrl={viewer?.avatarUrl} size={22} allowGitHubFallback={false} />
-        <span>Comment on {isRange ? 'lines' : 'line'} <strong>{isRange ? `${startLabel}–${endLabel}` : endLabel}</strong></span>
-        <span className="pull-diff-pending__badge">Pending</span>
-      </summary>
-      {editBody === null ? <>
-        <div className="pull-diff-pending__body"><MarkdownBody body={comment.body} repository={repository} suggestion={suggestion} /></div>
-        <footer className="pull-diff-pending__actions">
-          <button type="button" onClick={() => onEdit(comment.body)}>Edit</button>
-          <button type="button" className="is-destructive" onClick={onDiscard}>Discard</button>
-        </footer>
-      </> : <form className="pull-diff-review pull-diff-pending__editor" onSubmit={event => {
-        event.preventDefault();
-        if (editBody.trim()) onSave();
-      }}>
-        <textarea autoFocus aria-label="Edit pending review comment" value={editBody}
-          onChange={event => onEdit(event.target.value)} />
-        <footer>
-          <button type="button" onClick={() => onEdit(null)}>Cancel</button>
-          <button type="submit" className="is-primary" disabled={!editBody.trim()}>Save</button>
-        </footer>
-      </form>}
-    </details>
+    <ReviewThreadCard className="pull-diff-pending" resolved={false}
+      title={<span className="lrc__title">Comment on {isRange ? 'lines' : 'line'} <strong>{isRange ? `${startLabel}–${endLabel}` : endLabel}</strong></span>}
+      badges={<span className="pull-diff-pending__badge">Pending</span>}
+      controls={editBody === null && <footer className="lrc__foot pull-diff-pending__actions">
+        <button type="button" className="lrc__action" onClick={() => onEdit(comment.body)}>Edit</button>
+        <button type="button" className="lrc__action is-destructive" onClick={onDiscard}>Discard</button>
+      </footer>}>
+      <ReviewThreadMessage timestamp={null} author={<strong>{viewer?.login || 'You'}</strong>}
+        avatar={<Avatar login={viewer?.login ?? ''} avatarUrl={viewer?.avatarUrl} size={22} allowGitHubFallback={false} />}>
+        {editBody === null ? <MarkdownBody body={comment.body} repository={repository} suggestion={suggestion} />
+          : <MarkdownEditor value={editBody} onChange={onEdit} repository={repository} suggestion={suggestion}
+            autoFocus ariaLabel="Edit pending review comment"
+            onSubmit={() => { if (editBody.trim()) onSave(); }}>
+            <button type="button" onClick={() => onEdit(null)}>Cancel</button>
+            <button type="button" className="is-primary" disabled={!editBody.trim()} onClick={onSave}>Save</button>
+          </MarkdownEditor>}
+      </ReviewThreadMessage>
+    </ReviewThreadCard>
   );
 }
 

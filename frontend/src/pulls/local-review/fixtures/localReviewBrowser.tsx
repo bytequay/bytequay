@@ -19,7 +19,9 @@ import { parseAgentTurn } from '../../../agents/contracts';
 import agentContracts from '../../../agents/fixtures/agent-contracts-v1.json';
 import { previewTask } from '../../../agents/fixtures/previewBridge';
 import type { AgentTurnDto, Bridge, DevelopmentLearningSummaryDto } from '../../../types';
-import { DiffViewer } from '../../PullChanges';
+import { DiffViewer, PendingReviewCard } from '../../PullChanges';
+import { ReviewThreadCard, ReviewThreadMessage } from '../../ReviewThreadCard';
+import MarkdownBody from '../../MarkdownBody';
 import ReviewSummaryCard from '../../agent-review/ReviewSummaryCard';
 import ReviewFindingCard from '../../agent-review/ReviewFindingCard';
 import ReviewComposer from '../../agent-review/ReviewComposer';
@@ -77,7 +79,7 @@ async function replyAndResolve(): Promise<void> {
   try {
     assert(host.querySelector('.lrc.is-local') !== null && host.querySelector('.lrc__chip')?.textContent === 'Local'
       && host.querySelector('.pr-inline-thread, .pr-thread-row') === null,
-    'Private threads must use the one local card, never the GitHub thread card');
+    'Private threads must retain their local tone and destination on the shared frame');
     assert(host.querySelectorAll('.lrc-message').length === 2 && host.textContent?.includes('You') === true && host.textContent?.includes('Agent') === true,
       'User and agent messages must share the local card\'s message rows');
     button(host, 'Reply').click();
@@ -548,6 +550,50 @@ async function sharedReviewEditor(): Promise<void> {
   }
 }
 
+async function sharedCardLayout(): Promise<void> {
+  const host = document.createElement('div');
+  host.className = 'pull-diff-threads';
+  document.body.append(host);
+  const root = createRoot(host);
+  const thread = initialThread();
+  const noAction = async () => {};
+  try {
+    flushSync(() => root.render(<>
+      <ReviewThreadCard title={<span className="lrc__title">{thread.path}:R2</span>} resolved={false} controls={null}>
+        <ReviewThreadMessage timestamp={thread.createdAt} author={<strong>You</strong>}>
+          <MarkdownBody body={thread.messages[0].body} />
+        </ReviewThreadMessage>
+      </ReviewThreadCard>
+      <LocalReviewThreadCard thread={thread} showCode={false} onReply={noAction} onResolve={noAction} onRetry={noAction} />
+      <PendingReviewCard comment={{ path: thread.path, side: 'RIGHT', line: 2, startLine: null, startSide: null, commitId: null, body: thread.messages[0].body }}
+        repository={thread.repo} editBody={null} onEdit={() => {}} onSave={() => {}} onDiscard={() => {}} />
+    </>));
+    for (const width of [900, 360]) {
+      host.style.width = `${width}px`;
+      await settle();
+      const cards = [...host.querySelectorAll<HTMLDetailsElement>(':scope > details')];
+      assert(cards.length === 3, 'GitHub, local and pending comments must all render the shared disclosure');
+      const styles = cards.map(card => [card, card.querySelector('.lrc__head'), card.querySelector('.lrc-message'), card.querySelector('.lrc-message__head')]
+        .map(element => {
+          assert(element !== null, 'Every review comment must use the shared header and message layout');
+          const style = getComputedStyle(element);
+          return [style.borderRadius, style.padding, style.fontFamily, style.fontSize, style.lineHeight].join('|');
+        }).join(';'));
+      assert(new Set(styles).size === 1, 'All review comment variants must have the same base spacing and typography');
+      for (const card of cards) {
+        assert(card.scrollWidth <= card.clientWidth + 1, 'Review cards must fit narrow panes');
+        card.querySelector('summary')?.click(); await settle();
+        assert(!card.open, 'Every review card must fold with its shared header');
+        card.querySelector('summary')?.click(); await settle();
+        assert(card.open, 'Every review card must reopen without losing its content');
+      }
+      assert(cards[0].querySelector('.lrc__chip') === null && cards[1].querySelector('.lrc__chip')?.textContent === 'Local'
+        && cards[2].querySelector('.pull-diff-pending__badge')?.textContent === 'Pending', 'Destination add-ons must stay distinct');
+    }
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
 async function pendingReviewerQuestion(): Promise<void> {
   const draft = Array.from({ length: 100 }, (_, index) => `Question ${index + 1}: please explain the previous and current partition statistics.`).join('\n');
   for (const kind of ['summary', 'finding']) {
@@ -660,6 +706,7 @@ async function copyConversations(): Promise<void> {
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const cases: Array<[string, () => Promise<void>]> = [
+    ['GitHub, local and pending comments share card layout and folding', sharedCardLayout],
     ['Local discussion reply, resolution and remount', replyAndResolve],
     ['Saved unsent message retry', savedRetry],
     ['Private diff anchors preserve revision and code', anchoredDiff],

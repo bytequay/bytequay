@@ -1,16 +1,18 @@
 # Agent guided goals
 
-Status: Work-item foundation implemented; agent guidance remains planned. This document specifies
-the requested Goal conversation, discovery, guidance and durable progress panel,
-and the three lessons from the Plane comparison. The
-[implementation plan](goal-guidance-impl-tmp.md) lists actionable changes and
-acceptance checks.
+Status: Work-item foundation implemented; agent guidance, research and courses
+remain planned. This document specifies the Goal conversation, research, courses,
+discovery, guidance and durable progress panel, and three takeaways from the
+Plane comparison. The [implementation plan](goal-guidance-impl-tmp.md) lists
+actionable changes and acceptance checks.
 
-The user describes an outcome to an agent. ByteQuay helps develop a path, find
-suitable issues or tickets, choose the next piece of work, execute accepted work
-through the existing task service, and remember the results. Opening the Goal
-later should answer: where are we going, what should I do next, what is blocked,
-and what have we actually achieved?
+The user describes an outcome to an agent, often a large and vague one such as
+becoming an expert in one connector. ByteQuay helps clarify it, researches what
+the outcome requires, teaches the user through a course built from that research,
+finds or discovers suitable work, executes accepted work through the existing
+task service, and remembers both the results and what the user has learned.
+Opening the Goal later should answer: where are we going, what should I learn or
+do next, what is blocked, and what have we actually achieved?
 
 This proposal extends the implemented [issue development release](issue-development-plan.md)
 and refines the later [work planning roadmap](issue-development.md). It does not
@@ -75,54 +77,93 @@ Relevant implementation entry points:
 
 ## Product flow
 
-1. **Help the user find the goal.** Keep the floating Goal control and its resizable zoom window. New goal immediately offers a useful opening
-   question and two or three concrete directions grounded in the selected
-   workspace, alongside an optional free-text answer. A vague existing title
-   such as “Iceberg connector expertise” needs the same help: understand the
-   connector, review changes, or deliver a small fix imply different paths.
-   The user need not know a ticket, write a prompt, name the Goal or fill a form.
-   A locally rendered opening question needs no model request on panel read;
-   answering it starts guidance directly without a separate Plan with agent gate.
-2. **Clarify and agree on the path.** Use known objective, constraints, accepted
-   work and saved results before asking anything. Ask one consequential question
-   at a time, offer short suggested answers, and retain free text for correction.
-   Suggest a success definition, editable title and small initial path. State
-   assumptions about unknown experience or time; do not invent user preferences
-   or require a questionnaire before offering help. The agent prepares the next
-   question or proposal; the user makes the substantive decision.
-3. **Discover and propose work.** Read within the selected workspace and its
-   connected, mapped Jira scope. Propose learning, investigation or development
-   items, including local items with no external ticket. A recommendation names
-   the reason, evidence, uncertainty, acceptance criteria and next action.
-4. **Prepare the next action.** Accept plan saves the selected work items and
-   their order. It allocates no execution task or worktree. The agent immediately
-   identifies the next eligible item, explains why it comes first and supplies
-   its intended outcome, source context and execution request. Start opens the
-   ordinary composer with these fields and existing provider/automation defaults
-   already filled in. The user can review and submit without composing another
-   prompt or manually finding the source. Learning that needs no repository task
-   stays in the Goal conversation.
-5. **Guide the work.** Open task, View changes, Review result and Answer question
-   lead to existing surfaces. Goal chat explains decisions and can propose a
-   revised next step. An instruction intended to change an active task is handed
-   to that task's existing composer or steering action, not injected silently.
-6. **Record, assess and rearrange recommendations.** Task results, observed PR
-   changes, blockers and user decisions update the factual record. The agent
-   explains where the Goal stands, what changed and what should happen next
-   without waiting for “what next?” or a manual discovery request. It can select
-   another ready item within accepted constraints and keep its suggestion current.
-   A proposed change to accepted scope, criteria, priority, order or dependencies
-   shows the specific change and its reason for the user to accept or adjust.
-   An unchanged plan needs no repeated approval. The panel retains both current
-   guidance and the decisions and outcomes that explain it.
+A Goal is usually long-term and starts vague. The agent expects the plan to
+change as the user learns and as work lands; the first plan is never final.
+Three decisions shape every step:
 
-Example: “Help me make my first Iceberg contribution; I have a few hours each
-week.” The initial path might be learn the contribution process, investigate a
-verified candidate, implement its bounded fix, and address review feedback.
-These are illustrative steps, not invented live tickets. The discovery pass must
-return real source references before presenting any particular issue as suitable.
+- **Nothing heavy starts without a click.** Research runs, spec checks, lessons
+  and development tasks are recommended as cards, and the user starts or rejects
+  each one. The agent decides when a recommendation is useful: for example after
+  the user resolves the last reproduced spec gap, after a lesson or course part
+  finishes, or when nothing it proposed is still waiting and new discovery would
+  help.
+- **Lessons live in the Goal window.** Reading a lesson, its exercise and
+  questions about it happen in the expanded Goal window, not on another page.
+- **Private cards teach the agent about the user.** The Goal may read all of the
+  user's private cards: private threads on pull-request comments, passage
+  discussions on agent answers, local review comments and learning discussions,
+  and review questions. They record what the user asked while working, and so
+  what they did not yet know.
 
-For an objective such as becoming a committer, the panel shows progress on agreed
+The reference journey, for a user of the Trino workspace:
+
+1. **Ask for the goal.** Clicking the Goal control asks what the user wants to
+   achieve, with two or three directions grounded in the workspace and a
+   free-text answer. The user types "I want to become an Iceberg connector
+   expert". An existing vague Goal title gets the same help. The user need not
+   know a ticket, write a prompt, name the Goal or fill a form. A locally
+   rendered opening question needs no model request on panel read; answering it
+   starts guidance directly, without a separate Plan with agent gate.
+2. **Clarify, then save the Goal.** The agent asks one consequential question at
+   a time, with short suggested answers and free text, until it understands the
+   scope: what expert means to this user (explain reads and writes, review
+   connector pull requests, fix correctness bugs, become a committer), what they
+   already know (the Iceberg specification, the Java library, Trino's connector
+   code), how much time they have, and whether they want to learn first or start
+   on real work. It uses the known objective, constraints, accepted work and
+   saved results before asking anything, states assumptions instead of
+   inventing preferences, and never requires a questionnaire. It then proposes a
+   title, success definition and starting knowledge; accepting them saves the
+   Goal.
+3. **Research.** The agent recommends a research card: read the Iceberg
+   specification, the connector's code, and the Apache Iceberg workspace that
+   Trino declares as a Dependency. Once started, the run saves knowledge notes
+   with their sources for lessons, discovery and later research to reuse.
+4. **Propose a course.** From the notes and the user's starting knowledge, the
+   agent proposes a course of parts, each with ordered lessons naming what the
+   user can do afterward. A first part might be: understand what an Iceberg table
+   is, set up the repository and run focused tests, read table metadata, follow
+   snapshots and manifests, trace an append end to end, and evolve schemas by
+   field ID. A user who already knows the specification gets a shorter course
+   that starts at the connector. Accepting the course saves its lessons as
+   ordered Learn work items and starts nothing.
+5. **Learn in the Goal window.** A lesson card opens the lesson in the expanded
+   window: an explanation grounded in the notes, with links to specification
+   sections and to code at a pinned commit, one focused exercise in the
+   repository, what to observe, and a short check. The user asks questions in the
+   Goal conversation beside it and marks the lesson done when they can do what it
+   promised.
+6. **Recommend practice and discovery at the right time.** When the user knows
+   enough of an area, the agent recommends work in it: an existing issue or Jira
+   ticket, or a spec check of the area that finds gaps nobody has reported. Trino
+   issue #31252 is that kind of gap: the Delta Lake checkpoint writer keyed add
+   and remove actions by path, while the Delta protocol's action reconciliation
+   keys a file by path and deletion vector, so a valid commit order lost rows. A
+   reproduced gap becomes a proposed work item with its draft issue, which only
+   the user files. A recommendation names its reason, evidence, uncertainty,
+   acceptance criteria and next action, and discovery returns real source
+   references before calling any issue suitable.
+7. **Work it to done.** Start on a work card opens the ordinary composer with the
+   outcome, source context and execution request already filled in, so the user
+   reviews and submits without writing another prompt. The user works the task
+   and its pull request to merge; the Goal records the attempt, the merged
+   delivery and the result on the Goal page. Open task, View changes, Review
+   result and Answer question lead to existing surfaces. An instruction meant for
+   an active task goes to that task's composer or steering action, never injected
+   silently.
+8. **Learn from the user and adapt.** Finished lessons, check answers, questions
+   in the Goal conversation and in private cards, and merged work update what the
+   agent believes the user knows, topic by topic. A question about manifest lists
+   in a review thread shows that area is new; once the user's fix there merges,
+   the agent recommends one more piece of work in that area to make it stick,
+   then moves to the next part of the course. The agent explains where the Goal
+   stands and what should happen next without waiting for "what next?". A
+   proposed change to accepted scope, criteria, priority, order or dependencies
+   shows the specific change and its reason for the user to accept or adjust; an
+   unchanged plan needs no repeated approval.
+
+Each finished lesson and merged contribution moves the user toward the Goal. For
+an objective such as becoming a committer, the panel shows progress on agreed
 work, not a percentage likelihood of becoming a committer. External recognition
 cannot be inferred from merged-PR counts. The user confirms such a Goal outcome.
 
@@ -173,18 +214,27 @@ covered by another layer. Manual creation, source search and board management re
 available under Work; they are not the opening task given to an unsure user.
 
 The floating control may show one short meaningful cue, such as Goal · 1 decision
-or Goal · Review ready, rather than a meaningless 0/0. It does not auto-open,
-interrupt work, animate repeatedly or notify for unchanged guidance. Opening it
+or Goal · Review ready, rather than a meaningless 0/0. Recommendations float as up
+to three cards under the control, newest first. Each names its kind (Research,
+Spec check, Lesson or Work), a title and one line of reason, with Start and Not
+now. A card appears only when the agent makes a new recommendation; it does not
+open the window, interrupt work, animate repeatedly or return unchanged after Not
+now. Start on a research card starts that run, and on a spec-check card it runs
+the check with the module, pages and reproduction count the card names, while
+Adjust opens the existing Spec check drawer. A lesson card opens the lesson in
+the Goal window, and a work card opens the prepared composer. Opening the control
 shows the saved current assessment immediately; panel reads stay local.
 
 | Content | What it contains | User actions |
 | --- | --- | --- |
 | Objective | Outcome, constraints, accepted success definition | Edit, discuss, pause guidance |
 | Path | Ordered accepted work items and explicit dependencies | Accept proposed changes, reorder, remove from scope |
+| Course | Parts and ordered lessons, each with what it teaches | Open a lesson, mark it done, ask to change the course |
 | Current guidance | One question or recommendation with why, evidence and uncertainty | Answer, accept, adjust, skip, ask why |
 | Work | Planned, Working and Done; blocked or waiting details | Start, open task, review result |
 | Results | Outcome, supporting evidence and what remains | Accept a result, reopen, inspect PR or artifact |
-| History and lessons | User decisions, verified events and attributed summaries | Read earlier decisions and evidence |
+| What you know | Topics with the agent's assessment and the evidence behind it | Correct an assessment |
+| History and insights | User decisions, verified events and attributed summaries | Read earlier decisions and evidence |
 
 Show at most three recommendations at once. Each accepted work item has a stable
 identity and an expandable set of related sources, execution attempts and results.
@@ -207,7 +257,13 @@ search prompt or to open Working and ask for status does not satisfy this design
 | Situation | Agent responsibility | User decision |
 | --- | --- | --- |
 | No clear outcome or only a broad title | Ask the smallest useful question with concrete suggested answers | Choose or describe the intended outcome |
+| Starting knowledge unknown | Ask what the user already knows, with suggested answers | Describe or confirm their starting point |
+| Lessons or discovery need knowledge the Goal lacks | Recommend a research card for the missing area | Start or reject the research |
 | Outcome clear, no accepted path | Draft milestones, completion criteria and a suitable starting point | Accept or refine the proposed path |
+| Goal saved, no course yet | Propose parts and lessons fitted to the user's starting knowledge | Accept or adjust the course |
+| A lesson is open | Answer questions about it and offer its check | Finish the lesson or ask more |
+| The user knows enough of an area | Recommend practice there: an issue, a ticket or a spec check | Start or reject the card |
+| An area is practiced | Advance to the next course part | Continue, or ask for more practice |
 | Ready to find work | Discover within authorized scope and explain candidate fit and uncertainty | Choose a proposed candidate or direction |
 | Accepted work is ready | Prepare its task request and explain why it comes next | Start with the existing execution controls |
 | Work is running | Show observed activity and the current milestone; avoid unnecessary questions | Answer only when execution needs input |
@@ -224,15 +280,93 @@ and the next supported action. This extends the existing bounded planner reply,
 not a second workflow engine. Facts remain useful when generation is unavailable;
 show the last guidance with its stale/failed status and the specific retry remedy.
 
+Recommendations follow the user's pace. The agent does not stack cards of one
+kind: it proposes the next spec check after the user has resolved or dropped the
+gaps from the last one, recommends practice in an area only once its basics are
+known, and starts new discovery only when nothing it proposed is still waiting
+for the user. A blocker, failure or review that needs the user still comes first.
+
+## Courses and lessons
+
+A course is the Goal's learning path. It has parts, and each part has ordered
+lessons. A lesson is a Learn work item: its acceptance criteria say what the
+user can do afterward, its completion rule is an accepted result, and its part
+is the item's milestone. The course is a proposal until the user accepts it, and
+the agent may later propose to add, drop, reorder or shorten lessons under the
+same rule as any other plan change.
+
+A tool-free Goal request writes each lesson from the Goal's knowledge notes and
+the user's profile, and the lesson is saved, so reopening it needs no model call.
+It holds an explanation with links to specification sections and to code paths
+at the commit its notes were read from, one focused exercise with what to
+observe, and a short check. An exercise in a related repository names that
+workspace; doing it there uses that workspace's ordinary composer or the user's
+own IDE and does not move the lesson. When the notes behind a lesson go stale,
+the lesson says so and the agent may recommend refreshing it.
+
+The expanded Goal window shows the open lesson beside the Goal conversation, and
+questions asked there belong to the lesson. Done is the user's decision. The
+agent may suggest the check first, but an answer it judges wrong only adds
+evidence to the user's profile and never blocks completion.
+
+## Research and Goal knowledge
+
+A research run reads what the Goal needs and saves knowledge notes. It is a
+read-only agent task the user starts from a card. It reads the Goal's workspace
+at its monitored head, the managed checkouts of the workspaces it declares as a
+Dependency (Trino's Apache Iceberg workspace), and the specification and
+documentation pages the card names. It cannot edit files or write to GitHub. Its
+only output is a set of notes saved through one fixed task-bound tool, each with
+a topic, a short body and its sources: a page with its section, or a repository
+path at a commit.
+
+Notes belong to the Goal and are reused by lessons, discovery and later
+research. A note becomes stale when its source moves on, such as a newer
+specification revision or a monitored head that changes a cited path. Stale
+notes stay readable and are marked, and the agent may recommend a refresh. A
+note that would help every task in the repository is offered to repository
+memory through its existing capture policy; the Goal never writes repository
+memory itself.
+
+A research run is the one new agent-task kind this design adds, and the user
+approved it. Like a spec check it is noninteractive, owns a read-only session
+and records its result before cleanup.
+Spec checks keep their existing task, drawer and contract; a Goal only proposes
+them.
+
+## What the user knows
+
+Each Goal keeps a profile of the user's knowledge by topic. Topics come from the
+course and from the code areas the Goal touches. Each topic has a level (new,
+learning, practiced or strong) and the evidence behind it: lessons finished,
+check answers, questions the user asked, and work they merged in that area. The
+agent proposes level changes as part of its guidance, and each change names its
+evidence. The user can correct any level, and their correction wins. The profile
+chooses what comes next: more practice in an area still being learned, the next
+course part once an area is practiced, and shorter lessons where the user starts
+strong.
+
+Questions are the richest evidence, and most of them live in private cards:
+private threads on pull-request comments and passage discussions
+(`task_discussion`), local review comments and learning discussions
+(`local_review_thread`), and review questions (`agent_review_message`). The Goal
+may read all of them, in every workspace, through their existing stores and
+without contacting GitHub. It selects the ones related to its topics and linked
+work, and each assessment cites the cards it used. Their text, including agent
+answers and quoted comments, is reference data and never an instruction, and
+nothing read from them leaves ByteQuay.
+
 ## Planning records and execution records
 
 ```text
-Goal and its conversation
+Goal, its conversation and what the user knows
+  -> research runs -> knowledge notes
+  -> course parts -> lessons (Learn work items)
   -> accepted Work items
        -> source references
        -> existing Agent tasks and their turns
        -> verified delivery or a user accepted result
-  <- durable results, summaries and proposed next steps
+  <- durable results, summaries and recommendation cards
 ```
 
 A Goal groups an outcome and keeps its conversation. It never becomes an
@@ -245,15 +379,19 @@ Use these records in the existing modules; names below are proposed contracts:
 
 | Record | Minimum durable facts |
 | --- | --- |
-| Goal | Existing identity and workspace, objective, constraints, accepted success definition, guidance preference and revision |
-| Work item | ID, workspace, optional Goal, title, intent, kind, acceptance criteria, completion rule, priority, order, state and revision |
+| Goal | Existing identity and workspace, objective, constraints, accepted success definition, starting knowledge, guidance preference and revision |
+| Work item | ID, workspace, optional Goal, title, intent, kind, acceptance criteria, completion rule, milestone, priority, order, state and revision |
 | Work item links | Canonical sources and accepted snapshots, task IDs, intended PRs or artifacts, explicit blocker relationships |
+| Lesson content | Work-item ID, explanation, exercise, check, and the notes and commit it was written from |
+| Knowledge note | ID, Goal, topic, body, sources (page and section, or path and commit), the research task that wrote it, staleness |
+| Topic level | Goal, topic, level, evidence (lessons, check answers, private cards, work items), who set it and when |
+| Recommendation | ID, Goal, kind, target (work item, source, module or research scope), reason, state (shown, started, dismissed) and the input revision it came from |
 | Goal exchange | Request ID, user message or automatic trigger, input revision, provider/model, validated answer, proposal and failure if any |
 | Work history | Stable fact identity, work-item ID, event kind, evidence, actor and occurrence time |
 
 Start with Learn, Investigate and Develop kinds. These describe intent; they are
-not new execution engines. Learning can be completed through the Goal conversation
-and an accepted artifact without starting a task. A repository experiment uses
+not new execution engines. A lesson is a Learn item completed in the Goal window
+with an accepted result, without starting a task. A repository experiment uses
 the ordinary task composer and its existing permission and automation controls.
 
 Keep one primary Goal per work item. Moving the item changes membership, not its
@@ -280,7 +418,7 @@ identity. An idle but open task is still the existing attempt. Preserve
 the source locks and task-creation transaction; merely removing the constraint
 would reintroduce duplicate-start races.
 
-## Lesson one Trustworthy progress
+## Trustworthy progress
 
 Use four work-item states: Planned, Working, Done and Dropped. Running, awaiting
 review, blocked, failed attempt, evidence unavailable and waiting for the user
@@ -322,7 +460,7 @@ label it linked-item activity, separate Ended from achieved results, show missin
 issues as Unknown, and keep merged PRs as an explicit factual count. Do not
 present a renamed reference count as outcome progress.
 
-## Lesson two One record per outcome
+## One record per outcome
 
 Accepted work receives a Work item even when there is no GitHub issue or Jira
 ticket. The primary source, task attempts and deliverables are links on that item.
@@ -353,16 +491,16 @@ This recovery records facts; it does not restart an interrupted model request.
 
 Goal history outlives task runtime cleanup and source caches. Deleting an
 execution task leaves its saved result and an unavailable-task reference. Archive
-a Goal without deleting its work. Unmarking a source as Goal removes its role
-marker/source association but retains an existing plan, conversation and outcomes;
-the current unconditional seeded-Goal deletion must change for this feature.
+a Goal without deleting its work. Unmarking a source keeps a Goal that holds work,
+without its marking, and archives an empty one; marking the source again restores
+the kept Goal with its plan, conversation and outcomes.
 
-Goal lessons are attributed summaries of this work. They do not automatically
-become repository-wide rules. Remember an applicable lesson uses the existing
+Goal insights are attributed summaries of this work. They do not automatically
+become repository-wide rules. Remember an applicable insight uses the existing
 repository-memory capture policy and source evidence, rather than restoring the
 removed repository-learning system.
 
-## Lesson three Clear organization
+## Clear organization
 
 Keep the existing list and board. Add fixed views for Next, Working, Blocked and
 Done, plus priority and source filters. Accepting a plan establishes an order;
@@ -392,10 +530,12 @@ Add them only for an observed organization or integration need.
 ## Bounded discovery and planning
 
 The first release supports one selected ByteQuay workspace per Goal, its watched
-GitHub repository and Jira tickets explicitly mapped to that workspace. It never
-silently watches repositories, changes Jira mappings or expands scope. Show a
-setup remedy when the requested repository is not available. Keep cross-workspace
-goals as a later addition.
+GitHub repository and Jira tickets explicitly mapped to that workspace. Research
+and lessons may also read the workspaces it declares as a Dependency, which is how
+a Trino Goal reads Apache Iceberg; work items and launches stay in the Goal's
+workspace. It never silently watches repositories, adds relationships, changes
+Jira mappings or expands scope. Show a setup remedy when the requested repository
+is not available. Keep cross-workspace goals as a later addition.
 
 Discovery is application-owned and read-only. Use the existing GitHub/Jira refresh
 services, credentials, rate-limit handling and source caches. A planning request
@@ -404,6 +544,13 @@ First filter locally for closed/inaccessible sources, known duplicate markers,
 existing active work, accepted delivery, user dismissals and blockers. Inspect
 the available candidate set before presentation limits, and disclose source caps,
 partial refreshes and stale data. Never claim exhaustive discovery from a sample.
+
+Discovery has three sources. Existing issues and mapped Jira tickets go through
+the bounded pass below. A spec check of a module the Goal covers finds gaps that
+nobody has reported and reproduces each one with a test; a reproduced gap becomes
+a proposed work item carrying the check's draft issue, and an open issue that
+already reports the gap is linked instead. Research findings, such as a
+specification feature the connector lacks, become proposed investigation items.
 
 Proposed bounded first-release pass:
 
@@ -422,10 +569,10 @@ Proposed bounded first-release pass:
 An ordinary follow-up chat or result summary needs only one model call. These are
 bounded application steps, not an open-ended agent tool loop. Repository guidelines
 and a bounded root overview may be read at an immutable commit through existing
-Git helpers. The planner cannot browse arbitrary code or execute commands.
-Deeper code investigation is an explicit work-item action through the existing
-task flow; its result feeds the plan. This limitation must be visible whenever
-a recommendation depends on code that has not been inspected.
+Git helpers. The planner cannot browse arbitrary code or execute commands; reading
+code is the work of research runs, spec checks and investigation tasks, each
+started from a card, and their results feed the plan. A recommendation that
+depends on code nobody has inspected says so.
 
 ## Provider boundary and durable conversation
 
@@ -439,6 +586,8 @@ must be verified for Codex and Claude; do not silently substitute another lane.
 A Goal request owns a scratch directory and a supervised helper identity. It
 creates no `agent_task`, execution turn, Git branch or managed Git worktree.
 It exposes no native tools, ByteQuay tools, external MCP server or approval cards.
+Research runs and spec checks are the separate read-only agent tasks described
+above; a Goal request recommends them and reads their saved results.
 The application supplies snapshots and validates a typed response containing an
 answer, optional proposed work changes, evidence references and a supported summary.
 Reject unknown IDs, cross-workspace references, invalid dependencies, oversized
@@ -470,8 +619,10 @@ while automatic guidance is paused. This document creates no running automation
 in the development environment.
 
 Always record source/execution facts without requiring a model. Automatic guidance
-runs after meaningful linked task results, review/merge/blocker changes and user
-acceptance or feedback. Only a meaningful change in the eligible candidate set
+runs after meaningful linked task results, review/merge/blocker changes, finished
+lessons and research runs, new private-card questions on the Goal's topics, and
+user acceptance or feedback. It may recommend; it never starts a research run,
+spec check, lesson or task. Only a meaningful change in the eligible candidate set
 can trigger another discovery pass. Coalesce events; a poll, unchanged timestamp
 or the agent's own saved summary cannot trigger another run. Reuse quiet hours and
 existing refresh cadence. Proposed initial bounds are one active request per Goal,
@@ -502,6 +653,8 @@ them. No off-device daemon or activity while the application is stopped is promi
 | User edits while the agent answers | Preserve their edit; stale output cannot become the current plan |
 | Item is closed, marked as Goal or started elsewhere before Start | Revalidate admission and open existing work or explain the changed condition |
 | Summary generation fails | Facts remain recorded; show Summary pending and retry independently |
+| A research run fails or is stopped | Keep the notes it saved; offer a card to retry the missing scope |
+| A private card is deleted | Keep the assessment; mark that evidence unavailable |
 | Task logs expire | Saved outcomes remain; unavailable evidence is identified |
 | Goal is archived or guidance paused | Stop new automatic requests; preserve history and any existing execution tasks |
 
@@ -513,14 +666,17 @@ in `app`. Use the existing provider SPI and task creation path. Add no Maven
 module, connector framework, execution engine or general event bus.
 
 Extend `GoalController` and the typed Electron bridge with goal messages, proposal
-acceptance/dismissal, work-item editing, result acceptance and guidance preference.
+acceptance/dismissal, recommendation Start and Not now, course and lesson reads,
+topic-level corrections, work-item editing, result acceptance and guidance
+preference.
 Commands carry an operation ID and expected revision. Reads are local projections.
 Start carries a work-item ID into canonical task creation; the server resolves
 and revalidates its accepted source, workspace and intended outcome. Persist task,
 source snapshot and work-item association together before the first turn is admitted.
 The existing task idempotency identity is reused on lost-response retries.
 
-Use Hibernate-managed tables for final planning, conversation and history records.
+Use Hibernate-managed tables for final planning, conversation, history, knowledge
+note, lesson content, topic-level and recommendation records.
 Index source ownership and task associations; use database uniqueness plus the
 existing source locks. Enforce task/workspace ownership and revision checks in
 the backend, not just the panel. Record result receipts idempotently by their
@@ -537,14 +693,26 @@ introduces no Flyway or migration-history machinery.
 
 ## First release and verification
 
-The first complete release includes the conversation, bounded GitHub/Jira
-discovery, accepted work-item identity, existing-task handoff, durable outcome
-receipts, summaries, next proposals and the updated panel. Fixing a progress bar
-alone is not this release. The implementation plan delivers smaller independently
+The first complete release includes the conversation, research runs, a course
+taught in the Goal window, the profile of what the user knows, bounded GitHub/Jira
+and spec-check discovery, recommendation cards, accepted work-item identity,
+existing-task handoff, durable outcome receipts, summaries and the updated panel.
+Fixing a progress bar alone is not this release. The implementation plan delivers smaller independently
 verifiable changes on the way to that complete loop.
 
 Acceptance must demonstrate:
 
+- The reference journey works end to end: a vague expertise Goal is clarified and
+  saved, a research card runs only after Start, the proposed course fits the
+  user's starting knowledge, a lesson opens and finishes in the Goal window, and a
+  later practice card leads to a merged pull request recorded on the Goal.
+- A spec-check card reproduces a gap of the #31252 kind and turns it into a
+  proposed work item with a draft issue; nothing reaches GitHub until the user
+  files it.
+- A question in a private card changes the level of the topic it touches, with
+  the card cited, and the next recommendation follows from that level.
+- No research run, spec check, lesson or task starts without a click, a dismissed
+  card does not return unchanged, and cards of one kind do not stack.
 - A natural-language Goal produces a saved path and real source-backed proposals
   without starting a task or allocating a Git worktree.
 - Accepting a proposal twice creates one item; starting twice creates one task

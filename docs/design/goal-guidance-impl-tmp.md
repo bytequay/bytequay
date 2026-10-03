@@ -1,15 +1,17 @@
 # Agent guided goals implementation plan
 
-Status: Work-item foundation implemented. Agent-guidance work remains planned. The
-[Goal guidance design](goal-guidance.md) owns the product and behavior contract;
-this checklist records delivery order, concrete actions and proof required.
+Status: Work-item foundation implemented. Agent guidance, research and courses
+remain planned. The [Goal guidance design](goal-guidance.md) owns the product and
+behavior contract; this checklist records delivery order, concrete actions and
+proof required.
 
-The first useful release must help an unsure user clarify a goal, receive a
-grounded path, accept and start prepared work, and return to a recorded result
-and next recommendation. The agent leads clarification, discovery and ongoing
-assessment. The user need not invent prompts, manually search for every ticket
-or ask for the next step after every result. The three lessons are part of that
-loop, not separate architecture projects.
+The first useful release must help an unsure user clarify a goal, learn through a
+course built from research, accept and start prepared work, and return to a
+recorded result and next recommendation. The agent leads clarification, research,
+discovery and ongoing assessment, and decides when to recommend; the user starts
+or rejects each recommendation. The user need not invent prompts, manually
+search for every ticket or ask for the next step after every result. The three
+Plane takeaways are part of that loop, not separate architecture projects.
 
 ## Delivery order
 
@@ -17,9 +19,9 @@ loop, not separate architecture projects.
 | --- | --- | --- |
 | 1 Correct existing progress | Failed or abandoned work no longer looks achieved | Independent |
 | 2 Introduce outcome identity | One work item connects sources, task attempts and results | 1 |
-| 3 Add agent led clarification and guidance | The existing Goal panel asks useful questions and proposes a path | 2 |
-| 4 Discover and prepare work | The agent finds candidates and prepares the next task without a new prompt | 2 and 3 |
-| 5 Record results and reassess the path | Status changes produce summaries, recovery and revised next steps automatically | 2 through 4 |
+| 3 Add agent led clarification and guidance | The Goal window asks useful questions, saves the Goal and shows recommendation cards | 2 |
+| 4 Research, teach and discover work | Research runs, a course taught in the Goal window, issue/ticket and spec-check discovery and prepared tasks | 2 and 3 |
+| 5 Record results, learn the user and reassess | Receipts, topic levels from lessons, work and private cards, and the next recommendation | 2 through 4 |
 | 6 Complete organization and acceptance | Both Homes and the Goal panel agree about next work and progress | 1 through 5 |
 
 Keep each behavior change independently reviewable and passing. Separate mechanical
@@ -33,22 +35,26 @@ adding more board controls. The floating and expanded view must share the
 same guidance and conversation. The current storage and manual controls are a
 foundation, not the intended finished interaction.
 
-1. Extend Goal replies with the current assessment, one clarification with
-   suggested answers, a proposed path and a supported next action. Persist the
-   answer, input revision and decisions through the existing Goal service.
-2. Replace the current empty/name-first opening with contextual directions and
-   an optional text answer. A broad existing title receives useful clarification.
-   Submitting a suggested answer starts the conversation directly.
-3. Make guidance the default `GoalPanel` content: situation, primary agent
-   intervention, compact path, then recent result. Move statistics, search,
-   creation forms and the board to secondary Work/History views. Keep the
-   `GoalLayer` floating control, pinning and draggable/resizable zoom behavior.
-4. Wire Accept path and prepared Start to persisted proposals and canonical task
-   admission. The existing composer opens fully prepared; no new prompt is
-   required. Acceptance of scope and execution remain distinct decisions.
-5. Connect one real task-result event to a durable receipt, current assessment
-   and prepared next recommendation. Prove that a failed attempt recommends
-   recovery and a finished milestone advances guidance without a user prompt.
+The slice follows the design's reference journey, thinly:
+
+1. Replace the current empty/name-first opening with "what do you want to
+   achieve?", contextual directions and a free-text answer. A broad existing
+   title receives the same help, and an answer starts the conversation directly.
+2. Extend Goal replies with the current assessment, one clarification with
+   suggested answers, including what the user already knows, a proposed path and
+   a supported next action. Persist answers, input revision, starting knowledge
+   and decisions through the existing Goal service, and save the Goal.
+3. Show recommendation cards under the Goal control, with Start and Not now and
+   agent-chosen timing. One research card starts a research run that saves
+   knowledge notes with sources from the workspace and its Dependency workspace.
+4. Propose a course from those notes, save accepted lessons as ordered Learn
+   items, and open one lesson in the Goal window with its exercise and check.
+   Make guidance the default panel content; keep the floating control, pinning
+   and the draggable, resizable window.
+5. Recommend one practice card that opens the prepared composer through
+   canonical task admission, and connect its task result to a durable receipt
+   and the next recommendation. One private-card question must change a topic
+   level and, through it, that recommendation.
 
 This slice spans Steps 3 through 5. A scripted conversation, attractive static
 panel, renamed manual buttons or an unconnected chat box does not complete it.
@@ -105,9 +111,9 @@ reassignment is refused while a work item owns the ticket. A Chromium journey ex
 failed result save, the same-operation retry, reopening and detached history.
 The remaining unchecked items are not represented as implemented behavior.
 
-Verification: backend `mvn verify`, frontend lint and TypeScript checks, and
-all 1,423 frontend tests passed, including the work-item Chromium journey.
-Desktop packaging also passed.
+Verification on the committed tree: backend `mvn verify` (3,396 tests),
+frontend lint and TypeScript checks, all 1,421 frontend tests including the
+work-item and Goal window Chromium journeys, and desktop packaging passed.
 
 ## Step 3 Add the Goal conversation and proposals
 
@@ -128,6 +134,12 @@ Desktop packaging also passed.
 - [ ] Include current assessment, one consequential clarification, short suggested
   answers and a prepared supported action in that same reply. Reuse known
   context; do not repeat answered questions or infer unprovided preferences.
+- [ ] Ask what the user already knows before proposing a course, and save the
+  accepted starting knowledge with the Goal and as initial topic levels.
+- [ ] Add recommendation records and cards under the Goal control: kind, title,
+  reason, Start and Not now, at most three, newest first. Nothing starts without
+  Start, a dismissed card does not return unchanged, and cards of one kind do
+  not stack.
 - [ ] Extend `GoalController`, main/preload bridge and `frontend/src/goals` with
   suggested-answer and free-text messages, editable suggested title and Accept /
   Adjust / Skip proposal controls. An existing vague Goal receives clarification
@@ -147,8 +159,22 @@ Neither flow allocates an execution task, Git branch, worktree or GitHub write.
 An edited or duplicated acceptance cannot overwrite newer decisions or duplicate
 work items. Closing and reopening the app retains the conversation and plan.
 
-## Step 4 Discover relevant work and hand it to execution
+## Step 4 Research, teach and discover work
 
+- [ ] Add the approved research task kind: noninteractive, read-only, started
+  only from a card, reading the Goal's workspace, its Dependency workspaces and
+  the pages the card names, and saving notes through one fixed task-bound tool.
+- [ ] Store knowledge notes with topic, sources and staleness. Mark notes stale
+  when a cited specification or path moves; offer a repository-memory Remember
+  through the existing capture policy.
+- [ ] Propose a course of parts and lessons from the notes and the starting
+  knowledge. Accepted lessons become ordered Learn items with a milestone; a
+  tool-free request writes and saves each lesson's explanation, exercise and check.
+- [ ] Show the open lesson in the expanded Goal window beside the conversation.
+  Questions there belong to the lesson; Done stays the user's decision.
+- [ ] Recommend spec checks as cards naming the module, pages and reproduction
+  count. Start runs the existing check and Adjust opens its drawer; a reproduced
+  gap becomes a proposed work item with its draft issue, which the user files.
 - [ ] Build a Goal context reader over existing issue, Jira, PR and task stores.
   Use exact monitored/mapped workspace scope and identify incomplete coverage.
 - [ ] Add deterministic eligibility and relevance filtering before a bounded model
@@ -165,8 +191,8 @@ work items. Closing and reopening the app retains the conversation and plan.
 - [ ] Trigger discovery as the next useful step of an active guidance request or
   meaningful source/work change. Users need not open search and formulate a new
   query. Explain insufficient coverage instead of presenting arbitrary candidates.
-- [ ] Where code has not been inspected, offer an explicit investigation through
-  the ordinary task flow. Pass its result back to the Goal; never label a
+- [ ] Where code has not been inspected, recommend a research run or an
+  investigation card. Pass its result back to the Goal; never label a
   metadata-only assessment as code verification.
 - [ ] Extend canonical task creation with an optional work-item reference and the
   accepted Goal context. Preserve current composer defaults, source refresh,
@@ -177,13 +203,23 @@ work items. Closing and reopening the app retains the conversation and plan.
 - [ ] At Start, recheck source identity, role, state, work-item revision and linked
   work. Open an existing task when appropriate; preserve the draft on failure.
 
-Done when: one actual GitHub issue and one mapped Jira ticket can each be found,
-explained, accepted and started through the existing task UI; a local learning
-item can be planned without an external ticket. A changed or already-started
-source cannot slip through stale recommendations.
+Done when: a research card saves sourced notes, an accepted course opens a lesson
+in the Goal window, and a spec-check card turns a reproduced gap into a proposed
+work item. One actual GitHub issue and one mapped Jira ticket can each be found,
+explained, accepted and started through the existing task UI. A changed or
+already-started source cannot slip through stale recommendations.
 
-## Step 5 Record outcomes and propose the next step
+## Step 5 Record outcomes, learn the user and propose the next step
 
+- [ ] Add topic levels (new, learning, practiced, strong) with their evidence:
+  lessons finished, check answers, questions and merged work. The agent proposes
+  changes with evidence; a user correction wins.
+- [ ] Read the user's private cards from `task_discussion`, `local_review_thread`
+  and `agent_review_message` in every workspace, locally. Select those on the
+  Goal's topics, cite them in assessments and treat their text as reference data.
+- [ ] Pace recommendations: practice an area until it is practiced, then advance
+  the course; propose the next spec check only after the last one's gaps are
+  resolved or dropped; put blockers, failures and reviews first.
 - [ ] Connect task settlement and existing source refresh to idempotent factual
   receipts. Capture final result/check evidence before runtime retention removes
   it. Reconcile missed receipts after restart and guard linked-task retention or
@@ -193,7 +229,7 @@ source cannot slip through stale recommendations.
   result acceptance for learning and investigation, and coverage review where a
   merge does not establish the entire accepted scope.
 - [ ] Generate a concise summary from those receipts: what changed, evidence,
-  lessons, unresolved work and next recommendation. Saving a summary cannot
+  insights, unresolved work and next recommendation. Saving a summary cannot
   change completion state or accepted scope.
 - [ ] Reassess the next intervention from real status: running, failed, blocked,
   waiting for review, result ready or milestone delivered. Prefer recovery and
@@ -207,19 +243,21 @@ source cannot slip through stale recommendations.
   limits. Add Pause guidance and Update now; panel polling remains local.
 - [ ] Use request and input revision checks to discard stale proposed changes.
   An interrupted request stays retryable; do not launch or resend work on startup.
-- [ ] Save Goal lessons locally with citations. Route a user-selected Remember
+- [ ] Save Goal insights locally with citations. Route a user-selected Remember
   action through the existing repository-memory policy, without a new memory engine.
 - [ ] Exercise archived Goal, task deletion, log expiry, summary failure and
   uncertain provider cleanup. Preserve receipts and user decisions in every case.
 
 Done when: completing or merging accepted work records one supported outcome,
 updates the panel and produces a useful next proposal without manual bookkeeping.
+A private-card question and a merged fix each move the topic level they touch,
+and the next card follows from it.
 Repeated refreshes do not repeat model calls or notifications. A restart and
 runtime-log cleanup do not erase the history.
 
 ## Step 6 Complete organization and verify the whole loop
 
-This finishes lesson three using the current surfaces.
+This finishes the clear-organization takeaway using the current surfaces.
 
 - [ ] Add local priority, accepted order and same-Goal `blockedBy`; reject cycles
   and keep blockers separate from execution failures. Dropping a blocker requires
@@ -238,6 +276,10 @@ This finishes lesson three using the current surfaces.
   recovery guidance and proposed replanning after a blocker changes. Check visual
   hierarchy in floating and expanded view; the next useful action must be readable
   before statistics or board management. Opening the panel alone adds no model call.
+- [ ] Include the reference journey: an Iceberg expertise Goal clarified from a
+  vague answer, research and a fitted course, a lesson in the Goal window, a
+  Delta spec-check card reproducing a #31252-style gap, and a practice card that
+  ends in a merged pull request recorded on the Goal.
 - [ ] Run `mvn verify`; frontend lint, `npx tsc --noEmit`, tests and packaging.
   Complete opt-in live planning/source handoff smoke checks for supported lanes
   and report live-service limits separately from fixture results.
@@ -245,8 +287,9 @@ This finishes lesson three using the current surfaces.
   the implemented behavior and remove superseded descriptions. Mark checklist
   entries complete only with their actual evidence.
 
-Done when: the full Goal conversation → proposal → accepted work → task → verified
-result → summary → next proposal journey works, and all panels agree about it.
+Done when: the full Goal conversation → research → course → lesson → proposal →
+accepted work → task → verified result → summary → next proposal journey works,
+and all panels agree about it.
 
 ## Later additions
 

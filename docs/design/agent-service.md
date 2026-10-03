@@ -2,7 +2,9 @@
 
 [Agent guided goals](goal-guidance.md) proposes a separate Goal conversation
 using bounded `TEXT_ONLY` helper sessions and work-item handoff into this existing
-task service. Planning creates no execution task or Git worktree. The proposal
+task service. Planning creates no execution task or Git worktree. The user
+approved one new noninteractive, read-only research task kind that a Goal card
+starts on the user's click; it is not implemented yet. The proposal
 and its [implementation plan](goal-guidance-impl-tmp.md) distinguish the implemented
 local work-item foundation from the pending planner. Issue/Jira task creation
 reserves work-item source/task ownership in the existing transaction before the

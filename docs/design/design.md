@@ -10,12 +10,14 @@ historical checkpoint evidence and explicitly deferred future work.
 
 ## Design documents
 
-- [Agent guided goals](goal-guidance.md) proposes Goal conversations, bounded
-  issue/ticket discovery, accepted work items, durable outcomes and automatic
-  next-step guidance in the existing Goal panel. Its
-  [implementation plan](goal-guidance-impl-tmp.md) covers trustworthy progress,
-  one record per outcome and clear organization. The local work-item foundation
-  is implemented; Goal conversation, discovery and automatic guidance remain planned.
+- [Agent guided goals](goal-guidance.md) proposes Goal conversations, research
+  runs, courses taught in the Goal window, issue/ticket and spec-check discovery,
+  accepted work items, durable outcomes and recommendation cards the user starts
+  or rejects, and learns what the user knows from lessons, work and private
+  cards. Its [implementation plan](goal-guidance-impl-tmp.md) covers trustworthy
+  progress, one record per outcome and clear organization. The local work-item
+  foundation is implemented; the conversation, research, courses, discovery and
+  guidance remain planned.
 
 - [Private circles](teams.md) defines account-local trusted circles, shared Home
   attention preference, the Circles page, bounded member activity, and observed

@@ -162,11 +162,11 @@ export async function run(): Promise<string[]> {
 
     button(pane, 'Summary').click(); await settle();
     const intention = pane.querySelector<HTMLElement>(`[data-review-card="${current.id}:purpose"]`);
-    const rows = [...pane.querySelectorAll<HTMLElement>('.agr-event:has(.agr-commit__title)')];
+    const rows = [...pane.querySelectorAll<HTMLElement>('.agr-explanation.is-commit .lrc__head')];
     const commitCards = current.commits.map(commit => pane.querySelector<HTMLElement>(`[data-review-card="${current.id}:commit:${commit.sha}"]`));
     assert(intention?.querySelector('.lrc.is-purpose') !== null && intention?.textContent?.includes('Change intention') === true,
       'The report must begin with a distinct Change intention card');
-    assert(rows.length === current.commits.length && rows.every((row, index) => row.querySelector('.agr-event__ordinal')?.textContent === `${index + 1}.`),
+    assert(rows.length === current.commits.length && rows.every((row, index) => row.querySelector('.agr-explanation__ordinal')?.textContent === `${index + 1}`),
       'Every commit must have its own numbered timeline event in source order');
     assert(pane.querySelectorAll('[data-review-card]').length === current.commits.length + 1,
       'A report without earlier discussions must contain only the Change intention and per-commit entries');
@@ -181,21 +181,21 @@ export async function run(): Promise<string[]> {
       assert(card !== null && card.querySelector('.lrc.is-commit') !== null, 'Each commit must have its own review card');
       assert(title !== null && title.textContent === current.commits[index].message.split('\n')[0],
         'Each numbered event must show its Git commit title');
-      assert(!card.contains(row) && Boolean(row.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING),
-        'Each review discussion card must follow its Git commit event');
+      assert(card.contains(row),
+        'Each compact commit card must contain its title row');
       const more = row.querySelector<HTMLButtonElement>('.agr-commit__more');
       if (index === 0) {
-        assert(more !== null && pane.querySelector('.agr-commit__message') === null, 'The Git commit message body must start folded behind its toggle');
+        assert(more !== null && pane.querySelector('.agr-explanation__message') === null, 'The Git commit message body must start folded behind its toggle');
         more.click();
         await settle();
         const body = row.nextElementSibling;
-        assert(body?.classList.contains('agr-commit__message') === true
+        assert(body?.classList.contains('agr-explanation__message') === true
           && body.textContent?.includes('Represent a dotted column reference as ordered path segments.') === true
-          && body.textContent.includes('Keep schema lookup in IcebergUtil') && body.getBoundingClientRect().bottom < card.getBoundingClientRect().top,
-        'The toggle must show the Git commit message body between the commit and its card');
+          && body.textContent.includes('Keep schema lookup in IcebergUtil'),
+        'The toggle must show the Git commit message below the compact title');
         assert(card.textContent?.includes('Design:') === true && card.textContent?.includes('Implementation:') === true,
           'The agent design and implementation explanation must remain inside the separate review card');
-        assert(!card.textContent?.includes('Represent a dotted column reference as ordered path segments.'),
+        assert(!card.querySelector('.lrc-message__body')?.textContent?.includes('Represent a dotted column reference as ordered path segments.'),
           'The review card must not duplicate the Git commit message body');
         more.click();
         await settle();

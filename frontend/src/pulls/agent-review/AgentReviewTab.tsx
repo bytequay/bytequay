@@ -12,7 +12,8 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PanelsTopLeft } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { CircleAlert, File, GitCommitHorizontal, PanelsTopLeft } from 'lucide-react';
 import type { ReviewCardFocus, ReviewRequestTarget } from '../../agents/ReviewRequestCard';
 import { useReviewCardFocus } from '../../agents/reviewCardNavigation';
 import { ConfirmDialog } from '../../ConfirmDialog';
@@ -80,6 +81,7 @@ export default function AgentReviewTab({
   onOpenWorkspace,
   localReview,
   onSelectCommit,
+  toolbarTarget,
 }: {
   detail?: PullRequestDetailDto | null;
   /** The workspace whose managed clone the review runs in; without one there is nothing to check out. */
@@ -92,6 +94,7 @@ export default function AgentReviewTab({
   focusFindingId: string | null;
   focusReviewCard?: ReviewCardFocus | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
+  toolbarTarget?: HTMLElement | null;
   mode?: 'cards' | 'conversation';
   /**
    * Cards on a development task's Summary timeline: the page's own strip and review event carry the status and actions,
@@ -135,11 +138,14 @@ export default function AgentReviewTab({
   const [now, setNow] = useState(() => Date.now());
   const navigationToken = useRef(0);
   const cardsRef = useRef<HTMLDivElement>(null);
+  const [findingFilter, setFindingFilter] = useState<'All' | 'Open' | 'Resolved'>('All');
   const [reportRunId, setReportRunId] = useState<string | null>(null);
   useEffect(() => {
     if (mode === 'cards' && !timeline && focusReviewCard?.target.kind === 'card') setReportRunId(focusReviewCard.target.runId);
+    if (focusReviewCard?.target.kind === 'finding') setFindingFilter('All');
   }, [focusReviewCard, mode, timeline]);
-  useReviewCardFocus(cardsRef, focusReviewCard, mode === 'cards' && review !== null);
+  useReviewCardFocus(cardsRef, focusReviewCard, mode === 'cards' && review !== null
+    && (focusReviewCard?.target.kind !== 'finding' || findingFilter === 'All'));
   const running = review !== null && reviewRunning(review);
   const recovery = review !== null && reviewRecoveryRequired(review);
   // A Code & Tests run holds the working copy; agent work and head moves wait for it.
@@ -154,6 +160,7 @@ export default function AgentReviewTab({
       ? { status: 'running', label: 'Reviewing', tone: 'running', detail: 'starting the review', chip: null, busy: true }
       : reviewStatus(review);
   const progress = review === null ? null : reviewProgress(review);
+  const compactProgress = review === null ? null : reviewProgress(review, true);
   const currentRun = review === null ? null : shownRun(review);
   const worktreeNotice = review === null ? null : reviewWorktreeNotice(review);
   const run = review?.runs.find(item => item.id === reportRunId) ?? currentRun;
@@ -406,7 +413,9 @@ export default function AgentReviewTab({
 
   useEffect(() => {
     if (focusFindingId === null) return;
-    scrollToFinding(focusFindingId);
+    setFindingFilter('All');
+    const frame = requestAnimationFrame(() => scrollToFinding(focusFindingId));
+    return () => cancelAnimationFrame(frame);
   }, [focusFindingId]);
 
   const start = () => {
@@ -514,14 +523,18 @@ export default function AgentReviewTab({
     }
   });
 
-  return (
-    <div className={`agr-pane${timeline ? ' is-timeline' : ''}`}>
-      {mode === 'cards' && !timeline && <div className="agr-strip">
-        <span className={`agr-strip__status is-${status?.tone ?? 'neutral'}`}>
+  const progressIcons = [GitCommitHorizontal, File, CircleAlert];
+  const toolbar = mode === 'cards' && !timeline ? <div className="agr-strip" aria-label="Review progress">
+        <span className={`agr-strip__status is-${status?.tone ?? 'neutral'}`} title={`${status?.label} · ${status?.detail}`}>
           {status?.busy && <span className="agr-spinner" aria-hidden="true" />}
-          <strong>{status?.label}</strong>
-          <span className="agr-strip__detail">· {status?.detail}</span>
+          <strong title={progress?.phase}>{status?.label === 'Reviewing' && compactProgress !== null ? compactProgress.phase : status?.label}</strong>
         </span>
+        {compactProgress !== null && <div className="agr-strip__facts" title={progress?.facts.join(' · ')}>
+          {compactProgress.facts.slice(0, 3).map((fact, index) => {
+            const Icon = progressIcons[index];
+            return <span key={index} title={progress?.facts[index]}><Icon size={12} aria-hidden="true" />{fact}</span>;
+          })}
+        </div>}
         <span className="agr-spacer" />
         {onOpenWorkspace !== undefined && (
           <button type="button" className="agr-action" aria-label="View in workspace" title="View in workspace" onClick={onOpenWorkspace}>
@@ -550,11 +563,14 @@ export default function AgentReviewTab({
             title={localRunReason ?? 'Completes the task and cleans the worktree; the summary, findings and discussion stay'}
             onClick={() => { void run_(async () => { onReviewChange(await window.bridge.endAgentReview(review.id)); recordReviewAttentionAction(review, 'update'); }); }}>End review</button>
         )}
-      </div>}
+      </div> : null;
+  return (
+    <div className={`agr-pane${timeline ? ' is-timeline' : ''}`}>
+      {toolbarTarget && toolbar ? createPortal(toolbar, toolbarTarget) : toolbar}
 
-      {mode === 'cards' && progress !== null && (!timeline || running || progress.gaps.length > 0) && <section className="agr-progress" aria-label="Review progress">
-        <div className="agr-progress__phase"><strong>Review progress</strong><span>{progress.phase}</span></div>
-        <div className="agr-progress__facts">{progress.facts.map(fact => <span key={fact}>{fact}</span>)}</div>
+      {mode === 'cards' && progress !== null && (timeline ? running || progress.gaps.length > 0 : progress.gaps.length > 0) && <section className="agr-progress" aria-label="Review progress">
+        {timeline && <div className="agr-progress__phase"><strong>Review progress</strong><span>{progress.phase}</span></div>}
+        {timeline && <div className="agr-progress__facts">{progress.facts.map(fact => <span key={fact}>{fact}</span>)}</div>}
         {progress.gaps.length > 0 && <div className="agr-progress__gaps">{progress.gaps.map(gap => <span key={gap}>{gap}</span>)}</div>}
       </section>}
 
@@ -614,7 +630,7 @@ export default function AgentReviewTab({
             </div>
           )}
 
-          {!timeline && run !== null && <ReviewDetails run={run} repository={review.repo} />}
+          {!timeline && run !== null && run.summary === null && <ReviewDetails run={run} repository={review.repo} />}
           {!timeline && <ReviewSummaryCard
             review={review}
             run={run}
@@ -628,17 +644,28 @@ export default function AgentReviewTab({
               recordReviewAttentionAction(review, 'prompt');
             }, 'other', true)}
             onSelectFinding={finding => {
-              scrollToFinding(finding.id);
+              setFindingFilter('All');
+              requestAnimationFrame(() => scrollToFinding(finding.id));
             }} />}
 
           {!timeline && <div className="agr-findings__head">
-            <h2>Findings</h2>
+            <h2><CircleAlert size={16} aria-hidden="true" />Findings</h2>
+            {(['Critical', 'High', 'Medium', 'Low'] as const).map(severity => {
+              const count = findings.filter(finding => finding.severity === severity).length;
+              return count === 0 ? null : <span key={severity} className={`agr-severity is-${severity.toLowerCase()}`}>{count} {severity}</span>;
+            })}
             <span className="agr-findings__count">
-              {findings.length === 0
-                ? provisional(review) ? 'none saved' : 'none'
-                : `${findings.length} from this run · ${findings.filter(finding => finding.state === 'OPEN').length} open`}
+              {findings.length === 0 && provisional(review) ? 'none saved'
+                : `${findings.filter(finding => finding.state === 'OPEN').length} open · ${findings.filter(finding => finding.state === 'RESOLVED').length} resolved`}
             </span>
+            <div className="agr-findings__filters" aria-label="Filter findings">
+              {(['All', 'Open', 'Resolved'] as const).map(filter => <button key={filter} type="button" aria-pressed={findingFilter === filter}
+                onClick={() => setFindingFilter(filter)}>{filter}<span>{filter === 'All' ? findings.length
+                  : findings.filter(finding => finding.state === filter.toUpperCase()).length}</span></button>)}
+            </div>
           </div>}
+          {!timeline && findings.length > 0 && findingFilter !== 'All' && !findings.some(finding => finding.state === findingFilter.toUpperCase())
+            && <p className="agr-card__empty">No {findingFilter.toLowerCase()} findings.</p>}
 
           {findings.length === 0 && status?.status === 'nofindings' && (
             <div className="agr-none">
@@ -657,8 +684,8 @@ export default function AgentReviewTab({
           )}
 
           {findings.map(finding => (
+            <div key={finding.id} hidden={!timeline && findingFilter !== 'All' && finding.state !== findingFilter.toUpperCase()}>
             <ReviewFindingCard
-              key={finding.id}
               review={review}
               finding={finding}
               viewerLogin={viewer?.login ?? ''}
@@ -667,6 +694,7 @@ export default function AgentReviewTab({
               actions={actions}
               busy={busy || recovery || findingActions.busy}
               defaultOpen={finding.state === 'OPEN'} />
+            </div>
           ))}
           {withdrawn.map(finding => (
             <ReviewFindingCard

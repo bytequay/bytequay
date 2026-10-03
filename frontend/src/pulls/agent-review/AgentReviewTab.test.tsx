@@ -171,7 +171,7 @@ describe('the status strip', () => {
     expect(html).not.toContain('>Resume</button>');
     expect(html).toMatch(/disabled=""[^>]*>Update review<\/button>/);
     expect(html).toMatch(/disabled=""[^>]*>End review<\/button>/);
-    expect(html).toMatch(/disabled=""[^>]*>Ask reviewer<\/button>/);
+    expect(html).toContain('class="lrc__ask" disabled=""');
     expect(html).not.toContain('>Stop</button>');
     expect(html).not.toContain('preparing the review');
   });
@@ -295,7 +295,7 @@ describe('review details', () => {
       { ref: 'E25', source: 'command output: ./mvnw test -Dtest=TestProviderCleanup', provenance: 'Command executed during validation',
         excerpt: 'Frozen head: PASS; release removed: FAIL (reference remains)', explanation: '' }] }] });
     const html = tab(review);
-    expect(html).toContain('<details class="agr-review-details"><summary>Review details');
+    expect(html).toContain('<details class="agr-review-details is-compact"><summary>');
     expect(html).toContain('1 changed file assessed');
     expect(html).not.toContain('of 0 changed files');
     expect(html).toContain('src/Factory.java');
@@ -408,16 +408,16 @@ describe('the summary card', () => {
     expect(summary(review)).not.toContain('Verification warning');
   });
 
-  it('lays the intention and each commit out as timeline events, each followed by its own card', () => {
+  it('leads with the intention and nests compact commit cards without repeating author rows', () => {
     const html = summary(review);
-    expect(html).toContain('<strong>Agent review</strong> described the change intention · 5 commits in scope');
+    expect(html).toContain('class="agr-review-timeline__commits"');
+    expect(html).not.toContain('described the change intention');
     expect(html).toContain('<details class="lrc is-purpose" open=""');
     expect(html).toContain('<span class="lrc__title">Change intention</span>');
     expect(html.match(/class="lrc is-commit"/g)).toHaveLength(5);
-    expect(html.match(/class="agr-commit__title"/g)).toHaveLength(5);
-    expect(html.match(/Design &amp; implementation <code>/g)).toHaveLength(5);
-    // Each commit's event comes right before its card.
-    expect(html.indexOf('<span class="agr-event__ordinal">2.</span>')).toBeLessThan(html.indexOf(`data-review-card="${review.runs[0].id}:commit:${review.runs[0].commits[1].sha}"`));
+    expect(html.match(/lrc__title agr-commit__title/g)).toHaveLength(5);
+    expect(html).not.toContain('Design &amp; implementation');
+    expect(html.match(/class="agr-explanation__ordinal"/g)).toHaveLength(5);
     expect(html).not.toContain('Commit implementation');
     expect(html).not.toContain('Combined result');
     expect(html).not.toContain('Critical issues');

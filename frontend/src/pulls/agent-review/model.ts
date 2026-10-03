@@ -183,7 +183,7 @@ export function reviewStatus(review: AgentReviewDto): ReviewStatusView {
 }
 
 /** Summarizes saved reports from the latest attempt without estimating work or treating file counts as proof. */
-export function reviewProgress(review: AgentReviewDto): ReviewProgressView | null {
+export function reviewProgress(review: AgentReviewDto, compact = false): ReviewProgressView | null {
   const run = latestRun(review);
   if (run === null) return null;
   const step = run.steps.at(-1);
@@ -191,14 +191,15 @@ export function reviewProgress(review: AgentReviewDto): ReviewProgressView | nul
     INVESTIGATE: 'Investigation', COLLECT_EVIDENCE: 'Evidence collection', VALIDATE: 'Validation',
   }[step.kind];
   const phase = step === undefined && run.state !== 'RUNNING' ? 'Review pass not recorded'
-    : `${run.state === 'RUNNING' ? 'Current pass' : 'Last pass'}: ${phaseName}${step?.repair ? ' · correcting report' : ''}`;
+    : `${compact ? `${phaseName} pass` : `${run.state === 'RUNNING' ? 'Current pass' : 'Last pass'}: ${phaseName}`}${step?.repair ? ' · correcting report' : ''}`;
   const commits = new Set(run.commits.map(commit => commit.sha));
   const explained = new Set(run.summary?.commits.filter(commit => commits.has(commit.sha)).map(commit => commit.sha) ?? []);
-  const facts = [`${explained.size} of ${run.commits.length} commit explanations saved`];
+  const facts = [compact ? `${explained.size}/${run.commits.length}` : `${explained.size} of ${run.commits.length} commit explanations saved`];
   const investigationStep = run.steps.findLast(value => value.investigation !== null);
   const investigation = investigationStep?.investigation ?? run.investigation;
   if (investigation !== null) {
-    facts.push(`${investigation.reviewedFiles.length} changed ${investigation.reviewedFiles.length === 1 ? 'file' : 'files'} reported assessed in this run`);
+    facts.push(compact ? `${investigation.reviewedFiles.length} ${investigation.reviewedFiles.length === 1 ? 'file' : 'files'}`
+      : `${investigation.reviewedFiles.length} changed ${investigation.reviewedFiles.length === 1 ? 'file' : 'files'} reported assessed in this run`);
   }
   // A new validation assignment supersedes a sealed report being corrected, even before it has a replacement.
   const validation = step?.kind === 'VALIDATE' && step.validation === null ? undefined : run.steps.findLast(value => value.validation !== null
@@ -206,12 +207,12 @@ export function reviewProgress(review: AgentReviewDto): ReviewProgressView | nul
   const conclusions = validation?.candidates ?? (run.steps.length === 0 ? investigation?.validations : undefined);
   if (investigation !== null) {
     const candidates = conclusions?.length ?? investigation.candidates.length;
-    facts.push(`${candidates} candidate ${candidates === 1 ? 'claim' : 'claims'} recorded`);
+    facts.push(compact ? `${candidates} ${candidates === 1 ? 'claim' : 'claims'}` : `${candidates} candidate ${candidates === 1 ? 'claim' : 'claims'} recorded`);
   }
   if (conclusions !== undefined) {
     const supported = conclusions.filter(value => value.outcome === 'SUPPORTED').length;
     const rejected = conclusions.filter(value => value.outcome === 'REJECTED').length;
-    if (supported + rejected > 0) facts.push(`${supported} supported · ${rejected} rejected`);
+    if (!compact && supported + rejected > 0) facts.push(`${supported} supported · ${rejected} rejected`);
   }
   const coverage = run.coverage ?? validation?.coverage;
   const gaps: string[] = [];
@@ -222,7 +223,7 @@ export function reviewProgress(review: AgentReviewDto): ReviewProgressView | nul
     if (coverage.omissions.length > 0) gaps.push(`${coverage.omissions.length} unresolved or unreviewed ${coverage.omissions.length === 1 ? 'item' : 'items'}`);
   }
   if (run.state === 'ACCEPTED' && coverage?.complete === true && coverage.omissions.length === 0) {
-    facts.push('Complete review scope recorded');
+    if (!compact) facts.push('Complete review scope recorded');
   }
   else if (run.state === 'INCOMPLETE' || run.state === 'FAILED') {
     gaps.push('Complete review result not accepted');

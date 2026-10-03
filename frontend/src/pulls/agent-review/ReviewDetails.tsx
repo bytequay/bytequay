@@ -48,14 +48,20 @@ function EvidenceAnswers({ answers, repository }: { answers: ReviewInvestigation
   </li>)}</ol>;
 }
 
-export default function ReviewDetails({ run, repository }: { run: ReviewRunDto; repository: string }) {
+export default function ReviewDetails({ run, repository, compact = false }: { run: ReviewRunDto; repository: string; compact?: boolean }) {
   const investigation = run.investigation;
   const validations = investigation?.validations ?? [];
   const evidence = run.evidence;
-  return <details className="agr-review-details">
-    <summary>Review details <span className="agr-learning-cards__scope">
+  return <details className={`agr-review-details${compact ? ' is-compact' : ''}`}>
+    <summary>{compact ? <>
+      <span>{run.commits.length} {run.commits.length === 1 ? 'commit' : 'commits'}</span>
+      <span>base <code>{run.baseRef}@{shortSha(run.baseSha)}</code></span>
+      <span>head <code>{shortSha(run.headSha)}</code></span>
+      <span className="agr-link" title={investigation === null ? 'Review scope and evidence'
+        : `${investigation.reviewedFiles.length} changed ${investigation.reviewedFiles.length === 1 ? 'file' : 'files'} assessed`}>Review details</span>
+    </> : <>Review details <span className="agr-learning-cards__scope">
       · {investigation === null ? 'scope' : `${investigation.reviewedFiles.length} changed ${investigation.reviewedFiles.length === 1 ? 'file' : 'files'} assessed`}
-    </span></summary>
+    </span></>}</summary>
     <div className="agr-review-details__body">
       <p className="agr-learning-cards__scope">
         {run.scope === 'FULL' ? 'Full review' : 'Incremental review'} · {run.priorHeadSha === null ? run.baseRef : shortSha(run.priorHeadSha)} → {shortSha(run.headSha)}

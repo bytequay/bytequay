@@ -635,6 +635,7 @@ function SidePanel({
   const [reviewNavigation, setReviewNavigation] = useState<ReviewNavigationTarget | null>(null);
   const [focusFindingId, setFocusFindingId] = useState<string | null>(null);
   const [changesToolbar, setChangesToolbar] = useState<HTMLElement | null>(null);
+  const [summaryToolbar, setSummaryToolbar] = useState<HTMLElement | null>(null);
   const [commitSelection, setCommitSelection] = useState<{ source: 'task' | 'review'; commitSha: string; headSha?: string; baseSha?: string; token: number } | null>(null);
   const selectCommit = (source: 'task' | 'review', commitSha: string, snapshot?: { headSha: string; baseSha: string }): void => {
     setReviewNavigation(null);
@@ -724,6 +725,7 @@ function SidePanel({
       tab={tab === 'pr' ? 'overview' : tab === 'agents' || tab === 'discussions' ? null : tab}
       codeAvailable={codeAvailable}
       onChangesToolbar={setChangesToolbar}
+      onSummaryToolbar={setSummaryToolbar}
       review={review}
       onReviewChange={setReview}
       agentTab={agentTab}
@@ -798,7 +800,7 @@ function SidePanel({
       : reviewError !== null ? <div className="agt-panel__empty" role="alert">{reviewError}
         <button type="button" className="agt-action" onClick={() => setReviewReload(value => value + 1)}>Retry</button>
       </div>
-      : review !== null && <AgentReviewTab detail={detail ?? undefined} workspaceId={workspaceId} viewer={null}
+      : review !== null && <AgentReviewTab toolbarTarget={summaryToolbar} detail={detail ?? undefined} workspaceId={workspaceId} viewer={null}
         review={review} onReviewChange={setReview} onSelectCommit={(sha, snapshot) => selectCommit('review', sha, snapshot)} focusFindingId={focusFindingId} ownStream={tab === 'review'}
         onOpenWorkspace={() => { window.location.hash = workspaceReviewTaskRoute(review.workspaceId, review.id); }}
         onNavigateToChanges={navigateToChanges} />}

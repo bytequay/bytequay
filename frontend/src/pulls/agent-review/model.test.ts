@@ -220,6 +220,7 @@ describe('review progress', () => {
       facts: ['2 of 5 commit explanations saved', '2 changed files reported assessed in this run', '2 candidate claims recorded'],
       gaps: [],
     });
+    expect(reviewProgress(review, true)).toEqual({ phase: 'Validation pass', facts: ['2/5', '2 files', '2 claims'], gaps: [] });
     expect(reviewProgress({ ...review, runs: [{ ...review.runs[0], steps: [...review.runs[0].steps.slice(0, 1),
       { ...review.runs[0].steps[1], repair: true }] }] })?.phase).toBe('Current pass: Validation · correcting report');
   });

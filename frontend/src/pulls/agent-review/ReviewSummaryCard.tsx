@@ -11,12 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Fragment, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { Diff, MessageSquare } from 'lucide-react';
+import { relativeTime } from '../../relativeTime';
 import MarkdownBody from '../MarkdownBody';
 import LocalCard, { LocalCardMessage, ReviewerAvatar, SummaryCardTitle } from '../local-review/LocalCard';
 import ReviewComposer from './ReviewComposer';
 import ReviewThread from './ReviewThread';
-import { CommitEvent, TimelineEvent } from './SummaryTimeline';
+import ReviewDetails from './ReviewDetails';
 import type { AgentReviewDto, ReviewFindingDto, ReviewRunDto } from './contracts';
 import { askLabel, askQueues, provisional, shortSha } from './model';
 
@@ -27,7 +29,9 @@ function bullets(items: string[]): string {
   return [...new Set(items)].map(item => `- ${item}`).join('\n');
 }
 
-function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, busy, onAsk }: {
+function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, busy, onAsk, ordinal, onSelectCommit }: {
+  ordinal?: number;
+  onSelectCommit?: (sha: string, snapshot?: { headSha: string; baseSha: string }) => void;
   card: SummaryCard;
   review: AgentReviewDto;
   run: ReviewRunDto;
@@ -37,6 +41,7 @@ function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, b
   onAsk: AskAboutCard;
 }) {
   const [composing, setComposing] = useState(false);
+  const [messageOpen, setMessageOpen] = useState(false);
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const revision = run.summary?.revision ?? 1;
@@ -51,20 +56,56 @@ function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, b
     try { await onAsk(text.trim(), revision, card.id); close(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not send your question.'); }
   };
-  return <article className="agr-summary-card" data-review-card={card.id}>
-    <LocalCard tone={card.kind === 'purpose' ? 'purpose' : card.kind === 'commit' ? 'commit' : 'local'} chip="Private"
-      title={card.kind === 'purpose' ? <SummaryCardTitle /> : card.commit ? <SummaryCardTitle sha={card.commit.sha} />
-        : <span className="lrc__title">{card.title}</span>}
-      controls={<footer className={`lrc__foot${composing ? ' is-composing' : ''}`}>
-        {composing ? <ReviewComposer repository={review.repo} value={text} autoFocus busy={busy}
-          placeholder={`Ask the reviewer about ${card.title.toLowerCase()}…`}
-          ariaLabel={`Ask the reviewer about ${card.title.toLowerCase()}`} primaryLabel={askLabel(review)}
-          onChange={setText} onSubmit={submit} onCancel={close} />
-          : <><button type="button" className="lrc__ask" disabled={busy || review.state === 'CLOSED'}
-            onClick={() => setComposing(true)}>Ask reviewer</button>
-          {askQueues(review) && <span className="pr-local-review__note">Agent is busy — your question will queue</span>}</>}
-        {error && <span className="lrc__error" role="alert">{error}</span>}
-      </footer>}>
+  const compact = card.kind === 'purpose' || card.kind === 'commit';
+  const commit = card.commit;
+  const [title, ...message] = commit?.message.split('\n') ?? [];
+  const ask = <button type="button" className={`lrc__ask${commit ? ' agr-explanation__ask' : ''}`}
+    aria-label={commit ? 'Ask reviewer about this commit' : undefined}
+    disabled={busy || review.state === 'CLOSED'} title={askQueues(review) ? 'Agent is busy — your question will queue' : 'Ask reviewer'}
+    onClick={event => {
+      event.preventDefault();
+      const details = event.currentTarget.closest('details');
+      if (details) details.open = true;
+      setComposing(true);
+    }}><MessageSquare size={13} aria-hidden="true" /><span>Ask reviewer</span></button>;
+  return <article className={`agr-summary-card${compact ? ` agr-explanation is-${card.kind}` : ''}`} data-review-card={card.id}>
+    <LocalCard tone={card.kind === 'purpose' ? 'purpose' : commit ? 'commit' : 'local'} chip="Private"
+      title={commit ? <>
+        <span className="agr-explanation__ordinal">{ordinal}</span>
+        <span className="lrc__title agr-commit__title">{title}</span>
+        <code className="agr-card__refs">{shortSha(commit.sha)}</code>
+        {message.join('').trim() !== '' && <button type="button" className="agr-commit__more" aria-expanded={messageOpen}
+          aria-label="Show commit message" onClick={event => {
+            event.preventDefault();
+            const details = event.currentTarget.closest('details');
+            if (details) details.open = true;
+            setMessageOpen(value => !value);
+          }}>···</button>}
+      </> : card.kind === 'purpose' ? <SummaryCardTitle /> : <span className="lrc__title">{card.title}</span>}
+      badges={commit ? <>
+        {card.pending && <span className="agr-pill is-pending">not yet read</span>}
+        {!composing && ask}
+        {onSelectCommit && <button type="button" className="agr-explanation__diff" aria-label="View changes" title="View changes"
+          onClick={event => { event.preventDefault(); onSelectCommit(commit.sha, { headSha: run.headSha, baseSha: run.mergeBaseSha }); }}>
+          <Diff size={14} aria-hidden="true" />Diff
+        </button>}
+      </> : compact ? <>
+        <span className="agr-explanation__meta">{review.task.laneLabel} · {relativeTime(run.endedAt ?? run.createdAt)}</span>
+        {provisional(review) && <span className="agr-pill is-provisional">Provisional · rev {revision}</span>}
+      </> : undefined}
+      controls={<>
+        {card.kind === 'purpose' && <footer className="agr-explanation__footer">
+          <ReviewDetails run={run} repository={review.repo} compact />{!composing && ask}
+        </footer>}
+        {(composing || !compact) && <footer className={`lrc__foot${composing ? ' is-composing' : ''}`}>
+          {composing ? <ReviewComposer repository={review.repo} value={text} autoFocus busy={busy}
+            placeholder={`Ask the reviewer about ${card.title.toLowerCase()}…`}
+            ariaLabel={`Ask the reviewer about ${card.title.toLowerCase()}`} primaryLabel={askLabel(review)}
+            onChange={setText} onSubmit={submit} onCancel={close} /> : ask}
+          {error && <span className="lrc__error" role="alert">{error}</span>}
+        </footer>}
+      </>}>
+      {messageOpen && <pre className="agr-explanation__message">{message.join('\n').trim()}</pre>}
       {card.body !== null && <LocalCardMessage timestamp={run.endedAt ?? run.createdAt} author="Agent review" avatar={<ReviewerAvatar />}
         tag={<span className="lrc-message__meta">{review.task.laneLabel}</span>}
         menu={<>{card.pending && <span className="agr-pill is-pending">not yet read</span>}
@@ -138,24 +179,13 @@ export default function ReviewSummaryCard({ review, run, findings, viewerLogin, 
         <span className="agr-critical__where">{finding.path === null ? 'Whole change' : `${finding.path.split('/').pop()} ${finding.range}`}</span>
       </li>)}</ul> },
   ].filter(card => review.messages.some(message => message.findingId === null && message.cardId === card.id));
-  const renderCard = (card: SummaryCard) => <SummarySectionCard key={card.id} card={card} review={review} run={run}
-    viewerLogin={viewerLogin} viewerAvatarUrl={viewerAvatarUrl} busy={busy} onAsk={onAsk} />;
-  return <div className="agr-timeline">
-    <TimelineEvent avatar={<ReviewerAvatar />}>
-      <strong>Agent review</strong> described the change intention · {run.commits.length} {run.commits.length === 1 ? 'commit' : 'commits'} in scope
-      {' '}· base {run.baseRef}@{shortSha(run.baseSha)}
-    </TimelineEvent>
+  const renderCard = (card: SummaryCard, ordinal?: number) => <SummarySectionCard key={card.id} card={card} review={review} run={run}
+    ordinal={ordinal} onSelectCommit={onSelectCommit} viewerLogin={viewerLogin} viewerAvatarUrl={viewerAvatarUrl} busy={busy} onAsk={onAsk} />;
+  return <div className="agr-review-timeline">
     {renderCard(purpose)}
-    {run.commits.map((commit, index) => {
-      const [title, ...body] = commit.message.split('\n');
-      return <Fragment key={commit.sha}>
-        <CommitEvent ordinal={index + 1} sha={commit.sha} title={title} body={body.join('\n').trim()}
-          onViewChanges={onSelectCommit && (() => onSelectCommit(commit.sha, { headSha: run.headSha, baseSha: run.mergeBaseSha }))} />
-        {renderCard(commits[index])}
-      </Fragment>;
-    })}
+    <div className="agr-review-timeline__commits">{commits.map((card, index) => renderCard(card, index + 1))}</div>
     {earlier.length > 0 && <details className="agr-learning-history"><summary>Earlier discussions · {earlier.length}</summary>
-      {earlier.map(renderCard)}
+      {earlier.map(card => renderCard(card))}
     </details>}
   </div>;
 }

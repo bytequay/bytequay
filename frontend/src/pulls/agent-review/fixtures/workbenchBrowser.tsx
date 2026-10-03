@@ -161,7 +161,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
           <WorktreeChanges host={{ kind: 'review', reviewId: review.id }} selection={selection} /></>;
       }
       flushSync(() => root.render(<Surface />)); await settle();
-      button('View changes').click(); await settle();
+      button('Diff').click(); await settle();
       const request = requests.at(-1);
       assert(request?.scope === 'COMMIT' && request.commit === head && request.head === head && request.base === base,
         'The commit card must open the saved review range even when the branch has moved');

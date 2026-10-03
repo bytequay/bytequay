@@ -6,9 +6,9 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
-/* Summary uses the same private thread cards as development tasks. */
+/* Summary keeps compact explanations above the unchanged private finding cards. */
 
-.agr-pane { display: flex; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
+.agr-pane { container-type: inline-size; display: flex; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
 
 /* the pane's third tab: the same tab button, plus a derived status the user reads without opening it */
 .pull-detail__review { display: flex; overflow: hidden; flex-direction: column; padding: 0; }
@@ -45,7 +45,13 @@
 .agr-strip__status.is-ready strong { color: #1a7f37; }
 .agr-strip__status.is-danger strong { color: #cf222e; }
 .agr-strip__status.is-neutral strong { color: #57606a; }
-.agr-strip__detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pull-detail__summary-toolbar { flex: 1 1 auto; min-width: 0; margin-left: auto; }
+.pull-detail__summary-toolbar:empty { display: none; }
+.pull-detail__summary-toolbar .agr-strip { justify-content: flex-end; min-height: 28px; border: 0; padding: 0; gap: 8px; }
+.pull-detail__summary-toolbar .agr-spacer { display: none; }
+.agr-strip .agr-action { min-height: 24px; padding: 2px 8px; font-size: 12px; }
+.agr-strip__facts { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; border-left: 1px solid #e3e6ea; padding-left: 10px; color: #59636e; font-size: 12px; }
+.agr-strip__facts > span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 
 .agr-progress { flex: none; border-bottom: 1px solid #d8dee4; background: #f6f8fa; padding: 8px 14px; color: #57606a; font-size: 12px; line-height: 1.5; }
 .agr-progress__phase, .agr-progress__facts, .agr-progress__gaps { display: flex; flex-wrap: wrap; gap: 4px 12px; }
@@ -181,6 +187,45 @@
 .agr-summary-card__warnings { margin: 12px 0 0; }
 .agr-summary-card__warnings .markdown-body { padding: 0; }
 
+/* Scope the compact hierarchy to review explanations; Findings keep their existing card UI. */
+.agr-review-timeline { min-width: 0; }
+.agr-review-timeline__commits { position: relative; display: grid; gap: 8px; padding: 10px 0 0 44px; }
+.agr-review-timeline__commits::before { position: absolute; top: 0; bottom: 24px; left: 22px; width: 2px; background: #e3e6ea; content: ''; }
+.agr-explanation { position: relative; min-width: 0; }
+.agr-explanation.is-commit::before { position: absolute; top: 22px; left: -21px; width: 14px; height: 2px; background: #e3e6ea; content: ''; }
+.agr-explanation > .lrc { border-radius: 8px; }
+.agr-explanation > .lrc > .lrc__head { min-height: 34px; gap: 8px; padding: 7px 12px 3px; }
+.agr-explanation > .lrc > .lrc__head > .lrc__title { white-space: normal; overflow-wrap: anywhere; }
+.agr-explanation > .lrc > .lrc__head > .lrc__chevron { order: 9; width: 12px; }
+.agr-explanation > .lrc > .lrc__head > .lrc__chip { width: 12px; gap: 0; overflow: hidden; border: 0; background: none; padding: 0; font-size: 0; }
+.agr-explanation > .lrc > .lrc-message { border: 0; padding: 4px 14px 12px; }
+.agr-explanation > .lrc > .lrc-message > .lrc-message__head { display: none; }
+.agr-explanation > .lrc > .lrc-message > .lrc-message__body { margin: 0; }
+.agr-explanation.is-purpose > .lrc { background: linear-gradient(#f0f9f2, #fff 120px); }
+.agr-explanation.is-purpose > .lrc > .lrc__head { background: transparent; }
+.agr-explanation__meta { color: #8c959f; font-size: 11.5px; }
+.agr-explanation .agr-pill { padding: 0 7px; font-size: 11px; }
+.agr-explanation__footer { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 4px 12px; padding: 5px 10px 5px 14px; color: #59636e; font-size: 12px; }
+.agr-explanation__footer > .lrc__ask { display: inline-flex; min-height: 24px; align-items: center; gap: 5px; margin: 0 0 0 auto; border: 1px solid #d0d7de; padding: 2px 8px; font-size: 12px; }
+.agr-explanation .agr-review-details.is-compact { min-width: 0; flex: 1 1 300px; margin: 0; border: 0; font-size: 12px; }
+.agr-review-details.is-compact > summary { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; min-height: 24px; padding: 0; list-style: none; }
+.agr-review-details.is-compact > summary::-webkit-details-marker { display: none; }
+.agr-review-details.is-compact > summary code { font-family: var(--font-mono); overflow-wrap: anywhere; }
+.agr-review-details.is-compact > .agr-review-details__body { padding: 6px 0; }
+.agr-explanation.is-commit > .lrc { --lrc-bar: #fff; --lrc-ink: #1f2328; --lrc-rule: #e3e6ea; }
+.agr-explanation.is-commit > .lrc > .lrc__head > :is(.lrc__icon, .lrc__chip) { display: none; }
+.agr-explanation.is-commit > .lrc > .lrc-message { padding-left: 40px; }
+.agr-explanation__ordinal { display: inline-grid; width: 20px; height: 20px; flex: none; place-items: center; border-radius: 50%; background: #eef6ff; color: #0969da; font-size: 11px; font-weight: 600; }
+.agr-explanation__ask, .agr-explanation__diff { display: inline-flex; min-width: 26px; min-height: 26px; flex: none; align-items: center; justify-content: center; gap: 5px; margin: 0; border: 0; border-radius: 5px; background: transparent; color: #59636e; padding: 3px 5px; font: inherit; font-size: 12px; }
+.agr-explanation__diff:hover { background: #f0f1f3; }
+.agr-explanation__ask > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.agr-explanation__message { margin: 0; padding: 8px 14px 8px 40px; background: #f6f8fa; color: #59636e; font: 12px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+@container (max-width: 640px) {
+  .agr-review-timeline__commits { padding-left: 24px; }
+  .agr-review-timeline__commits::before { left: 10px; }
+  .agr-explanation.is-commit::before { left: -13px; width: 10px; }
+}
+
 /* The Summary page: a strip that says how fresh the report is and what the reviewer is doing, then a
    timeline in the pull request timeline's shape, where each event is followed by the card it explains. */
 .pull-detail__review > .agr-summary-page { flex: 1; min-height: 0; overflow-y: auto; padding: 18px max(34px, calc((100% - 864px) / 2)) 48px; }
@@ -278,8 +323,12 @@
 .agr-thread { display: flex; flex-direction: column; }
 
 /* findings */
-.agr-findings__head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; margin: 28px 0 14px; padding-top: 22px; border-top: 2px solid #d8dee4; }
-.agr-findings__head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.agr-findings__head { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 20px 0 12px; padding-top: 16px; border-top: 1px solid #d8dee4; }
+.agr-findings__head h2 { display: inline-flex; align-items: center; gap: 7px; margin: 0; font-size: 14px; font-weight: 600; }
+.agr-findings__filters { display: flex; gap: 3px; margin-left: auto; }
+.agr-findings__filters button { display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 6px; background: transparent; color: #59636e; padding: 4px 8px; font: inherit; font-size: 12px; }
+.agr-findings__filters button[aria-pressed="true"] { background: #eef1f4; color: #1f2328; font-weight: 600; }
+.agr-findings__filters button > span { border-radius: 8px; background: #e3e6ea; padding: 0 5px; font-size: 11px; }
 .agr-findings__count { color: #57606a; font-size: 13px; }
 .agr-none { border: 1px solid #d0d7de; border-radius: 8px; padding: 22px; text-align: center; }
 .agr-none__title { color: #1a7f37; font-size: 14px; font-weight: 600; }

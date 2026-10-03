@@ -1,0 +1,119 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import { useState } from 'react';
+import { flushSync } from 'react-dom';
+import { createRoot } from 'react-dom/client';
+import type { Bridge } from '../../../types';
+import { assert, changeInput, settle } from '../../../fixtures/harness';
+import { PullDetailHeader } from '../../PullsScreen';
+import { pr } from '../../fixtures/pullRequest';
+import AgentReviewTab from '../AgentReviewTab';
+import type { AgentReviewDto } from '../contracts';
+import { reviewFixture, runningReviewFixture } from './review';
+import '../../../css/base.css';
+import '../../../css/pulls.css';
+import '../../../css/markdown-editor.css';
+import '../../../css/agent-review.css';
+
+export function preview(host: HTMLElement) {
+  const review = runningReviewFixture();
+  const run = review.runs[0];
+  const commits = run.commits.slice(0, 3);
+  const value: AgentReviewDto = { ...review, messages: [], findings: reviewFixture().findings.slice(0, 2).map((finding, index) => ({ ...finding,
+    state: index === 0 ? 'OPEN' as const : 'RESOLVED' as const })), runs: [{ ...run, commits,
+    createdAt: new Date(Date.now() - 1_803_000).toISOString(), summary: run.summary === null ? null : { ...run.summary,
+      commits: commits.map(commit => ({ sha: commit.sha, explanation: 'Keep the parsed field path attached to the sort order. Resolve the exact nested field before writing metadata, preserving existing behavior for top-level columns.' })) },
+    investigation: { changeMap: 'Follow the sort field from parsing to storage.', reviewedFiles: ['src/SortField.java'], contextEvidenceRefs: [], candidates: ['Check nested lookup'], validations: [], answers: [] },
+    steps: [{ number: 2, kind: 'VALIDATE' as const, repair: false, investigation: null, validation: null }],
+  }] };
+  const previous = window.bridge;
+  const calls: string[] = [];
+  const bridge = { subscribeAgentReview: async () => () => {}, getAgentReview: async () => value,
+    askAgentReview: async (_id, _finding, _revision, body, cardId) => { calls.push(`${cardId}:${body}`); return value; },
+    stopAgentReview: async () => { calls.push('stop'); return value; },
+  } satisfies Pick<Bridge, 'subscribeAgentReview' | 'getAgentReview' | 'askAgentReview' | 'stopAgentReview'>;
+  Object.defineProperty(window, 'bridge', { configurable: true, writable: true, value: bridge });
+  function Surface() {
+    const [target, setTarget] = useState<HTMLDivElement | null>(null);
+    const [tab, setTab] = useState<'review' | 'files'>('review');
+    return <>
+      <PullDetailHeader pr={pr({ number: 30304, repo: value.repo })} detail={null} tab={tab} review={value}
+        onSummaryToolbar={setTarget} onTab={next => setTab(next === 'review' ? 'review' : 'files')}
+        onRefresh={async () => {}} onReviewSubmitted={() => {}} refreshing={false} pendingComments={[]} onPendingCommentsChange={() => {}} />
+      <div className="pull-detail__body pull-detail__review" hidden={tab !== 'review'}>
+        <AgentReviewTab review={value} workspaceId={value.workspaceId} viewer={null} ownStream={false}
+          toolbarTarget={target} onReviewChange={() => {}} focusFindingId={null} onNavigateToChanges={() => {}}
+          onSelectCommit={(sha, snapshot) => calls.push(`diff:${sha}:${snapshot?.headSha}`)} />
+      </div>
+    </>;
+  }
+  host.style.cssText = 'display:flex;flex-direction:column;width:1060px;height:900px;background:white';
+  const root = createRoot(host);
+  flushSync(() => root.render(<Surface />));
+  return { calls, review: value, close: () => {
+    flushSync(() => root.unmount());
+    Object.defineProperty(window, 'bridge', { configurable: true, writable: true, value: previous });
+  } };
+}
+
+export async function run() {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const fixture = preview(host);
+  const button = (selector: string, label: string) => {
+    const found = [...host.querySelectorAll<HTMLButtonElement>(selector)].find(item => item.textContent?.trim().startsWith(label));
+    assert(found !== undefined, `Missing ${label}`);
+    return found;
+  };
+  try {
+    await settle();
+    const toolbar = host.querySelector('.pull-detail__subtoolbar');
+    assert(toolbar?.querySelector('.agr-strip') !== null && !host.querySelector('.agr-pane > .agr-strip'), 'Review controls must share the WorkBench tab row');
+    const intention = host.querySelector<HTMLElement>('.agr-explanation.is-purpose');
+    const commits = [...host.querySelectorAll<HTMLElement>('.agr-explanation.is-commit')];
+    assert(intention !== null && commits.length === 3 && commits[0].getBoundingClientRect().left > intention.getBoundingClientRect().left,
+      'Commits must nest beneath the intention');
+    assert(commits[2].getBoundingClientRect().bottom - host.getBoundingClientRect().top < 600, 'The intention and three commits must fit on one screen');
+    const finding = host.querySelector<HTMLElement>('.agr-finding');
+    assert(finding !== null && finding.querySelector('.lrc.is-local') !== null, 'Findings must retain the existing local card');
+    button('.agr-finding button', 'Ask reviewer').click(); await settle();
+    const draft = finding.querySelector('textarea');
+    assert(draft !== null, 'Finding discussion must remain available');
+    changeInput(draft, 'Keep this private draft'); await settle();
+    button('.agr-findings__filters button', 'Resolved').click(); await settle();
+    assert(finding.getBoundingClientRect().height === 0, 'Resolved must hide open findings');
+    button('.agr-findings__filters button', 'All').click(); await settle();
+    assert(finding.querySelector('textarea')?.value === 'Keep this private draft', 'Filtering must retain a finding draft and its card instance');
+    button('.agr-explanation.is-commit button', 'Ask reviewer').click(); await settle();
+    const question = commits[0].querySelector('textarea');
+    assert(question !== null, 'The compact question icon must open its own composer');
+    changeInput(question, 'Explain the boundary'); await settle();
+    button('.agr-explanation.is-commit .agr-composer button', 'Queue question').click(); await settle();
+    assert(fixture.calls[0]?.includes(`commit:${fixture.review.runs[0].commits[0].sha}:Explain the boundary`), 'Questions must retain their commit target');
+    button('.agr-explanation.is-commit button', 'Diff').click(); await settle();
+    assert(fixture.calls[1] === `diff:${fixture.review.runs[0].commits[0].sha}:${fixture.review.runs[0].headSha}`, 'Diff must retain the frozen head');
+    for (const width of [600, 420]) {
+      host.style.width = `${width}px`; await settle();
+      assert(host.scrollWidth <= host.clientWidth + 1 && commits.every(card => card.scrollWidth <= card.clientWidth + 1), 'Narrow panes must wrap without horizontal overflow');
+    }
+    button('.pull-detail__subtabs button', 'Changes').click(); await settle();
+    assert(host.querySelector('.pull-detail__summary-toolbar') === null, 'Summary controls must leave the header on other tabs');
+    button('.pull-detail__subtabs button', 'Summary').click(); await settle();
+    button('.agr-strip button', 'Stop').click(); await settle();
+    assert(fixture.calls.at(-1) === 'stop', 'Stop must remain wired after returning to Summary');
+    return [{ name: 'Compact Summary retains controls, discussions and narrow layouts' }];
+  }
+  catch (error) { return [{ name: 'Compact Summary', error: error instanceof Error ? error.message : String(error) }]; }
+  finally { fixture.close(); host.remove(); }
+}

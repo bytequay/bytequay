@@ -210,6 +210,16 @@ source and run history stay readable there. Their contract is in
 
 ### Visual contract
 
+The review Summary follows the **2a hierarchy timeline** in the
+[compact Summary reference](https://claude.ai/artifact/4XtSE3wCyQoJfmBJVYAhz9).
+Its status, saved progress counts and review controls share the WorkBench tab
+row, wrapping in narrow panes. The green intention card leads, with source
+revisions and folded Review details in its footer. Numbered commit cards nest
+below it, keeping their title, short SHA, private question and diff actions in
+one header; their explanation and discussion fold together. Findings follow
+with All, Open and Resolved filters that preserve card drafts and fold state.
+The existing Findings card component, styling and action handlers are unchanged.
+
 The checked-in PR page is the styling source of truth. Reuse its actual
 components or small extracted presentational pieces, not a parallel imitation:
 

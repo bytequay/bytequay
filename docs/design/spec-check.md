@@ -4,8 +4,8 @@ Status: implemented. It adds one agent-service task,
 [a spec check task](#4-the-task-and-its-safety). The user approved the task kind,
 at most eight reproduction turns per check, and linking open issues that already
 report a gap instead of reproducing them. [Repository memory](repository-memory.md)
-changed where a check starts: a directory the user picks, not a learning-plan
-topic.
+changed where a check starts: a module or directory the user picks, not a
+learning-plan topic.
 
 A spec check compares a directory's code with the specification it implements and
 reports gaps. It reports only gaps a test run has reproduced. The user starts it
@@ -13,18 +13,30 @@ and reads the result; nothing in between asks for a decision.
 
 ## 1. What the user does
 
-**Start.** The Memory page offers **Check against spec**, which asks for a
-directory of the repository and opens its Spec check drawer; a row of the page
-opens the drawer of an earlier check. The drawer says what the check reads, at
-the monitored branch head: every page the directory's code links,
-with how often the code cites it ("Linked page · cited 32 times · 20 sections"),
-and other engines' source files as reference code. The check decides which pages
-are specifications by reading them; the user does not pick them. The user may add
-a spec address the code doesn't link, and never picks sections: the check plans
-them. A new check of a directory is told which specs the last check used. Usually
-the user just starts. The run line states what the click starts: one task, a
-check turn and up to eight reproduction turns, and the model. One check or
-memory harvest runs at a time per workspace.
+**Start.** The Memory page offers **Check against spec**, which opens the Spec
+check drawer on the repository's modules; a row of the page opens the drawer of
+an earlier check. A module is a directory holding a build file (`pom.xml`,
+`build.gradle`, `package.json`, `go.mod`, `Cargo.toml`, `pyproject.toml`). The
+modules whose own code cites one page in the most sections come first, since
+that is how a specification shows: Trino's Delta Lake connector cites 20
+sections of the Delta protocol. Tests, docs and bundled third-party code are not
+a module's own code, so a vendored library citing the ECMAScript spec ranks
+nothing. Each row names its most-cited page. Typing filters the modules, and a
+typed directory path inside one can be checked as well. One scan of the
+repository at the monitored head ranks Trino's 98 modules in under a second,
+without a model.
+
+Once a module is picked, the drawer says what the check reads, at the monitored
+branch head: every page the directory's code links, with how often the code
+cites it ("Linked page · cited 32 times · 20 sections"), and other engines'
+source files as reference code. The check decides which pages are
+specifications by reading them; the user does not pick them. The user may add a
+spec address the code doesn't link, the check may propose one, and the user
+never picks sections: the check plans them. A new check of a directory is told
+which specs the last check used. Usually the user just starts. The run line
+states what the click starts: one task, a check turn and up to eight
+reproduction turns, and the model. One check or memory harvest runs at a time
+per workspace.
 
 **Finish.** The directory's row shows a summary and the count of findings to
 file, and its drawer shows the report. It says, for
@@ -60,6 +72,13 @@ with must, should and required, which guides and product pages rarely do.
    specification is dropped: build files' XML, license links, site home pages,
    and repository pages other than files, such as issues and pull requests.
 2. Pages the user adds that the code doesn't link.
+3. Specifications the check proposes. A directory may implement a public
+   specification its code barely links: Trino's Iceberg connector cites the
+   Iceberg spec once in its code, while Trino's docs cite it fifteen times. The
+   planning turn may propose up to two such addresses, reads each with PAGE like
+   a listed page, and uses one only when its text states rules the code must
+   follow. The report marks them "proposed by the check". A directory whose code
+   links no page can still be checked: the check proposes its specification.
 
 The check reads each page's text with PAGE and never relies on the model's
 memory of it.

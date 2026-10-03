@@ -11,10 +11,26 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { ContextSpecCandidateDto, ContextSpecCheckDto } from './contracts';
+import type { ContextSpecCandidateDto, ContextSpecCheckDto, ContextSpecModuleDto } from './contracts';
 import { plural } from './model';
 
 export const MAX_SPECS = 30;
+
+/** A page's short name in a module row: its repository and file on GitHub, else its host and last path part. */
+export function pageLabel(url: string): string {
+  const { hostname, pathname } = new URL(url);
+  const parts = pathname.split('/').filter(Boolean);
+  const last = parts.at(-1);
+  if (hostname === 'github.com' && parts.length >= 2) return `${parts[0]}/${parts[1]}${parts.length > 2 ? ` · ${last}` : ''}`;
+  const host = hostname.replace(/^www\./, '');
+  return last === undefined ? host : `${host} · ${last}`;
+}
+
+/** The modules whose path or page holds every word of the filter, in the order the backend ranked them. */
+export function moduleRows(modules: ContextSpecModuleDto[], filter: string): ContextSpecModuleDto[] {
+  const words = filter.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  return modules.filter(module => words.every(word => module.directory.toLowerCase().includes(word) || (module.page ?? '').toLowerCase().includes(word)));
+}
 // ponytail: GitHub rejects very long addresses; a longer draft is cut in the form and copied whole to the clipboard.
 const MAX_ISSUE_URL = 7500;
 

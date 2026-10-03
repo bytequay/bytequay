@@ -24,6 +24,7 @@ import type {
   ContextBuildViewDto,
   ContextSpecCheckDto,
   ContextSpecCheckStartedDto,
+  ContextSpecModuleDto,
   ContextSpecSourceDto,
   StartContextSpecCheckRequest,
 } from './repository-context/contracts';
@@ -1638,6 +1639,8 @@ export type Bridge = JiraBridge & {
   /** The latest spec check of each directory; reads only. */
   getRepositoryContextSpecChecks: (workspaceId: string) => Promise<ContextSpecCheckDto[]>;
   /** The pages a directory's code links at the monitored branch head; reads only. */
+  /** The repository's modules at the monitored head, those whose own code cites one page in the most sections first. */
+  getRepositoryContextSpecModules: (workspaceId: string) => Promise<ContextSpecModuleDto[]>;
   getRepositoryContextSpecSources: (workspaceId: string, directory: string) => Promise<ContextSpecSourceDto[]>;
   /** Starts one check of a directory: a turn that saves candidate gaps, then one turn per candidate that reproduces it with a test. */
   startRepositoryContextSpecCheck: (workspaceId: string, request: StartContextSpecCheckRequest) => Promise<ContextSpecCheckStartedDto>;

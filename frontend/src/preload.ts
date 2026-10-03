@@ -322,6 +322,7 @@ const bridge: Bridge = {
   getRepositoryContextBaseline: workspaceId => ipcRenderer.invoke('repository-context:build:baseline', workspaceId),
   getRepositoryContextBuild: workspaceId => ipcRenderer.invoke('repository-context:build:get', workspaceId),
   getRepositoryContextSpecChecks: workspaceId => ipcRenderer.invoke('repository-context:spec-checks:get', workspaceId),
+  getRepositoryContextSpecModules: workspaceId => ipcRenderer.invoke('repository-context:spec-checks:modules', workspaceId),
   getRepositoryContextSpecSources: (workspaceId, directory) => ipcRenderer.invoke('repository-context:spec-checks:sources', workspaceId, directory),
   startRepositoryContextSpecCheck: (workspaceId, request) => ipcRenderer.invoke('repository-context:spec-checks:start', workspaceId, request),
   dismissRepositoryContextSpecFinding: (workspaceId, checkId, candidateId, request) =>

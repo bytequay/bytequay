@@ -173,9 +173,11 @@ deleted after the task's retention window.
 
 ### 3.4 Spec links and deviations
 
-- **The check starts from a directory.** The user picks a directory instead of a
-  plan topic. The rest is unchanged: the check lists the pages the code links,
-  decides which are specifications and reproduces gaps.
+- **The check starts from a module.** The user picks one of the repository's
+  modules, those whose own code cites one page in the most sections first, or
+  types a directory, instead of a plan topic. The check lists the pages the code
+  links, may propose a specification the code doesn't link, decides which are
+  specifications and reproduces gaps.
 - **Spec memories.** Each specification a check used becomes, or updates, a SPEC
   memory with its address, the paths that link it and the sections read. A
   development task or review that read a spec page may REMEMBER a SPEC with a

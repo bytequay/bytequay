@@ -307,6 +307,13 @@ it('reads a directory’s spec sources and starts a check of it, refusing a forg
   await expect(desktop.handlers.get('repository-context:spec-checks:sources')?.({}, 'workspace/one', 'plugin/trino-iceberg/'))
     .resolves.toEqual([{ url: 'https://iceberg.apache.org/spec/', kind: 'PAGE', links: 3, sections: ['manifests'] }]);
   expect(fetch).toHaveBeenLastCalledWith(base + '/sources?directory=plugin%2Ftrino-iceberg%2F', expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  fetch.mockImplementationOnce(async () => new Response(JSON.stringify({ modules: [
+    { directory: 'plugin/trino-delta-lake/', page: 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md', sections: 20, links: 25 },
+    { directory: 'plugin/trino-iceberg/', page: null, sections: 0, links: 0 }] })));
+  await expect(desktop.handlers.get('repository-context:spec-checks:modules')?.({}, 'workspace/one')).resolves.toEqual([
+    { directory: 'plugin/trino-delta-lake/', page: 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md', sections: 20, links: 25 },
+    { directory: 'plugin/trino-iceberg/', page: null, sections: 0, links: 0 }]);
+  expect(fetch).toHaveBeenLastCalledWith(base + '/modules', expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
   fetch.mockClear();
   expect(() => desktop.handlers.get('repository-context:spec-checks:sources')?.({}, 'workspace/one', 'plugin/../core/')).toThrow('Malformed spec check: directory');
   const request = { requestKey: 'check-key', expectedBuildSequence: 2, directory: 'plugin/trino-iceberg/', specs: ['https://iceberg.apache.org/spec/'] };

@@ -34,8 +34,10 @@ public record ContextSpecCheck(
         List<String> specs, List<String> checkedAgainst, List<String> labels, State state, List<Candidate> candidates, List<String> covered, List<String> next,
         int reproductions, Optional<String> detail, Instant startedAt, Optional<Instant> endedAt)
 {
-    /** The pages a check may read as specs: every page the directory's code links, and the ones the user adds. */
+    /** The pages a check may read as specs: every page the directory's code links, and the ones the user adds; with none, it proposes its own. */
     public static final int MAX_SPECS = 30;
+    /** A check may also propose this many specifications the code implements without linking them, after reading them. */
+    public static final int MAX_PROPOSED = 2;
     public static final int MAX_CANDIDATES = 30;
     /** A check reproduces at most this many candidates, most severe first. */
     public static final int MAX_REPRODUCTIONS = 8;
@@ -47,7 +49,6 @@ public record ContextSpecCheck(
         checkArgument(baselineSha.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Invalid check baseline");
         ContextLimits.text(requestKey, "requestKey", 90);
         specs = ImmutableList.copyOf(specs);
-        checkArgument(!specs.isEmpty(), "Select at least one spec");
         ContextLimits.unique(specs, "specs", MAX_SPECS);
         specs.forEach(ContextLimits::documentationUrl);
         checkedAgainst = ImmutableList.copyOf(checkedAgainst);

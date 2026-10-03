@@ -28,6 +28,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -42,7 +43,7 @@ public record ContextSpecSource(String url, Kind kind, int links, List<String> s
 {
     static final int MAX_SOURCES = 20;
     static final int MAX_SECTIONS = 40;
-    private static final String LINK = "https?://[A-Za-z0-9./_#%~+-]+";
+    static final String LINK = "https?://[A-Za-z0-9./_#%~+-]+";
     private static final Pattern SOURCE_FILE = Pattern.compile(".*\\.(java|scala|kt|py|go|rs|c|cc|cpp|h|hpp|js|ts)$");
     private static final Pattern REPOSITORY_NOISE = Pattern.compile("/[^/]+/[^/]+(/(issues|pull|pulls|commit|commits|compare|releases|actions|tree)(/.*)?)?/?");
     private static final Duration SCAN_TIMEOUT = Duration.ofSeconds(10);
@@ -81,17 +82,10 @@ public record ContextSpecSource(String url, Kind kind, int links, List<String> s
                         ":(exclude,glob)**/*.xml", ":(exclude,glob)**/*.xsd"));
         checkArgument((output.successful() || output.exitCode() == 1) && !output.truncated(), "The directory's code has too many links to scan");
         for (String line : output.output().split("\n")) {
-            // Pages are only read over HTTPS, which every spec host serves.
-            String link = line.strip().replaceAll("[.,;:]+$", "").replaceFirst("^http://", "https://");
-            int hash = link.indexOf('#');
-            String address = hash < 0 ? link : link.substring(0, hash);
-            if (address.isEmpty() || ignored(address)) {
-                continue;
-            }
-            counts.merge(address, 1, Integer::sum);
-            if (hash >= 0 && hash + 1 < link.length()) {
-                sections.computeIfAbsent(address, ignored -> new LinkedHashSet<>()).add(link.substring(hash + 1));
-            }
+            link(line).ifPresent(link -> {
+                counts.merge(link.address(), 1, Integer::sum);
+                link.section().ifPresent(section -> sections.computeIfAbsent(link.address(), ignored -> new LinkedHashSet<>()).add(section));
+            });
         }
         List<ContextSpecSource> found = new ArrayList<>();
         counts.forEach((address, links) -> found.add(new ContextSpecSource(address, classify(address), links,
@@ -101,6 +95,21 @@ public record ContextSpecSource(String url, Kind kind, int links, List<String> s
                 .thenComparing(Comparator.comparingInt(ContextSpecSource::links).reversed()).thenComparing(ContextSpecSource::url));
         return found.stream().limit(MAX_SOURCES).collect(ImmutableList.toImmutableList());
     }
+
+    /** A link as the code writes it, by its address and `#section`; empty when it never names a page that could be a spec. */
+    static Optional<Link> link(String text)
+    {
+        // Pages are only read over HTTPS, which every spec host serves.
+        String link = text.strip().replaceAll("[.,;:]+$", "").replaceFirst("^http://", "https://");
+        int hash = link.indexOf('#');
+        String address = hash < 0 ? link : link.substring(0, hash);
+        if (address.isEmpty() || ignored(address)) {
+            return Optional.empty();
+        }
+        return Optional.of(new Link(address, hash >= 0 && hash + 1 < link.length() ? Optional.of(link.substring(hash + 1)) : Optional.empty()));
+    }
+
+    record Link(String address, Optional<String> section) {}
 
     static Kind classify(String address)
     {

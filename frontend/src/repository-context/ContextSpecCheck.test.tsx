@@ -26,12 +26,20 @@ const data = (checks: ContextSpecCheckDto[], build: ContextBuildViewDto): SpecCh
   model: { label: 'Codex · Sol', blocker: null }, now: Date.parse('2026-10-02T01:00:00Z') });
 
 describe('spec check drawer', () => {
-  it('asks for a directory before it lists any page to check against', () => {
+  it('lists the repository’s modules to pick from before it lists any page to check against', () => {
     const markup = renderToStaticMarkup(<SpecCheckDrawer data={data([], { buildRequestSequence: 0, canStart: true, build: null })} actions={actions} busy={false}
       directory={null} onClose={() => {}} />);
-    expect(markup).toContain('aria-label="Directory"');
-    expect(markup).toContain('Find pages');
+    expect(markup).toContain('aria-label="Filter modules"');
+    expect(markup).toContain('Listing the repository’s modules…');
     expect(markup).not.toContain('Check against spec');
+  });
+
+  it('marks the specifications the check proposed because the code does not link them', () => {
+    const done: ContextSpecCheckDto = { ...check, state: 'DONE', endedAt: '2026-10-02T00:30:00Z', specs: [],
+      checkedAgainst: ['https://iceberg.apache.org/spec/'] };
+    const markup = renderToStaticMarkup(<SpecCheckDrawer data={data([done], { buildRequestSequence: 1, canStart: true, build: null })} actions={actions}
+      busy={false} directory="plugin/trino-iceberg/" onClose={() => {}} />);
+    expect(markup).toContain('Checked against https://iceberg.apache.org/spec/ (proposed by the check).');
   });
 
   it('shows a running check’s report with Stop and offers no second check while it runs', () => {

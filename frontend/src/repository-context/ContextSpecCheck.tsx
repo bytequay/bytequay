@@ -14,10 +14,12 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { remoteErrorMessage } from '../pulls/PullOverview';
 import { settingsRoute } from '../settings/routes';
-import { specCheckDirectory, type ContextBuildViewDto, type ContextSpecCandidateDto, type ContextSpecCheckDto, type ContextSpecSourceDto } from './contracts';
+import { specCheckDirectory, type ContextBuildViewDto, type ContextSpecCandidateDto, type ContextSpecCheckDto, type ContextSpecModuleDto,
+  type ContextSpecSourceDto } from './contracts';
 import { Chevron, Icon } from './icons';
 import { activeCheck, CHECK_REPRODUCTIONS, checkActive, checkProgress, plural, shortDate, shortSha } from './model';
-import { CHECK_STATE, checkSummary, codeLink, DISMISS_REASONS, findingFile, MAX_SPECS, openFindings, specAddress, TYPE_LABEL, TYPE_TONE } from './specChecks';
+import { CHECK_STATE, checkSummary, codeLink, DISMISS_REASONS, findingFile, MAX_SPECS, moduleRows, openFindings, pageLabel, specAddress, TYPE_LABEL,
+  TYPE_TONE } from './specChecks';
 
 export type SpecCheckData = {
   workspaceId: string; repository: string; checks: ContextSpecCheckDto[]; build: ContextBuildViewDto; model: { label: string; blocker: string | null }; now: number;
@@ -55,7 +57,7 @@ export function SpecCheckDrawer({ data, actions, busy, directory, onClose }: {
     </div>
       <div className="rcp-drawer__sub">Compares a directory’s code with the specifications it implements. Only a gap whose test fails is reported.</div></div>
     <div className="rcp-drawer__body">
-      {chosen === null && <ChooseDirectory onChoose={setChosen} />}
+      {chosen === null && <ChooseDirectory workspaceId={data.workspaceId} onChoose={setChosen} />}
       {check !== null && <Report data={data} actions={actions} busy={busy} check={check} />}
       {chosen !== null && running === null && <StartCheck key={chosen} data={data} actions={actions} busy={busy} directory={chosen} previous={check} />}
       {chosen !== null && running !== null && running.id !== check?.id && <div className="rcp-note-caption">The check of {running.directory} is running.
@@ -68,17 +70,39 @@ export function SpecCheckDrawer({ data, actions, busy, directory, onClose }: {
   </>;
 }
 
-function ChooseDirectory({ onChoose }: { onChoose: (directory: string) => void }) {
-  const [draft, setDraft] = useState('');
-  const directory = specCheckDirectory(draft);
-  return <section aria-label="Choose a directory">
-    <div className="rcp-drawer-label">DIRECTORY</div>
-    <form className="rcp-q-add" onSubmit={(event: FormEvent) => { event.preventDefault(); if (directory !== null) onChoose(directory); }}>
-      <input aria-label="Directory" placeholder="A directory of the repository · plugin/trino-iceberg" value={draft} maxLength={1000} autoFocus
-        onChange={event => setDraft(event.target.value)} />
-      <button type="submit" className="rcp-btn rcp-btn--secondary" disabled={directory === null}>Find pages</button>
+/** The modules a check can start from, those whose own code cites one page in many sections first; typing filters them or names any directory. */
+function ChooseDirectory({ workspaceId, onChoose }: { workspaceId: string; onChoose: (directory: string) => void }) {
+  const [modules, setModules] = useState<ContextSpecModuleDto[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState('');
+  useEffect(() => {
+    let live = true;
+    void Promise.resolve().then(() => window.bridge.getRepositoryContextSpecModules(workspaceId))
+      .then(found => { if (live) setModules(found); }).catch(cause => { if (live) setError(remoteErrorMessage(cause)); });
+    return () => { live = false; };
+  }, [workspaceId]);
+  const rows = moduleRows(modules ?? [], filter);
+  const typed = specCheckDirectory(filter);
+  // A directory inside a module, or one the list leaves out, is checked when typed as a path.
+  const other = typed !== null && filter.includes('/') && !(modules ?? []).some(module => module.directory === typed) ? typed : null;
+  const first = rows.at(0)?.directory ?? other;
+  return <section aria-label="Choose a module">
+    <div className="rcp-drawer-label">MODULE</div>
+    <form className="rcp-q-add" onSubmit={(event: FormEvent) => { event.preventDefault(); if (first != null) onChoose(first); }}>
+      <input aria-label="Filter modules" placeholder="Filter modules, or type a directory path" value={filter} maxLength={1000} autoFocus
+        onChange={event => setFilter(event.target.value)} />
     </form>
-    <div className="rcp-note-caption">The check reads the pages this directory’s code links, at the monitored branch head.</div>
+    {error !== null && <div className="rcp-drawer-error">The repository’s modules could not be listed: {error}</div>}
+    {modules === null && error === null && <div className="rcp-note-caption">Listing the repository’s modules…</div>}
+    <div className="rcp-modules">
+      {rows.map(module => <button type="button" className="rcp-module" key={module.directory} title={module.page ?? undefined}
+        onClick={() => onChoose(module.directory)}>
+        <span className="rcp-src__target">{module.directory}</span>
+        {module.page !== null && <span className="rcp-src__sub">{pageLabel(module.page)} · {plural(module.sections, 'section')}</span>}
+      </button>)}
+      {other !== null && <button type="button" className="rcp-module" onClick={() => onChoose(other)}>
+        <span className="rcp-src__target">{other}</span><span className="rcp-src__sub">Check this directory</span></button>}
+    </div>
   </section>;
 }
 
@@ -113,7 +137,7 @@ function StartCheck({ data, actions, busy, directory, previous }: {
     setDraft('');
   };
   const blocked = data.model.blocker !== null;
-  const canStart = data.build.canStart && !busy && !blocked && sources !== null && pages.length + added.length > 0 && specs.length <= MAX_SPECS;
+  const canStart = data.build.canStart && !busy && !blocked && sources !== null && specs.length <= MAX_SPECS;
   return <section aria-label="Check against spec">
     <div className="rcp-drawer-label">{previous === null ? 'WHAT THE CHECK READS' : 'CHECK AGAIN'}</div>
     {error !== null && <div className="rcp-drawer-error">The pages the directory’s code links could not be listed: {error}</div>}
@@ -147,7 +171,7 @@ function StartCheck({ data, actions, busy, directory, previous }: {
 }
 
 function readsLine(pages: number, reference: number, added: number): string {
-  if (pages + added === 0) return 'The directory’s code links no page. Add the address of the specification it implements.';
+  if (pages + added === 0) return 'The directory’s code links no page. The check proposes the specification it implements, or add its address.';
   const read = [pages > 0 ? `the ${plural(pages, 'page')} the directory’s code links` : '', added > 0 ? `the ${plural(added, 'page')} you added` : '']
     .filter(Boolean).join(' and ');
   return `The check reads ${read} and checks the code against the specifications among them`
@@ -171,7 +195,8 @@ function Report({ data, actions, busy, check }: { data: SpecCheckData; actions: 
     <div className="rcp-note-caption">Code at {shortSha(check.baselineSha)} · started {shortDate(check.startedAt, data.now)}
       {check.endedAt !== null && ` · ended ${shortDate(check.endedAt, data.now)}`} · read {plural(check.specs.length, 'page')}</div>
     {check.checkedAgainst.length > 0
-      ? <div className="rcp-note-caption">Checked against {check.checkedAgainst.join(', ')}.</div>
+      ? <div className="rcp-note-caption">Checked against {check.checkedAgainst
+        .map(url => check.specs.includes(url) ? url : `${url} (proposed by the check)`).join(', ')}.</div>
       : !checkActive(check) && check.candidates.length === 0 && <div className="rcp-note-caption">None of the pages it read states rules the code
         must follow. Add the address of the specification and check again.</div>}
     {check.detail !== null && check.state !== 'STOPPED' && <div className="rcp-drawer-error">{check.detail}</div>}

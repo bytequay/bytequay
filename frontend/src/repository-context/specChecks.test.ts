@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { parseDismissContextSpecFindingRequest, specCheckDirectory, type ContextSpecCandidateDto, type ContextSpecCheckDto } from './contracts';
-import { checkSummary, codeLink, findingFile, issueUrl, openFindings, specAddress } from './specChecks';
+import { checkSummary, codeLink, findingFile, issueUrl, moduleRows, openFindings, pageLabel, specAddress } from './specChecks';
 
 const candidate = (id: string, type: ContextSpecCandidateDto['type'], status: ContextSpecCandidateDto['status'],
   patch: Partial<ContextSpecCandidateDto> = {}): ContextSpecCandidateDto => ({ id, type, predicted: type === 'BUG' ? 'DIVERGES' : type === 'FEATURE_REQUEST' ? 'REFUSES' : 'SKIPS_SHOULD',
@@ -37,6 +37,28 @@ describe('spec check report', () => {
     const value = check([candidate('c1', 'BUG', 'CONFIRMED'), candidate('c2', 'BUG', 'CONFIRMED', { dismissed: 'Filed on GitHub' }),
       candidate('c3', 'BUG', 'NOT_REPRODUCED')]);
     expect(openFindings(value).map(item => item.id)).toEqual(['c1']);
+  });
+});
+
+describe('spec check modules', () => {
+  const modules = [
+    { directory: 'plugin/trino-delta-lake/', page: 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md', sections: 20, links: 25 },
+    { directory: 'lib/trino-hive-formats/', page: 'https://avro.apache.org/docs/1.11.1/specification/', sections: 3, links: 3 },
+    { directory: 'plugin/trino-iceberg/', page: null, sections: 0, links: 0 },
+  ];
+
+  it('names a page by its repository and file on GitHub, else by its host and last part', () => {
+    expect(pageLabel('https://github.com/delta-io/delta/blob/master/PROTOCOL.md')).toBe('delta-io/delta · PROTOCOL.md');
+    expect(pageLabel('https://github.com/delta-io/delta')).toBe('delta-io/delta');
+    expect(pageLabel('https://www.rfc-editor.org/rfc/rfc9110.html')).toBe('rfc-editor.org · rfc9110.html');
+    expect(pageLabel('https://iceberg.apache.org/')).toBe('iceberg.apache.org');
+  });
+
+  it('filters modules by every word of their path or page, keeping their rank', () => {
+    expect(moduleRows(modules, '')).toEqual(modules);
+    expect(moduleRows(modules, 'trino- lake').map(module => module.directory)).toEqual(['plugin/trino-delta-lake/']);
+    expect(moduleRows(modules, 'AVRO').map(module => module.directory)).toEqual(['lib/trino-hive-formats/']);
+    expect(moduleRows(modules, 'plugin/').map(module => module.directory)).toEqual(['plugin/trino-delta-lake/', 'plugin/trino-iceberg/']);
   });
 });
 

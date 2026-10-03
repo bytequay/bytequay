@@ -59,6 +59,13 @@ public class ContextSpecCheckController
         return checks.dismiss(workspaceId, checkId, candidateId, request.reason(), Optional.ofNullable(request.rule()).filter(rule -> !rule.isBlank()));
     }
 
+    /** The modules a check can start from, at the monitored branch head. */
+    @GetMapping("/modules")
+    public Modules modules(@PathVariable String workspaceId)
+    {
+        return new Modules(checks.modules(workspaceId));
+    }
+
     @GetMapping("/sources")
     public Sources sources(@PathVariable String workspaceId, @RequestParam String directory)
     {
@@ -77,6 +84,14 @@ public class ContextSpecCheckController
      * @param rule the user's words to remember for the finding's file, such as why a deviation stays
      */
     public record DismissRequest(String reason, String rule) {}
+
+    public record Modules(List<ContextSpecModule> modules)
+    {
+        public Modules
+        {
+            modules = ImmutableList.copyOf(modules);
+        }
+    }
 
     public record Sources(List<ContextSpecSource> sources)
     {

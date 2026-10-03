@@ -49,6 +49,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -219,6 +220,24 @@ class TestContextSpecCheckService
                 ImmutableList.of(), ImmutableList.of(), this::searched))
                 .hasMessageContaining("specs: https://iceberg.apache.org/spec/ is not a page of this check");
         assertThat(current().candidates()).isEmpty();
+    }
+
+    @Test
+    void aCheckMayProposeAtMostTwoSpecificationsTheCodeDoesNotLinkOnceItReadThem()
+    {
+        String iceberg = "https://iceberg.apache.org/spec/";
+        String parquet = "https://parquet.apache.org/docs/file-format/";
+        String avro = "https://avro.apache.org/docs/1.11.1/specification/";
+        store.save(WORKSPACE, Optional.empty(), check(ContextSpecCheck.State.CHECKING, ImmutableList.of()));
+        ContextBuild read = build(Optional.empty(), new ContextBuild.Capture(ImmutableMap.of("page:" + iceberg, "capture-1", "page:" + parquet, "capture-2",
+                "page:" + avro, "capture-3"), ImmutableList.of(), ImmutableList.of()));
+
+        assertThatThrownBy(() -> service.saveCandidates(read, ImmutableList.of(), Optional.of(ImmutableList.of(SPEC, iceberg, parquet, avro)), ImmutableList.of(),
+                ImmutableList.of(), this::searched)).hasMessage("specs: propose at most 2 specifications the code doesn't link");
+        service.saveCandidates(read, ImmutableList.of(), Optional.of(ImmutableList.of(SPEC, iceberg, parquet)), ImmutableList.of(), ImmutableList.of(), this::searched);
+        assertThat(current().checkedAgainst()).containsExactly(SPEC, iceberg, parquet);
+        // A directory whose code links no page still starts a check, which proposes the specification.
+        assertThat(new ContextSpecCheckService.StartRequest("key", 0, "plugin/trino-iceberg/", ImmutableList.of()).specs()).isEmpty();
     }
 
     @Test
@@ -409,12 +428,19 @@ class TestContextSpecCheckService
                 new ContextSpecSource(SPEC, ContextSpecSource.Kind.PAGE, 32, ImmutableList.of("checkpoints", "deletion-vectors")),
                 new ContextSpecSource(scala, ContextSpecSource.Kind.REFERENCE_CODE, 3, ImmutableList.of())));
 
+        String propose = "The directory may implement a public specification its code never links, such as a table or file format, a protocol or an RFC. "
+                + "Propose up to 2 such addresses: read each with PAGE, and pass it in specs only when its text states rules the code must follow, never for a guide.\n";
         assertThat(brief).startsWith("Pages the directory's code links, most cited first; decide which are specifications the code implements:\n"
                 + "- " + SPEC + " · cited 32 times · sections the code links: #checkpoints, #deletion-vectors\n"
                 + "- " + GUIDE + " · added by the user\n"
                 + "Reference implementations in another engine, for comparison only and never rules:\n- " + scala + " · cited 3 times\n"
+                + propose
                 + "The last check used these as specifications: " + SPEC + "\n"
                 + "Directory: plugin/trino-delta-lake/\n");
+        ContextSpecCheck unlinked = new ContextSpecCheck("check-2", "plugin/trino-iceberg/", SHA, "key", ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                ContextSpecCheck.State.CHECKING, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), 0, Optional.empty(), NOW, Optional.empty());
+        assertThat(ContextSpecCheckService.planningBrief(unlinked, Optional.empty(), ImmutableList.of()))
+                .startsWith("Pages the directory's code links, most cited first; decide which are specifications the code implements:\n(none)\n" + propose);
     }
 
     private Optional<Duplicate> searched(int number)
@@ -490,8 +516,13 @@ class TestContextSpecCheckService
 
     private static ContextBuild build(Optional<ContextBuild.Reproduction> reproduction)
     {
+        return build(reproduction, ContextBuild.Capture.empty());
+    }
+
+    private static ContextBuild build(Optional<ContextBuild.Reproduction> reproduction, ContextBuild.Capture capture)
+    {
         return new ContextBuild(reproduction.isPresent() ? 2 : 1, "check-request", "sha256:" + "b".repeat(64), WORKSPACE, TASK.toString(),
                 new RepositoryIdentity("owner", "repository"), 1, REPO, SHA, "bytequay/check", "codex", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
-                NOW, ContextBuild.Capture.empty(), Optional.of(new ContextBuild.Check("check-1", "plugin/trino-delta-lake/", reproduction, "brief")), Optional.empty());
+                NOW, capture, Optional.of(new ContextBuild.Check("check-1", "plugin/trino-delta-lake/", reproduction, "brief")), Optional.empty());
     }
 }

@@ -98,6 +98,8 @@ export function parseContextBuildView(value: unknown, workspaceId: string): Cont
 
 /** A page the directory's code links, how often and at which sections, or another engine's source file, for comparison only. The check decides which pages are specs. */
 export type ContextSpecSourceDto = { url: string; kind: 'PAGE' | 'REFERENCE_CODE'; links: number; sections: string[] };
+/** A module a check can start from, with the page its own code cites in the most sections. */
+export type ContextSpecModuleDto = { directory: string; page: string | null; sections: number; links: number };
 export type ContextSpecCheckState = 'CHECKING' | 'REPRODUCING' | 'DONE' | 'STOPPED' | 'FAILED';
 export type ContextSpecCandidateType = 'BUG' | 'FEATURE_REQUEST' | 'IMPROVEMENT';
 export type ContextSpecCandidateStatus = 'PENDING' | 'REPRODUCING' | 'CONFIRMED' | 'REFUTED' | 'NOT_REPRODUCED' | 'ALREADY_REPORTED';
@@ -130,6 +132,13 @@ export function parseSpecCheckDirectory(value: unknown): string {
   const directory = specCheckDirectory(text(value, 'directory'));
   if (directory === null || directory !== value) malformed('directory');
   return directory;
+}
+export function parseContextSpecModules(value: unknown): ContextSpecModuleDto[] {
+  return array(object(value, 'spec modules').modules, 'spec modules', raw => {
+    const item = object(raw, 'spec module');
+    return { directory: parseSpecCheckDirectory(item.directory), page: item.page == null ? null : text(item.page, 'module page'),
+      sections: count(item.sections, 'module sections'), links: count(item.links, 'module links') };
+  });
 }
 export function parseContextSpecSources(value: unknown): ContextSpecSourceDto[] {
   return array(object(value, 'spec sources').sources, 'spec sources', raw => {

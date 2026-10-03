@@ -120,6 +120,12 @@ public class ContextSpecCheckService
         return ContextSpecSource.scan(git, workspaces.requireReadableRepository(workspaceId), baseline, directory);
     }
 
+    /** The repository's modules at the monitored branch head, those whose own code cites a page in the most sections first. */
+    public List<ContextSpecModule> modules(String workspaceId)
+    {
+        return ContextSpecModule.scan(git, workspaces.requireReadableRepository(workspaceId), baseline(workspaceId));
+    }
+
     private ContextBuildService.Baseline baseline(String workspaceId)
     {
         return builds.baseline(workspaceId).orElseThrow(() -> new IllegalArgumentException("The monitored branch is unavailable; refresh the repository"));
@@ -305,8 +311,12 @@ public class ContextSpecCheckService
             IntFunction<Optional<Duplicate>> searched)
     {
         ContextSpecCheck check = requireCheck(build, false);
-        checked.ifPresent(specs -> specs.forEach(spec -> checkArgument(check.specs().contains(spec) || build.capture().attempts().containsKey("page:" + spec),
-                "specs: %s is not a page of this check or a page read in this turn", spec)));
+        checked.ifPresent(specs -> {
+            specs.forEach(spec -> checkArgument(check.specs().contains(spec) || build.capture().attempts().containsKey("page:" + spec),
+                    "specs: %s is not a page of this check or a page read in this turn", spec));
+            checkArgument(specs.stream().filter(spec -> !check.specs().contains(spec)).count() <= ContextSpecCheck.MAX_PROPOSED,
+                    "specs: propose at most %s specifications the code doesn't link", ContextSpecCheck.MAX_PROPOSED);
+        });
         checkArgument(found.size() <= 20, "Save at most 20 candidates per call");
         List<Candidate> candidates = new ArrayList<>(check.candidates());
         int number = candidates.stream().mapToInt(candidate -> Integer.parseInt(candidate.id().substring(1))).max().orElse(0);
@@ -530,9 +540,15 @@ public class ContextSpecCheckService
                 brief.append(line);
             }
         }
+        if (check.specs().isEmpty()) {
+            brief.append("(none)\n");
+        }
         if (!reference.isEmpty()) {
             brief.append("Reference implementations in another engine, for comparison only and never rules:\n").append(reference);
         }
+        brief.append("The directory may implement a public specification its code never links, such as a table or file format, a protocol or an RFC. "
+                + "Propose up to ").append(ContextSpecCheck.MAX_PROPOSED).append(" such addresses: read each with PAGE, and pass it in specs only when its text "
+                + "states rules the code must follow, never for a guide.\n");
         earlier.filter(value -> !value.checkedAgainst().isEmpty())
                 .ifPresent(value -> brief.append("The last check used these as specifications: ").append(String.join(", ", value.checkedAgainst())).append('\n'));
         brief.append("Directory: ").append(check.directory()).append('\n');
@@ -577,8 +593,8 @@ public class ContextSpecCheckService
             ContextLimits.text(requestKey, "requestKey", 90);
             checkArgument(expectedBuildSequence >= 0, "Revisions must not be negative");
             ContextLimits.pathPrefix(directory);
+            // With none, the check proposes the specification the directory implements.
             specs = ImmutableList.copyOf(specs);
-            checkArgument(!specs.isEmpty(), "Select at least one spec");
             ContextLimits.unique(specs, "specs", ContextSpecCheck.MAX_SPECS);
             specs.forEach(ContextLimits::documentationUrl);
         }

@@ -55,6 +55,7 @@ import {
   parseContextSpecCheck,
   parseContextSpecChecks,
   parseContextSpecCheckStarted,
+  parseContextSpecModules,
   parseContextSpecSources,
   parseDismissContextSpecFindingRequest,
   parseSpecCheckDirectory,
@@ -1375,6 +1376,8 @@ function registerIpc(): void {
   const specCheckUrl = (workspaceId: string) => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/spec-checks`;
   ipcMain.handle('repository-context:spec-checks:get', (_event, workspaceId: string) =>
     backendJson(specCheckUrl(workspaceId), { headers: agentHeaders() }).then(parseContextSpecChecks));
+  ipcMain.handle('repository-context:spec-checks:modules', (_event, workspaceId: string) =>
+    backendJson(`${specCheckUrl(workspaceId)}/modules`, { headers: agentHeaders() }).then(parseContextSpecModules));
   ipcMain.handle('repository-context:spec-checks:sources', (_event, workspaceId: string, directory: unknown) =>
     backendJson(`${specCheckUrl(workspaceId)}/sources?${new URLSearchParams({ directory: parseSpecCheckDirectory(directory) })}`, { headers: agentHeaders() })
       .then(parseContextSpecSources));

@@ -1,5 +1,11 @@
 # Agent Service Design
 
+[Agent guided goals](goal-guidance.md) proposes a separate Goal conversation
+using bounded `TEXT_ONLY` helper sessions and work-item handoff into this existing
+task service. Planning creates no execution task or Git worktree. The proposal
+and its [implementation plan](goal-guidance-impl-tmp.md) are not implemented;
+they do not change the current execution, tool or publication contracts below.
+
 [WorkBench](workbench.md) owns the shared navigation, task-bound code access,
 and reviews of local development commits. Its source and hosting contracts
 apply to the existing services described here.

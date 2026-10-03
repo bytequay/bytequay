@@ -2,6 +2,11 @@
 
 Product vision and later-stage design
 
+The [Agent guided goals proposal](goal-guidance.md) develops the conversation,
+discovery, accepted-work and outcome-tracking parts of this roadmap into a
+concrete next release. Its [implementation plan](goal-guidance-impl-tmp.md)
+distinguishes proposed work from the current implementation.
+
 **Release scope update:** the user has narrowed v1 to local Goal marking, starting development from an issue card, and work items in the existing Needs attention views. The [small v1 development plan](issue-development-plan.md) is the authoritative implementation scope. The broader requirements below are retained for later stages; their earlier first-release wording is superseded by that plan.
 
 ## Product model

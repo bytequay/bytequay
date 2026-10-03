@@ -1033,8 +1033,9 @@ the item waits on, such as the commits since your last review or the failing
 check. A pull request with no recorded event still shows the line when it
 waits on commits or checks; an issue, or a ticket with nothing new, has none.
 While the pointer or focus is inside the row the age gives way to Pin, ◎ (add
-to or remove from that goal), Start development (issues and tickets that can
-start), Acknowledge, Snooze and Open.
+the item's work item to that goal or take it out, with the issue, task and pull
+request linked to it), Start development (issues and tickets that can start),
+Acknowledge, Snooze and Open.
 
 Resting the pointer on a row for two seconds opens the item's hover card, the
 shared reference card: the source's icon, key and where the item stands, the
@@ -1106,45 +1107,59 @@ Code, Codex, or a DeepSeek key's own name such as ds-001), and its linked items
 are its Jira ticket, pull request and issue; a pull request's row links the
 task whose branch opened it.
 
-**Goals.** A workspace can hold several goals, each a local list of pull
-requests, issues, Jira tickets and agent tasks toward one outcome. One is
-pinned, and every page of the workspace follows it. Goals live in SQLite behind
-`/api/workspaces/{workspaceId}/goals`; no goal change writes to GitHub or Jira
-or starts work, and removing an item leaves its task and history as they are.
-Adding an item saves its kind, key, label and title as ByteQuay stores them.
-Reading a goal reads each item from the local store for its kind: a merged or
-closed pull request, a closed issue, a done ticket or an ended task is
-**Finished**; an open pull request, an issue with a development task, a ticket
-in progress or a running task is **Working**; anything else is **Idle**. An
-issue gone from the repository's synced open issues reads as closed, and any
-other item no store holds keeps its saved label and title. A ticket in a status
-named Blocked is blocked. An item needs you while it shows in the workspace's
-Needs attention, which the workspace reads once for all of its pages. Marking
-an issue or Jira ticket as a Goal gives its workspace a goal named after it
-that does not list the marked item itself; unmarking removes that goal. A
-workspace's first goal is pinned, choosing another goal in the switcher pins
-that one, and deleting the pinned goal pins the oldest one left.
+**Goals.** A workspace can hold several goals, each grouping work items toward
+one outcome. One is pinned, and every page of the workspace follows it. Goals
+and work items live in SQLite behind `/api/workspaces/{workspaceId}/goals` and
+`/api/workspaces/{workspaceId}/work-items`; no goal change writes to GitHub or
+Jira or starts work. A work item is one outcome with a kind (Learn, Investigate
+or Develop), acceptance criteria, a completion rule (merged delivery or an
+accepted result) and the issue, Jira ticket, task attempts and pull requests
+linked to it, so one outcome counts once however many links it has. Adding a
+pull request, issue, ticket or task finds the work item it already belongs to
+through those durable links, never through similar titles, or creates one.
+
+A work item is **Planned**, **Working**, **Done** or **Dropped**. A linked task
+makes Planned work Working. Done comes only from **Accept result**, which records
+the user's evidence and scope coverage; merged delivery also needs a linked pull
+request merged and every other linked pull request merged or closed, and one
+closed without merging is recorded as an abandoned attempt. Drop needs a reason,
+and Reopen returns concluded work to Working. A failed or completed task is
+ended activity, not Done. A linked item that no local store holds reads as
+evidence unavailable, never as closed. A ticket in a status named Blocked is
+blocked. A work item needs you while one of its links shows in the workspace's
+Needs attention, which the workspace reads once for all of its pages. Marking an
+issue or Jira ticket as a Goal gives its workspace a goal named after it that
+does not list the marked item itself. Unmarking archives that goal when it holds
+no work and otherwise keeps it without its marking; marking the source again
+restores it. A workspace's first goal is pinned, choosing another goal in the
+switcher pins that one, and archiving the pinned goal pins the oldest one left.
+An archived goal keeps its work items, which **Add existing** can still reach.
 
 Every workspace page but an open task or review carries the pinned goal as a
-pill: a progress ring, the goal's name, `finished/total` and how many items
-need you. It starts just above the composer's right edge, or in the page's
-bottom-right corner where there is no composer. It can be dragged anywhere, and
-keeps its spot per page (`bq.goal.pill.{page}`); wherever it would cover the
-composer it is lifted above it. A click that did not drag, or ⌥G, opens the
-goal: docked in a 340px column beside a Home at least 1100px wide, where ×
-collapses it back to the pill (`bq.goal.dockCollapsed`), and otherwise as a
-380px drawer inset 10px, for which the page makes room so the composer
-re-centres. The panel has the goal switcher (**GOAL 1 of 3**, **Pinned**,
-**New goal**, and **Delete this goal** for a goal no marker seeded), the title
-and description, a Finished / Working / Idle bar, tiles for pull requests
-merged and open, what needs you and what is blocked, **All · Needs you ·
-Blocked** tabs, **+ Add** searching the repository's stored pull requests and
-issues, cached Jira tickets and the workspace's tasks, the items grouped
-Working, Idle and Finished (folded) with remove on hover, and recent activity:
-the latest stored change of each item. ⤢ opens a board of Idle, Working and
-Finished columns with the same search and remove. Task cards and rows on the
-Tasks page and open-task cards on Home show ◎ for a task in the pinned goal or
-one working on a pull request in it.
+pill: a progress ring, the goal's name, `done/total` with Dropped left out, and
+how many work items need you. It starts just above the composer's right edge,
+or in the page's bottom-right corner where there is no composer. It can be
+dragged anywhere, and keeps its spot per page (`bq.goal.pill.{page}`); wherever
+it would cover the composer it is lifted above it. A click that did not drag, or
+⌥G, zooms the goal out of the pill into a floating window over the page. Its
+header drags it, its bottom-right corner resizes it, and it keeps its size for
+the next opening and stays inside the page. Moving the pointer out of the pill
+and window closes it, except during a drag, a resize or a confirmation; Escape
+and × close it too, and drafts survive closing. ⤢ expands the same panel to a
+board and back. The panel has the goal switcher (**GOAL 1 of 3**, **Pinned**,
+**New goal**, and **Archive this goal** for a goal no marker seeded), the title
+and description, a Done / Working / Planned bar with Dropped counted beside it,
+tiles for pull requests merged and open, what needs you and what is blocked,
+**All work · Needs you · Blocked** tabs, **New work item** (a title, a kind and
+what counts as success), **Add existing** searching the repository's stored pull
+requests and issues, cached Jira tickets, the workspace's tasks and work items
+outside the goal, the work items grouped Working, Planned, Done and Dropped, and
+recent decisions from their history. A work item opens its details: its scope,
+its linked sources, attempts and pull requests, Mark working, Accept result,
+Drop from scope, Reopen, a move to another goal, and its history. On the board
+the groups become columns. Task cards and rows on the Tasks page and open-task
+cards on Home show ◎ for a task in the pinned goal or one working on a pull
+request in it.
 
 The composer checks the same typed provider readiness returned by Workspace
 Settings before enabling its send control. Authentication-required, missing,

@@ -12,7 +12,7 @@ Ship exactly three user capabilities:
 2. Start ordinary ByteQuay development from an issue card/detail when it is not a Goal.
 3. Show eligible issue-backed work items in both existing **Needs attention** views, with the same development action.
 
-An unmarked GitHub issue is the pending work item. Marking it as a Goal makes it non-runnable. V1 does not need a separate planned-task lifecycle, new Work screen, or complete Goal hierarchy.
+An unmarked GitHub issue is pending work that can start. Marking it as a Goal makes it non-runnable. V1 does not need a separate planned-task lifecycle, new Work screen, or complete Goal hierarchy.
 
 The only new UI is a Goal action/badge, development action/source attachment, and corresponding actions in the existing attention components. All task execution uses the current composer, readiness checks, worktree preparation, automation, review and delivery behavior.
 
@@ -131,10 +131,15 @@ The current repository has uncommitted changes in several integration files, inc
 
 ## Following releases
 
+[Agent guided goals](goal-guidance.md) now carries the V2 to V4 scope below, with
+Planned, Working, Done and Dropped work items, the Goal window, research, courses
+and discovery. Its [implementation plan](goal-guidance-impl-tmp.md) orders that
+work.
+
 | Stage | Scope |
 | --- | --- |
 | **V2: Goal organization and UI** | Goal details, children, existing-task binding, always-visible Goal cards on global/workspace Home, unified Work area. |
-| **V3: Progress and history** | Idle/Working/Finished work-item state, delivery and source-close reconciliation, Goal rollups, activity facts and period statistics. Historical coverage starts from recorded facts; do not promise reconstructed six-month data. |
+| **V3: Progress and history** | Planned/Working/Done/Dropped work-item state, delivery and source-close reconciliation, Goal rollups, activity facts and period statistics. Historical coverage starts from recorded facts; do not promise reconstructed six-month data. |
 | **V4: Better discovery** | Configured source-role rules, business-value/readiness ranking, duplicate and already-fixed evidence, bounded agent triage, meaningful-event notification rules. |
 | **Jira integration** | Add authentication/source fields and transition support, reusing the proven classification and issue-to-development flow. It can follow v1 without waiting for every reporting feature. |
 

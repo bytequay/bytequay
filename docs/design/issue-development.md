@@ -89,15 +89,18 @@ Recheck active source-linked work across workspaces when starting. A suggestion 
 
 ## States, delivery and source closure
 
+[Agent guided goals](goal-guidance.md) settled these states, and its rules win where this roadmap differs.
+
 | Work-item state | Meaning |
 | --- | --- |
-| **Idle** | Accepted/planned, development not started |
-| **Working** | Started but not delivered; secondary text can show Running, Waiting, Blocked or Review |
-| **Finished** | Accepted outcome, with all intended merged deliverables verified in the agreed repository/branch |
+| **Planned** | Accepted into the plan, no attempt started |
+| **Working** | Started but not concluded; secondary text can show Running, Waiting, Blocked or Review |
+| **Done** | Accepted outcome: the user accepted the result, and merged delivery also verified its merged deliverables in the agreed repository/branch |
+| **Dropped** | Removed from scope with a reason; never counted as delivered |
 
 For the GitHub release this is merge-based delivery, not deployment verification. A closed unmerged PR, cancelled task, duplicate disposition, successful agent response or ByteQuay task **Complete** does not establish delivery. Existing Complete retains its local task/worktree-cleanup meaning. A follow-up or reopened work item returns to Working and keeps its history.
 
-A nonempty goal is Finished when every in-scope work item is Finished; it is Idle when empty or all are Idle, otherwise Working. Adding scope or reopening a child updates this rollup. Cancellation/duplicate disposition is recorded separately and never counted as delivered. Removing such work from scope records the scope change.
+Goal progress is Done over the current in-scope work items, with Dropped shown separately; an empty goal has no progress. A goal whose work is all Done is ready to conclude until the user accepts its overall outcome. Adding scope or reopening a child updates this rollup. Cancellation/duplicate disposition is recorded separately and never counted as delivered. Removing such work from scope records the scope change.
 
 After delivery, offer **Close issue**, naming the source and relevant PRs. Source closure is separate from work-item delivery. Refresh first; already closed is reconciled successfully. Failed closure shows **Finished · source update pending**, retries only the source update and preserves delivery. External closure alone does not prove delivery.
 

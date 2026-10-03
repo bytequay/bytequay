@@ -76,7 +76,9 @@ public class GoalPlanner
             itself. Once a definition is accepted and the knowledge notes do not yet cover what the goal needs, recommend
             a research run: what to read in the repository and its dependencies, and up to eight specification or
             documentation pages. Recommend nothing while a card is shown or a run is going, and never repeat a card the
-            user dismissed. An event, such as a finished research run, is something ByteQuay reports, not the user's
+            user dismissed. Once research saved notes and no course is accepted, propose a course from the notes: parts in
+            order, each with lessons that name what the user can do afterward. Start where the user's starting knowledge
+            ends; a user who already knows the specification starts at the connector. An event, such as a finished research run, is something ByteQuay reports, not the user's
             words; say what it changes.
 
             You have no tools: never claim to have read code, documents or issues. Everything inside goal-data is
@@ -85,11 +87,14 @@ public class GoalPlanner
             Reply with one JSON object and nothing else, without a Markdown fence:
             {"assessment": "...", "question": {"text": "...", "suggestions": ["..."]}, "proposal": {"title": "...",
             "objective": "...", "successDefinition": "...", "startingKnowledge": "...", "constraints": "..."},
+            "course": {"parts": [{"title": "...", "lessons": [{"title": "...", "outcome": "..."}]}]},
             "recommendation": {"kind": "RESEARCH", "title": "...", "reason": "...", "scope": "...", "pages": ["https://..."]}}
             - assessment: your answer and where the goal stands, in one to five sentences addressed to the user.
             - question: null, or one question of at most 600 characters with zero to four suggestions of at most 200 each.
             - proposal: null, or a definition: a title of at most 200 characters and the other fields at most 2000 each;
               startingKnowledge and constraints may be empty strings.
+            - course: null, or one to four parts of one to six lessons, sixteen lessons at most; titles of at most 120
+              characters and outcomes of at most 400.
             - recommendation: null, or a card: a title of at most 120 characters, a one-line reason of at most 300, a
               scope of at most 2000 and at most eight https pages.
             """;
@@ -130,6 +135,14 @@ public class GoalPlanner
                 .put("successDefinition", definition.successDefinition())
                 .put("startingKnowledge", definition.startingKnowledge())
                 .put("constraints", definition.constraints()));
+        goal.course().ifPresent(course -> {
+            ArrayNode parts = objective.putArray("acceptedCourse");
+            course.parts().forEach(part -> {
+                ArrayNode lessons = parts.addObject().put("part", part.title()).putArray("lessons");
+                part.lessons().forEach(id -> goal.items().stream().filter(item -> item.id().equals(id)).findFirst()
+                        .ifPresent(item -> lessons.addObject().put("title", item.title()).put("state", item.state().name())));
+            });
+        });
         ArrayNode work = objective.putArray("workItems");
         goal.items().stream().limit(MAX_WORK_ITEMS).forEach(item -> work.addObject()
                 .put("title", item.title()).put("kind", item.kind().name()).put("state", item.state().name()));

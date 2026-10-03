@@ -74,8 +74,15 @@ https pages or files at a commit the run reads. A finished run completes the
 card and tells the agent what it saved; a failed one shows the card again. The
 Guide view lists the notes with their sources.
 
+Once notes exist, the agent may propose a course: up to four parts with at most
+sixteen lessons, each naming what the user can do afterward. Accepting it saves
+each lesson as a Learn work item of the Goal, with that outcome as its acceptance
+criteria, and records the parts and their order on the Goal; nothing starts. The
+same proposal accepted again creates nothing new, and a Goal keeps its first
+course. The Guide view shows the course with each lesson's state.
+
 A new explicit same-source attempt without deleting the prior task, proposal
-acceptance into work items, courses and lessons, spec-check and work cards,
+acceptance into other work items, lessons, spec-check and work cards, course changes,
 work-item launch from the composer, automatic outcome harvesting, stale-note
 marking, a per-Goal model choice, request cancellation and discovery remain
 pending. The checklist

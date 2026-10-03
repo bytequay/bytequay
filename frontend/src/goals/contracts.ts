@@ -57,6 +57,8 @@ export type GoalDto = {
   definition: GoalDefinitionDto | null;
   /** Counts changes to the title, objective and definition; a proposal built from an older revision cannot be accepted. */
   revision: number;
+  /** The learning path the user accepted: parts of ordered lessons, each a Learn work item of the goal. */
+  course: { exchangeId: string; parts: { title: string; lessons: string[] }[]; acceptedAt: string } | null;
   items: WorkItemDto[];
   /** The cards still shown or running, newest first. */
   recommendations: GoalRecommendationDto[];
@@ -93,6 +95,7 @@ export function parseGoal(value: unknown): GoalDto {
   const goal = object(value, 'goal');
   const origin = goal.source === null || goal.source === undefined ? null : object(goal.source, 'goal source');
   const definition = goal.definition === null || goal.definition === undefined ? null : object(goal.definition, 'goal definition');
+  const course = goal.course === null || goal.course === undefined ? null : object(goal.course, 'goal course');
   if (typeof goal.pinned !== 'boolean') throw new Error('Malformed goal pinned');
   if (!Array.isArray(goal.items)) throw new Error('Malformed goal items');
   return {
@@ -110,6 +113,14 @@ export function parseGoal(value: unknown): GoalDto {
       acceptedAt: text(definition.acceptedAt, 'goal definition time'),
     },
     revision: revision(goal.revision, 'goal revision'),
+    course: course === null ? null : {
+      exchangeId: text(course.exchangeId, 'goal course exchange'),
+      parts: parseList(course.parts, (entry) => {
+        const part = object(entry, 'goal course part');
+        return { title: text(part.title, 'goal course part title'), lessons: parseList(part.lessons, (lesson) => text(lesson, 'goal lesson'), 'goal lessons') };
+      }, 'goal course parts'),
+      acceptedAt: text(course.acceptedAt, 'goal course time'),
+    },
     items: goal.items.map(parseWorkItem),
     recommendations: parseList(goal.recommendations, parseGoalRecommendation, 'goal recommendations'),
     createdAt: text(goal.createdAt, 'goal created'),
@@ -118,6 +129,9 @@ export function parseGoal(value: unknown): GoalDto {
 }
 
 export type GoalProposalDto = { title: string; objective: string; successDefinition: string; startingKnowledge: string; constraints: string };
+
+/** A course the agent proposes: parts of ordered lessons, each naming what the user can do afterward. */
+export type GoalCourseDraftDto = { parts: { title: string; lessons: { title: string; outcome: string }[] }[] };
 
 /** What a card under the Goal control offers; a research card reads its scope and pages. */
 export type GoalCardDto = { kind: 'RESEARCH'; title: string; reason: string; scope: string; pages: string[] };
@@ -193,6 +207,7 @@ export type GoalExchangeDto = {
     assessment: string;
     question: { text: string; suggestions: string[] } | null;
     proposal: GoalProposalDto | null;
+    course: GoalCourseDraftDto | null;
     recommendation: GoalCardDto | null;
   } | null;
   failure: string | null;
@@ -223,6 +238,18 @@ export function parseGoalExchange(value: unknown): GoalExchangeDto {
         successDefinition: text(proposal.successDefinition, 'goal proposal success'),
         startingKnowledge: text(proposal.startingKnowledge, 'goal proposal knowledge'),
         constraints: text(proposal.constraints, 'goal proposal constraints'),
+      },
+      course: reply.course === null || reply.course === undefined ? null : {
+        parts: parseList(object(reply.course, 'goal course').parts, (entry) => {
+          const part = object(entry, 'goal course part');
+          return {
+            title: text(part.title, 'goal course part title'),
+            lessons: parseList(part.lessons, (value) => {
+              const lesson = object(value, 'goal lesson');
+              return { title: text(lesson.title, 'goal lesson title'), outcome: text(lesson.outcome, 'goal lesson outcome') };
+            }, 'goal lessons'),
+          };
+        }, 'goal course parts'),
       },
       recommendation: reply.recommendation === null || reply.recommendation === undefined ? null : parseCard(reply.recommendation),
     },

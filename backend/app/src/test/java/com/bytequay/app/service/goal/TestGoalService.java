@@ -14,6 +14,7 @@
 package com.bytequay.app.service.goal;
 
 import com.bytequay.core.domain.Goal;
+import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalSource;
@@ -72,6 +73,19 @@ class TestGoalService
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("The goal changed after this was proposed");
         assertThat(service.list("workspace").getFirst().title()).isEqualTo("My own title");
+    }
+
+    @Test
+    void aGoalKeepsTheFirstCourseItsUserAccepted()
+    {
+        GoalView goal = service.create("workspace", "Iceberg", "");
+        GoalCourse course = new GoalCourse("exchange-1", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1"))), Instant.EPOCH);
+        assertThat(service.planCourse("workspace", goal.id(), course).course()).contains(course);
+        assertThat(service.planCourse("workspace", goal.id(), course).course()).contains(course);
+        assertThatThrownBy(() -> service.planCourse("workspace", goal.id(), new GoalCourse("exchange-2", course.parts(), Instant.EPOCH)))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("already has a course");
+        assertThat(store.find(goal.id()).orElseThrow().revision()).isZero();
     }
 
     @Test

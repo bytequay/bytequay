@@ -29,7 +29,7 @@ const ANSWER_POLL_MS = 1_500;
 
 export type GoalBridge = Pick<Bridge, 'listWorkItems' | 'createWorkItem' | 'decideWorkItem' | 'linkWorkItem' | 'listGoals' | 'createGoal' | 'updateGoal' | 'deleteGoal'
   | 'addGoalItem' | 'removeGoalItem' | 'searchGoalCandidates' | 'startGoal' | 'listGoalExchanges' | 'askGoal' | 'retryGoalExchange' | 'acceptGoalDefinition'
-  | 'startGoalRecommendation' | 'dismissGoalRecommendation' | 'listGoalKnowledge'>;
+  | 'acceptGoalCourse' | 'startGoalRecommendation' | 'dismissGoalRecommendation' | 'listGoalKnowledge'>;
 
 export type Goals = {
   goals: GoalDto[];
@@ -54,6 +54,8 @@ export type Goals = {
   retry: (goalId: string, exchangeId: string) => Promise<GoalExchangeDto[]>;
   /** Accepts the definition an answer proposed, under the title the user kept or edited. */
   accept: (goalId: string, exchangeId: string, title: string) => Promise<GoalDto>;
+  /** Accepts a proposed course: its lessons become the goal's Learn work items. */
+  acceptCourse: (goalId: string, exchangeId: string) => Promise<GoalDto>;
   /** Start on a card: the run it recommends begins. */
   startCard: (goalId: string, recommendationId: string) => Promise<GoalRecommendationDto>;
   /** Not now on a card; the agent does not offer it again. */
@@ -75,6 +77,7 @@ export type GoalConversation = {
   ask: (operationId: string, message: string) => Promise<void>;
   retry: (exchangeId: string) => Promise<void>;
   accept: (exchangeId: string, title: string) => Promise<void>;
+  acceptCourse: (exchangeId: string) => Promise<void>;
 };
 
 const windowBridge = (): GoalBridge => window.bridge;
@@ -221,6 +224,7 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
     ask: (goalId, operationId, message) => bridge().askGoal(workspaceId, goalId, operationId, message),
     retry: (goalId, exchangeId) => bridge().retryGoalExchange(workspaceId, goalId, exchangeId),
     accept: (goalId, exchangeId, title) => bridge().acceptGoalDefinition(workspaceId, goalId, exchangeId, title).then(settle),
+    acceptCourse: (goalId, exchangeId) => bridge().acceptGoalCourse(workspaceId, goalId, exchangeId).then(settle),
     startCard: (goalId, recommendationId) => bridge().startGoalRecommendation(workspaceId, goalId, recommendationId).then(settleCard),
     dismissCard: (goalId, recommendationId) => bridge().dismissGoalRecommendation(workspaceId, goalId, recommendationId).then(settleCard),
     knowledge,
@@ -278,6 +282,7 @@ export function useGoalConversation(goals: Goals, goalId: string | null, shown: 
       retry: (exchangeId) => (goalId === null ? Promise.resolve() : goals.retry(goalId, exchangeId).then(show)),
       // Accepting tells the agent, whose answer is read at once.
       accept: (exchangeId, title) => (goalId === null ? Promise.resolve() : goals.accept(goalId, exchangeId, title).then(() => goals.exchanges(goalId)).then(show)),
+      acceptCourse: (exchangeId) => (goalId === null ? Promise.resolve() : goals.acceptCourse(goalId, exchangeId).then(() => goals.exchanges(goalId)).then(show)),
     };
   }, [error, exchanges, goalId, goals, notes]);
 }

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.goal;
 
+import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalSource;
@@ -40,6 +41,9 @@ public interface GoalService
      * a proposal built before the goal's last change is refused.
      */
     GoalView define(String workspaceId, String goalId, long expectedRevision, String title, String objective, GoalDefinition definition);
+
+    /** Saves the course the user accepted; accepting it again changes nothing, and a goal keeps its first course. */
+    GoalView planCourse(String workspaceId, String goalId, GoalCourse course);
 
     /** Archives the goal and retains its work; the oldest active goal inherits its pin. */
     void delete(String workspaceId, String goalId);

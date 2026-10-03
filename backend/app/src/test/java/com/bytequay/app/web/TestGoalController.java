@@ -54,7 +54,7 @@ class TestGoalController
             GoalItemState.MERGED, "Merged", false, Optional.of("https://github.com/trinodb/trino/pull/30702"),
             Optional.of(new GoalActivity("#30702 merged", NOW)), Optional.of(NOW));
     private static final GoalView GOAL = new GoalView("goal-1", "workspace", "Delta Lake correctness", "", true,
-            Optional.of(new GoalSource(GoalItemKind.ISSUE, "trinodb/trino#31000")), Optional.empty(), 0,
+            Optional.of(new GoalSource(GoalItemKind.ISSUE, "trinodb/trino#31000")), Optional.empty(), 0, Optional.empty(),
             ImmutableList.of(new WorkItemView("work-1", "workspace", Optional.of("goal-1"), "Retry Iceberg commits", WorkItem.Kind.DEVELOP,
                     "", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.WORKING, 0,
                     ImmutableList.of(MERGED), ImmutableList.of(), NOW, NOW)), ImmutableList.of(), NOW, NOW);
@@ -122,7 +122,8 @@ class TestGoalController
                 .andExpect(jsonPath("$.definition").value(nullValue()));
 
         GoalExchange answered = GoalExchange.ask("op-2", "goal-1", "workspace", "Reads first", 0, NOW).answered("codex/gpt", new GoalExchange.Reply("You want to start with reads.",
-                Optional.of(new GoalExchange.Question("Do you know the Iceberg specification?", ImmutableList.of("Yes", "Not yet"))), Optional.empty(), Optional.empty()), NOW);
+                Optional.of(new GoalExchange.Question("Do you know the Iceberg specification?", ImmutableList.of("Yes", "Not yet"))), Optional.empty(), Optional.empty(),
+                Optional.empty()), NOW);
         when(conversations.ask("workspace", "goal-1", "op-2", "Reads first")).thenReturn(ImmutableList.of(answered));
         mvc.perform(post("/api/workspaces/workspace/goals/goal-1/exchanges").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"operationId\":\"op-2\",\"message\":\"Reads first\"}"))
@@ -138,6 +139,12 @@ class TestGoalController
         verify(conversations).accept("workspace", "goal-1", "op-2", Optional.of("Iceberg reads"));
 
         mvc.perform(post("/api/workspaces/workspace/goals/goal-1/exchanges/op-2/retry")).andExpect(status().isOk());
+
+        when(conversations.acceptCourse("workspace", "goal-1", "op-3")).thenReturn(GOAL);
+        mvc.perform(post("/api/workspaces/workspace/goals/goal-1/course").contentType(MediaType.APPLICATION_JSON).content("{\"exchangeId\":\"op-3\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.course").value(nullValue()));
+        verify(conversations).acceptCourse("workspace", "goal-1", "op-3");
         verify(conversations).retry("workspace", "goal-1", "op-2");
     }
 

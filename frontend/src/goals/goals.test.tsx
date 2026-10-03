@@ -21,7 +21,7 @@ import type { GoalDto, GoalExchangeDto, GoalItemDto, GoalKnowledgeNoteDto, GoalR
 import { parseGoal, parseGoalExchange, parseGoalKnowledgeNote, parseGoalRecommendation } from './contracts';
 import { GoalPanel, type GoalPanelProps } from './GoalPanel';
 import {
-  addable, attentionWorkspace, goalDirections, goalHas, goalRef, itemsIn, needsYouKeys, openProposal, placePill, recentActivity, refKey, sourceUrl, summarize,
+  addable, attentionWorkspace, goalDirections, goalHas, goalRef, itemsIn, needsYouKeys, openCourse, openProposal, placePill, recentActivity, refKey, sourceUrl, summarize,
 } from './model';
 import { toggleGoalItem, useGoals, type GoalBridge, type GoalConversation, type Goals } from './useGoals';
 
@@ -40,7 +40,7 @@ const ITEMS: GoalItemDto[] = [
 ];
 const GOAL: GoalDto = {
   id: 'goal-1', workspaceId: 'workspace-1', title: 'Iceberg & Delta Lake correctness for 482', description: 'Land the fixes before 482.', pinned: true,
-  source: null, definition: null, revision: 0, recommendations: [], items: ITEMS.map((link, index): WorkItemDto => ({
+  source: null, definition: null, revision: 0, course: null, recommendations: [], items: ITEMS.map((link, index): WorkItemDto => ({
     id: `work-${index}`, workspaceId: 'workspace-1', goalId: 'goal-1', title: link.title, kind: 'DEVELOP', acceptanceCriteria: 'Verified fix',
     completionRule: 'MERGED_DELIVERY', state: index === 1 ? 'DONE' : index === 2 ? 'PLANNED' : 'WORKING', revision: 0, links: [link],
     history: link.activity === null ? [] : [{ operationId: `op-${index}`, action: 'ACCEPT', detail: link.activity.text, at: link.activity.at }],
@@ -103,7 +103,8 @@ describe('goal model', () => {
   });
 });
 
-const NO_CONVERSATION: GoalConversation = { exchanges: [], notes: [], error: null, ask: async () => {}, retry: async () => {}, accept: async () => {} };
+const NO_CONVERSATION: GoalConversation = { exchanges: [], notes: [], error: null, ask: async () => {}, retry: async () => {}, accept: async () => {},
+  acceptCourse: async () => {} };
 
 function panel(props: Partial<GoalPanelProps>): string {
   return renderToStaticMarkup(
@@ -142,12 +143,16 @@ describe('goal panel', () => {
 const ASKED: GoalExchangeDto = { id: 'op-1', goalId: 'goal-1', message: 'I want to become an Iceberg connector expert', automatic: false, inputRevision: 0,
   state: 'ANSWERED', failure: null, askedAt: '2026-10-03T10:00:00Z', reply: {
     assessment: 'You want to understand the connector deeply.',
-    question: { text: 'Do you already know the Iceberg specification?', suggestions: ['Yes', 'Not yet'] }, proposal: null, recommendation: null,
+    question: { text: 'Do you already know the Iceberg specification?', suggestions: ['Yes', 'Not yet'] }, proposal: null, recommendation: null, course: null,
   } };
 const PROPOSED: GoalExchangeDto = { ...ASKED, id: 'op-2', message: 'Not yet', reply: {
   assessment: 'Start from the specification, then the connector.', question: null,
   proposal: { title: 'Iceberg connector expert', objective: 'Explain and change the Iceberg connector', successDefinition: 'Trace a scan end to end',
-    startingKnowledge: 'Knows Trino, not the specification', constraints: '' }, recommendation: null,
+    startingKnowledge: 'Knows Trino, not the specification', constraints: '' }, recommendation: null, course: null,
+} };
+const COURSE: GoalExchangeDto = { ...ASKED, id: 'op-3', message: 'The research run saved 2 notes.', automatic: true, reply: {
+  assessment: 'Here is a course from the notes.', question: null, proposal: null, recommendation: null,
+  course: { parts: [{ title: 'Iceberg tables', lessons: [{ title: 'What a table is', outcome: 'Explain metadata, snapshots and manifests' }] }] },
 } };
 const CARD: GoalRecommendationDto = { id: 'card-1', goalId: 'goal-1', state: 'SHOWN', taskId: null, createdAt: '2026-10-03T10:00:00Z',
   card: { kind: 'RESEARCH', title: 'Read the Iceberg specification', reason: 'You start from the specification', scope: 'Snapshots and manifests',
@@ -189,6 +194,24 @@ describe('goal guidance', () => {
     expect(markup).toContain('<summary>Manifest lists</summary>');
     expect(markup).toContain(`ManifestLists.java @ ccccccc`);
     expect(markup).toContain('<div class="goal-thread__event">The research run saved 1 note: Manifest lists.</div>');
+  });
+
+  it('reads a proposed and an accepted course, and offers the course only until one is accepted', () => {
+    expect(parseGoalExchange(JSON.parse(JSON.stringify(COURSE))).reply.course).toEqual(COURSE.reply.course);
+    const course = { exchangeId: 'op-3', parts: [{ title: 'Iceberg tables', lessons: ['work-0', 'work-1'] }], acceptedAt: '2026-10-03T10:00:00Z' };
+    expect(parseGoal(JSON.parse(JSON.stringify({ ...GOAL, course }))).course).toEqual(course);
+    expect(openCourse(GOAL, [ASKED, COURSE])).toEqual({ exchangeId: 'op-3', course: COURSE.reply.course });
+    expect(openCourse({ ...GOAL, course }, [ASKED, COURSE])).toBeNull();
+
+    const proposed = panel({ view: 'guide', conversation: conversation([ASKED, COURSE]) });
+    expect(proposed).toContain('Proposed course');
+    expect(proposed).toContain('Explain metadata, snapshots and manifests');
+    expect(proposed).toContain('>Accept course</button>');
+    const accepted = panel({ view: 'guide', goal: { ...GOAL, course }, conversation: conversation([ASKED, COURSE]) });
+    expect(accepted).not.toContain('Proposed course');
+    expect(accepted).toContain('aria-label="Course"');
+    expect(accepted).toContain('1. Iceberg tables');
+    expect(accepted).toContain('#30925 title');
   });
 
   it('offers directions from the repository and only the newest unaccepted proposal', () => {

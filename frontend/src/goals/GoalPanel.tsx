@@ -18,10 +18,10 @@ import { ConfirmDialog } from '../ConfirmDialog';
 import { GoalIcon, SourceIcon } from '../cards/Card';
 import { relativeTime } from '../relativeTime';
 import type {
-  GoalDto, GoalItemDto, GoalKnowledgeNoteDto, GoalProposalDto, WorkItemDto, WorkItemDecision, CreateWorkItem, CompletionRule, WorkItemKind,
+  GoalCourseDraftDto, GoalDto, GoalItemDto, GoalKnowledgeNoteDto, GoalProposalDto, WorkItemDto, WorkItemDecision, CreateWorkItem, CompletionRule, WorkItemKind,
 } from './contracts';
 import {
-  GOAL_SOURCES, STATE_GROUPS, addable, goalDirections, itemsIn, openProposal, progressWidths, recentActivity, refKey, ringDash, sourceUrl, summarize, itemNeedsYou,
+  GOAL_SOURCES, STATE_GROUPS, addable, goalDirections, itemsIn, openCourse, openProposal, progressWidths, recentActivity, refKey, ringDash, sourceUrl, summarize, itemNeedsYou,
   type GoalTab,
 } from './model';
 import type { GoalConversation } from './useGoals';
@@ -128,6 +128,7 @@ function GoalGuide({ goal, repository, conversation, onStart, onOpenTask }: Pick
   const answering = last?.state === 'PENDING';
   const question = last?.state === 'ANSWERED' ? last.reply?.question ?? null : null;
   const open = openProposal(goal, exchanges);
+  const course = openCourse(goal, exchanges);
   const send = (operationId: string, message: string): Promise<unknown> => (goal === null ? onStart(operationId, message) : conversation.ask(operationId, message));
   const pick = (answer: string): void => {
     setError(null);
@@ -137,6 +138,7 @@ function GoalGuide({ goal, repository, conversation, onStart, onOpenTask }: Pick
   return (
     <div className="goal-panel__body goal-guide">
       {goal?.definition != null && <Definition definition={goal.definition} />}
+      {goal?.course != null && <Course goal={goal} />}
       {opening ? (
         <div className="goal-guide__opening">
           <div className="goal-guide__ask">{goal === null ? 'What do you want to achieve?' : `What does “${goal.title}” mean to you?`}</div>
@@ -169,9 +171,48 @@ function GoalGuide({ goal, repository, conversation, onStart, onOpenTask }: Pick
       </div>)}
       {conversation.notes.length > 0 && <Notes notes={conversation.notes} />}
       {open !== null && <Proposal key={open.exchangeId} proposal={open.proposal} onAccept={(title) => conversation.accept(open.exchangeId, title)} />}
+      {course !== null && <CourseProposal key={course.exchangeId} course={course.course} onAccept={() => conversation.acceptCourse(course.exchangeId)} />}
       {(error ?? conversation.error) !== null && <p className="goal-guide__error" role="alert">{error ?? conversation.error}</p>}
       <Composer answering={answering} placeholder={goal === null ? 'I want to…' : question === null ? 'Ask about this goal' : 'Answer in your own words'} onSend={send} />
     </div>
+  );
+}
+
+/** A course the agent proposes; accepting it saves each lesson as a Learn work item and starts nothing. */
+function CourseProposal({ course, onAccept }: { course: GoalCourseDraftDto; onAccept: () => Promise<unknown> }): React.JSX.Element {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <section className="goal-proposal" aria-label="Proposed course">
+      <div className="goal-proposal__label">Proposed course</div>
+      {course.parts.map((part, index) => <div key={part.title} className="goal-course__part">
+        <div className="goal-course__title">{index + 1}. {part.title}</div>
+        <ol className="goal-course__lessons">{part.lessons.map((lesson) => <li key={lesson.title}>
+          <span>{lesson.title}</span><span className="goal-course__outcome">{lesson.outcome}</span>
+        </li>)}</ol>
+      </div>)}
+      {error !== null && <p className="goal-guide__error" role="alert">{error}</p>}
+      <button type="button" className="goal-add" disabled={busy} onClick={() => {
+        setBusy(true); setError(null);
+        void onAccept().catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The course was not saved')).finally(() => setBusy(false));
+      }}>{busy ? 'Saving…' : 'Accept course'}</button>
+    </section>
+  );
+}
+
+/** The accepted course, each lesson where it stands. */
+function Course({ goal }: { goal: GoalDto }): React.JSX.Element {
+  const lessons = new Map(goal.items.map((item) => [item.id, item]));
+  return (
+    <section className="goal-course" aria-label="Course">
+      {goal.course.parts.map((part, index) => <div key={part.title} className="goal-course__part">
+        <div className="goal-course__title">{index + 1}. {part.title}</div>
+        <ol className="goal-course__lessons">{part.lessons.map((id) => lessons.get(id)).filter((lesson) => lesson !== undefined).map((lesson) =>
+          <li key={lesson.id} className={`is-${lesson.state.toLowerCase()}`}>
+            <span>{lesson.title}</span><span className="goal-course__outcome">{lesson.state === 'DONE' ? 'Done' : lesson.acceptanceCriteria}</span>
+          </li>)}</ol>
+      </div>)}
+    </section>
   );
 }
 

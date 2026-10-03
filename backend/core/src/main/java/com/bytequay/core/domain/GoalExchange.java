@@ -107,10 +107,11 @@ public record GoalExchange(
     }
 
     /**
-     * The agent's answer: where it thinks the goal stands, at most one question, a definition to accept once it understands the goal, and a
-     * card when it judges the next step is ready.
+     * The agent's answer: where it thinks the goal stands, at most one question, a definition to accept once it understands the goal, a
+     * course to accept once research gave it notes, and a card when it judges the next step is ready.
      */
-    public record Reply(String assessment, Optional<Question> question, Optional<Proposal> proposal, Optional<GoalRecommendation.Card> recommendation)
+    public record Reply(String assessment, Optional<Question> question, Optional<Proposal> proposal, Optional<GoalRecommendation.Card> recommendation,
+            Optional<GoalCourse.Draft> course)
     {
         public Reply
         {
@@ -118,6 +119,7 @@ public record GoalExchange(
             requireNonNull(question, "question is null");
             requireNonNull(proposal, "proposal is null");
             requireNonNull(recommendation, "recommendation is null");
+            requireNonNull(course, "course is null");
         }
     }
 

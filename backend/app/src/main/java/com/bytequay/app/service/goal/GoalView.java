@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.goal;
 
+import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.GoalSource;
@@ -27,6 +28,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * A goal with each item read from local stores, in the order the items were added.
  *
+ * @param course the learning path the user accepted
  * @param recommendations the cards still shown or running, newest first
  */
 public record GoalView(
@@ -38,6 +40,7 @@ public record GoalView(
         Optional<GoalSource> source,
         Optional<GoalDefinition> definition,
         long revision,
+        Optional<GoalCourse> course,
         List<WorkItemView> items,
         List<GoalRecommendation> recommendations,
         Instant createdAt,
@@ -51,6 +54,7 @@ public record GoalView(
         requireNonNull(description, "description is null");
         requireNonNull(source, "source is null");
         requireNonNull(definition, "definition is null");
+        requireNonNull(course, "course is null");
         items = ImmutableList.copyOf(items);
         recommendations = ImmutableList.copyOf(recommendations);
         requireNonNull(createdAt, "createdAt is null");

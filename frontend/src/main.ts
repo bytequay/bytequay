@@ -1860,6 +1860,8 @@ function registerIpc(): void {
     backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/exchanges/${encodeURIComponent(exchangeId)}/retry`), { method: 'POST' }).then(exchanges));
   ipcMain.handle('goals:accept', (_event, workspaceId: string, goalId: string, exchangeId: string, title: string) =>
     backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/definition`), jsonInit('POST', { exchangeId, title })).then(parseGoal));
+  ipcMain.handle('goals:course', (_event, workspaceId: string, goalId: string, exchangeId: string) =>
+    backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/course`), jsonInit('POST', { exchangeId })).then(parseGoal));
   const recommendationUrl = (workspaceId: string, goalId: string, recommendationId: string, action: string) =>
     goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/recommendations/${encodeURIComponent(recommendationId)}/${action}`);
   ipcMain.handle('goals:recommendations:start', (_event, workspaceId: string, goalId: string, recommendationId: string) =>

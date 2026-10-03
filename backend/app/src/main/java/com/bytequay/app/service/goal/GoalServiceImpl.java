@@ -14,6 +14,7 @@
 package com.bytequay.app.service.goal;
 
 import com.bytequay.core.domain.Goal;
+import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalRecommendation;
@@ -76,7 +77,7 @@ public class GoalServiceImpl
         synchronized (writes) {
             Instant now = clock.instant();
             Goal goal = new Goal(UUID.randomUUID().toString(), workspaceId, checkText(title, "title", 500).trim(), description.trim(),
-                    unpinned(workspaceId), false, Optional.empty(), Optional.empty(), Optional.empty(), 0, now, now);
+                    unpinned(workspaceId), false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Optional.empty(), now, now);
             goals.save(goal);
             return view(goal);
         }
@@ -115,6 +116,24 @@ public class GoalServiceImpl
             Goal defined = goal.withDefinition(checkText(title, "title", 500).trim(), objective.trim(), definition, clock.instant());
             goals.save(defined);
             return view(defined);
+        }
+    }
+
+    @Override
+    public GoalView planCourse(String workspaceId, String goalId, GoalCourse course)
+    {
+        requireWorkspace(workspaces, workspaceId);
+        synchronized (writes) {
+            Goal goal = goal(workspaceId, goalId);
+            if (goal.course().map(GoalCourse::exchangeId).filter(course.exchangeId()::equals).isPresent()) {
+                return view(goal);
+            }
+            if (goal.course().isPresent()) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "This goal already has a course; ask its agent to change it.");
+            }
+            Goal planned = goal.withCourse(course, clock.instant());
+            goals.save(planned);
+            return view(planned);
         }
     }
 
@@ -163,7 +182,7 @@ public class GoalServiceImpl
             }
             Instant now = clock.instant();
             goals.save(new Goal(UUID.randomUUID().toString(), workspaceId, checkText(title, "title", 500).trim(), "", unpinned(workspaceId), false,
-                    Optional.of(source), Optional.empty(), Optional.empty(), 0, now, now));
+                    Optional.of(source), Optional.empty(), Optional.empty(), 0, Optional.empty(), now, now));
         }
     }
 
@@ -226,7 +245,7 @@ public class GoalServiceImpl
     private static GoalView view(Goal goal, List<WorkItemView> items, List<GoalRecommendation> cards)
     {
         return new GoalView(goal.id(), goal.workspaceId(), goal.title(), goal.description(), goal.pinned(), goal.markedSource(), goal.definition(), goal.revision(),
-                items.stream().filter(item -> item.goalId().filter(goal.id()::equals).isPresent()).collect(toImmutableList()), cards, goal.createdAt(),
-                goal.updatedAt());
+                goal.course(), items.stream().filter(item -> item.goalId().filter(goal.id()::equals).isPresent()).collect(toImmutableList()), cards,
+                goal.createdAt(), goal.updatedAt());
     }
 }

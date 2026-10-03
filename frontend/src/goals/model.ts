@@ -13,7 +13,9 @@
  */
 
 import type { AttentionItem, AttentionSource } from '../home/attention';
-import type { GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalKnowledgeNoteDto, GoalProposalDto, WorkItemState, WorkItemDto } from './contracts';
+import type {
+  GoalCourseDraftDto, GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalKnowledgeNoteDto, GoalProposalDto, WorkItemState, WorkItemDto,
+} from './contracts';
 
 export type GoalRef = { kind: GoalItemKind; key: string };
 
@@ -171,4 +173,11 @@ export function sourceUrl(source: GoalKnowledgeNoteDto['sources'][number]): stri
   if (source.commit === null) return source.reference;
   const colon = source.reference.indexOf(':');
   return `https://github.com/${source.reference.slice(0, colon)}/blob/${source.commit}/${source.reference.slice(colon + 1)}`;
+}
+
+/** The course the user can still accept: the newest answer's, while the goal has none. */
+export function openCourse(goal: GoalDto | null, exchanges: GoalExchangeDto[]): { exchangeId: string; course: GoalCourseDraftDto } | null {
+  const last = exchanges.at(-1);
+  if (goal === null || goal.course !== null || last === undefined || last.reply === null || last.reply.course === null) return null;
+  return { exchangeId: last.id, course: last.reply.course };
 }

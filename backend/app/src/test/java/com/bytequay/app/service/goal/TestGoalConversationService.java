@@ -17,8 +17,10 @@ import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalExchange;
 import com.bytequay.core.domain.GoalRecommendation;
+import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.GoalExchangeStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -43,23 +45,32 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
 
 class TestGoalConversationService
 {
     private static final GoalExchange.Reply QUESTION = new GoalExchange.Reply("You want to explain reads.",
-            Optional.of(new GoalExchange.Question("Do you know the Iceberg specification?", ImmutableList.of("Yes", "Not yet"))), Optional.empty(), Optional.empty());
+            Optional.of(new GoalExchange.Question("Do you know the Iceberg specification?", ImmutableList.of("Yes", "Not yet"))), Optional.empty(), Optional.empty(),
+            Optional.empty());
     private static final GoalExchange.Reply RESEARCH = new GoalExchange.Reply("Read the specification before the connector.", Optional.empty(), Optional.empty(),
             Optional.of(new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH, "Read the Iceberg specification", "You start from the specification",
-                    "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"))));
+                    "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"))), Optional.empty());
     private static final GoalExchange.Reply PROPOSAL = new GoalExchange.Reply("I understand the goal.", Optional.empty(),
             Optional.of(new GoalExchange.Proposal("Iceberg reads", "Explain how reads plan files", "Trace a scan end to end", "Knows the specification", "Five hours a week")),
-            Optional.empty());
+            Optional.empty(), Optional.empty());
+    private static final GoalExchange.Reply COURSE = new GoalExchange.Reply("Here is a course from the notes.", Optional.empty(), Optional.empty(), Optional.empty(),
+            Optional.of(new GoalCourse.Draft(ImmutableList.of(
+                    new GoalCourse.DraftPart("Iceberg tables", ImmutableList.of(new GoalCourse.DraftLesson("What a table is", "Explain metadata, snapshots and manifests"),
+                            new GoalCourse.DraftLesson("Follow a snapshot", "Trace a snapshot to its data files"))),
+                    new GoalCourse.DraftPart("The Trino connector", ImmutableList.of(new GoalCourse.DraftLesson("Plan a scan", "Explain how splits are planned")))))));
 
     private final InMemoryGoalStore goalStore = new InMemoryGoalStore();
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
@@ -71,7 +82,7 @@ class TestGoalConversationService
     private final GoalPlanner planner = mock(GoalPlanner.class);
     private final List<Runnable> queued = new ArrayList<>();
     private final Clock clock = Clock.fixed(Instant.parse("2026-10-03T10:00:00Z"), ZoneOffset.UTC);
-    private final GoalConversationService service = new GoalConversationService(goals, exchanges, cards, models, planner, clock, queued::add);
+    private final GoalConversationService service = new GoalConversationService(goals, work, exchanges, cards, models, planner, clock, queued::add);
 
     @BeforeEach
     void setUp()
@@ -212,6 +223,31 @@ class TestGoalConversationService
         queued.removeFirst().run();
         assertThat(cards.list(goal.id())).as("a dismissed card does not return unchanged").hasSize(1);
         assertThatThrownBy(() -> service.dismiss("workspace", goal.id(), "missing")).isInstanceOf(ResponseStatusException.class).hasMessageContaining("Card not found");
+    }
+
+    @Test
+    void acceptingACourseSavesItsLessonsAsOrderedLearnItemsOnce()
+    {
+        GoalView goal = goals.create("workspace", "Iceberg", "");
+        service.ask("workspace", goal.id(), "op-1", "What next?");
+        doReturn(COURSE).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+
+        GoalView planned = service.acceptCourse("workspace", goal.id(), "op-1");
+        assertThat(planned.course()).hasValueSatisfying(course -> {
+            assertThat(course.exchangeId()).isEqualTo("op-1");
+            assertThat(course.parts()).extracting(GoalCourse.Part::title).containsExactly("Iceberg tables", "The Trino connector");
+            assertThat(course.parts().get(0).lessons()).hasSize(2);
+        });
+        String first = planned.course().orElseThrow().parts().get(0).lessons().get(0);
+        verify(work).create("workspace", first, Optional.of(goal.id()), "What a table is", WorkItem.Kind.LEARN, "Explain metadata, snapshots and manifests",
+                WorkItem.CompletionRule.ACCEPTED_RESULT);
+        assertThat(exchanges.find("course:op-1")).hasValueSatisfying(event -> assertThat(event.automatic()).isTrue());
+
+        // The same lessons of the same proposal are the same work items, and the goal keeps one course.
+        assertThat(service.acceptCourse("workspace", goal.id(), "op-1").course()).isEqualTo(planned.course());
+        verify(work, times(2)).create(eq("workspace"), eq(first), any(), any(), any(), any(), any());
+        assertThatThrownBy(() -> service.acceptCourse("workspace", goal.id(), "missing")).isInstanceOf(ResponseStatusException.class);
     }
 
     @Test

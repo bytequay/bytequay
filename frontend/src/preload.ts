@@ -179,6 +179,7 @@ const bridge: Bridge = {
   askGoal: (workspaceId, goalId, operationId, message) => ipcRenderer.invoke('goals:ask', workspaceId, goalId, operationId, message),
   retryGoalExchange: (workspaceId, goalId, exchangeId) => ipcRenderer.invoke('goals:retry', workspaceId, goalId, exchangeId),
   acceptGoalDefinition: (workspaceId, goalId, exchangeId, title) => ipcRenderer.invoke('goals:accept', workspaceId, goalId, exchangeId, title),
+  acceptGoalCourse: (workspaceId, goalId, exchangeId) => ipcRenderer.invoke('goals:course', workspaceId, goalId, exchangeId),
   startGoalRecommendation: (workspaceId, goalId, recommendationId) => ipcRenderer.invoke('goals:recommendations:start', workspaceId, goalId, recommendationId),
   dismissGoalRecommendation: (workspaceId, goalId, recommendationId) => ipcRenderer.invoke('goals:recommendations:dismiss', workspaceId, goalId, recommendationId),
   listGoalKnowledge: (workspaceId, goalId) => ipcRenderer.invoke('goals:knowledge', workspaceId, goalId),

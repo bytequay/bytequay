@@ -14,9 +14,11 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.Goal;
+import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalSource;
+import com.bytequay.persistence.sqlite.converter.GoalCourseConverter;
 import com.bytequay.persistence.sqlite.converter.GoalDefinitionConverter;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
@@ -75,6 +77,10 @@ public class GoalEntity
     @Column
     private Long revision;
 
+    @Column(columnDefinition = "TEXT")
+    @Convert(converter = GoalCourseConverter.class)
+    private GoalCourse course;
+
     @Column(name = "created_at", nullable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
@@ -104,6 +110,7 @@ public class GoalEntity
         archived = goal.archived();
         definition = goal.definition().orElse(null);
         revision = goal.revision();
+        course = goal.course().orElse(null);
         updatedAt = goal.updatedAt();
     }
 
@@ -111,6 +118,6 @@ public class GoalEntity
     {
         Optional<GoalSource> source = sourceKind == null ? Optional.empty() : Optional.of(new GoalSource(GoalItemKind.valueOf(sourceKind), sourceKey));
         return new Goal(id, workspaceId, title, description, pinned, archived, source, Optional.ofNullable(unmarkedAt), Optional.ofNullable(definition),
-                revision == null ? 0 : revision, createdAt, updatedAt);
+                revision == null ? 0 : revision, Optional.ofNullable(course), createdAt, updatedAt);
     }
 }

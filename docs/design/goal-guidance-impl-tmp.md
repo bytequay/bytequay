@@ -73,8 +73,11 @@ float a research card under the Goal control; Start runs one read-only research
 turn on the shared restricted-run slot, reading the workspace and its Dependency
 checkouts, and `goal_knowledge_save` stores sourced notes. A finished run tells
 the agent what it saved. Stale-note marking, the repository-memory Remember offer
-and verification that a cited page was read in the run remain open. Items 4 and
-5 remain.
+and verification that a cited page was read in the run remain open.
+
+Item 4 is in progress: the agent proposes a course from the notes, and accepting
+it saves each lesson as an ordered Learn work item of the Goal, grouped by part.
+Writing lessons and opening one in the Goal window remain, as does item 5.
 The following steps retain the full identity, source, recovery and verification
 requirements.
 

@@ -16,11 +16,14 @@ package com.bytequay.app.service.goal;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalExchange;
 import com.bytequay.core.domain.GoalRecommendation;
+import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.store.GoalExchangeStore;
 import com.bytequay.core.store.GoalRecommendationStore;
+import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,12 +38,14 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -55,6 +60,7 @@ public class GoalConversationService
     private static final Logger log = LoggerFactory.getLogger(GoalConversationService.class);
 
     private final GoalService goals;
+    private final WorkItemService work;
     private final GoalExchangeStore exchanges;
     private final GoalRecommendationStore recommendations;
     private final ModelSettingsService models;
@@ -66,16 +72,17 @@ public class GoalConversationService
     private final Object writes = new Object();
 
     @Autowired
-    public GoalConversationService(GoalService goals, GoalExchangeStore exchanges, GoalRecommendationStore recommendations, ModelSettingsService models,
-            GoalPlanner planner, Clock clock)
+    public GoalConversationService(GoalService goals, WorkItemService work, GoalExchangeStore exchanges, GoalRecommendationStore recommendations,
+            ModelSettingsService models, GoalPlanner planner, Clock clock)
     {
-        this(goals, exchanges, recommendations, models, planner, clock, Executors.newFixedThreadPool(2, Thread.ofVirtual().name("goal-agent-", 0).factory()));
+        this(goals, work, exchanges, recommendations, models, planner, clock, Executors.newFixedThreadPool(2, Thread.ofVirtual().name("goal-agent-", 0).factory()));
     }
 
-    GoalConversationService(GoalService goals, GoalExchangeStore exchanges, GoalRecommendationStore recommendations, ModelSettingsService models, GoalPlanner planner,
-            Clock clock, Executor executor)
+    GoalConversationService(GoalService goals, WorkItemService work, GoalExchangeStore exchanges, GoalRecommendationStore recommendations,
+            ModelSettingsService models, GoalPlanner planner, Clock clock, Executor executor)
     {
         this.goals = requireNonNull(goals, "goals is null");
+        this.work = requireNonNull(work, "work is null");
         this.exchanges = requireNonNull(exchanges, "exchanges is null");
         this.recommendations = requireNonNull(recommendations, "recommendations is null");
         this.models = requireNonNull(models, "models is null");
@@ -182,6 +189,33 @@ public class GoalConversationService
                 proposal.objective(), definition);
         tell(workspaceId, goalId, "accepted:" + exchangeId, "The user accepted the goal definition.");
         return defined;
+    }
+
+    /**
+     * Accepts the course an answer proposed: each lesson becomes a Learn work item of the goal, in order, and nothing starts. Accepting it
+     * again changes nothing.
+     */
+    public GoalView acceptCourse(String workspaceId, String goalId, String exchangeId)
+    {
+        GoalExchange exchange = exchanges.find(exchangeId).filter(candidate -> candidate.goalId().equals(goalId) && candidate.workspaceId().equals(workspaceId))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
+        GoalCourse.Draft draft = exchange.reply().flatMap(GoalExchange.Reply::course)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "This answer proposes no course."));
+        ImmutableList.Builder<GoalCourse.Part> parts = ImmutableList.builder();
+        int index = 0;
+        for (GoalCourse.DraftPart part : draft.parts()) {
+            ImmutableList.Builder<String> lessons = ImmutableList.builder();
+            for (GoalCourse.DraftLesson lesson : part.lessons()) {
+                // The same lesson of the same proposal is the same work item, so a repeated acceptance creates nothing new.
+                String id = UUID.nameUUIDFromBytes(("lesson:" + exchangeId + ":" + index++).getBytes(UTF_8)).toString();
+                work.create(workspaceId, id, Optional.of(goalId), lesson.title(), WorkItem.Kind.LEARN, lesson.outcome(), WorkItem.CompletionRule.ACCEPTED_RESULT);
+                lessons.add(id);
+            }
+            parts.add(new GoalCourse.Part(part.title(), lessons.build()));
+        }
+        GoalView planned = goals.planCourse(workspaceId, goalId, new GoalCourse(exchangeId, parts.build(), clock.instant()));
+        tell(workspaceId, goalId, "course:" + exchangeId, "The user accepted the course.");
+        return planned;
     }
 
     /** Not now on a card: it leaves the Goal control, and the agent does not offer the same card again. */

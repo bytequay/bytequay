@@ -138,6 +138,13 @@ public class GoalController
         return conversations.accept(workspaceId, goalId, request.exchangeId(), Optional.ofNullable(request.title()));
     }
 
+    @PostMapping("/{goalId}/course")
+    public GoalView acceptCourse(@PathVariable String workspaceId, @PathVariable String goalId, @RequestBody AcceptRequest request)
+    {
+        checkArgument(request != null && request.exchangeId() != null, "exchangeId is required");
+        return conversations.acceptCourse(workspaceId, goalId, request.exchangeId());
+    }
+
     /** Start on a card: the research it recommends begins as one read-only run. */
     @PostMapping("/{goalId}/recommendations/{recommendationId}/start")
     public GoalRecommendation startRecommendation(@PathVariable String workspaceId, @PathVariable String goalId, @PathVariable String recommendationId)

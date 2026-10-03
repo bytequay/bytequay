@@ -41,7 +41,7 @@ function answer(reply: GoalExchangeDto['reply']): void {
 }
 const conversation: Omit<Goals, 'goals' | 'pinned'> = {
   workItems: [], error: null, create: unexpected, pin: async () => {}, remove: unexpected, add: unexpected, removeItem: unexpected, search: async () => [],
-  createWork: unexpected, decideWork: unexpected, linkWork: unexpected, retry: unexpected, dismissCard: unexpected, refresh: changed,
+  createWork: unexpected, decideWork: unexpected, linkWork: unexpected, retry: unexpected, dismissCard: unexpected, acceptCourse: unexpected, refresh: changed,
   knowledge: async () => server.notes,
   startCard: async (_goalId, recommendationId) => {
     server.started.push(recommendationId);
@@ -53,7 +53,7 @@ const conversation: Omit<Goals, 'goals' | 'pinned'> = {
   start: async (operationId, message) => {
     server.asked.push(operationId);
     server.goal = { id: 'goal', workspaceId: 'workspace', title: message, description: '', pinned: true, source: null, definition: null, revision: 0,
-      items: [], recommendations: [], createdAt: NOW, updatedAt: NOW };
+      course: null, items: [], recommendations: [], createdAt: NOW, updatedAt: NOW };
     server.exchanges = [pending(operationId, message)];
     changed();
     return server.goal;
@@ -133,7 +133,7 @@ export async function run(): Promise<boolean> {
     assert(text().includes('Thinking…') && button('Send').disabled, 'The pending answer shows and holds the next message');
     assert(composer().value === '', 'The sent message leaves the composer');
 
-    answer({ assessment: 'You want to understand the connector deeply.', proposal: null, recommendation: null,
+    answer({ assessment: 'You want to understand the connector deeply.', proposal: null, recommendation: null, course: null,
       question: { text: 'Do you already know the Iceberg specification?', suggestions: ['Yes', 'Not yet'] } });
     await nextRead();
     assert(text().includes('Do you already know the Iceberg specification?'), 'The question arrives without reopening the window');
@@ -145,13 +145,13 @@ export async function run(): Promise<boolean> {
     button('Send').click(); await settle(); await settle();
     assert(asked() === 3 && server.asked[1] === server.asked[2], 'Resending the same draft reuses its operation');
 
-    answer({ assessment: 'You can spend five hours a week.', proposal: null, recommendation: null,
+    answer({ assessment: 'You can spend five hours a week.', proposal: null, recommendation: null, course: null,
       question: { text: 'Do you want to learn first or start on real work?', suggestions: ['Learn first', 'Real work first'] } });
     await nextRead();
     button('Learn first').click(); await settle(); await settle();
     assert(asked() === 4 && server.exchanges.at(-1)?.message === 'Learn first', 'A suggested answer is sent as the user\'s reply');
 
-    answer({ assessment: 'Start from the specification, then the connector.', question: null, recommendation: null, proposal: {
+    answer({ assessment: 'Start from the specification, then the connector.', question: null, recommendation: null, course: null, proposal: {
       title: 'Iceberg connector expert', objective: 'Explain and change the Iceberg connector', successDefinition: 'Trace a scan end to end',
       startingKnowledge: 'Knows Trino', constraints: 'Five hours a week' } });
     await nextRead();
@@ -166,7 +166,7 @@ export async function run(): Promise<boolean> {
     assert(text().includes('The user accepted the goal definition.') && text().includes('Thinking…'), 'Accepting tells the agent, which answers at once');
 
     // The agent judges research is the next step; the backend floats its card when it saves the answer.
-    answer({ assessment: 'Read the specification before the connector.', question: null, proposal: null, recommendation: CARD });
+    answer({ assessment: 'Read the specification before the connector.', question: null, proposal: null, recommendation: CARD, course: null });
     setCards([{ id: 'card-1', goalId: 'goal', card: CARD, state: 'SHOWN', taskId: null, createdAt: NOW }]);
     await nextRead(); await settle();
     const card = document.querySelector('.goal-cards .goal-rec');

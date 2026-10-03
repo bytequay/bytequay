@@ -87,15 +87,16 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(!host.textContent?.includes('Post comment now'), 'A local-only review must not offer GitHub publication');
     });
     await scenario('Reviewer questions and explicit developer fixes stay in separate conversations', async () => {
+      const discussionReview = { ...review, messages: reviewFixture().messages.map(message => ({ ...message, findingId: review.findings[0].id })) };
       const questions: string[] = [];
       const fixes: Parameters<Bridge['startAgentTurn']>[0][] = [];
       let fail = true;
-      install({ askAgentReview: async (reviewId) => { questions.push(reviewId); return review; },
+      install({ askAgentReview: async (reviewId) => { questions.push(reviewId); return discussionReview; },
         getAgentTask: async () => task,
         startAgentTurn: async request => { fixes.push(request); if (fail) { fail = false; throw new Error('Try again'); }
           return { id: 'fix-turn' } as Awaited<ReturnType<Bridge['startAgentTurn']>>; } });
       function Surface() {
-        const [value, setValue] = useState(review);
+        const [value, setValue] = useState(discussionReview);
         const { actions, busy } = useFindingActions({ review: value, onReviewChange: setValue, onNavigate: () => {} });
         return <ReviewFindingCard review={value} finding={value.findings[0]} projection="review" viewerLogin="me" viewerAvatarUrl={null}
           actions={actions} busy={busy} />;
@@ -113,6 +114,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
         'Fixes must go to the developer and retain their identity across retry');
       assert(fixes[0].message.includes(review.findings[0].validatedHeadSha) && host.textContent?.includes('Sent to developer') === true,
         'The fix must retain its reviewed revision and confirm accepted delivery');
+      assert(discussionReview.messages.every(message => fixes[0].message.includes(message.body))
+        && fixes[0].message.includes(review.findings[0].evidence[1].excerpt), 'The developer must receive the full discussion and evidence');
     });
     await scenario('Local diff selection rejects stale responses and preserves commit inspection', async () => {
       const pending: Array<{ scope: string; resolve: (value: WorktreeChangesDto) => void }> = [];

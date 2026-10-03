@@ -30,6 +30,7 @@ import '../../../css/agent-review.css';
 import { reviewFixture } from '../../agent-review/fixtures/review';
 import type { ReviewMessageDto } from '../../agent-review/contracts';
 import LocalReviewThreadCard from '../LocalReviewThreadCard';
+import { findingConversation, localReviewConversation } from '../conversation';
 import type { LocalReviewThreadDto, LocalReviewThreads } from '../types';
 import { useLocalReviewThreads, type LocalReviewBridgePort } from '../useLocalReviewThreads';
 import { assert, changeInput, settle } from '../../../fixtures/harness';
@@ -603,6 +604,60 @@ async function pendingReviewerQuestion(): Promise<void> {
   }
 }
 
+async function copyConversations(): Promise<void> {
+  const host = document.createElement('div');
+  host.style.width = '420px';
+  document.body.append(host);
+  const root = createRoot(host);
+  const previous = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+  let copied = '';
+  let fail = false;
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => {
+    if (fail) throw new Error('Clipboard unavailable');
+    copied = value;
+  } } });
+  const review = reviewFixture();
+  review.messages = review.messages.map(message => ({ ...message, findingId: review.findings[0].id }));
+  const thread = { ...initialThread(), resolved: true };
+  const noMutation = async () => { throw new Error('Copy must not send, resolve or publish'); };
+  const clickCopy = () => {
+    const control = host.querySelector<HTMLButtonElement>('.pr-copy-button');
+    assert(control !== null, 'The card header must offer Copy conversation');
+    control.click();
+  };
+  try {
+    for (const projection of ['review', 'changes'] as const) {
+      flushSync(() => root.render(<ReviewFindingCard review={review} finding={review.findings[0]} projection={projection}
+        viewerLogin="me" viewerAvatarUrl={null} defaultOpen={false} busy actions={{ onAsk: noMutation, onResolve: noMutation,
+          onReopen: noMutation, onAddToReview: noMutation, onPostNow: noMutation, onEditDraft: noMutation, onRemoveFromReview: noMutation }} />));
+      clickCopy(); await settle();
+      assert(copied === findingConversation(review, review.findings[0]) && copied.includes(review.messages[1].body),
+        'Both projections must copy all folded evidence and private follow-ups');
+      assert(host.querySelector<HTMLDetailsElement>('details')?.open === false, 'Copy must not toggle a folded card');
+    }
+    flushSync(() => root.render(<LocalReviewThreadCard thread={thread} showCode={false} disabledReason="Task ended"
+      onReply={noMutation} onResolve={noMutation} onRetry={noMutation} />));
+    fail = true; clickCopy(); await settle();
+    assert(host.querySelector('[role="alert"]')?.textContent === 'Could not copy. Try again.' && host.querySelector('.pr-copy-button [role="status"]') === null,
+      'A failed clipboard write must show an error without claiming success');
+    const alert = host.querySelector('[role="alert"]')?.getBoundingClientRect();
+    const card = host.getBoundingClientRect();
+    assert(alert !== undefined && alert.top >= card.top && alert.bottom <= card.bottom,
+      'Clipboard failures must remain visible inside a folded card');
+    fail = false; clickCopy(); await settle();
+    assert(copied === localReviewConversation(thread, false) && copied.includes(thread.code), 'Copy must include code even when this view hides it');
+    assert(host.querySelector('.pr-copy-button [role="status"]')?.textContent === 'Copied' && host.querySelector('[role="alert"]') === null,
+      'A successful retry must confirm copying and clear the error');
+    assert(host.querySelector<HTMLDetailsElement>('details')?.open === false && host.scrollWidth <= host.clientWidth + 1,
+      'A resolved card must stay folded and fit the narrow pane');
+  }
+  finally {
+    flushSync(() => root.unmount()); host.remove();
+    if (previous) Object.defineProperty(navigator, 'clipboard', previous);
+    else Reflect.deleteProperty(navigator, 'clipboard');
+  }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const cases: Array<[string, () => Promise<void>]> = [
     ['Local discussion reply, resolution and remount', replyAndResolve],
@@ -613,6 +668,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['Development learning refreshes and retains source-bound discussions', developmentLearningRefresh],
     ['Review editor reuses diff presentation and preserves private and outgoing behavior', sharedReviewEditor],
     ['Slow reviewer questions clear the editor immediately and restore failed drafts', pendingReviewerQuestion],
+    ['Copy retains full private conversations and reports clipboard failures', copyConversations],
   ];
   const results: { name: string; error?: string }[] = [];
   for (const [name, scenario] of cases) {

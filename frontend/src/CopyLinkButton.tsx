@@ -17,6 +17,7 @@ import { Check, Copy } from 'lucide-react';
 /** Copies one value and says so for a moment; the surrounding surface gives it its size and colour. */
 export default function CopyLinkButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
+  const [failed, setFailed] = useState(false);
   const resetTimer = useRef<number | null>(null);
 
   useEffect(() => () => {
@@ -24,7 +25,10 @@ export default function CopyLinkButton({ value, label }: { value: string; label:
   }, []);
 
   const copy = async () => {
-    await navigator.clipboard.writeText(value);
+    setFailed(false);
+    setCopied(false);
+    try { await navigator.clipboard.writeText(value); }
+    catch { setFailed(true); return; }
     setCopied(true);
     if (resetTimer.current !== null) window.clearTimeout(resetTimer.current);
     resetTimer.current = window.setTimeout(() => setCopied(false), 1500);
@@ -38,6 +42,7 @@ export default function CopyLinkButton({ value, label }: { value: string; label:
         ? <Check size={16} strokeWidth={2} aria-hidden="true" />
         : <Copy size={16} strokeWidth={1.5} aria-hidden="true" />}
       {copied && <span className="pr-copy-button__message" role="status">Copied</span>}
+      {failed && <span className="pr-copy-button__message" role="alert">Could not copy. Try again.</span>}
     </button>
   );
 }

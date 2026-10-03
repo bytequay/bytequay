@@ -1063,6 +1063,17 @@ keeps that decision unless the user explicitly reopens it.
 There is no mandatory summary-approval gate. Users can read the summary,
 discuss it until comfortable, or inspect findings immediately.
 
+**Copy conversation** on a finding or local review thread copies a self-contained
+Markdown snapshot for pasting into another agent. It retains the repository and
+PR or source task, recorded code location and revision, current finding and
+state, retained evidence and verification limitations, and every saved message
+in that discussion with authors and target revisions. Historical text is quoted
+as context; it grants no new execution or publication authority. Copying uses
+the displayed saved data, includes folded content, and starts no agent or GitHub
+operation. Later replies require another copy. The existing **Request fix**
+handoff includes the same finding snapshot after the user's instruction, so
+follow-up clarifications reach the original developer too.
+
 Classify each accepted input as a review-run request or a targeted discussion.
 A discussion turn replies to its recorded target and may revise that summary
 or finding; it does not need to resubmit the entire PR review or call

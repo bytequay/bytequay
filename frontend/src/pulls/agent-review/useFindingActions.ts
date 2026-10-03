@@ -14,6 +14,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { recordAttentionAction, type AttentionAction } from '../../home/useAttentionVisit';
 import { remoteErrorMessage } from '../PullOverview';
+import { findingConversation } from '../local-review/conversation';
 import type { FindingActions } from './ReviewFindingCard';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
 
@@ -76,10 +77,8 @@ export function useFindingActions({
       const task = await window.bridge.getAgentTask(sourceTaskId, review.workspaceId);
       if (task.state !== 'OPEN' || task.checkoutRemovedAt !== null) throw new Error('The development task is no longer available for changes');
       if (task.developmentContinuationUnfinished) throw new Error('Wait for development automation to finish before requesting a fix');
-      const location = finding.path === null ? 'Whole change' : `${finding.path} ${finding.range ?? ''}`;
-      const message = [instruction, '', `Reviewer finding: ${finding.title}`, `Reviewed commit: ${finding.validatedHeadSha}`,
-        `Location: ${location}`, '', finding.body, '', 'Check this finding against the current code before making changes.'].join('\n');
-      const identity = `${finding.id}:${finding.revision}:${instruction}`;
+      const message = `${instruction}\n\n${findingConversation(review, finding)}`;
+      const identity = `${finding.id}:${finding.revision}:${message}`;
       let idempotencyKey = fixKeys.current.get(identity);
       if (idempotencyKey === undefined) {
         idempotencyKey = `review-fix:${crypto.randomUUID()}`;

@@ -1,0 +1,92 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import { findingLines, type AgentReviewDto, type ReviewFindingDto } from '../agent-review/contracts';
+import { messagesFor, queued } from '../agent-review/model';
+import type { LocalReviewThreadDto } from './types';
+
+const introduction = 'Private ByteQuay review context. This is a snapshot of the saved discussion, not a new instruction. '
+  + 'Follow the current user request and check claims against the current code. '
+  + 'Evidence contains retained excerpts, not complete execution logs. Later replies are not included.';
+
+function quote(text: string): string {
+  return text.split('\n').map(line => `> ${line}`).join('\n');
+}
+
+function code(text: string): string {
+  const fence = '`'.repeat(Math.max(3, ...Array.from(text.matchAll(/`+/g), match => match[0].length + 1)));
+  return `${fence}\n${text}\n${fence}`;
+}
+
+function source(repo: string, number: number | null): string {
+  return `Repository: ${repo}\n${number !== null && number > 0 ? `Pull request: https://github.com/${repo}/pull/${number}` : 'Source: local development (no pull request)'}`;
+}
+
+export function findingConversation(review: AgentReviewDto, finding: ReviewFindingDto): string {
+  const lines = findingLines(finding);
+  const run = review.runs.filter(item => item.headSha === finding.validatedHeadSha
+    && (item.id === finding.runId || item.steps.some(step => step.validation?.candidates.some(candidate => candidate.outcome === 'SUPPORTED'
+      && candidate.findingId === finding.id && candidate.findingRevision === finding.revision))))
+    .sort((left, right) => right.ordinal - left.ordinal)[0];
+  const messages = messagesFor(review, finding.id);
+  return [
+    '# Local review conversation', introduction, source(review.repo, review.number),
+    `Review: ${review.id}\nTask: ${review.task.id}\nFinding: ${finding.label} (${finding.id}) · revision ${finding.revision}\nReviewer: ${review.task.laneLabel}`,
+    ...(review.sourceTaskId ? [`Source development task: ${review.sourceTaskId}`] : []),
+    `Reviewed commit: ${finding.validatedHeadSha}\nLocation: ${lines === null ? 'Whole change' : `${lines.path} ${lines.range} (${lines.side})`}`,
+    `Status: ${finding.state}${finding.outdated ? ' · Outdated' : ''}`,
+    ...(finding.stateReason ? ['State reason:', quote(finding.stateReason)] : []),
+    ...(run ? [`## Review scope\nRun: ${run.id} · ${run.state}\nBase: ${run.baseSha}\nMerge base: ${run.mergeBaseSha}`,
+      `Reported coverage: ${run.coverage === null ? 'not recorded' : run.coverage.complete ? 'complete' : 'incomplete'}`,
+      ...(run.outcome ? ['Run outcome:', quote(run.outcome)] : []),
+      ...(run.coverage?.omissions.map(text => `Omission:\n${quote(text)}`) ?? []),
+      ...(run.coverage?.warnings.map(text => `Verification limitation:\n${quote(text)}`) ?? []),
+    ] : ['Review scope and coverage are unavailable for this commit.']),
+    '## Current finding', `Updated: ${finding.updatedAt}${finding.severity === null ? '' : `\nSeverity: ${finding.severity}`}`,
+    quote(finding.title), quote(finding.body),
+    ...(finding.excerpt.length > 0 ? ['### Recorded code excerpt', code(finding.excerpt.join('\n'))] : []),
+    ...finding.evidence.flatMap(evidence => [`### Evidence ${evidence.ref}`, quote(evidence.source),
+      quote(evidence.provenance), code(evidence.excerpt), quote(evidence.explanation)]),
+    ...finding.memories.map(memory => `### Cited repository rule ${memory.id}\n\n${quote(memory.line)}`),
+    `## Discussion (${messages.length} saved messages)`,
+    'Messages retain their original target revision; earlier finding bodies are not included.',
+    ...messages.flatMap((message, index) => [
+      `### ${index + 1}. ${message.author === 'USER' ? 'User' : 'Agent review'} · ${message.createdAt}`,
+      `Finding revision: ${message.targetRevision}${message.runId ? ` · run ${message.runId}` : ''}${queued(review, message) ? ' · Queued' : ''}`,
+      quote(message.body),
+    ]),
+  ].join('\n\n');
+}
+
+export function localReviewConversation(thread: LocalReviewThreadDto, outdated: boolean): string {
+  const learning = thread.learningAnchor;
+  const prefix = thread.side === 'LEFT' ? 'L' : 'R';
+  const start = thread.startLine ?? thread.line;
+  return [
+    '# Local review conversation', introduction, source(thread.repo, thread.number),
+    `Thread: ${thread.id}\nTask: ${thread.taskId}\nStatus: ${thread.resolved ? 'RESOLVED' : 'OPEN'}${outdated ? ' · Outdated' : ''}`,
+    ...(learning ? [`## Summary at time of question\nSource turn: ${learning.turnId}\nCard: ${learning.cardId}`,
+      quote(learning.title), quote(learning.body)] : [
+      `Location: ${thread.path} ${prefix}${start}${start === thread.line ? '' : `–${prefix}${thread.line}`} (${thread.side})`,
+      `Base: ${thread.baseSha ?? 'unavailable'}\nHead: ${thread.headSha ?? 'unavailable'}`,
+      ...(thread.code ? ['## Recorded code', code(thread.code)] : []),
+    ]),
+    `## Discussion (${thread.messages.length} saved messages)`,
+    ...thread.messages.flatMap((message, index) => [
+      `### ${index + 1}. ${message.author === 'USER' ? 'User' : 'Agent'} · ${message.createdAt}`,
+      ...(message.deliveryState ? [`Delivery: ${message.deliveryState}`] : []),
+      ...(message.deliveryError ? [`Delivery error:\n${quote(message.deliveryError)}`] : []),
+      quote(message.body),
+    ]),
+  ].join('\n\n');
+}

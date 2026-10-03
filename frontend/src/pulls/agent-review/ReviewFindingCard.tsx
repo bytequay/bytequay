@@ -13,9 +13,11 @@
  */
 import { useState } from 'react';
 import { Chevron } from '../../Chevron';
+import CopyLinkButton from '../../CopyLinkButton';
 import MarkdownBody, { type SuggestionBase } from '../MarkdownBody';
 import { CommentedCodeLine } from '../PullOverview';
 import LocalCard, { LocalCardMessage, ReviewerAvatar } from '../local-review/LocalCard';
+import { findingConversation } from '../local-review/conversation';
 import ReviewComposer from './ReviewComposer';
 import ReviewThread from './ReviewThread';
 import { findingLines } from './contracts';
@@ -136,7 +138,8 @@ export default function ReviewFindingCard({
           ? <span className="lrc__title">Whole change</span>
           : <code className="lrc__title" title={lines.path}>{shortPath(lines.path)} {lines.range}</code>}
         badges={<>{pill.text !== 'Private' && finding.state !== 'RESOLVED' && <span className={`lrc__badge is-${pill.tone}`}>{pill.text}</span>}
-          {finding.severity !== null && <span className={`agr-severity ${severityTone(finding.severity)}`}>{finding.severity}</span>}</>}
+          {finding.severity !== null && <span className={`agr-severity ${severityTone(finding.severity)}`}>{finding.severity}</span>}
+          <CopyLinkButton label="conversation" value={findingConversation(review, finding)} /></>}
         code={lines !== null && finding.excerpt.length > 0 && <div className="lrc__code">
           <div className="pr-local-review__snapshot">
             {finding.outdated ? 'Recorded code' : 'Reviewed code'} · review <code>{shortSha(finding.validatedHeadSha)}</code>

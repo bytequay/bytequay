@@ -694,6 +694,9 @@
 .pr-task-message[role="alert"] { color: #cf222e; }
 .pr-task-spinner { animation: bq-spin 1s linear infinite; }
 .pr-copy-button { position: relative; overflow: visible; }
+.lrc__head .pr-copy-button { display: grid; place-items: center; flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--lrc-ink); cursor: pointer; }
+.lrc__head .pr-copy-button:hover { background: var(--lrc-hover); }
+.lrc__head .pr-copy-button__message { top: 50%; left: auto; right: calc(100% + 7px); transform: translateY(-50%); }
 .pr-overview__title .pr-copy-button.is-copied { background: #eff2f4; }
 .pr-title { flex: 1; min-width: 0; }
 .pr-overview__title .pr-title__edit { display: inline-flex; align-items: center; justify-content: center; margin-left: 8px; vertical-align: middle; }

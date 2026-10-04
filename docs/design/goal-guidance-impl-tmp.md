@@ -1,7 +1,7 @@
 # Agent guided goals implementation plan
 
-Status: The first four implementation slices are complete. The later items of
-Steps 3 to 6 below remain as listed.
+Status: The first four implementation slices are complete and the fifth is in
+progress. The later items of Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
 
@@ -268,6 +268,35 @@ Done when: no practice card floats for a closed or already fixed issue or a done
 ticket; an accepted course can be revised without losing finished lessons; and
 a task that ends ten turns in a minute brings at most two Goal exchanges, while
 an acceptance made during an answer is still told.
+
+## Fifth implementation slice
+
+Make results last and keep what the Goal knows honest: finished work keeps a
+summary, investigations become work items, a filed gap issue joins its work, and
+notes say when the code they cite moved.
+
+1. Summaries of finished work. When Goal work other than a lesson is accepted
+   as done, a tool-free request on the Goal's model summarizes its history: what
+   changed, the evidence and what is left open. The summary is saved once in the
+   item's history, and the agent's next request reads it. A failed summary
+   leaves the facts as they are, and the Work view offers Summarize again.
+2. Investigation cards. The agent may recommend an investigation, such as a
+   specification feature the code may lack, as a card naming its scope. Start
+   creates one Investigate work item for the card under an accepted result, so
+   starting it twice creates one item, and opens it in the Work view, where the
+   user links a task or accepts the result.
+3. A filed gap's issue joins its work. Once the user files a gap's drafted issue
+   and the issue list refreshes, the gap row shows the open issue the user filed
+   with that exact title after the check, with Link to work. Linking makes the
+   gap's work item own the issue, so a task started from the issue joins it.
+4. Stale notes. A note citing a repository file is stale when the file changed
+   between the commit the research read and the monitored head of its workspace
+   or Dependency. The Guide view marks it, and the agent sees which notes are
+   stale and may recommend a refresh. Pages are not checked.
+
+Done when: an accepted result carries a saved summary; an investigation card
+becomes one work item however often it is started; a filed gap issue links to
+the gap's work in one click; and a moved file marks the notes that cite it.
 
 The following steps retain the full identity, source, recovery and verification
 requirements.

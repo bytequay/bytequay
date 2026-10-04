@@ -1,7 +1,7 @@
 # Agent guided goals implementation plan
 
-Status: The first implementation slice is complete. The later items of Steps 3
-to 6 below remain as listed. The [Goal guidance design](goal-guidance.md) owns the product and
+Status: The first implementation slice is complete and the second is in
+progress. The later items of Steps 3 to 6 below remain as listed. The [Goal guidance design](goal-guidance.md) owns the product and
 behavior contract; this checklist records delivery order, concrete actions and
 proof required.
 
@@ -28,7 +28,7 @@ Keep each behavior change independently reviewable and passing. Separate mechani
 extractions from functional changes. Do not ship a manual board as the completed
 agent-guidance feature.
 
-## Next implementation slice
+## First implementation slice
 
 Deliver one complete agent-led path through the existing Goal surface before
 adding more board controls. The floating and expanded view must share the
@@ -93,6 +93,44 @@ request carries the user's newest private-card questions and the topic levels;
 a question cited as evidence changes a level, and the levels steer the next
 recommendation. Receipts for turns that ended while ByteQuay was stopped are not
 recovered yet, and a model run against real data is still to be done.
+## Second implementation slice
+
+Carry the reference journey from practice to a recorded result, and add the
+other two discovery sources. The first slice's rules hold: the agent picks the
+moment, the user starts or dismisses each card, and nothing writes to GitHub or
+Jira without a direct user action.
+
+1. A Practice card becomes Goal work. Start finds or creates the Develop work
+   item for the card's source on the Goal, with the card's scope as its
+   acceptance criteria and merged delivery as its rule, then opens the source's
+   composer with the prepared instruction. The task the user sends becomes that
+   item's attempt through the existing admission. The card stays started until
+   its work item is Done or Dropped; only then may another Practice card float,
+   and the agent hears the decision.
+2. Results arrive by themselves. A turn's receipt also links the pull request
+   the task published, and a linked pull request that merges records one
+   receipt and tells the agent, which may suggest accepting the result.
+3. Receipts missed while ByteQuay was stopped are recorded at startup, before
+   retention can remove the turn's answer.
+4. Discovery reads issues and mapped Jira tickets. A guidance request carries up
+   to 100 compact candidates: open issues and the Jira tickets mapped to the
+   workspace, without sources that already have work or a dismissed card, the
+   ones nearest the Goal's topics and notes first, with their coverage stated. A
+   Practice card names one of those candidates; any other reference is refused.
+5. Spec checks find what nobody reported. The agent may recommend a spec check
+   naming a module, its pages and a reproduction count. Start runs the existing
+   check and Adjust opens its drawer filled in; the finished check tells the
+   agent.
+6. A reproduced gap becomes Goal work. The Goal window lists each reproduced gap
+   with its draft issue, which only the user files; adding one makes it a Develop
+   work item. No other spec check is recommended while a gap of the last one is
+   neither done, dropped nor dismissed.
+
+Done when: a Practice card leads to a task whose merged pull request is recorded
+on the Goal and moves the topic it practiced, after which a new card can float;
+an issue and a mapped Jira ticket can each be recommended and started; and a
+spec-check card's reproduced gap can become Goal work.
+
 The following steps retain the full identity, source, recovery and verification
 requirements.
 

@@ -60,11 +60,21 @@ public class TextOnlyHelper
     }
 
     /**
-     * Returns the model's final answer to {@code prompt}.
+     * Returns the model's final answer to {@code prompt}, within the short time a rewrite takes.
      *
      * @param failure what the user is told when the model cannot answer, such as "The selected model could not write the comment"
      */
     public String answer(AgentModelSetting model, String prompt, String managedInstructions, String failure)
+    {
+        return answer(model, prompt, managedInstructions, failure, MAXIMUM_RUNTIME);
+    }
+
+    /**
+     * Returns the model's final answer to {@code prompt}, given as long as the answer needs.
+     *
+     * @param maximumRuntime when the turn stops unanswered
+     */
+    public String answer(AgentModelSetting model, String prompt, String managedInstructions, String failure, Duration maximumRuntime)
     {
         TaskId taskId = TaskId.random();
         boolean processMayBeRunning = false;
@@ -92,7 +102,7 @@ public class TextOnlyHelper
                             TaskId.random().toString(),
                             prompt,
                             ImmutableList.of(),
-                            MAXIMUM_RUNTIME))
+                            maximumRuntime))
                     .completion()
                     .toCompletableFuture()
                     .join();

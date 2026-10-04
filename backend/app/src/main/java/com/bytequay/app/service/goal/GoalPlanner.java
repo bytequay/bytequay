@@ -38,6 +38,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 
@@ -53,6 +54,9 @@ public class GoalPlanner
     // ponytail: the last eight exchanges plus the accepted definition; summarize older ones once conversations outgrow that.
     private static final Logger log = LoggerFactory.getLogger(GoalPlanner.class);
     static final int MAX_EARLIER = 8;
+    // A reasoning model at high effort takes minutes to answer a goal and longer to write a lesson; a rewrite's 45 seconds cut it off.
+    static final Duration REPLY_RUNTIME = Duration.ofMinutes(10);
+    static final Duration LESSON_RUNTIME = Duration.ofMinutes(20);
     private static final int MAX_WORK_ITEMS = 30;
     private static final int MAX_LINKS = 6;
     private static final int MAX_NOTES = 60;
@@ -193,7 +197,7 @@ public class GoalPlanner
     public GoalLesson.Content lesson(AgentModelSetting model, GoalView goal, WorkItemView lesson, String part, List<GoalKnowledgeNote> saved)
     {
         WorkflowAgentTasks.requireReady(drivers, new AgentLaneId(model.configId()), AgentPermissionPolicy.AUTO, Optional.of(model.model()));
-        return parse(helper.answer(model, lessonPrompt(goal, lesson, part, saved), "", FAILURE), GoalLesson.Content.class);
+        return parse(helper.answer(model, lessonPrompt(goal, lesson, part, saved), "", FAILURE, LESSON_RUNTIME), GoalLesson.Content.class);
     }
 
     String lessonPrompt(GoalView goal, WorkItemView lesson, String part, List<GoalKnowledgeNote> saved)
@@ -216,7 +220,7 @@ public class GoalPlanner
     public GoalExchange.Reply answer(AgentModelSetting model, GoalView goal, List<GoalExchange> earlier, GoalExchange current)
     {
         WorkflowAgentTasks.requireReady(drivers, new AgentLaneId(model.configId()), AgentPermissionPolicy.AUTO, Optional.of(model.model()));
-        return parse(helper.answer(model, prompt(goal, earlier, current), "", FAILURE));
+        return parse(helper.answer(model, prompt(goal, earlier, current), "", FAILURE, REPLY_RUNTIME));
     }
 
     String prompt(GoalView goal, List<GoalExchange> earlier, GoalExchange current)

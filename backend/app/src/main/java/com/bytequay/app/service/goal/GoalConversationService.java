@@ -398,9 +398,26 @@ public class GoalConversationService
                 }
                 if (read.isPresent()) {
                     learn(read.orElseThrow(), settled.reply().map(GoalExchange.Reply::topics).orElse(ImmutableList.of()));
+                    Optional<String> title = settled.reply().flatMap(GoalExchange.Reply::title);
+                    if (title.isPresent()) {
+                        name(read.orElseThrow(), title.orElseThrow());
+                    }
                 }
             }
         }
+    }
+
+    /**
+     * Gives the goal the name its agent proposed while the goal is undefined, in place of the working title the user's first words gave it or a
+     * name the agent gave it before; a title the user chose stays.
+     */
+    private void name(GoalView goal, String title)
+    {
+        List<GoalExchange> conversation = exchanges.list(goal.id());
+        Set<String> replaceable = new HashSet<>();
+        conversation.stream().filter(exchange -> !exchange.automatic()).findFirst().ifPresent(first -> replaceable.add(title(first.message())));
+        conversation.forEach(exchange -> exchange.reply().flatMap(GoalExchange.Reply::title).ifPresent(replaceable::add));
+        goals.name(goal.workspaceId(), goal.id(), title, replaceable);
     }
 
     /**

@@ -20,6 +20,7 @@ import com.bytequay.core.domain.GoalSource;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Workspace goals: local groupings of accepted work items. Every read
@@ -41,6 +42,14 @@ public interface GoalService
      * a proposal built before the goal's last change is refused.
      */
     GoalView define(String workspaceId, String goalId, long expectedRevision, String title, String objective, GoalDefinition definition);
+
+    /**
+     * Names the goal as its agent proposed, while the goal is still undefined and its title is one of the replaceable ones: the working title
+     * its first words gave it, or a name the agent gave it before. A title the user chose stays, and the revision does not change.
+     *
+     * @return the goal under its new name, or empty when it kept its title
+     */
+    Optional<GoalView> name(String workspaceId, String goalId, String title, Set<String> replaceable);
 
     /** Saves the course the user accepted; accepting it again changes nothing, and a goal keeps its first course. */
     GoalView planCourse(String workspaceId, String goalId, GoalCourse course);

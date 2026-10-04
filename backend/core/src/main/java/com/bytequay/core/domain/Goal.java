@@ -78,6 +78,12 @@ public record Goal(
         return new Goal(id, workspaceId, newTitle, newDescription, pinned, archived, source, unmarkedAt, definition, changed ? revision + 1 : revision, course, createdAt, at);
     }
 
+    /** The same goal under the name its agent gave it; the revision stays, since a name changes nothing the goal means. */
+    public Goal named(String name, Instant at)
+    {
+        return new Goal(id, workspaceId, name, description, pinned, archived, source, unmarkedAt, definition, revision, course, createdAt, at);
+    }
+
     public Goal withMarked(boolean value, Instant at)
     {
         return new Goal(id, workspaceId, title, description, pinned, archived, source, value ? Optional.empty() : Optional.of(at), definition, revision, course, createdAt, at);

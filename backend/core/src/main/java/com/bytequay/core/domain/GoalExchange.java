@@ -118,9 +118,16 @@ public record GoalExchange(
      * The agent's answer: where it thinks the goal stands, at most one question, a definition to accept once it understands the goal, a
      * course to accept once research gave it notes, a card when it judges the next step is ready, and what it now believes the user knows.
      */
+    /**
+     * What the agent answered.
+     *
+     * @param title a short readable name for the goal, like a mission, while its definition is open
+     */
     public record Reply(String assessment, Optional<Question> question, Optional<Proposal> proposal, Optional<GoalRecommendation.Card> recommendation,
-            Optional<GoalCourse.Draft> course, List<GoalTopic.Change> topics)
+            Optional<GoalCourse.Draft> course, List<GoalTopic.Change> topics, Optional<String> title)
     {
+        public static final int MAX_NAME = 80;
+
         public Reply
         {
             checkText(assessment, "assessment", MAX_FIELD);
@@ -131,6 +138,10 @@ public record GoalExchange(
             // A reply saved before topics existed has none.
             topics = topics == null ? ImmutableList.of() : ImmutableList.copyOf(topics);
             checkArgument(topics.size() <= 8, "a reply changes at most eight topics");
+            // A reply saved before names existed has none.
+            title = title == null ? Optional.empty() : title.map(String::strip);
+            title.ifPresent(value -> checkArgument(!value.isEmpty() && value.length() <= MAX_NAME && value.lines().count() == 1,
+                    "a goal's name is one line of at most %s characters", MAX_NAME));
         }
     }
 

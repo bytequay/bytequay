@@ -66,6 +66,10 @@ optional proposed definition; anything else fails the exchange, which the user
 can ask again. The user picks any number of the directions or suggested
 answers, and Send sends them, one per line, before their own words; Other
 options asks the same question again with answers they have not passed over.
+The first words only give a new Goal a working title: the agent's answer names
+it as a short mission, such as Master Trino's execution engine, and may rename
+it as its understanding changes until a definition is accepted. A title the user
+chose stays, and a name changes no revision, so pending proposals stay valid.
 Accepting a proposal saves its title, objective, success
 definition, starting knowledge and constraints, and is refused once the Goal's
 text changed after the request was built. One exchange per Goal and two across

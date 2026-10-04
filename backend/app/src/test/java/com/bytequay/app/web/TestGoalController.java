@@ -132,7 +132,7 @@ class TestGoalController
 
         GoalExchange answered = GoalExchange.ask("op-2", "goal-1", "workspace", "Reads first", 0, NOW).answered("codex/gpt", new GoalExchange.Reply("You want to start with reads.",
                 Optional.of(new GoalExchange.Question("Do you know the Iceberg specification?", ImmutableList.of("Yes", "Not yet"))), Optional.empty(), Optional.empty(),
-                Optional.empty(), ImmutableList.of()), NOW);
+                Optional.empty(), ImmutableList.of(), Optional.empty()), NOW);
         when(conversations.ask("workspace", "goal-1", "op-2", "Reads first", Optional.empty())).thenReturn(ImmutableList.of(answered));
         mvc.perform(post("/api/workspaces/workspace/goals/goal-1/exchanges").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"operationId\":\"op-2\",\"message\":\"Reads first\"}"))

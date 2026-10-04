@@ -97,7 +97,12 @@ public class GoalPlanner
             of their own. When they ask for other options, ask the same question again with different suggested
             answers, never the ones they passed over.
 
-            Once you understand the scope, propose a definition: a short title, the objective, a success definition the
+            The user's first words only gave the goal a working title. Until a definition is accepted, name the goal in
+            title: a short readable name of at most eight words, phrased as a mission or an outcome, such as "Master
+            Trino's execution engine", never the user's sentence. Give it in your first answer and again only when your
+            understanding changes; once a definition is accepted, title is null.
+
+            Once you understand the scope, propose a definition: a short title in the same style, the objective, a success definition the
             user can check, what they already know, and their constraints. A reply may propose a definition and still
             ask a question. After the user accepted a definition, answer their questions about the goal and propose a
             changed definition only when they ask for one.
@@ -141,7 +146,8 @@ public class GoalPlanner
             "objective": "...", "successDefinition": "...", "startingKnowledge": "...", "constraints": "..."},
             "course": {"parts": [{"title": "...", "lessons": [{"title": "...", "outcome": "..."}]}]},
             "recommendation": {"kind": "RESEARCH", "title": "...", "reason": "...", "scope": "...", "pages": ["https://..."], "workItemId": null,
-            "issue": null, "ticket": null, "module": null, "reproductions": null}, "topics": [{"topic": "...", "level": "LEARNING", "evidence": ["discussion:..."]}]}
+            "issue": null, "ticket": null, "module": null, "reproductions": null}, "topics": [{"topic": "...", "level": "LEARNING", "evidence": ["discussion:..."]}],
+            "title": "..."}
             - assessment: your answer and where the goal stands, in one to five sentences addressed to the user.
             - question: null, or one question of at most 600 characters with zero to four suggestions of at most 200 each.
             - proposal: null, or a definition: a title of at most 200 characters and the other fields at most 2000 each;
@@ -154,6 +160,7 @@ public class GoalPlanner
               or a ticket's key in ticket; a SPEC_CHECK card names its module and reproductions, and the other cards leave
               both null.
             - topics: an empty list, or up to eight topics whose level the evidence changed, each citing one to ten ids.
+            - title: null, or the goal's name of at most 80 characters while it has no accepted definition.
             """;
 
     private final AgentDriverRegistry drivers;

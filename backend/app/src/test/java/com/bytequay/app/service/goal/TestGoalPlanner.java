@@ -62,6 +62,12 @@ class TestGoalPlanner
                 {"assessment": "You want to explain reads.", "question": {"text": "Do you know the specification?", "suggestions": ["Yes", "Not yet"]}, "proposal": null}
                 ```
                 """);
+        assertThat(GoalPlanner.parse("""
+                {"assessment": "x", "question": null, "proposal": null, "title": "Master Trino's execution engine"}""").title()).contains("Master Trino's execution engine");
+        assertThat(reply.title()).as("a reply without a name keeps the working title").isEmpty();
+        assertThatThrownBy(() -> GoalPlanner.parse("""
+                {"assessment": "x", "question": null, "proposal": null, "title": "%s"}""".formatted("Master ".repeat(12))))
+                .hasMessageContaining("a goal's name");
         assertThat(reply.question()).map(GoalExchange.Question::suggestions).contains(ImmutableList.of("Yes", "Not yet"));
         assertThat(reply.proposal()).isEmpty();
         assertThat(GoalPlanner.parse("""
@@ -166,7 +172,7 @@ class TestGoalPlanner
                 ImmutableList.of(new GoalRecommendation("card-1", "goal-1", "workspace", CARD, GoalRecommendation.State.SHOWN, Optional.empty(),
                         Optional.empty(), Optional.empty(), "op-0", NOW, NOW)), ImmutableList.of(), NOW, NOW);
         GoalExchange.Reply reply = new GoalExchange.Reply("You want reads first.", Optional.of(new GoalExchange.Question("Which area?", ImmutableList.of())), Optional.empty(),
-                Optional.empty(), Optional.empty(), ImmutableList.of());
+                Optional.empty(), Optional.empty(), ImmutableList.of(), Optional.empty());
         ImmutableList<GoalExchange> earlier = IntStream.range(0, GoalPlanner.MAX_EARLIER + 2)
                 .mapToObj(index -> GoalExchange.ask("op-" + index, "goal-1", "workspace", "Message " + index, 0, NOW.plusSeconds(index)).answered("codex/gpt", reply, NOW))
                 .collect(toImmutableList());

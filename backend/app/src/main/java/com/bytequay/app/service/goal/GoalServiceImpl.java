@@ -33,6 +33,7 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
@@ -120,6 +121,22 @@ public class GoalServiceImpl
             Goal defined = goal.withDefinition(checkText(title, "title", 500).trim(), objective.trim(), definition, clock.instant());
             goals.save(defined);
             return view(defined);
+        }
+    }
+
+    @Override
+    public Optional<GoalView> name(String workspaceId, String goalId, String title, Set<String> replaceable)
+    {
+        requireWorkspace(workspaces, workspaceId);
+        synchronized (writes) {
+            Goal goal = goal(workspaceId, goalId);
+            String name = checkText(title, "title", 500).trim();
+            if (goal.definition().isPresent() || !replaceable.contains(goal.title()) || goal.title().equals(name)) {
+                return Optional.empty();
+            }
+            Goal named = goal.named(name, clock.instant());
+            goals.save(named);
+            return Optional.of(view(named));
         }
     }
 

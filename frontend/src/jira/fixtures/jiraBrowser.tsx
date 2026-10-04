@@ -378,6 +378,25 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       assert(created.jiraSource?.updatedAt === '2026-09-26T09:00:00Z', 'Launch uses the deliberately refreshed source');
       assert(!created.message.includes('https://'), 'User prompt does not direct remote ticket fetching');
     },
+    async 'starts another attempt over an ended ticket task and otherwise opens that task'() {
+      await mountPreview(false, false);
+      issue = { ...issue, workspace: { id: 'workspace', name: 'Trino' }, task: { id: 'ended-task', workspaceId: 'workspace' } };
+      const location = { connectionId: issue.connectionId, cloudId: issue.cloudId, issueId: issue.id };
+      const zoomHost = document.createElement('div'); document.body.append(zoomHost);
+      const zoomRoot = createRoot(zoomHost);
+      try {
+        flushSync(() => zoomRoot.render(<JiraTicketLayer key="open" location={location} start onClose={() => {}} />));
+        await until(() => window.location.hash.includes('ended-task'));
+        assert(document.querySelector('.agt-compose') === null, 'Without another attempt the ticket opens its task');
+        flushSync(() => zoomRoot.render(<JiraTicketLayer key="another" location={location} start draft="Try the other approach." replaces="ended-task" onClose={() => {}} />));
+        await until(() => document.querySelector<HTMLTextAreaElement>('.agt-compose textarea')?.value === 'Try the other approach.');
+        const send = document.querySelector<HTMLButtonElement>('.agt-compose button[aria-label="Start task"]') ?? document.querySelector<HTMLButtonElement>('.agt-send'); assert(send !== null, 'Task send exists');
+        await until(() => !send.disabled); send.click(); await until(() => taskRequest !== null);
+        const created = taskRequest as unknown as CreateAgentTaskRequest;
+        assert(created.jiraSource?.replaces === 'ended-task' && created.jiraSource.issueId === issue.id, 'The request names the ended task the attempt replaces');
+      }
+      finally { zoomRoot.unmount(); zoomHost.remove(); }
+    },
     async 'suspends Jira modals for the embedded browser without losing drafts or assignment'() {
       await mountPreview();
       const mounted = root; assert(mounted !== null, 'Screen is mounted');

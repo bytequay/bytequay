@@ -89,14 +89,23 @@ public class JiraDevelopmentService
             Optional<JiraIssueTask> linked = sources.findBySource(input.cloudId(), input.issueId());
             if (linked.isPresent()) {
                 JiraIssueTask link = linked.orElseThrow();
-                if (!link.taskId().equals(taskId.toString())) {
-                    return tasks.getInteractive(link.workspaceId(), TaskId.valueOf(link.taskId()));
+                boolean another = input.replaces().filter(link.taskId()::equals).isPresent() && !link.taskId().equals(taskId.toString());
+                if (!another) {
+                    if (!link.taskId().equals(taskId.toString())) {
+                        return tasks.getInteractive(link.workspaceId(), TaskId.valueOf(link.taskId()));
+                    }
+                    checkArgument(link.workspaceId().equals(workspaceId), "Task belongs to another workspace");
+                    if (!link.instructions().equals(instructions)) {
+                        throw new AgentConflictException("Task creation request changed: " + taskId);
+                    }
+                    return create.apply(link.source());
                 }
                 checkArgument(link.workspaceId().equals(workspaceId), "Task belongs to another workspace");
-                if (!link.instructions().equals(instructions)) {
-                    throw new AgentConflictException("Task creation request changed: " + taskId);
+                // An idle open task is still the ticket's attempt, and a delivery still under way belongs to it.
+                AgentTask current = taskStore.find(TaskId.valueOf(link.taskId())).orElseThrow(() -> new AgentConflictException("The ticket's task is gone."));
+                if (!current.state().terminal() || current.developmentContinuationUnfinished()) {
+                    throw new AgentConflictException("The ticket's task has not ended. Continue it, or end it before starting another attempt.");
                 }
-                return create.apply(link.source());
             }
             requireRunnable(jira.issue(input.connectionId(), input.cloudId(), input.issueId()), input, workspaceId);
             workItems.requireStartable(workspaceId, WorkItemLink.jiraIdentity(input.cloudId(), input.issueId()));
@@ -141,6 +150,9 @@ public class JiraDevelopmentService
             workspaces.findById(workspaceId).orElseThrow(() -> WorkspaceException.notFound(workspaceId));
             taskStore.insert(task);
             workItems.recordAttempt(task, GoalReferenceReader.jiraLink(source, clock.instant()));
+            // Another attempt takes the ticket from the ended one, which keeps its source and stays the work item's earlier attempt.
+            sources.findBySource(source.cloudId(), source.issueId()).filter(previous -> !previous.taskId().equals(task.id().toString()))
+                    .ifPresent(previous -> sources.retire(previous.taskId()));
             sources.insert(new JiraIssueTask(task.id().toString(), workspaceId, source, instructions, clock.instant()));
             return null;
         });

@@ -126,12 +126,14 @@ async function anotherAttemptAfterAnEndedTask(): Promise<void> {
   host.style.width = '380px';
   const root = createRoot(host);
   const now = '2026-09-01T00:00:00Z';
-  const link = (kind: 'ISSUE' | 'TASK', key: string, state: 'IDLE' | 'ENDED'): WorkItemDto['links'][number] => ({ kind, key, label: kind === 'ISSUE' ? '#31252' : 'Task',
+  const link = (kind: 'ISSUE' | 'JIRA' | 'TASK', key: string, state: 'IDLE' | 'ENDED'): WorkItemDto['links'][number] => ({ kind, key, label: kind === 'TASK' ? 'Task' : key,
     title: 'Fix the checkpoint', state, status: state === 'ENDED' ? 'Failed' : 'Idle', blocked: false, url: null, activity: null, addedAt: now });
-  const work = (task: 'IDLE' | 'ENDED'): WorkItemDto => ({ id: 'work', workspaceId: 'workspace', goalId: 'goal', title: 'Fix #31252', kind: 'DEVELOP',
+  const work = (task: 'IDLE' | 'ENDED', source = link('ISSUE', 'trinodb/trino#31252', 'IDLE')): WorkItemDto => ({ id: 'work', workspaceId: 'workspace', goalId: 'goal',
+    title: 'Fix #31252', kind: 'DEVELOP',
     acceptanceCriteria: 'Key actions by path and deletion vector.', completionRule: 'MERGED_DELIVERY', state: 'WORKING', revision: 2,
-    links: [link('ISSUE', 'trinodb/trino#31252', 'IDLE'), link('TASK', 'task-1', task)], history: [], createdAt: now, updatedAt: now });
+    links: [source, link('TASK', 'task-1', task)], history: [], createdAt: now, updatedAt: now });
   const started: [number, string, string | undefined][] = [];
+  const tickets: [string, string, string | undefined][] = [];
   let show: (item: WorkItemDto) => void = () => {};
   function Fixture(): React.JSX.Element {
     const [item, setItem] = useState(work('IDLE'));
@@ -142,7 +144,8 @@ async function anotherAttemptAfterAnEndedTask(): Promise<void> {
       conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptCourse: async () => {},
         openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {} }}
       repository="trinodb/trino" goal={goal} goals={[goal]} workItems={[item]} needsYou={new Set()}
-      onClose={() => {}} onSwitch={() => {}} onStartIssue={(issue, instruction, replaces) => started.push([issue, instruction, replaces])} onStartTicket={() => {}}
+      onClose={() => {}} onSwitch={() => {}} onStartIssue={(issue, instruction, replaces) => started.push([issue, instruction, replaces])}
+      onStartTicket={(ticket, instruction, replaces) => tickets.push([ticket, instruction, replaces])}
       onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}}
       onSummarize={async () => {}} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
       search={async () => []} onCreateWork={async () => item} onLink={async () => item} onDecide={async () => item} />;
@@ -155,6 +158,10 @@ async function anotherAttemptAfterAnEndedTask(): Promise<void> {
     button(host, 'Start another attempt').click(); await settle();
     assert(started.length === 1 && started[0][0] === 31252 && started[0][1] === 'Key actions by path and deletion vector.' && started[0][2] === 'task-1',
       'Another attempt opens the issue composer over the ended task');
+    flushSync(() => show(work('ENDED', link('JIRA', 'connection:cloud:10001', 'IDLE')))); await settle();
+    button(host, 'Start another attempt').click(); await settle();
+    assert(started.length === 1 && tickets.length === 1 && tickets[0][0] === 'connection:cloud:10001' && tickets[0][2] === 'task-1',
+      'Another attempt on a ticket opens the ticket composer over the ended task');
   }
   finally { root.unmount(); host.remove(); }
 }

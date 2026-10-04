@@ -38,6 +38,12 @@ public record JiraIssueSource(String connectionId, String cloudId, String issueI
 
     public String identity()
     {
+        return identity(cloudId, issueId);
+    }
+
+    /** One ticket across Jira connections. */
+    public static String identity(String cloudId, String issueId)
+    {
         return cloudId.length() + ":" + cloudId + ":" + issueId;
     }
 }

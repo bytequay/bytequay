@@ -1,7 +1,7 @@
 # Agent guided goals implementation plan
 
-Status: The first five implementation slices are complete and the sixth is in
-progress. The later items of Steps 3 to 6 below remain as listed.
+Status: The first six implementation slices are complete. The later items of
+Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
 
@@ -338,6 +338,10 @@ a create request naming the ended task it replaces is admitted under the
 issue's lock, the old row is retired and the new one inserted in the task's
 creation transaction, and the work item records both attempts.
 
+Item 2 is implemented the same way for a ticket's task row under the ticket's
+lock, through the ticket composer over the ended task. The sixth slice is
+complete.
+
 Done when: a failed issue task can be followed by a new attempt without deleting
 it, both tasks show on the one work item, and an open task cannot be replaced.
 
@@ -376,7 +380,7 @@ intermediate reference-count percentage to maintain.
   work/history when archiving.
 - [x] Inspect development data before changing the Goal mapping: no Goals or
   source-task rows existed. No runtime data was changed or reset.
-- [ ] Add explicit another-attempt admission to GitHub/Jira stores and both
+- [x] Add explicit another-attempt admission to GitHub/Jira stores and both
   services. Keep opening the current task by default; require the previous attempt
   to be terminal with delivery settled before a new task can be admitted.
 - [ ] Add unique accepted-proposal mappings when Goal proposals arrive in Step 3.

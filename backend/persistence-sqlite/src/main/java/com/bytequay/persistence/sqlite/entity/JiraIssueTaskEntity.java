@@ -94,6 +94,12 @@ public class JiraIssueTaskEntity
         createdAt = task.createdAt();
     }
 
+    /** A retired attempt adds its own task id to the slot, so the ticket's next attempt can take it. */
+    public void retire()
+    {
+        sourceSlot = JiraIssueSource.identity(cloudId, issueId) + ":" + id;
+    }
+
     public JiraIssueTask toDomain()
     {
         return new JiraIssueTask(id, workspaceId, new JiraIssueSource(connectionId, cloudId, issueId, key, url, title, body, sourceUpdatedAt), instructions, createdAt);

@@ -59,10 +59,13 @@ function editable(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && (target.isContentEditable || target.matches('input, textarea, select'));
 }
 
-/** Opens a Jira ticket's development composer over the page, with an instruction the user reviews and sends. */
-export function startTicket(reference: string, instruction: string): void {
+/**
+ * Opens a Jira ticket's development composer over the page, with an instruction the user reviews and sends; `replaces` starts
+ * another attempt after that ended task.
+ */
+export function startTicket(reference: string, instruction: string, replaces?: string): void {
   const [connectionId, cloudId, issueId] = reference.split(':');
-  zoomReference({ kind: 'jira', connectionId, cloudId, issueId, start: true, draft: instruction });
+  zoomReference({ kind: 'jira', connectionId, cloudId, issueId, start: true, draft: instruction, replaces });
 }
 
 /** Opens a goal item where the app shows it: a pull request, issue or ticket over the page, a task as its screen. */

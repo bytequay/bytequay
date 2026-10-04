@@ -18,6 +18,7 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
@@ -63,7 +64,7 @@ class TestJiraDevelopmentService
     private static final Instant NOW = Instant.parse("2026-09-16T00:00:00Z");
     private static final JiraIssueSource SOURCE = new JiraIssueSource("connection", "cloud", "10001", "APP-7",
             "https://company.atlassian.net/browse/APP-7", "Keep selection", "Accepted description", NOW);
-    private static final JiraSourceInput INPUT = new JiraSourceInput("connection", "cloud", "10001", "APP-7", SOURCE.title(), SOURCE.body(), NOW);
+    private static final JiraSourceInput INPUT = new JiraSourceInput("connection", "cloud", "10001", "APP-7", SOURCE.title(), SOURCE.body(), NOW, Optional.empty());
     private final JiraIssueTaskStore sources = mock(JiraIssueTaskStore.class);
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final AgentTaskService tasks = mock(AgentTaskService.class);
@@ -127,6 +128,33 @@ class TestJiraDevelopmentService
                 .isInstanceOf(AgentConflictException.class).hasMessageContaining("request changed");
         assertThatThrownBy(() -> service.requireUnattachedCreate(taskId)).isInstanceOf(AgentConflictException.class);
         verifyNoInteractions(jira);
+    }
+
+    @Test
+    void anotherAttemptReplacesOnlyAnEndedTaskAndTakesTheTicket()
+    {
+        service.persistTask(task, SOURCE, "Implement");
+        TaskId next = TaskId.random();
+        JiraSourceInput another = new JiraSourceInput("connection", "cloud", "10001", "APP-7", SOURCE.title(), SOURCE.body(), NOW, Optional.of(taskId.toString()));
+        when(taskStore.find(taskId)).thenReturn(Optional.of(task));
+        when(task.state()).thenReturn(TaskState.OPEN);
+        assertThatThrownBy(() -> service.start("workspace", next, another, "Try again", ignored -> {
+            throw new AssertionError("an open task is still the attempt");
+        })).isInstanceOf(AgentConflictException.class).hasMessageContaining("has not ended");
+        assertThat(service.start("workspace", next, INPUT, "Try again", ignored -> {
+            throw new AssertionError("without Start another attempt the ticket's task opens");
+        })).isSameAs(task);
+
+        when(task.state()).thenReturn(TaskState.FAILED);
+        AgentTask attempt = mock(AgentTask.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(attempt.id()).thenReturn(next);
+        when(attempt.workspaceId()).thenReturn(Optional.of("workspace"));
+        assertThat(service.start("workspace", next, another, "Try again", accepted -> {
+            service.persistTask(attempt, accepted, "Try again");
+            return attempt;
+        })).isSameAs(attempt);
+        verify(sources).retire(taskId.toString());
+        assertThat(linked.get().taskId()).as("the new attempt is the ticket's task").isEqualTo(next.toString());
     }
 
     @Test

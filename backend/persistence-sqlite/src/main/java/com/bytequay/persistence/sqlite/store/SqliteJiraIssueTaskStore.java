@@ -13,6 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
+import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.JiraIssueTask;
 import com.bytequay.core.store.JiraIssueTaskStore;
 import com.bytequay.persistence.sqlite.entity.JiraIssueTaskEntity;
@@ -39,7 +40,7 @@ public class SqliteJiraIssueTaskStore
     @Transactional(readOnly = true)
     public Optional<JiraIssueTask> findBySource(String cloudId, String issueId)
     {
-        return tasks.findByCloudIdAndIssueId(cloudId, issueId).map(JiraIssueTaskEntity::toDomain);
+        return tasks.findBySourceSlot(JiraIssueSource.identity(cloudId, issueId)).map(JiraIssueTaskEntity::toDomain);
     }
 
     @Override
@@ -54,5 +55,15 @@ public class SqliteJiraIssueTaskStore
     public void insert(JiraIssueTask task)
     {
         tasks.saveAndFlush(new JiraIssueTaskEntity(task));
+    }
+
+    @Override
+    @Transactional
+    public void retire(String taskId)
+    {
+        tasks.findById(taskId).ifPresent(entity -> {
+            entity.retire();
+            tasks.saveAndFlush(entity);
+        });
     }
 }

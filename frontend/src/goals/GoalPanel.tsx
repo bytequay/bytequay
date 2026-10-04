@@ -94,7 +94,7 @@ export type GoalPanelProps = {
   /** Opens the issue's task composer with an instruction the user reviews and sends. */
   onStartIssue: (issue: number, instruction: string, replaces?: string) => void;
   /** The same for a Jira ticket, by its connection:cloud:issue reference. */
-  onStartTicket: (ticket: string, instruction: string) => void;
+  onStartTicket: (ticket: string, instruction: string, replaces?: string) => void;
   /** Shows a module's spec check on the Memory page. */
   onSpecCheck: (spec: SpecCheckRequest) => void;
   /** Opens a gap's drafted issue on GitHub's form, for the user to file; answers whether the body was cut and copied instead. */
@@ -913,6 +913,7 @@ function WorkDetails(props: GoalPanelProps & { item: WorkItemDto; onBack: () => 
   const [summarizing, setSummarizing] = useState(false);
   const issue = item.links.find((link) => link.kind === 'ISSUE');
   const issueNumber = issue === undefined ? undefined : Number(issue.key.slice(issue.key.lastIndexOf('#') + 1));
+  const ticket = item.links.find((link) => link.kind === 'JIRA');
   const lastTask = item.links.filter((link) => link.kind === 'TASK').at(-1);
   const change = (action: WorkItemDecision['action']): void => {
     const payload = { expectedRevision: action === 'EDIT' ? draftRevision : item.revision, action, detail,
@@ -953,9 +954,10 @@ function WorkDetails(props: GoalPanelProps & { item: WorkItemDto; onBack: () => 
     {item.links.map((link) => <button type="button" className="goal-result goal-work-link" key={refKey(link)} onClick={() => props.onOpenItem(link)}>
       <SourceIcon source={GOAL_SOURCES[link.kind]} /><span>{link.label}</span><span className="goal-result__title">{link.title}</span><span>{link.status}</span>
     </button>)}
-    {/* An ended task no longer blocks the issue: another attempt becomes the issue's task, and this work keeps both. */}
-    {!concluded && issueNumber !== undefined && lastTask?.state === 'ENDED' && <button type="button" className="goal-link"
-      onClick={() => props.onStartIssue(issueNumber, item.acceptanceCriteria, lastTask.key)}>Start another attempt</button>}
+    {/* An ended task no longer blocks its issue or ticket: another attempt becomes the source's task, and this work keeps both. */}
+    {!concluded && (issueNumber !== undefined || ticket !== undefined) && lastTask?.state === 'ENDED' && <button type="button" className="goal-link"
+      onClick={() => issueNumber !== undefined ? props.onStartIssue(issueNumber, item.acceptanceCriteria, lastTask.key)
+        : props.onStartTicket(ticket.key, item.acceptanceCriteria, lastTask.key)}>Start another attempt</button>}
     {!concluded && <button type="button" className="goal-link" onClick={() => setAdding((value) => !value)}>Link source, task or PR</button>}
     {adding && !concluded && <div><input aria-label="Search supporting work" value={candidates.query} onChange={(event) => candidates.setQuery(event.target.value)} />
       {candidates.results.map((reference) => <Candidate key={refKey(reference)} item={reference} onAdd={(link) => props.onLink(item, link).catch((failure: unknown) => {

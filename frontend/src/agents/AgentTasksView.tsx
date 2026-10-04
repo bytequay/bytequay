@@ -196,7 +196,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   onOpenCreatedTask?: (task: AgentTaskDto) => void;
   /** A prepared instruction; the issue's default text does not replace it. */
   initialDraft?: string;
-  /** The issue's ended task a new attempt replaces, which the composer does not open. */
+  /** The source's ended task a new attempt replaces, which the composer does not open. */
   replaces?: string;
 }) {
   // Home and the Tasks page remount on every tab switch; the last list paints the first frame, and
@@ -433,7 +433,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       issueId: issue.id, number: issue.number, updatedAt: issue.updatedAt, ...(replaces === undefined ? {} : { replaces }),
     }, sourceJira === null ? undefined : {
       connectionId: sourceJira.connectionId, cloudId: sourceJira.cloudId, issueId: sourceJira.id,
-      key: sourceJira.key, title: sourceJira.title, body: sourceJira.body, updatedAt: sourceJira.updatedAt,
+      key: sourceJira.key, title: sourceJira.title, body: sourceJira.body, updatedAt: sourceJira.updatedAt, ...(replaces === undefined ? {} : { replaces }),
     });
     // The create call blocks until the first turn is running; the backend names the step it is in meanwhile.
     let watching = true;

@@ -21,5 +21,5 @@ import java.util.Optional;
 public interface JiraIssueTaskJpaRepository
         extends JpaRepository<JiraIssueTaskEntity, String>
 {
-    Optional<JiraIssueTaskEntity> findByCloudIdAndIssueId(String cloudId, String issueId);
+    Optional<JiraIssueTaskEntity> findBySourceSlot(String sourceSlot);
 }

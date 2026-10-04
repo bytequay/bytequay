@@ -14,12 +14,18 @@
 package com.bytequay.app.agent;
 
 import java.time.Instant;
+import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static java.util.Objects.requireNonNull;
 
-/** Renderer-accepted source fields are compared with local and authoritative Jira data, never used as authority. */
-public record JiraSourceInput(String connectionId, String cloudId, String issueId, String key, String title, String body, Instant updatedAt)
+/**
+ * Renderer-accepted source fields are compared with local and authoritative Jira data, never used as authority.
+ *
+ * @param replaces the ticket's ended attempt that Start another attempt replaces; without it, the ticket's current task opens
+ */
+public record JiraSourceInput(String connectionId, String cloudId, String issueId, String key, String title, String body, Instant updatedAt,
+        Optional<String> replaces)
 {
     public JiraSourceInput
     {
@@ -30,5 +36,6 @@ public record JiraSourceInput(String connectionId, String cloudId, String issueI
         checkNotBlank(title, "title");
         requireNonNull(body, "body is null");
         requireNonNull(updatedAt, "updatedAt is null");
+        requireNonNull(replaces, "replaces is null");
     }
 }

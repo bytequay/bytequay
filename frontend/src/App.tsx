@@ -572,7 +572,7 @@ export default function App() {
                   onClose={() => closeLayer(key)}
                 />
               )}
-              {layer.kind === 'jira' && <JiraTicketLayer location={layer} start={layer.start} draft={layer.draft} onClose={() => closeLayer(key)} />}
+              {layer.kind === 'jira' && <JiraTicketLayer location={layer} start={layer.start} draft={layer.draft} replaces={layer.replaces} onClose={() => closeLayer(key)} />}
             </div>
           </LayerCovered.Provider>
         );

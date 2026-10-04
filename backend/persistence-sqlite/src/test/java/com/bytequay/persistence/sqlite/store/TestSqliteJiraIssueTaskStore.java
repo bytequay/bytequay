@@ -80,6 +80,30 @@ class TestSqliteJiraIssueTaskStore
     }
 
     @Test
+    void aRetiredAttemptGivesItsTicketToTheNextAndKeepsItsSource()
+    {
+        AgentTask first = task();
+        AgentTask second = task();
+        AgentTask third = task();
+        JiraIssueTask firstLink = new JiraIssueTask(first.id().toString(), "workspace", SOURCE, "First instruction", NOW);
+        JiraIssueTask secondLink = new JiraIssueTask(second.id().toString(), "workspace", SOURCE, "Another attempt", NOW.plusSeconds(60));
+        tasks.insert(first);
+        sources.insert(firstLink);
+        sources.retire(first.id().toString());
+        tasks.insert(second);
+        sources.insert(secondLink);
+        tasks.insert(third);
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(sources.findBySource("cloud", "10001")).contains(secondLink);
+        assertThat(sources.findByTaskId(first.id().toString())).as("the earlier attempt keeps its source").contains(firstLink);
+        assertThatThrownBy(() -> sources.insert(new JiraIssueTask(third.id().toString(), "workspace", SOURCE, "Third", NOW)))
+                .as("the ticket still has one current attempt")
+                .isInstanceOf(DataAccessException.class);
+    }
+
+    @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void sourceUniquenessAcrossConnectionsRollsBackThePreparedTask()
     {

@@ -135,10 +135,11 @@ the user sends it, through the existing issue or ticket admission, as that work
 item's attempt. The card
 stays started, and no other Practice card floats, until the work is done or
 dropped; the agent hears each accept, drop or reopen of the Goal's work. Once
-the task of a Goal's issue work has ended and no delivery runs for it, the Work
-view offers Start another attempt: the issue composer opens over the ended
-task, and sending it creates a task that becomes the issue's task, while the
-ended one keeps its source and stays the work item's earlier attempt.
+the task of a Goal's issue or ticket work has ended and no delivery runs for it,
+the Work view offers Start another attempt: the issue or ticket composer opens
+over the ended task, and sending it creates a task that becomes the source's
+task, while the ended one keeps its source and stays the work item's earlier
+attempt.
 
 When a question needs evidence nobody has gathered, such as whether the code
 supports a specification feature, and neither research nor a spec check fits
@@ -210,8 +211,8 @@ Practiced or Strong, citing the questions, lessons or work items it rests on;
 ByteQuay keeps only evidence that exists and never changes a level the user set.
 The Guide view lists what the user knows, and the user can correct any level.
 
-Another attempt on a Jira ticket, automatic outcome harvesting and the two-call
-discovery shortlist remain pending. The
+Automatic outcome harvesting and the two-call discovery shortlist remain
+pending. The
 checklist distinguishes these from implemented behavior.
 
 The checked development database contained no Goals or issue/Jira task bindings.

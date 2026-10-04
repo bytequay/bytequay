@@ -19,9 +19,13 @@ import java.util.Optional;
 
 public interface JiraIssueTaskStore
 {
+    /** The ticket's current attempt; an attempt another one replaced is found only by its task. */
     Optional<JiraIssueTask> findBySource(String cloudId, String issueId);
 
     Optional<JiraIssueTask> findByTaskId(String taskId);
 
     void insert(JiraIssueTask task);
+
+    /** Moves an attempt off its ticket, so the next attempt becomes the ticket's task; the retired one keeps its source. */
+    void retire(String taskId);
 }

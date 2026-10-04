@@ -64,11 +64,11 @@ export type JiraIssueDetail = {
   peopleFields: { id: string; name: string; people: JiraUser[] }[];
   teamFields: { id: string; name: string; team: string }[];
 };
-export type JiraIssuePage = { issues: JiraIssue[]; fetchedAt: string | null; partial: boolean; error: string | null };
+export type JiraIssuePage = { issues: JiraIssue[]; fetchedAt: string | null; nextPageToken: string | null; error: string | null };
 export type JiraSourceRequest = { connectionId: string; cloudId: string; issueId: string; key: string; title: string; body: string; updatedAt: string };
 export type JiraTaskSource = JiraSourceRequest & { url: string; initialTurnId: string | null; instructions: string };
 export type JiraLocation = { connectionId: string; cloudId: string; issueId: string };
-export type JiraQuery = { connectionId: string; cloudId: string; boardId: number; sprintId: number | null; mine: boolean; completed?: boolean };
+export type JiraQuery = { connectionId: string; cloudId: string; boardId: number; sprintId: number | null; mine: boolean; completed?: boolean; nextPageToken?: string };
 export type JiraBridge = {
   getJiraConfig: () => Promise<{ configured: boolean }>;
   listJiraConnections: () => Promise<JiraConnection[]>;

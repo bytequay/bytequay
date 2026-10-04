@@ -378,3 +378,5 @@ textarea.jira-field { width: 100%; height: auto; padding: 6px 8px; line-height: 
   .jira-side { width: auto; border-top: 1px solid #e3e3e6; border-left: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .jira-spin, .jira-detail[open], .jira-pop, .jira-work__form, .jira-reply-form, .jira-edit { animation: none; } }
+
+.jira-load-more { display: flex; justify-content: center; padding: 16px; }

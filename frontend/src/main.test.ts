@@ -20,6 +20,7 @@ import type { ReviewCodeFileDto } from './pulls/code-tests/contracts';
 import type { ContextBuildViewDto, ContextSpecCheckDto } from './repository-context/contracts';
 import type { AgentRuntimeStopImpactDto } from './types';
 import type { TeamActivitySnapshot, TeamDirectory } from './teams/types';
+import type { JiraIssuePage } from './jira/contracts';
 
 const desktop = vi.hoisted(() => ({
   listeners: new Map<string, () => Promise<void>>(),
@@ -430,6 +431,8 @@ it('routes Jira reads and versioned writes through the authenticated native API'
   expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/refresh?boardId=828&mine=true&sprintId=11`, expect.objectContaining({ method: 'POST', headers: { 'X-ByteQuay-Session': 'test-session' } }));
   await desktop.handlers.get('jira:issues')?.({}, { ...location, boardId: 828, sprintId: null, mine: false, completed: true }, false);
   expect(fetch).toHaveBeenLastCalledWith(`${base}/issues?boardId=828&mine=false&completed=true`, expect.objectContaining({ method: 'GET', headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  await desktop.handlers.get('jira:issues')?.({}, { ...location, boardId: 828, sprintId: null, mine: true, completed: true, nextPageToken: 'next/token + value' }, true);
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/refresh?boardId=828&mine=true&completed=true&nextPageToken=next%2Ftoken+%2B+value`, expect.objectContaining({ method: 'POST' }));
   await desktop.handlers.get('jira:issue')?.({}, location, true, true);
   expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/refresh?automatic=true`, expect.objectContaining({ method: 'POST', headers: { 'X-ByteQuay-Session': 'test-session' } }));
   await desktop.handlers.get('jira:issue')?.({}, location, true);
@@ -456,4 +459,29 @@ it('routes Jira reads and versioned writes through the authenticated native API'
   expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/links`, expect.objectContaining({ method: 'POST', body: JSON.stringify({ typeId: '10000', outward: false, key: 'ENG-8' }), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
   await desktop.handlers.get('jira:connections')?.({});
   expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/jira/connections', expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+});
+
+it.each([false, true])('allows a Jira collection refresh beyond one minute (completed: %s)', async completed => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  vi.useFakeTimers();
+  vi.spyOn(AbortSignal, 'timeout').mockImplementation(milliseconds => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(new DOMException('Request timed out', 'TimeoutError')), milliseconds);
+    return controller.signal;
+  });
+  const page: JiraIssuePage = { issues: [], fetchedAt: '2026-09-26T00:00:00Z', nextPageToken: 'next/token', error: null };
+  const fetch = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((resolve, reject) => {
+    init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+    setTimeout(() => resolve(new Response(JSON.stringify(page))), 125_000);
+  }));
+  vi.stubGlobal('fetch', fetch);
+  const result = desktop.handlers.get('jira:issues')?.({}, {
+    connectionId: 'connection', cloudId: 'cloud', boardId: 82, sprintId: null, mine: true, completed,
+  }, true).then(value => ({ value }), error => ({ error }));
+
+  await vi.advanceTimersByTimeAsync(125_000);
+
+  expect(await result).toEqual({ value: page });
+  expect(fetch).toHaveBeenCalledTimes(1);
 });

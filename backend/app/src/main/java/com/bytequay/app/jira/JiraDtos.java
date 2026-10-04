@@ -122,7 +122,7 @@ public final class JiraDtos
         }
     }
 
-    public record IssuePage(List<JiraIssue> issues, Optional<Instant> fetchedAt, Optional<String> error, boolean partial)
+    public record IssuePage(List<JiraIssue> issues, Optional<Instant> fetchedAt, Optional<String> error, Optional<String> nextPageToken)
     {
         public IssuePage
         {

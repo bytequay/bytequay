@@ -254,8 +254,21 @@ Completed history has a separate cache and uses the enhanced board issues
 endpoint with a Done-category filter across sprints. History refreshes on request
 and stays out of watched scopes. Needs attention lists watched-scope tickets
 assigned to the connected account, Done ones included. Jira board filters and mapped-status rules still bound the
-result; the board endpoint excludes Scrum epics. Pagination remains bounded and
-partial results are identified in the UI.
+result; the board endpoint excludes Scrum epics.
+
+Each collection refresh fetches one Jira page of up to 100 tickets. The response
+returns the tickets cached for that scope and Jira's next-page token. Load more
+uses that token to append the next page without duplicate tickets; Refresh starts
+again from the first page. Search and status filters explicitly apply to loaded
+tickets. Failed requests keep both the saved tickets and the cursor for retry,
+and an initial failure never claims a successful empty result. A cursor already
+consumed by another reader returns the newer cached projection.
+
+Concurrent requests for one scope share its current page fetch; a slow history
+does not block a current sprint or another board. Electron allows three minutes
+for one page's bounded Jira and OAuth reads. The scheduled watched-scope refresh
+continues through at most 20 pages, leaving its cursor available to the UI. User
+pagination has no 20-page or elapsed-time cutoff.
 
 A completion date is meaningful only while the ticket's current status category
 is Done. Prefer Jira's status-category change date, then its resolution date.

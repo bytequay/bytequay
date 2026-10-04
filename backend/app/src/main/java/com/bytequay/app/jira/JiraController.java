@@ -139,14 +139,15 @@ public class JiraController
     public JiraDtos.IssuePage issues(@PathVariable String connectionId, @PathVariable String cloudId, @RequestParam long boardId,
             @RequestParam Optional<Long> sprintId, @RequestParam(defaultValue = "true") boolean mine, @RequestParam(defaultValue = "false") boolean completed)
     {
-        return jira.issues(connectionId, cloudId, boardId, sprintId, mine, completed, false);
+        return jira.issues(connectionId, cloudId, boardId, sprintId, mine, completed, false, Optional.empty());
     }
 
     @PostMapping(SITE + "/issues/refresh")
     public JiraDtos.IssuePage refreshIssues(@PathVariable String connectionId, @PathVariable String cloudId, @RequestParam long boardId,
-            @RequestParam Optional<Long> sprintId, @RequestParam(defaultValue = "true") boolean mine, @RequestParam(defaultValue = "false") boolean completed)
+            @RequestParam Optional<Long> sprintId, @RequestParam(defaultValue = "true") boolean mine, @RequestParam(defaultValue = "false") boolean completed,
+            @RequestParam Optional<String> nextPageToken)
     {
-        return jira.issues(connectionId, cloudId, boardId, sprintId, mine, completed, true);
+        return jira.issues(connectionId, cloudId, boardId, sprintId, mine, completed, true, nextPageToken);
     }
 
     @PostMapping(SITE + "/keys/{key}/refresh")

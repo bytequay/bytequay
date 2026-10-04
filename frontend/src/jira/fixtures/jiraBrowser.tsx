@@ -118,7 +118,7 @@ export async function mountPreview(offline = false, openIssue = true, body = jir
     listJiraConnections: async () => [connection, { ...connection, id: 'other', account: { accountId: 'sam', displayName: 'Sam Rivera', email: 'sam@another.com' }, sites: [{ id: 'other-site', name: 'Engineering', url: 'https://another.atlassian.net' }] }],
     listJiraBoards: async (_connection, _cloud, refresh) => { if (offline && refresh) throw new Error('Jira is offline'); return [{ id: 828, name: 'Connectors', type: 'scrum' }]; },
     listJiraSprints: async (_connection, _cloud, _board, refresh) => { if (offline && refresh) throw new Error('Jira is offline'); return [{ id: 11, name: 'Connector reliability', state: 'active', startDate: null, endDate: null }]; },
-    listJiraIssues: async (query, refresh) => { if (offline && refresh) throw new Error('Jira is offline'); record('issues', query, refresh); return { issues: query.completed ? completedIssues() : currentIssues(), fetchedAt: issue.updatedAt, error: null, partial: false }; },
+    listJiraIssues: async (query, refresh) => { if (offline && refresh) throw new Error('Jira is offline'); record('issues', query, refresh); return { issues: query.completed ? completedIssues() : currentIssues(), fetchedAt: issue.updatedAt, error: null, nextPageToken: null }; },
     recordJiraRecentTouch: async () => {},
     getJiraIssue: async (location, refresh, automatic) => { if (offline && refresh) throw new Error('Jira is offline'); record('detail', location, refresh, automatic); return { ...detail, issue }; },
     assignJiraWorkspace: async (location, workspaceId) => { record('assign', location, workspaceId); if (assignmentFails) { assignmentFails = false; throw new Error('Workspace assignment failed'); } const workspace = workspaces.find(value => value.id === workspaceId); assert(workspace !== undefined, 'Selected workspace exists'); issue = { ...issue, workspace: { id: workspace.id, name: workspace.name } }; return { ...detail, issue }; },
@@ -513,6 +513,61 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       await mountPreview(true); await until(() => document.body.textContent?.includes('Jira is offline') ?? false);
       assert(cards().length === 4, 'Cached tickets remain visible after remote refresh fails');
       assert(document.querySelector('.jira-detail h2')?.textContent === jiraIssue.title, 'Cached detail remains available offline');
+    },
+    async 'shows a retryable failure for an uncached selected board and clears it on retry'() {
+      await mountPreview(false, false);
+      const listIssues = window.bridge.listJiraIssues;
+      window.bridge.listJiraIssues = async (_query, refresh) => {
+        if (refresh) throw new Error('Jira could not be reached.');
+        return { issues: [], fetchedAt: null, nextPageToken: null, error: null };
+      };
+      button('Completed').click();
+      await until(() => document.querySelector('.jira-error') !== null);
+      assert(document.querySelector('.jira-empty')?.textContent === 'Tickets could not be loaded. Refresh tickets to try again.', 'A selected board is not mistaken for a missing selection');
+      let finish: (() => void) | undefined;
+      window.bridge.listJiraIssues = async (query, refresh) => {
+        if (refresh) await new Promise<void>(resolve => { finish = resolve; });
+        return listIssues(query, refresh);
+      };
+      button('Refresh tickets').click(); await until(() => finish !== undefined);
+      assert(document.querySelector('.jira-error') === null, 'Retry clears the previous error while loading');
+      finish?.(); await until(() => !button('Refresh tickets').disabled);
+      assert(document.querySelectorAll('.jira-row').length === 6, 'Retry restores completed history');
+    },
+    async 'loads history on demand, retries the same cursor and ignores a late page after switching views'() {
+      await mountPreview(false, false);
+      const listIssues = window.bridge.listJiraIssues;
+      const requests: JiraQuery[] = [];
+      const requestCount = () => requests.length;
+      const all = completedIssues();
+      let fail = true;
+      let slow = false;
+      let finish: (() => void) | undefined;
+      window.bridge.listJiraIssues = async (query, refresh) => {
+        if (!query.completed) return listIssues(query, refresh);
+        if (refresh) requests.push(query);
+        if (query.nextPageToken !== undefined) {
+          assert(query.nextPageToken === 'next/token + value', 'Load more preserves the opaque cursor');
+          if (fail) { fail = false; throw new Error('Page could not be loaded.'); }
+          if (slow) await new Promise<void>(resolve => { finish = resolve; });
+        }
+        return { issues: query.nextPageToken ? all : all.slice(0, 1), fetchedAt: issue.updatedAt, error: null, nextPageToken: query.nextPageToken ? null : 'next/token + value' };
+      };
+      button('Completed').click(); await until(() => document.querySelectorAll('.jira-row').length === 1 && !button('Refresh tickets').disabled);
+      assert(requestCount() === 1, 'Opening history fetches only its first page');
+      assert(document.querySelector('.jira-notice')?.textContent?.includes('filters apply to loaded tickets') === true, 'Filtering is clearly scoped to loaded tickets');
+      button('Load more').click(); await until(() => document.querySelector('.jira-error') !== null);
+      assert(document.querySelectorAll('.jira-row').length === 1 && !button('Load more').disabled, 'A failed page retains tickets and permits retry');
+      button('Load more').click(); await until(() => document.querySelectorAll('.jira-row').length === 6);
+      assert(document.querySelector('.jira-load-more') === null && requestCount() === 3, 'The last page removes Load more');
+      button('Refresh tickets').click(); await until(() => document.querySelectorAll('.jira-row').length === 1 && !button('Refresh tickets').disabled);
+      assert(requests.at(-1)?.nextPageToken === undefined, 'Refresh restarts with the first page');
+      slow = true;
+      button('Load more').click(); await until(() => finish !== undefined);
+      assert(button('Loading…').disabled && button('Refresh tickets').disabled, 'A pending page cannot be requested twice');
+      button('Current sprint').click(); await until(() => cards().length === 4);
+      finish?.(); await settle();
+      assert(cards().length === 4 && document.querySelector('.jira-load-more') === null, 'A late history page cannot replace the current sprint');
     },
     async 'marks automatic detail refresh and keeps its board update local'() {
       const interval = window.setInterval;

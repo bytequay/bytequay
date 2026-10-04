@@ -39,7 +39,7 @@ import './jira.css';
 
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 const bridge = () => window.bridge;
-const emptyPage: JiraIssuePage = { issues: [], fetchedAt: null, error: null, partial: false };
+const emptyPage: JiraIssuePage = { issues: [], fetchedAt: null, error: null, nextPageToken: null };
 const GROUP_TONES: Record<string, string> = { 'To do': 'todo', 'In progress': 'progress', 'In review': 'review', Done: 'done' };
 const PRIORITY_WORDS: Record<string, string> = { urgent: 'Urgent', high: 'High', medium: 'Medium', low: 'Low', lowest: 'Lowest' };
 /** Where the page found a ticket: its board, and the sprint when the page lists it. */
@@ -209,12 +209,13 @@ export default function JiraScreen({ workspace }: { workspace?: Pick<WorkspaceDt
     })();
     return () => { active = false; };
   }, [actualConnectionId, actualCloudId, boardId]);
-  const reload = useCallback(async (refresh = true) => {
+  const reload = useCallback(async (refresh = true, nextPageToken?: string) => {
     if (!actualConnectionId || !actualCloudId || boardId === null) return;
     const request = ++generation.current;
     setLoading(true);
-    const scope = { connectionId: actualConnectionId, cloudId: actualCloudId, boardId, sprintId, mine, completed: view === 'completed' };
-    if (refresh) {
+    setError(null);
+    const scope = { connectionId: actualConnectionId, cloudId: actualCloudId, boardId, sprintId, mine, completed: view === 'completed', nextPageToken };
+    if (refresh && nextPageToken === undefined) {
       try {
         const cached = await window.bridge.listJiraIssues(scope);
         if (request === generation.current && cached.fetchedAt !== null) setPage(cached);
@@ -381,7 +382,7 @@ export default function JiraScreen({ workspace }: { workspace?: Pick<WorkspaceDt
     </div>}
     {site && connection?.state !== 'connected' && <div className="jira-notice">{connection?.state === 'pending' ? 'Jira sign-in is waiting to finish.' : 'This Jira account needs attention.'} Manage accounts in Settings to {connection?.authType === 'api_token' ? 'replace the API token' : 'reconnect'}.</div>}
     {error && <div className="ws-error jira-error" role="alert">{error}</div>}
-    {page.partial && <div className="jira-notice">Only part of this {view === 'completed' ? 'completed view' : 'sprint'} is loaded. Open Jira to see all matching tickets.</div>}
+    {page.nextPageToken !== null && <div className="jira-notice">More tickets are available. Search and status filters apply to loaded tickets.</div>}
     {site && <div className="jira-content" aria-busy={loading}>
       {view === 'current' && layout === 'board'
         ? <div className="jira-board">{columns.map(column => <section className="jira-column" key={column.label} aria-label={column.label}>
@@ -393,7 +394,11 @@ export default function JiraScreen({ workspace }: { workspace?: Pick<WorkspaceDt
           <GroupHead label={group.label} tone={group.tone} count={group.issues.length} />
           <div className="jira-list__rows">{group.issues.map(row)}</div>
         </section>)}</div>}
-      {shown.length === 0 && <div className="jira-empty">{loading ? <><LoaderCircle size={18} className="jira-spin" /> Loading tickets…</> : page.fetchedAt === null ? 'Select a board to load tickets.' : 'No tickets match these filters.'}</div>}
+      {shown.length === 0 && <div className="jira-empty">{loading ? <><LoaderCircle size={18} className="jira-spin" /> Loading tickets…</>
+        : boardId === null ? 'Select a board to load tickets.'
+          : page.fetchedAt === null && error ? 'Tickets could not be loaded. Refresh tickets to try again.'
+            : page.nextPageToken !== null ? 'No loaded tickets match these filters.' : 'No tickets match these filters.'}</div>}
+      {page.nextPageToken !== null && <div className="jira-load-more"><button type="button" className="jira-btn" disabled={loading} onClick={() => { if (page.nextPageToken !== null) void reload(true, page.nextPageToken); }}>{loading ? 'Loading…' : 'Load more'}</button></div>}
     </div>}
     {selected && <JiraDetail key={`${selected.connectionId}/${selected.cloudId}/${selected.issueId}`} location={selected} scope={detailScope} boardId={sameSite ? boardId : null} sprints={sameSite ? sprints : []} onClose={() => { window.location.hash = jiraRoute(undefined, workspace?.id); }} onChanged={update} onStart={(issue, onChanged) => setLaunch({ issue, onChanged })} />}
     {launch && <JiraLaunch issue={launch.issue} onChanged={detail => { update(detail, false); launch.onChanged?.(detail); }} onClose={() => setLaunch(null)} />}

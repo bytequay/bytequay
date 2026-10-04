@@ -96,7 +96,7 @@ function installBridge() {
     fetchPrs: async () => ({ pullRequests: [], page: 0, pageSize: 50, totalPullRequests: 0, openPullRequests: 0, hasMore: false }),
     listJiraBoards: async () => [{ id: 828, name: 'Connectors', type: 'scrum' }],
     listJiraSprints: async () => [{ id: 11, name: 'Connector reliability', state: 'active', startDate: null, endDate: null }],
-    listJiraIssues: async () => ({ issues: [ticket], fetchedAt: ticket.updatedAt, error: null, partial: false }),
+    listJiraIssues: async () => ({ issues: [ticket], fetchedAt: ticket.updatedAt, error: null, nextPageToken: null }),
     recordJiraRecentTouch: async () => {},
     getJiraIssue: async () => detail(),
     commentJiraIssue: async (_location: unknown, body: string) => {

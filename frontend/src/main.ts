@@ -1780,7 +1780,12 @@ function registerIpc(): void {
     const params = new URLSearchParams({ boardId: String(query.boardId), mine: String(query.mine) });
     if (query.sprintId !== null) params.set('sprintId', String(query.sprintId));
     if (query.completed) params.set('completed', 'true');
-    return backendJson(`${jiraSitePath(query.connectionId, query.cloudId)}/issues${refresh ? '/refresh' : ''}?${params}`, { method: refresh ? 'POST' : 'GET', headers: agentHeaders() });
+    if (query.nextPageToken !== undefined) params.set('nextPageToken', query.nextPageToken);
+    return backendJson(`${jiraSitePath(query.connectionId, query.cloudId)}/issues${refresh ? '/refresh' : ''}?${params}`, {
+      method: refresh ? 'POST' : 'GET', headers: agentHeaders(),
+      // One page needs two bounded Jira reads, each of which may also need an OAuth token read.
+      ...(refresh ? { signal: AbortSignal.timeout(3 * 60_000) } : {}),
+    });
   });
   ipcMain.handle('jira:issue', (_event, location: JiraLocation, refresh: boolean, automatic: boolean) =>
     backendJson(`${jiraIssuePath(location)}${refresh ? '/refresh' : ''}${refresh && automatic ? '?automatic=true' : ''}`, { method: refresh ? 'POST' : 'GET', headers: agentHeaders() }));

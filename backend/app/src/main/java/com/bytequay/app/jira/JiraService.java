@@ -44,9 +44,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 
 import static com.bytequay.app.jira.JiraConnections.segment;
 import static com.bytequay.app.jira.JiraMapping.nodes;
@@ -76,6 +78,7 @@ public class JiraService
     private final WorkItemStore workItems;
     private final RecentTouchRecorder recent;
     private final ExecutorService reads = Executors.newVirtualThreadPerTaskExecutor();
+    private final Map<Scope, FutureTask<JiraDtos.IssuePage>> refreshes = new ConcurrentHashMap<>();
 
     public JiraService(JiraConnections connections, JiraCache cache, JiraIssueTaskStore tasks, WorkspaceStore workspaces, ObjectProvider<AppSettingsService> appSettings,
             ObjectProvider<GoalService> goals, JiraActivityLog activity, WorkItemStore workItems, RecentTouchRecorder recent)
@@ -118,28 +121,51 @@ public class JiraService
         return cache.read(key, JiraDtos.Sprint[].class).map(ImmutableList::copyOf).orElseGet(ImmutableList::of);
     }
 
-    public JiraDtos.IssuePage issues(String connectionId, String cloudId, long boardId, Optional<Long> sprintId, boolean mine, boolean completed, boolean refresh)
+    public JiraDtos.IssuePage issues(String connectionId, String cloudId, long boardId, Optional<Long> sprintId, boolean mine, boolean completed,
+            boolean refresh, Optional<String> nextPageToken)
     {
         Scope scope = new Scope(segment(connectionId), segment(cloudId), boardId, completed ? Optional.empty() : sprintId, mine, completed);
         checkArgument(boardId > 0 && sprintId.map(id -> id > 0).orElse(true), "Invalid board or sprint id");
+        checkArgument(nextPageToken.map(token -> !token.isBlank() && token.length() <= 16384).orElse(true), "Invalid page token");
+        checkArgument(refresh || nextPageToken.isEmpty(), "Page tokens require a refresh");
         if (refresh) {
             if (!completed) {
                 remember(scope);
             }
-            return refreshScope(scope);
+            return refreshScope(scope, nextPageToken);
         }
         return page(scope);
     }
 
-    private synchronized JiraDtos.IssuePage refreshScope(Scope scope)
+    private JiraDtos.IssuePage refreshScope(Scope scope, Optional<String> nextPageToken)
     {
-        String siteUrl = connections.site(scope.connectionId(), scope.cloudId()).url();
-        String path = "/rest/software/1.0/board/" + scope.boardId()
-                + (scope.completed() ? "/issue" : scope.sprintId().map(id -> "/sprint/" + id + "/issue").orElse("/backlog"));
-        List<JiraIssue> result = new ArrayList<>();
-        Optional<String> next = Optional.empty();
-        boolean partial = false;
-        for (int page = 0; page < MAX_PAGES; page++) {
+        // A slow history must not hold up another board; concurrent readers of the same scope share its refresh.
+        FutureTask<JiraDtos.IssuePage> work = new FutureTask<>(() -> fetchScope(scope, nextPageToken));
+        FutureTask<JiraDtos.IssuePage> running = refreshes.putIfAbsent(scope, work);
+        if (running != null) {
+            return join(running);
+        }
+        try {
+            work.run();
+            return join(work);
+        }
+        finally {
+            refreshes.remove(scope, work);
+        }
+    }
+
+    /** One remote page per request; the returned projection contains the tickets loaded for this scope so far. */
+    private JiraDtos.IssuePage fetchScope(Scope scope, Optional<String> nextPageToken)
+    {
+        JiraDtos.IssuePage previous = page(scope);
+        // Another reader or the scheduled poll may already have loaded this cursor. Return its newer projection.
+        if (nextPageToken.isPresent() && !nextPageToken.equals(previous.nextPageToken())) {
+            return previous;
+        }
+        try {
+            String siteUrl = connections.site(scope.connectionId(), scope.cloudId()).url();
+            String path = "/rest/software/1.0/board/" + scope.boardId()
+                    + (scope.completed() ? "/issue" : scope.sprintId().map(id -> "/sprint/" + id + "/issue").orElse("/backlog"));
             Map<String, Object> params = new LinkedHashMap<>();
             params.put("maxResults", 100);
             params.put("fields", BOARD_FIELDS);
@@ -149,31 +175,52 @@ public class JiraService
             else if (scope.mine()) {
                 params.put("jql", "assignee = currentUser()");
             }
-            next.ifPresent(token -> params.put("nextPageToken", token));
+            nextPageToken.ifPresent(token -> params.put("nextPageToken", token));
             JsonNode response = get(scope.connectionId(), scope.cloudId(), query(path, params));
+            Optional<String> next = response.path("isLast").asBoolean() ? Optional.empty() : JiraMapping.text(response, "nextPageToken");
+            if (next.isPresent() && next.equals(nextPageToken)) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Jira repeated a page token. Refresh tickets to start again.");
+            }
             List<JsonNode> items = nodes(response.path("issues"));
             Map<String, JsonNode> descriptions = descriptions(scope.connectionId(), scope.cloudId(), items);
+            Map<String, JiraIssue> result = new LinkedHashMap<>();
+            if (nextPageToken.isPresent()) {
+                previous.issues().forEach(issue -> result.put(issue.id(), issue));
+            }
             for (JsonNode item : items) {
                 JiraIssue issue = JiraMapping.issue(scope.connectionId(), scope.cloudId(), siteUrl, item,
                         descriptions.getOrDefault(item.path("id").asText(), MissingNode.getInstance()));
                 JiraIssue saved = saveIssue(issue, false, true);
                 if (!scope.completed() || "done".equals(saved.status().category())) {
-                    result.add(saved);
+                    result.put(saved.id(), saved);
+                }
+                else {
+                    result.remove(saved.id());
                 }
             }
-            Optional<String> token = JiraMapping.text(response, "nextPageToken");
-            if (token.isEmpty() || response.path("isLast").asBoolean()) {
-                break;
-            }
-            if (token.equals(next) || page == MAX_PAGES - 1) {
-                partial = true;
-                break;
-            }
-            next = token;
+            JiraDtos.IssuePage page = new JiraDtos.IssuePage(ImmutableList.copyOf(result.values()), Optional.of(Instant.now()), Optional.empty(), next);
+            cache.write(scope.key(), page);
+            return page;
         }
-        JiraDtos.IssuePage page = new JiraDtos.IssuePage(ImmutableList.copyOf(result), Optional.of(Instant.now()), Optional.empty(), partial);
-        cache.write(scope.key(), page);
-        return page;
+        catch (ResponseStatusException failure) {
+            JiraDtos.IssuePage failed = new JiraDtos.IssuePage(previous.issues(), previous.fetchedAt(),
+                    Optional.of("Jira refresh failed. Showing saved tickets. " + Optional.ofNullable(failure.getReason()).orElse("Refresh to try again.")),
+                    previous.nextPageToken());
+            cache.write(scope.key(), failed);
+            return failed;
+        }
+    }
+
+    private void refreshWatchedScope(Scope scope)
+    {
+        Optional<String> next = Optional.empty();
+        for (int page = 0; page < MAX_PAGES; page++) {
+            JiraDtos.IssuePage result = refreshScope(scope, next);
+            if (result.error().isPresent() || result.nextPageToken().isEmpty()) {
+                break;
+            }
+            next = result.nextPageToken();
+        }
     }
 
     /** Board endpoints return descriptions as wiki markup, so a board page caches the same rich-text projection as a ticket read. */
@@ -544,17 +591,17 @@ public class JiraService
                             Scope active = new Scope(scope.connectionId(), scope.cloudId(), scope.boardId(), Optional.of(sprint.id()), true, false);
                             remember(active);
                             if (!active.equals(scope)) {
-                                refreshScope(active);
+                                refreshWatchedScope(active);
                             }
                         }
                     }
                 }
-                refreshScope(scope);
+                refreshWatchedScope(scope);
             }
             catch (RuntimeException ignored) {
                 JiraDtos.IssuePage previous = page(scope);
                 cache.write(scope.key(), new JiraDtos.IssuePage(previous.issues(), previous.fetchedAt(),
-                        Optional.of("Jira refresh failed. Showing saved tickets."), previous.partial()));
+                        Optional.of("Jira refresh failed. Showing saved tickets."), previous.nextPageToken()));
             }
         }
         readNewComments();
@@ -720,10 +767,10 @@ public class JiraService
     private JiraDtos.IssuePage page(Scope scope)
     {
         JiraDtos.IssuePage page = cache.read(scope.key(), JiraDtos.IssuePage.class).orElseGet(() -> new JiraDtos.IssuePage(ImmutableList.of(), Optional.empty(),
-                Optional.empty(), false));
+                Optional.empty(), Optional.empty()));
         List<JiraIssue> issues = page.issues().stream().map(item -> issue(item.connectionId(), item.cloudId(), item.id()))
                 .filter(issue -> !scope.completed() || "done".equals(issue.status().category())).collect(toImmutableList());
-        return new JiraDtos.IssuePage(issues, page.fetchedAt(), page.error(), page.partial());
+        return new JiraDtos.IssuePage(issues, page.fetchedAt(), page.error(), page.nextPageToken());
     }
 
     private synchronized void remember(Scope scope)
@@ -752,8 +799,9 @@ public class JiraService
     private static String query(String path, Map<String, Object> parameters)
     {
         UriComponentsBuilder builder = UriComponentsBuilder.fromPath(path);
-        parameters.forEach(builder::queryParam);
-        return builder.build().encode().toUriString();
+        parameters.forEach((name, value) -> builder.queryParam(name, "{" + name + "}"));
+        // Tokens can contain reserved characters such as '+', which must remain literal query values.
+        return builder.encode().buildAndExpand(parameters).toUriString();
     }
 
     private static String issuePath(String issueId)

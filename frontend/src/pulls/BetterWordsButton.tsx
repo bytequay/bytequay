@@ -16,7 +16,7 @@ import { type RefObject, useEffect, useRef, useState } from 'react';
 type BetterWordsButtonProps = {
   text: string;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
-  repository: string;
+  repository?: string;
   workspaceId?: string;
   disabled?: boolean;
   onError?: (failure: unknown | null) => void;

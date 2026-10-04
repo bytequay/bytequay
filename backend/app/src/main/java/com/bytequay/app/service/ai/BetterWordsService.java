@@ -31,7 +31,7 @@ public class BetterWordsService
     private static final int MAXIMUM_INPUT_CHARACTERS = 20_000;
     private static final String FAILURE = "The selected model could not write the comment";
     private static final String INSTRUCTIONS = """
-            Rewrite the developer-authored comment for a GitHub code review or related issue discussion.
+            Rewrite the developer-authored comment for a code review or issue discussion in GitHub or Jira.
             Use natural, precise, professional, friendly, and concise wording. Focus feedback on the code or behavior,
             not the person. Make the existing question, concern, or requested change clear without inventing details.
             Preserve technical meaning, certainty, urgency, language, Markdown, code identifiers, links, and @mentions.
@@ -105,10 +105,10 @@ public class BetterWordsService
         if (comment.length() > MAXIMUM_INPUT_CHARACTERS) {
             throw new IllegalArgumentException("The comment is too long to rewrite.");
         }
-        if (repository == null || repository.isBlank()) {
+        if (repository != null && repository.isBlank()) {
             throw new IllegalArgumentException("The pull request repository is required.");
         }
-        String requestedRepository = repository.trim();
+        Optional<String> requestedRepository = Optional.ofNullable(repository).map(String::trim);
 
         String improved = helper.answer(selectedModel(requestedRepository, workspaceId), CLI_PROMPT.formatted(INSTRUCTIONS, comment), skills.instructions(), FAILURE);
         if (improved.isBlank()) {
@@ -135,21 +135,21 @@ public class BetterWordsService
             case AUTHOR -> DRAFT_INSTRUCTIONS;
             case REVIEWER -> REVIEWER_DRAFT_INSTRUCTIONS;
         };
-        String reply = helper.answer(selectedModel(repository.trim(), workspaceId), DRAFT_PROMPT.formatted(instructions, context), skills.instructions(), FAILURE);
+        String reply = helper.answer(selectedModel(Optional.of(repository.trim()), workspaceId), DRAFT_PROMPT.formatted(instructions, context), skills.instructions(), FAILURE);
         if (reply.isBlank()) {
             throw new AgentUnavailableException("The selected model returned no reply.");
         }
         return reply.strip();
     }
 
-    private AgentModelSetting selectedModel(String repository, Optional<String> workspaceId)
+    private AgentModelSetting selectedModel(Optional<String> repository, Optional<String> workspaceId)
     {
         Optional<String> validWorkspaceId = workspaceId.map(id -> {
             String monitoredRepository = workspaces.findById(id)
                     .orElseThrow(() -> new IllegalArgumentException("The workspace is no longer available."))
                     .monitoredRepository()
                     .fullName();
-            if (!monitoredRepository.equalsIgnoreCase(repository)) {
+            if (repository.filter(value -> !monitoredRepository.equalsIgnoreCase(value)).isPresent()) {
                 throw new IllegalArgumentException("The pull request does not belong to this workspace.");
             }
             return id;

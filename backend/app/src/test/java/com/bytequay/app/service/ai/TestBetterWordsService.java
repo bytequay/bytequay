@@ -121,7 +121,7 @@ class TestBetterWordsService
         verify(session).start(command.capture());
         assertThat(command.getValue().message())
                 .contains(
-                        "GitHub code review or related issue discussion",
+                        "code review or issue discussion in GitHub or Jira",
                         "professional, friendly, and concise",
                         "without inventing details",
                         "Keep requirements firm and suggestions optional",
@@ -135,6 +135,28 @@ class TestBetterWordsService
         verify(resources).allocate(taskId.capture());
         verify(resources).delete(taskId.getValue());
         verify(settings).agentModel(AgentModelType.DEVELOPMENT, Optional.of("ws-1"));
+    }
+
+    @Test
+    void rewritesJiraCommentsWithoutARepositoryUsingTheDevelopmentModel()
+    {
+        ModelSettingsService settings = mock(ModelSettingsService.class);
+        AgentModelSetting global = developmentModel("claude", "sonnet");
+        AgentModelSetting workspace = developmentModel("codex", "gpt-6.1-sol");
+        when(settings.agentModel(AgentModelType.DEVELOPMENT, Optional.empty())).thenReturn(global);
+        when(settings.agentModel(AgentModelType.DEVELOPMENT, Optional.of("ws-1"))).thenReturn(workspace);
+        TextOnlyHelper helper = mock(TextOnlyHelper.class);
+        when(helper.answer(any(), any(), any(), any())).thenReturn("Distributed split generation is not currently available in Harbor.");
+        BetterWordsService service = new BetterWordsService(settings, workspaceStore("ws-1", RepoRef.of("owner", "repo")), helper, skills);
+
+        assertThat(service.improve("Not available in Harbor", null, Optional.empty())).contains("not currently available in Harbor");
+        verify(helper).answer(eq(global), any(), eq("Use plain language."), any());
+        assertThat(service.improve("Not available in Harbor", null, Optional.of("ws-1"))).contains("not currently available in Harbor");
+        verify(helper).answer(eq(workspace), any(), eq("Use plain language."), any());
+        assertThatThrownBy(() -> service.improve("Not available in Harbor", null, Optional.of("removed")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("no longer available");
+        verify(helper, times(2)).answer(any(), any(), any(), any());
     }
 
     @Test

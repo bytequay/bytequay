@@ -612,6 +612,67 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       const linked = calls.find(call => call.name === 'link'); assert(linked?.args[0] === '10000' && linked.args[1] === false && linked.args[2] === 'ENG-1013', 'An inward relation sends the key a pasted link names');
       await until(() => document.querySelector('input[aria-label="Work item to link"]') === null && links.querySelectorAll('.jira-work-item').length === 3, 'The link appears and the form closes');
     },
+    async 'rewrites Jira comments replies and edits only in their drafts'() {
+      await mountPreview(); commentFails = false;
+      const improved = 'Distributed split generation is not currently available in Harbor.';
+      window.bridge.betterWords = async (...args) => { record('rewrite', ...args); return improved; };
+      const composer = document.querySelector<HTMLFormElement>('.jira-composer');
+      const input = composer?.querySelector('textarea'); assert(composer != null && input != null, 'Comment editor exists');
+      assert(button('Better words', composer).disabled, 'An empty draft cannot be rewritten');
+      edit(input, 'not available in Harbor'); await settle(); button('Better words', composer).click();
+      await until(() => input.value === improved && composer.querySelector('.pr-better-words')?.textContent === 'Discard');
+      assert(calls.find(call => call.name === 'rewrite')?.args.join('|') === 'not available in Harbor||', 'Unassigned Jira uses the helper without a repository or workspace');
+      assert(!calls.some(call => call.name === 'comment'), 'Rewriting never sends a comment');
+      input.focus(); document.execCommand('undo'); await until(() => input.value === 'not available in Harbor' && composer.querySelector('.pr-better-words')?.textContent === 'Better words');
+      button('Better words', composer).click(); await until(() => input.value === improved && composer.querySelector('.pr-better-words')?.textContent === 'Discard');
+      button('Discard', composer).click(); await until(() => input.value === 'not available in Harbor' && composer.querySelector('.pr-better-words')?.textContent === 'Better words');
+      button('Better words', composer).click(); await until(() => input.value === improved && composer.querySelector('.pr-better-words')?.textContent === 'Discard');
+      button('Send', composer).click(); await until(() => input.value === '');
+      assert(button('Better words', composer).disabled && composer.querySelector('.is-discard') === null, 'A sent draft resets the rewrite action');
+      assert(calls.find(call => call.name === 'comment')?.args[0] === improved, 'Send publishes the rewritten draft');
+
+      issue = { ...issue, workspace: { id: 'workspace', name: 'Trino' } };
+      button('Refresh ticket').click(); await until(() => document.querySelector('[aria-label="Change ByteQuay workspace: Trino"]') !== null);
+      button('Reply to Sam Rivera').click(); await settle();
+      const replyForm = document.querySelector<HTMLFormElement>('.jira-reply-form'); const reply = replyForm?.querySelector('textarea');
+      assert(replyForm != null && reply != null, 'Reply editor exists');
+      edit(reply, 'Harbor not have it'); await settle(); button('Better words', replyForm).click(); await until(() => reply.value === improved);
+      const rewrite = calls.filter(call => call.name === 'rewrite').at(-1);
+      assert(rewrite?.args[0] === 'Harbor not have it' && rewrite.args[1] === undefined && rewrite.args[2] === 'workspace', 'Reply uses the assigned workspace without a fabricated GitHub repository');
+      assert(calls.filter(call => call.name === 'comment').length === 1, 'Rewriting a reply does not post it');
+      assert(replyForm.scrollWidth <= replyForm.clientWidth + 1, 'Reply controls fit inside the input box');
+      button('Reply', replyForm).click(); await until(() => document.querySelector('.jira-reply-form') === null);
+      assert(calls.filter(call => call.name === 'comment').at(-1)?.args[0] === improved, 'Reply submits the rewritten draft');
+
+      const own = document.querySelector('[aria-label="Comment by Alex Chen"]'); assert(own !== null, 'Sent comment exists');
+      button('Edit comment', own).click(); await settle();
+      const editForm = own.querySelector<HTMLFormElement>('.jira-comment-edit'); const editor = editForm?.querySelector('textarea');
+      assert(editForm != null && editor != null, 'Own comment editor exists');
+      edit(editor, 'still not available'); await settle(); button('Better words', editForm).click(); await until(() => editor.value === improved);
+      assert(!calls.some(call => call.name === 'edit'), 'Rewriting an edit does not save it');
+      button('Save', editForm).click(); await until(() => calls.some(call => call.name === 'edit'));
+      assert(calls.find(call => call.name === 'edit')?.args[1] === improved, 'Save uses the rewritten edit');
+    },
+    async 'keeps Jira drafts after rewrite failures and ignores changed or closed replies'() {
+      await mountPreview();
+      button('Reply to Sam Rivera').click(); await settle();
+      const form = document.querySelector<HTMLFormElement>('.jira-reply-form'); const reply = form?.querySelector('textarea');
+      assert(form != null && reply != null, 'Reply editor exists');
+      edit(reply, 'keep my draft'); await settle();
+      window.bridge.betterWords = async () => { throw new Error('The selected model is unavailable.'); };
+      button('Better words', form).click(); await until(() => document.querySelector('[role="alert"]')?.textContent === 'The selected model is unavailable.');
+      assert(reply.value === 'keep my draft' && !button('Better words', form).disabled, 'A failed rewrite keeps the draft available');
+      let finish: (value: string) => void = () => { throw new Error('No pending rewrite'); };
+      window.bridge.betterWords = () => new Promise(resolve => { finish = resolve; });
+      button('Better words', form).click(); await settle(); assert(button('Improving…', form).disabled, 'Pending rewrites cannot be repeated');
+      edit(reply, 'newer draft'); await settle(); finish('outdated rewrite'); await until(() => form.querySelector('.pr-better-words')?.textContent === 'Better words');
+      assert(String(reply.value) === 'newer draft', 'Late rewrite cannot overwrite typing');
+      button('Better words', form).click(); await settle(); button('Cancel', form).click(); await until(() => document.querySelector('.jira-reply-form') === null);
+      button('Reply to Sam Rivera').click(); await settle();
+      finish('closed draft rewrite'); await settle();
+      assert(document.querySelector<HTMLTextAreaElement>('.jira-reply-form textarea')?.value === '', 'Late rewrite cannot enter a reopened reply');
+      assert(!calls.some(call => call.name === 'comment' || call.name === 'edit'), 'Rewrite failures and cancellation never write to Jira');
+    },
   })) {
     try { await test(); results.push({ name }); } catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
     root?.unmount(); root = null;

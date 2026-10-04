@@ -15,6 +15,7 @@
 import { Fragment, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Bookmark, Bug, Check, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, ClipboardList, Columns3, CornerDownRight, Equal, ExternalLink, Flag, FolderGit2, List, LoaderCircle, Minus, Pencil, Play, RefreshCw, Reply, Search, UserRound, UsersRound, X, Zap } from 'lucide-react';
 import MarkdownBody from '../pulls/MarkdownBody';
+import BetterWordsButton from '../pulls/BetterWordsButton';
 import { usePopoverDismiss } from '../pulls/code-tests/Outline';
 import { ago, relativeTime } from '../relativeTime';
 import { TaskComposer, StartingAgentTask, useAgentTaskCreation } from '../agents/AgentTasksView';
@@ -586,6 +587,10 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [comment, setComment] = useState('');
+  const [commentRevision, setCommentRevision] = useState(0);
+  const commentRef = useRef<HTMLTextAreaElement>(null);
+  const replyRef = useRef<HTMLTextAreaElement>(null);
+  const commentEditRef = useRef<HTMLTextAreaElement>(null);
   const commentRequest = useRef<{ body: string; id: string } | null>(null);
   const [reply, setReply] = useState<{ threadId: string; parentId: string; to: string; body: string } | null>(null);
   const replyRequest = useRef<{ body: string; parentId: string; id: string } | null>(null);
@@ -664,14 +669,16 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
     if (!body) return;
     if (commentRequest.current?.body !== body) commentRequest.current = { body, id: crypto.randomUUID() };
     const request = commentRequest.current;
-    void mutate(() => window.bridge.commentJiraIssue(location, request.body, request.id), () => { setComment(''); commentRequest.current = null; }, 'comment');
+    void mutate(() => window.bridge.commentJiraIssue(location, request.body, request.id), () => { setComment(''); setCommentRevision(value => value + 1); commentRequest.current = null; }, 'comment');
   };
+  const onRewriteError = (failure: unknown | null) => setError(failure === null ? null : message(failure));
   // Jira threads are one level deep: a reply to a reply still belongs to the thread's first comment.
   const commentRow = (value: JiraComment, threadId: string, parentId: string, nested = false) => <JiraCommentRow key={value.id} value={value} nested={nested}>
     {commentEdit?.id === value.id
       ? <form className="jira-comment-edit" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); setCommentEdit(null); } }} onSubmit={event => { event.preventDefault(); const body = commentEdit.body.trim(); if (body) void mutate(() => window.bridge.editJiraComment(location, value.id, body, commentEdit.updated), () => setCommentEdit(null)); }}>
-        <textarea className="jira-field" aria-label="Edit comment" rows={4} autoFocus value={commentEdit.body} onChange={event => setCommentEdit({ ...commentEdit, body: event.target.value })} onKeyDown={submitOnCommandEnter} />
-        <div className="jira-form-actions"><button type="button" className="jira-btn" disabled={busy} onClick={() => setCommentEdit(null)}>Cancel</button><button type="submit" className="jira-btn is-primary" disabled={busy || !commentEdit.body.trim()}>Save</button></div>
+        <textarea ref={commentEditRef} className="jira-field" aria-label="Edit comment" rows={4} autoFocus value={commentEdit.body} onChange={event => setCommentEdit({ ...commentEdit, body: event.target.value })} onKeyDown={submitOnCommandEnter} />
+        <div className="jira-form-actions"><BetterWordsButton text={commentEdit.body} textareaRef={commentEditRef} workspaceId={issue?.workspace?.id} disabled={busy} onError={onRewriteError} />
+          <button type="button" className="jira-btn" disabled={busy} onClick={() => setCommentEdit(null)}>Cancel</button><button type="submit" className="jira-btn is-primary" disabled={busy || !commentEdit.body.trim()}>Save</button></div>
       </form>
       : <><MarkdownBody body={value.body} /><div className="jira-comment__actions">
         <button type="button" className="bq-iconbtn" aria-label={`Reply to ${value.author.displayName}`} title="Reply" onClick={() => setReply(current => ({ threadId, parentId, to: value.author.displayName, body: current?.threadId === threadId ? current.body : '' }))}><Reply size={14} /></button>
@@ -727,9 +734,9 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
         <section className="jira-comments" aria-label="Comments">
           <h3>Comments<span className="jira-count">{detail.comments.length}</span></h3>
           <form className="jira-composer" onSubmit={event => { event.preventDefault(); sendComment(); }}>
-            <textarea aria-label="Add a comment" rows={5} placeholder="Write a comment…" value={comment} onChange={event => setComment(event.target.value)} onKeyDown={submitOnCommandEnter} />
-            <span className="jira-kbd" aria-hidden="true">⌘↵</span>
-            <button type="submit" className="jira-btn is-primary" disabled={busy || !comment.trim()}>Send</button>
+            <textarea ref={commentRef} aria-label="Add a comment" rows={5} placeholder="Write a comment…" value={comment} onChange={event => setComment(event.target.value)} onKeyDown={submitOnCommandEnter} />
+            <div className="jira-composer__foot"><BetterWordsButton key={commentRevision} text={comment} textareaRef={commentRef} workspaceId={issue.workspace?.id} disabled={busy} onError={onRewriteError} />
+              <span className="jira-kbd" aria-hidden="true">⌘↵</span><button type="submit" className="jira-btn is-primary" disabled={busy || !comment.trim()}>Send</button></div>
           </form>
           {detail.comments.length > 0 && <div className="jira-threads">{jiraCommentThreads(detail.comments).map(({ comment: root, replies }) => {
             // A reply whose own parent is not loaded still answers that parent.
@@ -740,8 +747,9 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
               {(replies.length > 0 || replying) && <div className="jira-comment-replies">
                 {replies.map(value => commentRow(value, root.id, parentId, true))}
                 {replying && <form className="jira-reply-form" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); setReply(null); } }} onSubmit={event => { event.preventDefault(); const body = replying.body.trim(); if (!body) return; if (replyRequest.current?.body !== body || replyRequest.current.parentId !== replying.parentId) replyRequest.current = { body, parentId: replying.parentId, id: crypto.randomUUID() }; const request = replyRequest.current; void mutate(() => window.bridge.commentJiraIssue(location, request.body, request.id, request.parentId), () => { setReply(null); replyRequest.current = null; }, 'comment'); }}>
-                  <textarea aria-label={`Reply to ${replying.to}`} rows={3} autoFocus placeholder={`Reply to ${replying.to}…`} value={replying.body} onChange={event => setReply({ ...replying, body: event.target.value })} onKeyDown={submitOnCommandEnter} />
-                  <div className="jira-reply-form__foot"><span className="jira-muted">Replying in this thread · ⌘↵ to send · Esc to cancel</span><span className="jira-spacer" />
+                  <textarea ref={replyRef} aria-label={`Reply to ${replying.to}`} rows={3} autoFocus placeholder={`Reply to ${replying.to}…`} value={replying.body} onChange={event => setReply({ ...replying, body: event.target.value })} onKeyDown={submitOnCommandEnter} />
+                  <span className="jira-muted">Replying in this thread · ⌘↵ to send · Esc to cancel</span>
+                  <div className="jira-reply-form__foot"><BetterWordsButton text={replying.body} textareaRef={replyRef} workspaceId={issue.workspace?.id} disabled={busy} onError={onRewriteError} />
                     <button type="button" className="jira-btn" disabled={busy} onClick={() => setReply(null)}>Cancel</button><button type="submit" className="jira-btn is-primary" disabled={busy || !replying.body.trim()}>Reply</button></div>
                 </form>}
               </div>}

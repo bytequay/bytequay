@@ -57,6 +57,10 @@ The first release includes:
 - Post a comment explicitly, reply inside a thread, or edit your own comment.
   Drafts survive failures. An uncertain send is not retried automatically,
   including after reconnecting through another connection.
+  Each comment editor offers Better words through the existing text-only helper,
+  using the assigned workspace's development model or the global development
+  default for an unassigned ticket. Rewrites stay in the draft, support Undo and
+  Discard, and never post a comment; changed or closed drafts ignore late results.
 - Mark a ticket as a local Goal, or start development on a leaf ticket. If it
   has no ByteQuay workspace, either action asks the user to choose and confirm
   one first. Save the choice locally and show the workspace name on the card and

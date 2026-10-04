@@ -246,6 +246,11 @@ and a busy task no longer costs a Goal request per turn.
    never held. Held events live in memory: after a restart the next request
    still reads the recorded facts. A paused Goal holds nothing.
 
+Progress: item 1 is implemented. A Practice card's issue is read again through
+one GraphQL request for its state and the pull requests linked to close it, a
+ticket through the Jira refresh; an unready source is saved as a dismissed card
+and the agent is told why and asked for another.
+
 Done when: no practice card floats for a closed or already fixed issue or a done
 ticket; an accepted course can be revised without losing finished lessons; and
 a task that ends ten turns in a minute brings at most two Goal exchanges, while

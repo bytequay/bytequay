@@ -418,6 +418,28 @@ class TestGoalConversationService
     }
 
     @Test
+    void aPracticeCardWhoseSourceIsNoLongerOpenIsSetAsideAndTheAgentAskedForAnother()
+    {
+        GoalView goal = goals.create("workspace", "Delta Lake", "");
+        service.ask("workspace", goal.id(), "op-1", "Reads first");
+        doReturn(PROPOSAL).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        service.accept("workspace", goal.id(), "op-1", Optional.empty());
+        when(candidates.pool(any())).thenReturn(pool("#31252"));
+        when(candidates.unready(any(), any())).thenReturn(Optional.of("Issue #31252 already has pull request #31260 linked to close it, open."));
+        doReturn(work(31252)).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+
+        assertThat(cards.list(goal.id())).singleElement().as("set aside, so the candidates leave it out").extracting(GoalRecommendation::state)
+                .isEqualTo(GoalRecommendation.State.DISMISSED);
+        assertThat(exchanges.list(goal.id()).getLast()).satisfies(told -> {
+            assertThat(told.automatic()).isTrue();
+            assertThat(told.state()).isEqualTo(GoalExchange.State.PENDING);
+            assertThat(told.message()).isEqualTo("Issue #31252 already has pull request #31260 linked to close it, open. Recommend another candidate.");
+        });
+    }
+
+    @Test
     void aWorkCardNamingAMappedTicketKeepsItsReferenceAndStartAdoptsTheTicket()
     {
         GoalView goal = goals.create("workspace", "Delta Lake", "");

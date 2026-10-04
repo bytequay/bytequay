@@ -449,13 +449,17 @@ public class GoalConversationService
             String reason = failure instanceof ResponseStatusException status ? status.getReason() : failure.getMessage();
             settled = exchange.failed(model, reason == null || reason.isBlank() ? "The agent could not answer." : reason, clock.instant());
         }
+        Optional<GoalView> defined = read.filter(goal -> goal.definition().isPresent());
+        Optional<GoalRecommendation.Card> card = settled.reply().flatMap(GoalExchange.Reply::recommendation).filter(found -> defined.isPresent());
+        // GitHub or Jira answers whether a practice card's source is still open, so it is asked before the lock.
+        Optional<String> unready = card.filter(found -> found.kind() == GoalRecommendation.Kind.WORK).flatMap(found -> unready(defined.orElseThrow(), found));
+        boolean setAside = false;
         synchronized (writes) {
             // Only the request this job was given is settled; a restart's settlement or a later retry replaced any other.
             if (exchanges.find(exchange.id()).filter(exchange::equals).isPresent()) {
                 exchanges.save(settled);
-                Optional<GoalRecommendation.Card> card = settled.reply().flatMap(GoalExchange.Reply::recommendation);
-                if (card.isPresent() && read.flatMap(GoalView::definition).isPresent()) {
-                    recommend(read.orElseThrow(), settled, card.orElseThrow());
+                if (card.isPresent()) {
+                    setAside = recommend(read.orElseThrow(), settled, card.orElseThrow(), unready);
                 }
                 if (read.isPresent()) {
                     learn(read.orElseThrow(), settled.reply().map(GoalExchange.Reply::topics).orElse(ImmutableList.of()));
@@ -465,6 +469,20 @@ public class GoalConversationService
                     }
                 }
             }
+        }
+        if (setAside) {
+            tell(settled.workspaceId(), settled.goalId(), "unready:" + settled.id(), unready.orElseThrow() + " Recommend another candidate.");
+        }
+    }
+
+    private Optional<String> unready(GoalView goal, GoalRecommendation.Card card)
+    {
+        try {
+            return practice(goal, card).flatMap(named -> candidates.unready(goal, named));
+        }
+        catch (RuntimeException failure) {
+            log.debug("The practice card of goal exchange for {} was not checked", goal.id(), failure);
+            return Optional.empty();
         }
     }
 
@@ -522,7 +540,13 @@ public class GoalConversationService
      * Floats the card unless one of its kind is still waiting or running, or the user dismissed the same card. A lesson card must name an
      * unfinished lesson of the goal's course.
      */
-    private void recommend(GoalView goal, GoalExchange exchange, GoalRecommendation.Card answered)
+    /**
+     * Floats the card an answer recommended, unless it names nothing the agent was given or a card of its kind is still waiting. A practice card
+     * whose source is no longer open is set aside as dismissed instead, so the candidates leave it out.
+     *
+     * @return whether the card was set aside
+     */
+    private boolean recommend(GoalView goal, GoalExchange exchange, GoalRecommendation.Card answered, Optional<String> unready)
     {
         boolean lesson = answered.workItemId().map(id -> goal.course().stream().flatMap(course -> course.parts().stream()).anyMatch(part -> part.lessons().contains(id))
                 && goal.items().stream().anyMatch(item -> item.id().equals(id) && item.state() != WorkItem.State.DONE && item.state() != WorkItem.State.DROPPED)).orElse(true);
@@ -534,18 +558,21 @@ public class GoalConversationService
             case RESEARCH, LESSON -> Optional.of(answered);
         };
         if (!lesson || named.isEmpty()) {
-            return;
+            return false;
         }
         GoalRecommendation.Card card = named.orElseThrow();
         List<GoalRecommendation> cards = recommendations.list(goal.id());
         boolean waiting = cards.stream().anyMatch(existing -> existing.card().kind() == card.kind()
                 && (existing.state() == GoalRecommendation.State.SHOWN || existing.state() == GoalRecommendation.State.STARTED));
         boolean dismissed = cards.stream().anyMatch(existing -> existing.state() == GoalRecommendation.State.DISMISSED && existing.card().equals(card));
-        if (!waiting && !dismissed) {
-            Instant now = clock.instant();
-            recommendations.save(new GoalRecommendation("card-" + exchange.id(), goal.id(), goal.workspaceId(), card, GoalRecommendation.State.SHOWN, Optional.empty(),
-                    Optional.empty(), Optional.empty(), exchange.id(), now, now));
+        if (waiting || dismissed) {
+            return false;
         }
+        Instant now = clock.instant();
+        recommendations.save(new GoalRecommendation("card-" + exchange.id(), goal.id(), goal.workspaceId(), card,
+                unready.isPresent() ? GoalRecommendation.State.DISMISSED : GoalRecommendation.State.SHOWN, Optional.empty(), Optional.empty(), Optional.empty(),
+                exchange.id(), now, now));
+        return unready.isPresent();
     }
 
     private void dispatch(GoalExchange exchange)

@@ -112,7 +112,12 @@ Jira tickets mapped to it, without sources that already have work, a task or a
 dismissed card, the ones sharing the most words with the Goal first, and how
 much of each source was read. It may recommend one as a Practice card, naming an
 issue's number or a ticket's key, with the instruction a developer would give a
-coding agent for it; a card naming anything else is dropped. Start makes the
+coding agent for it; a card naming anything else is dropped. Before the card
+floats, ByteQuay reads its source again: the issue's state and the pull requests
+linked to close it, or the ticket through its refresh. A closed issue, one with
+an open or merged linked pull request, or a ticket now done or claimed is set
+aside as dismissed and the agent is asked for another; when the read fails, the
+card floats from the cached candidate. Start makes the
 issue or ticket a Develop work item of the Goal, with the card's scope as its
 criteria under merged delivery, and opens its ordinary composer with the
 instruction filled in; the task and its source snapshot are created only when
@@ -168,8 +173,8 @@ The Guide view lists what the user knows, and the user can correct any level.
 
 A new explicit same-source attempt without deleting the prior task, proposal
 acceptance into other work items, linking a filed issue to its gap, course changes, automatic
-outcome harvesting, stale-note marking and the two-call discovery shortlist with
-a source refresh remain pending. The checklist
+outcome harvesting, stale-note marking and the two-call discovery shortlist
+remain pending. The checklist
 distinguishes these from implemented behavior.
 
 The checked development database contained no Goals or issue/Jira task bindings.

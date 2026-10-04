@@ -16,8 +16,11 @@ package com.bytequay.app.service.goal;
 import com.bytequay.app.jira.JiraDtos;
 import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.jira.JiraService;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.IssueTask;
+import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssuePage;
@@ -34,6 +37,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
@@ -59,7 +64,10 @@ class TestGoalCandidates
     private final GoalRecommendationStore recommendations = mock(GoalRecommendationStore.class);
     private final JiraService jira = mock(JiraService.class);
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
-    private final GoalCandidates candidates = new GoalCandidates(workspaces, issues, development, items, recommendations, beans.getBeanProvider(JiraService.class));
+    private final GitHubPullRequestReadClient gitHub = mock(GitHubPullRequestReadClient.class);
+    private final CredentialService credentials = mock(CredentialService.class);
+    private final GoalCandidates candidates = new GoalCandidates(workspaces, issues, development, items, recommendations, beans.getBeanProvider(JiraService.class),
+            gitHub, credentials);
 
     @BeforeEach
     void setUp()
@@ -102,6 +110,39 @@ class TestGoalCandidates
         assertThat(pool.has("#103")).isFalse();
         assertThat(candidates.ticket("workspace", "trino-12")).map(GoalCandidates::reference).contains("connection:cloud:10412");
         assertThat(candidates.ticket("workspace", "TRINO-13")).as("a ticket mapped to another workspace is not this one's").isEmpty();
+    }
+
+    @Test
+    void aPracticeSourceIsReadAgainAndLeftOutOnceClosedOrClaimed()
+    {
+        when(credentials.resolveGitHubToken("workspace")).thenReturn("token");
+        PullRequestRef issue = PullRequestRef.of("trinodb", "trino", 31252);
+        when(gitHub.fetchIssueLinks("token", issue)).thenReturn(new GitHubPullRequestReadClient.IssueLinks(true,
+                ImmutableList.of(new GitHubPullRequestReadClient.LinkedPull(31100, "CLOSED"))));
+        assertThat(candidates.unready(goal("Delta"), card(Optional.of(31252), Optional.empty()))).as("a closed pull request claims nothing").isEmpty();
+
+        when(gitHub.fetchIssueLinks("token", issue)).thenReturn(new GitHubPullRequestReadClient.IssueLinks(true,
+                ImmutableList.of(new GitHubPullRequestReadClient.LinkedPull(31100, "CLOSED"), new GitHubPullRequestReadClient.LinkedPull(31260, "MERGED"))));
+        assertThat(candidates.unready(goal("Delta"), card(Optional.of(31252), Optional.empty())))
+                .contains("Issue #31252 already has pull request #31260 linked to close it, merged.");
+
+        when(gitHub.fetchIssueLinks("token", issue)).thenReturn(new GitHubPullRequestReadClient.IssueLinks(false, ImmutableList.of()));
+        assertThat(candidates.unready(goal("Delta"), card(Optional.of(31252), Optional.empty()))).contains("Issue #31252 is closed.");
+
+        when(gitHub.fetchIssueLinks("token", issue)).thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY));
+        assertThat(candidates.unready(goal("Delta"), card(Optional.of(31252), Optional.empty()))).as("an unreadable source floats from the cache").isEmpty();
+
+        when(jira.refreshIssue("connection", "cloud", "10414")).thenReturn(ticket("10414", "TRINO-14", "Delta checkpoint", "done", "workspace"));
+        assertThat(candidates.unready(goal("Delta"), card(Optional.empty(), Optional.of("connection:cloud:10414"))))
+                .contains("Ticket TRINO-14 is no longer open for practice; it is Done.");
+        when(jira.refreshIssue("connection", "cloud", "10412")).thenReturn(ticket("10412", "TRINO-12", "Delta checkpoint", "indeterminate", "workspace"));
+        assertThat(candidates.unready(goal("Delta"), card(Optional.empty(), Optional.of("connection:cloud:10412")))).isEmpty();
+    }
+
+    private static GoalRecommendation.Card card(Optional<Integer> issue, Optional<String> ticket)
+    {
+        return new GoalRecommendation.Card(GoalRecommendation.Kind.WORK, "Fix it", "You learned checkpoints", "Fix it", ImmutableList.of(), Optional.empty(), issue, ticket,
+                Optional.empty(), Optional.empty());
     }
 
     private static GoalView goal(String title)

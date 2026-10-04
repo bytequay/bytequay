@@ -16,7 +16,10 @@ package com.bytequay.app.service.goal;
 import com.bytequay.app.jira.JiraDtos;
 import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.jira.JiraService;
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.GoalRecommendation;
+import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.WorkItemLink;
@@ -27,6 +30,8 @@ import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -48,11 +53,13 @@ import static java.util.Objects.requireNonNull;
 /**
  * What a goal's agent may recommend as practice: the workspace's open issues and the Jira tickets mapped to it, read from the local stores,
  * without sources that already have work, a task or a card the user dismissed. The ones sharing the most words with the goal come first, and
- * the coverage says how much of each source was read, so the agent never claims it searched everything.
+ * the coverage says how much of each source was read, so the agent never claims it searched everything. The one source a card names is read
+ * again from GitHub or Jira before the card floats.
  */
 @Component
 public class GoalCandidates
 {
+    private static final Logger log = LoggerFactory.getLogger(GoalCandidates.class);
     static final int MAX_CANDIDATES = 100;
     // ponytail: the 500 open issues updated last; read further pages once a workspace's backlog outgrows them.
     private static final int ISSUE_PAGES = 5;
@@ -93,9 +100,11 @@ public class GoalCandidates
     private final WorkItemStore items;
     private final GoalRecommendationStore recommendations;
     private final ObjectProvider<JiraService> jira;
+    private final GitHubPullRequestReadClient gitHub;
+    private final CredentialService credentials;
 
     public GoalCandidates(WorkspaceStore workspaces, RepositoryIssueStore issues, IssueDevelopmentStore development, WorkItemStore items,
-            GoalRecommendationStore recommendations, ObjectProvider<JiraService> jira)
+            GoalRecommendationStore recommendations, ObjectProvider<JiraService> jira, GitHubPullRequestReadClient gitHub, CredentialService credentials)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.issues = requireNonNull(issues, "issues is null");
@@ -103,6 +112,8 @@ public class GoalCandidates
         this.items = requireNonNull(items, "items is null");
         this.recommendations = requireNonNull(recommendations, "recommendations is null");
         this.jira = requireNonNull(jira, "jira is null");
+        this.gitHub = requireNonNull(gitHub, "gitHub is null");
+        this.credentials = requireNonNull(credentials, "credentials is null");
     }
 
     /** The candidates nearest what the goal is about: its title, definition, topics and work. */
@@ -153,6 +164,37 @@ public class GoalCandidates
         goal.topics().forEach(topic -> text.append(' ').append(topic.topic()));
         goal.items().forEach(item -> text.append(' ').append(item.title()));
         return text.toString();
+    }
+
+    /**
+     * Why the source a practice card names is no longer open for practice, read again: a closed issue, an issue with an open or merged pull
+     * request linked to close it, or a ticket now done, claimed or worked. Nothing when it is still open, or when the read fails, since the card
+     * came from the cached candidates.
+     *
+     * @param card a practice card whose ticket is its stable reference
+     */
+    public Optional<String> unready(GoalView goal, GoalRecommendation.Card card)
+    {
+        try {
+            if (card.issue().isPresent()) {
+                int number = card.issue().orElseThrow();
+                Workspace workspace = workspaces.findById(goal.workspaceId()).orElseThrow();
+                GitHubPullRequestReadClient.IssueLinks links = gitHub.fetchIssueLinks(credentials.resolveGitHubToken(goal.workspaceId()),
+                        PullRequestRef.of(workspace.monitoredRepository().owner(), workspace.monitoredRepository().repo(), number));
+                if (!links.open()) {
+                    return Optional.of("Issue #" + number + " is closed.");
+                }
+                return links.pulls().stream().filter(pull -> !"CLOSED".equals(pull.state())).findFirst()
+                        .map(pull -> "Issue #" + number + " already has pull request #" + pull.number() + " linked to close it, " + pull.state().toLowerCase(Locale.ROOT) + ".");
+            }
+            String[] reference = card.ticket().orElseThrow().split(":", 3);
+            JiraIssue ticket = jira.getObject().refreshIssue(reference[0], reference[1], reference[2]);
+            return workable(ticket) ? Optional.empty() : Optional.of("Ticket " + ticket.key() + " is no longer open for practice; it is " + ticket.status().name() + ".");
+        }
+        catch (RuntimeException failure) {
+            log.debug("The practice source of goal {} was not read again: {}", goal.id(), failure.toString());
+            return Optional.empty();
+        }
     }
 
     /** The cached ticket with this key mapped to the workspace, if any. */

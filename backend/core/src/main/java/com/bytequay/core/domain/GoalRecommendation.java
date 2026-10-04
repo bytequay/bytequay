@@ -51,7 +51,8 @@ public record GoalRecommendation(
         RESEARCH,
         LESSON,
         WORK,
-        SPEC_CHECK
+        SPEC_CHECK,
+        INVESTIGATE
     }
 
     public enum State
@@ -72,7 +73,8 @@ public record GoalRecommendation(
         requireNonNull(taskId, "taskId is null");
         checkArgument(taskId.isEmpty() || state == State.STARTED || state == State.DONE, "only a started card has a run");
         requireNonNull(workItemId, "workItemId is null");
-        checkArgument(workItemId.isEmpty() || card.kind() == Kind.WORK && (state == State.STARTED || state == State.DONE), "only a started work card has its work");
+        checkArgument(workItemId.isEmpty() || (card.kind() == Kind.WORK || card.kind() == Kind.INVESTIGATE) && (state == State.STARTED || state == State.DONE),
+                "only a started work or investigation card has its work");
         requireNonNull(checkId, "checkId is null");
         checkArgument(checkId.isEmpty() || card.kind() == Kind.SPEC_CHECK && (state == State.STARTED || state == State.DONE), "only a started spec-check card has a check");
         checkText(exchangeId, "exchangeId");
@@ -91,8 +93,8 @@ public record GoalRecommendation(
         return new GoalRecommendation(id, goalId, workspaceId, card, State.STARTED, Optional.empty(), Optional.empty(), Optional.of(check), exchangeId, createdAt, at);
     }
 
-    /** Start on a work card: its source became this Goal work, whose task the user sends from the composer. */
-    public GoalRecommendation practicing(String workItem, Instant at)
+    /** Start on a work or investigation card: it became this Goal work, a practice's source or the investigation itself. */
+    public GoalRecommendation working(String workItem, Instant at)
     {
         return new GoalRecommendation(id, goalId, workspaceId, card, State.STARTED, Optional.empty(), Optional.of(workItem), Optional.empty(), exchangeId, createdAt, at);
     }

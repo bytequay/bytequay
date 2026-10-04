@@ -410,6 +410,7 @@ function Started({ goal, card, onOpenTask, onLesson, onStartIssue, onStartTicket
       {card.card.kind === 'RESEARCH' && card.taskId !== null && <button type="button" className="goal-link" onClick={() => onOpenTask(card.taskId)}>Open run</button>}
       {card.card.kind === 'LESSON' && card.card.workItemId !== null && <button type="button" className="goal-link"
         onClick={() => onLesson(card.card.workItemId)}>Open lesson</button>}
+      {card.card.kind === 'INVESTIGATE' && work !== undefined && <button type="button" className="goal-link" onClick={() => onReview(work.id)}>Open work</button>}
       {pull !== undefined && <span className="goal-muted">{pull.label} {pull.status.toLowerCase()}</span>}
       {work !== undefined && pull?.state === 'MERGED' && <button type="button" className="goal-link" onClick={() => onReview(work.id)}>Review result</button>}
       {card.card.kind === 'WORK' && (task !== undefined

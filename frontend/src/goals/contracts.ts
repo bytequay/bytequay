@@ -160,7 +160,7 @@ export type GoalCourseDraftDto = { parts: { title: string; lessons: { title: str
  * composer of its issue with the scope as the instruction.
  */
 export type GoalCardDto = {
-  kind: 'RESEARCH' | 'LESSON' | 'WORK' | 'SPEC_CHECK';
+  kind: 'RESEARCH' | 'LESSON' | 'WORK' | 'SPEC_CHECK' | 'INVESTIGATE';
   title: string;
   reason: string;
   scope: string;
@@ -245,7 +245,7 @@ export type GoalKnowledgeNoteDto = {
 function parseCard(value: unknown): GoalCardDto {
   const card = object(value, 'goal card');
   return {
-    kind: oneOf(card.kind, ['RESEARCH', 'LESSON', 'WORK', 'SPEC_CHECK'] as const, 'goal card kind'),
+    kind: oneOf(card.kind, ['RESEARCH', 'LESSON', 'WORK', 'SPEC_CHECK', 'INVESTIGATE'] as const, 'goal card kind'),
     title: text(card.title, 'goal card title'),
     reason: text(card.reason, 'goal card reason'),
     scope: text(card.scope, 'goal card scope'),

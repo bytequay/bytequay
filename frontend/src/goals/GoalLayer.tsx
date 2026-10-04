@@ -29,7 +29,8 @@ const PILL_MARGIN = 8;
 /** Cards float under the pill when it sits this far above the page's bottom, and above it otherwise. */
 const ROOM_BELOW = 220;
 const MAX_CARDS = 3;
-const CARD_KINDS: Record<GoalRecommendationDto['card']['kind'], string> = { RESEARCH: 'Research', LESSON: 'Lesson', WORK: 'Practice', SPEC_CHECK: 'Spec check' };
+const CARD_KINDS: Record<GoalRecommendationDto['card']['kind'], string> = { RESEARCH: 'Research', LESSON: 'Lesson', WORK: 'Practice', SPEC_CHECK: 'Spec check',
+  INVESTIGATE: 'Investigation' };
 
 function pillKey(page: string): string {
   return `bq.goal.pill.${page}`;
@@ -283,9 +284,14 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
                 open();
                 goals.refresh();
               }) : goals.startCard(goal.id, card.id).then(() => {
-                // A work card's task starts only when the user sends the composer it opens.
+                // A work card's task starts only when the user sends the composer it opens; an investigation shows in the Goal window.
                 if (card.card.issue !== null) onStartIssue(card.card.issue, card.card.scope);
                 else if (card.card.ticket !== null) startTicket(card.card.ticket, card.card.scope);
+                else if (card.card.kind === 'INVESTIGATE') {
+                  setView('guide');
+                  setDrafting(false);
+                  open();
+                }
               }))}
               onAdjust={card.card.module === null ? undefined
                 : () => onSpecCheck({ directory: card.card.module, prefill: { specs: card.card.pages, reproductions: card.card.reproductions ?? 3 } })}

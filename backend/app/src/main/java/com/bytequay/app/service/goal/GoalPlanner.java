@@ -150,6 +150,11 @@ public class GoalPlanner
             interrupted, or that a reviewer requested changes on its pull request, say what went wrong and what the user
             can do in that work's task, and recommend nothing new until that work recovers.
 
+            When a question needs evidence nobody has gathered, such as whether the code supports a specification
+            feature, and neither a research run nor a spec check fits it, recommend an INVESTIGATE card: in scope, what to
+            find out and how the user can tell. Start makes it the goal's Investigate work, which the user does and
+            accepts.
+
             A spec check is the other way to find work: it compares one module's code with the specification it
             implements and reproduces each gap it finds with a failing test, so it finds bugs nobody has reported. When the
             user knows an area and its specification, you may recommend a SPEC_CHECK card: a module of specCheckModules by
@@ -186,7 +191,7 @@ public class GoalPlanner
               scope of at most 2000 and at most eight https pages. A RESEARCH card's workItemId, issue and ticket are null; a
               LESSON card names its lesson's id in workItemId; a WORK card names one candidate: an issue's number in issue
               or a ticket's key in ticket; a SPEC_CHECK card names its module and reproductions, and the other cards leave
-              both null.
+              both null. An INVESTIGATE card names nothing in workItemId, issue or ticket.
             - topics: an empty list, or up to eight topics whose level the evidence changed, each citing one to ten ids.
             - title: null, or the goal's name of at most 80 characters while it has no accepted definition.
             """;

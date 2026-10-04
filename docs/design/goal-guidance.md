@@ -136,6 +136,13 @@ item's attempt. The card
 stays started, and no other Practice card floats, until the work is done or
 dropped; the agent hears each accept, drop or reopen of the Goal's work.
 
+When a question needs evidence nobody has gathered, such as whether the code
+supports a specification feature, and neither research nor a spec check fits
+it, the agent may recommend an investigation card naming what to find out.
+Start makes it one Investigate work item of the Goal under an accepted result,
+so starting it again finds the same item, and the Guide view opens that work,
+where the user links a task or accepts the result.
+
 The agent also sees the workspace's fifteen modules whose code cites a page in
 the most sections, read once per monitored head, and may recommend a Spec check
 card naming one of them, the specification pages to check it against and how
@@ -199,9 +206,9 @@ Practiced or Strong, citing the questions, lessons or work items it rests on;
 ByteQuay keeps only evidence that exists and never changes a level the user set.
 The Guide view lists what the user knows, and the user can correct any level.
 
-A new explicit same-source attempt without deleting the prior task, proposal
-acceptance into other work items, automatic outcome harvesting and the two-call discovery shortlist remain pending. The checklist
-distinguishes these from implemented behavior.
+A new explicit same-source attempt without deleting the prior task, automatic
+outcome harvesting and the two-call discovery shortlist remain pending. The
+checklist distinguishes these from implemented behavior.
 
 The checked development database contained no Goals or issue/Jira task bindings.
 The final Goal mapping uses `goal`; work items and identity reservations use

@@ -1,7 +1,7 @@
 # Agent guided goals implementation plan
 
-Status: The first four implementation slices are complete and the fifth is in
-progress. The later items of Steps 3 to 6 below remain as listed.
+Status: The first five implementation slices are complete. The later items of
+Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
 
@@ -308,6 +308,10 @@ Item 4 is implemented: notes are read with a stale flag from one git diff per
 repository and commit against the monitored head of the workspace or a
 Dependency, cached per commit pair and skipped when no note cites a file; the
 Guide view marks stale notes and the planner sends their topics marked stale.
+
+Item 2 is implemented: an INVESTIGATE card names a scope only; Start creates
+the Investigate work item with an ID derived from the card, under an accepted
+result, and the started card opens that work. The fifth slice is complete.
 
 Done when: an accepted result carries a saved summary; an investigation card
 becomes one work item however often it is started; a filed gap issue links to

@@ -181,6 +181,12 @@ describe('goal guidance', () => {
   it('reads cards and notes the backend sends and refuses a card of an unknown kind', () => {
     expect(parseGoalRecommendation(JSON.parse(JSON.stringify({ ...CARD, workspaceId: 'workspace-1', exchangeId: 'op-1', updatedAt: CARD.createdAt })))).toEqual(CARD);
     expect(() => parseGoalRecommendation({ ...CARD, card: { ...CARD.card, kind: 'TASK' } })).toThrow('Malformed goal card kind');
+    expect(parseGoalRecommendation({ ...CARD, card: { ...CARD.card, kind: 'INVESTIGATE', pages: [] } }).card.kind).toBe('INVESTIGATE');
+    // A started investigation is the goal's Investigate work, which the Goal window opens.
+    const investigating = panel({ view: 'guide', goal: { ...GOAL, recommendations: [{ ...CARD, state: 'STARTED', workItemId: 'work-0',
+      card: { ...CARD.card, kind: 'INVESTIGATE', title: 'Check deletion vector support', pages: [] } }] } });
+    expect(investigating).toContain('Investigating: Check deletion vector support');
+    expect(investigating).toContain('>Open work</button>');
     expect(parseGoalKnowledgeNote(JSON.parse(JSON.stringify({ ...NOTE, goalId: 'goal-1', taskId: 'task-1' })))).toEqual(NOTE);
     expect(parseGoal(JSON.parse(JSON.stringify({ ...GOAL, recommendations: [CARD] }))).recommendations).toEqual([CARD]);
     expect(parseGoalRecommendation({ ...CARD, state: 'STARTED', workItemId: 'work-9' }).workItemId).toBe('work-9');

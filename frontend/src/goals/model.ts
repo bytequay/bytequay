@@ -184,7 +184,8 @@ export function openCourse(goal: GoalDto | null, exchanges: GoalExchangeDto[]): 
 }
 
 /** What a started card is doing, as the panel names it. */
-export const STARTED_LABELS: Record<GoalCardDto['kind'], string> = { RESEARCH: 'Researching', LESSON: 'Learning', WORK: 'Practicing', SPEC_CHECK: 'Checking' };
+export const STARTED_LABELS: Record<GoalCardDto['kind'], string> = { RESEARCH: 'Researching', LESSON: 'Learning', WORK: 'Practicing', SPEC_CHECK: 'Checking',
+  INVESTIGATE: 'Investigating' };
 
 /**
  * Where a goal stands, in one line, and how many decisions wait for the user: a proposal or a course to accept, a merged result to accept

@@ -35,7 +35,7 @@ class TestGoalRecommendationConverter
                 "You learned how checkpoints reconcile actions", "Key checkpoint actions by path and deletion vector", ImmutableList.of(), Optional.empty(),
                 Optional.of(31252), Optional.empty(), Optional.empty(), Optional.empty()), GoalRecommendation.State.SHOWN, Optional.empty(), Optional.empty(),
                 Optional.empty(), "op-1", NOW, NOW);
-        GoalRecommendation started = shown.practicing("work-1", NOW.plusSeconds(1));
+        GoalRecommendation started = shown.working("work-1", NOW.plusSeconds(1));
         assertThat(converter.convertToEntityAttribute(converter.convertToDatabaseColumn(started))).isEqualTo(started);
 
         // A card saved before work, check, ticket and module fields existed reads without them.

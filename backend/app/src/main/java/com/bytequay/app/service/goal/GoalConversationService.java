@@ -452,7 +452,8 @@ public class GoalConversationService
 
     /**
      * Start on a card: research begins its run; a work card makes its issue or ticket the Goal's work while the composer opens with its
-     * instruction, and the task starts only when the user sends it, as that work's attempt.
+     * instruction, and the task starts only when the user sends it, as that work's attempt; an investigation becomes the Goal's Investigate
+     * work.
      */
     public GoalRecommendation startCard(String workspaceId, String goalId, String recommendationId)
     {
@@ -464,26 +465,39 @@ public class GoalConversationService
         if (card.card().kind() == GoalRecommendation.Kind.SPEC_CHECK) {
             return specChecks.getObject().start(workspaceId, goalId, recommendationId);
         }
-        checkArgument(card.card().kind() == GoalRecommendation.Kind.WORK, "A lesson card opens its lesson.");
+        checkArgument(card.card().kind() == GoalRecommendation.Kind.WORK || card.card().kind() == GoalRecommendation.Kind.INVESTIGATE, "A lesson card opens its lesson.");
         if (card.state() == GoalRecommendation.State.STARTED) {
             return card;
         }
         requireShown(card);
-        GoalItemKind kind = card.card().issue().isPresent() ? GoalItemKind.ISSUE : GoalItemKind.JIRA;
-        String source = card.card().ticket().orElseGet(() -> GoalItem.numberedKey(workspaces.findById(workspaceId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Workspace not found")).monitoredRepository().fullName(), card.card().issue().orElseThrow()));
-        WorkItemView practice = work.adopt(workspaceId, goalId, UUID.nameUUIDFromBytes(("practice:" + card.id()).getBytes(UTF_8)).toString(), card.card().title(),
-                card.card().scope(), kind, source);
+        WorkItemView became = card.card().kind() == GoalRecommendation.Kind.INVESTIGATE ? investigation(workspaceId, goalId, card) : practice(workspaceId, goalId, card);
         synchronized (writes) {
             GoalRecommendation current = recommendations.find(recommendationId).orElseThrow();
             if (current.state() == GoalRecommendation.State.STARTED) {
                 return current;
             }
             requireShown(current);
-            GoalRecommendation started = current.practicing(practice.id(), clock.instant());
+            GoalRecommendation started = current.working(became.id(), clock.instant());
             recommendations.save(started);
             return started;
         }
+    }
+
+    /** A practice card's issue or ticket becomes the Goal's Develop work, whose task the user sends from the composer. */
+    private WorkItemView practice(String workspaceId, String goalId, GoalRecommendation card)
+    {
+        GoalItemKind kind = card.card().issue().isPresent() ? GoalItemKind.ISSUE : GoalItemKind.JIRA;
+        String source = card.card().ticket().orElseGet(() -> GoalItem.numberedKey(workspaces.findById(workspaceId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Workspace not found")).monitoredRepository().fullName(), card.card().issue().orElseThrow()));
+        return work.adopt(workspaceId, goalId, UUID.nameUUIDFromBytes(("practice:" + card.id()).getBytes(UTF_8)).toString(), card.card().title(),
+                card.card().scope(), kind, source);
+    }
+
+    /** An investigation card becomes one Investigate work item of the Goal, whose result the user accepts; starting it again finds the same item. */
+    private WorkItemView investigation(String workspaceId, String goalId, GoalRecommendation card)
+    {
+        return work.create(workspaceId, UUID.nameUUIDFromBytes(("investigate:" + card.id()).getBytes(UTF_8)).toString(), Optional.of(goalId), card.card().title(),
+                WorkItem.Kind.INVESTIGATE, card.card().scope(), WorkItem.CompletionRule.ACCEPTED_RESULT);
     }
 
     /**
@@ -745,7 +759,7 @@ public class GoalConversationService
             // A spec check names a module the agent was given, and waits until every gap of the last one is done, dropped or dismissed.
             case SPEC_CHECK -> specChecks.getObject().modules(goal.workspaceId()).stream().anyMatch(module -> answered.module().filter(module.directory()::equals).isPresent())
                     && specChecks.getObject().gaps(goal.workspaceId(), goal.id()).stream().noneMatch(GoalGap::open) ? Optional.of(answered) : Optional.empty();
-            case RESEARCH, LESSON -> Optional.of(answered);
+            case RESEARCH, LESSON, INVESTIGATE -> Optional.of(answered);
         };
         if (!lesson || named.isEmpty()) {
             return false;

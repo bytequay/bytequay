@@ -50,8 +50,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -498,6 +500,34 @@ class TestGoalConversationService
             assertThat(told.state()).isEqualTo(GoalExchange.State.PENDING);
             assertThat(told.message()).isEqualTo("Issue #31252 already has pull request #31260 linked to close it, open. Recommend another candidate.");
         });
+    }
+
+    @Test
+    void anInvestigationCardBecomesOneInvestigateWorkItemHoweverOftenItStarts()
+    {
+        GoalView goal = goals.create("workspace", "Delta Lake", "");
+        service.ask("workspace", goal.id(), "op-1", "Reads first");
+        doReturn(PROPOSAL).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        service.accept("workspace", goal.id(), "op-1", Optional.empty());
+        doReturn(new GoalExchange.Reply("Find out first.", Optional.empty(), Optional.empty(), Optional.of(new GoalRecommendation.Card(GoalRecommendation.Kind.INVESTIGATE,
+                "Check deletion vector support", "Nobody has read the checkpoint writer", "Find whether the checkpoint writer keeps deletion vectors.", ImmutableList.of(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty())), Optional.empty(), ImmutableList.of(), Optional.empty()))
+                .when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        GoalRecommendation card = cards.list(goal.id()).getFirst();
+        assertThat(card.card().kind()).isEqualTo(GoalRecommendation.Kind.INVESTIGATE);
+
+        String id = UUID.nameUUIDFromBytes(("investigate:" + card.id()).getBytes(UTF_8)).toString();
+        when(work.create("workspace", id, Optional.of(goal.id()), "Check deletion vector support", WorkItem.Kind.INVESTIGATE,
+                "Find whether the checkpoint writer keeps deletion vectors.", WorkItem.CompletionRule.ACCEPTED_RESULT)).thenReturn(new WorkItemView(id, "workspace",
+                Optional.of(goal.id()), "Check deletion vector support", WorkItem.Kind.INVESTIGATE, "Find whether the checkpoint writer keeps deletion vectors.",
+                WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH));
+        GoalRecommendation started = service.startCard("workspace", goal.id(), card.id());
+        assertThat(started.state()).isEqualTo(GoalRecommendation.State.STARTED);
+        assertThat(started.workItemId()).as("the investigation is the goal's work, whose result the user accepts").contains(id);
+        assertThat(service.startCard("workspace", goal.id(), card.id())).isEqualTo(started);
+        verify(work, times(1)).create(eq("workspace"), eq(id), any(), any(), any(), any(), any());
     }
 
     @Test

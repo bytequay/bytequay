@@ -535,7 +535,6 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
             aria-label="Resize issue panes" onMouseDown={resizeDetail} title="Drag to resize" />}
           <header className="pull-detail__header">
             <div className="pull-detail__title-row">
-              <h1>{linkIssueNumbers(selected.title, repository, true)} {selected.isGoal && <GoalBadge />}</h1>
               <div className="pull-detail__header-actions">
                 {visit.status && <span className="attention-visit-status" role="status">{visit.status}</span>}
                 <PinButton className="pull-detail__icon-action" item={{ key: `${repository}#${selected.number}`, title: selected.title,
@@ -791,7 +790,8 @@ export function IssueOverview({
     <div className="pr-overview issue-overview">
       <section className="pr-overview__summary">
         <div className="pr-overview__title">
-          <h2>{linkIssueNumbers(issue.title, repository, true)} <span>#{issue.number}</span></h2>
+          <h1>{linkIssueNumbers(issue.title, repository, true)} <span>#{issue.number}</span></h1>
+          {issue.isGoal && <GoalBadge />}
           <CopyLinkButton value={issue.htmlUrl} label="issue link" />
         </div>
         <div className="pr-overview__branches">

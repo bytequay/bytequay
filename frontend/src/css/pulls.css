@@ -680,7 +680,8 @@
 .pr-overview__title { display: flex; align-items: center; gap: 9px; }
 .pull-request-overview .pr-overview__title { align-items: baseline; }
 .pr-overview__title h2 { min-width: 0; margin: 0; font-size: 22px; font-weight: 600; line-height: 1.3; }
-.pull-request-overview .pr-overview__title h1 { min-width: 0; margin: 0; font-size: 22px; font-weight: 600; line-height: 1.3; }
+.pr-overview__title h1 { min-width: 0; margin: 0; font-size: 22px; font-weight: 600; line-height: 1.3; }
+.issue-overview .pr-overview__title h1 span,
 .pr-overview__title h2 span { color: #59636e; font-weight: 400; }
 .pr-overview__number { display: flex; flex: 0 0 auto; align-items: center; gap: 9px; color: #59636e; font-size: 22px; line-height: 1.3; white-space: nowrap; }
 .pr-overview__title button,
@@ -1342,7 +1343,7 @@
   .pull-detail { min-width: 460px; }
   .pr-overview { padding: 22px 14px 48px; }
   .pr-overview__title h2,
-  .pull-request-overview .pr-overview__title h1 { font-size: 18px; }
+  .pr-overview__title h1 { font-size: 18px; }
   .pr-overview__number { font-size: 18px; }
   .pull-detail__toolbar { align-items: flex-start; flex-wrap: wrap; }
   .pull-detail__header-actions { margin-left: auto; }

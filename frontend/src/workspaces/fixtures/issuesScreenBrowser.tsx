@@ -84,7 +84,7 @@ async function closeKeepsIssue(): Promise<void> {
     assert(close?.textContent === 'Close with comment', 'A typed draft turns Close into Close with comment');
     close.click(); await settle();
     assert(writes.join() === 'comment #7: Fixed in #30786,close #7', 'Closing with a draft posts it before closing');
-    assert(host.querySelector('.issues-detail h1')?.textContent?.trim() === 'Issue 7' && host.querySelector('.pr-state')?.textContent?.trim() === 'Closed',
+    assert(host.querySelector('.issues-detail h1')?.textContent?.trim() === 'Issue 7 #7' && host.querySelector('.pr-state')?.textContent?.trim() === 'Closed',
       'The closed issue stays open and shows its new state');
     assert(composer().value === '' && host.querySelector('.pr-composer__close') === null, 'The posted draft clears and a closed issue offers no close');
     assert(host.querySelector('.attention-visit-status')?.textContent === 'Updated state · Posted 1 comment',
@@ -133,7 +133,7 @@ async function zoomsOneIssue(): Promise<void> {
     await settle();
     assert(host.querySelector('.pulls-list') === null, 'The zoom layer shows one issue, never the list');
     const card = host.querySelector<HTMLElement>('.issues-detail.zoom-card');
-    assert(card?.querySelector('h1')?.textContent?.trim() === 'Issue 8',
+    assert(card?.querySelector('h1')?.textContent?.trim() === 'Issue 8 #8',
       'The zoom layer shows the issue it was opened on, not the first row of the list');
     const box = card.getBoundingClientRect();
     assert(box.top > 0 && box.left > 0 && box.bottom < window.innerHeight && box.height > 200,
@@ -230,7 +230,7 @@ async function filtersLoadedIssues(): Promise<void> {
     assert(options.join() === ',correctness,enhancement,ui', 'Label options retain every loaded label while filtering');
     await search('#41');
     assert(numbers() === '#41', 'A number prefix searches inside the selected label');
-    assert(host.querySelector('.issues-detail h1')?.textContent?.trim() === 'Flaky connector', 'Filtering keeps the issue being read open');
+    assert(host.querySelector('.issues-detail h1')?.textContent?.trim() === 'Flaky connector #7', 'Filtering keeps the issue being read open');
     await search('7');
     assert(numbers() === '#7', 'A numeric search matches issue numbers rather than title digits');
     await search('');
@@ -316,7 +316,7 @@ async function closedIssueReminder(): Promise<void> {
     flushSync(() => root.render(<WorkspaceIssuesScreen workspaceId="workspace-1" repository="upstream/app" initialIssueNumber={99}
       onStartDevelopment={() => { throw new Error('Closed issues cannot launch development'); }} onClose={() => root.unmount()} />));
     await settle();
-    assert(host.querySelector('.issues-detail h1')?.textContent?.trim() === preview.title && host.textContent?.includes(preview.body),
+    assert(host.querySelector('.issues-detail h1')?.textContent?.trim() === `${preview.title} #99` && host.textContent?.includes(preview.body),
       'The closed issue displays the latest title and description');
     assert(host.querySelector('.pr-state.is-closed')?.textContent?.includes('Closed') && host.textContent?.includes('fixed'),
       'The preview preserves the latest source state and labels');

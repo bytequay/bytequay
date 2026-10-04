@@ -13,14 +13,20 @@
  */
 package com.bytequay.app.service.goal;
 
+import com.bytequay.app.context.ContextText;
 import com.bytequay.app.review.PullRequestDetailRefreshed;
 import com.bytequay.app.review.PullRequestsRefreshed;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.PrReviewState;
+import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.PrDetailStore;
+import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -39,34 +45,40 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Follows the pull requests of the Goals' open work: the work picks up a pull request its task published, a linked one still open is
- * refreshed whenever the lists are, and a merge is recorded once on the work it delivers and told to the goal's agent. Whether the work is
- * done stays the user's decision.
+ * refreshed whenever the lists are, and a merge, or a review whose reviewer still requests changes, is recorded once on the work it concerns
+ * and told to the goal's agent. Whether the work is done stays the user's decision.
  */
 @Component
 public class GoalDeliveries
 {
     private static final Logger log = LoggerFactory.getLogger(GoalDeliveries.class);
+    private static final int MAX_REVIEW = 1_000;
 
     private final WorkspaceStore workspaces;
     private final ObjectProvider<WorkItemService> work;
     private final ObjectProvider<GoalConversationService> conversations;
     private final ObjectProvider<PullRequestRefreshService> refresh;
+    private final PullRequestStore pullRequests;
+    private final PrDetailStore details;
     private final Executor executor;
 
     @Autowired
     public GoalDeliveries(WorkspaceStore workspaces, ObjectProvider<WorkItemService> work, ObjectProvider<GoalConversationService> conversations,
-            ObjectProvider<PullRequestRefreshService> refresh)
+            ObjectProvider<PullRequestRefreshService> refresh, PullRequestStore pullRequests, PrDetailStore details)
     {
-        this(workspaces, work, conversations, refresh, Executors.newSingleThreadExecutor(Thread.ofVirtual().name("goal-deliveries-", 0).factory()));
+        this(workspaces, work, conversations, refresh, pullRequests, details,
+                Executors.newSingleThreadExecutor(Thread.ofVirtual().name("goal-deliveries-", 0).factory()));
     }
 
     GoalDeliveries(WorkspaceStore workspaces, ObjectProvider<WorkItemService> work, ObjectProvider<GoalConversationService> conversations,
-            ObjectProvider<PullRequestRefreshService> refresh, Executor executor)
+            ObjectProvider<PullRequestRefreshService> refresh, PullRequestStore pullRequests, PrDetailStore details, Executor executor)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.work = requireNonNull(work, "work is null");
         this.conversations = requireNonNull(conversations, "conversations is null");
         this.refresh = requireNonNull(refresh, "refresh is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.details = requireNonNull(details, "details is null");
         this.executor = requireNonNull(executor, "executor is null");
     }
 
@@ -112,7 +124,8 @@ public class GoalDeliveries
     }
 
     /**
-     * Records each merge once per work item, as a receipt and a word to the goal's agent.
+     * Records each merge, and each review whose reviewer still requests changes, once per work item, as a receipt and a word to the goal's
+     * agent.
      *
      * @param pullRequest the one pull request a detail refresh read, or every linked one
      */
@@ -120,24 +133,47 @@ public class GoalDeliveries
     {
         for (WorkItemView item : open()) {
             for (GoalItemView link : item.links()) {
-                boolean asked = pullRequest.map(link.key()::equals).orElse(true);
-                if (!asked || link.kind() != GoalItemKind.PULL_REQUEST || link.state() != GoalItemState.MERGED) {
+                if (link.kind() != GoalItemKind.PULL_REQUEST || !pullRequest.map(link.key()::equals).orElse(true)) {
                     continue;
                 }
-                String operation = "merged:" + link.key();
-                if (item.history().stream().anyMatch(event -> event.operationId().equals(operation))) {
-                    continue;
-                }
-                try {
-                    work.getObject().receipt(item.workspaceId(), item.id(), operation, "Pull request " + link.label() + " merged: " + link.title());
-                    conversations.getObject().tell(item.workspaceId(), item.goalId().orElseThrow(), operation + ":" + item.id(),
+                if (link.state() == GoalItemState.MERGED) {
+                    recordOnce(item, "merged:" + link.key(), "Pull request " + link.label() + " merged: " + link.title(),
                             "Pull request " + link.label() + " for \"" + item.title() + "\" merged. The user can now accept the result.");
                 }
-                catch (RuntimeException failure) {
-                    log.warn("The merge of {} was not recorded on Goal work {}", link.key(), item.id(), failure);
+                else if (link.state() == GoalItemState.WORKING) {
+                    for (PrReviewState review : changesRequested(link.key())) {
+                        String said = review.body() == null || review.body().isBlank() ? "" : ": " + ContextText.excerpt(review.body(), MAX_REVIEW);
+                        recordOnce(item, "changes:" + review.githubId(), "@" + review.login() + " requested changes on " + link.label() + said,
+                                "@" + review.login() + " requested changes on pull request " + link.label() + " for \"" + item.title() + "\"" + said);
+                    }
                 }
             }
         }
+    }
+
+    private void recordOnce(WorkItemView item, String operation, String receipt, String event)
+    {
+        if (item.history().stream().anyMatch(recorded -> recorded.operationId().equals(operation))) {
+            return;
+        }
+        try {
+            work.getObject().receipt(item.workspaceId(), item.id(), operation, receipt);
+            conversations.getObject().tell(item.workspaceId(), item.goalId().orElseThrow(), operation + ":" + item.id(), event);
+        }
+        catch (RuntimeException failure) {
+            log.warn("{} was not recorded on Goal work {}", operation, item.id(), failure);
+        }
+    }
+
+    /** The reviews of a stored pull request whose reviewer's latest verdict still requests changes. */
+    private List<PrReviewState> changesRequested(String key)
+    {
+        GoalReferenceReader.NumberedKey pull = GoalReferenceReader.NumberedKey.parse(key);
+        return pullRequests.findIdByRepoAndNumber(pull.repo(), pull.number()).flatMap(details::find).filter(StoredPrDetail::reviewsComplete)
+                .map(detail -> PrReviewState.latestVerdicts(detail.reviews()).stream()
+                        .filter(review -> "CHANGES_REQUESTED".equals(review.state()) && review.githubId() != null)
+                        .collect(toImmutableList()))
+                .orElse(ImmutableList.of());
     }
 
     private List<WorkItemView> open()

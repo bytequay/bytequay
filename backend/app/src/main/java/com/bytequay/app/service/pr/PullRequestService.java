@@ -1465,15 +1465,11 @@ public class PullRequestService
 
     static Optional<String> reviewDecision(List<PrReviewState> reviews)
     {
-        Map<String, String> verdicts = new HashMap<>();
-        reviews.stream()
-                .sorted(Comparator.comparing(review -> Optional.ofNullable(review.submittedAt()).orElse(Instant.EPOCH)))
-                .filter(review -> !"COMMENTED".equals(review.state()) && !"PENDING".equals(review.state()))
-                .forEach(review -> verdicts.put(review.login().toLowerCase(Locale.ROOT), review.state()));
-        if (verdicts.containsValue("CHANGES_REQUESTED")) {
+        Set<String> verdicts = PrReviewState.latestVerdicts(reviews).stream().map(PrReviewState::state).collect(toImmutableSet());
+        if (verdicts.contains("CHANGES_REQUESTED")) {
             return Optional.of("CHANGES_REQUESTED");
         }
-        return verdicts.containsValue("APPROVED") ? Optional.of("APPROVED") : Optional.empty();
+        return verdicts.contains("APPROVED") ? Optional.of("APPROVED") : Optional.empty();
     }
 
     private boolean syncDiffQuietly(String pat, PullRequest pullRequest)

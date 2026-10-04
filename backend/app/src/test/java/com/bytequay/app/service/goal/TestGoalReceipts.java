@@ -96,17 +96,30 @@ class TestGoalReceipts
         verify(work).receipt("workspace", "work-1", "turn:" + turnId, "Task turn finished: Keyed checkpoint actions by path and deletion vector; the new test passes.");
         verify(work).linkRelated("workspace", "work-1");
         verify(conversation).tell("workspace", "goal-1", "turn:" + turnId,
-                "A task for \"Fix #31252\" finished a turn: Keyed checkpoint actions by path and deletion vector; the new test passes.");
+                "A turn of the task for \"Fix #31252\" finished: Keyed checkpoint actions by path and deletion vector; the new test passes.");
     }
 
     @Test
-    void onlyAnInteractiveTasksCompletedTurnOnAGoalsWorkCounts()
+    void aFailedOrInterruptedTurnTellsTheAgentWhyItStopped()
+    {
+        when(items.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(item(Optional.of("goal-1"))));
+        receipts.record(task(true), turn(TurnState.FAILED));
+        verify(work).receipt("workspace", "work-1", "turn:" + turnId, "Task turn failed: The provider stopped");
+        verify(conversation).tell("workspace", "goal-1", "turn:" + turnId, "A turn of the task for \"Fix #31252\" failed: The provider stopped");
+
+        TurnId interrupted = TurnId.random();
+        receipts.record(task(true), turn(interrupted, TurnState.INTERRUPTED));
+        verify(conversation).tell("workspace", "goal-1", "turn:" + interrupted, "A turn of the task for \"Fix #31252\" was interrupted: The provider stopped");
+    }
+
+    @Test
+    void onlyAnInteractiveTasksEndedTurnOnAGoalsWorkCounts()
     {
         when(items.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(item(Optional.empty())));
         receipts.record(task(true), turn(TurnState.COMPLETED));
         when(items.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(item(Optional.of("goal-1"))));
         receipts.record(task(false), turn(TurnState.COMPLETED));
-        receipts.record(task(true), turn(TurnState.FAILED));
+        receipts.record(task(true), turn(TurnState.CANCELLED));
         verifyNoInteractions(work, conversation);
     }
 
@@ -124,14 +137,17 @@ class TestGoalReceipts
         when(items.list("workspace")).thenReturn(ImmutableList.of(item, item(Optional.empty())));
         when(items.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(item));
         when(tasks.find(taskId)).thenReturn(Optional.of(task(true)));
-        when(turns.list(taskId)).thenReturn(ImmutableList.of(turn(earlier, TurnState.COMPLETED), turn(turnId, TurnState.COMPLETED), turn(TurnId.random(), TurnState.FAILED)));
+        TurnId failed = TurnId.random();
+        when(turns.list(taskId)).thenReturn(ImmutableList.of(turn(earlier, TurnState.COMPLETED), turn(turnId, TurnState.COMPLETED), turn(failed, TurnState.FAILED),
+                turn(TurnId.random(), TurnState.CANCELLED)));
 
         receipts.recover();
         verify(conversation).settleInterrupted();
         verify(work).receipt("workspace", "work-1", "turn:" + turnId, "Task turn finished: Keyed checkpoint actions by path and deletion vector; the new test passes.");
         verify(work, never()).receipt(any(), any(), eq("turn:" + earlier), any());
-        verify(conversation).tell("workspace", "goal-1", "recovered:" + turnId, "While ByteQuay was stopped, a turn of the task for \"Fix #31252\" finished. "
-                + "The last said: Keyed checkpoint actions by path and deletion vector; the new test passes.");
+        verify(work).receipt("workspace", "work-1", "turn:" + failed, "Task turn failed: The provider stopped");
+        verify(conversation).tell("workspace", "goal-1", "recovered:" + failed, "While ByteQuay was stopped, 2 turns of the task for \"Fix #31252\" ended. "
+                + "The last failed: The provider stopped");
     }
 
     private AgentTask task(boolean interactive)

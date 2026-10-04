@@ -127,6 +127,10 @@ public class GoalPlanner
             on a WORK card makes the issue one of the goal's work items; recommend no other practice until that item is
             done or dropped, and when its result is accepted, let the topics it practiced cite it as work:<id>.
 
+            Recovery comes first. When ByteQuay reports that a turn of a task for the goal's work failed or was
+            interrupted, or that a reviewer requested changes on its pull request, say what went wrong and what the user
+            can do in that work's task, and recommend nothing new until that work recovers.
+
             A spec check is the other way to find work: it compares one module's code with the specification it
             implements and reproduces each gap it finds with a failing test, so it finds bugs nobody has reported. When the
             user knows an area and its specification, you may recommend a SPEC_CHECK card: a module of specCheckModules by

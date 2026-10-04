@@ -14,6 +14,13 @@
 package com.bytequay.core.domain;
 
 import java.time.Instant;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -41,5 +48,16 @@ public record PrReviewState(
     {
         requireNonNull(login, "login is null");
         requireNonNull(state, "state is null");
+    }
+
+    /** Each reviewer's latest review that is more than a comment: what GitHub's review decision counts. */
+    public static Collection<PrReviewState> latestVerdicts(List<PrReviewState> reviews)
+    {
+        Map<String, PrReviewState> verdicts = new HashMap<>();
+        reviews.stream()
+                .sorted(Comparator.comparing(review -> Optional.ofNullable(review.submittedAt()).orElse(Instant.EPOCH)))
+                .filter(review -> !"COMMENTED".equals(review.state()) && !"PENDING".equals(review.state()))
+                .forEach(review -> verdicts.put(review.login().toLowerCase(Locale.ROOT), review));
+        return verdicts.values();
     }
 }

@@ -1,7 +1,7 @@
 # Agent guided goals implementation plan
 
-Status: The first and second implementation slices are complete and the third
-is in progress. The later items of Steps 3 to 6 below remain as listed. The
+Status: The first, second and third implementation slices are complete. The
+later items of Steps 3 to 6 below remain as listed. The
 [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
 
@@ -205,6 +205,12 @@ Item 4 is implemented: a paused Goal is told no automatic event, its facts are
 still recorded, and the head shows Paused; Update now sends an automatic
 exchange asking the agent to reassess, paused or not, refused while a reply is
 pending.
+
+Item 5 is implemented: a failed or interrupted turn of a Goal's task is recorded
+and told with its reason, at once or at startup; a review whose reviewer's latest
+verdict on a linked open pull request requests changes is recorded and told once
+per review from the stored detail; and the agent's instructions put recovery
+first.
 
 Done when: the panel says what the Goal waits on, a slow reply can be stopped
 and retried, a Goal can use its own model, guidance can pause, and a failed

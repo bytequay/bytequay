@@ -17,9 +17,13 @@ import com.bytequay.app.review.PullRequestDetailRefreshed;
 import com.bytequay.app.review.PullRequestsRefreshed;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.PrReviewState;
+import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemEvent;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.PrDetailStore;
+import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,6 +38,7 @@ import java.util.Optional;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -48,9 +53,11 @@ class TestGoalDeliveries
     private final WorkItemService work = mock(WorkItemService.class);
     private final GoalConversationService conversation = mock(GoalConversationService.class);
     private final PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
+    private final PullRequestStore pullRequests = mock(PullRequestStore.class);
+    private final PrDetailStore details = mock(PrDetailStore.class);
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
     private final GoalDeliveries deliveries = new GoalDeliveries(workspaces, beans.getBeanProvider(WorkItemService.class),
-            beans.getBeanProvider(GoalConversationService.class), beans.getBeanProvider(PullRequestRefreshService.class), Runnable::run);
+            beans.getBeanProvider(GoalConversationService.class), beans.getBeanProvider(PullRequestRefreshService.class), pullRequests, details, Runnable::run);
 
     @BeforeEach
     void setUp()
@@ -83,6 +90,30 @@ class TestGoalDeliveries
     }
 
     @Test
+    void aReviewWhoseReviewerStillRequestsChangesIsRecordedOnceAndToldToTheAgent()
+    {
+        when(work.list("workspace")).thenReturn(ImmutableList.of(item(Optional.of("goal-1"), WorkItem.State.WORKING, ImmutableList.of(), pull(31260, GoalItemState.WORKING))));
+        when(pullRequests.findIdByRepoAndNumber("trinodb/trino", 31260)).thenReturn(Optional.of(7L));
+        StoredPrDetail detail = mock(StoredPrDetail.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(detail.reviewsComplete()).thenReturn(true);
+        when(detail.reviews()).thenReturn(ImmutableList.of(review(1, "alice", "CHANGES_REQUESTED", 120, "Rename the field"), review(2, "alice", "APPROVED", 60, ""),
+                review(3, "bob", "CHANGES_REQUESTED", 30, "Add a test for deletion vectors"), review(4, "carol", "COMMENTED", 10, "Nice")));
+        when(details.find(7L)).thenReturn(Optional.of(detail));
+
+        deliveries.detailRefreshed(new PullRequestDetailRefreshed("trinodb/trino", 31260, Optional.empty()));
+        verify(work).receipt("workspace", "work-1", "changes:3", "@bob requested changes on #31260: Add a test for deletion vectors");
+        verify(conversation).tell("workspace", "goal-1", "changes:3:work-1",
+                "@bob requested changes on pull request #31260 for \"Fix #31252\": Add a test for deletion vectors");
+        verify(work, never()).receipt(anyString(), anyString(), eq("changes:1"), anyString());
+
+        WorkItemEvent recorded = new WorkItemEvent("changes:3", "", "RECEIPT", "@bob requested changes on #31260", NOW);
+        when(work.list("workspace")).thenReturn(ImmutableList.of(item(Optional.of("goal-1"), WorkItem.State.WORKING, ImmutableList.of(recorded),
+                pull(31260, GoalItemState.WORKING))));
+        deliveries.restore();
+        verify(work, times(1)).receipt(anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
     void aListRefreshPicksUpTheTasksPullRequestAndRefreshesOnlyTheOpenOnes()
     {
         WorkItemView item = item(Optional.of("goal-1"), WorkItem.State.WORKING, ImmutableList.of());
@@ -110,6 +141,11 @@ class TestGoalDeliveries
     {
         return new WorkItemView("work-1", "workspace", goalId, "Fix #31252", WorkItem.Kind.DEVELOP, "Rows survive a checkpoint", WorkItem.CompletionRule.MERGED_DELIVERY,
                 state, 3, ImmutableList.copyOf(links), history, NOW, NOW);
+    }
+
+    private static PrReviewState review(long id, String login, String state, int minutesAgo, String body)
+    {
+        return new PrReviewState(id, login, "", false, state, NOW.minusSeconds(minutesAgo * 60L), body, "", "head");
     }
 
     private static GoalItemView pull(int number, GoalItemState state)

@@ -135,16 +135,20 @@ submits, and Add to goal makes the gap a Develop work item under merged delivery
 done once its reproduction test passes and the fix merges. No other spec check is
 recommended while one of those gaps is neither done nor dropped.
 
-When a turn of an interactive task completes and the task belongs to a Goal's
-work item, its final answer is recorded once in the item's history as a receipt,
-keyed by the turn, and the Goal's agent is told, so it can recommend what comes
-next. Development's own automatic turns and noninteractive runs are not recorded,
+When a turn of an interactive task ends and the task belongs to a Goal's work
+item, the turn is recorded once in the item's history as a receipt, keyed by the
+turn: a completed turn's final answer, or why a failed or interrupted one
+stopped. The Goal's agent is told, so it can recommend what comes next; after a
+failure it leads with recovery and recommends nothing new until that work
+recovers. A turn the user stopped is not reported. Development's own automatic turns and noninteractive runs are not recorded,
 and the item's state stays the user's decision. The receipt also links the pull
 request the task published. A linked pull request that merges is recorded once
 on the open work it delivers and told to the agent, whether a detail refresh, a
 list refresh, which also refreshes each open linked pull request, or a restart
 shows it; the Goal window then offers Review result, and accepting stays the
-user's decision. Turns that finished while ByteQuay was stopped, or whose receipt
+user's decision. A review whose reviewer's latest verdict on a linked open pull
+request requests changes is recorded and told the same way, once per review, and
+the agent leads with that recovery too. Turns that finished while ByteQuay was stopped, or whose receipt
 was lost, are recorded at startup, after the requests it was answering are
 settled and before the startup cleanup can remove their answers; the agent hears
 once per work item what it missed.

@@ -34,6 +34,7 @@ import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -45,6 +46,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -54,8 +56,9 @@ import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Records what a finished turn of a task working on a Goal's work item said: a receipt in the item's history, once per turn, the pull request
- * the task published, and a word to the goal's agent, which may recommend what comes next. The item's state stays the user's decision.
+ * Records how a turn of a task working on a Goal's work item ended: a receipt in the item's history, once per turn, with what a finished turn
+ * said or why a failed or interrupted one stopped, the pull request the task published, and a word to the goal's agent, which may recommend
+ * what comes next or how to recover. The item's state stays the user's decision.
  */
 @Component
 public class GoalReceipts
@@ -63,6 +66,8 @@ public class GoalReceipts
     private static final Logger log = LoggerFactory.getLogger(GoalReceipts.class);
     private static final int MAX_RECORDS = 10_000;
     private static final int MAX_ANSWER = 1_500;
+    private static final Map<TurnState, String> ENDINGS = ImmutableMap.of(TurnState.COMPLETED, "finished", TurnState.FAILED, "failed",
+            TurnState.INTERRUPTED, "was interrupted");
 
     private final WorkItemStore items;
     private final WorkspaceStore workspaces;
@@ -73,8 +78,8 @@ public class GoalReceipts
     private final ObjectProvider<GoalConversationService> conversations;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("goal-receipts-", 0).factory());
 
-    /** A receipt saved for a turn: the work it belongs to and what the turn said. */
-    private record Saved(WorkItem item, TurnId turn, String answer) {}
+    /** A receipt saved for a turn: the work it belongs to, how the turn ended and what it said or why it stopped. */
+    private record Saved(WorkItem item, TurnId turn, String ended, String answer) {}
 
     public GoalReceipts(WorkItemStore items, WorkspaceStore workspaces, AgentTaskStore tasks, AgentTurnStore turns, TaskLogStore logs, ObjectProvider<WorkItemService> work,
             ObjectProvider<GoalConversationService> conversations)
@@ -104,7 +109,7 @@ public class GoalReceipts
     void record(AgentTask task, AgentTurn turn)
     {
         receipt(task, turn).ifPresent(saved -> conversations.getObject().tell(saved.item().workspaceId(), saved.item().goalId().orElseThrow(), "turn:" + turn.id(),
-                "A task for \"" + saved.item().title() + "\" finished a turn: " + saved.answer()));
+                "A turn of the task for \"" + saved.item().title() + "\" " + saved.ended() + ": " + saved.answer()));
     }
 
     /**
@@ -153,23 +158,25 @@ public class GoalReceipts
         if (!missed.isEmpty()) {
             conversations.getObject().tell(item.workspaceId(), item.goalId().orElseThrow(), "recovered:" + missed.getLast().turn(),
                     "While ByteQuay was stopped, " + (missed.size() == 1 ? "a turn" : missed.size() + " turns") + " of the task for \"" + item.title()
-                            + "\" finished. The last said: " + missed.getLast().answer());
+                            + "\" ended. The last " + missed.getLast().ended() + ": " + missed.getLast().answer());
         }
     }
 
     private Optional<Saved> receipt(AgentTask task, AgentTurn turn)
     {
-        // Development's own automatic turns and noninteractive runs are not results the user worked toward.
-        if (!task.interactive() || turn.developmentOrigin().isPresent() || turn.state() != TurnState.COMPLETED || task.workspaceId().isEmpty()) {
+        // Development's own automatic turns and noninteractive runs are not results the user worked toward, and a turn the user stopped needs no word.
+        if (!task.interactive() || turn.developmentOrigin().isPresent() || !ENDINGS.containsKey(turn.state()) || task.workspaceId().isEmpty()) {
             return Optional.empty();
         }
         Optional<WorkItem> item = items.findByIdentity(WorkItemLink.taskIdentity(task.id().toString())).filter(found -> found.goalId().isPresent());
         if (item.isEmpty()) {
             return Optional.empty();
         }
-        String answer = ContextText.excerpt(finalAnswer(task, turn).orElse("The turn ended without a final answer."), MAX_ANSWER);
+        String answer = ContextText.excerpt(turn.state() == TurnState.COMPLETED ? finalAnswer(task, turn).orElse("The turn ended without a final answer.")
+                : turn.terminalReason().orElse("No reason was recorded."), MAX_ANSWER);
+        String ended = ENDINGS.get(turn.state());
         String workspaceId = task.workspaceId().orElseThrow();
-        work.getObject().receipt(workspaceId, item.get().id(), "turn:" + turn.id(), "Task turn finished: " + answer);
+        work.getObject().receipt(workspaceId, item.get().id(), "turn:" + turn.id(), "Task turn " + ended + ": " + answer);
         try {
             // A pull request the turn published joins the work it delivers, so its merge can be recorded.
             work.getObject().linkRelated(workspaceId, item.get().id());
@@ -177,7 +184,7 @@ public class GoalReceipts
         catch (RuntimeException failure) {
             log.debug("Goal work {} did not pick up its task's pull request: {}", item.get().id(), failure.toString());
         }
-        return Optional.of(new Saved(item.get(), turn.id(), answer));
+        return Optional.of(new Saved(item.get(), turn.id(), ended, answer));
     }
 
     private Optional<String> finalAnswer(AgentTask task, AgentTurn turn)

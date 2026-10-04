@@ -49,6 +49,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.function.Function;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -66,6 +67,7 @@ public class GoalConversationService
     static final int MAX_TITLE = 120;
     static final String INTERRUPTED = "ByteQuay stopped before the agent answered.";
     static final String STOPPED = "Stopped before the agent answered.";
+    static final String REASSESS = "The user asked for an update: reassess the goal from its current facts.";
     // An accepted result repeats the criteria and every merged PR; the agent needs its gist.
     private static final int MAX_DECISION = 600;
     private static final Logger log = LoggerFactory.getLogger(GoalConversationService.class);
@@ -174,6 +176,18 @@ public class GoalConversationService
     /** Sends the agent a message about the lesson the user has open, whose content the agent reads with it. */
     public List<GoalExchange> ask(String workspaceId, String goalId, String operationId, String message, Optional<String> lessonId)
     {
+        return send(workspaceId, goalId, operationId, goal -> GoalExchange.ask(operationId, goalId, workspaceId, message(message), goal.revision(), clock.instant())
+                .about(lessonId));
+    }
+
+    /** Update now: asks the agent to reassess the goal from its current facts, also while guidance is paused. */
+    public List<GoalExchange> reassess(String workspaceId, String goalId, String operationId)
+    {
+        return send(workspaceId, goalId, operationId, goal -> GoalExchange.told(operationId, goalId, workspaceId, REASSESS, goal.revision(), clock.instant()));
+    }
+
+    private List<GoalExchange> send(String workspaceId, String goalId, String operationId, Function<GoalView, GoalExchange> request)
+    {
         GoalExchange exchange;
         synchronized (writes) {
             GoalView goal = goal(workspaceId, goalId);
@@ -185,21 +199,25 @@ public class GoalConversationService
             if (exchanges.list(goalId).stream().anyMatch(earlier -> earlier.state() == GoalExchange.State.PENDING)) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "The agent is still answering your last message.");
             }
-            exchange = GoalExchange.ask(operationId, goalId, workspaceId, message(message), goal.revision(), clock.instant()).about(lessonId);
+            exchange = request.apply(goal);
             exchanges.save(exchange);
         }
         dispatch(exchange);
         return exchanges.list(goalId);
     }
 
-    /** Tells the goal's agent about an event, unless it is already answering; repeating the same operation tells it once. */
+    /**
+     * Tells the goal's agent about an event, unless guidance is paused or the agent is already answering; repeating the same operation tells
+     * it once.
+     */
     public void tell(String workspaceId, String goalId, String operationId, String event)
     {
         GoalExchange exchange;
         synchronized (writes) {
             GoalView goal = goal(workspaceId, goalId);
             // ponytail: an event while the agent answers is dropped; the next request still reads the cards and notes it would report.
-            if (exchanges.find(operationId).isPresent() || exchanges.list(goalId).stream().anyMatch(earlier -> earlier.state() == GoalExchange.State.PENDING)) {
+            if (goal.paused() || exchanges.find(operationId).isPresent()
+                    || exchanges.list(goalId).stream().anyMatch(earlier -> earlier.state() == GoalExchange.State.PENDING)) {
                 return;
             }
             exchange = GoalExchange.told(operationId, goalId, workspaceId, event, goal.revision(), clock.instant());

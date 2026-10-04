@@ -186,6 +186,7 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
       onBack={drafting && goal !== null ? () => setDrafting(false) : undefined}
       onCreate={(title) => goals.create(title).then((created) => goals.pin(created.id))}
       onRename={goals.rename}
+      onPause={goals.pause}
       onDelete={(goalId) => goals.remove(goalId)}
       onAdd={(item) => (goal === null ? Promise.resolve() : goals.add(goal.id, item.kind, item.key))}
       workItems={goals.workItems}

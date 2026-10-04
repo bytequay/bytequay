@@ -51,14 +51,14 @@ class TestSqliteGoalStore
     void savesItemsAndSourceAndReplacesTheStoredGoal()
     {
         GoalSource source = new GoalSource(GoalItemKind.JIRA, GoalItem.jiraKey("connection", "cloud", "10042"));
-        Goal seeded = new Goal("goal-1", "workspace-1", "Delta Lake correctness", "", true, false, Optional.of(source), Optional.empty(), Optional.empty(), 0, Optional.empty(),
-                NOW, NOW);
+        Goal seeded = new Goal("goal-1", "workspace-1", "Delta Lake correctness", "", true, false, Optional.of(source), Optional.empty(), Optional.empty(), 0,
+                Optional.empty(), false, NOW, NOW);
         Instant later = NOW.plusSeconds(1);
         Goal other = new Goal("goal-2", "workspace-1", "Parquet performance", "Cut wasted reads", false, false, Optional.empty(), Optional.empty(), Optional.empty(), 0,
-                Optional.empty(), later, later);
+                Optional.empty(), false, later, later);
         store.save(seeded);
         store.save(other);
-        store.save(new Goal("goal-3", "workspace-2", "Elsewhere", "", true, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Optional.empty(), NOW, NOW));
+        store.save(new Goal("goal-3", "workspace-2", "Elsewhere", "", true, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Optional.empty(), false, NOW, NOW));
 
         Goal withItems = seeded.withText("Accepted objective", "Saved plan", NOW.plusSeconds(5));
         store.save(withItems);
@@ -85,6 +85,10 @@ class TestSqliteGoalStore
         store.save(planned);
         assertThat(store.find("goal-1")).contains(planned);
         assertThat(planned.revision()).as("a course leaves the revision definitions are checked against").isEqualTo(2);
+        Goal paused = planned.withPaused(true, NOW.plusSeconds(10));
+        store.save(paused);
+        assertThat(store.find("goal-1")).contains(paused);
+        assertThat(paused.revision()).as("pausing guidance changes nothing the goal means").isEqualTo(2);
 
         store.delete("goal-1");
         assertThat(store.list("workspace-1")).containsExactly(other);

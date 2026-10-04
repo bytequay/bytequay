@@ -82,7 +82,7 @@ public class GoalServiceImpl
         synchronized (writes) {
             Instant now = clock.instant();
             Goal goal = new Goal(UUID.randomUUID().toString(), workspaceId, checkText(title, "title", 500).trim(), description.trim(),
-                    unpinned(workspaceId), false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Optional.empty(), now, now);
+                    unpinned(workspaceId), false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Optional.empty(), false, now, now);
             goals.save(goal);
             return view(goal);
         }
@@ -101,6 +101,21 @@ public class GoalServiceImpl
                 active(workspaceId).stream().filter(Goal::pinned).forEach(other -> goals.save(other.withPinned(false, now)));
                 updated = updated.withPinned(true, now);
             }
+            goals.save(updated);
+            return view(updated);
+        }
+    }
+
+    @Override
+    public GoalView pause(String workspaceId, String goalId, boolean paused)
+    {
+        requireWorkspace(workspaces, workspaceId);
+        synchronized (writes) {
+            Goal goal = goal(workspaceId, goalId);
+            if (goal.paused() == paused) {
+                return view(goal);
+            }
+            Goal updated = goal.withPaused(paused, clock.instant());
             goals.save(updated);
             return view(updated);
         }
@@ -203,7 +218,7 @@ public class GoalServiceImpl
             }
             Instant now = clock.instant();
             goals.save(new Goal(UUID.randomUUID().toString(), workspaceId, checkText(title, "title", 500).trim(), "", unpinned(workspaceId), false,
-                    Optional.of(source), Optional.empty(), Optional.empty(), 0, Optional.empty(), now, now));
+                    Optional.of(source), Optional.empty(), Optional.empty(), 0, Optional.empty(), false, now, now));
         }
     }
 
@@ -266,7 +281,7 @@ public class GoalServiceImpl
     private static GoalView view(Goal goal, List<WorkItemView> items, List<GoalRecommendation> cards, List<GoalTopic> known)
     {
         return new GoalView(goal.id(), goal.workspaceId(), goal.title(), goal.description(), goal.pinned(), goal.markedSource(), goal.definition(), goal.revision(),
-                goal.course(), items.stream().filter(item -> item.goalId().filter(goal.id()::equals).isPresent()).collect(toImmutableList()), cards, known,
+                goal.course(), goal.paused(), items.stream().filter(item -> item.goalId().filter(goal.id()::equals).isPresent()).collect(toImmutableList()), cards, known,
                 goal.createdAt(), goal.updatedAt());
     }
 }

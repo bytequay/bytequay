@@ -30,6 +30,7 @@ import static java.util.Objects.requireNonNull;
  * A goal with each item read from local stores, in the order the items were added.
  *
  * @param course the learning path the user accepted
+ * @param paused whether its agent hears no automatic events
  * @param recommendations the cards still shown or running, newest first
  * @param topics what the user knows, topic by topic
  */
@@ -43,6 +44,7 @@ public record GoalView(
         Optional<GoalDefinition> definition,
         long revision,
         Optional<GoalCourse> course,
+        boolean paused,
         List<WorkItemView> items,
         List<GoalRecommendation> recommendations,
         List<GoalTopic> topics,

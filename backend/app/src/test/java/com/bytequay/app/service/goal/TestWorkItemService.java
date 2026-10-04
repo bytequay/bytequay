@@ -67,7 +67,7 @@ class TestWorkItemService
     void setUp()
     {
         when(workspaces.findById("workspace")).thenReturn(Optional.of(mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE))));
-        goals.save(new Goal("goal", "workspace", "Objective", "", true, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Optional.empty(), NOW, NOW));
+        goals.save(new Goal("goal", "workspace", "Objective", "", true, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Optional.empty(), false, NOW, NOW));
         when(references.related(eq("workspace"), any())).thenAnswer(call -> ImmutableList.of(call.getArgument(1)));
         when(references.view(eq("workspace"), any())).thenAnswer(call -> {
             GoalItem link = call.getArgument(1);
@@ -114,7 +114,7 @@ class TestWorkItemService
                 .as("the source's work is found again, never duplicated").isEqualTo(adopted);
         assertThat(service.list("workspace")).hasSize(1);
 
-        goals.save(new Goal("goal-2", "workspace", "Another objective", "", false, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Optional.empty(),
+        goals.save(new Goal("goal-2", "workspace", "Another objective", "", false, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Optional.empty(), false,
                 NOW, NOW));
         assertThatThrownBy(() -> service.adopt("workspace", "goal-2", UUID.randomUUID().toString(), "Fix #31252", "Fix it", GoalItemKind.ISSUE, "org/repo#31252"))
                 .hasMessageContaining("another Goal");

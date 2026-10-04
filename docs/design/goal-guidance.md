@@ -149,6 +149,11 @@ was lost, are recorded at startup, after the requests it was answering are
 settled and before the startup cleanup can remove their answers; the agent hears
 once per work item what it missed.
 
+Pause guidance stops these messages: a paused Goal's agent hears no automatic
+event, the user's acceptances included, and the facts are still recorded. The
+user's own messages still reach it, and Update now asks it to reassess the Goal
+from its current facts, paused or not, one request at a time.
+
 Each request also carries the user's twenty newest questions from their private
 cards in every workspace (passage and comment discussions, local review
 comments and review questions, without ByteQuay's own summary requests) and the

@@ -81,6 +81,9 @@ public class GoalEntity
     @Convert(converter = GoalCourseConverter.class)
     private GoalCourse course;
 
+    @Column
+    private Boolean paused;
+
     @Column(name = "created_at", nullable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
@@ -111,6 +114,7 @@ public class GoalEntity
         definition = goal.definition().orElse(null);
         revision = goal.revision();
         course = goal.course().orElse(null);
+        paused = goal.paused();
         updatedAt = goal.updatedAt();
     }
 
@@ -118,6 +122,6 @@ public class GoalEntity
     {
         Optional<GoalSource> source = sourceKind == null ? Optional.empty() : Optional.of(new GoalSource(GoalItemKind.valueOf(sourceKind), sourceKey));
         return new Goal(id, workspaceId, title, description, pinned, archived, source, Optional.ofNullable(unmarkedAt), Optional.ofNullable(definition),
-                revision == null ? 0 : revision, Optional.ofNullable(course), createdAt, updatedAt);
+                revision == null ? 0 : revision, Optional.ofNullable(course), Boolean.TRUE.equals(paused), createdAt, updatedAt);
     }
 }

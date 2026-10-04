@@ -238,6 +238,15 @@
   font-weight: 600;
 }
 
+.goal-paused {
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: #eaeef2;
+  color: #57606a;
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .goal-headbtn {
   width: 28px;
   height: 28px;
@@ -252,9 +261,14 @@
   cursor: pointer;
 }
 
-.goal-headbtn:hover {
+.goal-headbtn:hover:not(:disabled) {
   background: #eceff2;
   color: var(--text-1);
+}
+
+.goal-headbtn:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .goal-panel__title {

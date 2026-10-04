@@ -29,6 +29,7 @@ import static java.util.Objects.requireNonNull;
  * @param definition what the user agreed the goal means, accepted from one of the agent's proposals
  * @param revision counts changes to the goal's text and definition; a proposal built from an older revision cannot be accepted
  * @param course the learning path the user accepted, whose lessons are the goal's Learn work items
+ * @param paused whether its agent hears no automatic events; the user's own messages still reach it
  */
 public record Goal(
         String id,
@@ -42,6 +43,7 @@ public record Goal(
         Optional<GoalDefinition> definition,
         long revision,
         Optional<GoalCourse> course,
+        boolean paused,
         Instant createdAt,
         Instant updatedAt)
 {
@@ -69,38 +71,45 @@ public record Goal(
 
     public Goal withPinned(boolean value, Instant at)
     {
-        return new Goal(id, workspaceId, title, description, value, archived, source, unmarkedAt, definition, revision, course, createdAt, at);
+        return new Goal(id, workspaceId, title, description, value, archived, source, unmarkedAt, definition, revision, course, paused, createdAt, at);
     }
 
     public Goal withText(String newTitle, String newDescription, Instant at)
     {
         boolean changed = !newTitle.equals(title) || !newDescription.equals(description);
-        return new Goal(id, workspaceId, newTitle, newDescription, pinned, archived, source, unmarkedAt, definition, changed ? revision + 1 : revision, course, createdAt, at);
+        return new Goal(id, workspaceId, newTitle, newDescription, pinned, archived, source, unmarkedAt, definition, changed ? revision + 1 : revision, course, paused,
+                createdAt, at);
     }
 
     /** The same goal under the name its agent gave it; the revision stays, since a name changes nothing the goal means. */
     public Goal named(String name, Instant at)
     {
-        return new Goal(id, workspaceId, name, description, pinned, archived, source, unmarkedAt, definition, revision, course, createdAt, at);
+        return new Goal(id, workspaceId, name, description, pinned, archived, source, unmarkedAt, definition, revision, course, paused, createdAt, at);
+    }
+
+    public Goal withPaused(boolean value, Instant at)
+    {
+        return new Goal(id, workspaceId, title, description, pinned, archived, source, unmarkedAt, definition, revision, course, value, createdAt, at);
     }
 
     public Goal withMarked(boolean value, Instant at)
     {
-        return new Goal(id, workspaceId, title, description, pinned, archived, source, value ? Optional.empty() : Optional.of(at), definition, revision, course, createdAt, at);
+        return new Goal(id, workspaceId, title, description, pinned, archived, source, value ? Optional.empty() : Optional.of(at), definition, revision, course, paused,
+                createdAt, at);
     }
 
     public Goal archive(Instant at)
     {
-        return new Goal(id, workspaceId, title, description, false, true, source, unmarkedAt, definition, revision, course, createdAt, at);
+        return new Goal(id, workspaceId, title, description, false, true, source, unmarkedAt, definition, revision, course, paused, createdAt, at);
     }
 
     public Goal withCourse(GoalCourse accepted, Instant at)
     {
-        return new Goal(id, workspaceId, title, description, pinned, archived, source, unmarkedAt, definition, revision, Optional.of(accepted), createdAt, at);
+        return new Goal(id, workspaceId, title, description, pinned, archived, source, unmarkedAt, definition, revision, Optional.of(accepted), paused, createdAt, at);
     }
 
     public Goal withDefinition(String newTitle, String objective, GoalDefinition accepted, Instant at)
     {
-        return new Goal(id, workspaceId, newTitle, objective, pinned, archived, source, unmarkedAt, Optional.of(accepted), revision + 1, course, createdAt, at);
+        return new Goal(id, workspaceId, newTitle, objective, pinned, archived, source, unmarkedAt, Optional.of(accepted), revision + 1, course, paused, createdAt, at);
     }
 }

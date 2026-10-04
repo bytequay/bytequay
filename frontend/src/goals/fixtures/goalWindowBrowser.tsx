@@ -27,7 +27,7 @@ declare global {
 }
 
 const goal: GoalDto = { id: 'goal', workspaceId: 'workspace', title: 'Iceberg connector expertise', description: 'Learn, investigate and contribute.',
-  pinned: true, source: null, definition: null, revision: 0, course: null, items: [], recommendations: [], topics: [], createdAt: '', updatedAt: '' };
+  pinned: true, paused: false, source: null, definition: null, revision: 0, course: null, items: [], recommendations: [], topics: [], createdAt: '', updatedAt: '' };
 const unexpected = async (): Promise<never> => { throw new Error('Unexpected write'); };
 const renamed: string[] = [];
 const deleted: string[] = [];
@@ -39,7 +39,7 @@ const goals: Goals = { goals: [goal], pinned: goal, workItems: [], error: null, 
   createWork: unexpected, decideWork: unexpected, linkWork: unexpected,
   start: unexpected, exchanges: async () => [], ask: unexpected, retry: unexpected, stop: unexpected, accept: unexpected,
   acceptCourse: unexpected, startCard: unexpected, dismissCard: unexpected, knowledge: async () => [], gaps: async () => [], addGap: unexpected,
-  fileIssue: unexpected, refresh: () => {}, model: unexpected, chooseModel: unexpected,
+  fileIssue: unexpected, refresh: () => {}, model: unexpected, chooseModel: unexpected, pause: unexpected, reassess: unexpected,
   openLesson: unexpected, readLesson: unexpected, finishLesson: unexpected, setTopic: unexpected };
 
 function element<T extends HTMLElement = HTMLElement>(selector: string): T {

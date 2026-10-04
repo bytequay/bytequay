@@ -31,7 +31,7 @@ const GOALS_POLL_MS = 15_000;
 const ANSWER_POLL_MS = 1_500;
 
 export type GoalBridge = Pick<Bridge, 'listWorkItems' | 'createWorkItem' | 'decideWorkItem' | 'linkWorkItem' | 'listGoals' | 'createGoal' | 'updateGoal' | 'deleteGoal'
-  | 'addGoalItem' | 'removeGoalItem' | 'searchGoalCandidates' | 'startGoal' | 'listGoalExchanges' | 'askGoal' | 'retryGoalExchange' | 'stopGoalExchange' | 'acceptGoalDefinition'
+  | 'addGoalItem' | 'removeGoalItem' | 'searchGoalCandidates' | 'startGoal' | 'listGoalExchanges' | 'askGoal' | 'retryGoalExchange' | 'stopGoalExchange' | 'reassessGoal' | 'acceptGoalDefinition'
   | 'acceptGoalCourse' | 'startGoalRecommendation' | 'dismissGoalRecommendation' | 'listGoalKnowledge' | 'openGoalLesson' | 'readGoalLesson' | 'finishGoalLesson'
   | 'setGoalTopic' | 'listGoalGaps' | 'addGoalGap' | 'openInAppBrowser' | 'getGoalModel' | 'setGoalModel' | 'clearGoalModel' | 'getModelSettings'>;
 
@@ -51,6 +51,8 @@ export type Goals = {
   /** Makes the goal the one the pages follow. */
   pin: (goalId: string) => Promise<void>;
   rename: (goalId: string, title: string) => Promise<GoalDto>;
+  /** Pauses guidance, so the goal's agent hears no automatic events, or resumes it. */
+  pause: (goalId: string, paused: boolean) => Promise<GoalDto>;
   /** Archives the goal; its work and history stay saved. */
   remove: (goalId: string) => Promise<void>;
   add: (goalId: string, kind: GoalItemKind, key: string) => Promise<void>;
@@ -62,6 +64,7 @@ export type Goals = {
   ask: (goalId: string, operationId: string, message: string, lessonId?: string | null) => Promise<GoalExchangeDto[]>;
   retry: (goalId: string, exchangeId: string) => Promise<GoalExchangeDto[]>;
   stop: (goalId: string, exchangeId: string) => Promise<GoalExchangeDto[]>;
+  reassess: (goalId: string, operationId: string) => Promise<GoalExchangeDto[]>;
   /** Accepts the definition an answer proposed, under the title the user kept or edited. */
   accept: (goalId: string, exchangeId: string, title: string) => Promise<GoalDto>;
   /** Accepts a proposed course: its lessons become the goal's Learn work items. */
@@ -107,6 +110,8 @@ export type GoalConversation = {
   retry: (exchangeId: string) => Promise<void>;
   /** Stops the reply the agent is writing to this message. */
   stop: (exchangeId: string) => Promise<void>;
+  /** Update now: the agent reassesses the goal from its current facts. */
+  reassess: (operationId: string) => Promise<void>;
   accept: (exchangeId: string, title: string) => Promise<void>;
   acceptCourse: (exchangeId: string) => Promise<void>;
   openLesson: (lessonId: string) => Promise<GoalLessonDto>;
@@ -252,6 +257,7 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
     create: (title) => bridge().createGoal(workspaceId, title, '').then(settle),
     pin: (goalId) => bridge().updateGoal(workspaceId, goalId, { pinned: true }).then(() => announce(workspaceId)),
     rename: (goalId, title) => bridge().updateGoal(workspaceId, goalId, { title }).then(settle),
+    pause: (goalId, paused) => bridge().updateGoal(workspaceId, goalId, { paused }).then(settle),
     remove: (goalId) => bridge().deleteGoal(workspaceId, goalId).then(() => {
       setGoals((current) => current.filter((goal) => goal.id !== goalId));
       announce(workspaceId);
@@ -269,6 +275,7 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
     ask: (goalId, operationId, message, lessonId) => bridge().askGoal(workspaceId, goalId, operationId, message, lessonId),
     retry: (goalId, exchangeId) => bridge().retryGoalExchange(workspaceId, goalId, exchangeId),
     stop: (goalId, exchangeId) => bridge().stopGoalExchange(workspaceId, goalId, exchangeId),
+    reassess: (goalId, operationId) => bridge().reassessGoal(workspaceId, goalId, operationId),
     accept: (goalId, exchangeId, title) => bridge().acceptGoalDefinition(workspaceId, goalId, exchangeId, title).then(settle),
     acceptCourse: (goalId, exchangeId) => bridge().acceptGoalCourse(workspaceId, goalId, exchangeId).then(settle),
     startCard: (goalId, recommendationId) => bridge().startGoalRecommendation(workspaceId, goalId, recommendationId).then(settleCard),
@@ -360,6 +367,7 @@ export function useGoalConversation(goals: Goals, goalId: string | null, shown: 
       ask: (operationId, message, lessonId) => (goalId === null ? Promise.resolve() : goals.ask(goalId, operationId, message, lessonId).then(show)),
       retry: (exchangeId) => (goalId === null ? Promise.resolve() : goals.retry(goalId, exchangeId).then(show)),
       stop: (exchangeId) => (goalId === null ? Promise.resolve() : goals.stop(goalId, exchangeId).then(show)),
+      reassess: (operationId) => (goalId === null ? Promise.resolve() : goals.reassess(goalId, operationId).then(show)),
       // Accepting tells the agent, whose answer is read at once.
       accept: (exchangeId, title) => (goalId === null ? Promise.resolve() : goals.accept(goalId, exchangeId, title).then(() => goals.exchanges(goalId)).then(show)),
       acceptCourse: (exchangeId) => (goalId === null ? Promise.resolve() : goals.acceptCourse(goalId, exchangeId).then(() => goals.exchanges(goalId)).then(show)),

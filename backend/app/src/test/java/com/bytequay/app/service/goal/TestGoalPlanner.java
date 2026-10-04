@@ -166,7 +166,7 @@ class TestGoalPlanner
 
         GoalView goal = new GoalView("goal-1", "workspace", "Iceberg connector expert", "", true, Optional.empty(),
                 Optional.of(new GoalDefinition("Explain a scan", "Knows the specification", "Five hours a week", "op-0", NOW)), 1,
-                Optional.of(new GoalCourse("op-5", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1"))), NOW)),
+                Optional.of(new GoalCourse("op-5", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1"))), NOW)), false,
                 ImmutableList.of(new WorkItemView("lesson-1", "workspace", Optional.of("goal-1"), "What a table is", WorkItem.Kind.LEARN, "Explain metadata",
                         WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.DONE, 2, ImmutableList.of(), ImmutableList.of(), NOW, NOW)),
                 ImmutableList.of(new GoalRecommendation("card-1", "goal-1", "workspace", CARD, GoalRecommendation.State.SHOWN, Optional.empty(),

@@ -26,7 +26,7 @@ import '../../css/settings-window.css';
 
 /** The backend as the Goal window sees it: one workspace whose agent answers when the journey says so. */
 const server = { goal: null as GoalDto | null, exchanges: [] as GoalExchangeDto[], notes: [] as GoalKnowledgeNoteDto[], asked: [] as string[], accepted: [] as string[],
-  started: [] as string[], cancelled: [] as string[], stopped: [] as string[], failNextAsk: false, model: null as AgentModelSettingDto | null };
+  started: [] as string[], cancelled: [] as string[], stopped: [] as string[], reassessed: [] as string[], failNextAsk: false, model: null as AgentModelSettingDto | null };
 /** The workspace's Development model, which a goal follows until it has its own. */
 const WORKSPACE_MODEL: AgentModelSettingDto = { type: 'DEVELOPMENT', explicit: false, configId: 'codex', label: 'Codex', model: 'sol', modelLabel: 'Sol', effort: 'high' };
 const MODELS: ModelSettingsDto = { agents: [], apiKeys: [], keyProviders: [], providers: [{ id: 'codex', label: 'Codex', readiness: 'READY', diagnostic: '',
@@ -80,6 +80,16 @@ const conversation: Omit<Goals, 'goals' | 'pinned'> = {
   gaps: async () => [],
   addGap: unexpected,
   fileIssue: unexpected,
+  pause: async (_goalId, paused) => {
+    server.goal = { ...server.goal, paused };
+    changed();
+    return server.goal;
+  },
+  reassess: async (_goalId, operationId) => {
+    server.reassessed.push(operationId);
+    server.exchanges = [...server.exchanges, pending(operationId, 'The user asked for an update: reassess the goal from its current facts.', true)];
+    return server.exchanges;
+  },
   model: async () => ({ setting: server.model ?? WORKSPACE_MODEL, settings: MODELS }),
   chooseModel: async (_goalId, choice) => {
     server.model = choice === null ? null : { ...WORKSPACE_MODEL, explicit: true, ...choice, modelLabel: choice.model === 'luna' ? 'Luna' : 'Sol' };
@@ -97,7 +107,7 @@ const conversation: Omit<Goals, 'goals' | 'pinned'> = {
   },
   start: async (operationId, message) => {
     server.asked.push(operationId);
-    server.goal = { id: 'goal', workspaceId: 'workspace', title: message, description: '', pinned: true, source: null, definition: null, revision: 0,
+    server.goal = { id: 'goal', workspaceId: 'workspace', title: message, description: '', pinned: true, paused: false, source: null, definition: null, revision: 0,
       course: null, items: [], recommendations: [], topics: [], createdAt: NOW, updatedAt: NOW };
     server.exchanges = [pending(operationId, message)];
     changed();
@@ -210,6 +220,19 @@ export async function run(): Promise<boolean> {
       question: { text: 'Do you already know the Iceberg specification?', suggestions: ['Yes', 'Not yet'] } });
     await nextRead();
     assert(text().includes('Do you already know the Iceberg specification?'), 'The question arrives without reopening the window');
+
+    button('Pause guidance').click(); await settle(); await settle();
+    // Read through a function: an assertion narrows the server's fields for the rest of the run.
+    const paused = (): boolean => server.goal?.paused === true;
+    assert(paused() && document.querySelector('.goal-paused')?.textContent === 'Paused', 'Pause guidance marks the goal paused');
+    button('Update now').click(); await settle(); await settle();
+    assert(server.reassessed.length === 1 && text().includes('reassess the goal from its current facts') && button('Update now').disabled,
+      'Update now asks a paused goal\'s agent to reassess, once at a time');
+    answer({ assessment: 'Nothing changed; you still start from the specification.', proposal: null, recommendation: null, course: null,
+      question: { text: 'Do you already know the Iceberg specification?', suggestions: ['Yes', 'Not yet'] } });
+    await nextRead();
+    button('Resume guidance').click(); await settle(); await settle();
+    assert(!paused() && document.querySelector('.goal-paused') === null, 'Resume guidance clears the mark');
 
     server.failNextAsk = true;
     changeInput(composer(), 'Not yet, and I have five hours a week'); await settle();

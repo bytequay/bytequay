@@ -468,6 +468,29 @@ class TestGoalConversationService
     }
 
     @Test
+    void aPausedGoalHearsNothingAutomaticButTheUserCanStillAskForAnUpdate()
+    {
+        GoalView goal = goals.create("workspace", "Delta Lake", "");
+        goals.pause("workspace", goal.id(), true);
+        service.tell("workspace", goal.id(), "turn:1", "The task's turn finished.");
+        assertThat(exchanges.list(goal.id())).as("a paused goal is told nothing").isEmpty();
+
+        service.reassess("workspace", goal.id(), "op-1");
+        assertThat(service.reassess("workspace", goal.id(), "op-1")).singleElement().satisfies(update -> {
+            assertThat(update.automatic()).isTrue();
+            assertThat(update.message()).isEqualTo(GoalConversationService.REASSESS);
+        });
+        assertThat(queued).as("Update now asks the agent once").hasSize(1);
+        assertThatThrownBy(() -> service.reassess("workspace", goal.id(), "op-2")).hasMessageContaining("still answering");
+
+        doReturn(QUESTION).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        goals.pause("workspace", goal.id(), false);
+        service.tell("workspace", goal.id(), "turn:2", "The task's turn finished.");
+        assertThat(exchanges.list(goal.id())).as("a resumed goal is told again").hasSize(2);
+    }
+
+    @Test
     void theAgentNamesAGoalItsFirstWordsStartedButNeverOverANameTheUserChose()
     {
         GoalView started = service.start("workspace", "op-1", "I want to become the Trino engine execution and scheduler master");

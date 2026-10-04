@@ -37,6 +37,9 @@ public interface GoalService
     /** Renames or re-describes the goal, and pins it when asked, which unpins the workspace's other goals. */
     GoalView update(String workspaceId, String goalId, Optional<String> title, Optional<String> description, boolean pin);
 
+    /** Pauses guidance, so the goal's agent hears no automatic events, or resumes it. */
+    GoalView pause(String workspaceId, String goalId, boolean paused);
+
     /**
      * Saves a definition the user accepted, with the title and objective it proposed. Accepting the same proposal again changes nothing;
      * a proposal built before the goal's last change is refused.

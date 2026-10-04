@@ -86,7 +86,9 @@ public class GoalController
     public GoalView update(@PathVariable String workspaceId, @PathVariable String goalId, @RequestBody UpdateGoalRequest request)
     {
         checkArgument(request != null, "request is required");
-        return goals.update(workspaceId, goalId, Optional.ofNullable(request.title()), Optional.ofNullable(request.description()), Boolean.TRUE.equals(request.pinned()));
+        GoalView updated = goals.update(workspaceId, goalId, Optional.ofNullable(request.title()), Optional.ofNullable(request.description()),
+                Boolean.TRUE.equals(request.pinned()));
+        return request.paused() == null ? updated : goals.pause(workspaceId, goalId, request.paused());
     }
 
     @DeleteMapping("/{goalId}")
@@ -135,6 +137,13 @@ public class GoalController
     {
         checkArgument(request != null && request.operationId() != null, "operationId is required");
         return conversations.ask(workspaceId, goalId, request.operationId(), request.message(), Optional.ofNullable(request.lessonId()));
+    }
+
+    @PostMapping("/{goalId}/reassess")
+    public List<GoalExchange> reassess(@PathVariable String workspaceId, @PathVariable String goalId, @RequestBody OperationRequest request)
+    {
+        checkArgument(request != null && request.operationId() != null, "operationId is required");
+        return conversations.reassess(workspaceId, goalId, request.operationId());
     }
 
     @PostMapping("/{goalId}/exchanges/{exchangeId}/stop")
@@ -256,7 +265,7 @@ public class GoalController
 
     public record AcceptRequest(String exchangeId, String title) {}
 
-    public record UpdateGoalRequest(String title, String description, Boolean pinned) {}
+    public record UpdateGoalRequest(String title, String description, Boolean pinned, Boolean paused) {}
 
     public record GoalItemRequest(GoalItemKind kind, String key) {}
 }

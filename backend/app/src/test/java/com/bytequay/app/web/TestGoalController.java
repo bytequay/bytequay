@@ -44,7 +44,10 @@ import java.time.Instant;
 import java.util.Optional;
 
 import static org.hamcrest.Matchers.nullValue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -63,7 +66,7 @@ class TestGoalController
             GoalItemState.MERGED, "Merged", false, Optional.of("https://github.com/trinodb/trino/pull/30702"),
             Optional.of(new GoalActivity("#30702 merged", NOW)), Optional.of(NOW));
     private static final GoalView GOAL = new GoalView("goal-1", "workspace", "Delta Lake correctness", "", true,
-            Optional.of(new GoalSource(GoalItemKind.ISSUE, "trinodb/trino#31000")), Optional.empty(), 0, Optional.empty(),
+            Optional.of(new GoalSource(GoalItemKind.ISSUE, "trinodb/trino#31000")), Optional.empty(), 0, Optional.empty(), false,
             ImmutableList.of(new WorkItemView("work-1", "workspace", Optional.of("goal-1"), "Retry Iceberg commits", WorkItem.Kind.DEVELOP,
                     "", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.WORKING, 0,
                     ImmutableList.of(MERGED), ImmutableList.of(), NOW, NOW)), ImmutableList.of(), ImmutableList.of(), NOW, NOW);
@@ -105,6 +108,14 @@ class TestGoalController
         mvc.perform(patch("/api/workspaces/workspace/goals/goal-1").contentType(MediaType.APPLICATION_JSON).content("{\"pinned\":true}"))
                 .andExpect(status().isOk());
         verify(goals).update("workspace", "goal-1", Optional.empty(), Optional.empty(), true);
+        verify(goals, never()).pause(any(), any(), anyBoolean());
+
+        when(goals.update("workspace", "goal-1", Optional.empty(), Optional.empty(), false)).thenReturn(GOAL);
+        when(goals.pause("workspace", "goal-1", true)).thenReturn(GOAL);
+        mvc.perform(patch("/api/workspaces/workspace/goals/goal-1").contentType(MediaType.APPLICATION_JSON).content("{\"paused\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.paused").value(false));
+        verify(goals).pause("workspace", "goal-1", true);
 
         when(goals.addItem("workspace", "goal-1", GoalItemKind.JIRA, "connection:cloud:10412")).thenReturn(GOAL);
         mvc.perform(post("/api/workspaces/workspace/goals/goal-1/items").contentType(MediaType.APPLICATION_JSON)
@@ -218,6 +229,16 @@ class TestGoalController
         when(conversations.stop("workspace", "goal-1", "op-1")).thenReturn(ImmutableList.of());
         mvc.perform(post("/api/workspaces/workspace/goals/goal-1/exchanges/op-1/stop")).andExpect(status().isOk());
         verify(conversations).stop("workspace", "goal-1", "op-1");
+    }
+
+    @Test
+    void updateNowAsksTheAgentToReassess()
+            throws Exception
+    {
+        when(conversations.reassess("workspace", "goal-1", "op-1")).thenReturn(ImmutableList.of());
+        mvc.perform(post("/api/workspaces/workspace/goals/goal-1/reassess").contentType(MediaType.APPLICATION_JSON).content("{\"operationId\":\"op-1\"}"))
+                .andExpect(status().isOk());
+        verify(conversations).reassess("workspace", "goal-1", "op-1");
     }
 
     @Test

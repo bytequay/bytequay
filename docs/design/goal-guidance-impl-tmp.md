@@ -201,6 +201,11 @@ Item 3 is implemented: the Guide and Work row names the Goal's model, and the
 user picks another configured model and effort or returns to the workspace
 default. The choice is a per-Goal setting read when each reply or lesson starts.
 
+Item 4 is implemented: a paused Goal is told no automatic event, its facts are
+still recorded, and the head shows Paused; Update now sends an automatic
+exchange asking the agent to reassess, paused or not, refused while a reply is
+pending.
+
 Done when: the panel says what the Goal waits on, a slow reply can be stopped
 and retried, a Goal can use its own model, guidance can pause, and a failed
 attempt or a requested change brings recovery guidance without the user asking.

@@ -59,6 +59,8 @@ export type GoalDto = {
   revision: number;
   /** The learning path the user accepted: parts of ordered lessons, each a Learn work item of the goal. */
   course: { exchangeId: string; parts: { title: string; lessons: string[] }[]; acceptedAt: string } | null;
+  /** While paused, the goal's agent hears no automatic events; the user's own messages still reach it. */
+  paused: boolean;
   items: WorkItemDto[];
   /** The cards still shown or running, newest first. */
   recommendations: GoalRecommendationDto[];
@@ -68,7 +70,7 @@ export type GoalDto = {
   updatedAt: string;
 };
 
-export type GoalPatch = { title?: string; description?: string; pinned?: true };
+export type GoalPatch = { title?: string; description?: string; pinned?: true; paused?: boolean };
 
 export function parseGoalItem(value: unknown): GoalItemDto {
   const source = object(value, 'goal item');
@@ -99,6 +101,7 @@ export function parseGoal(value: unknown): GoalDto {
   const definition = goal.definition === null || goal.definition === undefined ? null : object(goal.definition, 'goal definition');
   const course = goal.course === null || goal.course === undefined ? null : object(goal.course, 'goal course');
   if (typeof goal.pinned !== 'boolean') throw new Error('Malformed goal pinned');
+  if (typeof goal.paused !== 'boolean') throw new Error('Malformed goal paused');
   if (!Array.isArray(goal.items)) throw new Error('Malformed goal items');
   return {
     id: text(goal.id, 'goal id'),
@@ -123,6 +126,7 @@ export function parseGoal(value: unknown): GoalDto {
       }, 'goal course parts'),
       acceptedAt: text(course.acceptedAt, 'goal course time'),
     },
+    paused: goal.paused,
     items: goal.items.map(parseWorkItem),
     recommendations: parseList(goal.recommendations, parseGoalRecommendation, 'goal recommendations'),
     topics: parseList(goal.topics, (entry) => {

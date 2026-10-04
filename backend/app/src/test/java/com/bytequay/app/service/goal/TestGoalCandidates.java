@@ -106,8 +106,8 @@ class TestGoalCandidates
 
     private static GoalView goal(String title)
     {
-        return new GoalView("goal", "workspace", title, "", true, Optional.empty(), Optional.empty(), 0, Optional.empty(), ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(), NOW, NOW);
+        return new GoalView("goal", "workspace", title, "", true, Optional.empty(), Optional.empty(), 0, Optional.empty(), false, ImmutableList.of(),
+                ImmutableList.of(), ImmutableList.of(), NOW, NOW);
     }
 
     private static RepositoryIssue issue(long id, int number, String title, List<String> labels)

@@ -13,7 +13,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Ban, ChevronDown, Maximize2, Minimize2, Plus, Search, X } from 'lucide-react';
+import { Ban, ChevronDown, Maximize2, Minimize2, Pause, Play, Plus, RefreshCw, Search, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { GoalIcon, SourceIcon } from '../cards/Card';
 import MarkdownBody from '../pulls/MarkdownBody';
@@ -79,6 +79,8 @@ export type GoalPanelProps = {
   onBack?: () => void;
   onCreate: (title: string) => Promise<unknown>;
   onRename: (goalId: string, title: string) => Promise<unknown>;
+  /** Pauses guidance, so the goal's agent hears no automatic events, or resumes it. */
+  onPause: (goalId: string, paused: boolean) => Promise<unknown>;
   onDelete: (goalId: string) => Promise<unknown>;
   onAdd: (item: GoalItemDto) => Promise<unknown>;
   workItems: WorkItemDto[];
@@ -114,6 +116,12 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const run = (action: () => Promise<unknown>): void => {
+    setActionError(null);
+    void Promise.resolve().then(action).catch((failure: unknown) => setActionError(failure instanceof Error ? failure.message : 'The goal was not changed'));
+  };
+  const answering = props.conversation.exchanges.some((exchange) => exchange.state === 'PENDING');
   const item = props.workItems.find((value) => value.id === selected) ?? goal?.items.find((value) => value.id === selected);
   return (
     <div className={`goal-panel is-${mode}`} role="dialog" aria-label={goal === null ? 'Goal' : `Goal: ${goal.title}`}>
@@ -121,7 +129,18 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
         <div className="goal-panel__bar">
           <GoalSwitcher {...props} />
           {goal?.pinned && <span className="goal-pinned">Pinned</span>}
+          {goal?.paused && <span className="goal-paused">Paused</span>}
           <span className="goal-spacer" />
+          {goal !== null && <>
+            <button type="button" className="goal-headbtn" title="Update now: the agent reassesses the goal from its current facts" aria-label="Update now"
+              disabled={answering} onClick={() => run(() => props.conversation.reassess(crypto.randomUUID()))}>
+              <RefreshCw size={15} strokeWidth={1.8} aria-hidden="true" />
+            </button>
+            <button type="button" className="goal-headbtn" title={goal.paused ? 'Resume guidance' : 'Pause guidance: the agent hears nothing automatic'}
+              aria-label={goal.paused ? 'Resume guidance' : 'Pause guidance'} onClick={() => run(() => props.onPause(goal.id, !goal.paused))}>
+              {goal.paused ? <Play size={15} strokeWidth={1.8} aria-hidden="true" /> : <Pause size={15} strokeWidth={1.8} aria-hidden="true" />}
+            </button>
+          </>}
           {/* A goal started from a marked issue or ticket ends when its source is unmarked. */}
           {goal !== null && goal.source === null && (
             <button type="button" className="goal-headbtn" title="Cancel goal" aria-label="Cancel goal" onClick={() => { setCancelling(''); setCancelError(null); }}>
@@ -141,6 +160,7 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
           <>
             <GoalTitle key={goal.id} goal={goal} onRename={props.onRename} />
             <div className="goal-panel__situation">{situation(goal, props.conversation.exchanges, props.conversation.gaps).text}</div>
+            {actionError !== null && <p className="goal-guide__error" role="alert">{actionError}</p>}
             {goal.description !== '' && <div className="goal-panel__desc">{goal.description}</div>}
           </>
         )}

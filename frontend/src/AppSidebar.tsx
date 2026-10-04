@@ -12,16 +12,17 @@
  * limitations under the License.
  */
 import { RelatedWorkspaceNavigation } from './workspaces/RelatedWorkspaces';
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  BookMarked, Bot, ChevronDown, ChevronLeft, ChevronRight, CircleDot, CircleUser, GitBranch, GitPullRequest, Globe, History, House, KeyRound,
+  BookMarked, Bot, ChevronDown, ChevronLeft, ChevronRight, CircleDot, CircleUser, GitBranch, Globe, History, House, KeyRound,
   LayoutDashboard, LayoutGrid, ListChecks, Network, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
   Pin, Sparkles, Sun, Tags, TriangleAlert, Users,
 } from 'lucide-react';
 import Avatar from './Avatar';
 import JiraIcon from './jira/JiraIcon';
 import RepoAvatar from './RepoAvatar';
-import type { WorkspaceDto } from './types';
+import type { PullRequestDto, WorkspaceDto } from './types';
+import { PullRequestStateIcon } from './pulls/PullRequestStateIcon';
 import { useResizablePane } from './useResizablePane';
 import {
   SETTINGS_ENTRIES,
@@ -345,7 +346,7 @@ export default function AppSidebar({
               key: item.key,
               label: item.title,
               title: item.reference ? `${item.reference} · ${item.title}` : item.title,
-              icon: item.target.kind === 'pull' ? <GitPullRequest size={16} /> : item.target.kind === 'jira' ? <JiraIcon size={16} />
+              icon: item.target.kind === 'pull' ? <PinnedPullRequestIcon repo={item.target.repo} number={item.target.number} /> : item.target.kind === 'jira' ? <JiraIcon size={16} />
                 : item.target.kind === 'task' || item.target.kind === 'review' ? <SquareCheck size={16} /> : <CircleDot size={16} />,
               active: false,
               onClick: () => openPinned(item),
@@ -377,6 +378,34 @@ export default function AppSidebar({
       )}
     </aside>
   );
+}
+
+function PinnedPullRequestIcon({ repo, number }: { repo: string; number: number }) {
+  const [pullRequest, setPullRequest] = useState<PullRequestDto | null>(null);
+  useEffect(() => {
+    let version = 0;
+    const reload = () => {
+      const request = ++version;
+      void window.bridge.findStoredPullRequest(repo, number).then(pr => {
+        if (request === version) setPullRequest(pr);
+      }).catch(() => {});
+    };
+    const updated = (event: Event) => {
+      const pr = (event as CustomEvent<PullRequestDto[]>).detail.find(candidate => candidate.repo.toLowerCase() === repo.toLowerCase() && candidate.number === number);
+      if (pr === undefined) return;
+      version++;
+      setPullRequest(pr);
+    };
+    reload();
+    const stopSync = window.bridge.onPullRequestsSynced(reload);
+    window.addEventListener('bytequay:pr-attention-updated', updated);
+    return () => {
+      version++;
+      stopSync();
+      window.removeEventListener('bytequay:pr-attention-updated', updated);
+    };
+  }, [repo, number]);
+  return <PullRequestStateIcon pullRequest={pullRequest} size={16} />;
 }
 
 function HomeIcon() {

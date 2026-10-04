@@ -72,6 +72,8 @@ function Detail({ value, perform }: { value: AttentionItem; perform: () => Promi
 function mount(initial: AttentionItem[]) {
   window.localStorage.clear();
   window.bridge = { setPrAttentionHandled: async () => {}, setPrAttentionPinned: async () => {},
+    findStoredPullRequest: async (repo: string, number: number) => initial.find(item => item.repo === repo && item.number === number)?.pr ?? null,
+    onPullRequestsSynced: () => noOp,
     getWorkspaceRelationships: async (): Promise<[]> => [], listWorkspaces: async (): Promise<[]> => [] } as unknown as Bridge;
   const host = document.createElement('div');
   document.body.append(host);
@@ -168,11 +170,41 @@ async function actions(): Promise<void> {
 
 async function pinning(): Promise<void> {
   const original = item(43);
+  assert(original.pr !== null, 'Pinned fixture must be a pull request');
   const f = mount([original]);
+  let stored = original.pr;
+  let synced = noOp;
+  window.bridge.findStoredPullRequest = async () => stored;
+  window.bridge.onPullRequestsSynced = callback => { synced = callback; return noOp; };
+  const color = (expected: string) => {
+    const icon = f.host.querySelector('[aria-label="Pinned navigation"] .agt-pr-icon');
+    assert(icon !== null && getComputedStyle(icon).color === expected, `Pinned PR must be ${expected}`);
+  };
   try {
     await settle();
     button(f.host, `Pin ${original.title}`).click(); await settle();
     assert(f.cards().length === 0 && f.opens === 0 && loadPinned()[0]?.key === original.key, 'Pin must suppress attention without opening the card');
+    color('rgb(26, 127, 55)');
+    for (const [state, draft, expected] of [
+      ['open', true, 'rgb(110, 119, 129)'],
+      ['closed', true, 'rgb(207, 34, 46)'],
+      ['merged', true, 'rgb(130, 80, 223)'],
+      ['open', false, 'rgb(26, 127, 55)'],
+    ] as const) {
+      stored = { ...stored, state, draft };
+      synced(); await settle();
+      color(expected);
+    }
+    let finishRead: (pr: PullRequestDto) => void = noOp;
+    window.bridge.findStoredPullRequest = () => new Promise(resolve => { finishRead = resolve; });
+    synced();
+    stored = { ...stored, state: 'merged' };
+    window.dispatchEvent(new CustomEvent('bytequay:pr-attention-updated', { detail: [stored] }));
+    await settle();
+    color('rgb(130, 80, 223)');
+    finishRead(original.pr); await settle();
+    color('rgb(130, 80, 223)');
+    window.bridge.findStoredPullRequest = async () => stored;
     for (const destination of [workspace, { ...workspace, id: 'ws-2', name: 'another/project' }, null]) {
       await f.workspace(destination);
       assert(f.host.querySelector('[aria-label="Pinned navigation"]')?.textContent?.includes(original.title) === true, 'Global pin must remain visible when changing workspace');
@@ -180,6 +212,7 @@ async function pinning(): Promise<void> {
     await f.remount();
     assert(f.cards().length === 0 && f.host.querySelector('[aria-label="Pinned navigation"]')?.textContent?.includes(original.title) === true,
       'Persisted pins must survive a renderer remount and still suppress attention');
+    color('rgb(130, 80, 223)');
     button(f.host, `Unpin ${original.title}`).click(); await settle();
     assert(loadPinned().length === 0 && f.cards().length === 1 && f.opens === 0, 'Unpin must restore an otherwise unhandled card');
   }

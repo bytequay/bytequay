@@ -3523,23 +3523,6 @@ button:is(.agt-type-chip, .agt-type-tile) {
   color: #8c959f;
 }
 
-/* A pull request's state in GitHub's colours, wherever a task or a review names one. */
-.agt-pr-icon.is-open {
-  color: #1a7f37;
-}
-
-.agt-pr-icon.is-draft {
-  color: #6e7781;
-}
-
-.agt-pr-icon.is-merged {
-  color: #8250df;
-}
-
-.agt-pr-icon.is-closed {
-  color: #cf222e;
-}
-
 /* Above the docked composer and the chip row over it. */
 .bq-toast.is-raised {
   bottom: 170px;

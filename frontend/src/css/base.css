@@ -878,6 +878,12 @@ samp {
   color: var(--text-3);
 }
 
+/* Shared pull-request state colours in navigation, tasks and reviews. */
+.agt-pr-icon.is-open { color: #1a7f37; }
+.agt-pr-icon.is-draft { color: #6e7781; }
+.agt-pr-icon.is-merged { color: #8250df; }
+.agt-pr-icon.is-closed { color: #cf222e; }
+
 .app-sidebar__item:hover { background: var(--left-nav-hover-bg); }
 .app-sidebar__item:disabled {
   cursor: help;

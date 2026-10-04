@@ -139,7 +139,6 @@ import {
 NO_PULL_REQUEST_CHANGES,
 NO_PULL_REQUEST_DETAIL,
 NoPullRequestView,
-PullRequestStateIcon,
 samePullRequest,
 TaskChangesView,
 TaskPullRequestView,
@@ -147,6 +146,7 @@ taskPullRequest,
 type TaskPullRequestChanges,
 type TaskPullRequestDetail
 } from './TaskPullRequestPanel';
+import { PullRequestStateIcon } from '../pulls/PullRequestStateIcon';
 export { TurnView,type AttachmentPreview } from './AgentConversation';
 
 type PanelTab = 'pr' | 'files' | 'changes' | 'review' | 'code' | 'agents' | 'discussions';

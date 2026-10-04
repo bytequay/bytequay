@@ -44,8 +44,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -61,6 +63,7 @@ public class GoalCandidates
 {
     private static final Logger log = LoggerFactory.getLogger(GoalCandidates.class);
     static final int MAX_CANDIDATES = 100;
+    private static final Set<String> URGENT = ImmutableSet.of("highest", "high");
     // ponytail: the 500 open issues updated last; read further pages once a workspace's backlog outgrows them.
     private static final int ISSUE_PAGES = 5;
     private static final int PAGE_SIZE = 100;
@@ -76,6 +79,17 @@ public class GoalCandidates
      * @param id an issue's number after a hash, such as #31252, or a ticket's key, such as TRINO-12
      */
     public record Candidate(String id, String title, List<String> labels, Optional<String> status, Optional<String> priority, Instant updatedAt) {}
+
+    /** What reading a practice source again found: why it is no longer open for practice, or a doubt its card should carry. */
+    public record Read(Optional<String> unready, Optional<String> doubt)
+    {
+        public static final Read NOTHING = new Read(Optional.empty(), Optional.empty());
+
+        static Read unready(String reason)
+        {
+            return new Read(Optional.of(reason), Optional.empty());
+        }
+    }
 
     /**
      * How much of each source the candidates were chosen from.
@@ -154,7 +168,12 @@ public class GoalCandidates
         Set<String> words = words(context(goal));
         Comparator<Candidate> nearest = Comparator.comparingLong((Candidate candidate) -> shared(words, candidate)).reversed()
                 .thenComparing(Candidate::updatedAt, Comparator.reverseOrder());
-        return new Pool(eligible.stream().sorted(nearest).limit(MAX_CANDIDATES).collect(toImmutableList()), new Coverage(read, open, synced, tickets.size()));
+        // Jira's own highest priorities, by its explicit field, are kept before the relevance cut; the agent still reads the nearest first.
+        // ponytail: Jira's default scheme names; a configured mapping once a site renames them.
+        Predicate<Candidate> urgent = candidate -> candidate.priority().filter(name -> URGENT.contains(name.toLowerCase(Locale.ROOT))).isPresent();
+        List<Candidate> kept = Stream.concat(eligible.stream().filter(urgent).sorted(nearest), eligible.stream().filter(urgent.negate()).sorted(nearest))
+                .limit(MAX_CANDIDATES).sorted(nearest).collect(toImmutableList());
+        return new Pool(kept, new Coverage(read, open, synced, tickets.size()));
     }
 
     private static String context(GoalView goal)
@@ -167,13 +186,13 @@ public class GoalCandidates
     }
 
     /**
-     * Why the source a practice card names is no longer open for practice, read again: a closed issue, an issue with an open or merged pull
-     * request linked to close it, or a ticket now done, claimed or worked. Nothing when it is still open, or when the read fails, since the card
-     * came from the cached candidates.
+     * Reads the source a practice card names again. A closed issue, an issue fixed by a merged pull request linked to close it, or a ticket now
+     * done, claimed or worked is no longer open for practice; an open linked pull request may fix the issue, which is a doubt for the user to
+     * weigh, not a fix. Nothing when the read fails, since the card came from the cached candidates.
      *
      * @param card a practice card whose ticket is its stable reference
      */
-    public Optional<String> unready(GoalView goal, GoalRecommendation.Card card)
+    public Read read(GoalView goal, GoalRecommendation.Card card)
     {
         try {
             if (card.issue().isPresent()) {
@@ -182,18 +201,22 @@ public class GoalCandidates
                 GitHubPullRequestReadClient.IssueLinks links = gitHub.fetchIssueLinks(credentials.resolveGitHubToken(goal.workspaceId()),
                         PullRequestRef.of(workspace.monitoredRepository().owner(), workspace.monitoredRepository().repo(), number));
                 if (!links.open()) {
-                    return Optional.of("Issue #" + number + " is closed.");
+                    return Read.unready("Issue #" + number + " is closed.");
                 }
-                return links.pulls().stream().filter(pull -> !"CLOSED".equals(pull.state())).findFirst()
-                        .map(pull -> "Issue #" + number + " already has pull request #" + pull.number() + " linked to close it, " + pull.state().toLowerCase(Locale.ROOT) + ".");
+                Optional<GitHubPullRequestReadClient.LinkedPull> merged = links.pulls().stream().filter(pull -> "MERGED".equals(pull.state())).findFirst();
+                if (merged.isPresent()) {
+                    return Read.unready("Issue #" + number + " was fixed by pull request #" + merged.orElseThrow().number() + ", merged.");
+                }
+                return new Read(Optional.empty(), links.pulls().stream().filter(pull -> "OPEN".equals(pull.state())).findFirst()
+                        .map(pull -> "Pull request #" + pull.number() + " is open and linked to close issue #" + number + "; it may already fix it."));
             }
             String[] reference = card.ticket().orElseThrow().split(":", 3);
             JiraIssue ticket = jira.getObject().refreshIssue(reference[0], reference[1], reference[2]);
-            return workable(ticket) ? Optional.empty() : Optional.of("Ticket " + ticket.key() + " is no longer open for practice; it is " + ticket.status().name() + ".");
+            return workable(ticket) ? Read.NOTHING : Read.unready("Ticket " + ticket.key() + " is no longer open for practice; it is " + ticket.status().name() + ".");
         }
         catch (RuntimeException failure) {
             log.debug("The practice source of goal {} was not read again: {}", goal.id(), failure.toString());
-            return Optional.empty();
+            return Read.NOTHING;
         }
     }
 

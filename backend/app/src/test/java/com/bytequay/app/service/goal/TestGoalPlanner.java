@@ -56,7 +56,7 @@ class TestGoalPlanner
 {
     private static final Instant NOW = Instant.parse("2026-10-03T10:00:00Z");
     private static final GoalRecommendation.Card CARD = new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH, "Read the Iceberg specification",
-            "You start from the specification", "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+            "You start from the specification", "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
 
     @Test
     void acceptsOnlyAReplyInTheNamedShape()

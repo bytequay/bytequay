@@ -476,6 +476,18 @@ public class GoalConversationService
             return card;
         }
         requireShown(card);
+        if (card.card().kind() == GoalRecommendation.Kind.WORK) {
+            // The source may have closed or been taken since the card floated, so Start reads it again, outside the lock, before anything starts.
+            Optional<String> unready = candidates.read(goal(workspaceId, goalId), card.card()).unready();
+            if (unready.isPresent()) {
+                synchronized (writes) {
+                    recommendations.find(recommendationId).filter(current -> current.state() == GoalRecommendation.State.SHOWN)
+                            .ifPresent(current -> recommendations.save(current.dismissed(clock.instant())));
+                }
+                tellDecision(workspaceId, goalId, "unready:" + recommendationId, unready.orElseThrow() + " Recommend another candidate.");
+                throw new ResponseStatusException(HttpStatus.CONFLICT, unready.orElseThrow() + " The card is set aside.");
+            }
+        }
         WorkItemView became = card.card().kind() == GoalRecommendation.Kind.INVESTIGATE ? investigation(workspaceId, goalId, card) : practice(workspaceId, goalId, card);
         synchronized (writes) {
             GoalRecommendation current = recommendations.find(recommendationId).orElseThrow();
@@ -659,9 +671,12 @@ public class GoalConversationService
             settled = exchange.failed(model, reason == null || reason.isBlank() ? "The agent could not answer." : reason, clock.instant());
         }
         Optional<GoalView> defined = read.filter(goal -> goal.definition().isPresent());
-        Optional<GoalRecommendation.Card> card = settled.reply().flatMap(GoalExchange.Reply::recommendation).filter(found -> defined.isPresent());
+        Optional<GoalRecommendation.Card> answered = settled.reply().flatMap(GoalExchange.Reply::recommendation).filter(found -> defined.isPresent());
         // GitHub or Jira answers whether a practice card's source is still open, so it is asked before the lock.
-        Optional<String> unready = card.filter(found -> found.kind() == GoalRecommendation.Kind.WORK).flatMap(found -> unready(defined.orElseThrow(), found));
+        GoalCandidates.Read checked = answered.filter(found -> found.kind() == GoalRecommendation.Kind.WORK).map(found -> read(defined.orElseThrow(), found))
+                .orElse(GoalCandidates.Read.NOTHING);
+        Optional<GoalRecommendation.Card> card = answered.map(found -> checked.doubt().map(found::doubting).orElse(found));
+        Optional<String> unready = checked.unready();
         boolean setAside = false;
         synchronized (writes) {
             // Only the request this job was given is settled; a restart's settlement or a later retry replaced any other.
@@ -685,14 +700,14 @@ public class GoalConversationService
         flush(exchange.goalId());
     }
 
-    private Optional<String> unready(GoalView goal, GoalRecommendation.Card card)
+    private GoalCandidates.Read read(GoalView goal, GoalRecommendation.Card card)
     {
         try {
-            return practice(goal, card).flatMap(named -> candidates.unready(goal, named));
+            return practice(goal, card).map(named -> candidates.read(goal, named)).orElse(GoalCandidates.Read.NOTHING);
         }
         catch (RuntimeException failure) {
             log.debug("The practice card of goal exchange for {} was not checked", goal.id(), failure);
-            return Optional.empty();
+            return GoalCandidates.Read.NOTHING;
         }
     }
 
@@ -778,7 +793,9 @@ public class GoalConversationService
         List<GoalRecommendation> cards = recommendations.list(goal.id());
         boolean waiting = cards.stream().anyMatch(existing -> existing.card().kind() == card.kind()
                 && (existing.state() == GoalRecommendation.State.SHOWN || existing.state() == GoalRecommendation.State.STARTED));
-        boolean dismissed = cards.stream().anyMatch(existing -> existing.state() == GoalRecommendation.State.DISMISSED && existing.card().equals(card));
+        // The same card with other doubts is still the card the user passed on.
+        boolean dismissed = cards.stream().anyMatch(existing -> existing.state() == GoalRecommendation.State.DISMISSED
+                && existing.card().withUncertainty(Optional.empty()).equals(card.withUncertainty(Optional.empty())));
         if (waiting || dismissed) {
             return false;
         }

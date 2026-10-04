@@ -339,6 +339,7 @@ function RecommendationCard({ card, onOpen, onStart, onAdjust, onDismiss }: {
       <Pill>{kind}</Pill>
       <div className="goal-rec__title">{card.card.title}</div>
       <div className="goal-rec__reason">{card.card.reason}</div>
+      {card.card.uncertainty && <div className="goal-rec__doubt">{card.card.uncertainty}</div>}
       {error !== null && <div className="goal-rec__error" role="alert">{error}</div>}
       <div className="goal-rec__actions">
         <button type="button" className="goal-add" disabled={busy} onClick={(event) => act(event, onStart)}>Start</button>

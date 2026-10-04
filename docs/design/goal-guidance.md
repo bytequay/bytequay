@@ -127,14 +127,19 @@ Once the Goal is defined, the agent also sees up to 100 practice candidates from
 the local stores: the workspace's open issues, the 500 updated last, and the
 Jira tickets mapped to it, without sources that already have work, a task or a
 dismissed card, the ones sharing the most words with the Goal first, and how
-much of each source was read. It may recommend one as a Practice card, naming an
+much of each source was read. Tickets whose own Jira priority is Highest or High
+are kept before that cut. It may recommend one as a Practice card, naming an
 issue's number or a ticket's key, with the instruction a developer would give a
 coding agent for it; a card naming anything else is dropped. Before the card
 floats, ByteQuay reads its source again: the issue's state and the pull requests
-linked to close it, or the ticket through its refresh. A closed issue, one with
-an open or merged linked pull request, or a ticket now done or claimed is set
-aside as dismissed and the agent is asked for another; when the read fails, the
-card floats from the cached candidate. Start makes the
+linked to close it, or the ticket through its refresh. A closed issue, one fixed
+by a merged linked pull request, or a ticket now done or claimed is set aside as
+dismissed and the agent is asked for another; an open linked pull request may
+fix the issue, so the card floats with that doubt instead. When the read fails,
+the card floats from the cached candidate. A card may also say what the agent is
+unsure of, such as code it has not read, shown under its reason. Start reads the
+source again the same way and sets the card aside, telling the agent, when it is
+no longer open for practice. Otherwise Start makes the
 issue or ticket a Develop work item of the Goal, with the card's scope as its
 criteria under merged delivery, and opens its ordinary composer with the
 instruction filled in; the task and its source snapshot are created only when

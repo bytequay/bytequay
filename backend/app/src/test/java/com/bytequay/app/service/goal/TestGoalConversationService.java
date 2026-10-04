@@ -78,7 +78,7 @@ class TestGoalConversationService
             Optional.empty(), ImmutableList.of(), Optional.empty());
     private static final GoalExchange.Reply RESEARCH = new GoalExchange.Reply("Read the specification before the connector.", Optional.empty(), Optional.empty(),
             Optional.of(new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH, "Read the Iceberg specification", "You start from the specification",
-                    "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty())), Optional.empty(), ImmutableList.of(), Optional.empty());
+                    "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty())), Optional.empty(), ImmutableList.of(), Optional.empty());
     private static final GoalExchange.Reply PROPOSAL = new GoalExchange.Reply("I understand the goal.", Optional.empty(),
             Optional.of(new GoalExchange.Proposal("Iceberg reads", "Explain how reads plan files", "Trace a scan end to end", "Knows the specification", "Five hours a week")),
             Optional.empty(), Optional.empty(), ImmutableList.of(), Optional.empty());
@@ -117,6 +117,7 @@ class TestGoalConversationService
         when(workspace.monitoredRepository()).thenReturn(RepoRef.of("trinodb", "trino"));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
         when(candidates.pool(any())).thenReturn(pool());
+        when(candidates.read(any(), any())).thenReturn(GoalCandidates.Read.NOTHING);
         beans.registerSingleton("goalResearchService", research);
         beans.registerSingleton("goalSpecChecks", specChecks);
         when(work.list("workspace")).thenReturn(ImmutableList.of());
@@ -347,7 +348,7 @@ class TestGoalConversationService
         service.accept("workspace", goal.id(), "op-1", Optional.empty());
         GoalExchange.Reply unknown = new GoalExchange.Reply("Take the next lesson.", Optional.empty(), Optional.empty(), Optional.of(new GoalRecommendation.Card(
                 GoalRecommendation.Kind.LESSON, "What a table is", "You are ready", "Table metadata", ImmutableList.of(), Optional.of("not-a-lesson"), Optional.empty(),
-                Optional.empty(), Optional.empty(), Optional.empty())),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty())),
                 Optional.empty(), ImmutableList.of(), Optional.empty());
         doReturn(unknown).when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
@@ -378,7 +379,7 @@ class TestGoalConversationService
 
         GoalExchange.Reply next = new GoalExchange.Reply("Take the next lesson.", Optional.empty(), Optional.empty(), Optional.of(new GoalRecommendation.Card(
                 GoalRecommendation.Kind.LESSON, "Snapshots", "You are ready", "Snapshots", ImmutableList.of(), Optional.of(lessons.get(1)), Optional.empty(),
-                Optional.empty(), Optional.empty(), Optional.empty())),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty())),
                 Optional.empty(), ImmutableList.of(), Optional.empty());
         service.ask("workspace", goal.id(), "op-3", "What next?");
         doReturn(next).when(planner).answer(any(), any(), anyList(), any());
@@ -559,7 +560,7 @@ class TestGoalConversationService
         queued.removeFirst().run();
         service.accept("workspace", goal.id(), "op-1", Optional.empty());
         when(candidates.pool(any())).thenReturn(pool("#31252"));
-        when(candidates.unready(any(), any())).thenReturn(Optional.of("Issue #31252 already has pull request #31260 linked to close it, open."));
+        when(candidates.read(any(), any())).thenReturn(new GoalCandidates.Read(Optional.of("Issue #31252 is closed."), Optional.empty()));
         doReturn(work(31252)).when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
 
@@ -568,8 +569,50 @@ class TestGoalConversationService
         assertThat(exchanges.list(goal.id()).getLast()).satisfies(told -> {
             assertThat(told.automatic()).isTrue();
             assertThat(told.state()).isEqualTo(GoalExchange.State.PENDING);
-            assertThat(told.message()).isEqualTo("Issue #31252 already has pull request #31260 linked to close it, open. Recommend another candidate.");
+            assertThat(told.message()).isEqualTo("Issue #31252 is closed. Recommend another candidate.");
         });
+    }
+
+    @Test
+    void aPracticeCardCarriesTheDoubtOfAnOpenLinkedPullRequest()
+    {
+        GoalView goal = goals.create("workspace", "Delta Lake", "");
+        service.ask("workspace", goal.id(), "op-1", "Reads first");
+        doReturn(PROPOSAL).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        service.accept("workspace", goal.id(), "op-1", Optional.empty());
+        when(candidates.pool(any())).thenReturn(pool("#31252"));
+        when(candidates.read(any(), any())).thenReturn(new GoalCandidates.Read(Optional.empty(),
+                Optional.of("Pull request #31270 is open and linked to close issue #31252; it may already fix it.")));
+        doReturn(work(31252)).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+
+        assertThat(cards.list(goal.id())).singleElement().satisfies(card -> {
+            assertThat(card.state()).as("a possible fix is a doubt, not a fix").isEqualTo(GoalRecommendation.State.SHOWN);
+            assertThat(card.card().uncertainty()).contains("Pull request #31270 is open and linked to close issue #31252; it may already fix it.");
+        });
+    }
+
+    @Test
+    void startReadsThePracticeSourceAgainAndSetsAsideOneThatClosed()
+    {
+        GoalView goal = goals.create("workspace", "Delta Lake", "");
+        service.ask("workspace", goal.id(), "op-1", "Reads first");
+        doReturn(PROPOSAL).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        service.accept("workspace", goal.id(), "op-1", Optional.empty());
+        when(candidates.pool(any())).thenReturn(pool("#31252"));
+        doReturn(work(31252)).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        GoalRecommendation card = cards.list(goal.id()).getFirst();
+        assertThat(card.state()).isEqualTo(GoalRecommendation.State.SHOWN);
+
+        when(candidates.read(any(), any())).thenReturn(new GoalCandidates.Read(Optional.of("Issue #31252 is closed."), Optional.empty()));
+        assertThatThrownBy(() -> service.startCard("workspace", goal.id(), card.id())).isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("Issue #31252 is closed. The card is set aside.");
+        assertThat(cards.find(card.id()).orElseThrow().state()).isEqualTo(GoalRecommendation.State.DISMISSED);
+        verify(work, never()).adopt(any(), any(), any(), any(), any(), any(), any());
+        assertThat(exchanges.list(goal.id()).getLast().message()).isEqualTo("Issue #31252 is closed. Recommend another candidate.");
     }
 
     @Test
@@ -582,7 +625,8 @@ class TestGoalConversationService
         service.accept("workspace", goal.id(), "op-1", Optional.empty());
         doReturn(new GoalExchange.Reply("Find out first.", Optional.empty(), Optional.empty(), Optional.of(new GoalRecommendation.Card(GoalRecommendation.Kind.INVESTIGATE,
                 "Check deletion vector support", "Nobody has read the checkpoint writer", "Find whether the checkpoint writer keeps deletion vectors.", ImmutableList.of(),
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty())), Optional.empty(), ImmutableList.of(), Optional.empty()))
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty())),
+                Optional.empty(), ImmutableList.of(), Optional.empty()))
                 .when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
         GoalRecommendation card = cards.list(goal.id()).getFirst();
@@ -617,7 +661,7 @@ class TestGoalConversationService
         when(candidates.ticket("workspace", "TRINO-12")).thenReturn(Optional.of(ticket));
         doReturn(new GoalExchange.Reply("Practice on the ticket.", Optional.empty(), Optional.empty(), Optional.of(new GoalRecommendation.Card(GoalRecommendation.Kind.WORK,
                 "Fix TRINO-12", "You learned checkpoints", "Keep rows across checkpoints.", ImmutableList.of(), Optional.empty(), Optional.empty(),
-                Optional.of("TRINO-12"), Optional.empty(), Optional.empty())),
+                Optional.of("TRINO-12"), Optional.empty(), Optional.empty(), Optional.empty())),
                 Optional.empty(), ImmutableList.of(), Optional.empty())).when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
         GoalRecommendation card = cards.list(goal.id()).getFirst();
@@ -821,7 +865,7 @@ class TestGoalConversationService
         return new GoalExchange.Reply("Check the checkpoint writer.", Optional.empty(), Optional.empty(), Optional.of(new GoalRecommendation.Card(
                 GoalRecommendation.Kind.SPEC_CHECK, "Check the Delta checkpoint writer", "You know how checkpoints reconcile actions", "Action reconciliation",
                 ImmutableList.of("https://github.com/delta-io/delta/blob/master/PROTOCOL.md"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(module),
-                Optional.of(3))), Optional.empty(), ImmutableList.of(), Optional.empty());
+                Optional.of(3), Optional.empty())), Optional.empty(), ImmutableList.of(), Optional.empty());
     }
 
     private static GoalCandidates.Pool pool(String... ids)
@@ -834,7 +878,7 @@ class TestGoalConversationService
     {
         return new GoalExchange.Reply("Practice on a real gap.", Optional.empty(), Optional.empty(), Optional.of(new GoalRecommendation.Card(GoalRecommendation.Kind.WORK,
                 "Fix #" + issue, "You learned checkpoints", "Key add and remove actions by path and deletion vector.", ImmutableList.of(), Optional.empty(),
-                Optional.of(issue), Optional.empty(), Optional.empty(), Optional.empty())), Optional.empty(), ImmutableList.of(), Optional.empty());
+                Optional.of(issue), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty())), Optional.empty(), ImmutableList.of(), Optional.empty());
     }
 
     private static GoalExchange.Reply levels(GoalTopic.Change... changes)

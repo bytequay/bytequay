@@ -126,8 +126,11 @@ public record GoalRecommendation(
      * @param module the directory a spec-check card checks, such as plugin/trino-delta-lake/
      * @param reproductions how many of the gaps it finds a spec check may reproduce with a test
      */
+    /**
+     * @param uncertainty what the agent is unsure of, such as code it has not read, and any doubt ByteQuay found reading the source again
+     */
     public record Card(Kind kind, String title, String reason, String scope, List<String> pages, Optional<String> workItemId, Optional<Integer> issue,
-            Optional<String> ticket, Optional<String> module, Optional<Integer> reproductions)
+            Optional<String> ticket, Optional<String> module, Optional<Integer> reproductions, Optional<String> uncertainty)
     {
         public static final int MAX_PAGES = 8;
         public static final int MAX_REPRODUCTIONS = 8;
@@ -159,12 +162,25 @@ public record GoalRecommendation(
                 pages.forEach(ContextLimits::documentationUrl);
             }
             reproductions.ifPresent(value -> checkArgument(value >= 1 && value <= MAX_REPRODUCTIONS, "a spec check reproduces 1 to %s gaps", MAX_REPRODUCTIONS));
+            uncertainty = requireNonNull(uncertainty, "uncertainty is null").map(String::strip).filter(value -> !value.isEmpty());
+            uncertainty.ifPresent(value -> checkArgument(value.length() <= 1_000, "the uncertainty is too long"));
+        }
+
+        /** The card carrying a doubt ByteQuay found, such as an open pull request linked to close its issue, before the agent's own. */
+        public Card doubting(String doubt)
+        {
+            return withUncertainty(Optional.of(uncertainty.map(own -> doubt + " " + own).orElse(doubt)));
+        }
+
+        public Card withUncertainty(Optional<String> value)
+        {
+            return new Card(kind, title, reason, scope, pages, workItemId, issue, ticket, module, reproductions, value);
         }
 
         /** The same card naming the ticket by its stable reference. */
         public Card withTicket(String reference)
         {
-            return new Card(kind, title, reason, scope, pages, workItemId, issue, Optional.of(reference), module, reproductions);
+            return new Card(kind, title, reason, scope, pages, workItemId, issue, Optional.of(reference), module, reproductions, uncertainty);
         }
     }
 }

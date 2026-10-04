@@ -175,6 +175,8 @@ export type GoalCardDto = {
   /** The directory a spec-check card checks, and how many gaps it may reproduce. */
   module: string | null;
   reproductions: number | null;
+  /** What the agent is unsure of, and any doubt ByteQuay found reading the source again. */
+  uncertainty?: string | null;
 };
 
 /** A lesson of the goal's course, written once from its knowledge notes. */
@@ -258,6 +260,7 @@ function parseCard(value: unknown): GoalCardDto {
     ticket: optionalText(card.ticket),
     module: optionalText(card.module),
     reproductions: Number.isSafeInteger(card.reproductions) && (card.reproductions as number) > 0 ? card.reproductions as number : null,
+    ...(typeof card.uncertainty === 'string' ? { uncertainty: card.uncertainty } : {}),
   };
 }
 

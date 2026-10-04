@@ -1004,6 +1004,7 @@ button.goal-tile:hover {
 .goal-rec { display: grid; gap: 6px; justify-items: start; background: #ffffff; box-shadow: 0 6px 18px rgba(31, 35, 40, 0.12); }
 .goal-rec__title { font-size: 13px; line-height: 18px; overflow-wrap: anywhere; }
 .goal-rec__reason { font-size: 12px; line-height: 17px; color: #57606a; overflow-wrap: anywhere; }
+.goal-rec__doubt { font-size: 12px; line-height: 17px; color: #9a6700; overflow-wrap: anywhere; }
 .goal-rec__error { font-size: 12px; color: #cf222e; }
 .goal-rec__actions { display: flex; align-items: center; gap: 8px; }
 

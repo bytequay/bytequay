@@ -184,7 +184,8 @@ public class GoalPlanner
             "objective": "...", "successDefinition": "...", "startingKnowledge": "...", "constraints": "..."},
             "course": {"parts": [{"title": "...", "lessons": [{"title": "...", "outcome": "...", "lessonId": null}]}], "reason": null},
             "recommendation": {"kind": "RESEARCH", "title": "...", "reason": "...", "scope": "...", "pages": ["https://..."], "workItemId": null,
-            "issue": null, "ticket": null, "module": null, "reproductions": null}, "topics": [{"topic": "...", "level": "LEARNING", "evidence": ["discussion:..."]}],
+            "issue": null, "ticket": null, "module": null, "reproductions": null, "uncertainty": null},
+            "topics": [{"topic": "...", "level": "LEARNING", "evidence": ["discussion:..."]}],
             "title": "..."}
             - assessment: your answer and where the goal stands, in one to five sentences addressed to the user.
             - question: null, or one question of at most 600 characters with zero to four suggestions of at most 200 each.
@@ -197,7 +198,9 @@ public class GoalPlanner
               scope of at most 2000 and at most eight https pages. A RESEARCH card's workItemId, issue and ticket are null; a
               LESSON card names its lesson's id in workItemId; a WORK card names one candidate: an issue's number in issue
               or a ticket's key in ticket; a SPEC_CHECK card names its module and reproductions, and the other cards leave
-              both null. An INVESTIGATE card names nothing in workItemId, issue or ticket.
+              both null. An INVESTIGATE card names nothing in workItemId, issue or ticket. In uncertainty, say in at most
+              300 characters what you are unsure of, such as code you have not read or a source that may already be fixed,
+              or null.
             - topics: an empty list, or up to eight topics whose level the evidence changed, each citing one to ten ids.
             - title: null, or the goal's name of at most 80 characters while it has no accepted definition.
             """;

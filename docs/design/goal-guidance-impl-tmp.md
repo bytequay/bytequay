@@ -1,7 +1,7 @@
 # Agent guided goals implementation plan
 
-Status: The first eight implementation slices are complete and the ninth is in
-progress. The later items of Steps 3 to 6 below remain as listed.
+Status: The first nine implementation slices are complete. The later items of
+Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
 
@@ -443,6 +443,16 @@ what the agent is unsure of.
 4. Cards say what is uncertain. A card may carry a short uncertainty, such as an
    area the agent has not read, and the card shows it under its reason.
 
+Progress: the ninth slice is complete. The candidate pool keeps tickets whose
+Jira priority is Highest or High before the cut and sorts the kept candidates
+by relevance; reading a practice source again returns either why it is no longer
+open (closed, fixed by a merged pull request, a done or claimed ticket) or the
+doubt of an open linked pull request, which the card carries in its new
+uncertainty beside the agent's own; Start on a practice card reads the source
+again and sets the card aside, telling the agent, when it closed; and the card
+under the Goal control shows its uncertainty. A card set aside once is still the
+same card when only its doubts differ.
+
 Done when: a Highest ticket that shares no words with the Goal is still a
 candidate, an issue with an open linked pull request floats with that doubt, a
 card whose issue closed after it floated cannot start, and a card shows the
@@ -576,7 +586,7 @@ work items. Closing and reopening the app retains the conversation and plan.
   gap becomes a proposed work item with its draft issue, which the user files.
 - [x] Build a Goal context reader over existing issue, Jira, PR and task stores.
   Use exact monitored/mapped workspace scope and identify incomplete coverage.
-- [ ] Add deterministic eligibility and relevance filtering before a bounded model
+- [x] Add deterministic eligibility and relevance filtering before a bounded model
   shortlist. Preserve high-priority items before display limits. Never suppress
   uncertain duplicates or possible fixes as if they were confirmed.
 - [ ] Refresh shortlisted sources through existing services. Add only the missing
@@ -607,15 +617,14 @@ Evidence for the checked items: `TestGoalLessonService`, `TestGoalSpecChecks`,
 in `TestGoalConversationService`. Still partial: a research run is confined by
 its prompt and its own disposable worktree, not by a read-only tool policy;
 cited pages are never checked for staleness and no Remember is offered; a lesson
-replaces the conversation instead of sitting beside it; candidates are not kept
-by priority before the limit, and an issue with an open linked pull request is
-set aside as if it were fixed; shortlisted sources record no duplicate read,
+replaces the conversation instead of sitting beside it; shortlisted sources
+record no duplicate read,
 revision or skipped coverage; research pages accept any https address;
 conclusions are not cached by input revision, so each event costs a request;
-cards carry no prerequisites, completion criteria or uncertainty; source
-changes do not trigger discovery; a task carries no explicit work-item reference
-or Goal context; and Start rechecks neither the work item's revision nor the
-source.
+cards carry uncertainty but no prerequisites or separate completion criteria;
+source changes do not trigger discovery; a task carries no explicit work-item
+reference or Goal context; and Start rechecks the source but not the work
+item's revision.
 
 Done when: a research card saves sourced notes, an accepted course opens a lesson
 in the Goal window, and a spec-check card turns a reproduced gap into a proposed

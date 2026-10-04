@@ -14,10 +14,12 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.service.goal.GoalConversationService;
+import com.bytequay.app.service.goal.GoalGap;
 import com.bytequay.app.service.goal.GoalItemView;
 import com.bytequay.app.service.goal.GoalLessonService;
 import com.bytequay.app.service.goal.GoalResearchService;
 import com.bytequay.app.service.goal.GoalService;
+import com.bytequay.app.service.goal.GoalSpecChecks;
 import com.bytequay.app.service.goal.GoalView;
 import com.bytequay.core.domain.GoalExchange;
 import com.bytequay.core.domain.GoalItemKind;
@@ -54,13 +56,15 @@ public class GoalController
     private final GoalConversationService conversations;
     private final GoalResearchService research;
     private final GoalLessonService lessons;
+    private final GoalSpecChecks specChecks;
 
-    public GoalController(GoalService goals, GoalConversationService conversations, GoalResearchService research, GoalLessonService lessons)
+    public GoalController(GoalService goals, GoalConversationService conversations, GoalResearchService research, GoalLessonService lessons, GoalSpecChecks specChecks)
     {
         this.goals = requireNonNull(goals, "goals is null");
         this.conversations = requireNonNull(conversations, "conversations is null");
         this.research = requireNonNull(research, "research is null");
         this.lessons = requireNonNull(lessons, "lessons is null");
+        this.specChecks = requireNonNull(specChecks, "specChecks is null");
     }
 
     @GetMapping
@@ -191,6 +195,19 @@ public class GoalController
     {
         checkArgument(request != null && request.topic() != null && request.level() != null, "topic and level are required");
         return conversations.correctTopic(workspaceId, goalId, request.topic(), request.level());
+    }
+
+    @GetMapping("/{goalId}/gaps")
+    public List<GoalGap> gaps(@PathVariable String workspaceId, @PathVariable String goalId)
+    {
+        return specChecks.gaps(workspaceId, goalId);
+    }
+
+    @PostMapping("/{goalId}/gaps/{candidateId}")
+    public List<GoalGap> addGap(@PathVariable String workspaceId, @PathVariable String goalId, @PathVariable String candidateId)
+    {
+        specChecks.adopt(workspaceId, goalId, candidateId);
+        return specChecks.gaps(workspaceId, goalId);
     }
 
     @GetMapping("/{goalId}/knowledge")

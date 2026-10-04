@@ -13,7 +13,7 @@
  */
 import type { JiraLocation, JiraQuery, JiraTokenRequest } from './jira/contracts';
 import { parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamId, teamMemberId } from './teams/contracts';
-import { parseWorkItem, type CreateWorkItem, type WorkItemDecision, parseGoal, parseGoalExchange, parseGoalItem, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
+import { parseWorkItem, type CreateWorkItem, type WorkItemDecision, parseGoal, parseGoalExchange, parseGoalGap, parseGoalItem, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, screen, shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -1878,6 +1878,11 @@ function registerIpc(): void {
     backendJson(lessonUrl(workspaceId, goalId, lessonId, '/done'), jsonInit('POST', { operationId })).then(parseGoal));
   ipcMain.handle('goals:topics', (_event, workspaceId: string, goalId: string, topic: string, level: string) =>
     backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/topics`), jsonInit('PUT', { topic, level })).then(parseGoal));
+  ipcMain.handle('goals:gaps', (_event, workspaceId: string, goalId: string) =>
+    backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/gaps`)).then(gaps => parseList(gaps, parseGoalGap, 'goal gaps')));
+  ipcMain.handle('goals:gaps:add', (_event, workspaceId: string, goalId: string, candidateId: string) =>
+    backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/gaps/${encodeURIComponent(candidateId)}`), jsonInit('POST', {}))
+      .then(gaps => parseList(gaps, parseGoalGap, 'goal gaps')));
   ipcMain.handle('goals:knowledge', (_event, workspaceId: string, goalId: string) =>
     backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/knowledge`)).then(notes => parseList(notes, parseGoalKnowledgeNote, 'goal notes')));
   ipcMain.handle('workspaces:issues:refresh', (_event, workspaceId: string) =>

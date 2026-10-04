@@ -450,9 +450,9 @@ public class GoalConversationService
                 && goal.items().stream().anyMatch(item -> item.id().equals(id) && item.state() != WorkItem.State.DONE && item.state() != WorkItem.State.DROPPED)).orElse(true);
         Optional<GoalRecommendation.Card> named = switch (answered.kind()) {
             case WORK -> practice(goal, answered);
-            // A spec check names a module the agent was given.
+            // A spec check names a module the agent was given, and waits until every gap of the last one is done, dropped or dismissed.
             case SPEC_CHECK -> specChecks.getObject().modules(goal.workspaceId()).stream().anyMatch(module -> answered.module().filter(module.directory()::equals).isPresent())
-                    ? Optional.of(answered) : Optional.empty();
+                    && specChecks.getObject().gaps(goal.workspaceId(), goal.id()).stream().noneMatch(GoalGap::open) ? Optional.of(answered) : Optional.empty();
             case RESEARCH, LESSON -> Optional.of(answered);
         };
         if (!lesson || named.isEmpty()) {

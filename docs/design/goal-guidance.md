@@ -5,8 +5,8 @@ recommendation cards, research runs, courses and lessons, practice cards that
 open a prepared composer, task receipts and the learner profile. The second
 slice so far makes a started practice card Goal work, records a task's pull
 request, its merge and the receipts missed while ByteQuay was stopped, and finds
-practice among open issues and mapped Jira tickets, and recommends spec checks.
-Turning a reproduced gap into Goal work and the later steps of the plan remain. This document specifies the Goal conversation, research, courses,
+practice among open issues and mapped Jira tickets, recommends spec checks and
+turns a reproduced gap into Goal work. The later steps of the plan remain. This document specifies the Goal conversation, research, courses,
 discovery, guidance and durable progress panel, and three takeaways from the
 Plane comparison. The [implementation plan](goal-guidance-impl-tmp.md) lists
 actionable changes and acceptance checks.
@@ -117,6 +117,11 @@ the existing check with those choices, Adjust opens the Spec check drawer on the
 Memory page filled with them, and Open check shows the running check there.
 When the check ends, its card settles, a failed or stopped one showing again for
 a retry, and the agent hears what it reproduced and what was already reported.
+The Goal window lists the gaps of the last finished check that nobody dismissed:
+File issue opens GitHub's form with the drafted issue, which only the user
+submits, and Add to goal makes the gap a Develop work item under merged delivery,
+done once its reproduction test passes and the fix merges. No other spec check is
+recommended while one of those gaps is neither done nor dropped.
 
 When a turn of an interactive task completes and the task belongs to a Goal's
 work item, its final answer is recorded once in the item's history as a receipt,
@@ -141,7 +146,7 @@ ByteQuay keeps only evidence that exists and never changes a level the user set.
 The Guide view lists what the user knows, and the user can correct any level.
 
 A new explicit same-source attempt without deleting the prior task, proposal
-acceptance into other work items, gaps as Goal work, course changes, automatic
+acceptance into other work items, linking a filed issue to its gap, course changes, automatic
 outcome harvesting, stale-note marking, a per-Goal model choice, request
 cancellation and the two-call discovery shortlist with a source refresh remain
 pending. The checklist

@@ -119,7 +119,8 @@ public class GoalPlanner
             implements and reproduces each gap it finds with a failing test, so it finds bugs nobody has reported. When the
             user knows an area and its specification, you may recommend a SPEC_CHECK card: a module of specCheckModules by
             its directory in module, the specification pages to check it against in pages, and in reproductions how many
-            gaps it may reproduce, 1 to 8, each a build. Recommend no other spec check while one is shown or running.
+            gaps it may reproduce, 1 to 8, each a build. Recommend no other spec check while one is shown or running, or
+            while a gap of the last one (lastSpecCheckGaps) is still open; help the user work those first.
 
             Keep track of what the user knows, topic by topic: from finished lessons, check answers, their questions here
             and in their private cards (recentQuestions), and the work they did. When the evidence changes a topic's level
@@ -243,6 +244,9 @@ public class GoalPlanner
             ObjectNode covered = data.putObject("candidateCoverage").put("issuesRead", coverage.issuesRead()).put("issuesOpen", coverage.issuesOpen())
                     .put("ticketsRead", coverage.ticketsRead());
             coverage.issuesSyncedAt().ifPresent(at -> covered.put("issuesSyncedAt", at.toString()));
+            ArrayNode gaps = data.putArray("lastSpecCheckGaps");
+            specChecks.gaps(goal.workspaceId(), goal.id()).forEach(gap -> gaps.addObject().put("title", gap.title()).put("module", gap.module())
+                    .put("work", gap.state().map(Enum::name).orElse("NOT_ADDED")));
             ArrayNode modules = data.putArray("specCheckModules");
             try {
                 specChecks.modules(goal.workspaceId()).forEach(module -> {

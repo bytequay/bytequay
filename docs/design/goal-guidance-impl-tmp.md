@@ -1,7 +1,6 @@
 # Agent guided goals implementation plan
 
-Status: The first implementation slice is complete and the second is in
-progress. The later items of Steps 3 to 6 below remain as listed. The [Goal guidance design](goal-guidance.md) owns the product and
+Status: The first and second implementation slices are complete. The later items of Steps 3 to 6 below remain as listed. The [Goal guidance design](goal-guidance.md) owns the product and
 behavior contract; this checklist records delivery order, concrete actions and
 proof required.
 
@@ -152,6 +151,12 @@ Item 5 is implemented: the planner sees the fifteen modules whose code cites a
 specification most, and a Spec check card names one with its pages and
 reproduction count. Start runs the existing check, Adjust opens the drawer
 filled in, and the check's end settles the card and tells the agent.
+
+Item 6 is implemented: the Goal window lists the last check's reproduced,
+undismissed gaps with File issue and Add to goal, a gap becoming a Develop work
+item once whichever check of its module reported it, and no other spec check
+is recommended while one is open. The second slice is complete; a live model run
+against real data is still to be done.
 
 Done when: a Practice card leads to a task whose merged pull request is recorded
 on the Goal and moves the topic it practiced, after which a new card can float;

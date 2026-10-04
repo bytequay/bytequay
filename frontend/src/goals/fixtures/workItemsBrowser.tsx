@@ -41,10 +41,10 @@ async function decisionsSurviveFailure(): Promise<void> {
     const goal: GoalDto = { id: 'goal', workspaceId: 'workspace', title: 'First contribution', description: '', pinned: true, source: null,
       definition: null, revision: 0, course: null, items: item.goalId === 'goal' ? [item] : [], recommendations: [], topics: [], createdAt: now, updatedAt: now };
     return <GoalPanel mode="window" view="work" onView={() => {}} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
-      conversation={{ loaded: true, exchanges: [], notes: [], error: null, ask: async () => {}, retry: async () => {}, accept: async () => {}, acceptCourse: async () => {},
+      conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, ask: async () => {}, retry: async () => {}, accept: async () => {}, acceptCourse: async () => {},
         openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {} }}
       repository="org/repo" goal={goal} goals={[goal]} workItems={[item]} needsYou={new Set()}
-      onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
+      onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
       search={async () => []} onCreateWork={async () => item} onLink={async () => item}
       onDecide={async (_item, command) => {
         decisions.push(command);

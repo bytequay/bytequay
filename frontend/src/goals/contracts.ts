@@ -208,6 +208,21 @@ export type GoalRecommendationDto = {
   createdAt: string;
 };
 
+/** A gap the goal's last spec check reproduced with a failing test, and the Goal work it became once the user added it. */
+export type GoalGapDto = {
+  checkId: string;
+  candidateId: string;
+  module: string;
+  title: string;
+  rule: string;
+  specUrl: string;
+  test: { path: string; command: string; exitCode: number } | null;
+  /** The issue the check drafted, which only the user files. */
+  draft: { title: string; body: string; labels: string[] } | null;
+  workItemId: string | null;
+  state: WorkItemState | null;
+};
+
 /** What a research run learned for a goal, with the pages and files it rests on. */
 export type GoalKnowledgeNoteDto = {
   id: string;
@@ -245,6 +260,26 @@ export function parseGoalRecommendation(value: unknown): GoalRecommendationDto {
     workItemId: optionalText(recommendation.workItemId),
     checkId: optionalText(recommendation.checkId),
     createdAt: text(recommendation.createdAt, 'goal recommendation time'),
+  };
+}
+
+export function parseGoalGap(value: unknown): GoalGapDto {
+  const gap = object(value, 'goal gap');
+  const test = gap.test === null || gap.test === undefined ? null : object(gap.test, 'goal gap test');
+  const draft = gap.draft === null || gap.draft === undefined ? null : object(gap.draft, 'goal gap draft');
+  return {
+    checkId: text(gap.checkId, 'goal gap check'),
+    candidateId: text(gap.candidateId, 'goal gap candidate'),
+    module: text(gap.module, 'goal gap module'),
+    title: text(gap.title, 'goal gap title'),
+    rule: typeof gap.rule === 'string' ? gap.rule : '',
+    specUrl: typeof gap.specUrl === 'string' ? gap.specUrl : '',
+    test: test === null ? null : { path: text(test.path, 'goal gap test path'), command: typeof test.command === 'string' ? test.command : '',
+      exitCode: typeof test.exitCode === 'number' ? test.exitCode : -1 },
+    draft: draft === null ? null : { title: text(draft.title, 'goal gap draft title'), body: typeof draft.body === 'string' ? draft.body : '',
+      labels: parseList(draft.labels ?? [], (label) => text(label, 'goal gap draft label'), 'goal gap draft labels') },
+    workItemId: optionalText(gap.workItemId),
+    state: gap.state === null || gap.state === undefined ? null : oneOf(gap.state, ['PLANNED', 'WORKING', 'DONE', 'DROPPED'] as const, 'goal gap state'),
   };
 }
 

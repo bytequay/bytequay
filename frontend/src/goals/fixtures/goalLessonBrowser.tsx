@@ -58,7 +58,7 @@ function Fixture(): React.JSX.Element {
   }), []);
   const conversation: GoalConversation = {
     ...lessons,
-    loaded: true, exchanges, notes: [], error: null, retry: async () => {}, accept: async () => {}, acceptCourse: async () => {}, correctTopic: async () => {},
+    loaded: true, exchanges, notes: [], gaps: [], addGap: async () => {}, error: null, retry: async () => {}, accept: async () => {}, acceptCourse: async () => {}, correctTopic: async () => {},
     ask: async (operationId, message, lessonId) => {
       server.asked.push(lessonId);
       setExchanges([{ id: operationId, goalId: 'goal', message, automatic: false, lessonId: lessonId ?? null, inputRevision: 1, state: 'ANSWERED', failure: null,
@@ -68,7 +68,7 @@ function Fixture(): React.JSX.Element {
   return (
     <div style={{ height: 800 }}>
       <GoalPanel mode="board" view="guide" onView={() => {}} lesson={lesson} onLesson={setLesson} conversation={conversation} onStart={async () => {}}
-        onOpenTask={() => {}} repository="trinodb/trino" goals={[goal]} goal={goal} needsYou={new Set()} onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}}
+        onOpenTask={() => {}} repository="trinodb/trino" goals={[goal]} goal={goal} needsYou={new Set()} onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false}
         onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onDelete={async () => {}} onAdd={async () => {}} workItems={[item]} onCreateWork={async () => item} onDecide={async () => item}
         onLink={async () => item} onOpenItem={() => {}} search={async () => []} />
     </div>

@@ -459,8 +459,16 @@ class TestGoalConversationService
         queued.removeFirst().run();
         assertThat(cards.list(goal.id())).as("a module the agent was not given is dropped").isEmpty();
 
-        service.ask("workspace", goal.id(), "op-2", "Find gaps");
+        GoalGap open = new GoalGap("check-0", "c-1", "plugin/trino-delta-lake/", "Checkpoint keys actions by path only", "", "", Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty());
+        when(specChecks.gaps("workspace", goal.id())).thenReturn(ImmutableList.of(open));
+        service.ask("workspace", goal.id(), "op-2", "Find more gaps");
         doReturn(check("plugin/trino-delta-lake/")).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        assertThat(cards.list(goal.id())).as("a gap of the last check is still open").isEmpty();
+
+        when(specChecks.gaps("workspace", goal.id())).thenReturn(ImmutableList.of());
+        service.ask("workspace", goal.id(), "op-3", "Find gaps");
         queued.removeFirst().run();
         GoalRecommendation card = cards.list(goal.id()).getFirst();
         assertThat(card.card().module()).contains("plugin/trino-delta-lake/");

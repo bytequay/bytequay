@@ -13,13 +13,16 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.context.ContextSpecCheck;
 import com.bytequay.app.service.goal.GoalActivity;
 import com.bytequay.app.service.goal.GoalConversationService;
+import com.bytequay.app.service.goal.GoalGap;
 import com.bytequay.app.service.goal.GoalItemState;
 import com.bytequay.app.service.goal.GoalItemView;
 import com.bytequay.app.service.goal.GoalLessonService;
 import com.bytequay.app.service.goal.GoalResearchService;
 import com.bytequay.app.service.goal.GoalService;
+import com.bytequay.app.service.goal.GoalSpecChecks;
 import com.bytequay.app.service.goal.GoalView;
 import com.bytequay.app.service.goal.WorkItemView;
 import com.bytequay.core.domain.GoalExchange;
@@ -67,7 +70,8 @@ class TestGoalController
     private final GoalConversationService conversations = mock(GoalConversationService.class);
     private final GoalResearchService research = mock(GoalResearchService.class);
     private final GoalLessonService lessons = mock(GoalLessonService.class);
-    private final MockMvc mvc = standaloneSetup(new GoalController(goals, conversations, research, lessons)).build();
+    private final GoalSpecChecks specChecks = mock(GoalSpecChecks.class);
+    private final MockMvc mvc = standaloneSetup(new GoalController(goals, conversations, research, lessons, specChecks)).build();
 
     @Test
     void listsGoalsWithTheirItemsReadLocally()
@@ -203,6 +207,22 @@ class TestGoalController
         mvc.perform(post("/api/workspaces/workspace/goals/goal-1/exchanges").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"operationId\":\"op-10\",\"message\":\"Why a tree?\",\"lessonId\":\"lesson-1\"}")).andExpect(status().isOk());
         verify(conversations).ask("workspace", "goal-1", "op-10", "Why a tree?", Optional.of("lesson-1"));
+    }
+
+    @Test
+    void readsTheLastSpecChecksGapsAndAddsOneToTheGoal()
+            throws Exception
+    {
+        GoalGap gap = new GoalGap("check-1", "c-1", "plugin/trino-delta-lake/", "Checkpoint keys actions by path only", "Reconcile by path and deletion vector",
+                "https://github.com/delta-io/delta/blob/master/PROTOCOL.md", Optional.empty(), Optional.of(new ContextSpecCheck.Draft("Checkpoint loses rows",
+                "Body", ImmutableList.of("bug"))), Optional.empty(), Optional.empty());
+        when(specChecks.gaps("workspace", "goal-1")).thenReturn(ImmutableList.of(gap));
+        mvc.perform(get("/api/workspaces/workspace/goals/goal-1/gaps"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].candidateId").value("c-1"))
+                .andExpect(jsonPath("$[0].draft.title").value("Checkpoint loses rows"));
+        mvc.perform(post("/api/workspaces/workspace/goals/goal-1/gaps/c-1")).andExpect(status().isOk()).andExpect(jsonPath("$[0].module").value("plugin/trino-delta-lake/"));
+        verify(specChecks).adopt("workspace", "goal-1", "c-1");
     }
 
     @Test

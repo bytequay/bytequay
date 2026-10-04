@@ -58,6 +58,9 @@ const conversation: Omit<Goals, 'goals' | 'pinned'> = {
   createWork: unexpected, decideWork: unexpected, linkWork: unexpected, retry: unexpected, dismissCard: unexpected, acceptCourse: unexpected, refresh: changed,
   openLesson: unexpected, readLesson: unexpected, finishLesson: unexpected, setTopic: unexpected,
   knowledge: async () => server.notes,
+  gaps: async () => [],
+  addGap: unexpected,
+  fileIssue: unexpected,
   startCard: async (_goalId, recommendationId) => {
     server.started.push(recommendationId);
     const card = server.goal.recommendations.find((candidate) => candidate.id === recommendationId);

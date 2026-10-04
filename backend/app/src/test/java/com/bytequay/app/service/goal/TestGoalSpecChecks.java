@@ -19,6 +19,7 @@ import com.bytequay.app.context.ContextSpecCheckService;
 import com.bytequay.app.context.ContextSpecModule;
 import com.bytequay.core.domain.Goal;
 import com.bytequay.core.domain.GoalRecommendation;
+import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.store.GoalStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,7 +32,9 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -52,7 +55,8 @@ class TestGoalSpecChecks
     private final ContextBuildService builds = mock(ContextBuildService.class);
     private final GoalConversationService conversation = mock(GoalConversationService.class);
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
-    private final GoalSpecChecks specChecks = new GoalSpecChecks(goals, cards, beans.getBeanProvider(ContextSpecCheckService.class),
+    private final WorkItemService work = mock(WorkItemService.class);
+    private final GoalSpecChecks specChecks = new GoalSpecChecks(goals, cards, beans.getBeanProvider(WorkItemService.class), beans.getBeanProvider(ContextSpecCheckService.class),
             beans.getBeanProvider(ContextBuildService.class), beans.getBeanProvider(GoalConversationService.class), Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
@@ -61,6 +65,7 @@ class TestGoalSpecChecks
         beans.registerSingleton("contextSpecCheckService", checks);
         beans.registerSingleton("contextBuildService", builds);
         beans.registerSingleton("goalConversationService", conversation);
+        beans.registerSingleton("workItemService", work);
         when(goals.list("workspace")).thenReturn(ImmutableList.of(new Goal("goal-1", "workspace", "Delta Lake correctness", "", true, false, Optional.empty(),
                 Optional.empty(), Optional.empty(), 0, Optional.empty(), NOW, NOW)));
         cards.save(new GoalRecommendation("card-1", "goal-1", "workspace", new GoalRecommendation.Card(GoalRecommendation.Kind.SPEC_CHECK,
@@ -104,6 +109,39 @@ class TestGoalSpecChecks
         GoalRecommendation card = cards.find("card-1").orElseThrow();
         assertThat(card.state()).isEqualTo(GoalRecommendation.State.SHOWN);
         assertThat(card.checkId()).isEmpty();
+    }
+
+    @Test
+    void theLastChecksGapsBecomeGoalWorkOnceAndStayOpenUntilDoneOrDropped()
+    {
+        cards.save(cards.find("card-1").orElseThrow().checking("check-1", NOW).done(NOW));
+        ContextSpecCheck.Candidate gap = candidate(ContextSpecCheck.Status.CONFIRMED, "Checkpoint keys actions by path only", Optional.empty());
+        when(gap.id()).thenReturn("c-1");
+        when(gap.rule()).thenReturn("Reconcile actions by path and deletion vector");
+        when(gap.specUrl()).thenReturn(PROTOCOL);
+        when(gap.test()).thenReturn(Optional.of(new ContextSpecCheck.Test("plugin/trino-delta-lake/src/test/java/TestCheckpoint.java", "mvn -Dtest=TestCheckpoint test", 1,
+                "Rows lost", "provider")));
+        when(gap.draft()).thenReturn(Optional.of(new ContextSpecCheck.Draft("Checkpoint loses rows with deletion vectors", "Body", ImmutableList.of("bug"))));
+        ContextSpecCheck.Candidate refuted = candidate(ContextSpecCheck.Status.REFUTED, "Remove keeps its stats", Optional.empty());
+        ContextSpecCheck check = check(ContextSpecCheck.State.DONE, gap, refuted);
+        when(checks.checks("workspace")).thenReturn(ImmutableList.of(check));
+        when(work.list("workspace")).thenReturn(ImmutableList.of());
+
+        GoalGap open = specChecks.gaps("workspace", "goal-1").getFirst();
+        assertThat(specChecks.gaps("workspace", "goal-1")).as("only reproduced gaps").hasSize(1);
+        assertThat(open.open()).isTrue();
+        assertThat(open.workItemId()).isEmpty();
+        specChecks.adopt("workspace", "goal-1", "c-1");
+        String id = UUID.nameUUIDFromBytes("gap:plugin/trino-delta-lake/:c-1".getBytes(UTF_8)).toString();
+        verify(work).create("workspace", id, Optional.of("goal-1"), "Checkpoint loses rows with deletion vectors", WorkItem.Kind.DEVELOP,
+                "The reproduction test plugin/trino-delta-lake/src/test/java/TestCheckpoint.java passes (mvn -Dtest=TestCheckpoint test), and the fix that makes it pass "
+                        + "merges.\nSpecification: " + PROTOCOL, WorkItem.CompletionRule.MERGED_DELIVERY);
+
+        when(work.list("workspace")).thenReturn(ImmutableList.of(new WorkItemView(id, "workspace", Optional.of("goal-1"), "Checkpoint loses rows", WorkItem.Kind.DEVELOP,
+                "Passes", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.DONE, 3, ImmutableList.of(), ImmutableList.of(), NOW, NOW)));
+        GoalGap done = specChecks.gaps("workspace", "goal-1").getFirst();
+        assertThat(done.workItemId()).contains(id);
+        assertThat(done.open()).as("a done gap lets the next spec check come").isFalse();
     }
 
     @Test

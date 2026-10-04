@@ -17,8 +17,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AttentionItem } from '../home/attention';
 import type { JiraIssue } from '../jira/contracts';
 import type { AgentTaskDto } from '../types';
-import type { GoalDto, GoalExchangeDto, GoalItemDto, GoalKnowledgeNoteDto, GoalRecommendationDto, WorkItemDto } from './contracts';
-import { parseGoal, parseGoalExchange, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation } from './contracts';
+import type { GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalKnowledgeNoteDto, GoalRecommendationDto, WorkItemDto } from './contracts';
+import { parseGoal, parseGoalExchange, parseGoalGap, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation } from './contracts';
 import { GoalPanel, type GoalPanelProps } from './GoalPanel';
 import {
   addable, attentionWorkspace, goalDirections, goalHas, goalRef, itemsIn, needsYouKeys, openCourse, openProposal, placePill, recentActivity, refKey, sourceUrl, summarize,
@@ -103,7 +103,7 @@ describe('goal model', () => {
   });
 });
 
-const NO_CONVERSATION: GoalConversation = { loaded: true, exchanges: [], notes: [], error: null, ask: async () => {}, retry: async () => {}, accept: async () => {},
+const NO_CONVERSATION: GoalConversation = { loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, ask: async () => {}, retry: async () => {}, accept: async () => {},
   acceptCourse: async () => {}, openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {},
   correctTopic: async () => {} };
 
@@ -112,7 +112,7 @@ function panel(props: Partial<GoalPanelProps>): string {
     <GoalPanel mode="window" view="work" onView={() => {}} conversation={NO_CONVERSATION} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
       repository="trinodb/trino" goals={[GOAL, { ...GOAL, id: 'goal-2', pinned: false }]} goal={GOAL}
       needsYou={new Set(['PULL_REQUEST trinodb/trino#30925'])} now={Date.parse('2026-09-27T12:00:00Z')}
-      onClose={() => {}} onExpand={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onDelete={async () => {}}
+      onClose={() => {}} onExpand={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onDelete={async () => {}}
       workItems={GOAL.items} onCreateWork={async () => GOAL.items[0]} onDecide={async () => GOAL.items[0]} onLink={async () => GOAL.items[0]} onAdd={async () => {}} onOpenItem={() => {}} search={async () => []} {...props} />);
 }
 
@@ -231,6 +231,21 @@ describe('goal guidance', () => {
       card: { ...CARD.card, kind: 'LESSON', title: 'What a table is', pages: [], workItemId: 'work-0' } }] } });
     expect(lesson).toContain('Learning: What a table is');
     expect(lesson).toContain('>Open lesson</button>');
+  });
+
+  it('lists the gaps the last spec check reproduced, to file and to add to the goal', () => {
+    const gap: GoalGapDto = { checkId: 'check-1', candidateId: 'c-1', module: 'plugin/trino-delta-lake/', title: 'Checkpoint keys actions by path only',
+      rule: 'Reconcile by path and deletion vector', specUrl: 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md',
+      test: { path: 'TestCheckpoint.java', command: 'mvn test', exitCode: 1 }, draft: { title: 'Checkpoint loses rows', body: 'Body', labels: ['bug'] },
+      workItemId: null, state: null };
+    expect(parseGoalGap(JSON.parse(JSON.stringify({ ...gap, test: { ...gap.test, output: 'Rows lost', source: 'provider' } })))).toEqual(gap);
+    const open = panel({ view: 'guide', conversation: { ...NO_CONVERSATION, gaps: [gap] } });
+    expect(open).toContain('Gaps the spec check reproduced · 1');
+    expect(open).toContain('>File issue</button>');
+    expect(open).toContain('>Add to goal</button>');
+    const added = panel({ view: 'guide', conversation: { ...NO_CONVERSATION, gaps: [{ ...gap, workItemId: 'work-7', state: 'PLANNED' }] } });
+    expect(added).toContain('>Work: planned</button>');
+    expect(added).not.toContain('Add to goal');
   });
 
   it('reads a proposed and an accepted course, and offers the course only until one is accepted', () => {

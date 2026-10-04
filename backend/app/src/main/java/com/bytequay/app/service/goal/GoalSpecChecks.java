@@ -17,10 +17,13 @@ import com.bytequay.app.context.ContextBuildService;
 import com.bytequay.app.context.ContextSpecCheck;
 import com.bytequay.app.context.ContextSpecCheckService;
 import com.bytequay.app.context.ContextSpecModule;
+import com.bytequay.app.context.ContextText;
 import com.bytequay.core.domain.Goal;
 import com.bytequay.core.domain.GoalRecommendation;
+import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.store.GoalRecommendationStore;
 import com.bytequay.core.store.GoalStore;
+import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -29,12 +32,16 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
 
@@ -50,6 +57,7 @@ public class GoalSpecChecks
 
     private final GoalStore goals;
     private final GoalRecommendationStore recommendations;
+    private final ObjectProvider<WorkItemService> work;
     private final ObjectProvider<ContextSpecCheckService> checks;
     private final ObjectProvider<ContextBuildService> builds;
     private final ObjectProvider<GoalConversationService> conversations;
@@ -59,11 +67,12 @@ public class GoalSpecChecks
 
     private record Modules(String sha, List<ContextSpecModule> found) {}
 
-    public GoalSpecChecks(GoalStore goals, GoalRecommendationStore recommendations, ObjectProvider<ContextSpecCheckService> checks,
+    public GoalSpecChecks(GoalStore goals, GoalRecommendationStore recommendations, ObjectProvider<WorkItemService> work, ObjectProvider<ContextSpecCheckService> checks,
             ObjectProvider<ContextBuildService> builds, ObjectProvider<GoalConversationService> conversations, Clock clock)
     {
         this.goals = requireNonNull(goals, "goals is null");
         this.recommendations = requireNonNull(recommendations, "recommendations is null");
+        this.work = requireNonNull(work, "work is null");
         this.checks = requireNonNull(checks, "checks is null");
         this.builds = requireNonNull(builds, "builds is null");
         this.conversations = requireNonNull(conversations, "conversations is null");
@@ -109,6 +118,58 @@ public class GoalSpecChecks
             // The check keeps its report; the agent reads the card's state with its next request.
             log.warn("The end of spec check {} was not told to its Goal", check.id(), failure);
         }
+    }
+
+    /**
+     * The gaps the goal's last finished spec check reproduced and nobody dismissed, each with the Goal work it became. A later check of the
+     * same module keeps the earlier one's findings, so its report stands in when the goal's own check was replaced.
+     */
+    public List<GoalGap> gaps(String workspaceId, String goalId)
+    {
+        Optional<GoalRecommendation> last = recommendations.list(goalId).stream()
+                .filter(card -> card.card().kind() == GoalRecommendation.Kind.SPEC_CHECK && card.state() == GoalRecommendation.State.DONE && card.checkId().isPresent())
+                .max(Comparator.comparing(GoalRecommendation::updatedAt));
+        if (last.isEmpty()) {
+            return ImmutableList.of();
+        }
+        String checkId = last.get().checkId().orElseThrow();
+        String module = last.get().card().module().orElseThrow();
+        List<ContextSpecCheck> reports = checks.getObject().checks(workspaceId);
+        Optional<ContextSpecCheck> check = reports.stream().filter(found -> found.id().equals(checkId)).findFirst()
+                .or(() -> reports.stream().filter(found -> found.directory().equals(module)).findFirst());
+        if (check.isEmpty()) {
+            return ImmutableList.of();
+        }
+        Map<String, WorkItemView> items = work.getObject().list(workspaceId).stream().collect(toImmutableMap(WorkItemView::id, item -> item));
+        return check.get().candidates().stream()
+                .filter(candidate -> candidate.status() == ContextSpecCheck.Status.CONFIRMED && candidate.dismissed().isEmpty())
+                .map(candidate -> {
+                    Optional<WorkItemView> item = Optional.ofNullable(items.get(gapItem(module, candidate.id())));
+                    return new GoalGap(check.get().id(), candidate.id(), module, candidate.title(), candidate.rule(), candidate.specUrl(), candidate.test(),
+                            candidate.draft(), item.map(WorkItemView::id), item.map(WorkItemView::state));
+                })
+                .collect(toImmutableList());
+    }
+
+    /**
+     * Adds a reproduced gap to the goal as Develop work under merged delivery, done once its reproduction test passes and the fix merges.
+     * Adding it again changes nothing; the draft issue stays the user's to file.
+     */
+    public WorkItemView adopt(String workspaceId, String goalId, String candidateId)
+    {
+        GoalGap gap = gaps(workspaceId, goalId).stream().filter(found -> found.candidateId().equals(candidateId)).findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Gap not found"));
+        String title = gap.draft().map(ContextSpecCheck.Draft::title).orElse(gap.title());
+        String criteria = gap.test().map(test -> "The reproduction test " + test.path() + " passes (" + test.command() + "), and the fix that makes it pass merges.")
+                .orElse("The gap is fixed, tested and merged.") + "\nSpecification: " + gap.specUrl();
+        return work.getObject().create(workspaceId, gapItem(gap.module(), candidateId), Optional.of(goalId), ContextText.excerpt(title, 500), WorkItem.Kind.DEVELOP,
+                criteria, WorkItem.CompletionRule.MERGED_DELIVERY);
+    }
+
+    /** One work item per gap, whichever check of its module reported it. */
+    private static String gapItem(String module, String candidateId)
+    {
+        return UUID.nameUUIDFromBytes(("gap:" + module + ":" + candidateId).getBytes(UTF_8)).toString();
     }
 
     /** The modules a spec check may name, the ones whose own code cites a page in the most sections first. */

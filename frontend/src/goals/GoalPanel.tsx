@@ -19,7 +19,7 @@ import { GoalIcon, SourceIcon } from '../cards/Card';
 import MarkdownBody from '../pulls/MarkdownBody';
 import { relativeTime } from '../relativeTime';
 import type {
-  GoalCourseDraftDto, GoalDto, GoalItemDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalProposalDto, GoalRecommendationDto, GoalTopicDto, TopicLevel, WorkItemDto, WorkItemDecision,
+  GoalCourseDraftDto, GoalDto, GoalGapDto, GoalItemDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalProposalDto, GoalRecommendationDto, GoalTopicDto, TopicLevel, WorkItemDto, WorkItemDecision,
   CreateWorkItem, CompletionRule, WorkItemKind,
 } from './contracts';
 import {
@@ -91,6 +91,8 @@ export type GoalPanelProps = {
   onStartTicket: (ticket: string, instruction: string) => void;
   /** Shows a module's spec check on the Memory page. */
   onSpecCheck: (spec: SpecCheckRequest) => void;
+  /** Opens a gap's drafted issue on GitHub's form, for the user to file; answers whether the body was cut and copied instead. */
+  onFileIssue: (draft: NonNullable<GoalGapDto['draft']>) => Promise<boolean>;
   search: (query: string) => Promise<GoalItemDto[]>;
 };
 
@@ -148,7 +150,7 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
         : item !== undefined ? <WorkDetails key={item.id} {...props} item={item} onBack={() => setSelected(null)} />
         : view === 'guide' ? <GoalGuide key={goal?.id ?? 'next'} goal={goal} repository={props.repository} conversation={props.conversation} onStart={props.onStart} onOpenTask={props.onOpenTask}
           onLesson={props.onLesson} onBack={props.onBack} onStartIssue={props.onStartIssue} onStartTicket={props.onStartTicket} onSpecCheck={props.onSpecCheck}
-          onReview={setSelected} />
+          onFileIssue={props.onFileIssue} onReview={setSelected} />
           : goal === null ? <><NoGoal onCreate={props.onCreate} />{props.workItems.map((saved) => <button type="button" className="goal-work-card" key={saved.id} onClick={() => setSelected(saved.id)}>{saved.title} · {saved.state.toLowerCase()}</button>)}</> : <GoalWork {...props} goal={goal} onSelect={setSelected} />}
       {cancelling && goal !== null && (
         <ConfirmDialog
@@ -217,9 +219,9 @@ function GoalTitle({ goal, onRename }: { goal: GoalDto; onRename: GoalPanelProps
  * The agent's side of the goal: "What do you want to achieve?" while there is nothing to go on, then the conversation, the
  * question's suggested answers and a definition to accept. The opening is written locally; only a message asks the model.
  */
-function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLesson, onBack, onStartIssue, onStartTicket, onSpecCheck, onReview }: Pick<GoalPanelProps,
-  'goal' | 'repository' | 'conversation' | 'onStart' | 'onOpenTask' | 'onLesson' | 'onBack' | 'onStartIssue' | 'onStartTicket' | 'onSpecCheck'>
-  & { onReview: (workItemId: string) => void }): React.JSX.Element {
+function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLesson, onBack, onStartIssue, onStartTicket, onSpecCheck, onFileIssue, onReview }:
+  Pick<GoalPanelProps, 'goal' | 'repository' | 'conversation' | 'onStart' | 'onOpenTask' | 'onLesson' | 'onBack' | 'onStartIssue' | 'onStartTicket' | 'onSpecCheck'
+    | 'onFileIssue'> & { onReview: (workItemId: string) => void }): React.JSX.Element {
   const { exchanges } = conversation;
   const [error, setError] = useState<string | null>(null);
   const last = exchanges.at(-1);
@@ -272,6 +274,7 @@ function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLess
       {question !== null && question.suggestions.length > 0 && <Choices choices={question.suggestions} onPick={pick} />}
       {goal?.recommendations.filter((card) => card.state === 'STARTED').map((card) => <Started key={card.id} goal={goal} card={card} onOpenTask={onOpenTask}
         onLesson={onLesson} onStartIssue={onStartIssue} onStartTicket={onStartTicket} onSpecCheck={onSpecCheck} onReview={onReview} />)}
+      {conversation.gaps.length > 0 && <Gaps gaps={conversation.gaps} onAdd={conversation.addGap} onFile={onFileIssue} onReview={onReview} />}
       {conversation.notes.length > 0 && <Notes notes={conversation.notes} />}
       {goal !== null && goal.topics.length > 0 && <Known topics={goal.topics} onCorrect={conversation.correctTopic} />}
       {open !== null && <Proposal key={open.exchangeId} proposal={open.proposal} onAccept={(title) => conversation.accept(open.exchangeId, title)} />}
@@ -279,6 +282,38 @@ function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLess
       {(error ?? conversation.error) !== null && <p className="goal-guide__error" role="alert">{error ?? conversation.error}</p>}
       {!opening && ready && composer}
     </div>
+  );
+}
+
+/**
+ * The gaps the goal's last spec check reproduced with a failing test. The user files each drafted issue on GitHub's own form and adds the gap
+ * to the goal as work; until every gap is done, dropped or dismissed, the agent recommends no other spec check.
+ */
+function Gaps({ gaps, onAdd, onFile, onReview }: {
+  gaps: GoalGapDto[];
+  onAdd: (candidateId: string) => Promise<void>;
+  onFile: (draft: NonNullable<GoalGapDto['draft']>) => Promise<boolean>;
+  onReview: (workItemId: string) => void;
+}): React.JSX.Element {
+  const [note, setNote] = useState<string | null>(null);
+  const failed = (fallback: string) => (failure: unknown): void => setNote(failure instanceof Error ? failure.message : fallback);
+  return (
+    <section className="goal-gaps" aria-label="Reproduced gaps">
+      <div className="goal-group">Gaps the spec check reproduced · {gaps.length}</div>
+      {gaps.map((gap) => <div key={gap.candidateId} className="goal-gap">
+        <span className="goal-gap__title" title={gap.rule}>{gap.title}</span>
+        {gap.test !== null && <span className="goal-muted">{gap.test.path}</span>}
+        {gap.draft !== null && <button type="button" className="goal-link" onClick={() => {
+          setNote(null);
+          void onFile(gap.draft).then((cut) => setNote(cut ? 'The issue form opened with a shortened body; the full report is on the clipboard.'
+            : 'The issue form opened on GitHub; file it there.'), failed('The issue form did not open'));
+        }}>File issue</button>}
+        {gap.workItemId === null
+          ? <button type="button" className="goal-link" onClick={() => { setNote(null); void onAdd(gap.candidateId).catch(failed('The gap was not added')); }}>Add to goal</button>
+          : <button type="button" className="goal-link" onClick={() => onReview(gap.workItemId)}>Work: {gap.state?.toLowerCase() ?? 'open'}</button>}
+      </div>)}
+      {note !== null && <p className="goal-muted" role="status">{note}</p>}
+    </section>
   );
 }
 

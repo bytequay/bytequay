@@ -1,7 +1,7 @@
 # Agent guided goals implementation plan
 
-Status: The first, second and third implementation slices are complete and the
-fourth is in progress. The later items of Steps 3 to 6 below remain as listed.
+Status: The first four implementation slices are complete. The later items of
+Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
 
@@ -256,6 +256,13 @@ keep their work items by ID, new ones get deterministic IDs, a left-out
 unfinished lesson is dropped with the revision's reason, and the Goal window
 shows the revision with its new and leaving lessons. A revision that names an
 unknown lesson or leaves out a finished one fails the reply.
+
+Item 3 is implemented: background events are held per Goal in memory and
+flushed as one numbered exchange, the newest six shown, when the agent is free
+and five minutes have passed since the last automatic exchange, waking itself
+at the window's end; a decision flushes as soon as the agent is free, Update now
+takes the held events, and an operation is told once. The fourth slice is
+complete.
 
 Done when: no practice card floats for a closed or already fixed issue or a done
 ticket; an accepted course can be revised without losing finished lessons; and

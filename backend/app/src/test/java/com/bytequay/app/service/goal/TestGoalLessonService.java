@@ -124,7 +124,7 @@ class TestGoalLessonService
         service.finish("workspace", "goal-1", "lesson-1", "op-done");
         verify(work).change(eq("workspace"), eq("lesson-1"), any(WorkItemCommand.class));
         assertThat(cards.find("card-1")).map(GoalRecommendation::state).contains(GoalRecommendation.State.DONE);
-        verify(conversation).tell("workspace", "goal-1", "lesson:lesson-1", "The user finished the lesson \"What a table is\".");
+        verify(conversation).tellDecision("workspace", "goal-1", "lesson:lesson-1", "The user finished the lesson \"What a table is\".");
 
         goal(WorkItem.State.DONE);
         service.finish("workspace", "goal-1", "lesson-1", "op-again");

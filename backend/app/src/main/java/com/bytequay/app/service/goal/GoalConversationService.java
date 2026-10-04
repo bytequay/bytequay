@@ -40,15 +40,22 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 import static com.bytequay.core.domain.Checks.checkText;
@@ -69,6 +76,10 @@ public class GoalConversationService
     static final String INTERRUPTED = "ByteQuay stopped before the agent answered.";
     static final String STOPPED = "Stopped before the agent answered.";
     static final String REASSESS = "The user asked for an update: reassess the goal from its current facts.";
+    /** Background events wait this long after a goal's last automatic exchange, so a busy task does not ask the agent on every turn. */
+    static final Duration EVENT_WINDOW = Duration.ofMinutes(5);
+    private static final int MAX_HELD_SHOWN = 6;
+    private static final int MAX_HELD_EVENT = 600;
     // An accepted result repeats the criteria and every merged PR; the agent needs its gist.
     private static final int MAX_DECISION = 600;
     private static final Logger log = LoggerFactory.getLogger(GoalConversationService.class);
@@ -90,6 +101,13 @@ public class GoalConversationService
     // The requests this process is answering; a pending exchange outside it was interrupted.
     private final Set<String> running = ConcurrentHashMap.newKeySet();
     private final Object writes = new Object();
+    // Guarded by writes. ponytail: held events live in memory, so a restart drops them; the next request still reads the recorded facts.
+    private final Map<String, List<Held>> held = new HashMap<>();
+    private final Set<String> told = new HashSet<>();
+    private final Set<String> waking = new HashSet<>();
+
+    /** An event the goal's agent has not heard yet; a decision is told as soon as the agent is free. */
+    private record Held(String workspaceId, String operationId, String text, boolean decision) {}
 
     @Autowired
     public GoalConversationService(GoalService goals, WorkItemService work, GoalExchangeStore exchanges, GoalRecommendationStore recommendations,
@@ -184,7 +202,9 @@ public class GoalConversationService
     /** Update now: asks the agent to reassess the goal from its current facts, also while guidance is paused. */
     public List<GoalExchange> reassess(String workspaceId, String goalId, String operationId)
     {
-        return send(workspaceId, goalId, operationId, goal -> GoalExchange.told(operationId, goalId, workspaceId, REASSESS, goal.revision(), clock.instant()));
+        // Held events go with the request instead of waiting for a pass of their own.
+        return send(workspaceId, goalId, operationId, goal -> GoalExchange.told(operationId, goalId, workspaceId,
+                held.containsKey(goalId) ? REASSESS + "\n\n" + events(release(goalId)) : REASSESS, goal.revision(), clock.instant()));
     }
 
     private List<GoalExchange> send(String workspaceId, String goalId, String operationId, Function<GoalView, GoalExchange> request)
@@ -208,23 +228,107 @@ public class GoalConversationService
     }
 
     /**
-     * Tells the goal's agent about an event, unless guidance is paused or the agent is already answering; repeating the same operation tells
-     * it once.
+     * Tells the goal's agent about a background event, such as a finished turn, a merge or a finished run: held while the agent answers and
+     * until five minutes after the goal's last automatic exchange, then told with the others in one exchange. A paused goal hears nothing, and
+     * repeating an operation tells it once.
      */
     public void tell(String workspaceId, String goalId, String operationId, String event)
     {
-        GoalExchange exchange;
+        hold(goalId, new Held(workspaceId, operationId, event, false));
+    }
+
+    /** Tells the goal's agent about a decision, the user's or one that set its pick aside, as soon as it is free; held events go with it. */
+    public void tellDecision(String workspaceId, String goalId, String operationId, String event)
+    {
+        hold(goalId, new Held(workspaceId, operationId, event, true));
+    }
+
+    private void hold(String goalId, Held event)
+    {
         synchronized (writes) {
-            GoalView goal = goal(workspaceId, goalId);
-            // ponytail: an event while the agent answers is dropped; the next request still reads the cards and notes it would report.
-            if (goal.paused() || exchanges.find(operationId).isPresent()
-                    || exchanges.list(goalId).stream().anyMatch(earlier -> earlier.state() == GoalExchange.State.PENDING)) {
+            if (goal(event.workspaceId(), goalId).paused() || told.contains(event.operationId()) || exchanges.find(event.operationId()).isPresent()) {
                 return;
             }
-            exchange = GoalExchange.told(operationId, goalId, workspaceId, event, goal.revision(), clock.instant());
+            List<Held> waiting = held.computeIfAbsent(goalId, key -> new ArrayList<>());
+            if (waiting.stream().noneMatch(earlier -> earlier.operationId().equals(event.operationId()))) {
+                waiting.add(event);
+            }
+        }
+        flush(goalId);
+    }
+
+    /**
+     * Tells a goal's held events in one exchange once its agent is free and, unless a decision waits, five minutes after its last automatic
+     * exchange; until then it wakes itself when the window ends.
+     */
+    void flush(String goalId)
+    {
+        GoalExchange exchange;
+        synchronized (writes) {
+            List<Held> waiting = held.getOrDefault(goalId, ImmutableList.of());
+            if (waiting.isEmpty()) {
+                return;
+            }
+            Optional<GoalView> goal = goals.list(waiting.getFirst().workspaceId()).stream().filter(found -> found.id().equals(goalId)).findFirst();
+            if (goal.isEmpty() || goal.orElseThrow().paused()) {
+                held.remove(goalId);
+                return;
+            }
+            List<GoalExchange> conversation = exchanges.list(goalId);
+            // An answer in progress flushes again when it settles.
+            if (conversation.stream().anyMatch(earlier -> earlier.state() == GoalExchange.State.PENDING)) {
+                return;
+            }
+            Instant now = clock.instant();
+            Optional<Instant> opens = conversation.stream().filter(GoalExchange::automatic).map(GoalExchange::askedAt).max(Comparator.naturalOrder())
+                    .map(last -> last.plus(EVENT_WINDOW)).filter(now::isBefore);
+            if (opens.isPresent() && waiting.stream().noneMatch(Held::decision)) {
+                if (waking.add(goalId)) {
+                    CompletableFuture.delayedExecutor(Duration.between(now, opens.orElseThrow()).toMillis(), TimeUnit.MILLISECONDS, executor).execute(() -> wake(goalId));
+                }
+                return;
+            }
+            String first = waiting.getFirst().operationId();
+            exchange = GoalExchange.told(first, goalId, waiting.getFirst().workspaceId(), events(release(goalId)), goal.orElseThrow().revision(), now);
             exchanges.save(exchange);
         }
         dispatch(exchange);
+    }
+
+    private void wake(String goalId)
+    {
+        synchronized (writes) {
+            waking.remove(goalId);
+        }
+        try {
+            flush(goalId);
+        }
+        catch (RuntimeException failure) {
+            log.warn("The held events of goal {} were not told", goalId, failure);
+        }
+    }
+
+    /** Takes a goal's held events, remembering them as told. */
+    private List<Held> release(String goalId)
+    {
+        List<Held> events = held.remove(goalId);
+        // ponytail: told operations are kept for the life of the process, a few bytes each.
+        events.forEach(event -> told.add(event.operationId()));
+        return events;
+    }
+
+    /** One event as it was, or several numbered with the newest last, within an exchange's message limit. */
+    private static String events(List<Held> events)
+    {
+        if (events.size() == 1) {
+            return events.getFirst().text();
+        }
+        List<Held> shown = events.subList(Math.max(0, events.size() - MAX_HELD_SHOWN), events.size());
+        StringBuilder text = new StringBuilder(events.size() + " events since you last heard" + (shown.size() < events.size() ? ", the newest " + shown.size() : "") + ":");
+        for (int index = 0; index < shown.size(); index++) {
+            text.append('\n').append(index + 1).append(". ").append(ContextText.excerpt(shown.get(index).text(), MAX_HELD_EVENT));
+        }
+        return text.toString();
     }
 
     /**
@@ -245,6 +349,7 @@ public class GoalConversationService
         }
         if (stopped) {
             planner.cancel(exchangeId);
+            flush(goalId);
         }
         return exchanges.list(goalId);
     }
@@ -281,7 +386,7 @@ public class GoalConversationService
         GoalDefinition definition = new GoalDefinition(proposal.successDefinition(), proposal.startingKnowledge(), proposal.constraints(), exchangeId, clock.instant());
         GoalView defined = goals.define(workspaceId, goalId, exchange.inputRevision(), title.filter(value -> !value.isBlank()).orElse(proposal.title()),
                 proposal.objective(), definition);
-        tell(workspaceId, goalId, "accepted:" + exchangeId, "The user accepted the goal definition.");
+        tellDecision(workspaceId, goalId, "accepted:" + exchangeId, "The user accepted the goal definition.");
         return defined;
     }
 
@@ -327,7 +432,7 @@ public class GoalConversationService
                         "Left out of the revised course" + draft.reason().map(reason -> ": " + reason).orElse(".")));
             }
         }
-        tell(workspaceId, goalId, "course:" + exchangeId, accepted.isPresent() ? "The user accepted the revised course." : "The user accepted the course.");
+        tellDecision(workspaceId, goalId, "course:" + exchangeId, accepted.isPresent() ? "The user accepted the revised course." : "The user accepted the course.");
         return goal(workspaceId, goalId);
     }
 
@@ -401,7 +506,7 @@ public class GoalConversationService
                     case REOPEN -> "reopened";
                     case EDIT, BEGIN, MOVE -> throw new IllegalArgumentException("Not a decision to report: " + decision.action());
                 };
-                tell(decision.workspaceId(), decision.goalId(), "decided:" + decision.operationId(),
+                tellDecision(decision.workspaceId(), decision.goalId(), "decided:" + decision.operationId(),
                         "The user " + what + " \"" + decision.title() + "\": " + ContextText.excerpt(decision.detail(), MAX_DECISION));
             }
         }
@@ -508,8 +613,9 @@ public class GoalConversationService
             }
         }
         if (setAside) {
-            tell(settled.workspaceId(), settled.goalId(), "unready:" + settled.id(), unready.orElseThrow() + " Recommend another candidate.");
+            tellDecision(settled.workspaceId(), settled.goalId(), "unready:" + settled.id(), unready.orElseThrow() + " Recommend another candidate.");
         }
+        flush(exchange.goalId());
     }
 
     private Optional<String> unready(GoalView goal, GoalRecommendation.Card card)

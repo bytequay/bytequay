@@ -38,7 +38,9 @@ import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -100,7 +102,7 @@ class TestGoalConversationService
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final GoalPlanner planner = mock(GoalPlanner.class);
     private final List<Runnable> queued = new ArrayList<>();
-    private final Clock clock = Clock.fixed(Instant.parse("2026-10-03T10:00:00Z"), ZoneOffset.UTC);
+    private final MutableClock clock = new MutableClock(Instant.parse("2026-10-03T10:00:00Z"));
     private final GoalConversationService service = new GoalConversationService(goals, work, exchanges, cards, workspaces, candidates,
             beans.getBeanProvider(GoalResearchService.class), beans.getBeanProvider(GoalSpecChecks.class), questions, topics, models, planner, clock, queued::add);
 
@@ -566,8 +568,54 @@ class TestGoalConversationService
         doReturn(QUESTION).when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
         goals.pause("workspace", goal.id(), false);
+        clock.advance(GoalConversationService.EVENT_WINDOW);
         service.tell("workspace", goal.id(), "turn:2", "The task's turn finished.");
         assertThat(exchanges.list(goal.id())).as("a resumed goal is told again").hasSize(2);
+    }
+
+    @Test
+    void backgroundEventsWaitForTheAgentAndTheWindowThenArriveTogetherOnce()
+    {
+        GoalView goal = goals.create("workspace", "Delta Lake", "");
+        doReturn(QUESTION).when(planner).answer(any(), any(), anyList(), any());
+        service.tell("workspace", goal.id(), "turn:1", "A turn finished: one");
+        assertThat(exchanges.list(goal.id())).as("the first event goes at once").singleElement().extracting(GoalExchange::message).isEqualTo("A turn finished: one");
+
+        service.tell("workspace", goal.id(), "turn:2", "A turn finished: two");
+        queued.removeFirst().run();
+        service.tell("workspace", goal.id(), "turn:3", "A turn finished: three");
+        service.tell("workspace", goal.id(), "turn:3", "A turn finished: three");
+        assertThat(exchanges.list(goal.id())).as("held while the agent answers and within the window").hasSize(1);
+
+        clock.advance(GoalConversationService.EVENT_WINDOW);
+        service.flush(goal.id());
+        assertThat(exchanges.list(goal.id())).hasSize(2).last().satisfies(told -> {
+            assertThat(told.automatic()).isTrue();
+            assertThat(told.message()).isEqualTo("2 events since you last heard:\n1. A turn finished: two\n2. A turn finished: three");
+        });
+        queued.removeFirst().run();
+        clock.advance(GoalConversationService.EVENT_WINDOW);
+        service.tell("workspace", goal.id(), "turn:3", "A turn finished: three");
+        assertThat(exchanges.list(goal.id())).as("an event is told once").hasSize(2);
+    }
+
+    @Test
+    void aDecisionDuringAnAnswerIsToldAsSoonAsTheAgentIsFreeWithTheHeldEvents()
+    {
+        GoalView goal = goals.create("workspace", "Delta Lake", "");
+        doReturn(QUESTION).when(planner).answer(any(), any(), anyList(), any());
+        service.tell("workspace", goal.id(), "turn:1", "A turn finished: one");
+        queued.removeFirst().run();
+        service.ask("workspace", goal.id(), "op-1", "Reads first");
+        service.tell("workspace", goal.id(), "turn:2", "A turn finished: two");
+        service.tellDecision("workspace", goal.id(), "decided:op-9", "The user dropped \"Fix #31252\".");
+        assertThat(exchanges.list(goal.id())).hasSize(2);
+
+        queued.removeFirst().run();
+        assertThat(exchanges.list(goal.id())).as("within the window, but a decision waits").hasSize(3).last().satisfies(told -> {
+            assertThat(told.id()).isEqualTo("turn:2");
+            assertThat(told.message()).isEqualTo("2 events since you last heard:\n1. A turn finished: two\n2. The user dropped \"Fix #31252\".");
+        });
     }
 
     @Test
@@ -712,6 +760,40 @@ class TestGoalConversationService
         public void save(GoalExchange exchange)
         {
             exchanges.put(exchange.id(), exchange);
+        }
+    }
+
+    private static final class MutableClock
+            extends Clock
+    {
+        private Instant now;
+
+        MutableClock(Instant now)
+        {
+            this.now = now;
+        }
+
+        void advance(Duration duration)
+        {
+            now = now.plus(duration);
+        }
+
+        @Override
+        public ZoneId getZone()
+        {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone)
+        {
+            return this;
+        }
+
+        @Override
+        public Instant instant()
+        {
+            return now;
         }
     }
 }

@@ -146,7 +146,7 @@ public class GoalLessonService
                             && (card.state() == GoalRecommendation.State.SHOWN || card.state() == GoalRecommendation.State.STARTED))
                     .forEach(card -> recommendations.save(card.done(clock.instant())));
         }
-        conversations.getObject().tell(workspaceId, goalId, "lesson:" + lessonId, "The user finished the lesson \"" + item.title() + "\".");
+        conversations.getObject().tellDecision(workspaceId, goalId, "lesson:" + lessonId, "The user finished the lesson \"" + item.title() + "\".");
         return goal(workspaceId, goalId);
     }
 

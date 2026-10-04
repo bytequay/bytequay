@@ -987,7 +987,7 @@ button.goal-tile:hover {
 .goal-composer .goal-add { justify-self: end; }
 .goal-choice:focus-visible, .goal-proposal input:focus-visible, .goal-composer textarea:focus-visible { outline: 2px solid var(--control-strong); outline-offset: 1px; }
 
-.goal-thread__event { justify-self: center; max-width: 90%; font-size: 12px; line-height: 17px; color: #57606a; text-align: center; overflow-wrap: anywhere; }
+.goal-thread__event { justify-self: center; max-width: 90%; font-size: 12px; line-height: 17px; color: #57606a; text-align: center; white-space: pre-line; overflow-wrap: anywhere; }
 .goal-guide__running { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 12.5px; color: #57606a; }
 .goal-notes { display: grid; gap: 4px; }
 .goal-gaps { display: grid; gap: 6px; }

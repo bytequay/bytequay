@@ -231,6 +231,8 @@ export async function run(): Promise<boolean> {
       links: [link('ISSUE', 'trinodb/trino#31252', '#31252', 'Open'), link('TASK', 'task-1', 'Task', 'Completed'), link('PULL_REQUEST', 'trinodb/trino#31260', '#31260', 'Merged')] }] };
     changed(); await settle();
     assert(text().includes('#31260 merged') && text().includes('Open task'), 'The practice shows its task and the merged pull request');
+    assert(document.querySelector('.goal-pill__decisions')?.textContent === '1' && text().includes('Your decision: accept Fix #31252'),
+      'The pill counts the merged result as a decision, and the window says it waits on the user');
     button('Review result').click(); await settle();
     assert(text().includes('Accept result') && text().includes('Fix #31252'), 'Review result opens the work, where the user accepts it');
 

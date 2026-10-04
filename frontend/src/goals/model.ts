@@ -14,7 +14,8 @@
 
 import type { AttentionItem, AttentionSource } from '../home/attention';
 import type {
-  GoalCourseDraftDto, GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalKnowledgeNoteDto, GoalProposalDto, WorkItemState, WorkItemDto,
+  GoalCardDto, GoalCourseDraftDto, GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalItemKind, GoalKnowledgeNoteDto, GoalProposalDto, WorkItemState,
+  WorkItemDto,
 } from './contracts';
 
 export type GoalRef = { kind: GoalItemKind; key: string };
@@ -181,3 +182,43 @@ export function openCourse(goal: GoalDto | null, exchanges: GoalExchangeDto[]): 
   if (goal === null || goal.course !== null || last === undefined || last.reply === null || last.reply.course === null) return null;
   return { exchangeId: last.id, course: last.reply.course };
 }
+
+/** What a started card is doing, as the panel names it. */
+export const STARTED_LABELS: Record<GoalCardDto['kind'], string> = { RESEARCH: 'Researching', LESSON: 'Learning', WORK: 'Practicing', SPEC_CHECK: 'Checking' };
+
+/**
+ * Where a goal stands, in one line, and how many decisions wait for the user: a proposal or a course to accept, a merged result to accept
+ * and a reproduced gap to add or dismiss. Read from what the panel already holds; no model is asked.
+ */
+export type GoalSituation = { text: string; decisions: number };
+
+export function situation(goal: GoalDto, exchanges: GoalExchangeDto[], gaps: GoalGapDto[]): GoalSituation {
+  const open = goal.items.filter((item) => item.state !== 'DONE' && item.state !== 'DROPPED');
+  const merged = open.filter((item) => item.links.some((link) => link.kind === 'PULL_REQUEST' && link.state === 'MERGED'));
+  const proposal = openProposal(goal, exchanges);
+  const course = openCourse(goal, exchanges);
+  const unadded = gaps.filter((gap) => gap.workItemId === null);
+  const decisions = (proposal === null ? 0 : 1) + (course === null ? 0 : 1) + merged.length + unadded.length;
+  return { text: situationText(goal, exchanges, { proposal: proposal !== null, course: course !== null, merged, unadded: unadded.length, open }), decisions };
+}
+
+function situationText(goal: GoalDto, exchanges: GoalExchangeDto[], waiting: { proposal: boolean; course: boolean; merged: WorkItemDto[]; unadded: number; open: WorkItemDto[] }): string {
+  const last = exchanges.at(-1);
+  if (last?.state === 'PENDING') return 'Waiting for the agent';
+  if (last?.state === 'FAILED') return 'The agent’s last reply failed; ask again';
+  if (waiting.proposal) return 'Your decision: the proposed goal';
+  if (waiting.course) return 'Your decision: the proposed course';
+  if (waiting.merged.length > 0) return `Your decision: accept ${waiting.merged[0].title}`;
+  if (waiting.unadded > 0) return `Your decision: ${waiting.unadded === 1 ? 'a reproduced gap' : `${waiting.unadded} reproduced gaps`}`;
+  if (goal.definition === null) return 'Clarifying your goal';
+  const started = goal.recommendations.find((card) => card.state === 'STARTED');
+  if (started !== undefined) return `${STARTED_LABELS[started.card.kind]}: ${started.card.title}`;
+  if (goal.items.length > 0 && waiting.open.length === 0) return 'Ready to conclude';
+  const items = new Map(goal.items.map((item) => [item.id, item]));
+  const lesson = (goal.course?.parts ?? []).flatMap((part) => part.lessons).map((id) => items.get(id))
+    .find((item) => item !== undefined && item.state !== 'DONE' && item.state !== 'DROPPED');
+  if (lesson !== undefined) return `Next lesson: ${lesson.title}`;
+  if (waiting.open.length > 0) return `Working on ${waiting.open.length === 1 ? 'one work item' : `${waiting.open.length} work items`}`;
+  return 'Defined; the agent suggests what comes next';
+}
+

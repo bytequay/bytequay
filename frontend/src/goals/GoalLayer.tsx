@@ -20,7 +20,7 @@ import { LayerCovered } from '../Zoom';
 import type { GoalItemDto, GoalRecommendationDto } from './contracts';
 import { GoalPanel, GoalRing, type GoalPanelView } from './GoalPanel';
 import { GoalWindow } from './GoalWindow';
-import { placePill, summarize, type PillPosition } from './model';
+import { placePill, situation, summarize, type PillPosition } from './model';
 import { useGoalConversation, type Goals } from './useGoals';
 import '../css/goals.css';
 
@@ -202,6 +202,8 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
     />
   );
   const summary = goal === null ? null : summarize(goal, needsYou);
+  // The pinned goal's own conversation, unless the window shows another goal's question; its decisions only count once it was read.
+  const decisions = goal === null || drafting ? 0 : situation(goal, conversation.exchanges, conversation.gaps).decisions;
 
   return (
     <div className="goal-layer">
@@ -265,6 +267,7 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
           <span className="goal-pill__title">{goal === null ? 'Goal' : goal.title}</span>
           {summary !== null && summary.total > 0 && <span className="goal-mono">{summary.finished}/{summary.total}</span>}
           {summary !== null && summary.needs > 0 && <span className="goal-pill__needs" title="Needs you">{summary.needs}</span>}
+          {decisions > 0 && <span className="goal-pill__decisions" title={decisions === 1 ? 'A decision waits for you' : `${decisions} decisions wait for you`}>{decisions}</span>}
         </button>
         {goal !== null && shown.length > 0 && (
           <div className="goal-cards" role="region" aria-label="Recommended next steps"

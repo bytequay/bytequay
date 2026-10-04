@@ -21,7 +21,7 @@ import type { GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalKnowledgeNo
 import { parseGoal, parseGoalExchange, parseGoalGap, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation } from './contracts';
 import { GoalPanel, type GoalPanelProps } from './GoalPanel';
 import {
-  addable, attentionWorkspace, goalDirections, goalHas, goalRef, itemsIn, needsYouKeys, openCourse, openProposal, placePill, recentActivity, refKey, sourceUrl, summarize,
+  addable, attentionWorkspace, goalDirections, goalHas, goalRef, itemsIn, needsYouKeys, openCourse, openProposal, placePill, recentActivity, refKey, situation, sourceUrl, summarize,
 } from './model';
 import { toggleGoalItem, useGoals, type GoalBridge, type GoalConversation, type Goals } from './useGoals';
 
@@ -231,6 +231,20 @@ describe('goal guidance', () => {
       card: { ...CARD.card, kind: 'LESSON', title: 'What a table is', pages: [], workItemId: 'work-0' } }] } });
     expect(lesson).toContain('Learning: What a table is');
     expect(lesson).toContain('>Open lesson</button>');
+  });
+
+  it('says what a goal waits on and counts the decisions that are the user’s', () => {
+    const defined: GoalDto = { ...GOAL, definition: { successDefinition: 'Trace a scan', startingKnowledge: '', constraints: '', exchangeId: 'op-2',
+      acceptedAt: '2026-10-03T10:00:00Z' } };
+    expect(situation(GOAL, [], [])).toEqual({ text: 'Clarifying your goal', decisions: 0 });
+    expect(situation(GOAL, [{ ...ASKED, state: 'PENDING', reply: null }], []).text).toBe('Waiting for the agent');
+    expect(situation(GOAL, [ASKED, PROPOSED], [])).toEqual({ text: 'Your decision: the proposed goal', decisions: 1 });
+    expect(situation({ ...defined, recommendations: [{ ...CARD, state: 'STARTED', taskId: 'task-1' }] }, [], []).text).toBe('Researching: Read the Iceberg specification');
+    const merged: GoalDto = { ...defined, items: [{ ...defined.items[0], links: [ITEMS[1]] }] };
+    expect(situation(merged, [], [])).toEqual({ text: 'Your decision: accept #30925 title', decisions: 1 });
+    expect(situation({ ...defined, items: defined.items.map((value) => ({ ...value, state: 'DONE' as const })) }, [], []).text).toBe('Ready to conclude');
+    expect(situation(defined, [], []).text).toBe('Working on 4 work items');
+    expect(panel({ view: 'guide' })).toContain('<div class="goal-panel__situation">Clarifying your goal</div>');
   });
 
   it('lists the gaps the last spec check reproduced, to file and to add to the goal', () => {

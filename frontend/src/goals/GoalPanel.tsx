@@ -23,7 +23,8 @@ import type {
   CreateWorkItem, CompletionRule, WorkItemKind,
 } from './contracts';
 import {
-  GOAL_SOURCES, STATE_GROUPS, addable, goalDirections, itemsIn, openCourse, openProposal, progressWidths, recentActivity, refKey, ringDash, sourceUrl, summarize, itemNeedsYou,
+  GOAL_SOURCES, STARTED_LABELS, STATE_GROUPS, addable, goalDirections, itemsIn, openCourse, openProposal, progressWidths, recentActivity, refKey, ringDash, situation,
+  sourceUrl, summarize, itemNeedsYou,
   type GoalTab,
 } from './model';
 import type { GoalConversation } from './useGoals';
@@ -138,6 +139,7 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
         {goal !== null && (
           <>
             <GoalTitle key={goal.id} goal={goal} onRename={props.onRename} />
+            <div className="goal-panel__situation">{situation(goal, props.conversation.exchanges, props.conversation.gaps).text}</div>
             {goal.description !== '' && <div className="goal-panel__desc">{goal.description}</div>}
           </>
         )}
@@ -338,8 +340,6 @@ function Gaps({ gaps, onAdd, onFile, onReview }: {
   );
 }
 
-const STARTED: Record<GoalRecommendationDto['card']['kind'], string> = { RESEARCH: 'Researching', LESSON: 'Learning', WORK: 'Practicing', SPEC_CHECK: 'Checking' };
-
 /**
  * A card the user started, while it lasts: research while its run goes, a lesson while it is open, and practice until its work is done or
  * dropped. Practice leads to its task once the user sent it, back to the prepared composer until then, and to its result once its pull request
@@ -356,7 +356,7 @@ function Started({ goal, card, onOpenTask, onLesson, onStartIssue, onStartTicket
   const pull = work?.links.findLast((link) => link.kind === 'PULL_REQUEST');
   return (
     <div className="goal-guide__running" role="status">
-      <span>{STARTED[card.card.kind]}: {card.card.title}</span>
+      <span>{STARTED_LABELS[card.card.kind]}: {card.card.title}</span>
       {card.card.kind === 'SPEC_CHECK' && card.card.module !== null && <button type="button" className="goal-link"
         onClick={() => onSpecCheck({ directory: card.card.module })}>Open check</button>}
       {card.card.kind === 'RESEARCH' && card.taskId !== null && <button type="button" className="goal-link" onClick={() => onOpenTask(card.taskId)}>Open run</button>}

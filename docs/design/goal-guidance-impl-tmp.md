@@ -188,6 +188,11 @@ Goal was waiting on.
    a review that requests changes on its work's pull request tell the agent,
    which leads with recovery before new work.
 
+Progress: item 1 is implemented. The line under the title reads, in order, a
+pending or failed reply, the user's decisions, clarifying, a started card, ready
+to conclude, the next lesson or the open work; the Goal control counts the
+proposals, courses, merged results and unadded gaps waiting for the user.
+
 Done when: the panel says what the Goal waits on, a slow reply can be stopped
 and retried, a Goal can use its own model, guidance can pause, and a failed
 attempt or a requested change brings recovery guidance without the user asking.

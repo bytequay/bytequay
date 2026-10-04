@@ -44,6 +44,7 @@ import java.util.OptionalLong;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
@@ -149,6 +150,31 @@ class TestGoalResearchService
     {
         return new ContextBuildService.View(4, false, Optional.of(new ContextBuildService.BuildView("RESEARCH", "research", "task-1", "card-1", Optional.empty(),
                 Optional.empty(), 0, outcome, detail, ImmutableList.of())));
+    }
+
+    @Test
+    void aNoteIsStaleOnceAFileItCitesChangedAtTheMonitoredHead()
+    {
+        String read = "b".repeat(40);
+        when(relationships.list("workspace")).thenReturn(ImmutableList.of());
+        when(repositories.requireLocalRepository("workspace")).thenReturn(new WorkspaceRepositoryContext("workspace", Path.of("/tmp/trino"), 1, RepoRef.of("trinodb", "trino"),
+                OptionalLong.empty(), RepoRef.of("trinodb", "trino"), "origin", "origin", "main", ImmutableList.of()));
+        doReturn(new GitCommandRunner.Result(0, HEAD + "\n", false)).when(git).run(eq(Path.of("/tmp/trino")), any(String[].class));
+        doReturn(new GitCommandRunner.Result(0, "plugin/trino-delta-lake/Checkpoint.java\n", false)).when(git).run(eq(Path.of("/tmp/trino")), anyList());
+        GoalKnowledgeNote moved = file("note-moved", "trinodb/trino:plugin/trino-delta-lake/Checkpoint.java", read);
+        GoalKnowledgeNote kept = file("note-kept", "trinodb/trino:plugin/trino-delta-lake/Scan.java", read);
+        GoalKnowledgeNote current = file("note-current", "trinodb/trino:plugin/trino-delta-lake/Checkpoint.java", HEAD);
+        GoalKnowledgeNote elsewhere = file("note-elsewhere", "apache/iceberg:core/Snapshot.java", read);
+
+        assertThat(service.stale("workspace", ImmutableList.of(moved, kept, current, elsewhere, note("Manifest lists", "task-1")))).containsExactly("note-moved");
+        assertThat(service.stale("workspace", ImmutableList.of(moved, kept))).containsExactly("note-moved");
+        verify(git, times(1)).run(eq(Path.of("/tmp/trino")), eq(ImmutableList.of("diff", "--name-only", "--no-renames", read, HEAD, "--",
+                "plugin/trino-delta-lake/Checkpoint.java", "plugin/trino-delta-lake/Scan.java")));
+    }
+
+    private static GoalKnowledgeNote file(String id, String reference, String commit)
+    {
+        return new GoalKnowledgeNote(id, "goal-1", "workspace", id, "Body", ImmutableList.of(new GoalKnowledgeNote.Source(reference, Optional.of(commit))), "task-1", NOW);
     }
 
     private static GoalKnowledgeNote note(String topic, String task)

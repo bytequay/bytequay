@@ -159,7 +159,7 @@ const COURSE: GoalExchangeDto = { ...ASKED, id: 'op-3', message: 'The research r
 const CARD: GoalRecommendationDto = { id: 'card-1', goalId: 'goal-1', state: 'SHOWN', taskId: null, workItemId: null, checkId: null, createdAt: '2026-10-03T10:00:00Z',
   card: { kind: 'RESEARCH', title: 'Read the Iceberg specification', reason: 'You start from the specification', scope: 'Snapshots and manifests',
     pages: ['https://iceberg.apache.org/spec/'], workItemId: null, issue: null, ticket: null, module: null, reproductions: null } };
-const NOTE: GoalKnowledgeNoteDto = { id: 'note-1', topic: 'Manifest lists', body: 'A snapshot lists its manifests in one manifest list.', savedAt: '2026-10-03T10:00:00Z',
+const NOTE: GoalKnowledgeNoteDto = { id: 'note-1', topic: 'Manifest lists', body: 'A snapshot lists its manifests in one manifest list.', savedAt: '2026-10-03T10:00:00Z', stale: false,
   sources: [{ reference: 'https://iceberg.apache.org/spec/#manifest-lists', commit: null },
     { reference: 'apache/iceberg:core/src/main/java/org/apache/iceberg/ManifestLists.java', commit: 'c'.repeat(40) }] };
 
@@ -195,6 +195,8 @@ describe('goal guidance', () => {
     expect(markup).toContain('>Open run</button>');
     expect(markup).toContain('What the agent learned · 1');
     expect(markup).toContain('<summary>Manifest lists</summary>');
+    const stale = panel({ view: 'guide', conversation: { ...NO_CONVERSATION, notes: [{ ...NOTE, stale: true }], exchanges: [ASKED] } });
+    expect(stale).toContain('Manifest lists<span class="goal-note__stale" title="A file it cites changed since the research read it">Stale</span>');
     expect(markup).toContain(`ManifestLists.java @ ccccccc`);
     expect(markup).toContain('<div class="goal-thread__event">The research run saved 1 note: Manifest lists.</div>');
   });

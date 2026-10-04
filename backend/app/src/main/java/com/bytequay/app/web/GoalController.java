@@ -16,6 +16,7 @@ package com.bytequay.app.web;
 import com.bytequay.app.service.goal.GoalConversationService;
 import com.bytequay.app.service.goal.GoalGap;
 import com.bytequay.app.service.goal.GoalItemView;
+import com.bytequay.app.service.goal.GoalKnowledgeNoteView;
 import com.bytequay.app.service.goal.GoalLessonService;
 import com.bytequay.app.service.goal.GoalResearchService;
 import com.bytequay.app.service.goal.GoalService;
@@ -24,7 +25,6 @@ import com.bytequay.app.service.goal.GoalView;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.core.domain.GoalExchange;
 import com.bytequay.core.domain.GoalItemKind;
-import com.bytequay.core.domain.GoalKnowledgeNote;
 import com.bytequay.core.domain.GoalLesson;
 import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.GoalTopic;
@@ -252,7 +252,7 @@ public class GoalController
     }
 
     @GetMapping("/{goalId}/knowledge")
-    public List<GoalKnowledgeNote> knowledge(@PathVariable String workspaceId, @PathVariable String goalId)
+    public List<GoalKnowledgeNoteView> knowledge(@PathVariable String workspaceId, @PathVariable String goalId)
     {
         return research.notes(workspaceId, goalId);
     }

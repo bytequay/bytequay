@@ -21,10 +21,12 @@ import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.GoalKnowledgeNote;
 import com.bytequay.core.domain.GoalRecommendation;
-import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.GoalKnowledgeNoteStore;
 import com.bytequay.core.store.GoalRecommendationStore;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -32,12 +34,20 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.nio.file.Path;
 import java.time.Clock;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.UUID;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -48,6 +58,9 @@ import static java.util.Objects.requireNonNull;
 public class GoalResearchService
 {
     private static final Logger log = LoggerFactory.getLogger(GoalResearchService.class);
+
+    // Two commits never change, so what changed between them is read once.
+    private final Cache<String, Set<String>> changedFiles = CacheBuilder.newBuilder().maximumSize(512).build();
 
     private final GoalService goals;
     private final GoalRecommendationStore recommendations;
@@ -103,11 +116,13 @@ public class GoalResearchService
         return started;
     }
 
-    /** The goal's knowledge notes, oldest first; a local read. */
-    public List<GoalKnowledgeNote> notes(String workspaceId, String goalId)
+    /** The goal's knowledge notes, oldest first, each saying whether a file it cites moved since the research read it; a local read. */
+    public List<GoalKnowledgeNoteView> notes(String workspaceId, String goalId)
     {
         goal(workspaceId, goalId);
-        return notes.list(goalId);
+        List<GoalKnowledgeNote> saved = notes.list(goalId);
+        Set<String> stale = stale(workspaceId, saved);
+        return saved.stream().map(note -> GoalKnowledgeNoteView.of(note, stale.contains(note.id()))).collect(toImmutableList());
     }
 
     /** Settles the card when its run ends, and tells the goal's agent what a finished run saved. Never throws: the run's cleanup follows. */
@@ -148,20 +163,82 @@ public class GoalResearchService
                 continue;
             }
             try {
-                Workspace dependency = relationships.requireRelated(workspaceId, relationship.workspaceId());
-                WorkspaceRepositoryContext checkout = repositories.requireLocalRepository(dependency.id());
-                GitCommandRunner.Result head = git.run(checkout.repository(), "rev-parse", "--verify", "--end-of-options",
-                        "refs/remotes/" + checkout.sourceRemote() + "/" + checkout.defaultBranch() + "^{commit}");
-                String sha = head.output().strip();
-                if (head.successful() && !head.truncated() && sha.matches("[0-9a-f]{40}|[0-9a-f]{64}")) {
-                    related.add(new ContextBuild.Related(dependency.monitoredRepository().fullName(), checkout.repository().toString(), sha));
-                }
+                checkout(relationships.requireRelated(workspaceId, relationship.workspaceId()).id()).ifPresent(related::add);
             }
             catch (RuntimeException unavailable) {
                 log.debug("Dependency {} of workspace {} is not readable for research", relationship.workspaceId(), workspaceId, unavailable);
             }
         }
         return related.build();
+    }
+
+    /** A workspace's checkout at its monitored head, when the head resolves. */
+    private Optional<ContextBuild.Related> checkout(String workspaceId)
+    {
+        WorkspaceRepositoryContext checkout = repositories.requireLocalRepository(workspaceId);
+        GitCommandRunner.Result head = git.run(checkout.repository(), "rev-parse", "--verify", "--end-of-options",
+                "refs/remotes/" + checkout.sourceRemote() + "/" + checkout.defaultBranch() + "^{commit}");
+        String sha = head.output().strip();
+        return head.successful() && !head.truncated() && sha.matches("[0-9a-f]{40}|[0-9a-f]{64}")
+                ? Optional.of(new ContextBuild.Related(checkout.monitoredRepository().fullName(), checkout.repository().toString(), sha))
+                : Optional.empty();
+    }
+
+    /**
+     * The notes citing a file that changed between the commit the research read and the monitored head of its workspace or a Dependency, or is
+     * gone. Pages, and files of repositories not checked out here, are not checked; a commit the checkout lacks reads as unchanged.
+     *
+     * @return the ids of the stale notes
+     */
+    public Set<String> stale(String workspaceId, List<GoalKnowledgeNote> saved)
+    {
+        // One diff per repository and commit names the cited files that changed since.
+        Map<String, Set<String>> cited = new TreeMap<>();
+        for (GoalKnowledgeNote note : saved) {
+            for (GoalKnowledgeNote.Source source : note.sources()) {
+                int colon = source.reference().indexOf(':');
+                source.commit().ifPresent(commit -> cited.computeIfAbsent(source.reference().substring(0, colon) + "@" + commit, key -> new TreeSet<>())
+                        .add(source.reference().substring(colon + 1)));
+            }
+        }
+        if (cited.isEmpty()) {
+            return ImmutableSet.of();
+        }
+        Map<String, ContextBuild.Related> heads = new HashMap<>();
+        try {
+            checkout(workspaceId).ifPresent(own -> heads.put(own.repository(), own));
+        }
+        catch (RuntimeException unavailable) {
+            log.debug("Workspace {} is not checked out to compare its notes", workspaceId, unavailable);
+        }
+        related(workspaceId).forEach(dependency -> heads.put(dependency.repository(), dependency));
+        Set<String> moved = new HashSet<>();
+        cited.forEach((key, paths) -> {
+            String repository = key.substring(0, key.indexOf('@'));
+            String commit = key.substring(key.indexOf('@') + 1);
+            Optional.ofNullable(heads.get(repository)).filter(head -> !head.commit().equals(commit))
+                    .ifPresent(head -> changed(head, commit, paths).forEach(path -> moved.add(repository + ":" + path + "@" + commit)));
+        });
+        return saved.stream().filter(note -> note.sources().stream()
+                        .anyMatch(source -> source.commit().filter(commit -> moved.contains(source.reference() + "@" + commit)).isPresent()))
+                .map(GoalKnowledgeNote::id).collect(toImmutableSet());
+    }
+
+    private Set<String> changed(ContextBuild.Related head, String commit, Set<String> paths)
+    {
+        String key = head.repository() + "@" + commit + ".." + head.commit() + ":" + String.join("\n", paths);
+        Set<String> known = changedFiles.getIfPresent(key);
+        if (known != null) {
+            return known;
+        }
+        ImmutableList.Builder<String> arguments = ImmutableList.<String>builder().add("diff", "--name-only", "--no-renames", commit, head.commit(), "--").addAll(paths);
+        GitCommandRunner.Result diff = git.run(Path.of(head.path()), arguments.build());
+        if (!diff.successful() || diff.truncated()) {
+            return ImmutableSet.of();
+        }
+        Set<String> changed = diff.output().lines().map(String::strip).filter(line -> !line.isEmpty()).collect(toImmutableSet());
+        changedFiles.put(key, changed);
+        return changed;
     }
 
     public static String prompt(ContextBuild build)

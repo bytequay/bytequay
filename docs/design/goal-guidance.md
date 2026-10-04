@@ -89,7 +89,10 @@ at the monitored head with the checkouts of the workspace's Dependency
 workspaces. Its one tool, `goal_knowledge_save`, saves a note whose sources are
 https pages or files at a commit the run reads. A finished run completes the
 card and tells the agent what it saved; a failed one shows the card again. The
-Guide view lists the notes with their sources.
+Guide view lists the notes with their sources. A note citing a file is marked
+stale once that file changed between the commit the research read and the
+monitored head of its workspace or Dependency, and the agent sees the mark and
+may recommend reading it again; pages are not checked.
 
 Once notes exist, the agent may propose a course: up to four parts with at most
 sixteen lessons, each naming what the user can do afterward. Accepting it saves
@@ -197,8 +200,7 @@ ByteQuay keeps only evidence that exists and never changes a level the user set.
 The Guide view lists what the user knows, and the user can correct any level.
 
 A new explicit same-source attempt without deleting the prior task, proposal
-acceptance into other work items, automatic outcome harvesting, stale-note marking and the two-call discovery shortlist
-remain pending. The checklist
+acceptance into other work items, automatic outcome harvesting and the two-call discovery shortlist remain pending. The checklist
 distinguishes these from implemented behavior.
 
 The checked development database contained no Goals or issue/Jira task bindings.

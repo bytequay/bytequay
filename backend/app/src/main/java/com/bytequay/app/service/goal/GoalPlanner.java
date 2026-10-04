@@ -42,7 +42,9 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -125,9 +127,11 @@ public class GoalPlanner
             You decide when to recommend the next step; the user starts or dismisses each card, and nothing starts by
             itself. Once a definition is accepted and the knowledge notes do not yet cover what the goal needs, recommend
             a research run: what to read in the repository and its dependencies, and up to eight specification or
-            documentation pages. Recommend nothing while a card is shown or a run is going, and never repeat a card the
-            user dismissed. Once research saved notes and no course is accepted, propose a course from the notes: parts in
-            order, each with lessons that name what the user can do afterward. Start where the user's starting knowledge
+            documentation pages. A knowledge note marked (stale) cites a file that changed since the research read it;
+            before a lesson or practice relies on it, recommend a research run that reads it again. Recommend nothing
+            while a card is shown or a run is going, and never repeat a card the user dismissed. Once research saved notes
+            and no course is accepted, propose a course from the notes: parts in order, each with lessons that name what
+            the user can do afterward. Start where the user's starting knowledge
             ends; a user who already knows the specification starts at the connector. Once a course is accepted, recommend
             its next lesson as a LESSON card naming the lesson's id when the user is ready for it, one at a time. When what
             the user knows or did shows the accepted course no longer fits, such as a part they already know or an area
@@ -197,9 +201,10 @@ public class GoalPlanner
     private final GoalSpecChecks specChecks;
     private final GoalQuestions questions;
     private final GoalTopicStore topics;
+    private final GoalResearchService research;
 
     public GoalPlanner(AgentDriverRegistry drivers, TextOnlyHelper helper, WorkspaceStore workspaces, WorkspaceRelationships relationships, GoalKnowledgeNoteStore notes,
-            GoalLessonStore lessons, GoalCandidates candidates, GoalSpecChecks specChecks, GoalQuestions questions, GoalTopicStore topics)
+            GoalLessonStore lessons, GoalCandidates candidates, GoalSpecChecks specChecks, GoalQuestions questions, GoalTopicStore topics, GoalResearchService research)
     {
         this.drivers = requireNonNull(drivers, "drivers is null");
         this.helper = requireNonNull(helper, "helper is null");
@@ -211,6 +216,7 @@ public class GoalPlanner
         this.specChecks = requireNonNull(specChecks, "specChecks is null");
         this.questions = requireNonNull(questions, "questions is null");
         this.topics = requireNonNull(topics, "topics is null");
+        this.research = requireNonNull(research, "research is null");
     }
 
     /** Writes one lesson of the goal's course from its knowledge notes, which it cites. */
@@ -341,7 +347,9 @@ public class GoalPlanner
         goal.recommendations().forEach(card -> cards.addObject().put("kind", card.card().kind().name()).put("title", card.card().title())
                 .put("state", card.state().name()));
         ArrayNode knowledge = data.putArray("knowledgeNotes");
-        notes.list(goal.id()).stream().limit(MAX_NOTES).forEach(note -> knowledge.add(note.topic()));
+        List<GoalKnowledgeNote> saved = notes.list(goal.id()).stream().limit(MAX_NOTES).collect(toImmutableList());
+        Set<String> stale = research.stale(goal.workspaceId(), saved);
+        saved.forEach(note -> knowledge.add(stale.contains(note.id()) ? note.topic() + " (stale)" : note.topic()));
         int omitted = Math.max(0, earlier.size() - MAX_EARLIER);
         if (omitted > 0) {
             data.put("omittedEarlierExchanges", omitted);

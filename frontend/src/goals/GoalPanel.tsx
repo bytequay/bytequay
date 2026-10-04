@@ -598,7 +598,7 @@ function Notes({ notes }: { notes: GoalKnowledgeNoteDto[] }): React.JSX.Element 
     <section className="goal-notes" aria-label="Knowledge notes">
       <div className="goal-group">What the agent learned · {notes.length}</div>
       {notes.map((note) => <details key={note.id} className="goal-note">
-        <summary>{note.topic}</summary>
+        <summary>{note.topic}{note.stale && <span className="goal-note__stale" title="A file it cites changed since the research read it">Stale</span>}</summary>
         <p>{note.body}</p>
         <ul>{note.sources.map((source) => <li key={source.reference + (source.commit ?? '')}>
           <a href={sourceUrl(source)} target="_blank" rel="noreferrer">{source.commit === null ? source.reference : `${source.reference} @ ${source.commit.slice(0, 7)}`}</a>

@@ -19,6 +19,7 @@ import com.bytequay.app.service.goal.GoalConversationService;
 import com.bytequay.app.service.goal.GoalGap;
 import com.bytequay.app.service.goal.GoalItemState;
 import com.bytequay.app.service.goal.GoalItemView;
+import com.bytequay.app.service.goal.GoalKnowledgeNoteView;
 import com.bytequay.app.service.goal.GoalLessonService;
 import com.bytequay.app.service.goal.GoalResearchService;
 import com.bytequay.app.service.goal.GoalService;
@@ -189,12 +190,14 @@ class TestGoalController
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.state").value("DISMISSED"));
 
-        when(research.notes("workspace", "goal-1")).thenReturn(ImmutableList.of(new GoalKnowledgeNote("note-1", "goal-1", "workspace", "Manifest lists",
-                "A snapshot lists its manifests.", ImmutableList.of(new GoalKnowledgeNote.Source("trinodb/trino:core/A.java", Optional.of("a".repeat(40)))), "task-1", NOW)));
+        when(research.notes("workspace", "goal-1")).thenReturn(ImmutableList.of(new GoalKnowledgeNoteView("note-1", "Manifest lists",
+                "A snapshot lists its manifests.", ImmutableList.of(new GoalKnowledgeNote.Source("trinodb/trino:core/A.java", Optional.of("a".repeat(40)))), "task-1", NOW,
+                true)));
         mvc.perform(get("/api/workspaces/workspace/goals/goal-1/knowledge"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].topic").value("Manifest lists"))
-                .andExpect(jsonPath("$[0].sources[0].commit").value("a".repeat(40)));
+                .andExpect(jsonPath("$[0].sources[0].commit").value("a".repeat(40)))
+                .andExpect(jsonPath("$[0].stale").value(true));
     }
 
     @Test

@@ -238,6 +238,8 @@ export type GoalKnowledgeNoteDto = {
   /** A page address, or owner/repo:path with the commit it was read at. */
   sources: { reference: string; commit: string | null }[];
   savedAt: string;
+  /** A file it cites changed at the monitored head since the research read it. */
+  stale: boolean;
 };
 
 function parseCard(value: unknown): GoalCardDto {
@@ -302,6 +304,7 @@ export function parseGoalKnowledgeNote(value: unknown): GoalKnowledgeNoteDto {
       return { reference: text(source.reference, 'goal note source'), commit: optionalText(source.commit) };
     }, 'goal note sources'),
     savedAt: text(note.savedAt, 'goal note time'),
+    stale: note.stale === true,
   };
 }
 

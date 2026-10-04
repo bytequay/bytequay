@@ -304,6 +304,11 @@ the user's open issue with the draft's exact title opened after the check, and
 offers it until the gap's work links it; adopting the gap, again if need be,
 links the issue through the work item's ordinary link with its revision.
 
+Item 4 is implemented: notes are read with a stale flag from one git diff per
+repository and commit against the monitored head of the workspace or a
+Dependency, cached per commit pair and skipped when no note cites a file; the
+Guide view marks stale notes and the planner sends their topics marked stale.
+
 Done when: an accepted result carries a saved summary; an investigation card
 becomes one work item however often it is started; a filed gap issue links to
 the gap's work in one click; and a moved file marks the notes that cite it.

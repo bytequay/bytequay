@@ -25,17 +25,25 @@ import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
+import com.bytequay.agent.core.store.AgentTaskStore;
+import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.core.domain.GoalItem;
+import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.WorkItem;
+import com.bytequay.core.domain.WorkItemEvent;
 import com.bytequay.core.domain.WorkItemLink;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkItemStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockMakers;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 
 import java.nio.file.Path;
@@ -48,9 +56,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 
 class TestGoalReceipts
 {
@@ -58,11 +68,15 @@ class TestGoalReceipts
     private final TaskId taskId = TaskId.random();
     private final TurnId turnId = TurnId.random();
     private final WorkItemStore items = mock(WorkItemStore.class);
+    private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
+    private final AgentTaskStore tasks = mock(AgentTaskStore.class);
+    private final AgentTurnStore turns = mock(AgentTurnStore.class);
     private final TaskLogStore logs = mock(TaskLogStore.class);
     private final WorkItemService work = mock(WorkItemService.class);
     private final GoalConversationService conversation = mock(GoalConversationService.class);
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
-    private final GoalReceipts receipts = new GoalReceipts(items, logs, beans.getBeanProvider(WorkItemService.class), beans.getBeanProvider(GoalConversationService.class));
+    private final GoalReceipts receipts = new GoalReceipts(items, workspaces, tasks, turns, logs, beans.getBeanProvider(WorkItemService.class),
+            beans.getBeanProvider(GoalConversationService.class));
 
     @BeforeEach
     void setUp()
@@ -96,6 +110,30 @@ class TestGoalReceipts
         verifyNoInteractions(work, conversation);
     }
 
+    @Test
+    void turnsThatFinishedWhileByteQuayWasStoppedAreRecordedAtStartupAndToldOnce()
+    {
+        TurnId earlier = TurnId.random();
+        WorkItemLink link = new WorkItemLink(WorkItemLink.taskIdentity(taskId.toString()), new GoalItem(GoalItemKind.TASK, taskId.toString(), "Task", "Fix #31252", NOW));
+        WorkItem item = new WorkItem("work-1", "workspace", Optional.of("goal-1"), "Fix #31252", WorkItem.Kind.DEVELOP, "Rows survive a checkpoint",
+                WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.WORKING, 1, ImmutableList.of(link),
+                ImmutableList.of(new WorkItemEvent("turn:" + earlier, "", "RECEIPT", "Task turn finished: the first test", NOW)), NOW, NOW);
+        Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspace.id()).thenReturn("workspace");
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(workspace));
+        when(items.list("workspace")).thenReturn(ImmutableList.of(item, item(Optional.empty())));
+        when(items.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(item));
+        when(tasks.find(taskId)).thenReturn(Optional.of(task(true)));
+        when(turns.list(taskId)).thenReturn(ImmutableList.of(turn(earlier, TurnState.COMPLETED), turn(turnId, TurnState.COMPLETED), turn(TurnId.random(), TurnState.FAILED)));
+
+        receipts.recover();
+        verify(conversation).settleInterrupted();
+        verify(work).receipt("workspace", "work-1", "turn:" + turnId, "Task turn finished: Keyed checkpoint actions by path and deletion vector; the new test passes.");
+        verify(work, never()).receipt(any(), any(), eq("turn:" + earlier), any());
+        verify(conversation).tell("workspace", "goal-1", "recovered:" + turnId, "While ByteQuay was stopped, a turn of the task for \"Fix #31252\" finished. "
+                + "The last said: Keyed checkpoint actions by path and deletion vector; the new test passes.");
+    }
+
     private AgentTask task(boolean interactive)
     {
         return AgentTask.created(taskId, Optional.of("workspace"), interactive, "Development", new AgentLaneId("codex"), new RepositoryIdentity("trinodb", "trino"),
@@ -104,7 +142,12 @@ class TestGoalReceipts
 
     private AgentTurn turn(TurnState state)
     {
-        return AgentTurn.accepted(turnId, taskId, "turn", new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofHours(1),
+        return turn(turnId, state);
+    }
+
+    private AgentTurn turn(TurnId id, TurnState state)
+    {
+        return AgentTurn.accepted(id, taskId, "turn", new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofHours(1),
                 ImmutableList.of()), NOW).markDeliveryStarted(NOW).running(new ProviderTurnRef("provider"), Optional.empty())
                 .finish(state, AgentMetrics.empty(), state == TurnState.COMPLETED ? Optional.empty() : Optional.of("The provider stopped"), NOW);
     }

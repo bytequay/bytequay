@@ -2,9 +2,11 @@
 
 Status: The first slice is implemented: work items, the Goal conversation,
 recommendation cards, research runs, courses and lessons, practice cards that
-open a prepared composer, task receipts and the learner profile. Discovery
-beyond the workspace's open issues, spec-check cards and the later steps of the
-plan remain. This document specifies the Goal conversation, research, courses,
+open a prepared composer, task receipts and the learner profile. The second
+slice so far makes a started practice card Goal work, records a task's pull
+request, its merge and the receipts missed while ByteQuay was stopped, and finds
+practice among open issues and mapped Jira tickets. Spec-check cards and the
+later steps of the plan remain. This document specifies the Goal conversation, research, courses,
 discovery, guidance and durable progress panel, and three takeaways from the
 Plane comparison. The [implementation plan](goal-guidance-impl-tmp.md) lists
 actionable changes and acceptance checks.
@@ -116,7 +118,10 @@ request the task published. A linked pull request that merges is recorded once
 on the open work it delivers and told to the agent, whether a detail refresh, a
 list refresh, which also refreshes each open linked pull request, or a restart
 shows it; the Goal window then offers Review result, and accepting stays the
-user's decision.
+user's decision. Turns that finished while ByteQuay was stopped, or whose receipt
+was lost, are recorded at startup, after the requests it was answering are
+settled and before the startup cleanup can remove their answers; the agent hears
+once per work item what it missed.
 
 Each request also carries the user's twenty newest questions from their private
 cards in every workspace (passage and comment discussions, local review
@@ -127,9 +132,9 @@ ByteQuay keeps only evidence that exists and never changes a level the user set.
 The Guide view lists what the user knows, and the user can correct any level.
 
 A new explicit same-source attempt without deleting the prior task, proposal
-acceptance into other work items, spec-check cards, Jira practice cards, course changes,
-work-item launch from the composer, automatic outcome harvesting, stale-note
-marking, a per-Goal model choice, request cancellation and discovery remain
+acceptance into other work items, spec-check cards, course changes, automatic
+outcome harvesting, stale-note marking, a per-Goal model choice, request
+cancellation and the two-call discovery shortlist with a source refresh remain
 pending. The checklist
 distinguishes these from implemented behavior.
 

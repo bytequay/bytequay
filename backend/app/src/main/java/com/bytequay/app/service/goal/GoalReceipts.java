@@ -18,23 +18,39 @@ import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
+import com.bytequay.agent.core.store.AgentTaskStore;
+import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.app.context.ContextText;
+import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.WorkItem;
+import com.bytequay.core.domain.WorkItemEvent;
 import com.bytequay.core.domain.WorkItemLink;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkItemStore;
+import com.bytequay.core.store.WorkspaceStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -49,14 +65,24 @@ public class GoalReceipts
     private static final int MAX_ANSWER = 1_500;
 
     private final WorkItemStore items;
+    private final WorkspaceStore workspaces;
+    private final AgentTaskStore tasks;
+    private final AgentTurnStore turns;
     private final TaskLogStore logs;
     private final ObjectProvider<WorkItemService> work;
     private final ObjectProvider<GoalConversationService> conversations;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("goal-receipts-", 0).factory());
 
-    public GoalReceipts(WorkItemStore items, TaskLogStore logs, ObjectProvider<WorkItemService> work, ObjectProvider<GoalConversationService> conversations)
+    /** A receipt saved for a turn: the work it belongs to and what the turn said. */
+    private record Saved(WorkItem item, TurnId turn, String answer) {}
+
+    public GoalReceipts(WorkItemStore items, WorkspaceStore workspaces, AgentTaskStore tasks, AgentTurnStore turns, TaskLogStore logs, ObjectProvider<WorkItemService> work,
+            ObjectProvider<GoalConversationService> conversations)
     {
         this.items = requireNonNull(items, "items is null");
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.tasks = requireNonNull(tasks, "tasks is null");
+        this.turns = requireNonNull(turns, "turns is null");
         this.logs = requireNonNull(logs, "logs is null");
         this.work = requireNonNull(work, "work is null");
         this.conversations = requireNonNull(conversations, "conversations is null");
@@ -77,13 +103,69 @@ public class GoalReceipts
 
     void record(AgentTask task, AgentTurn turn)
     {
+        receipt(task, turn).ifPresent(saved -> conversations.getObject().tell(saved.item().workspaceId(), saved.item().goalId().orElseThrow(), "turn:" + turn.id(),
+                "A task for \"" + saved.item().title() + "\" finished a turn: " + saved.answer()));
+    }
+
+    /**
+     * Records the turns that finished while ByteQuay was stopped, or whose receipt was lost, before the startup cleanup can remove their
+     * answers; each Goal's agent hears once per work item what it missed.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    public void recover()
+    {
+        // Requests the agent was answering when ByteQuay stopped are settled first; while one looks pending, the agent cannot be told anything.
+        conversations.getObject().settleInterrupted();
+        for (Workspace workspace : workspaces.findAll()) {
+            for (WorkItem item : items.list(workspace.id())) {
+                try {
+                    recover(item);
+                }
+                catch (RuntimeException failure) {
+                    log.warn("Missed turns of Goal work {} were not recorded", item.id(), failure);
+                }
+            }
+        }
+    }
+
+    private void recover(WorkItem item)
+    {
+        if (item.goalId().isEmpty()) {
+            return;
+        }
+        Set<String> recorded = item.history().stream().map(WorkItemEvent::operationId).collect(toImmutableSet());
+        List<Saved> missed = new ArrayList<>();
+        for (WorkItemLink link : item.links()) {
+            if (link.reference().kind() != GoalItemKind.TASK) {
+                continue;
+            }
+            Optional<AgentTask> task = tasks.find(TaskId.valueOf(link.reference().key()));
+            if (task.isEmpty()) {
+                continue;
+            }
+            for (AgentTurn turn : turns.list(task.get().id())) {
+                if (!recorded.contains("turn:" + turn.id())) {
+                    receipt(task.get(), turn).ifPresent(missed::add);
+                }
+            }
+        }
+        if (!missed.isEmpty()) {
+            conversations.getObject().tell(item.workspaceId(), item.goalId().orElseThrow(), "recovered:" + missed.getLast().turn(),
+                    "While ByteQuay was stopped, " + (missed.size() == 1 ? "a turn" : missed.size() + " turns") + " of the task for \"" + item.title()
+                            + "\" finished. The last said: " + missed.getLast().answer());
+        }
+    }
+
+    private Optional<Saved> receipt(AgentTask task, AgentTurn turn)
+    {
         // Development's own automatic turns and noninteractive runs are not results the user worked toward.
         if (!task.interactive() || turn.developmentOrigin().isPresent() || turn.state() != TurnState.COMPLETED || task.workspaceId().isEmpty()) {
-            return;
+            return Optional.empty();
         }
         Optional<WorkItem> item = items.findByIdentity(WorkItemLink.taskIdentity(task.id().toString())).filter(found -> found.goalId().isPresent());
         if (item.isEmpty()) {
-            return;
+            return Optional.empty();
         }
         String answer = ContextText.excerpt(finalAnswer(task, turn).orElse("The turn ended without a final answer."), MAX_ANSWER);
         String workspaceId = task.workspaceId().orElseThrow();
@@ -95,8 +177,7 @@ public class GoalReceipts
         catch (RuntimeException failure) {
             log.debug("Goal work {} did not pick up its task's pull request: {}", item.get().id(), failure.toString());
         }
-        conversations.getObject().tell(workspaceId, item.get().goalId().orElseThrow(), "turn:" + turn.id(),
-                "A task for \"" + item.get().title() + "\" finished a turn: " + answer);
+        return Optional.of(new Saved(item.get(), turn.id(), answer));
     }
 
     private Optional<String> finalAnswer(AgentTask task, AgentTurn turn)

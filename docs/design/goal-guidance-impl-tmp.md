@@ -91,8 +91,8 @@ starts only when the user sends it. A completed turn of a Goal's task leaves a
 receipt in its work item's history, once per turn, and tells the agent. Each
 request carries the user's newest private-card questions and the topic levels;
 a question cited as evidence changes a level, and the levels steer the next
-recommendation. Receipts for turns that ended while ByteQuay was stopped are not
-recovered yet, and a model run against real data is still to be done.
+recommendation. Receipts for turns that ended while ByteQuay was stopped are
+recovered by the second slice; a model run against real data is still to be done.
 ## Second implementation slice
 
 Carry the reference journey from practice to a recorded result, and add the
@@ -136,6 +136,10 @@ Item 2 is implemented: a turn's receipt links the pull request its task
 published, list refreshes refresh each open pull request of the Goals' open
 work, and a merge records one receipt and tells the agent; the planner sees each
 work item's links and the Goal window offers Review result.
+
+Item 3 is implemented: at startup, before the cleanup that can remove a turn's
+answer, completed turns of the Goals' work without a receipt are recorded, and
+the agent hears once per work item what it missed.
 
 Item 4 is implemented: each guidance request carries up to 100 candidates from
 the 500 open issues updated last and the cached Jira tickets mapped to the

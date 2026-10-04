@@ -36,7 +36,8 @@ const MODELS: ModelSettingsDto = { agents: [], apiKeys: [], keyProviders: [], pr
 const CARD: GoalCardDto = { kind: 'RESEARCH', title: 'Read the Iceberg specification', reason: 'You start from the specification',
   scope: 'Table metadata, snapshots and manifests', pages: ['https://iceberg.apache.org/spec/'], workItemId: null, issue: null, ticket: null, module: null, reproductions: null };
 const PRACTICE: GoalCardDto = { kind: 'WORK', title: 'Fix #31252', reason: 'You learned how checkpoints reconcile actions',
-  scope: 'Key checkpoint add and remove actions by path and deletion vector, and add a test that loses rows today.', pages: [], workItemId: null, issue: 31252, ticket: null, module: null, reproductions: null };
+  scope: 'Key checkpoint add and remove actions by path and deletion vector, and add a test that loses rows today.', pages: [], workItemId: null, issue: 31252, ticket: null, module: null, reproductions: null,
+  uncertainty: 'Pull request #31270 is open and linked to close issue #31252; it may already fix it.' };
 const CHECK: GoalCardDto = { kind: 'SPEC_CHECK', title: 'Check the Delta checkpoint writer', reason: 'You know how checkpoints reconcile actions',
   scope: 'Checkpoint action reconciliation', pages: ['https://github.com/delta-io/delta/blob/master/PROTOCOL.md'], workItemId: null, issue: null, ticket: null,
   module: 'plugin/trino-delta-lake/', reproductions: 3 };
@@ -298,6 +299,8 @@ export async function run(): Promise<boolean> {
     changed(); await settle();
     const practice = document.querySelector('.goal-cards .goal-rec');
     assert(practice !== null && practice.textContent?.includes('Practice') === true && practice.textContent.includes('Fix #31252'), 'A practice card floats with its kind');
+    assert(practice.querySelector('.goal-rec__doubt')?.textContent === 'Pull request #31270 is open and linked to close issue #31252; it may already fix it.',
+      'The card shows what is uncertain under its reason');
     [...practice.querySelectorAll('button')].find((candidate) => candidate.textContent === 'Start')?.click(); await settle(); await settle();
     assert(composers() === 1 && started[0].issue === 31252 && started[0].instruction.startsWith('Key checkpoint add and remove actions'),
       'Start opens the issue composer with the prepared instruction');

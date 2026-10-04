@@ -51,6 +51,7 @@ import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.goal.GoalResearchService;
+import com.bytequay.app.service.goal.GoalSpecChecks;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
@@ -195,7 +196,7 @@ class TestContextBuildService
         beans.registerSingleton("goalResearchService", research);
         service = new ContextBuildService(builds, workspaces, models, credentials, drivers, tasks, taskStore, turns, turnStore, completions, approvals, checks,
                 worktrees, beans.getBeanProvider(ContextBuildCoordinator.class), beans.getBeanProvider(MemoryHarvestService.class),
-                beans.getBeanProvider(GoalResearchService.class), git, mapper,
+                beans.getBeanProvider(GoalResearchService.class), beans.getBeanProvider(GoalSpecChecks.class), git, mapper,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

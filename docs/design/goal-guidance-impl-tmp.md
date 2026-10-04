@@ -148,6 +148,11 @@ they share with the Goal, with the coverage read. A Practice card names one of
 them, a ticket kept by its stable reference, and Start opens the ticket's
 composer with the instruction filled in.
 
+Item 5 is implemented: the planner sees the fifteen modules whose code cites a
+specification most, and a Spec check card names one with its pages and
+reproduction count. Start runs the existing check, Adjust opens the drawer
+filled in, and the check's end settles the card and tells the agent.
+
 Done when: a Practice card leads to a task whose merged pull request is recorded
 on the Goal and moves the topic it practiced, after which a new card can float;
 an issue and a mapped Jira ticket can each be recommended and started; and a

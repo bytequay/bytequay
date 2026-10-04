@@ -54,7 +54,7 @@ class TestSqliteGoalKnowledgeStores
         cards.save(later);
         cards.save(first);
         GoalRecommendation other = card("card-3", NOW);
-        cards.save(new GoalRecommendation(other.id(), "goal-2", other.workspaceId(), other.card(), other.state(), other.taskId(), other.workItemId(),
+        cards.save(new GoalRecommendation(other.id(), "goal-2", other.workspaceId(), other.card(), other.state(), other.taskId(), other.workItemId(), Optional.empty(),
                 other.exchangeId(), NOW, NOW));
         assertThat(cards.list("goal-1")).containsExactly(first, later);
         GoalRecommendation started = first.started(Optional.of("task-1"), NOW.plusSeconds(2));
@@ -75,8 +75,8 @@ class TestSqliteGoalKnowledgeStores
     private static GoalRecommendation card(String id, Instant at)
     {
         return new GoalRecommendation(id, "goal-1", "workspace-1", new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH, "Read the Iceberg specification",
-                "You start from the specification", "Snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty(), Optional.empty()), GoalRecommendation.State.SHOWN,
-                Optional.empty(), Optional.empty(), "op-1", at, at);
+                "You start from the specification", "Snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()), GoalRecommendation.State.SHOWN,
+                Optional.empty(), Optional.empty(), Optional.empty(), "op-1", at, at);
     }
 
     private static GoalKnowledgeNote note(String id, String topic, Instant at)

@@ -5,8 +5,8 @@ recommendation cards, research runs, courses and lessons, practice cards that
 open a prepared composer, task receipts and the learner profile. The second
 slice so far makes a started practice card Goal work, records a task's pull
 request, its merge and the receipts missed while ByteQuay was stopped, and finds
-practice among open issues and mapped Jira tickets. Spec-check cards and the
-later steps of the plan remain. This document specifies the Goal conversation, research, courses,
+practice among open issues and mapped Jira tickets, and recommends spec checks.
+Turning a reproduced gap into Goal work and the later steps of the plan remain. This document specifies the Goal conversation, research, courses,
 discovery, guidance and durable progress panel, and three takeaways from the
 Plane comparison. The [implementation plan](goal-guidance-impl-tmp.md) lists
 actionable changes and acceptance checks.
@@ -109,6 +109,15 @@ item's attempt. The card
 stays started, and no other Practice card floats, until the work is done or
 dropped; the agent hears each accept, drop or reopen of the Goal's work.
 
+The agent also sees the workspace's fifteen modules whose code cites a page in
+the most sections, read once per monitored head, and may recommend a Spec check
+card naming one of them, the specification pages to check it against and how
+many gaps it may reproduce; a card naming another module is dropped. Start runs
+the existing check with those choices, Adjust opens the Spec check drawer on the
+Memory page filled with them, and Open check shows the running check there.
+When the check ends, its card settles, a failed or stopped one showing again for
+a retry, and the agent hears what it reproduced and what was already reported.
+
 When a turn of an interactive task completes and the task belongs to a Goal's
 work item, its final answer is recorded once in the item's history as a receipt,
 keyed by the turn, and the Goal's agent is told, so it can recommend what comes
@@ -132,7 +141,7 @@ ByteQuay keeps only evidence that exists and never changes a level the user set.
 The Guide view lists what the user knows, and the user can correct any level.
 
 A new explicit same-source attempt without deleting the prior task, proposal
-acceptance into other work items, spec-check cards, course changes, automatic
+acceptance into other work items, gaps as Goal work, course changes, automatic
 outcome harvesting, stale-note marking, a per-Goal model choice, request
 cancellation and the two-call discovery shortlist with a source refresh remain
 pending. The checklist

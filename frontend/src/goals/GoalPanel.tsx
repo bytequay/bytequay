@@ -27,6 +27,7 @@ import {
   type GoalTab,
 } from './model';
 import type { GoalConversation } from './useGoals';
+import type { SpecCheckRequest } from '../repository-context/specChecks';
 import { TOPIC_LEVELS } from './contracts';
 
 /** How much of a goal is finished, as a ring. */
@@ -88,6 +89,8 @@ export type GoalPanelProps = {
   onStartIssue: (issue: number, instruction: string) => void;
   /** The same for a Jira ticket, by its connection:cloud:issue reference. */
   onStartTicket: (ticket: string, instruction: string) => void;
+  /** Shows a module's spec check on the Memory page. */
+  onSpecCheck: (spec: SpecCheckRequest) => void;
   search: (query: string) => Promise<GoalItemDto[]>;
 };
 
@@ -144,7 +147,8 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
         conversation={props.conversation} onBack={() => props.onLesson(null)} />
         : item !== undefined ? <WorkDetails key={item.id} {...props} item={item} onBack={() => setSelected(null)} />
         : view === 'guide' ? <GoalGuide key={goal?.id ?? 'next'} goal={goal} repository={props.repository} conversation={props.conversation} onStart={props.onStart} onOpenTask={props.onOpenTask}
-          onLesson={props.onLesson} onBack={props.onBack} onStartIssue={props.onStartIssue} onStartTicket={props.onStartTicket} onReview={setSelected} />
+          onLesson={props.onLesson} onBack={props.onBack} onStartIssue={props.onStartIssue} onStartTicket={props.onStartTicket} onSpecCheck={props.onSpecCheck}
+          onReview={setSelected} />
           : goal === null ? <><NoGoal onCreate={props.onCreate} />{props.workItems.map((saved) => <button type="button" className="goal-work-card" key={saved.id} onClick={() => setSelected(saved.id)}>{saved.title} · {saved.state.toLowerCase()}</button>)}</> : <GoalWork {...props} goal={goal} onSelect={setSelected} />}
       {cancelling && goal !== null && (
         <ConfirmDialog
@@ -213,9 +217,9 @@ function GoalTitle({ goal, onRename }: { goal: GoalDto; onRename: GoalPanelProps
  * The agent's side of the goal: "What do you want to achieve?" while there is nothing to go on, then the conversation, the
  * question's suggested answers and a definition to accept. The opening is written locally; only a message asks the model.
  */
-function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLesson, onBack, onStartIssue, onStartTicket, onReview }: Pick<GoalPanelProps, 'goal'
-  | 'repository' | 'conversation' | 'onStart' | 'onOpenTask' | 'onLesson' | 'onBack' | 'onStartIssue' | 'onStartTicket'> & { onReview: (workItemId: string) => void })
-  : React.JSX.Element {
+function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLesson, onBack, onStartIssue, onStartTicket, onSpecCheck, onReview }: Pick<GoalPanelProps,
+  'goal' | 'repository' | 'conversation' | 'onStart' | 'onOpenTask' | 'onLesson' | 'onBack' | 'onStartIssue' | 'onStartTicket' | 'onSpecCheck'>
+  & { onReview: (workItemId: string) => void }): React.JSX.Element {
   const { exchanges } = conversation;
   const [error, setError] = useState<string | null>(null);
   const last = exchanges.at(-1);
@@ -267,7 +271,7 @@ function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLess
       )}
       {question !== null && question.suggestions.length > 0 && <Choices choices={question.suggestions} onPick={pick} />}
       {goal?.recommendations.filter((card) => card.state === 'STARTED').map((card) => <Started key={card.id} goal={goal} card={card} onOpenTask={onOpenTask}
-        onLesson={onLesson} onStartIssue={onStartIssue} onStartTicket={onStartTicket} onReview={onReview} />)}
+        onLesson={onLesson} onStartIssue={onStartIssue} onStartTicket={onStartTicket} onSpecCheck={onSpecCheck} onReview={onReview} />)}
       {conversation.notes.length > 0 && <Notes notes={conversation.notes} />}
       {goal !== null && goal.topics.length > 0 && <Known topics={goal.topics} onCorrect={conversation.correctTopic} />}
       {open !== null && <Proposal key={open.exchangeId} proposal={open.proposal} onAccept={(title) => conversation.accept(open.exchangeId, title)} />}
@@ -278,13 +282,15 @@ function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLess
   );
 }
 
+const STARTED: Record<GoalRecommendationDto['card']['kind'], string> = { RESEARCH: 'Researching', LESSON: 'Learning', WORK: 'Practicing', SPEC_CHECK: 'Checking' };
+
 /**
  * A card the user started, while it lasts: research while its run goes, a lesson while it is open, and practice until its work is done or
  * dropped. Practice leads to its task once the user sent it, back to the prepared composer until then, and to its result once its pull request
  * merged, which the user accepts.
  */
-function Started({ goal, card, onOpenTask, onLesson, onStartIssue, onStartTicket, onReview }: Pick<GoalPanelProps, 'onOpenTask' | 'onLesson' | 'onStartIssue'
-  | 'onStartTicket'> & {
+function Started({ goal, card, onOpenTask, onLesson, onStartIssue, onStartTicket, onSpecCheck, onReview }: Pick<GoalPanelProps, 'onOpenTask' | 'onLesson'
+  | 'onStartIssue' | 'onStartTicket' | 'onSpecCheck'> & {
   goal: GoalDto;
   card: GoalRecommendationDto;
   onReview: (workItemId: string) => void;
@@ -294,7 +300,9 @@ function Started({ goal, card, onOpenTask, onLesson, onStartIssue, onStartTicket
   const pull = work?.links.findLast((link) => link.kind === 'PULL_REQUEST');
   return (
     <div className="goal-guide__running" role="status">
-      <span>{card.card.kind === 'RESEARCH' ? 'Researching' : card.card.kind === 'LESSON' ? 'Learning' : 'Practicing'}: {card.card.title}</span>
+      <span>{STARTED[card.card.kind]}: {card.card.title}</span>
+      {card.card.kind === 'SPEC_CHECK' && card.card.module !== null && <button type="button" className="goal-link"
+        onClick={() => onSpecCheck({ directory: card.card.module })}>Open check</button>}
       {card.card.kind === 'RESEARCH' && card.taskId !== null && <button type="button" className="goal-link" onClick={() => onOpenTask(card.taskId)}>Open run</button>}
       {card.card.kind === 'LESSON' && card.card.workItemId !== null && <button type="button" className="goal-link"
         onClick={() => onLesson(card.card.workItemId)}>Open lesson</button>}

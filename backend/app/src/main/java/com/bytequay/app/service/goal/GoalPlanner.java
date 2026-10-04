@@ -34,6 +34,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -49,6 +51,7 @@ import static java.util.Objects.requireNonNull;
 public class GoalPlanner
 {
     // ponytail: the last eight exchanges plus the accepted definition; summarize older ones once conversations outgrow that.
+    private static final Logger log = LoggerFactory.getLogger(GoalPlanner.class);
     static final int MAX_EARLIER = 8;
     private static final int MAX_WORK_ITEMS = 30;
     private static final int MAX_LINKS = 6;
@@ -112,6 +115,12 @@ public class GoalPlanner
             on a WORK card makes the issue one of the goal's work items; recommend no other practice until that item is
             done or dropped, and when its result is accepted, let the topics it practiced cite it as work:<id>.
 
+            A spec check is the other way to find work: it compares one module's code with the specification it
+            implements and reproduces each gap it finds with a failing test, so it finds bugs nobody has reported. When the
+            user knows an area and its specification, you may recommend a SPEC_CHECK card: a module of specCheckModules by
+            its directory in module, the specification pages to check it against in pages, and in reproductions how many
+            gaps it may reproduce, 1 to 8, each a build. Recommend no other spec check while one is shown or running.
+
             Keep track of what the user knows, topic by topic: from finished lessons, check answers, their questions here
             and in their private cards (recentQuestions), and the work they did. When the evidence changes a topic's level
             (NEW, LEARNING, PRACTICED or STRONG), put it in topics with the ids of the questions, lessons (lesson:<id>) or
@@ -128,7 +137,7 @@ public class GoalPlanner
             "objective": "...", "successDefinition": "...", "startingKnowledge": "...", "constraints": "..."},
             "course": {"parts": [{"title": "...", "lessons": [{"title": "...", "outcome": "..."}]}]},
             "recommendation": {"kind": "RESEARCH", "title": "...", "reason": "...", "scope": "...", "pages": ["https://..."], "workItemId": null,
-            "issue": null, "ticket": null}, "topics": [{"topic": "...", "level": "LEARNING", "evidence": ["discussion:..."]}]}
+            "issue": null, "ticket": null, "module": null, "reproductions": null}, "topics": [{"topic": "...", "level": "LEARNING", "evidence": ["discussion:..."]}]}
             - assessment: your answer and where the goal stands, in one to five sentences addressed to the user.
             - question: null, or one question of at most 600 characters with zero to four suggestions of at most 200 each.
             - proposal: null, or a definition: a title of at most 200 characters and the other fields at most 2000 each;
@@ -138,7 +147,8 @@ public class GoalPlanner
             - recommendation: null, or a card: a title of at most 120 characters, a one-line reason of at most 300, a
               scope of at most 2000 and at most eight https pages. A RESEARCH card's workItemId, issue and ticket are null; a
               LESSON card names its lesson's id in workItemId; a WORK card names one candidate: an issue's number in issue
-              or a ticket's key in ticket.
+              or a ticket's key in ticket; a SPEC_CHECK card names its module and reproductions, and the other cards leave
+              both null.
             - topics: an empty list, or up to eight topics whose level the evidence changed, each citing one to ten ids.
             """;
 
@@ -149,11 +159,12 @@ public class GoalPlanner
     private final GoalKnowledgeNoteStore notes;
     private final GoalLessonStore lessons;
     private final GoalCandidates candidates;
+    private final GoalSpecChecks specChecks;
     private final GoalQuestions questions;
     private final GoalTopicStore topics;
 
     public GoalPlanner(AgentDriverRegistry drivers, TextOnlyHelper helper, WorkspaceStore workspaces, WorkspaceRelationships relationships, GoalKnowledgeNoteStore notes,
-            GoalLessonStore lessons, GoalCandidates candidates, GoalQuestions questions, GoalTopicStore topics)
+            GoalLessonStore lessons, GoalCandidates candidates, GoalSpecChecks specChecks, GoalQuestions questions, GoalTopicStore topics)
     {
         this.drivers = requireNonNull(drivers, "drivers is null");
         this.helper = requireNonNull(helper, "helper is null");
@@ -162,6 +173,7 @@ public class GoalPlanner
         this.notes = requireNonNull(notes, "notes is null");
         this.lessons = requireNonNull(lessons, "lessons is null");
         this.candidates = requireNonNull(candidates, "candidates is null");
+        this.specChecks = requireNonNull(specChecks, "specChecks is null");
         this.questions = requireNonNull(questions, "questions is null");
         this.topics = requireNonNull(topics, "topics is null");
     }
@@ -231,6 +243,17 @@ public class GoalPlanner
             ObjectNode covered = data.putObject("candidateCoverage").put("issuesRead", coverage.issuesRead()).put("issuesOpen", coverage.issuesOpen())
                     .put("ticketsRead", coverage.ticketsRead());
             coverage.issuesSyncedAt().ifPresent(at -> covered.put("issuesSyncedAt", at.toString()));
+            ArrayNode modules = data.putArray("specCheckModules");
+            try {
+                specChecks.modules(goal.workspaceId()).forEach(module -> {
+                    ObjectNode entry = modules.addObject().put("directory", module.directory()).put("sections", module.sections());
+                    module.page().ifPresent(page -> entry.put("page", page));
+                });
+            }
+            catch (RuntimeException unavailable) {
+                // Without a readable monitored head the goal can still be guided; it only cannot name a module to check.
+                log.debug("Goal {} has no modules to check: {}", goal.id(), unavailable.toString());
+            }
         }
         ArrayNode work = objective.putArray("workItems");
         goal.items().stream().limit(MAX_WORK_ITEMS).forEach(item -> {

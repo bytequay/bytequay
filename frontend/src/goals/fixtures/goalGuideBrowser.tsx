@@ -18,16 +18,21 @@ import { GoalLayer } from '../GoalLayer';
 import type { GoalCardDto, GoalDto, GoalExchangeDto, GoalItemDto, GoalKnowledgeNoteDto, GoalRecommendationDto } from '../contracts';
 import type { Goals } from '../useGoals';
 import { assert, changeInput, settle } from '../../fixtures/harness';
+import type { SpecCheckRequest } from '../../repository-context/specChecks';
 import '../../css/base.css';
 
 /** The backend as the Goal window sees it: one workspace whose agent answers when the journey says so. */
 const server = { goal: null as GoalDto | null, exchanges: [] as GoalExchangeDto[], notes: [] as GoalKnowledgeNoteDto[], asked: [] as string[], accepted: [] as string[],
   started: [] as string[], cancelled: [] as string[], failNextAsk: false };
 const CARD: GoalCardDto = { kind: 'RESEARCH', title: 'Read the Iceberg specification', reason: 'You start from the specification',
-  scope: 'Table metadata, snapshots and manifests', pages: ['https://iceberg.apache.org/spec/'], workItemId: null, issue: null, ticket: null };
+  scope: 'Table metadata, snapshots and manifests', pages: ['https://iceberg.apache.org/spec/'], workItemId: null, issue: null, ticket: null, module: null, reproductions: null };
 const PRACTICE: GoalCardDto = { kind: 'WORK', title: 'Fix #31252', reason: 'You learned how checkpoints reconcile actions',
-  scope: 'Key checkpoint add and remove actions by path and deletion vector, and add a test that loses rows today.', pages: [], workItemId: null, issue: 31252, ticket: null };
+  scope: 'Key checkpoint add and remove actions by path and deletion vector, and add a test that loses rows today.', pages: [], workItemId: null, issue: 31252, ticket: null, module: null, reproductions: null };
+const CHECK: GoalCardDto = { kind: 'SPEC_CHECK', title: 'Check the Delta checkpoint writer', reason: 'You know how checkpoints reconcile actions',
+  scope: 'Checkpoint action reconciliation', pages: ['https://github.com/delta-io/delta/blob/master/PROTOCOL.md'], workItemId: null, issue: null, ticket: null,
+  module: 'plugin/trino-delta-lake/', reproductions: 3 };
 const started: { issue: number; instruction: string }[] = [];
+const specChecks: SpecCheckRequest[] = [];
 const listeners = new Set<() => void>();
 const changed = (): void => listeners.forEach((listener) => listener());
 const unexpected = async (): Promise<never> => { throw new Error('Unexpected write'); };
@@ -102,7 +107,7 @@ function Fixture(): React.JSX.Element {
   const goals: Goals = { ...conversation, goals: goal === null ? [] : [goal], pinned: goal };
   return (
     <GoalLayer page="home" workspaceId="workspace" repository="trinodb/trino" goals={goals} needsYou={new Set()} onOpenTask={() => {}}
-      onStartIssue={(issue, instruction) => started.push({ issue, instruction })}>
+      onStartIssue={(issue, instruction) => started.push({ issue, instruction })} onSpecCheck={(spec) => specChecks.push(spec)}>
       <main style={{ height: '100%' }}><h1>Workspace home</h1></main>
     </GoalLayer>
   );
@@ -183,7 +188,7 @@ export async function run(): Promise<boolean> {
 
     // The agent judges research is the next step; the backend floats its card when it saves the answer.
     answer({ assessment: 'Read the specification before the connector.', question: null, proposal: null, recommendation: CARD, course: null });
-    setCards([{ id: 'card-1', goalId: 'goal', card: CARD, state: 'SHOWN', taskId: null, workItemId: null, createdAt: NOW }]);
+    setCards([{ id: 'card-1', goalId: 'goal', card: CARD, state: 'SHOWN', taskId: null, workItemId: null, checkId: null, createdAt: NOW }]);
     await nextRead(); await settle();
     const card = document.querySelector('.goal-cards .goal-rec');
     assert(card !== null && card.textContent?.includes('Read the Iceberg specification') === true, 'The recommended research floats under the Goal control');
@@ -193,7 +198,7 @@ export async function run(): Promise<boolean> {
     assert(text().includes('Researching: Read the Iceberg specification'), 'The Goal window shows the running research');
 
     // Later the agent judges the user ready to practice on a real gap.
-    setCards([...server.goal.recommendations, { id: 'card-2', goalId: 'goal', card: PRACTICE, state: 'SHOWN', taskId: null, workItemId: null, createdAt: NOW }]);
+    setCards([...server.goal.recommendations, { id: 'card-2', goalId: 'goal', card: PRACTICE, state: 'SHOWN', taskId: null, workItemId: null, checkId: null, createdAt: NOW }]);
     changed(); await settle();
     const practice = document.querySelector('.goal-cards .goal-rec');
     assert(practice !== null && practice.textContent?.includes('Practice') === true && practice.textContent.includes('Fix #31252'), 'A practice card floats with its kind');
@@ -224,6 +229,15 @@ export async function run(): Promise<boolean> {
     changeInput(composer(), 'Review Iceberg pull requests with confidence'); await settle();
     button('Send').click(); await settle(); await settle();
     assert(server.goal?.title === 'Review Iceberg pull requests with confidence' && asked() === 5, 'The typed answer starts the next goal');
+
+    // The agent recommends a spec check; Adjust opens the Spec check drawer with the card's choices instead of starting it.
+    setCards([{ id: 'card-3', goalId: 'goal', card: CHECK, state: 'SHOWN', taskId: null, workItemId: null, checkId: null, createdAt: NOW }]);
+    changed(); await settle();
+    const check = document.querySelector('.goal-cards .goal-rec');
+    assert(check !== null && check.textContent?.includes('Spec check') === true, 'A spec check floats with its kind');
+    [...check.querySelectorAll('button')].find((candidate) => candidate.textContent === 'Adjust')?.click(); await settle();
+    assert(specChecks.length === 1 && specChecks[0].directory === 'plugin/trino-delta-lake/' && specChecks[0].prefill?.reproductions === 3
+      && specChecks[0].prefill.specs[0] === CHECK.pages[0] && starts() === 2, 'Adjust opens the drawer with the card’s choices and starts nothing');
     return true;
   }
   finally { flushSync(() => root.unmount()); host.remove(); }

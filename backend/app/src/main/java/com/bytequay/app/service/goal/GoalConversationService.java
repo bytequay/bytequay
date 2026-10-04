@@ -77,6 +77,7 @@ public class GoalConversationService
     private final WorkspaceStore workspaces;
     private final GoalCandidates candidates;
     private final ObjectProvider<GoalResearchService> research;
+    private final ObjectProvider<GoalSpecChecks> specChecks;
     private final GoalQuestions questions;
     private final GoalTopicStore topics;
     private final ModelSettingsService models;
@@ -89,16 +90,16 @@ public class GoalConversationService
 
     @Autowired
     public GoalConversationService(GoalService goals, WorkItemService work, GoalExchangeStore exchanges, GoalRecommendationStore recommendations,
-            WorkspaceStore workspaces, GoalCandidates candidates, ObjectProvider<GoalResearchService> research, GoalQuestions questions, GoalTopicStore topics,
-            ModelSettingsService models, GoalPlanner planner, Clock clock)
+            WorkspaceStore workspaces, GoalCandidates candidates, ObjectProvider<GoalResearchService> research, ObjectProvider<GoalSpecChecks> specChecks,
+            GoalQuestions questions, GoalTopicStore topics, ModelSettingsService models, GoalPlanner planner, Clock clock)
     {
-        this(goals, work, exchanges, recommendations, workspaces, candidates, research, questions, topics, models, planner, clock,
+        this(goals, work, exchanges, recommendations, workspaces, candidates, research, specChecks, questions, topics, models, planner, clock,
                 Executors.newFixedThreadPool(2, Thread.ofVirtual().name("goal-agent-", 0).factory()));
     }
 
     GoalConversationService(GoalService goals, WorkItemService work, GoalExchangeStore exchanges, GoalRecommendationStore recommendations,
-            WorkspaceStore workspaces, GoalCandidates candidates, ObjectProvider<GoalResearchService> research, GoalQuestions questions, GoalTopicStore topics,
-            ModelSettingsService models, GoalPlanner planner, Clock clock, Executor executor)
+            WorkspaceStore workspaces, GoalCandidates candidates, ObjectProvider<GoalResearchService> research, ObjectProvider<GoalSpecChecks> specChecks,
+            GoalQuestions questions, GoalTopicStore topics, ModelSettingsService models, GoalPlanner planner, Clock clock, Executor executor)
     {
         this.goals = requireNonNull(goals, "goals is null");
         this.work = requireNonNull(work, "work is null");
@@ -107,6 +108,7 @@ public class GoalConversationService
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.candidates = requireNonNull(candidates, "candidates is null");
         this.research = requireNonNull(research, "research is null");
+        this.specChecks = requireNonNull(specChecks, "specChecks is null");
         this.questions = requireNonNull(questions, "questions is null");
         this.topics = requireNonNull(topics, "topics is null");
         this.models = requireNonNull(models, "models is null");
@@ -258,6 +260,9 @@ public class GoalConversationService
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Card not found"));
         if (card.card().kind() == GoalRecommendation.Kind.RESEARCH) {
             return research.getObject().start(workspaceId, goalId, recommendationId);
+        }
+        if (card.card().kind() == GoalRecommendation.Kind.SPEC_CHECK) {
+            return specChecks.getObject().start(workspaceId, goalId, recommendationId);
         }
         checkArgument(card.card().kind() == GoalRecommendation.Kind.WORK, "A lesson card opens its lesson.");
         if (card.state() == GoalRecommendation.State.STARTED) {
@@ -443,7 +448,13 @@ public class GoalConversationService
     {
         boolean lesson = answered.workItemId().map(id -> goal.course().stream().flatMap(course -> course.parts().stream()).anyMatch(part -> part.lessons().contains(id))
                 && goal.items().stream().anyMatch(item -> item.id().equals(id) && item.state() != WorkItem.State.DONE && item.state() != WorkItem.State.DROPPED)).orElse(true);
-        Optional<GoalRecommendation.Card> named = answered.kind() == GoalRecommendation.Kind.WORK ? practice(goal, answered) : Optional.of(answered);
+        Optional<GoalRecommendation.Card> named = switch (answered.kind()) {
+            case WORK -> practice(goal, answered);
+            // A spec check names a module the agent was given.
+            case SPEC_CHECK -> specChecks.getObject().modules(goal.workspaceId()).stream().anyMatch(module -> answered.module().filter(module.directory()::equals).isPresent())
+                    ? Optional.of(answered) : Optional.empty();
+            case RESEARCH, LESSON -> Optional.of(answered);
+        };
         if (!lesson || named.isEmpty()) {
             return;
         }
@@ -455,7 +466,7 @@ public class GoalConversationService
         if (!waiting && !dismissed) {
             Instant now = clock.instant();
             recommendations.save(new GoalRecommendation("card-" + exchange.id(), goal.id(), goal.workspaceId(), card, GoalRecommendation.State.SHOWN, Optional.empty(),
-                    Optional.empty(), exchange.id(), now, now));
+                    Optional.empty(), Optional.empty(), exchange.id(), now, now));
         }
     }
 

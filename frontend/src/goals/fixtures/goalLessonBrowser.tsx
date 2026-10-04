@@ -68,7 +68,7 @@ function Fixture(): React.JSX.Element {
   return (
     <div style={{ height: 800 }}>
       <GoalPanel mode="board" view="guide" onView={() => {}} lesson={lesson} onLesson={setLesson} conversation={conversation} onStart={async () => {}}
-        onOpenTask={() => {}} repository="trinodb/trino" goals={[goal]} goal={goal} needsYou={new Set()} onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}}
+        onOpenTask={() => {}} repository="trinodb/trino" goals={[goal]} goal={goal} needsYou={new Set()} onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}}
         onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onDelete={async () => {}} onAdd={async () => {}} workItems={[item]} onCreateWork={async () => item} onDecide={async () => item}
         onLink={async () => item} onOpenItem={() => {}} search={async () => []} />
     </div>

@@ -29,16 +29,21 @@ class TestGoalRecommendationConverter
     private final GoalRecommendationConverter converter = new GoalRecommendationConverter();
 
     @Test
-    void keepsTheWorkAStartedWorkCardBecameAndReadsOlderCardsWithoutIt()
+    void keepsTheWorkAStartedWorkCardBecameAndReadsCardsSavedBeforeLaterFields()
     {
         GoalRecommendation shown = new GoalRecommendation("card-1", "goal-1", "workspace-1", new GoalRecommendation.Card(GoalRecommendation.Kind.WORK, "Fix #31252",
                 "You learned how checkpoints reconcile actions", "Key checkpoint actions by path and deletion vector", ImmutableList.of(), Optional.empty(),
-                Optional.of(31252), Optional.empty()), GoalRecommendation.State.SHOWN, Optional.empty(), Optional.empty(), "op-1", NOW, NOW);
+                Optional.of(31252), Optional.empty(), Optional.empty(), Optional.empty()), GoalRecommendation.State.SHOWN, Optional.empty(), Optional.empty(),
+                Optional.empty(), "op-1", NOW, NOW);
         GoalRecommendation started = shown.practicing("work-1", NOW.plusSeconds(1));
         assertThat(converter.convertToEntityAttribute(converter.convertToDatabaseColumn(started))).isEqualTo(started);
 
-        String older = converter.convertToDatabaseColumn(shown).replace(",\"workItemId\":null", "");
-        assertThat(older).doesNotContain("workItemId");
+        // A card saved before work, check, ticket and module fields existed reads without them.
+        String older = converter.convertToDatabaseColumn(shown);
+        for (String field : new String[] {"workItemId", "checkId", "ticket", "module", "reproductions"}) {
+            older = older.replace(",\"" + field + "\":null", "");
+            assertThat(older).doesNotContain(field);
+        }
         assertThat(converter.convertToEntityAttribute(older)).isEqualTo(shown);
     }
 }

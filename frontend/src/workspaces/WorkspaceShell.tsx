@@ -32,6 +32,7 @@ import type { NavigationMode } from '../navigationHistory';
 import PullsScreen from '../pulls/PullsScreen';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import MemoryPage from '../memory/MemoryPage';
+import type { SpecCheckRequest } from '../repository-context/specChecks';
 import { settingsRoute } from '../settings/routes';
 import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
@@ -43,6 +44,7 @@ import {
   workspaceHasReadableCode,
   workspaceIsUpdating,
   workspaceReviewTaskRoute,
+  workspaceRoute,
   type WorkspaceTab,
 } from './model';
 import '../css/workspaces.css';
@@ -74,6 +76,9 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   const [startLaunch, setStartLaunch] = useState<TaskLaunch>();
   // The instruction a Goal's work card prepared for the issue's composer.
   const [startDraft, setStartDraft] = useState<string>();
+  // A spec check a Goal card asked the Memory page to show.
+  const [specCheck, setSpecCheck] = useState<SpecCheckRequest>();
+  const specShown = useCallback(() => setSpecCheck(undefined), []);
   const monitoredRepository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
   const agentScreens = tab === 'home' || tab === 'tasks';
   const taskDetail = tab === 'tasks' && (initialAgentTaskId !== null || initialAgentReviewId !== null);
@@ -197,6 +202,10 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         setStartDraft(instruction);
         window.location.hash = workspaceIssueTaskRoute(workspace.id, number);
       }}
+      onSpecCheck={(spec) => {
+        setSpecCheck(spec);
+        window.location.hash = workspaceRoute(workspace.id, 'context');
+      }}
     >
       {renderPage()}
     </GoalLayer>
@@ -241,7 +250,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       return <JiraScreen workspace={workspace} />;
     }
     if (tab === 'context') {
-      return <MemoryPage workspace={workspace} />;
+      return <MemoryPage workspace={workspace} spec={specCheck} onSpecShown={specShown} />;
     }
     if (tab === 'tasks') {
       if (initialCherryPickId !== null) return <div className="cmt-root"><ProgressView

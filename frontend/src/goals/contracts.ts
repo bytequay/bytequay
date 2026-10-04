@@ -155,7 +155,7 @@ export type GoalCourseDraftDto = { parts: { title: string; lessons: { title: str
  * composer of its issue with the scope as the instruction.
  */
 export type GoalCardDto = {
-  kind: 'RESEARCH' | 'LESSON' | 'WORK';
+  kind: 'RESEARCH' | 'LESSON' | 'WORK' | 'SPEC_CHECK';
   title: string;
   reason: string;
   scope: string;
@@ -164,6 +164,9 @@ export type GoalCardDto = {
   issue: number | null;
   /** The Jira ticket a work card names, by its connection:cloud:issue reference. */
   ticket: string | null;
+  /** The directory a spec-check card checks, and how many gaps it may reproduce. */
+  module: string | null;
+  reproductions: number | null;
 };
 
 /** A lesson of the goal's course, written once from its knowledge notes. */
@@ -200,6 +203,8 @@ export type GoalRecommendationDto = {
   taskId: string | null;
   /** The Goal work a work card's Start made of its issue; the card stays started until that work is done or dropped. */
   workItemId: string | null;
+  /** The spec check a spec-check card's Start began. */
+  checkId: string | null;
   createdAt: string;
 };
 
@@ -216,7 +221,7 @@ export type GoalKnowledgeNoteDto = {
 function parseCard(value: unknown): GoalCardDto {
   const card = object(value, 'goal card');
   return {
-    kind: oneOf(card.kind, ['RESEARCH', 'LESSON', 'WORK'] as const, 'goal card kind'),
+    kind: oneOf(card.kind, ['RESEARCH', 'LESSON', 'WORK', 'SPEC_CHECK'] as const, 'goal card kind'),
     title: text(card.title, 'goal card title'),
     reason: text(card.reason, 'goal card reason'),
     scope: text(card.scope, 'goal card scope'),
@@ -224,6 +229,8 @@ function parseCard(value: unknown): GoalCardDto {
     workItemId: optionalText(card.workItemId),
     issue: Number.isSafeInteger(card.issue) && (card.issue as number) > 0 ? card.issue as number : null,
     ticket: optionalText(card.ticket),
+    module: optionalText(card.module),
+    reproductions: Number.isSafeInteger(card.reproductions) && (card.reproductions as number) > 0 ? card.reproductions as number : null,
   };
 }
 
@@ -236,6 +243,7 @@ export function parseGoalRecommendation(value: unknown): GoalRecommendationDto {
     state: oneOf(recommendation.state, ['SHOWN', 'STARTED', 'DONE', 'DISMISSED'] as const, 'goal recommendation state'),
     taskId: optionalText(recommendation.taskId),
     workItemId: optionalText(recommendation.workItemId),
+    checkId: optionalText(recommendation.checkId),
     createdAt: text(recommendation.createdAt, 'goal recommendation time'),
   };
 }

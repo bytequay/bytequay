@@ -87,8 +87,9 @@ class TestGoalCandidates
         when(development.findTask("github.com", 3)).thenReturn(Optional.of(mock(IssueTask.class, withSettings().mockMaker(MockMakers.INLINE))));
         when(items.findByIdentity(WorkItemLink.issueIdentity("github.com", 4))).thenReturn(Optional.of(mock(WorkItem.class, withSettings().mockMaker(MockMakers.INLINE))));
         when(recommendations.list("goal")).thenReturn(ImmutableList.of(new GoalRecommendation("card-1", "goal", "workspace", new GoalRecommendation.Card(
-                GoalRecommendation.Kind.WORK, "Fix #105", "You learned checkpoints", "Fix it", ImmutableList.of(), Optional.empty(), Optional.of(105), Optional.empty()),
-                GoalRecommendation.State.DISMISSED, Optional.empty(), Optional.empty(), "op-1", NOW, NOW)));
+                GoalRecommendation.Kind.WORK, "Fix #105", "You learned checkpoints", "Fix it", ImmutableList.of(), Optional.empty(), Optional.of(105), Optional.empty(),
+                Optional.empty(), Optional.empty()),
+                GoalRecommendation.State.DISMISSED, Optional.empty(), Optional.empty(), Optional.empty(), "op-1", NOW, NOW)));
         when(jira.cachedIssues()).thenReturn(ImmutableList.of(ticket("10412", "TRINO-12", "Delta checkpoint loses deletion vectors", "indeterminate", "workspace"),
                 ticket("10413", "TRINO-13", "Delta checkpoint correctness in another workspace", "new", "other"),
                 ticket("10414", "TRINO-14", "Delta checkpoint correctness, done", "done", "workspace")));

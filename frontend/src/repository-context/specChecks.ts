@@ -17,6 +17,12 @@ import { plural } from './model';
 export const MAX_SPECS = 30;
 
 /**
+ * A request to show one module's spec check, as a Goal card makes it: the check's report, or with a prefill a new check's form filled with
+ * the card's pages and reproduction count, which the user may change before starting it.
+ */
+export type SpecCheckRequest = { directory: string; prefill?: { specs: string[]; reproductions: number } };
+
+/**
  * The linked pages a new check starts with: those the code cites in two sections or three times, which is how a specification shows,
  * and the ones the last check of the directory used. Another engine's source code is only for comparison, so the user adds it.
  */

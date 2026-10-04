@@ -41,6 +41,7 @@ import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.memory.MemoryHarvestService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.goal.GoalResearchService;
+import com.bytequay.app.service.goal.GoalSpecChecks;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
@@ -99,6 +100,7 @@ public class ContextBuildService
     private final ObjectProvider<ContextBuildCoordinator> coordinator;
     private final ObjectProvider<MemoryHarvestService> harvests;
     private final ObjectProvider<GoalResearchService> goalResearch;
+    private final ObjectProvider<GoalSpecChecks> goalChecks;
     private final GitCommandRunner git;
     private final ObjectMapper mapper;
     private final Clock clock;
@@ -109,7 +111,7 @@ public class ContextBuildService
             AgentDriverRegistry drivers, AgentTaskService tasks, AgentTaskStore taskStore, AgentTurnService turns, AgentTurnStore turnStore,
             AgentCompletionService completions, AgentApprovalService approvals, ContextSpecCheckStore checks, WorktreeService worktrees,
             ObjectProvider<ContextBuildCoordinator> coordinator, ObjectProvider<MemoryHarvestService> harvests, ObjectProvider<GoalResearchService> goalResearch,
-            GitCommandRunner git, ObjectMapper mapper, Clock clock)
+            ObjectProvider<GoalSpecChecks> goalChecks, GitCommandRunner git, ObjectMapper mapper, Clock clock)
     {
         this.builds = requireNonNull(builds, "builds is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
@@ -127,6 +129,7 @@ public class ContextBuildService
         this.coordinator = requireNonNull(coordinator, "coordinator is null");
         this.harvests = requireNonNull(harvests, "harvests is null");
         this.goalResearch = requireNonNull(goalResearch, "goalResearch is null");
+        this.goalChecks = requireNonNull(goalChecks, "goalChecks is null");
         this.git = requireNonNull(git, "git is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -236,12 +239,15 @@ public class ContextBuildService
     {
         AgentTask task = task(workspaceId, taskId);
         ContextBuild build = builds.find(workspaceId).orElseThrow();
-        WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            build.check().flatMap(bound -> checks.find(workspaceId, bound.checkId())).filter(check -> check.state().active())
-                    .ifPresent(check -> checks.save(workspaceId, Optional.of(check), check.ended(ContextSpecCheck.State.STOPPED, Optional.of("Stopped"),
-                            Instant.now(clock))));
-            return null;
-        });
+        Optional<ContextSpecCheck> stopped = WorkspaceOperationLocks.withLock(workspaceId, () -> build.check()
+                .flatMap(bound -> checks.find(workspaceId, bound.checkId())).filter(check -> check.state().active())
+                .map(check -> {
+                    ContextSpecCheck ended = check.ended(ContextSpecCheck.State.STOPPED, Optional.of("Stopped"), Instant.now(clock));
+                    checks.save(workspaceId, Optional.of(check), ended);
+                    return ended;
+                }));
+        // A check a goal recommended settles its card and tells the goal's agent.
+        stopped.ifPresent(check -> goalChecks.ifAvailable(goal -> goal.ended(workspaceId, check)));
         activeTurn(task).ifPresent(turn -> turns.cancel(turn.id()));
         return get(workspaceId);
     }

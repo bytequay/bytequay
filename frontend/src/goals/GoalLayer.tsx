@@ -15,6 +15,7 @@
 import React, { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Card, Pill } from '../cards/Card';
 import { zoomReference } from '../githubReference';
+import type { SpecCheckRequest } from '../repository-context/specChecks';
 import { LayerCovered } from '../Zoom';
 import type { GoalItemDto, GoalRecommendationDto } from './contracts';
 import { GoalPanel, GoalRing, type GoalPanelView } from './GoalPanel';
@@ -28,7 +29,7 @@ const PILL_MARGIN = 8;
 /** Cards float under the pill when it sits this far above the page's bottom, and above it otherwise. */
 const ROOM_BELOW = 220;
 const MAX_CARDS = 3;
-const CARD_KINDS: Record<GoalRecommendationDto['card']['kind'], string> = { RESEARCH: 'Research', LESSON: 'Lesson', WORK: 'Practice' };
+const CARD_KINDS: Record<GoalRecommendationDto['card']['kind'], string> = { RESEARCH: 'Research', LESSON: 'Lesson', WORK: 'Practice', SPEC_CHECK: 'Spec check' };
 
 function pillKey(page: string): string {
   return `bq.goal.pill.${page}`;
@@ -86,7 +87,7 @@ type Drag = { x: number; y: number; from: PillPosition; moved: boolean };
  * The workspace's pinned goal around one of its pages: a pill the user can drag anywhere, which
  * zooms into a floating, draggable and resizable window. ⌥G opens and closes it.
  */
-export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOpenTask, onStartIssue, children }: {
+export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOpenTask, onStartIssue, onSpecCheck, children }: {
   /** Which workspace page this is; the pill remembers a place per page. */
   page: string;
   workspaceId: string;
@@ -96,6 +97,8 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
   onOpenTask: (taskId: string) => void;
   /** Opens the issue's task composer with an instruction the user reviews and sends. */
   onStartIssue: (issue: number, instruction: string) => void;
+  /** Shows a module's spec check on the Memory page, a new one filled with a card's choices. */
+  onSpecCheck: (spec: SpecCheckRequest) => void;
   children: React.ReactNode;
 }): React.JSX.Element {
   const covered = useContext(LayerCovered);
@@ -193,6 +196,7 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
       onOpenTask={onOpenTask}
       onStartIssue={onStartIssue}
       onStartTicket={startTicket}
+      onSpecCheck={onSpecCheck}
       search={goals.search}
     />
   );
@@ -277,6 +281,8 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
                 if (card.card.issue !== null) onStartIssue(card.card.issue, card.card.scope);
                 else if (card.card.ticket !== null) startTicket(card.card.ticket, card.card.scope);
               }))}
+              onAdjust={card.card.module === null ? undefined
+                : () => onSpecCheck({ directory: card.card.module, prefill: { specs: card.card.pages, reproductions: card.card.reproductions ?? 3 } })}
               onDismiss={() => goals.dismissCard(goal.id, card.id)} />)}
           </div>
         )}
@@ -288,11 +294,15 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
   );
 }
 
-/** A next step the agent recommends; Start begins it and Not now dismisses it. Opening the card shows the goal's guidance. */
-function RecommendationCard({ card, onOpen, onStart, onDismiss }: {
+/**
+ * A next step the agent recommends; Start begins it and Not now dismisses it. Opening the card shows the goal's guidance. A spec check
+ * can also be adjusted in the Spec check drawer before it starts.
+ */
+function RecommendationCard({ card, onOpen, onStart, onAdjust, onDismiss }: {
   card: GoalRecommendationDto;
   onOpen: () => void;
   onStart: () => Promise<unknown>;
+  onAdjust?: () => void;
   onDismiss: () => Promise<unknown>;
 }): React.JSX.Element {
   const [busy, setBusy] = useState(false);
@@ -312,6 +322,7 @@ function RecommendationCard({ card, onOpen, onStart, onDismiss }: {
       {error !== null && <div className="goal-rec__error" role="alert">{error}</div>}
       <div className="goal-rec__actions">
         <button type="button" className="goal-add" disabled={busy} onClick={(event) => act(event, onStart)}>Start</button>
+        {onAdjust !== undefined && <button type="button" className="goal-link" disabled={busy} onClick={(event) => { event.stopPropagation(); onAdjust(); }}>Adjust</button>}
         <button type="button" className="goal-link is-muted" disabled={busy} onClick={(event) => act(event, onDismiss)}>Not now</button>
       </div>
     </Card>

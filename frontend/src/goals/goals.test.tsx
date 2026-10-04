@@ -112,7 +112,7 @@ function panel(props: Partial<GoalPanelProps>): string {
     <GoalPanel mode="window" view="work" onView={() => {}} conversation={NO_CONVERSATION} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
       repository="trinodb/trino" goals={[GOAL, { ...GOAL, id: 'goal-2', pinned: false }]} goal={GOAL}
       needsYou={new Set(['PULL_REQUEST trinodb/trino#30925'])} now={Date.parse('2026-09-27T12:00:00Z')}
-      onClose={() => {}} onExpand={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onDelete={async () => {}}
+      onClose={() => {}} onExpand={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onDelete={async () => {}}
       workItems={GOAL.items} onCreateWork={async () => GOAL.items[0]} onDecide={async () => GOAL.items[0]} onLink={async () => GOAL.items[0]} onAdd={async () => {}} onOpenItem={() => {}} search={async () => []} {...props} />);
 }
 
@@ -155,9 +155,9 @@ const COURSE: GoalExchangeDto = { ...ASKED, id: 'op-3', message: 'The research r
   assessment: 'Here is a course from the notes.', question: null, proposal: null, recommendation: null,
   course: { parts: [{ title: 'Iceberg tables', lessons: [{ title: 'What a table is', outcome: 'Explain metadata, snapshots and manifests' }] }] },
 } };
-const CARD: GoalRecommendationDto = { id: 'card-1', goalId: 'goal-1', state: 'SHOWN', taskId: null, workItemId: null, createdAt: '2026-10-03T10:00:00Z',
+const CARD: GoalRecommendationDto = { id: 'card-1', goalId: 'goal-1', state: 'SHOWN', taskId: null, workItemId: null, checkId: null, createdAt: '2026-10-03T10:00:00Z',
   card: { kind: 'RESEARCH', title: 'Read the Iceberg specification', reason: 'You start from the specification', scope: 'Snapshots and manifests',
-    pages: ['https://iceberg.apache.org/spec/'], workItemId: null, issue: null, ticket: null } };
+    pages: ['https://iceberg.apache.org/spec/'], workItemId: null, issue: null, ticket: null, module: null, reproductions: null } };
 const NOTE: GoalKnowledgeNoteDto = { id: 'note-1', topic: 'Manifest lists', body: 'A snapshot lists its manifests in one manifest list.', savedAt: '2026-10-03T10:00:00Z',
   sources: [{ reference: 'https://iceberg.apache.org/spec/#manifest-lists', commit: null },
     { reference: 'apache/iceberg:core/src/main/java/org/apache/iceberg/ManifestLists.java', commit: 'c'.repeat(40) }] };
@@ -221,6 +221,12 @@ describe('goal guidance', () => {
     expect(ticket).toContain('>Open the composer</button>');
     expect(parseGoalRecommendation({ ...practice, card: { ...practice.card, issue: null, ticket: 'connection:cloud:10412' } }).card.ticket)
       .toBe('connection:cloud:10412');
+    const checking = panel({ view: 'guide', goal: { ...GOAL, recommendations: [{ ...CARD, state: 'STARTED', checkId: 'check-1',
+      card: { ...CARD.card, kind: 'SPEC_CHECK', title: 'Check the Delta checkpoint writer', module: 'plugin/trino-delta-lake/', reproductions: 3 } }] } });
+    expect(checking).toContain('Checking: Check the Delta checkpoint writer');
+    expect(checking).toContain('>Open check</button>');
+    expect(parseGoalRecommendation({ ...CARD, state: 'STARTED', checkId: 'check-1', card: { ...CARD.card, kind: 'SPEC_CHECK', module: 'plugin/trino-delta-lake/',
+      reproductions: 3 } }).card).toMatchObject({ kind: 'SPEC_CHECK', module: 'plugin/trino-delta-lake/', reproductions: 3 });
     const lesson = panel({ view: 'guide', goal: { ...GOAL, recommendations: [{ ...CARD, state: 'STARTED',
       card: { ...CARD.card, kind: 'LESSON', title: 'What a table is', pages: [], workItemId: 'work-0' } }] } });
     expect(lesson).toContain('Learning: What a table is');

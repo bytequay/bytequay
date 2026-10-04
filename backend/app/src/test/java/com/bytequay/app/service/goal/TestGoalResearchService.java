@@ -59,8 +59,8 @@ class TestGoalResearchService
     private static final String HEAD = "a".repeat(40);
     private static final String ICEBERG = "c".repeat(40);
     private static final GoalRecommendation CARD = new GoalRecommendation("card-1", "goal-1", "workspace", new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH,
-            "Read the Iceberg specification", "You start from the specification", "Snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty(), Optional.empty()),
-            GoalRecommendation.State.SHOWN, Optional.empty(), Optional.empty(), "op-1", NOW, NOW);
+            "Read the Iceberg specification", "You start from the specification", "Snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
+            GoalRecommendation.State.SHOWN, Optional.empty(), Optional.empty(), Optional.empty(), "op-1", NOW, NOW);
 
     private final GoalService goals = mock(GoalService.class);
     private final InMemoryGoalRecommendationStore cards = new InMemoryGoalRecommendationStore();

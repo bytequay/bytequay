@@ -15,6 +15,7 @@ package com.bytequay.app.service.goal;
 
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.app.context.ContextSpecModule;
 import com.bytequay.app.service.ai.TextOnlyHelper;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.core.domain.GoalCourse;
@@ -51,7 +52,7 @@ class TestGoalPlanner
 {
     private static final Instant NOW = Instant.parse("2026-10-03T10:00:00Z");
     private static final GoalRecommendation.Card CARD = new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH, "Read the Iceberg specification",
-            "You start from the specification", "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty(), Optional.empty());
+            "You start from the specification", "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
 
     @Test
     void acceptsOnlyAReplyInTheNamedShape()
@@ -151,7 +152,10 @@ class TestGoalPlanner
         GoalTopicStore topics = mock(GoalTopicStore.class);
         when(topics.list("goal-1")).thenReturn(ImmutableList.of(new GoalTopic("goal-1:manifests", "goal-1", "workspace", "Manifests", GoalTopic.Level.NEW,
                 ImmutableList.of("discussion:q-1"), true, NOW)));
-        GoalPlanner planner = new GoalPlanner(mock(AgentDriverRegistry.class), mock(TextOnlyHelper.class), workspaces, relationships, notes, lessons, candidates, questions,
+        GoalSpecChecks checks = mock(GoalSpecChecks.class);
+        when(checks.modules("workspace")).thenReturn(ImmutableList.of(new ContextSpecModule("plugin/trino-delta-lake/", Optional.of("https://github.com/delta-io/delta/blob/master/PROTOCOL.md"),
+                42, 7)));
+        GoalPlanner planner = new GoalPlanner(mock(AgentDriverRegistry.class), mock(TextOnlyHelper.class), workspaces, relationships, notes, lessons, candidates, checks, questions,
                 topics);
 
         GoalView goal = new GoalView("goal-1", "workspace", "Iceberg connector expert", "", true, Optional.empty(),
@@ -160,7 +164,7 @@ class TestGoalPlanner
                 ImmutableList.of(new WorkItemView("lesson-1", "workspace", Optional.of("goal-1"), "What a table is", WorkItem.Kind.LEARN, "Explain metadata",
                         WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.DONE, 2, ImmutableList.of(), ImmutableList.of(), NOW, NOW)),
                 ImmutableList.of(new GoalRecommendation("card-1", "goal-1", "workspace", CARD, GoalRecommendation.State.SHOWN, Optional.empty(),
-                        Optional.empty(), "op-0", NOW, NOW)), ImmutableList.of(), NOW, NOW);
+                        Optional.empty(), Optional.empty(), "op-0", NOW, NOW)), ImmutableList.of(), NOW, NOW);
         GoalExchange.Reply reply = new GoalExchange.Reply("You want reads first.", Optional.of(new GoalExchange.Question("Which area?", ImmutableList.of())), Optional.empty(),
                 Optional.empty(), Optional.empty(), ImmutableList.of());
         ImmutableList<GoalExchange> earlier = IntStream.range(0, GoalPlanner.MAX_EARLIER + 2)
@@ -183,6 +187,7 @@ class TestGoalPlanner
                 .contains("\"part\" : \"Iceberg tables\"", "\"state\" : \"DONE\"")
                 .contains("\"id\" : \"#31252\"", "\"labels\" : [ \"delta-lake\" ]", "\"id\" : \"TRINO-12\"", "\"status\" : \"In progress\"",
                         "\"issuesRead\" : 500", "\"issuesOpen\" : 900", "\"ticketsRead\" : 4")
+                .contains("\"directory\" : \"plugin/trino-delta-lake/\"", "\"sections\" : 42", "PROTOCOL.md")
                 .contains("\"id\" : \"discussion:q-1\"", "\"text\" : \"What is a manifest list?\"", "\"setByUser\" : true");
         assertThat(planner.prompt(goal, earlier, GoalExchange.told("research:task", "goal-1", "workspace", "The research run saved 1 note: Manifest lists.", 1, NOW)))
                 .contains("\"event\" : \"The research run saved 1 note: Manifest lists.\"");

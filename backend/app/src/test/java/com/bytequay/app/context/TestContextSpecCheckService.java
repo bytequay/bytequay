@@ -40,6 +40,7 @@ import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.goal.GoalSpecChecks;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.RepoRef;
@@ -54,6 +55,7 @@ import com.google.common.collect.Lists;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -106,7 +108,8 @@ class TestContextSpecCheckService
     private final InMemoryMemoryStore memoryStore = new InMemoryMemoryStore();
     private final MemoryService memories = new MemoryService(memoryStore, new InMemoryAppSettingsStore(), mapper, Clock.fixed(NOW, ZoneOffset.UTC));
     private final ContextSpecCheckService service = new ContextSpecCheckService(workspaces, git, store, builds, buildStore, mock(GitHubRepoClient.class),
-            mock(CredentialService.class), tasks, logs, worktrees, memories, Clock.fixed(NOW, ZoneOffset.UTC));
+            mock(CredentialService.class), tasks, logs, worktrees, memories, new DefaultListableBeanFactory().getBeanProvider(GoalSpecChecks.class),
+            Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
     void setUp()

@@ -1,7 +1,7 @@
 # Agent guided goals implementation plan
 
-Status: The first eight implementation slices are complete. The later items of
-Steps 3 to 6 below remain as listed.
+Status: The first eight implementation slices are complete and the ninth is in
+progress. The later items of Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
 
@@ -422,6 +422,31 @@ empty counts. The eighth slice is complete.
 Done when: a proposal can be adjusted or skipped without accepting it, a stated
 starting knowledge sets levels the user can correct, an older course cannot
 replace a newer one, and the Goal control shows one count.
+
+## Ninth implementation slice
+
+Keep discovery honest: a high-priority source is not cut by the candidate
+limit, a possible fix is shown as a doubt rather than treated as confirmed, a
+practice card is read again when the user starts it, and every card can say
+what the agent is unsure of.
+
+1. Priority survives the limit. Tickets whose own Jira priority is Highest or
+   High are kept before the relevance cut of the 100 candidates; the candidates
+   still reach the agent nearest the Goal first.
+2. Possible fixes stay visible. An issue whose linked pull request is still open
+   is no longer set aside: its card floats with the doubt that the pull request
+   may already fix it. A closed issue, a merged linked pull request and a done
+   or claimed ticket are still set aside.
+3. Start reads the source again. Start on a practice card reads its issue or
+   ticket again; if it is no longer open for practice, the card is set aside,
+   the agent is told why and nothing starts.
+4. Cards say what is uncertain. A card may carry a short uncertainty, such as an
+   area the agent has not read, and the card shows it under its reason.
+
+Done when: a Highest ticket that shares no words with the Goal is still a
+candidate, an issue with an open linked pull request floats with that doubt, a
+card whose issue closed after it floated cannot start, and a card shows the
+uncertainty the agent gave.
 
 The following steps retain the full identity, source, recovery and verification
 requirements.

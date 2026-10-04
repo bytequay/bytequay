@@ -13,6 +13,7 @@
  */
 import { useState } from 'react';
 import { Quote, Send, TriangleAlert } from 'lucide-react';
+import MarkdownBody from '../pulls/MarkdownBody';
 import { Icon } from '../repository-context/icons';
 import type { MemoryDto } from './contracts';
 import { age, KIND_LABEL, memoryFlags, sourceHead } from './model';
@@ -64,7 +65,7 @@ export function MemoryDrawer({ memory, busy, now, onClose, onSave, onRestore, on
         const url = source.url;
         return <div className="mem-source" key={index}>
           <div className="mem-source__head">{line.head}</div>
-          {source.quote !== '' && <div className="mem-source__quote">{source.quote}</div>}
+          {source.quote !== '' && <MarkdownBody className="mem-source__quote" body={source.quote} />}
           {(line.note !== '' || (line.link !== null && url !== null)) && <div className="mem-source__foot"><span>{line.note}</span>
             {line.link !== null && url !== null && <button type="button" className="rcp-link" onClick={() => onOpen(url)}>{line.link}</button>}</div>}
         </div>;

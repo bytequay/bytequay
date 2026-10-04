@@ -47,4 +47,15 @@ describe('MemoryDrawer', () => {
     expect(markup).not.toContain('Keep as it is');
     expect(markup).not.toContain('Previous version');
   });
+
+  it('renders Markdown in source quotes', () => {
+    const markup = render({ ...memory, sources: [{ ...memory.sources[0],
+      quote: 'Only the **connector call** is external.\n`checkState` throws a `TrinoException`.\n\n- Keep `PERMISSION_DENIED`.\n- Preserve internal errors.',
+    }] });
+    expect(markup).toContain('class="markdown-body mem-source__quote"');
+    expect(markup).toContain('<strong>connector call</strong>');
+    expect(markup).toContain('<br/><code>checkState</code> throws a <code>TrinoException</code>.');
+    expect(markup).toContain('<ul><li>Keep <code>PERMISSION_DENIED</code>.</li><li>Preserve internal errors.</li></ul>');
+    expect(markup).not.toContain('`');
+  });
 });

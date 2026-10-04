@@ -80,7 +80,7 @@
 .mem-label { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #57606a; }
 .mem-source { border: 1px solid #efeff0; border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
 .mem-source__head { font-size: 12px; color: #57606a; overflow-wrap: anywhere; }
-.mem-source__quote { font-size: 13px; line-height: 1.45; color: #1f2328; background: #f6f8fa; border-radius: 6px; padding: 8px 10px; white-space: pre-wrap;
+.mem-source__quote.markdown-body { font-size: 13px; line-height: 1.45; color: #1f2328; background: #f6f8fa; border-radius: 6px; padding: 8px 10px;
   overflow-wrap: anywhere; }
 .mem-source__foot { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #57606a; }
 .mem-source__foot > span { flex: 1; }

@@ -1,7 +1,7 @@
 # Agent guided goals implementation plan
 
-Status: The first seven implementation slices are complete. The later items of
-Steps 3 to 6 below remain as listed.
+Status: The first seven implementation slices are complete and the eighth is in
+progress. The later items of Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
 
@@ -387,6 +387,30 @@ that waits on open work is dropped. The seventh slice is complete.
 Done when: the user can make one item High, block another on it and see the
 blocked one leave Next until the first is done; dropping that blocker asks to
 remove the dependency; and the agent's next recommendation names ready work.
+
+## Eighth implementation slice
+
+Make the Goal's decisions clear: every proposal can be accepted, adjusted or
+skipped, what the user already knows sets the first topic levels, an older
+proposal never overrides a newer decision, and the Goal control asks for
+attention once.
+
+1. Accept, Adjust or Skip. A proposed goal or course also offers Adjust, which
+   puts "Adjust it: " in the reply field and focuses it, and Skip, which tells
+   the agent the user passes on it for now; the next answer replaces the
+   proposal either way.
+2. Starting knowledge sets the first levels. Once the user accepts a definition
+   that says what they already know, the agent may set topic levels citing that
+   definition; a level the user set still wins.
+3. Older proposals stay older. A course proposed before the accepted course
+   cannot replace it.
+4. One attention cue. The Goal control shows one count, the work needing the
+   user and the decisions waiting together, naming both on hover, and an empty
+   Goal's Work view gives directions instead of empty counts.
+
+Done when: a proposal can be adjusted or skipped without accepting it, a stated
+starting knowledge sets levels the user can correct, an older course cannot
+replace a newer one, and the Goal control shows one count.
 
 The following steps retain the full identity, source, recovery and verification
 requirements.

@@ -138,6 +138,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, loca
           </span>
           <span className="pr-overview__base-branch">
             <RepoAvatar owner={repoOwner} repo={repoName} size={24} />
+            <span>{detail.repo}</span>
             <code>{detail.baseRef ?? 'base unavailable'}</code>
           </span>
           <span aria-hidden="true">←</span>

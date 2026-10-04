@@ -45,6 +45,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Comparator.comparingLong;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -145,6 +146,10 @@ public class GoalPlanner
             nearest the goal among those candidateCoverage says were read; never claim nothing else exists. Start
             on a WORK card makes the issue one of the goal's work items; recommend no other practice until that item is
             done or dropped, and when its result is accepted, let the topics it practiced cite it as work:<id>.
+
+            The user orders the goal's work: workItems come in that order, each with the user's priority (HIGH, NORMAL or LOW)
+            and in waitsOn the ids of the work it waits on. Work that waits on open work is blocked; never recommend it.
+            Among ready work, prefer the user's priority, then work that other work waits on, then the order, and say why.
 
             Recovery comes first. When ByteQuay reports that a turn of a task for the goal's work failed or was
             interrupted, or that a reviewer requested changes on its pull request, say what went wrong and what the user
@@ -336,8 +341,13 @@ public class GoalPlanner
             }
         }
         ArrayNode work = objective.putArray("workItems");
-        goal.items().stream().limit(MAX_WORK_ITEMS).forEach(item -> {
-            ObjectNode entry = work.addObject().put("id", item.id()).put("title", item.title()).put("kind", item.kind().name()).put("state", item.state().name());
+        goal.items().stream().sorted(comparingLong(WorkItemView::rank).thenComparing(WorkItemView::createdAt)).limit(MAX_WORK_ITEMS).forEach(item -> {
+            ObjectNode entry = work.addObject().put("id", item.id()).put("title", item.title()).put("kind", item.kind().name()).put("state", item.state().name())
+                    .put("priority", item.priority().name());
+            if (!item.blockedBy().isEmpty()) {
+                ArrayNode waits = entry.putArray("waitsOn");
+                item.blockedBy().forEach(waits::add);
+            }
             // What the work's sources, tasks and pull requests show now, such as a merged pull request awaiting the user's acceptance.
             ArrayNode links = entry.putArray("links");
             item.links().stream().limit(MAX_LINKS).forEach(link -> links.add(link.kind().name() + " " + link.label() + ": " + link.status()));

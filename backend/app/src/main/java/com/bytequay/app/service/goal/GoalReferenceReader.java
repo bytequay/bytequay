@@ -19,6 +19,7 @@ import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
+import com.bytequay.app.jira.JiraDtos;
 import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.core.domain.GitHubIssueSource;
@@ -281,7 +282,7 @@ public class GoalReferenceReader
         private GoalItemView missing(GoalItem item)
         {
             return new GoalItemView(item.kind(), item.key(), item.label(), item.title(), GoalItemState.UNKNOWN, "Evidence unavailable", false,
-                    Optional.empty(), Optional.empty(), Optional.of(item.addedAt()));
+                    Optional.empty(), Optional.empty(), Optional.of(item.addedAt()), Optional.empty());
         }
 
         private Optional<GoalItemView> pullRequest(String key)
@@ -300,7 +301,7 @@ public class GoalReferenceReader
             String label = "#" + pull.number();
             return new GoalItemView(GoalItemKind.PULL_REQUEST, GoalItem.numberedKey(pull.repo(), pull.number()), label, pull.title(),
                     merged ? GoalItemState.MERGED : closed ? GoalItemState.ENDED : GoalItemState.WORKING, status, false, Optional.of(pull.htmlUrl()),
-                    Optional.of(new GoalActivity(label + (merged ? " merged" : closed ? " closed" : " updated"), at)), Optional.empty());
+                    Optional.of(new GoalActivity(label + (merged ? " merged" : closed ? " closed" : " updated"), at)), Optional.empty(), Optional.empty());
         }
 
         private Optional<GoalItemView> issue(String key)
@@ -318,7 +319,7 @@ public class GoalReferenceReader
             String label = "#" + issue.number();
             return new GoalItemView(GoalItemKind.ISSUE, GoalItem.numberedKey(workspace.monitoredRepository().fullName(), issue.number()), label, issue.title(),
                     developing ? GoalItemState.WORKING : GoalItemState.IDLE, "Open", false, Optional.of(issue.htmlUrl()),
-                    Optional.of(new GoalActivity(label + " updated", issue.updatedAt())), Optional.empty());
+                    Optional.of(new GoalActivity(label + " updated", issue.updatedAt())), Optional.empty(), Optional.empty());
         }
 
         private Optional<GoalItemView> jiraTicket(String key)
@@ -343,7 +344,7 @@ public class GoalReferenceReader
             String status = issue.status().name();
             return new GoalItemView(GoalItemKind.JIRA, GoalItem.jiraKey(issue.connectionId(), issue.cloudId(), issue.id()), issue.key(), issue.title(), state, status,
                     status.toLowerCase(Locale.ROOT).contains("blocked"), Optional.ofNullable(issue.url()),
-                    Optional.of(new GoalActivity(issue.key() + " is " + status, issue.updatedAt())), Optional.empty());
+                    Optional.of(new GoalActivity(issue.key() + " is " + status, issue.updatedAt())), Optional.empty(), issue.priority().map(JiraDtos.Choice::name));
         }
 
         private Optional<GoalItemView> task(String key)
@@ -367,7 +368,7 @@ public class GoalReferenceReader
             };
             GoalItemState state = task.state().terminal() ? GoalItemState.ENDED : running ? GoalItemState.WORKING : GoalItemState.IDLE;
             return new GoalItemView(GoalItemKind.TASK, task.id().toString(), "Task", task.title(), state, status, false, Optional.empty(),
-                    Optional.of(new GoalActivity(task.title() + " · " + status, task.updatedAt())), Optional.empty());
+                    Optional.of(new GoalActivity(task.title() + " · " + status, task.updatedAt())), Optional.empty(), Optional.empty());
         }
 
         private boolean ownRepository(String repo)

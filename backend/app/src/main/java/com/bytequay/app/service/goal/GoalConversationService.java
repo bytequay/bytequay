@@ -754,8 +754,10 @@ public class GoalConversationService
      */
     private boolean recommend(GoalView goal, GoalExchange exchange, GoalRecommendation.Card answered, Optional<String> unready)
     {
+        // A lesson card names an unfinished lesson of the course that waits on no open work.
         boolean lesson = answered.workItemId().map(id -> goal.course().stream().flatMap(course -> course.parts().stream()).anyMatch(part -> part.lessons().contains(id))
-                && goal.items().stream().anyMatch(item -> item.id().equals(id) && item.state() != WorkItem.State.DONE && item.state() != WorkItem.State.DROPPED)).orElse(true);
+                && goal.items().stream().anyMatch(item -> item.id().equals(id) && open(item) && item.blockedBy().stream()
+                        .noneMatch(blocker -> goal.items().stream().anyMatch(other -> other.id().equals(blocker) && open(other))))).orElse(true);
         Optional<GoalRecommendation.Card> named = switch (answered.kind()) {
             case WORK -> practice(goal, answered);
             // A spec check names a module the agent was given, and waits until every gap of the last one is done, dropped or dismissed.
@@ -779,6 +781,11 @@ public class GoalConversationService
                 unready.isPresent() ? GoalRecommendation.State.DISMISSED : GoalRecommendation.State.SHOWN, Optional.empty(), Optional.empty(), Optional.empty(),
                 exchange.id(), now, now));
         return unready.isPresent();
+    }
+
+    private static boolean open(WorkItemView item)
+    {
+        return item.state() == WorkItem.State.PLANNED || item.state() == WorkItem.State.WORKING;
     }
 
     private void dispatch(GoalExchange exchange)

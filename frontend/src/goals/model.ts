@@ -14,8 +14,8 @@
 
 import type { AttentionItem, AttentionSource } from '../home/attention';
 import type {
-  GoalCardDto, GoalCourseDraftDto, GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalItemKind, GoalKnowledgeNoteDto, GoalProposalDto, WorkItemState,
-  WorkItemDto,
+  GoalCardDto, GoalCourseDraftDto, GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalItemKind, GoalKnowledgeNoteDto, GoalProposalDto, WorkItemDto,
+  WorkItemPriority, WorkItemState,
 } from './contracts';
 
 export type GoalRef = { kind: GoalItemKind; key: string };
@@ -79,7 +79,7 @@ export function summarize(goal: GoalDto, needsYou: ReadonlySet<string>): GoalSum
     prsMerged: prs.filter((item) => item.status === 'Merged').length,
     prsOpen: prs.filter((item) => item.state === 'WORKING').length,
     needs: goal.items.filter((item) => itemNeedsYou(item, needsYou)).length,
-    blocked: goal.items.filter((item) => item.links.some((link) => link.blocked)).length,
+    blocked: goal.items.filter((item) => viewOf(item, goal.items) === 'blocked').length,
     dropped: count('DROPPED'),
   };
 }
@@ -97,12 +97,50 @@ export function ringDash(summary: GoalSummary): string {
   return `${(summary.finished / Math.max(1, summary.total)) * RING_CIRCUMFERENCE} ${RING_CIRCUMFERENCE}`;
 }
 
-export type GoalTab = 'all' | 'needs' | 'blocked';
+export type WorkView = 'next' | 'working' | 'blocked' | 'done';
 
-export function itemsIn(goal: GoalDto, tab: GoalTab, needsYou: ReadonlySet<string>): WorkItemDto[] {
-  if (tab === 'needs') return goal.items.filter((item) => itemNeedsYou(item, needsYou));
-  if (tab === 'blocked') return goal.items.filter((item) => item.links.some((link) => link.blocked));
-  return goal.items;
+export const WORK_VIEWS: { view: WorkView; label: string; hint: string }[] = [
+  { view: 'next', label: 'Next', hint: 'Ready work: your priority first, then work others wait on, then the Goal\'s order' },
+  { view: 'working', label: 'Working', hint: 'Work in progress' },
+  { view: 'blocked', label: 'Blocked', hint: 'Open work waiting on other work or on a blocked source' },
+  { view: 'done', label: 'Done', hint: 'Done and dropped work, latest decision first' },
+];
+
+/** What keeps open work from moving: the open work of its Goal it waits on, and its sources that report themselves blocked. */
+export function waitingOn(item: WorkItemDto, items: WorkItemDto[]): string[] {
+  return [...items.filter((other) => item.blockedBy.includes(other.id) && isOpen(other)).map((other) => other.title),
+    ...item.links.filter((link) => link.blocked).map((link) => `${link.label} is ${link.status}`)];
+}
+
+/** The open work of the Goal waiting on this item. */
+export function unblocks(item: WorkItemDto, items: WorkItemDto[]): WorkItemDto[] {
+  return items.filter((other) => isOpen(other) && other.blockedBy.includes(item.id));
+}
+
+export function viewOf(item: WorkItemDto, items: WorkItemDto[]): WorkView {
+  if (!isOpen(item)) return 'done';
+  if (waitingOn(item, items).length > 0) return 'blocked';
+  return item.state === 'WORKING' ? 'working' : 'next';
+}
+
+const PRIORITY_FIRST: Record<WorkItemPriority, number> = { HIGH: 0, NORMAL: 1, LOW: 2 };
+
+/**
+ * The work of one view, from {@code items} judged against all the Goal's work. Next puts the user's priority first, then work others wait
+ * on, then the Goal's order; Working and Blocked keep the order; Done shows the latest decision first.
+ */
+export function workIn(items: WorkItemDto[], view: WorkView, all: WorkItemDto[] = items): WorkItemDto[] {
+  const rows = inOrder(items.filter((item) => viewOf(item, all) === view));
+  if (view === 'next') {
+    return rows.sort((left, right) => PRIORITY_FIRST[left.priority] - PRIORITY_FIRST[right.priority] || unblocks(right, all).length - unblocks(left, all).length);
+  }
+  return view === 'done' ? rows.sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt)) : rows;
+}
+
+export type WorkSource = 'issue' | 'jira' | 'none';
+
+export function sourceOf(item: WorkItemDto): WorkSource {
+  return item.links.some((link) => link.kind === 'ISSUE') ? 'issue' : item.links.some((link) => link.kind === 'JIRA') ? 'jira' : 'none';
 }
 
 /** A goal's work in the order the user gave it; equal places keep creation order. */
@@ -113,13 +151,6 @@ export function inOrder(items: WorkItemDto[]): WorkItemDto[] {
 export function isOpen(item: WorkItemDto): boolean {
   return item.state === 'PLANNED' || item.state === 'WORKING';
 }
-
-export const STATE_GROUPS: { state: WorkItemState; label: string }[] = [
-  { state: 'WORKING', label: 'Working' },
-  { state: 'PLANNED', label: 'Planned' },
-  { state: 'DONE', label: 'Done' },
-  { state: 'DROPPED', label: 'Dropped' },
-];
 
 export function itemNeedsYou(item: WorkItemDto, needsYou: ReadonlySet<string>): boolean {
   return item.links.some((link) => needsYou.has(refKey(link)));

@@ -1,7 +1,7 @@
 # Agent guided goals implementation plan
 
-Status: The first six implementation slices are complete and the seventh is in
-progress. The later items of Steps 3 to 6 below remain as listed.
+Status: The first seven implementation slices are complete. The later items of
+Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
 
@@ -376,6 +376,14 @@ Goals' work and cycles. Dropping work that open work waits on is refused unless
 the decision also releases it, which the released work's history records, and
 work with dependencies cannot leave its Goal.
 
+Items 2 and 3 are implemented: the Work view's Next, Working, Blocked and Done
+views partition the Goal's work, Next ordered by priority, then the open work
+waiting on it, then rank, with priority and source filters and the board's
+four columns; a goal item carries its source's own priority, read from Jira's
+field. The planner sends work items in rank order with priority and blockers
+and is told to recommend ready work only, and a lesson card naming a lesson
+that waits on open work is dropped. The seventh slice is complete.
+
 Done when: the user can make one item High, block another on it and see the
 blocked one leave Next until the first is done; dropping that blocker asks to
 remove the dependency; and the agent's next recommendation names ready work.
@@ -422,7 +430,8 @@ intermediate reference-count percentage to maintain.
 - [ ] Add explicit accepted deliverable/base/criteria mappings and automatic
   merged-delivery evaluation with outcome harvesting in Step 5. The current
   result-acceptance action always requires the user's scope confirmation.
-- [ ] Add blocker-aware moves when same-Goal dependencies arrive in Step 6.
+- [x] Add blocker-aware moves when same-Goal dependencies arrive in Step 6:
+  work with blockers or dependents cannot leave its Goal.
 
 Checks cover SQLite revision conflicts and ownership rollback, source cache loss,
 reference grouping, abandoned and open PRs at acceptance, command retry, reopen,
@@ -581,10 +590,10 @@ runtime-log cleanup do not erase the history.
 
 This finishes the clear-organization takeaway using the current surfaces.
 
-- [ ] Add local priority, accepted order and same-Goal `blockedBy`; reject cycles
+- [x] Add local priority, accepted order and same-Goal `blockedBy`; reject cycles
   and keep blockers separate from execution failures. Dropping a blocker requires
   an explicit dependency decision.
-- [ ] Extend the existing list/board with Next, Working, Blocked and Done views.
+- [x] Extend the existing list/board with Next, Working, Blocked and Done views.
   Show source priority separately and explain the recommended ordering.
 - [ ] Feed global and workspace Needs attention from one work-item projection.
   Deduplicate source/recommendation cards for the same action; preserve urgent

@@ -166,6 +166,26 @@ class TestGoalPlanner
     }
 
     @Test
+    void theAgentSeesTheWorkInItsOrderWithTheUsersPriorityAndWhatEachWaitsOn()
+    {
+        GoalPlanner planner = new GoalPlanner(mock(AgentDriverRegistry.class), mock(TextOnlyHelper.class), mock(WorkspaceStore.class), mock(WorkspaceRelationships.class),
+                mock(GoalKnowledgeNoteStore.class), mock(GoalLessonStore.class), mock(GoalCandidates.class), mock(GoalSpecChecks.class), mock(GoalQuestions.class),
+                mock(GoalTopicStore.class), mock(GoalResearchService.class));
+        WorkItemView later = new WorkItemView("work-2", "workspace", Optional.of("goal-1"), "Fix #31252", WorkItem.Kind.DEVELOP, "Rows survive a checkpoint",
+                WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 1, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.HIGH, 1,
+                ImmutableList.of("work-1"));
+        WorkItemView first = new WorkItemView("work-1", "workspace", Optional.of("goal-1"), "Read the checkpoint code", WorkItem.Kind.LEARN, "Explain it",
+                WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.PLANNED, 1, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0,
+                ImmutableList.of());
+        GoalView goal = new GoalView("goal-1", "workspace", "Delta Lake correctness", "", true, Optional.empty(), Optional.empty(), 1, Optional.empty(), false,
+                ImmutableList.of(later, first), ImmutableList.of(), ImmutableList.of(), NOW, NOW);
+
+        String prompt = planner.prompt(goal, ImmutableList.of(), GoalExchange.ask("op", "goal-1", "workspace", "What next?", 1, NOW));
+        assertThat(prompt.indexOf("\"id\" : \"work-1\"")).as("the work comes in the user's order").isLessThan(prompt.indexOf("\"id\" : \"work-2\""));
+        assertThat(prompt).contains("\"priority\" : \"HIGH\"", "\"waitsOn\" : [ \"work-1\" ]", "never recommend it");
+    }
+
+    @Test
     void thePromptCarriesTheGoalItsDependenciesAndRecentExchangesAsData()
     {
         WorkspaceStore workspaces = mock(WorkspaceStore.class);

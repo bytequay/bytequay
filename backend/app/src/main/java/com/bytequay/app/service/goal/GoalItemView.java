@@ -27,6 +27,7 @@ import static java.util.Objects.requireNonNull;
  * @param status the item's own state in words, such as {@code Merged}, {@code In Progress} or {@code Running}
  * @param blocked whether the item waits on others: a Jira ticket in a Blocked status
  * @param addedAt when the item joined the goal; empty for a candidate
+ * @param priority the source's own priority, such as a Jira ticket's, shown as it is and never mapped to the work's
  */
 public record GoalItemView(
         GoalItemKind kind,
@@ -38,7 +39,8 @@ public record GoalItemView(
         boolean blocked,
         Optional<String> url,
         Optional<GoalActivity> activity,
-        Optional<Instant> addedAt)
+        Optional<Instant> addedAt,
+        Optional<String> priority)
 {
     public GoalItemView
     {
@@ -51,10 +53,11 @@ public record GoalItemView(
         requireNonNull(url, "url is null");
         requireNonNull(activity, "activity is null");
         requireNonNull(addedAt, "addedAt is null");
+        requireNonNull(priority, "priority is null");
     }
 
     GoalItemView withAddedAt(Instant at)
     {
-        return new GoalItemView(kind, key, label, title, state, status, blocked, url, activity, Optional.of(at));
+        return new GoalItemView(kind, key, label, title, state, status, blocked, url, activity, Optional.of(at), priority);
     }
 }

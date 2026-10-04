@@ -150,6 +150,14 @@ class TestGoalReferenceReader
         assertThat(reader.view(WORKSPACE, pull).state()).isEqualTo(GoalItemState.MERGED);
     }
 
+    @Test
+    void aTicketKeepsJirasOwnPriorityUnmappedBesideItsBlockedStatus()
+    {
+        GoalItemView view = reader.view(WORKSPACE, new GoalItem(GoalItemKind.JIRA, "connection:cloud:10412", "TRINO-412", "Saved ticket", NOW));
+        assertThat(view.priority()).contains("Highest");
+        assertThat(view.blocked()).isTrue();
+    }
+
     private static PullRequest pullRequest(int number, String title, String state, boolean draft)
     {
         PullRequest pull = mock(PullRequest.class, withSettings().mockMaker(MockMakers.INLINE));
@@ -167,8 +175,8 @@ class TestGoalReferenceReader
     private static JiraIssue ticket(String key, String title, JiraDtos.Status status)
     {
         return new JiraIssue("connection", "cloud", "10412", key, "https://example.atlassian.net/browse/" + key, title, "", "Task", status, Optional.empty(),
-                ImmutableList.of(), Optional.empty(), Optional.empty(), false, false, NOW, Optional.empty(), Optional.empty(), ImmutableList.of(), false,
-                Optional.empty(), Optional.empty());
+                ImmutableList.of(), Optional.of(new JiraDtos.Choice("2", "Highest")), Optional.empty(), false, false, NOW, Optional.empty(), Optional.empty(),
+                ImmutableList.of(), false, Optional.empty(), Optional.empty());
     }
 
     /** One second later on every read, so goals created in one test keep their order. */

@@ -355,6 +355,43 @@ class TestGoalConversationService
     }
 
     @Test
+    void aLessonCardWaitsUntilTheWorkItsLessonWaitsOnIsDone()
+    {
+        GoalView goal = goals.create("workspace", "Iceberg", "");
+        service.ask("workspace", goal.id(), "op-1", "Reads first");
+        doReturn(PROPOSAL).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        service.accept("workspace", goal.id(), "op-1", Optional.empty());
+        doReturn(QUESTION).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        service.ask("workspace", goal.id(), "op-2", "What next?");
+        doReturn(COURSE).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        List<String> lessons = service.acceptCourse("workspace", goal.id(), "op-2").course().orElseThrow().parts().stream()
+                .flatMap(part -> part.lessons().stream()).collect(toImmutableList());
+        WorkItemView waiting = new WorkItemView(lessons.get(1), "workspace", Optional.of(goal.id()), lessons.get(1), WorkItem.Kind.LEARN, "Outcome",
+                WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.PLANNED, 1, ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH,
+                WorkItem.Priority.NORMAL, 1, ImmutableList.of(lessons.get(0)));
+        when(work.list("workspace")).thenReturn(ImmutableList.of(learn(lessons.get(0), goal.id(), WorkItem.State.PLANNED), waiting));
+        doReturn(QUESTION).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+
+        GoalExchange.Reply next = new GoalExchange.Reply("Take the next lesson.", Optional.empty(), Optional.empty(), Optional.of(new GoalRecommendation.Card(
+                GoalRecommendation.Kind.LESSON, "Snapshots", "You are ready", "Snapshots", ImmutableList.of(), Optional.of(lessons.get(1)), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty())),
+                Optional.empty(), ImmutableList.of(), Optional.empty());
+        service.ask("workspace", goal.id(), "op-3", "What next?");
+        doReturn(next).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        assertThat(cards.list(goal.id())).as("a lesson waiting on open work is not recommended").isEmpty();
+
+        when(work.list("workspace")).thenReturn(ImmutableList.of(learn(lessons.get(0), goal.id(), WorkItem.State.DONE), waiting));
+        service.ask("workspace", goal.id(), "op-4", "What next?");
+        queued.removeFirst().run();
+        assertThat(cards.list(goal.id())).as("once what it waits on is done, the lesson is ready").hasSize(1);
+    }
+
+    @Test
     void aWorkCardNamesAnOpenIssueAndStartMakesItTheGoalsWorkUntilTheUserDecides()
     {
         GoalView goal = goals.create("workspace", "Delta Lake", "");

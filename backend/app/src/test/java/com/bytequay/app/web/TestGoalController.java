@@ -65,7 +65,7 @@ class TestGoalController
     private static final Instant NOW = Instant.parse("2026-09-28T10:00:00Z");
     private static final GoalItemView MERGED = new GoalItemView(GoalItemKind.PULL_REQUEST, "trinodb/trino#30702", "#30702", "Retry Iceberg commits",
             GoalItemState.MERGED, "Merged", false, Optional.of("https://github.com/trinodb/trino/pull/30702"),
-            Optional.of(new GoalActivity("#30702 merged", NOW)), Optional.of(NOW));
+            Optional.of(new GoalActivity("#30702 merged", NOW)), Optional.of(NOW), Optional.empty());
     private static final GoalView GOAL = new GoalView("goal-1", "workspace", "Delta Lake correctness", "", true,
             Optional.of(new GoalSource(GoalItemKind.ISSUE, "trinodb/trino#31000")), Optional.empty(), 0, Optional.empty(), false,
             ImmutableList.of(new WorkItemView("work-1", "workspace", Optional.of("goal-1"), "Retry Iceberg commits", WorkItem.Kind.DEVELOP,
@@ -304,7 +304,7 @@ class TestGoalController
             throws Exception
     {
         when(goals.candidates("workspace", "retry")).thenReturn(ImmutableList.of(new GoalItemView(MERGED.kind(), MERGED.key(), MERGED.label(), MERGED.title(),
-                MERGED.state(), MERGED.status(), false, MERGED.url(), MERGED.activity(), Optional.empty())));
+                MERGED.state(), MERGED.status(), false, MERGED.url(), MERGED.activity(), Optional.empty(), Optional.empty())));
         mvc.perform(get("/api/workspaces/workspace/goals/candidates").param("q", "retry"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].key").value("trinodb/trino#30702"))

@@ -34,6 +34,8 @@ export type GoalItemDto = {
   activity: { text: string; at: string } | null;
   /** When it joined the goal; null for a candidate. */
   addedAt: string | null;
+  /** The source's own priority, such as a Jira ticket's, shown as it is and never mapped to the work's. */
+  priority?: string | null;
 };
 
 /** What the user agreed the goal means, accepted from one of the agent's proposals. */
@@ -87,6 +89,7 @@ export function parseGoalItem(value: unknown): GoalItemDto {
     url: optionalText(source.url),
     activity: activity === null ? null : { text: text(activity.text, 'goal activity text'), at: text(activity.at, 'goal activity time') },
     addedAt: optionalText(source.addedAt),
+    ...(typeof source.priority === 'string' ? { priority: source.priority } : {}),
   };
 }
 

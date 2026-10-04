@@ -23,9 +23,9 @@ import type {
   CreateWorkItem, CompletionRule, WorkItemKind, WorkItemPriority,
 } from './contracts';
 import {
-  GOAL_SOURCES, STARTED_LABELS, STATE_GROUPS, addable, goalDirections, inOrder, isOpen, itemsIn, openCourse, openProposal, progressWidths, recentActivity, refKey, ringDash,
-  situation, sourceUrl, summarize, itemNeedsYou,
-  type GoalTab,
+  GOAL_SOURCES, STARTED_LABELS, WORK_VIEWS, addable, goalDirections, inOrder, isOpen, openCourse, openProposal, progressWidths, recentActivity, refKey, ringDash,
+  situation, sourceOf, sourceUrl, summarize, itemNeedsYou, unblocks, waitingOn, workIn,
+  type WorkSource, type WorkView,
 } from './model';
 import { AgentModelControls, type ModelChoice } from '../settings/ModelsPage';
 import type { GoalConversation, GoalModel } from './useGoals';
@@ -774,7 +774,7 @@ function Candidate({ item, onAdd, board }: { item: GoalItemDto; onAdd: (item: Go
   );
 }
 
-function Stats({ goal, needsYou, onTab }: { goal: GoalDto; needsYou: ReadonlySet<string>; onTab: (tab: GoalTab) => void }): React.JSX.Element {
+function Stats({ goal, needsYou, onNeeds, onBlocked }: { goal: GoalDto; needsYou: ReadonlySet<string>; onNeeds: () => void; onBlocked: () => void }): React.JSX.Element {
   const summary = summarize(goal, needsYou);
   const widths = progressWidths(summary);
   return (
@@ -800,12 +800,12 @@ function Stats({ goal, needsYou, onTab }: { goal: GoalDto; needsYou: ReadonlySet
           <div className="goal-tile__value">{summary.prsMerged} <span>merged</span></div>
           <div className="goal-tile__sub">{summary.prsOpen} open</div>
         </div>
-        <button type="button" className="goal-tile" onClick={() => onTab('needs')}>
+        <button type="button" className="goal-tile" onClick={onNeeds}>
           <div className="goal-tile__label">Needs you</div>
           <div className="goal-tile__value is-needs">{summary.needs}</div>
           <div className="goal-tile__sub">in attention</div>
         </button>
-        <button type="button" className="goal-tile" onClick={() => onTab('blocked')}>
+        <button type="button" className="goal-tile" onClick={onBlocked}>
           <div className="goal-tile__label">Blocked</div>
           <div className="goal-tile__value is-blocked">{summary.blocked}</div>
           <div className="goal-tile__sub">on others</div>
@@ -817,22 +817,37 @@ function Stats({ goal, needsYou, onTab }: { goal: GoalDto; needsYou: ReadonlySet
 
 function GoalWork(props: GoalPanelProps & { goal: GoalDto; onSelect: (id: string) => void }): React.JSX.Element {
   const { goal, needsYou, mode, onSelect } = props;
-  const [tab, setTab] = useState<GoalTab>('all');
+  // It opens on the first view with work, Next when there is any.
+  const [view, setView] = useState<WorkView>(() => WORK_VIEWS.find((entry) => workIn(goal.items, entry.view).length > 0)?.view ?? 'next');
+  const [needsOnly, setNeedsOnly] = useState(false);
+  const [priority, setPriority] = useState<WorkItemPriority | 'ANY'>('ANY');
+  const [source, setSource] = useState<WorkSource | 'ANY'>('ANY');
   const [adding, setAdding] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const candidates = useCandidates(goal, props.search, adding);
-  const items = itemsIn(goal, tab, needsYou);
+  const shown = goal.items.filter((item) => (!needsOnly || itemNeedsYou(item, needsYou)) && (priority === 'ANY' || item.priority === priority)
+    && (source === 'ANY' || sourceOf(item) === source));
+  const views = WORK_VIEWS.map((entry) => ({ ...entry, rows: workIn(shown, entry.view, goal.items) }));
   const activity = recentActivity(goal);
   return <div className={`goal-panel__body${mode === 'board' ? ' is-board' : ''}`}>
-    <Stats goal={goal} needsYou={needsYou} onTab={setTab} />
+    <Stats goal={goal} needsYou={needsYou} onNeeds={() => setNeedsOnly((value) => !value)} onBlocked={() => setView('blocked')} />
     <div className="goal-tabsrow">
-      <div className="goal-tabs" role="tablist" aria-label="Goal work">
-        {(['all', 'needs', 'blocked'] as const).map((value) => <button type="button" role="tab" aria-selected={tab === value} key={value}
-          className={`goal-tab${tab === value ? ' is-active' : ''}`} onClick={() => setTab(value)}>{value === 'all' ? 'All work' : value === 'needs' ? 'Needs you' : 'Blocked'}</button>)}
-      </div>
+      {mode !== 'board' && <div className="goal-tabs" role="tablist" aria-label="Goal work">
+        {views.map((entry) => <button type="button" role="tab" aria-selected={view === entry.view} key={entry.view} title={entry.hint}
+          className={`goal-tab${view === entry.view ? ' is-active' : ''}`} onClick={() => setView(entry.view)}>{`${entry.label} ${entry.rows.length}`}</button>)}
+      </div>}
       <button type="button" className="goal-add" onClick={() => setCreating((value) => !value)}>New work item</button>
       <button type="button" className="goal-add" onClick={() => setAdding((value) => !value)}>Add existing</button>
+    </div>
+    <div className="goal-filters">
+      <select aria-label="Priority" value={priority} onChange={(event) => setPriority(event.target.value as WorkItemPriority | 'ANY')}>
+        <option value="ANY">Any priority</option><option value="HIGH">High</option><option value="NORMAL">Normal</option><option value="LOW">Low</option>
+      </select>
+      <select aria-label="Source" value={source} onChange={(event) => setSource(event.target.value as WorkSource | 'ANY')}>
+        <option value="ANY">Any source</option><option value="issue">Issues</option><option value="jira">Jira tickets</option><option value="none">No source</option>
+      </select>
+      {needsOnly && <button type="button" className="goal-link" onClick={() => setNeedsOnly(false)}>Show all, not only what needs you</button>}
     </div>
     {error !== null && <p role="alert">{error}</p>}
     {creating && <NewWork goal={goal} onCreate={props.onCreateWork} onDone={(item) => { setCreating(false); onSelect(item.id); }} />}
@@ -850,24 +865,37 @@ function GoalWork(props: GoalPanelProps & { goal: GoalDto; onSelect: (id: string
       </div>)}
     </div>}
     <div className={mode === 'board' ? 'goal-columns' : 'goal-work-list'}>
-      {STATE_GROUPS.map(({ state, label }) => {
-        const rows = items.filter((item) => item.state === state);
-        return <div className={mode === 'board' ? 'goal-column' : 'goal-work-group'} key={state}>
-          <div className="goal-group"><span className="goal-group__label">{label}</span><span className="goal-group__count">{rows.length}</span></div>
-          {rows.map((item) => <button type="button" className="goal-work-card" key={item.id} onClick={() => onSelect(item.id)}>
-            <span className="goal-work-card__title">{item.title}</span>
-            <span className="goal-muted">{item.kind.toLowerCase()} · {item.links.length} linked references</span>
-            {item.state !== 'DONE' && item.state !== 'DROPPED' && item.links.some((link) => link.status === 'Failed') && <span>Attempt failed — outcome still open</span>}
-            {item.links.some((link) => link.state === 'UNKNOWN') && <span>Some evidence is unavailable</span>}
-            {itemNeedsYou(item, needsYou) && <span>Needs you</span>}
-          </button>)}
-        </div>;
-      })}
+      {views.filter((entry) => mode === 'board' || entry.view === view).map((entry) => <div className={mode === 'board' ? 'goal-column' : 'goal-work-group'} key={entry.view}>
+        {mode === 'board' && <div className="goal-group" title={entry.hint}><span className="goal-group__label">{entry.label}</span>
+          <span className="goal-group__count">{entry.rows.length}</span></div>}
+        {entry.rows.map((item) => <WorkCard key={item.id} item={item} all={goal.items} needsYou={needsYou} onSelect={onSelect} />)}
+      </div>)}
     </div>
     {goal.items.length === 0 && <p className="goal-muted">Create a piece of work or add an existing source. Each outcome counts once.</p>}
     {activity.length > 0 && <div><div className="goal-group">Recent decisions</div>{activity.map(({ item, text, at }, index) =>
       <div className="goal-activity__row" key={`${item.id}-${index}`}><span className="goal-activity__text">{text}</span><span>{relativeTime(at, { now: props.now })}</span></div>)}</div>}
   </div>;
+}
+
+/** A work card says why it stands where it does: the user's priority, a source's own priority, the work waiting on it and what it waits on. */
+function WorkCard({ item, all, needsYou, onSelect }: { item: WorkItemDto; all: WorkItemDto[]; needsYou: ReadonlySet<string>; onSelect: (id: string) => void }):
+  React.JSX.Element {
+  const waiting = unblocks(item, all);
+  const waits = isOpen(item) ? waitingOn(item, all) : [];
+  return <button type="button" className="goal-work-card" onClick={() => onSelect(item.id)}>
+    <span className="goal-work-card__title">{item.title}</span>
+    <span className="goal-muted">{item.kind.toLowerCase()} · {item.links.length} linked references{isOpen(item) ? '' : ` · ${item.state.toLowerCase()}`}</span>
+    {(item.priority !== 'NORMAL' || waiting.length > 0 || item.links.some((link) => link.priority)) && <span className="goal-work-card__why">
+      {item.priority !== 'NORMAL' && <span className={`goal-chip is-${item.priority.toLowerCase()}`} title="Your priority">{item.priority === 'HIGH' ? 'High' : 'Low'}</span>}
+      {item.links.filter((link) => link.priority).map((link) => <span className="goal-chip" key={refKey(link)} title={`${link.label}'s own priority, not mapped to yours`}>
+        {`${link.label} ${link.priority}`}</span>)}
+      {waiting.length > 0 && <span className="goal-chip" title={`Waiting on it: ${waiting.map((other) => other.title).join(', ')}`}>{`Unblocks ${waiting.length}`}</span>}
+    </span>}
+    {waits.length > 0 && <span>{`Waits on ${waits.join(', ')}`}</span>}
+    {isOpen(item) && item.links.some((link) => link.status === 'Failed') && <span>Attempt failed — outcome still open</span>}
+    {item.links.some((link) => link.state === 'UNKNOWN') && <span>Some evidence is unavailable</span>}
+    {itemNeedsYou(item, needsYou) && <span>Needs you</span>}
+  </button>;
 }
 
 function NewWork({ goal, onCreate, onDone }: { goal: GoalDto; onCreate: GoalPanelProps['onCreateWork']; onDone: (item: WorkItemDto) => void }): React.JSX.Element {

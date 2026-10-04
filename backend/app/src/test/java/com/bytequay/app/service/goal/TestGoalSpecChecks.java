@@ -207,7 +207,8 @@ class TestGoalSpecChecks
 
         when(work.list("workspace")).thenReturn(ImmutableList.of(new WorkItemView(id, "workspace", Optional.of("goal-1"), "Checkpoint loses rows", WorkItem.Kind.DEVELOP,
                 "Fixed", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 3, ImmutableList.of(new GoalItemView(GoalItemKind.ISSUE, "trinodb/trino#31301",
-                "#31301", "Checkpoint loses rows", GoalItemState.IDLE, "Open", false, Optional.empty(), Optional.empty(), Optional.of(NOW))), ImmutableList.of(), NOW, NOW,
+                "#31301", "Checkpoint loses rows", GoalItemState.IDLE, "Open", false, Optional.empty(), Optional.empty(),
+                Optional.of(NOW), Optional.empty())), ImmutableList.of(), NOW, NOW,
                 WorkItem.Priority.NORMAL, 0, ImmutableList.of())));
         assertThat(specChecks.gaps("workspace", "goal-1").getFirst().filed()).as("once linked, nothing is offered").isEmpty();
     }

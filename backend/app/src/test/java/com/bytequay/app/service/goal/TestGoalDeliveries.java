@@ -151,6 +151,7 @@ class TestGoalDeliveries
     private static GoalItemView pull(int number, GoalItemState state)
     {
         return new GoalItemView(GoalItemKind.PULL_REQUEST, "trinodb/trino#" + number, "#" + number, "Key actions by path and deletion vector", state,
-                state == GoalItemState.MERGED ? "Merged" : state == GoalItemState.ENDED ? "Closed" : "Open", false, Optional.empty(), Optional.empty(), Optional.of(NOW));
+                state == GoalItemState.MERGED ? "Merged" : state == GoalItemState.ENDED ? "Closed" : "Open", false, Optional.empty(), Optional.empty(),
+                Optional.of(NOW), Optional.empty());
     }
 }

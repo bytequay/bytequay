@@ -151,6 +151,18 @@ and unblock removes those dependencies, which the waiting work's history
 records. Work leaves its Goal only once it waits on nothing and nothing waits on
 it.
 
+The Work view opens on Next, or on the first view holding work when nothing is
+ready. Next is planned work waiting on nothing open, the user's priority first,
+then work that other work waits on, then the Goal's order. Each
+card shows the user's priority, how much work waits on it and a source's own
+priority, such as a Jira ticket's, as Jira names it and never mapped. Working,
+Blocked and Done hold the rest; Blocked names what each item waits on, open work
+of the Goal or a source that reports itself blocked. Filters narrow every view
+by priority and by source, and the board shows the four views side by side.
+The agent reads the work in that order with its priorities and blockers,
+prefers ready work that unblocks other work, and a lesson card naming a lesson
+that waits on open work is dropped.
+
 When a question needs evidence nobody has gathered, such as whether the code
 supports a specification feature, and neither research nor a spec check fits
 it, the agent may recommend an investigation card naming what to find out.

@@ -223,6 +223,8 @@ async function orderAndBlockers(): Promise<void> {
     assert(decisions.at(-1)?.action === 'DROP' && decisions.at(-1)?.releaseDependents === true, 'Dropping a blocker is the decision to stop the waiting');
     button(host, 'Back to work').click(); await settle();
 
+    const blocked = [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((candidate) => candidate.textContent?.startsWith('Blocked'));
+    assert(blocked !== undefined, 'Blocked tab missing'); blocked.click(); await settle();
     const order = await open('Fix the checkpoint');
     assert(order.textContent?.includes('Waits onRead the checkpoint code') === true, 'The details name what the work waits on');
     choose(select(order, 'Priority'), 'HIGH'); await settle();
@@ -237,11 +239,59 @@ async function orderAndBlockers(): Promise<void> {
   finally { root.unmount(); host.remove(); }
 }
 
+async function viewsPutReadyWorkFirst(): Promise<void> {
+  const host = document.createElement('div'); document.body.append(host);
+  host.style.width = '380px';
+  const root = createRoot(host);
+  const now = '2026-09-01T00:00:00Z';
+  const work = (id: string, rank: number, extra: Partial<WorkItemDto> = {}): WorkItemDto => ({ id, workspaceId: 'workspace', goalId: 'goal', title: `Work ${id}`,
+    kind: 'DEVELOP', acceptanceCriteria: 'Done', completionRule: 'ACCEPTED_RESULT', state: 'PLANNED', revision: 1, links: [], history: [], createdAt: now, updatedAt: now,
+    priority: 'NORMAL', rank, blockedBy: [], ...extra });
+  const ticket: WorkItemDto['links'][number] = { kind: 'JIRA', key: 'connection:cloud:10412', label: 'TRINO-412', title: 'Keep deletion vectors', state: 'IDLE',
+    status: 'To Do', blocked: false, url: null, activity: null, addedAt: now, priority: 'Highest' };
+  const items = [work('a', 0), work('b', 1), work('c', 2, { priority: 'HIGH', links: [ticket] }), work('d', 3, { blockedBy: ['b'] }), work('f', 4, { state: 'WORKING' }),
+    work('g', 5, { state: 'DONE' })];
+  const goal: GoalDto = { id: 'goal', workspaceId: 'workspace', title: 'Delta Lake correctness', description: '', pinned: true, paused: false, source: null,
+    definition: null, revision: 0, course: null, items, recommendations: [], topics: [], createdAt: now, updatedAt: now };
+  const cards = (): string[] => [...host.querySelectorAll('.goal-work-card .goal-work-card__title')].map((title) => title.textContent ?? '');
+  try {
+    flushSync(() => root.render(<GoalPanel mode="window" view="work" onView={() => {}} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
+      conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptCourse: async () => {},
+        openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {} }}
+      repository="trinodb/trino" goal={goal} goals={[goal]} workItems={items} needsYou={new Set()}
+      onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}}
+      onRename={async () => {}} onPause={async () => {}} onSummarize={async () => {}} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
+      search={async () => []} onCreateWork={async () => items[0]} onLink={async () => items[0]} onOrder={async () => {}} onDecide={async () => items[0]} />));
+    await settle();
+    assert(JSON.stringify(cards()) === JSON.stringify(['Work c', 'Work b', 'Work a']), `Next puts priority, then unblocking work, then order first: ${cards().join(', ')}`);
+    const first = host.querySelector('.goal-work-card');
+    assert(first?.textContent?.includes('High') === true && first.textContent.includes('TRINO-412 Highest'), 'A card shows the user priority and the source priority apart');
+    assert(host.querySelectorAll('.goal-work-card')[1]?.textContent?.includes('Unblocks 1') === true, 'A card says what waits on it');
+    const tab = (label: string): HTMLButtonElement => {
+      const found = [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((candidate) => candidate.textContent?.startsWith(label));
+      assert(found !== undefined, `Missing tab: ${label}`);
+      return found;
+    };
+    assert(tab('Blocked').textContent === 'Blocked 1' && tab('Working').textContent === 'Working 1' && tab('Done').textContent === 'Done 1', 'Each view counts its work');
+    tab('Blocked').click(); await settle();
+    assert(JSON.stringify(cards()) === JSON.stringify(['Work d']) && host.textContent?.includes('Waits on Work b') === true, 'Blocked says what the work waits on');
+    tab('Next').click(); await settle();
+    const priority = host.querySelector<HTMLSelectElement>('select[aria-label="Priority"]'); assert(priority !== null, 'Priority filter missing');
+    choose(priority, 'HIGH'); await settle();
+    assert(JSON.stringify(cards()) === JSON.stringify(['Work c']), 'The priority filter narrows the view');
+    choose(priority, 'ANY');
+    const source = host.querySelector<HTMLSelectElement>('select[aria-label="Source"]'); assert(source !== null, 'Source filter missing');
+    choose(source, 'none'); await settle();
+    assert(JSON.stringify(cards()) === JSON.stringify(['Work b', 'Work a']), 'The source filter narrows the view');
+  }
+  finally { root.unmount(); host.remove(); }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const results: { name: string; error?: string }[] = [];
   for (const [name, scenario] of [['Accept, retry, reopen and detach retain decisions', decisionsSurviveFailure],
     ['Finished work keeps its summary', finishedWorkKeepsItsSummary], ['An ended task offers another attempt', anotherAttemptAfterAnEndedTask],
-    ['Priority, order and blockers are decisions on the work', orderAndBlockers]] as const) {
+    ['Priority, order and blockers are decisions on the work', orderAndBlockers], ['Views put ready work first', viewsPutReadyWorkFirst]] as const) {
     try { await scenario(); results.push({ name }); }
     catch (error) { results.push({ name, error: String(error) }); }
   }

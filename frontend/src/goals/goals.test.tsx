@@ -21,7 +21,8 @@ import type { GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalKnowledgeNo
 import { parseGoal, parseGoalExchange, parseGoalGap, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation } from './contracts';
 import { GoalPanel, type GoalPanelProps } from './GoalPanel';
 import {
-  addable, attentionWorkspace, goalDirections, goalHas, goalRef, itemsIn, needsYouKeys, openCourse, openProposal, placePill, recentActivity, refKey, situation, sourceUrl, summarize,
+  addable, attentionWorkspace, goalDirections, goalHas, goalRef, needsYouKeys, openCourse, openProposal, placePill, recentActivity, refKey, situation, sourceOf, sourceUrl,
+  summarize, waitingOn, workIn,
 } from './model';
 import { toggleGoalItem, useGoals, type GoalBridge, type GoalConversation, type Goals } from './useGoals';
 
@@ -76,12 +77,27 @@ describe('goal model', () => {
   it('counts progress, pull requests, what needs you and what is blocked', () => {
     const needsYou = needsYouKeys([attention({}), attention({ type: 'issue', number: 31302 }), attention({ number: 1 })]);
     expect(summarize(GOAL, needsYou)).toEqual({ total: 5, finished: 1, working: 3, idle: 1, prsMerged: 1, prsOpen: 1, needs: 2, blocked: 1, dropped: 0 });
-    expect(itemsIn(GOAL, 'needs', needsYou).map((entry) => entry.links[0].label)).toEqual(['#30925', '#31302']);
-    expect(itemsIn(GOAL, 'blocked', needsYou).map((entry) => entry.links[0].label)).toEqual(['TRINO-412']);
+    expect(workIn(GOAL.items, 'blocked').map((entry) => entry.links[0].label)).toEqual(['TRINO-412']);
+    expect(waitingOn(GOAL.items[3], GOAL.items)).toEqual(['TRINO-412 is Blocked']);
+    expect(GOAL.items.map(sourceOf)).toEqual(['none', 'none', 'issue', 'jira', 'none']);
     expect(recentActivity(GOAL).map((entry) => entry.text)).toEqual(['#30702 merged', '#30925 updated', 'TRINO-412 is Blocked']);
     expect(goalHas(GOAL, { kind: 'TASK', key: 'task-1' })).toBe(true);
     expect(goalHas(null, { kind: 'TASK', key: 'task-1' })).toBe(false);
     expect(addable([ITEMS[0], item('ISSUE', 'trinodb/trino#1', '#1', 'IDLE', 'Open')], GOAL).map(refKey)).toEqual(['ISSUE trinodb/trino#1']);
+  });
+
+  it('puts ready work first by the user priority, then by the work waiting on it, then by the Goal order', () => {
+    const work = (id: string, rank: number, extra: Partial<WorkItemDto> = {}): WorkItemDto => ({ ...GOAL.items[2], id, title: id, rank, links: [], ...extra });
+    const items = [work('a', 0), work('b', 1), work('c', 2, { priority: 'HIGH' }), work('d', 3, { blockedBy: ['b'] }), work('e', 4, { priority: 'LOW' }),
+      work('f', 5, { state: 'WORKING' }), work('g', 6, { state: 'DONE' })];
+    expect(workIn(items, 'next').map((entry) => entry.id)).toEqual(['c', 'b', 'a', 'e']);
+    expect(workIn(items, 'blocked').map((entry) => entry.id)).toEqual(['d']);
+    expect(waitingOn(items[3], items)).toEqual(['b']);
+    expect(workIn(items, 'working').map((entry) => entry.id)).toEqual(['f']);
+    expect(workIn(items, 'done').map((entry) => entry.id)).toEqual(['g']);
+    // Finishing a blocker makes the work waiting on it ready, in its place.
+    const finished = items.map((entry) => entry.id === 'b' ? { ...entry, state: 'DONE' as const } : entry);
+    expect(workIn(finished, 'next').map((entry) => entry.id)).toEqual(['c', 'a', 'd', 'e']);
   });
 
   it('starts the pill just above the composer right edge and never leaves it over the composer', () => {
@@ -122,17 +138,17 @@ describe('goal panel', () => {
   it('shows one progress card per outcome and keeps ended tasks unfinished', () => {
     const markup = panel({});
     expect(markup).toContain('of 5 done');
-    expect(markup).toContain('>Done</span><span class="goal-group__count">1</span>');
-    expect(markup).toContain('>Working</span><span class="goal-group__count">3</span>');
-    expect(markup).toContain('Task title');
+    // Ended tasks leave their work open: it stays among the working work.
+    for (const tab of ['Next 1', 'Working 2', 'Blocked 1', 'Done 1']) expect(markup).toContain(`>${tab}</button>`);
+    expect(markup).toContain('#31302 title');
     expect(markup).toContain('New work item');
     expect(markup).toContain('Recent decisions');
   });
 
-  it('shows planned, working, done and dropped on the board', () => {
+  it('shows next, working, blocked and done work side by side on the board', () => {
     const markup = panel({ mode: 'board' });
     expect(markup).toContain('class="goal-columns"');
-    for (const label of ['Planned', 'Working', 'Done', 'Dropped']) expect(markup).toContain(`>${label}</span>`);
+    for (const label of ['Next', 'Working', 'Blocked', 'Done']) expect(markup).toContain(`>${label}</span>`);
     expect(markup).toContain('#30702 title');
   });
 

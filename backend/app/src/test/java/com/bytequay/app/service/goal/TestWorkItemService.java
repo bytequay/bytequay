@@ -73,7 +73,7 @@ class TestWorkItemService
         when(references.view(eq("workspace"), any())).thenAnswer(call -> {
             GoalItem link = call.getArgument(1);
             return new GoalItemView(link.kind(), link.key(), link.label(), link.title(), GoalItemState.UNKNOWN, "Evidence unavailable", false,
-                    Optional.empty(), Optional.empty(), Optional.of(NOW));
+                    Optional.empty(), Optional.empty(), Optional.of(NOW), Optional.empty());
         });
     }
 
@@ -331,7 +331,7 @@ class TestWorkItemService
         WorkItemLink link = link(GoalItemKind.PULL_REQUEST, "org/repo#" + number, "PULL_REQUEST:github.com:org/repo#" + number);
         when(references.requireLink("workspace", GoalItemKind.PULL_REQUEST, link.reference().key())).thenReturn(link);
         when(references.view("workspace", link.reference())).thenReturn(new GoalItemView(GoalItemKind.PULL_REQUEST, link.reference().key(), "#" + number, "Fix",
-                state, state.name(), false, Optional.of("https://github.com/org/repo/pull/" + number), Optional.empty(), Optional.of(NOW)));
+                state, state.name(), false, Optional.of("https://github.com/org/repo/pull/" + number), Optional.empty(), Optional.of(NOW), Optional.empty()));
         return link.reference().key();
     }
 

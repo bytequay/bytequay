@@ -1003,14 +1003,13 @@ function WorkDetails(props: GoalPanelProps & { item: WorkItemDto; onBack: () => 
     </section>}
     {item.goalId !== null && <section className="goal-work-order" aria-label="Order">
       <div className="goal-group">Order</div>
-      <div className="goal-work-actions">
-        <label>Priority<select disabled={busy} value={item.priority} onChange={(event) => arrange({ action: 'PRIORITIZE', priority: event.target.value as WorkItemPriority })}>
-          <option value="HIGH">High</option><option value="NORMAL">Normal</option><option value="LOW">Low</option>
-        </select></label>
-        {place >= 0 && <><span className="goal-muted">{place + 1} of {openSiblings.length} open</span>
-          <button type="button" className="goal-link" disabled={busy || place === 0} onClick={() => move(-1)}>Move earlier</button>
-          <button type="button" className="goal-link" disabled={busy || place === openSiblings.length - 1} onClick={() => move(1)}>Move later</button></>}
-      </div>
+      <label className="goal-work-order__priority">Priority<select disabled={busy} value={item.priority}
+        onChange={(event) => arrange({ action: 'PRIORITIZE', priority: event.target.value as WorkItemPriority })}>
+        <option value="HIGH">High</option><option value="NORMAL">Normal</option><option value="LOW">Low</option>
+      </select></label>
+      {place >= 0 && <div className="goal-work-actions"><span className="goal-muted">{place + 1} of {openSiblings.length} open</span>
+        <button type="button" className="goal-link" disabled={busy || place === 0} onClick={() => move(-1)}>Move earlier</button>
+        <button type="button" className="goal-link" disabled={busy || place === openSiblings.length - 1} onClick={() => move(1)}>Move later</button></div>}
       {waitsOn.map((other) => <div className="goal-result" key={other.id}><span>Waits on</span><span className="goal-result__title">{other.title}</span>
         <span>{other.state.toLowerCase()}</span>
         {!concluded && <button type="button" className="goal-link" disabled={busy} onClick={() => arrange({ action: 'UNBLOCK', blocker: other.id })}>Stop waiting</button>}

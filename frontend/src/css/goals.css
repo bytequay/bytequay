@@ -998,6 +998,10 @@ button.goal-tile:hover {
 .goal-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .goal-filters select { padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; color: inherit; background: #fff; font: inherit; font-size: 12px; }
 .goal-work-card__why { display: flex; flex-wrap: wrap; gap: 4px; }
+.goal-work-order { display: grid; gap: 8px; }
+.goal-work-order .goal-work-actions { align-items: center; }
+.goal-work-form .goal-work-order__priority { display: flex; align-items: center; gap: 8px; }
+.goal-work-form .goal-work-order__priority select { width: auto; padding: 4px 8px; }
 .goal-chip { padding: 0 6px; border-radius: 9px; background: #eaeef2; color: #57606a; font-size: 11px; line-height: 18px; }
 .goal-chip.is-high { background: #ffebe9; color: #cf222e; }
 .goal-chip.is-low { background: #f6f8fa; color: #8c959f; }

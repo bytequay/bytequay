@@ -53,11 +53,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -77,9 +79,9 @@ class TestGoalConversationService
             Optional.empty(), Optional.empty(), ImmutableList.of(), Optional.empty());
     private static final GoalExchange.Reply COURSE = new GoalExchange.Reply("Here is a course from the notes.", Optional.empty(), Optional.empty(), Optional.empty(),
             Optional.of(new GoalCourse.Draft(ImmutableList.of(
-                    new GoalCourse.DraftPart("Iceberg tables", ImmutableList.of(new GoalCourse.DraftLesson("What a table is", "Explain metadata, snapshots and manifests"),
-                            new GoalCourse.DraftLesson("Follow a snapshot", "Trace a snapshot to its data files"))),
-                    new GoalCourse.DraftPart("The Trino connector", ImmutableList.of(new GoalCourse.DraftLesson("Plan a scan", "Explain how splits are planned")))))),
+                    new GoalCourse.DraftPart("Iceberg tables", ImmutableList.of(lesson("What a table is", "Explain metadata, snapshots and manifests"),
+                            lesson("Follow a snapshot", "Trace a snapshot to its data files"))),
+                    new GoalCourse.DraftPart("The Trino connector", ImmutableList.of(lesson("Plan a scan", "Explain how splits are planned")))), Optional.empty())),
             ImmutableList.of(), Optional.empty());
 
     private final InMemoryGoalStore goalStore = new InMemoryGoalStore();
@@ -272,6 +274,62 @@ class TestGoalConversationService
         assertThat(service.acceptCourse("workspace", goal.id(), "op-1").course()).isEqualTo(planned.course());
         verify(work, times(2)).create(eq("workspace"), eq(first), any(), any(), any(), any(), any());
         assertThatThrownBy(() -> service.acceptCourse("workspace", goal.id(), "missing")).isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test
+    void aRevisedCourseKeepsFinishedLessonsAddsNewOnesAndDropsTheUnfinishedOnesItLeavesOut()
+    {
+        GoalView goal = goals.create("workspace", "Iceberg", "");
+        service.ask("workspace", goal.id(), "op-1", "What next?");
+        doReturn(COURSE).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        List<String> lessons = service.acceptCourse("workspace", goal.id(), "op-1").course().orElseThrow().parts().stream()
+                .flatMap(part -> part.lessons().stream()).collect(toImmutableList());
+        when(work.list("workspace")).thenReturn(ImmutableList.of(learn(lessons.get(0), goal.id(), WorkItem.State.DONE), learn(lessons.get(1), goal.id(), WorkItem.State.PLANNED),
+                learn(lessons.get(2), goal.id(), WorkItem.State.PLANNED)));
+        doReturn(QUESTION).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+
+        service.ask("workspace", goal.id(), "op-2", "I know snapshots already");
+        doReturn(revision(lessons.get(1), lessons.get(2))).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        assertThat(exchanges.find("op-2")).hasValueSatisfying(failed -> assertThat(failed.failure()).contains("The revised course leaves out a finished lesson."));
+
+        service.retry("workspace", goal.id(), "op-2");
+        doReturn(revision(lessons.get(0), lessons.get(2))).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        GoalView revised = service.acceptCourse("workspace", goal.id(), "op-2");
+        String added = revised.course().orElseThrow().parts().get(1).lessons().getFirst();
+        assertThat(revised.course().orElseThrow().parts()).extracting(GoalCourse.Part::lessons)
+                .containsExactly(ImmutableList.of(lessons.get(0)), ImmutableList.of(added, lessons.get(2)));
+        verify(work).create("workspace", added, Optional.of(goal.id()), "Read deletes", WorkItem.Kind.LEARN, "Explain position deletes",
+                WorkItem.CompletionRule.ACCEPTED_RESULT);
+        verify(work).change(eq("workspace"), eq(lessons.get(1)), argThat(command -> command.action() == WorkItemCommand.Action.DROP
+                && command.detail().equals("Left out of the revised course: You know snapshots.")));
+        verify(work, never()).change(eq("workspace"), eq(lessons.get(0)), any());
+        verify(work, never()).change(eq("workspace"), eq(lessons.get(2)), any());
+        assertThat(exchanges.find("course:op-2")).map(GoalExchange::message).contains("The user accepted the revised course.");
+    }
+
+    /** Keeps two accepted lessons, one in each part, and adds one before the second. */
+    private static GoalExchange.Reply revision(String first, String second)
+    {
+        return new GoalExchange.Reply("You know snapshots.", Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(new GoalCourse.Draft(ImmutableList.of(
+                new GoalCourse.DraftPart("Iceberg tables", ImmutableList.of(new GoalCourse.DraftLesson("What a table is", "Explain metadata", Optional.of(first)))),
+                new GoalCourse.DraftPart("The connector", ImmutableList.of(lesson("Read deletes", "Explain position deletes"),
+                        new GoalCourse.DraftLesson("Plan a scan", "Explain splits", Optional.of(second))))), Optional.of("You know snapshots."))),
+                ImmutableList.of(), Optional.empty());
+    }
+
+    private static GoalCourse.DraftLesson lesson(String title, String outcome)
+    {
+        return new GoalCourse.DraftLesson(title, outcome, Optional.empty());
+    }
+
+    private static WorkItemView learn(String id, String goalId, WorkItem.State state)
+    {
+        return new WorkItemView(id, "workspace", Optional.of(goalId), id, WorkItem.Kind.LEARN, "Outcome", WorkItem.CompletionRule.ACCEPTED_RESULT, state, 1,
+                ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH);
     }
 
     @Test

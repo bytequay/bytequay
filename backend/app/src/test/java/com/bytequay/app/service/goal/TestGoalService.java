@@ -77,15 +77,14 @@ class TestGoalService
     }
 
     @Test
-    void aGoalKeepsTheFirstCourseItsUserAccepted()
+    void anAcceptedRevisionReplacesTheCourseWithoutChangingTheRevision()
     {
         GoalView goal = service.create("workspace", "Iceberg", "");
         GoalCourse course = new GoalCourse("exchange-1", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1"))), Instant.EPOCH);
         assertThat(service.planCourse("workspace", goal.id(), course).course()).contains(course);
         assertThat(service.planCourse("workspace", goal.id(), course).course()).contains(course);
-        assertThatThrownBy(() -> service.planCourse("workspace", goal.id(), new GoalCourse("exchange-2", course.parts(), Instant.EPOCH)))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("already has a course");
+        GoalCourse revised = new GoalCourse("exchange-2", ImmutableList.of(new GoalCourse.Part("The connector", ImmutableList.of("lesson-1", "lesson-2"))), Instant.EPOCH);
+        assertThat(service.planCourse("workspace", goal.id(), revised).course()).contains(revised);
         assertThat(store.find(goal.id()).orElseThrow().revision()).isZero();
     }
 

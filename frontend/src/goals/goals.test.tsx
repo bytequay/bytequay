@@ -154,7 +154,7 @@ const PROPOSED: GoalExchangeDto = { ...ASKED, id: 'op-2', message: 'Not yet', re
 } };
 const COURSE: GoalExchangeDto = { ...ASKED, id: 'op-3', message: 'The research run saved 2 notes.', automatic: true, reply: {
   assessment: 'Here is a course from the notes.', question: null, proposal: null, recommendation: null,
-  course: { parts: [{ title: 'Iceberg tables', lessons: [{ title: 'What a table is', outcome: 'Explain metadata, snapshots and manifests' }] }] },
+  course: { parts: [{ title: 'Iceberg tables', lessons: [{ title: 'What a table is', outcome: 'Explain metadata, snapshots and manifests', lessonId: null }] }], reason: null },
 } };
 const CARD: GoalRecommendationDto = { id: 'card-1', goalId: 'goal-1', state: 'SHOWN', taskId: null, workItemId: null, checkId: null, createdAt: '2026-10-03T10:00:00Z',
   card: { kind: 'RESEARCH', title: 'Read the Iceberg specification', reason: 'You start from the specification', scope: 'Snapshots and manifests',
@@ -280,6 +280,19 @@ describe('goal guidance', () => {
     expect(accepted).toContain('1. Iceberg tables');
     expect(accepted).toContain('#30925 title');
     expect(accepted).toContain('<button type="button" class="goal-course__open">#30925 title</button>');
+
+    // A later course revises the accepted one: it keeps a lesson by id, adds one and leaves an unfinished one out.
+    const started = { exchangeId: 'op-3', parts: [{ title: 'Iceberg tables', lessons: ['work-0', 'work-2'] }], acceptedAt: '2026-10-03T10:00:00Z' };
+    const revision: GoalExchangeDto = { ...COURSE, id: 'op-4', reply: { ...COURSE.reply, course: { reason: 'You know tables already.', parts: [{ title: 'The connector',
+      lessons: [{ title: 'Tables', outcome: 'Tables', lessonId: 'work-0' }, { title: 'Plan a scan', outcome: 'Explain splits', lessonId: null }] }] } } };
+    expect(openCourse({ ...GOAL, course: started }, [ASKED, COURSE, revision])).toEqual({ exchangeId: 'op-4', course: revision.reply.course });
+    const revised = panel({ view: 'guide', goal: { ...GOAL, course: started }, conversation: conversation([ASKED, COURSE, revision]) });
+    expect(revised).toContain('Revised course');
+    expect(revised).toContain('You know tables already.');
+    expect(revised).toContain('#30925 title</span>');
+    expect(revised).toContain('Plan a scan<span class="goal-course__new">New</span>');
+    expect(revised).toContain('Leaves the course');
+    expect(revised).toContain('>Accept revision</button>');
 
     const lesson = panel({ view: 'guide', goal: { ...GOAL, course }, lesson: 'work-0' });
     expect(lesson).toContain('Back to guidance');

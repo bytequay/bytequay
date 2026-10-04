@@ -164,9 +164,6 @@ public class GoalServiceImpl
             if (goal.course().map(GoalCourse::exchangeId).filter(course.exchangeId()::equals).isPresent()) {
                 return view(goal);
             }
-            if (goal.course().isPresent()) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "This goal already has a course; ask its agent to change it.");
-            }
             Goal planned = goal.withCourse(course, clock.instant());
             goals.save(planned);
             return view(planned);

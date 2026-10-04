@@ -176,10 +176,10 @@ export function sourceUrl(source: GoalKnowledgeNoteDto['sources'][number]): stri
   return `https://github.com/${source.reference.slice(0, colon)}/blob/${source.commit}/${source.reference.slice(colon + 1)}`;
 }
 
-/** The course the user can still accept: the newest answer's, while the goal has none. */
+/** The course the user can still accept: the newest answer's, the goal's first or a revision of the accepted one. */
 export function openCourse(goal: GoalDto | null, exchanges: GoalExchangeDto[]): { exchangeId: string; course: GoalCourseDraftDto } | null {
   const last = exchanges.at(-1);
-  if (goal === null || goal.course !== null || last === undefined || last.reply === null || last.reply.course === null) return null;
+  if (goal === null || last === undefined || last.reply === null || last.reply.course === null || goal.course?.exchangeId === last.id) return null;
   return { exchangeId: last.id, course: last.reply.course };
 }
 
@@ -207,7 +207,7 @@ function situationText(goal: GoalDto, exchanges: GoalExchangeDto[], waiting: { p
   if (last?.state === 'PENDING') return 'Waiting for the agent';
   if (last?.state === 'FAILED') return 'The agent’s last reply failed; ask again';
   if (waiting.proposal) return 'Your decision: the proposed goal';
-  if (waiting.course) return 'Your decision: the proposed course';
+  if (waiting.course) return goal.course === null ? 'Your decision: the proposed course' : 'Your decision: the revised course';
   if (waiting.merged.length > 0) return `Your decision: accept ${waiting.merged[0].title}`;
   if (waiting.unadded > 0) return `Your decision: ${waiting.unadded === 1 ? 'a reproduced gap' : `${waiting.unadded} reproduced gaps`}`;
   if (goal.definition === null) return 'Clarifying your goal';

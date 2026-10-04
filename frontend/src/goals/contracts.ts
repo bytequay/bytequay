@@ -152,7 +152,8 @@ export type TopicLevel = typeof TOPIC_LEVELS[number];
 export type GoalTopicDto = { topic: string; level: TopicLevel; evidence: string[]; userSet: boolean };
 
 /** A course the agent proposes: parts of ordered lessons, each naming what the user can do afterward. */
-export type GoalCourseDraftDto = { parts: { title: string; lessons: { title: string; outcome: string }[] }[] };
+/** A proposed course; a revision of the accepted one keeps a lesson by its id and says why it changes. */
+export type GoalCourseDraftDto = { parts: { title: string; lessons: { title: string; outcome: string; lessonId: string | null }[] }[]; reason: string | null };
 
 /**
  * What a card under the Goal control offers: research reads its scope and pages, a lesson card opens its lesson, and a work card opens the
@@ -356,10 +357,11 @@ export function parseGoalExchange(value: unknown): GoalExchangeDto {
             title: text(part.title, 'goal course part title'),
             lessons: parseList(part.lessons, (value) => {
               const lesson = object(value, 'goal lesson');
-              return { title: text(lesson.title, 'goal lesson title'), outcome: text(lesson.outcome, 'goal lesson outcome') };
+              return { title: text(lesson.title, 'goal lesson title'), outcome: text(lesson.outcome, 'goal lesson outcome'), lessonId: optionalText(lesson.lessonId) };
             }, 'goal lessons'),
           };
         }, 'goal course parts'),
+        reason: optionalText(object(reply.course, 'goal course').reason),
       },
       recommendation: reply.recommendation === null || reply.recommendation === undefined ? null : parseCard(reply.recommendation),
     },

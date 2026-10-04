@@ -95,8 +95,15 @@ Once notes exist, the agent may propose a course: up to four parts with at most
 sixteen lessons, each naming what the user can do afterward. Accepting it saves
 each lesson as a Learn work item of the Goal, with that outcome as its acceptance
 criteria, and records the parts and their order on the Goal; nothing starts. The
-same proposal accepted again creates nothing new, and a Goal keeps its first
-course. The Guide view shows the course with each lesson's state.
+same proposal accepted again creates nothing new. When what the user knows or
+did shows the course no longer fits, the agent may propose a revision with a
+reason: each lesson keeps an accepted lesson by its ID or is new, and every
+finished lesson stays. The Guide view shows the revision against the course,
+marking new lessons and listing the unfinished ones it leaves out; accepting it
+creates the new lessons, saves the new parts and order, and drops each left-out
+lesson with the reason. A revision that names an unknown lesson or leaves out a
+finished one fails its reply, which the user can ask again. The Guide view shows
+the course with each lesson's state.
 
 A lesson opens in the expanded Goal window. The first time, a tool-free request
 writes it from the Goal's notes: an explanation in Markdown that links the notes'
@@ -172,7 +179,7 @@ ByteQuay keeps only evidence that exists and never changes a level the user set.
 The Guide view lists what the user knows, and the user can correct any level.
 
 A new explicit same-source attempt without deleting the prior task, proposal
-acceptance into other work items, linking a filed issue to its gap, course changes, automatic
+acceptance into other work items, linking a filed issue to its gap, automatic
 outcome harvesting, stale-note marking and the two-call discovery shortlist
 remain pending. The checklist
 distinguishes these from implemented behavior.

@@ -17,6 +17,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -56,14 +57,21 @@ public record GoalCourse(String exchangeId, List<Part> parts, Instant acceptedAt
         }
     }
 
-    /** A course the agent proposes; accepting it saves each lesson as a Learn work item. */
-    public record Draft(List<DraftPart> parts)
+    /**
+     * A course the agent proposes; accepting it saves each new lesson as a Learn work item.
+     *
+     * @param reason why the accepted course should change, when this one revises it
+     */
+    public record Draft(List<DraftPart> parts, Optional<String> reason)
     {
         public Draft
         {
             parts = ImmutableList.copyOf(parts);
             checkArgument(!parts.isEmpty() && parts.size() <= MAX_PARTS, "a course has one to %s parts", MAX_PARTS);
             checkArgument(parts.stream().mapToInt(part -> part.lessons().size()).sum() <= MAX_LESSONS, "a course has at most %s lessons", MAX_LESSONS);
+            List<String> kept = parts.stream().flatMap(part -> part.lessons().stream()).flatMap(lesson -> lesson.lessonId().stream()).toList();
+            checkArgument(kept.size() == kept.stream().distinct().count(), "a course keeps each lesson once");
+            reason.ifPresent(value -> checkText(value, "course change reason", 300));
         }
     }
 
@@ -81,13 +89,15 @@ public record GoalCourse(String exchangeId, List<Part> parts, Instant acceptedAt
      * One proposed lesson.
      *
      * @param outcome what the user can do after the lesson, which becomes its acceptance criteria
+     * @param lessonId the accepted lesson a revision keeps in this place, whose own title and outcome stay
      */
-    public record DraftLesson(String title, String outcome)
+    public record DraftLesson(String title, String outcome, Optional<String> lessonId)
     {
         public DraftLesson
         {
             checkText(title, "lesson title", 120);
             checkText(outcome, "lesson outcome", 400);
+            requireNonNull(lessonId, "lessonId is null");
         }
     }
 }

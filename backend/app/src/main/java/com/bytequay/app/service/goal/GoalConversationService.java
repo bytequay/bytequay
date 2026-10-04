@@ -54,6 +54,7 @@ import java.util.function.Function;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
@@ -285,8 +286,8 @@ public class GoalConversationService
     }
 
     /**
-     * Accepts the course an answer proposed: each lesson becomes a Learn work item of the goal, in order, and nothing starts. Accepting it
-     * again changes nothing.
+     * Accepts the course an answer proposed: each new lesson becomes a Learn work item of the goal, in order, and nothing starts. A revision
+     * keeps the accepted lessons it names and drops the unfinished ones it leaves out, with its reason. Accepting it again changes nothing.
      */
     public GoalView acceptCourse(String workspaceId, String goalId, String exchangeId)
     {
@@ -294,21 +295,52 @@ public class GoalConversationService
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
         GoalCourse.Draft draft = exchange.reply().flatMap(GoalExchange.Reply::course)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "This answer proposes no course."));
+        GoalView goal = goal(workspaceId, goalId);
+        Optional<GoalCourse> accepted = goal.course().filter(course -> !course.exchangeId().equals(exchangeId));
+        Optional<String> invalid = accepted.isPresent() ? invalidRevision(goal, draft) : Optional.empty();
+        if (invalid.isPresent()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, invalid.orElseThrow() + " Ask the agent again.");
+        }
         ImmutableList.Builder<GoalCourse.Part> parts = ImmutableList.builder();
         int index = 0;
         for (GoalCourse.DraftPart part : draft.parts()) {
             ImmutableList.Builder<String> lessons = ImmutableList.builder();
             for (GoalCourse.DraftLesson lesson : part.lessons()) {
                 // The same lesson of the same proposal is the same work item, so a repeated acceptance creates nothing new.
-                String id = UUID.nameUUIDFromBytes(("lesson:" + exchangeId + ":" + index++).getBytes(UTF_8)).toString();
-                work.create(workspaceId, id, Optional.of(goalId), lesson.title(), WorkItem.Kind.LEARN, lesson.outcome(), WorkItem.CompletionRule.ACCEPTED_RESULT);
+                String id = lesson.lessonId().orElse(UUID.nameUUIDFromBytes(("lesson:" + exchangeId + ":" + index).getBytes(UTF_8)).toString());
+                index++;
+                if (lesson.lessonId().isEmpty()) {
+                    work.create(workspaceId, id, Optional.of(goalId), lesson.title(), WorkItem.Kind.LEARN, lesson.outcome(), WorkItem.CompletionRule.ACCEPTED_RESULT);
+                }
                 lessons.add(id);
             }
             parts.add(new GoalCourse.Part(part.title(), lessons.build()));
         }
-        GoalView planned = goals.planCourse(workspaceId, goalId, new GoalCourse(exchangeId, parts.build(), clock.instant()));
-        tell(workspaceId, goalId, "course:" + exchangeId, "The user accepted the course.");
-        return planned;
+        GoalCourse course = new GoalCourse(exchangeId, parts.build(), clock.instant());
+        goals.planCourse(workspaceId, goalId, course);
+        Set<String> kept = course.parts().stream().flatMap(part -> part.lessons().stream()).collect(toImmutableSet());
+        for (WorkItemView left : goal.items()) {
+            boolean dropped = accepted.stream().flatMap(old -> old.parts().stream()).anyMatch(part -> part.lessons().contains(left.id())) && !kept.contains(left.id());
+            if (dropped && left.state() != WorkItem.State.DONE && left.state() != WorkItem.State.DROPPED) {
+                work.change(workspaceId, left.id(), new WorkItemCommand("course:" + exchangeId + ":" + left.id(), left.revision(), WorkItemCommand.Action.DROP,
+                        Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                        "Left out of the revised course" + draft.reason().map(reason -> ": " + reason).orElse(".")));
+            }
+        }
+        tell(workspaceId, goalId, "course:" + exchangeId, accepted.isPresent() ? "The user accepted the revised course." : "The user accepted the course.");
+        return goal(workspaceId, goalId);
+    }
+
+    /** Why a revision cannot replace the accepted course: it names a lesson the course does not hold, or leaves out a finished one. */
+    private static Optional<String> invalidRevision(GoalView goal, GoalCourse.Draft draft)
+    {
+        Set<String> accepted = goal.course().stream().flatMap(course -> course.parts().stream()).flatMap(part -> part.lessons().stream()).collect(toImmutableSet());
+        Set<String> kept = draft.parts().stream().flatMap(part -> part.lessons().stream()).flatMap(lesson -> lesson.lessonId().stream()).collect(toImmutableSet());
+        if (!accepted.containsAll(kept)) {
+            return Optional.of("The revised course names a lesson the course does not hold.");
+        }
+        boolean leavesFinished = goal.items().stream().anyMatch(item -> accepted.contains(item.id()) && item.state() == WorkItem.State.DONE && !kept.contains(item.id()));
+        return leavesFinished ? Optional.of("The revised course leaves out a finished lesson.") : Optional.empty();
     }
 
     /**
@@ -443,6 +475,11 @@ public class GoalConversationService
             model = Optional.of(setting.configId() + "/" + setting.model());
             List<GoalExchange> earlier = exchanges.list(goal.id()).stream().takeWhile(candidate -> !candidate.id().equals(exchange.id())).collect(toImmutableList());
             settled = exchange.answered(model.orElseThrow(), planner.answer(setting, goal, earlier, exchange), clock.instant());
+            // Invalid output leaves the accepted course intact and the message to ask again.
+            Optional<String> invalid = settled.reply().flatMap(GoalExchange.Reply::course).flatMap(course -> invalidRevision(goal, course));
+            if (invalid.isPresent()) {
+                settled = exchange.failed(model, invalid.orElseThrow(), clock.instant());
+            }
         }
         catch (RuntimeException failure) {
             log.debug("Goal exchange {} failed", exchange.id(), failure);

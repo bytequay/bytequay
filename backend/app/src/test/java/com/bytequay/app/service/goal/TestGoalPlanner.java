@@ -109,6 +109,18 @@ class TestGoalPlanner
                 {"assessment": "A course from the notes.", "question": null, "proposal": null, "recommendation": null, "course": {"parts": [
                 {"title": "Iceberg tables", "lessons": [{"title": "What a table is", "outcome": "Explain metadata, snapshots and manifests"}]}]}}""").course())
                 .hasValueSatisfying(course -> assertThat(course.parts().getFirst().lessons().getFirst().outcome()).isEqualTo("Explain metadata, snapshots and manifests"));
+        assertThat(GoalPlanner.parse("""
+                {"assessment": "You know tables already.", "question": null, "proposal": null, "recommendation": null, "course": {"parts": [
+                {"title": "The connector", "lessons": [{"title": "Plan a scan", "outcome": "Explain splits", "lessonId": "lesson-3"},
+                {"title": "Read deletes", "outcome": "Explain position deletes", "lessonId": null}]}], "reason": "You know Iceberg tables."}}""").course())
+                .hasValueSatisfying(course -> {
+                    assertThat(course.reason()).contains("You know Iceberg tables.");
+                    assertThat(course.parts().getFirst().lessons()).extracting(GoalCourse.DraftLesson::lessonId).containsExactly(Optional.of("lesson-3"), Optional.empty());
+                });
+        assertThatThrownBy(() -> GoalPlanner.parse("""
+                {"assessment": "x", "question": null, "proposal": null, "recommendation": null, "course": {"parts": [{"title": "Twice", "lessons": [
+                {"title": "a", "outcome": "a", "lessonId": "lesson-3"}, {"title": "b", "outcome": "b", "lessonId": "lesson-3"}]}]}}"""))
+                .hasMessageContaining("a course keeps each lesson once");
         String part = "{\"title\": \"p\", \"lessons\": [{\"title\": \"l\", \"outcome\": \"o\"}]}";
         assertThatThrownBy(() -> GoalPlanner.parse("{\"assessment\": \"x\", \"question\": null, \"proposal\": null, \"recommendation\": null, \"course\": {\"parts\": ["
                 + String.join(", ", java.util.Collections.nCopies(5, part)) + "]}}"))

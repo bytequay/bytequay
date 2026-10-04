@@ -118,7 +118,11 @@ public class GoalPlanner
             user dismissed. Once research saved notes and no course is accepted, propose a course from the notes: parts in
             order, each with lessons that name what the user can do afterward. Start where the user's starting knowledge
             ends; a user who already knows the specification starts at the connector. Once a course is accepted, recommend
-            its next lesson as a LESSON card naming the lesson's id when the user is ready for it, one at a time. When the
+            its next lesson as a LESSON card naming the lesson's id when the user is ready for it, one at a time. When what
+            the user knows or did shows the accepted course no longer fits, such as a part they already know or an area
+            they need first, propose a revised course with a one-line reason: every lesson in its new place, an accepted
+            lesson by its id in lessonId with its title, a new one without. Keep every DONE lesson; the ones you leave
+            out are dropped. When the
             user is ready to practice an area, recommend one of practiceCandidates as a WORK card, an issue by its number
             in issue or a Jira ticket by its key in ticket: say why it fits what they learned, and put in scope the
             instruction a developer would give a coding agent for it, what to change and how to check it. Never call a
@@ -152,7 +156,7 @@ public class GoalPlanner
             Reply with one JSON object and nothing else, without a Markdown fence:
             {"assessment": "...", "question": {"text": "...", "suggestions": ["..."]}, "proposal": {"title": "...",
             "objective": "...", "successDefinition": "...", "startingKnowledge": "...", "constraints": "..."},
-            "course": {"parts": [{"title": "...", "lessons": [{"title": "...", "outcome": "..."}]}]},
+            "course": {"parts": [{"title": "...", "lessons": [{"title": "...", "outcome": "...", "lessonId": null}]}], "reason": null},
             "recommendation": {"kind": "RESEARCH", "title": "...", "reason": "...", "scope": "...", "pages": ["https://..."], "workItemId": null,
             "issue": null, "ticket": null, "module": null, "reproductions": null}, "topics": [{"topic": "...", "level": "LEARNING", "evidence": ["discussion:..."]}],
             "title": "..."}
@@ -161,7 +165,8 @@ public class GoalPlanner
             - proposal: null, or a definition: a title of at most 200 characters and the other fields at most 2000 each;
               startingKnowledge and constraints may be empty strings.
             - course: null, or one to four parts of one to six lessons, sixteen lessons at most; titles of at most 120
-              characters and outcomes of at most 400.
+              characters and outcomes of at most 400. A first course leaves lessonId and reason null; a revision keeps
+              accepted lessons by lessonId and gives its reason in at most 300 characters.
             - recommendation: null, or a card: a title of at most 120 characters, a one-line reason of at most 300, a
               scope of at most 2000 and at most eight https pages. A RESEARCH card's workItemId, issue and ticket are null; a
               LESSON card names its lesson's id in workItemId; a WORK card names one candidate: an issue's number in issue

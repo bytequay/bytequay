@@ -342,7 +342,7 @@ function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, o
       {conversation.notes.length > 0 && <Notes notes={conversation.notes} />}
       {goal !== null && goal.topics.length > 0 && <Known topics={goal.topics} onCorrect={conversation.correctTopic} />}
       {open !== null && <Proposal key={open.exchangeId} proposal={open.proposal} onAccept={(title) => conversation.accept(open.exchangeId, title)} />}
-      {course !== null && <CourseProposal key={course.exchangeId} course={course.course} onAccept={() => conversation.acceptCourse(course.exchangeId)} />}
+      {course !== null && <CourseProposal key={course.exchangeId} goal={goal} course={course.course} onAccept={() => conversation.acceptCourse(course.exchangeId)} />}
       {(error ?? conversation.error) !== null && <p className="goal-guide__error" role="alert">{error ?? conversation.error}</p>}
       {!opening && ready && composer}
     </div>
@@ -508,23 +508,39 @@ function LessonView({ goal, item, repository, conversation, onBack }: {
 }
 
 /** A course the agent proposes; accepting it saves each lesson as a Learn work item and starts nothing. */
-function CourseProposal({ course, onAccept }: { course: GoalCourseDraftDto; onAccept: () => Promise<unknown> }): React.JSX.Element {
+/** A proposed course, or a revision of the accepted one: its kept lessons as they stand, its new ones marked, and the unfinished ones it drops. */
+function CourseProposal({ goal, course, onAccept }: { goal: GoalDto | null; course: GoalCourseDraftDto; onAccept: () => Promise<unknown> }): React.JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const accepted = goal?.course ?? null;
+  const lessons = new Map((goal?.items ?? []).map((item) => [item.id, item]));
+  const kept = new Set(course.parts.flatMap((part) => part.lessons.flatMap((lesson) => (lesson.lessonId === null ? [] : [lesson.lessonId]))));
+  const leaving = (accepted?.parts ?? []).flatMap((part) => part.lessons).filter((id) => !kept.has(id)).map((id) => lessons.get(id))
+    .filter((item) => item !== undefined && item.state !== 'DONE' && item.state !== 'DROPPED');
+  const label = accepted === null ? 'Proposed course' : 'Revised course';
   return (
-    <section className="goal-proposal" aria-label="Proposed course">
-      <div className="goal-proposal__label">Proposed course</div>
+    <section className="goal-proposal" aria-label={label}>
+      <div className="goal-proposal__label">{label}</div>
+      {course.reason !== null && <p className="goal-course__reason">{course.reason}</p>}
       {course.parts.map((part, index) => <div key={part.title} className="goal-course__part">
         <div className="goal-course__title">{index + 1}. {part.title}</div>
-        <ol className="goal-course__lessons">{part.lessons.map((lesson) => <li key={lesson.title}>
-          <span>{lesson.title}</span><span className="goal-course__outcome">{lesson.outcome}</span>
-        </li>)}</ol>
+        <ol className="goal-course__lessons">{part.lessons.map((lesson) => {
+          const existing = lesson.lessonId === null ? undefined : lessons.get(lesson.lessonId);
+          return <li key={lesson.lessonId ?? lesson.title} className={existing?.state === 'DONE' ? 'is-done' : undefined}>
+            <span>{existing?.title ?? lesson.title}{accepted !== null && existing === undefined && <span className="goal-course__new">New</span>}</span>
+            <span className="goal-course__outcome">{existing === undefined ? lesson.outcome : existing.state === 'DONE' ? 'Done' : existing.acceptanceCriteria}</span>
+          </li>;
+        })}</ol>
       </div>)}
+      {leaving.length > 0 && <div className="goal-course__part">
+        <div className="goal-course__title">Leaves the course</div>
+        <ul className="goal-course__lessons goal-course__leaving">{leaving.map((item) => <li key={item.id}>{item.title}</li>)}</ul>
+      </div>}
       {error !== null && <p className="goal-guide__error" role="alert">{error}</p>}
       <button type="button" className="goal-add" disabled={busy} onClick={() => {
         setBusy(true); setError(null);
         void onAccept().catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The course was not saved')).finally(() => setBusy(false));
-      }}>{busy ? 'Saving…' : 'Accept course'}</button>
+      }}>{busy ? 'Saving…' : accepted === null ? 'Accept course' : 'Accept revision'}</button>
     </section>
   );
 }

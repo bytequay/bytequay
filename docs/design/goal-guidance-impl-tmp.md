@@ -251,6 +251,12 @@ one GraphQL request for its state and the pull requests linked to close it, a
 ticket through the Jira refresh; an unready source is saved as a dismissed card
 and the agent is told why and asked for another.
 
+Item 2 is implemented: a later reply's course revises the accepted one; lessons
+keep their work items by ID, new ones get deterministic IDs, a left-out
+unfinished lesson is dropped with the revision's reason, and the Goal window
+shows the revision with its new and leaving lessons. A revision that names an
+unknown lesson or leaves out a finished one fails the reply.
+
 Done when: no practice card floats for a closed or already fixed issue or a done
 ticket; an accepted course can be revised without losing finished lessons; and
 a task that ends ten turns in a minute brings at most two Goal exchanges, while

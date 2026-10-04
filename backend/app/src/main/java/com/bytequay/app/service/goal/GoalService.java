@@ -54,7 +54,7 @@ public interface GoalService
      */
     Optional<GoalView> name(String workspaceId, String goalId, String title, Set<String> replaceable);
 
-    /** Saves the course the user accepted; accepting it again changes nothing, and a goal keeps its first course. */
+    /** Saves the course the user accepted, in place of an earlier one it revises; accepting it again changes nothing. */
     GoalView planCourse(String workspaceId, String goalId, GoalCourse course);
 
     /** Archives the goal and retains its work; the oldest active goal inherits its pin. */

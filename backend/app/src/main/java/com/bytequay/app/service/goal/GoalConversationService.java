@@ -404,6 +404,10 @@ public class GoalConversationService
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "This answer proposes no course."));
         GoalView goal = goal(workspaceId, goalId);
         Optional<GoalCourse> accepted = goal.course().filter(course -> !course.exchangeId().equals(exchangeId));
+        // A course proposed before the accepted one cannot replace it.
+        if (accepted.flatMap(course -> exchanges.find(course.exchangeId())).filter(newer -> newer.askedAt().isAfter(exchange.askedAt())).isPresent()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "A newer course is already accepted. Ask the agent again.");
+        }
         Optional<String> invalid = accepted.isPresent() ? invalidRevision(goal, draft) : Optional.empty();
         if (invalid.isPresent()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, invalid.orElseThrow() + " Ask the agent again.");
@@ -720,6 +724,8 @@ public class GoalConversationService
             known.add("lesson:" + item.id());
             known.add("work:" + item.id());
         });
+        // What the user said they already know, in the definition they accepted.
+        goal.definition().filter(definition -> !definition.startingKnowledge().isBlank()).ifPresent(definition -> known.add("definition:" + definition.exchangeId()));
         for (GoalTopic.Change change : changes) {
             List<String> evidence = change.evidence().stream().filter(known::contains).collect(toImmutableList());
             String id = GoalTopic.id(goal.id(), change.topic());

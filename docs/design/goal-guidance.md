@@ -106,7 +106,9 @@ marking new lessons and listing the unfinished ones it leaves out; accepting it
 creates the new lessons, saves the new parts and order, and drops each left-out
 lesson with the reason. A revision that names an unknown lesson or leaves out a
 finished one fails its reply, which the user can ask again. The Guide view shows
-the course with each lesson's state.
+the course with each lesson's state. A course proposed before the accepted one
+cannot replace it. Once the user accepts a definition that says what they
+already know, the agent may set the first topic levels citing that definition.
 
 A lesson opens in the expanded Goal window. The first time, a tool-free request
 writes it from the Goal's notes: an explanation in Markdown that links the notes'

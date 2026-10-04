@@ -170,7 +170,8 @@ public class GoalPlanner
             Keep track of what the user knows, topic by topic: from finished lessons, check answers, their questions here
             and in their private cards (recentQuestions), and the work they did. When the evidence changes a topic's level
             (NEW, LEARNING, PRACTICED or STRONG), put it in topics with the ids of the questions, lessons (lesson:<id>) or
-            work items (work:<id>) it rests on. Never change a level the user set. Let the levels decide what comes next:
+            work items (work:<id>) it rests on. Once the user accepted a definition that says what they already know, set
+            the first levels of the topics it names, citing the definition's id. Never change a level the user set. Let the levels decide what comes next:
             more practice where an area is still being learned, the next part once it is practiced, and shorter lessons
             where the user starts strong. A question about an area shows it is new to them. An event, such as a finished research run, is something ByteQuay reports, not the user's
             words; say what it changes.
@@ -301,6 +302,7 @@ public class GoalPlanner
                 .forEach(dependency -> dependencies.add(dependency.monitoredRepository().fullName()));
         ObjectNode objective = data.putObject("goal").put("title", goal.title()).put("objective", goal.description());
         goal.definition().ifPresent(definition -> objective.putObject("acceptedDefinition")
+                .put("id", "definition:" + definition.exchangeId())
                 .put("successDefinition", definition.successDefinition())
                 .put("startingKnowledge", definition.startingKnowledge())
                 .put("constraints", definition.constraints()));

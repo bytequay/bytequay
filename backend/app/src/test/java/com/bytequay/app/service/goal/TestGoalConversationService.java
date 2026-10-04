@@ -472,6 +472,39 @@ class TestGoalConversationService
     }
 
     @Test
+    void whatTheUserAlreadyKnowsBacksTheFirstTopicLevels()
+    {
+        GoalView goal = goals.create("workspace", "Iceberg", "");
+        service.ask("workspace", goal.id(), "op-1", "Reads first");
+        doReturn(PROPOSAL).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        service.accept("workspace", goal.id(), "op-1", Optional.empty());
+        doReturn(levels(new GoalTopic.Change("The Iceberg specification", GoalTopic.Level.STRONG, ImmutableList.of("definition:op-1")),
+                new GoalTopic.Change("Snapshots", GoalTopic.Level.STRONG, ImmutableList.of("definition:op-2")))).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        assertThat(goals.list("workspace").getFirst().topics()).as("only the accepted definition backs a level").singleElement().satisfies(topic -> {
+            assertThat(topic.topic()).isEqualTo("The Iceberg specification");
+            assertThat(topic.evidence()).containsExactly("definition:op-1");
+        });
+    }
+
+    @Test
+    void anOlderCourseCannotReplaceANewerOne()
+    {
+        GoalView goal = goals.create("workspace", "Iceberg", "");
+        service.ask("workspace", goal.id(), "op-1", "What next?");
+        doReturn(COURSE).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        clock.advance(Duration.ofMinutes(1));
+        service.ask("workspace", goal.id(), "op-2", "Shorter, please");
+        queued.removeFirst().run();
+        service.acceptCourse("workspace", goal.id(), "op-2");
+        assertThatThrownBy(() -> service.acceptCourse("workspace", goal.id(), "op-1"))
+                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("newer course");
+        assertThat(goals.list("workspace").getFirst().course()).hasValueSatisfying(course -> assertThat(course.exchangeId()).isEqualTo("op-2"));
+    }
+
+    @Test
     void anEventIsToldOnceAndNeverWhileTheAgentAnswers()
     {
         GoalView goal = goals.create("workspace", "Iceberg", "");

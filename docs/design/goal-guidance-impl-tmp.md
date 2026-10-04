@@ -408,6 +408,11 @@ attention once.
    user and the decisions waiting together, naming both on hover, and an empty
    Goal's Work view gives directions instead of empty counts.
 
+Progress: items 2 and 3 are implemented. The accepted definition's id is
+evidence the agent may cite for a topic level once its starting knowledge is not
+empty, and the planner sends that id and asks for first levels; accepting a
+course whose request came before the accepted course's is refused.
+
 Done when: a proposal can be adjusted or skipped without accepting it, a stated
 starting knowledge sets levels the user can correct, an older course cannot
 replace a newer one, and the Goal control shows one count.
@@ -489,7 +494,7 @@ work-item and Goal window Chromium journeys, and desktop packaging passed.
 - [x] Include current assessment, one consequential clarification, short suggested
   answers and a prepared supported action in that same reply. Reuse known
   context; do not repeat answered questions or infer unprovided preferences.
-- [ ] Ask what the user already knows before proposing a course, and save the
+- [x] Ask what the user already knows before proposing a course, and save the
   accepted starting knowledge with the Goal and as initial topic levels.
 - [x] Add recommendation records and cards under the Goal control: kind, title,
   reason, Start and Not now, at most three, newest first. Nothing starts without
@@ -514,7 +519,7 @@ never stack or repeat a dismissed one, course acceptance), `TestTextOnlyHelper`,
 text-only session tests, `TestGoalPlanner` and the `goalGuideBrowser` and
 `goalWindowBrowser` journeys. Still partial: response coverage is not saved;
 replies cannot propose dependencies, so there are no proposed cycles to refuse;
-starting knowledge does not seed topic levels; a proposal offers Accept without
+a proposal offers Accept without
 Adjust or Skip; an empty Goal's switcher and Work view still show empty counts
 rather than directions; and the pill shows two counts, not one attention cue.
 
@@ -622,7 +627,7 @@ already-started source cannot slip through stale recommendations.
 - [ ] Reconsider after meaningful linked work/source changes. Persist the input
   fingerprint, coalesce events and respect quiet hours and the design's call
   limits. Add Pause guidance and Update now; panel polling remains local.
-- [ ] Use request and input revision checks to discard stale proposed changes.
+- [x] Use request and input revision checks to discard stale proposed changes.
   An interrupted request stays retryable; do not launch or resend work on startup.
 - [ ] Save Goal insights locally with citations. Route a user-selected Remember
   action through the existing repository-memory policy, without a new memory engine.
@@ -636,9 +641,8 @@ cannot be cited; private cards are the twenty newest rather than those on the
 Goal's topics; task deletion and runtime cleanup do not wait for a receipt;
 summaries carry no insights or next recommendation; blocker changes, task starts
 and finished milestones are not reported to the agent; plan differences cover
-the course only; there is no persisted input fingerprint or quiet hours; a
-course accepted from an older revision can replace a newer one; there is no
-Remember action; and task deletion, log expiry and uncertain provider cleanup are
+the course only; there is no persisted input fingerprint or quiet hours; there
+is no Remember action; and task deletion, log expiry and uncertain provider cleanup are
 not exercised.
 
 Done when: completing or merging accepted work records one supported outcome,

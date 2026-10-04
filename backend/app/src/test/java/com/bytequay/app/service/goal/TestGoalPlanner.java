@@ -260,7 +260,8 @@ class TestGoalPlanner
         assertThat(planner.prompt(goal, earlier, GoalExchange.told("research:task", "goal-1", "workspace", "The research run saved 1 note: Manifest lists.", 1, NOW)))
                 .contains("\"event\" : \"The research run saved 1 note: Manifest lists.\"");
         assertThat(planner.prompt(goal, earlier, GoalExchange.ask("op-lesson", "goal-1", "workspace", "Why a tree?", 1, NOW).about(Optional.of("lesson-1"))))
-                .contains("\"openLesson\"", "\"explanation\" : \"A table is a tree of metadata.\"", "\"message\" : \"Why a tree?\"");
+                .contains("\"openLesson\"", "\"explanation\" : \"A table is a tree of metadata.\"", "\"message\" : \"Why a tree?\"",
+                        "\"id\" : \"definition:op-0\"", "citing the definition's id");
 
         String lesson = planner.lessonPrompt(goal, goal.items().getFirst(), "Iceberg tables", notes.list("goal-1"));
         assertThat(lesson.indexOf("untrusted reference data")).isLessThan(lesson.indexOf("<lesson-data>"));

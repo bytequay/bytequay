@@ -17,6 +17,6 @@ import { runBrowserFixture, type ScenarioResult } from '../../fixtures/browserFi
 it('reviews local work, routes questions and fixes, and inspects changing worktree history in Chromium', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-workbench-',
     entry: 'src/pulls/agent-review/fixtures/workbenchBrowser.tsx', global: 'WorkbenchTests', styles: true, charset: true, width: 700, height: 800 });
-  expect(results).toHaveLength(5);
+  expect(results).toHaveLength(6);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, 30_000);

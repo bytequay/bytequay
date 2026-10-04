@@ -147,7 +147,7 @@ export default function ReviewFindingCard({
           {finding.excerpt.map((text, index) => <CommentedCodeLine key={lines.startLine + index}
             line={{ lineNumber: completeExcerpt ? lines.startLine + index : null, prefix: lines.side === 'LEFT' ? '-' : ' ', text }} />)}
         </div>}
-        controls={(composer !== null || !withdrawn || error !== null) && <footer className={`lrc__foot${composer === null ? '' : ' is-composing'}`}>
+        controls={<footer className={`lrc__foot${composer === null ? '' : ' is-composing'}`}>
           {composer !== null && (
             <ReviewComposer
               repository={review.repo}
@@ -173,9 +173,11 @@ export default function ReviewFindingCard({
               onCancel={close} />
           )}
 
-          {composer === null && !withdrawn && <>
+          {composer === null && (
             <button type="button" className="lrc__ask" disabled={busy || review.state === 'CLOSED'}
               onClick={() => openComposer('ask', '')}>Ask reviewer</button>
+          )}
+          {composer === null && !withdrawn && <>
             {actions.onRequestFix !== undefined && finding.state === 'OPEN' && <button type="button" className="lrc__action" disabled={busy}
               onClick={() => openComposer('fix', 'Please investigate and address this finding.')}>Request fix</button>}
             {fixSent && <span className="pr-local-review__note" role="status">Sent to developer</span>}

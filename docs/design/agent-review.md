@@ -1153,6 +1153,9 @@ pretend the user asked about the new version.
 
 The agent may explain, revise, or withdraw its finding; the user may resolve
 it locally and explicitly reopen it. Keep the discussion and the reason.
+**Ask reviewer** stays available while the review is open, including after
+publication, local resolution, or withdrawal. These questions and replies stay
+private and do not reopen the finding or change its GitHub comment.
 An agent update may not undo a user resolution, erase a user message, or
 overwrite edited outgoing text. A later run rechecking a resolved finding
 keeps that decision unless the user explicitly reopens it.

@@ -926,6 +926,9 @@ samp {
 .app-sidebar__pinned-row { display: flex; align-items: center; min-width: 0; }
 .app-sidebar__pinned-row > .app-sidebar__item { min-width: 0; flex: 1; }
 .app-sidebar__pinned-row .app-sidebar__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-sidebar__pinned-row > .pin-button { opacity: 0; pointer-events: none; }
+.app-sidebar__pinned-row:hover > .pin-button,
+.app-sidebar__pinned-row:focus-within > .pin-button { opacity: 1; pointer-events: auto; }
 .pin-button {
   display: inline-flex;
   align-items: center;

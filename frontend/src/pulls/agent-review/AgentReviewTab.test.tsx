@@ -509,13 +509,18 @@ describe('the finding card', () => {
     expect(html).toContain('Post comment now');
   });
 
-  it('shows a withdrawn finding without any action', () => {
+  it('keeps private questions available on a withdrawn finding without offering publication or resolution', () => {
     const withdrawn = { ...finding, state: 'WITHDRAWN' as const, stateReason: 'The fallback only runs for single-segment paths' };
     const html = card(reviewFixture({ findings: [withdrawn] }), withdrawn);
     expect(html).toContain('The agent withdrew this finding');
     expect(html).toContain('can no longer be added to your review');
-    expect(html).not.toContain('Ask reviewer');
+    expect(html).toContain('<button type="button" class="lrc__ask">Ask reviewer</button>');
     expect(html).not.toContain('Add to my review');
+    expect(html).not.toContain('Post comment now');
+    expect(html).not.toContain('>Resolve</button>');
+    expect(html).not.toContain('>Reopen</button>');
+    expect(card(reviewFixture({ state: 'CLOSED', findings: [withdrawn] }), withdrawn))
+      .toContain('<button type="button" class="lrc__ask" disabled="">Ask reviewer</button>');
   });
 
   it('shows the outgoing draft inside the card, never as a second pending clone', () => {
@@ -535,7 +540,7 @@ describe('the finding card', () => {
     expect(html).not.toContain('Add to my review');
   });
 
-  it('keeps a published finding’s thread private and links the remote comment', () => {
+  it.each(['OPEN', 'RESOLVED', 'WITHDRAWN'] as const)('keeps a published %s finding’s thread open and private', state => {
     const published = reviewFixture({
       draft: draftWith([{
         id: 'item-1', source: 'AGENT_FINDING', findingId: 'finding-1', findingRevision: 1, commitId: finding.validatedHeadSha,
@@ -546,11 +551,13 @@ describe('the finding card', () => {
         },
       }]),
     });
-    const html = card(published, finding);
+    const html = card(published, { ...finding, state });
     expect(html).toContain('Posted to GitHub as a review comment');
     expect(html).toContain('The thread below stays private');
     expect(html).toContain('discussion_r2201456');
+    expect(html).toContain('<button type="button" class="lrc__ask">Ask reviewer</button>');
     expect(html).not.toContain('Post comment now');
+    expect(html).not.toContain('Add to my review');
   });
 
   it('blocks publication of a provisional finding and says why', () => {

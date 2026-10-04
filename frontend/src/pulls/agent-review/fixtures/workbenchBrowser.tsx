@@ -117,6 +117,39 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(discussionReview.messages.every(message => fixes[0].message.includes(message.body))
         && fixes[0].message.includes(review.findings[0].evidence[1].excerpt), 'The developer must receive the full discussion and evidence');
     });
+    await scenario('Published and withdrawn findings keep their private reviewer conversation open', async () => {
+      const finding = { ...review.findings[0], state: 'WITHDRAWN' as const, outdated: true, stateReason: 'Fixed by the latest commit' };
+      const published = reviewFixture({ findings: [finding], messages: reviewFixture().messages.map(message => ({ ...message, findingId: finding.id })), draft: {
+        repo: review.repo, number: 30304, body: '', event: 'COMMENT', version: 1, updatedAt: finding.updatedAt,
+        items: [{ id: 'published-item', source: 'AGENT_FINDING', findingId: finding.id, findingRevision: finding.revision,
+          commitId: finding.validatedHeadSha, path: finding.path, side: finding.side, line: finding.endLine, startLine: finding.startLine,
+          body: finding.body, included: true, published: true, publication: null }],
+      } });
+      const questions: Parameters<Bridge['askAgentReview']>[] = [];
+      install({ askAgentReview: async (...args) => { questions.push(args); return published; } });
+      function Surface() {
+        const [value, setValue] = useState(published);
+        const { actions, busy } = useFindingActions({ review: value, onReviewChange: setValue, onNavigate: () => {} });
+        return <ReviewFindingCard review={value} finding={value.findings[0]} projection="review" viewerLogin="me" viewerAvatarUrl={null}
+          actions={actions} busy={busy} />;
+      }
+      flushSync(() => root.render(<Surface />)); await settle();
+      assert(host.textContent?.includes('Posted to GitHub as a review comment') === true, 'The finding must retain its publication status');
+      for (const message of ['Why was this withdrawn?', 'Which check confirmed the fix?']) {
+        assert(!button('Ask reviewer').disabled, 'Publication and withdrawal must not disable private questions');
+        button('Ask reviewer').click(); await settle();
+        const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Ask the reviewer about this finding"]');
+        assert(input !== null, 'The private question composer must open');
+        changeInput(input, message); await settle(); button('Ask reviewer').click(); await settle();
+        assert(JSON.stringify(questions.at(-1)) === JSON.stringify([published.id, finding.id, finding.revision, message]),
+          'Each question must keep the original private finding identity and revision');
+        assert(host.querySelector('textarea') === null, 'Sending must close the composer and allow another question');
+      }
+      assert(questions.length === 2 && host.querySelectorAll('.agr-thread .lrc-message').length === published.messages.length,
+        'Repeated questions must preserve the existing private conversation');
+      assert(!host.textContent?.includes('Post comment now') && !host.textContent?.includes('Add to my review'),
+        'Continuing discussion must not offer to repost the finding');
+    });
     await scenario('Local diff selection rejects stale responses and preserves commit inspection', async () => {
       const pending: Array<{ scope: string; resolve: (value: WorktreeChangesDto) => void }> = [];
       install({ readWorktreeChanges: async (_host, request) => {

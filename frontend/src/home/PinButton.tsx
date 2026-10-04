@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Pin } from 'lucide-react';
+import { Pin, PinOff } from 'lucide-react';
 import { setPinned, usePinnedItems, type PinnedItem } from './pinned';
 
 export default function PinButton({ item, className = '' }: { item: PinnedItem; className?: string }) {
@@ -21,7 +21,7 @@ export default function PinButton({ item, className = '' }: { item: PinnedItem; 
     <button type="button" className={`pin-button${pinned ? ' is-pinned' : ''}${className ? ` ${className}` : ''}`}
       aria-label={label} title={label} aria-pressed={pinned}
       onClick={event => { event.stopPropagation(); setPinned(item, !pinned); }}>
-      <Pin size={14} fill={pinned ? 'currentColor' : 'none'} aria-hidden="true" />
+      {pinned ? <PinOff size={14} aria-hidden="true" /> : <Pin size={14} aria-hidden="true" />}
     </button>
   );
 }

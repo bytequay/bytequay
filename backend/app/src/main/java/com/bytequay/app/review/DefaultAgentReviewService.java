@@ -542,9 +542,6 @@ public class DefaultAgentReviewService
             String reassessmentNote = "";
             if (findingId.isPresent()) {
                 ReviewFinding finding = requireFinding(review, findingId.orElseThrow());
-                if (finding.state() == ReviewFinding.State.WITHDRAWN) {
-                    throw new ReviewConflictException("The agent withdrew this finding");
-                }
                 if (finding.revision() != targetRevision) {
                     throw new ReviewConflictException("The finding was revised to revision " + finding.revision() + "; reload before asking");
                 }

@@ -956,7 +956,7 @@ class TestDefaultAgentReviewService
     }
 
     @Test
-    void askRefusesAStaleRevisionAndAWithdrawnFinding()
+    void askRefusesAStaleRevision()
     {
         Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
@@ -964,21 +964,50 @@ class TestDefaultAgentReviewService
         ReviewFinding original = finding("finding-1", reviewId, runId, 1, ReviewFinding.State.OPEN);
         ReviewFinding revised = fixture.store.insertFinding(
                 original.revised("Reset the parser again", "Body", Optional.of("major"), original.anchor(), ImmutableList.of(), HEAD, NOW));
-        ReviewFinding withdrawn = fixture.store.insertFinding(finding("finding-2", reviewId, runId, 2, ReviewFinding.State.WITHDRAWN));
 
         assertThat(revised.revision()).isEqualTo(2);
         assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.of(revised.id()), Optional.empty(), 1, "Still true?"))
                 .isInstanceOf(ReviewConflictException.class)
                 .hasMessageContaining("revised to revision 2");
-        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.of(withdrawn.id()), Optional.empty(), 1, "Still true?"))
-                .isInstanceOf(ReviewConflictException.class)
-                .hasMessageContaining("withdrew this finding");
         assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 4, "Still true?"))
                 .isInstanceOf(ReviewConflictException.class)
                 .hasMessageContaining("The summary was revised to revision 1");
 
         assertThat(fixture.store.listMessages(reviewId)).isEmpty();
         verify(fixture.turns, times(1)).start(any(StartAgentTurnCommand.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void askContinuesAWithdrawnFindingDiscussion(boolean queued)
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        String runId = fixture.store.listRuns(reviewId).getLast().id();
+        ReviewFinding withdrawn = fixture.store.insertFinding(finding("finding-1", reviewId, runId, 1, ReviewFinding.State.WITHDRAWN));
+        if (queued) {
+            when(fixture.tasks.get(TASK_ID)).thenReturn(busyTask());
+            when(fixture.turns.enqueue(any(QueueAgentInputCommand.class))).thenReturn(queuedInput());
+        }
+
+        ReviewMessage first = fixture.service.ask(reviewId, Optional.of(withdrawn.id()), Optional.empty(), withdrawn.revision(), "Why was this withdrawn?");
+        ReviewMessage second = fixture.service.ask(reviewId, Optional.of(withdrawn.id()), Optional.empty(), withdrawn.revision(), "Which check confirmed the fix?");
+
+        assertThat(fixture.store.listMessages(reviewId)).containsExactly(first, second);
+        assertThat(second.findingId()).contains(withdrawn.id());
+        assertThat(second.targetRevision()).isEqualTo(withdrawn.revision());
+        assertThat(second.runId()).isEqualTo(runId);
+        assertThat(second.turnId().isPresent()).isEqualTo(!queued);
+        assertThat(second.queuedInputId()).isEqualTo(queued ? Optional.of(QUEUED_INPUT.toString()) : Optional.empty());
+        assertThat(fixture.store.findFinding(withdrawn.id())).contains(withdrawn);
+        verify(fixture.turns, times(queued ? 1 : 3)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(queued ? 2 : 0)).enqueue(any(QueueAgentInputCommand.class));
+
+        fixture.store.updateReview(fixture.store.findReview(reviewId).orElseThrow().closed(NOW));
+        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.of(withdrawn.id()), Optional.empty(), withdrawn.revision(), "One more question"))
+                .isInstanceOf(ReviewConflictException.class)
+                .hasMessageContaining("The review has ended");
+        assertThat(fixture.store.listMessages(reviewId)).containsExactly(first, second);
     }
 
     @Test

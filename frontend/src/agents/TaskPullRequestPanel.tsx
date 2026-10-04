@@ -17,7 +17,7 @@ import React from 'react';
 import type { LocalReviewThreads } from '../pulls/local-review/types';
 import PullChanges, { DiffViewer, type AgentReviewProjection, type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
 import PullOverview, { type PullDetailUpdater } from '../pulls/PullOverview';
-import { PrivateThreadsStrip, usePrivateThreads, type PrivateThreadSource } from '../pulls/PrivateThread';
+import { usePrivateThreads, type PrivateThreadSource } from '../pulls/PrivateThread';
 import { canSubmitReview } from '../pulls/PullsScreen';
 import type { PullRequestDetailSource } from '../pulls/usePullRequestDetail';
 import type {
@@ -119,7 +119,6 @@ export function TaskPullRequestView({
   }
   return (
     <>
-      {privateThreads !== undefined && <PrivateThreadsStrip threads={privateThreads} />}
       {error !== null && <div className="agt-note">{error}</div>}
       <PullOverview
         localReview={localReview}

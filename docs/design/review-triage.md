@@ -857,13 +857,14 @@ the comment's own component.
 
 ### 8.4 Show and Hide
 
-A strip under the pull-request tabs reads "Conversation … Private threads" with
-a Show / Hide segmented control. It is sticky above the metadata and the menu
-lift.
+A chat icon button sits at the right of the pull-request metadata, beside the
+labels. Its pressed state shows whether private threads are visible, and its
+tooltip offers "Hide private threads" or "Show private threads". There is no
+separate conversation toolbar.
 
 - **Hide** sends the forward thread back and replaces each behind thread with
   a `Private thread hidden` chip.
-- The strip then shows "N hidden".
+- The hidden toggle's tooltip includes "N hidden" when there are stored threads.
 - Clicking a hidden chip shows the threads again.
 
 The setting is client state and resets when the tab remounts. The
@@ -1009,8 +1010,8 @@ Each step compiles and passes the project gates on its own.
 11. **Other people's comments only.** The user's own comments lose Ask agent
     on every surface.
 12. **Task host on the pull-request page.** The host rule in `PullsScreen` for
-    a development task, the strip, and the prop through `DetailBody`. No
-    backend change.
+    a development task, the visibility toggle, and the prop through
+    `DetailBody`. No backend change.
 13. **Review host, backend.** The review-addressed methods, the review premise
     and preamble, the reviewer draft instructions, and the review routes.
 14. **Review host, frontend.** The review channels, the bridge port, and the
@@ -1061,9 +1062,9 @@ neither needs nor changes. They are fixed separately.
     shows the draft badge. `replyToReviewComment` is called only by Comment,
     exactly once.
 13. Without a host, the conversation renders no Ask agent, no chip, no tab and
-    no strip. Given a list holding private threads, the transcript footers,
-    the Discussions panel's turn groups and the tab count are what they are
-    without them.
+    no visibility toggle. Given a list holding private threads, the transcript
+    footers, the Discussions panel's turn groups and the tab count are what
+    they are without them.
 14. A private thread's stored row holds no seed, and a review card's key
     resolves when the cached reviews section is unavailable.
 15. The pull-request page shows a development task's threads, the same ones

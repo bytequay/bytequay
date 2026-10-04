@@ -35,7 +35,7 @@ import MarkdownEditor from './MarkdownEditor';
 import BetterWordsButton from './BetterWordsButton';
 import PullOverview, { commentedCodeLines, CommentedCodeLine, isQueued, mergePullRequestWriteDetail, remoteErrorMessage, useViewer, type PullDetailUpdater } from './PullOverview';
 import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
-import { privateThreadSource, PrivateThreadsStrip, reviewThreadBridge, usePrivateThreads, type PrivateThreadSource } from './PrivateThread';
+import { privateThreadSource, reviewThreadBridge, usePrivateThreads, type PrivateThreadSource } from './PrivateThread';
 import { useTaskDiscussions } from '../agents/discussions/useTaskDiscussions';
 import UserAvatar from '../UserAvatar';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
@@ -2188,10 +2188,7 @@ function DetailBody({
 /** The conversation and its private threads, whose view state the key resets for each pull request. */
 function PullConversation({ source, ...overview }: { source?: PrivateThreadSource } & Omit<ComponentProps<typeof PullOverview>, 'privateThreads'>) {
   const privateThreads = usePrivateThreads(source);
-  return <>
-    {privateThreads !== undefined && <PrivateThreadsStrip threads={privateThreads} />}
-    <PullOverview {...overview} privateThreads={privateThreads} />
-  </>;
+  return <PullOverview {...overview} privateThreads={privateThreads} />;
 }
 
 export function RefreshIcon() {

@@ -1101,9 +1101,9 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' = 'task'):
   try {
     flushSync(() => root.render(<PullsScreen initialPr={{ repo: 'owner/repo', number: 8 }}
       repositoryScope={{ workspaceId: 'workspace-1', repository: 'owner/repo' }} onClose={() => {}} />));
-    for (let attempt = 0; attempt < 30 && host.querySelector('.pr-private-strip') === null; attempt++) await settle();
-    assert(host.querySelector('.pr-private-strip') !== null && host.textContent?.includes('Should this cache be keyed by id?') === true,
-      `A pull request with a ${answeredBy} to answer must show the private threads strip on its page`);
+    for (let attempt = 0; attempt < 30 && host.querySelector('.pr-private-toggle') === null; attempt++) await settle();
+    assert(host.querySelector('.pr-meta > .pr-private-toggle') !== null && host.textContent?.includes('Should this cache be keyed by id?') === true,
+      `A pull request with a ${answeredBy} to answer must show the private threads toggle beside its labels`);
     const asks = [...host.querySelectorAll<HTMLButtonElement>('.pr-ask-agent')];
     assert(asks.length === 1, `Only carol's comment may offer Ask agent, not the viewer's own; found ${asks.length}`);
     asks[0].click();

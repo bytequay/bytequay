@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { ANSWERING_ELSEWHERE, isSummaryRequest, parseCommentSummary, SUMMARY_REQUEST, type DiscussionMessageDto, type TaskDiscussionDto } from '../agents/discussions/contracts';
 import type { TaskDiscussions } from '../agents/discussions/useTaskDiscussions';
 import {
-  commentExcerpt, hiddenThreadCount, PrivateThreadControls, PrivateThreadForward, privateThreadKey, privateThreadSource, PrivateThreadsStrip,
+  commentExcerpt, hiddenThreadCount, PrivateThreadControls, PrivateThreadForward, privateThreadKey, privateThreadSource, PrivateThreadsToggle,
   PrivateThreadTab, withMention, type PrivateThreads,
 } from './PrivateThread';
 
@@ -108,12 +108,13 @@ describe('private thread helpers', () => {
 });
 
 describe('private thread surfaces', () => {
-  it('draws the Show and Hide strip with what Hide put away', () => {
-    const html = renderToStaticMarkup(<PrivateThreadsStrip threads={threads({ show: false })} />);
-    expect(html).toContain('1 hidden');
-    expect(html).toContain('<button type="button" aria-pressed="false">Show</button>');
-    expect(html).toContain('<button type="button" aria-pressed="true">Hide</button>');
-    expect(renderToStaticMarkup(<PrivateThreadsStrip threads={threads()} />)).not.toContain('hidden');
+  it('labels the icon toggle and exposes visibility and the hidden count', () => {
+    const html = renderToStaticMarkup(<PrivateThreadsToggle threads={threads({ show: false })} />);
+    expect(html).toContain('aria-label="Private threads" aria-pressed="false"');
+    expect(html).toContain('title="Show private threads (1 hidden)"');
+    const shown = renderToStaticMarkup(<PrivateThreadsToggle threads={threads()} />);
+    expect(shown).toContain('aria-pressed="true"');
+    expect(shown).toContain('title="Hide private threads"');
   });
 
   it('shows a thread behind its comment as a chip and a tab, before Ask agent', () => {

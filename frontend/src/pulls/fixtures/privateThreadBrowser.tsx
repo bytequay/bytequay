@@ -159,17 +159,32 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(chip()?.textContent === 'Local · 1 reply ↑', `The chip reads "${chip()?.textContent ?? ''}"`);
     });
 
-    await step('Hide puts the thread away and Show brings the tab back', async () => {
-      const strip = host.querySelector<HTMLElement>('.pr-private-strip');
-      assert(strip !== null, 'The Private threads strip is missing');
-      button(strip, 'Hide').click();
-      await settle();
-      assert(chip()?.textContent === 'Private thread hidden' && strip.textContent?.includes('1 hidden') === true
-        && host.querySelector('.pr-private-tab') === null, 'Hide must leave only the hidden marker and its count');
+    await step('The metadata icon hides and shows private threads, closing the forward card', async () => {
+      const toggle = host.querySelector<HTMLButtonElement>('.pr-meta > .pr-private-toggle');
+      const labels = host.querySelector<HTMLButtonElement>('.pr-meta__picker:last-of-type button');
+      assert(toggle !== null && labels !== null, 'The private threads toggle must sit beside the metadata');
+      assert(toggle.getBoundingClientRect().left > labels.getBoundingClientRect().right,
+        'The toggle must sit to the right of the labels');
+      assert(host.querySelector('.pr-private-strip') === null && toggle.textContent === '', 'The old text toolbar must be absent');
+      assert(toggle.getAttribute('aria-pressed') === 'true' && toggle.getAttribute('title') === 'Hide private threads', 'The toggle must start on');
       chip()?.click();
       await settle();
-      assert(host.querySelector('.pr-private-tab') !== null && strip.textContent?.includes('hidden') === false,
-        'The hidden marker must show the threads again');
+      assert(host.querySelector('.pr-private-forward') !== null, 'The thread must open before hiding');
+      toggle.click();
+      await settle();
+      assert(chip()?.textContent === 'Private thread hidden' && toggle.getAttribute('title') === 'Show private threads (1 hidden)'
+        && toggle.getAttribute('aria-pressed') === 'false' && host.querySelector('.pr-private-tab') === null
+        && host.querySelector('.pr-private-forward') === null, 'Hiding must close the thread and leave its hidden marker');
+      toggle.click();
+      await settle();
+      assert(host.querySelector('.pr-private-tab') !== null && toggle.getAttribute('aria-pressed') === 'true',
+        'The toggle must show the threads again');
+      toggle.click();
+      await settle();
+      chip()?.click();
+      await settle();
+      assert(host.querySelector('.pr-private-tab') !== null && toggle.getAttribute('aria-pressed') === 'true',
+        'The hidden marker must also show the threads again');
     });
 
     await step('Draft with agent fills the reply editor with a mention and posts nothing', async () => {

@@ -45,7 +45,7 @@ import { EMPTY_TIMELINE_PAYLOAD } from './model';
 import { PullRequestIcon } from './PullRowItem';
 import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
 import MarkdownEditor from './MarkdownEditor';
-import { PrivateThreadControls, PrivateThreadForward, PrivateThreadTab, privateThreadKey, withMention, type PrivateThreads } from './PrivateThread';
+import { PrivateThreadControls, PrivateThreadForward, PrivateThreadsToggle, PrivateThreadTab, privateThreadKey, withMention, type PrivateThreads } from './PrivateThread';
 import type { TaskDiscussionDto } from '../agents/discussions/contracts';
 
 type Activity = PullRequestDetailDto['recentActivity'][number];
@@ -91,7 +91,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, loca
   contributorsWorkspaceId?: string;
   taskActions?: ReactNode;
   localReview?: LocalReviewThreads;
-  /** The task screen's private threads on this pull request's comments; every other surface passes none. */
+  /** The host task's private threads on this pull request's comments, when available. */
   privateThreads?: PrivateThreads;
   onRefresh: () => Promise<void>;
   onDetailUpdate?: PullDetailUpdater;
@@ -158,7 +158,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, loca
       </section>
 
       <div className="pr-overview__rule" />
-      <Metadata detail={detail} contributorsWorkspaceId={contributorsWorkspaceId} onDetailUpdate={onDetailUpdate} />
+      <Metadata detail={detail} contributorsWorkspaceId={contributorsWorkspaceId} onDetailUpdate={onDetailUpdate} privateThreads={privateThreads} />
       {detail.unavailableSections.length > 0 && (
         <div className="pr-unavailable" role="status">
           Some GitHub sections are temporarily unavailable: {detail.unavailableSections.join(', ')}.
@@ -276,10 +276,11 @@ type PeoplePickerKind = 'reviewers' | 'assignees';
 type MetadataPickerKind = PeoplePickerKind | 'labels';
 type PeoplePickerCandidate = RepoUserDto & { selected: boolean; locked: boolean };
 
-function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate }: {
+function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate, privateThreads }: {
   detail: PullRequestDetailDto;
   contributorsWorkspaceId?: string;
   onDetailUpdate: PullDetailUpdater;
+  privateThreads?: PrivateThreads;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState<MetadataPickerKind | null>(null);
@@ -467,6 +468,7 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate }: {
           }} />}
       </div>
       {visibleDetail.milestone && <span><small>Milestone</small> {visibleDetail.milestone}</span>}
+      {privateThreads !== undefined && <PrivateThreadsToggle threads={privateThreads} />}
       {error && <div className="pr-meta__error" role="alert">Could not update pull request. {error}</div>}
     </div>
   );

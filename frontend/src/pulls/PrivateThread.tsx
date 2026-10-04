@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useState } from 'react';
-import { ChevronRight, LoaderCircle } from 'lucide-react';
+import { ChevronRight, LoaderCircle, MessagesSquare } from 'lucide-react';
 import Avatar from '../Avatar';
 import { relativeTime } from '../relativeTime';
 import { ANSWERING_ELSEWHERE, isSummaryRequest, parseCommentSummary, type CommentSummaryDto, type TaskDiscussionDto } from '../agents/discussions/contracts';
@@ -148,19 +148,14 @@ function replies(thread: TaskDiscussionDto): string {
   return count === 1 ? '1 reply' : `${count} replies`;
 }
 
-export function PrivateThreadsStrip({ threads }: { threads: PrivateThreads }) {
+export function PrivateThreadsToggle({ threads }: { threads: PrivateThreads }) {
   const hidden = hiddenThreadCount(threads);
+  const title = threads.show ? 'Hide private threads' : `Show private threads${hidden > 0 ? ` (${hidden} hidden)` : ''}`;
   return (
-    <div className="pr-private-strip">
-      <span>Conversation</span>
-      <span className="pr-private-strip__spacer" />
-      {hidden > 0 && <span>{hidden} hidden</span>}
-      <strong>Private threads</strong>
-      <div className="pr-private-strip__seg" role="group" aria-label="Private threads">
-        <button type="button" aria-pressed={threads.show} onClick={() => threads.setShow(true)}>Show</button>
-        <button type="button" aria-pressed={!threads.show} onClick={() => threads.setShow(false)}>Hide</button>
-      </div>
-    </div>
+    <button type="button" className="pr-private-toggle" aria-label="Private threads" aria-pressed={threads.show}
+      title={title} onClick={() => threads.setShow(!threads.show)}>
+      <MessagesSquare size={16} strokeWidth={1.7} aria-hidden="true" />
+    </button>
   );
 }
 

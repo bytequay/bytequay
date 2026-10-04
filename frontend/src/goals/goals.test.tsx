@@ -103,7 +103,8 @@ describe('goal model', () => {
   });
 });
 
-const NO_CONVERSATION: GoalConversation = { loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, ask: async () => {}, retry: async () => {}, accept: async () => {},
+const NO_CONVERSATION: GoalConversation = { loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, ask: async () => {}, retry: async () => {},
+  stop: async () => {}, accept: async () => {},
   acceptCourse: async () => {}, openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {},
   correctTopic: async () => {} };
 
@@ -349,9 +350,9 @@ describe('goal guidance', () => {
   });
 
   it('shows the conversation, the question’s answers and a definition to accept', () => {
-    const pending = panel({ view: 'guide', conversation: conversation([{ ...ASKED, state: 'PENDING', reply: null }]) });
-    expect(pending).toContain('role="status"');
-    expect(pending).toContain('Thinking…');
+    const pending = panel({ view: 'guide', now: Date.parse('2026-10-03T10:01:20Z'), conversation: conversation([{ ...ASKED, state: 'PENDING', reply: null }]) });
+    expect(pending).toContain('<span role="status">Thinking…</span><span class="goal-muted">1:20</span>');
+    expect(pending).toContain('>Stop</button>');
     expect(pending).toMatch(/<button type="submit" class="goal-add" disabled="">Send<\/button>/);
 
     const asked = panel({ view: 'guide', conversation: conversation([ASKED]) });

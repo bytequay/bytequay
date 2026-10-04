@@ -210,6 +210,15 @@ class TestGoalController
     }
 
     @Test
+    void stopsTheReplyTheAgentIsWriting()
+            throws Exception
+    {
+        when(conversations.stop("workspace", "goal-1", "op-1")).thenReturn(ImmutableList.of());
+        mvc.perform(post("/api/workspaces/workspace/goals/goal-1/exchanges/op-1/stop")).andExpect(status().isOk());
+        verify(conversations).stop("workspace", "goal-1", "op-1");
+    }
+
+    @Test
     void readsTheLastSpecChecksGapsAndAddsOneToTheGoal()
             throws Exception
     {

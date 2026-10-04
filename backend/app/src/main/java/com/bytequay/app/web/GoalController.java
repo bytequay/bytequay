@@ -136,6 +136,12 @@ public class GoalController
         return conversations.ask(workspaceId, goalId, request.operationId(), request.message(), Optional.ofNullable(request.lessonId()));
     }
 
+    @PostMapping("/{goalId}/exchanges/{exchangeId}/stop")
+    public List<GoalExchange> stop(@PathVariable String workspaceId, @PathVariable String goalId, @PathVariable String exchangeId)
+    {
+        return conversations.stop(workspaceId, goalId, exchangeId);
+    }
+
     @PostMapping("/{goalId}/exchanges/{exchangeId}/retry")
     public List<GoalExchange> retry(@PathVariable String workspaceId, @PathVariable String goalId, @PathVariable String exchangeId)
     {

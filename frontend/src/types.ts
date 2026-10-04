@@ -1448,7 +1448,7 @@ export type Bridge = JiraBridge & {
     body: string,
     comments?: InlineReviewCommentDto[],
   ) => Promise<PullRequestDetailDto>;
-  betterWords: (text: string, repository: string, workspaceId?: string) => Promise<string>;
+  betterWords: (text: string, repository?: string, workspaceId?: string) => Promise<string>;
   mergePr: (prId: number, repo: string, number: number, strategy: string) => Promise<void>;
   removePrFromMergeQueue: (repo: string, number: number) => Promise<void>;
 
@@ -1490,6 +1490,8 @@ export type Bridge = JiraBridge & {
   /** @param lessonId the lesson the user asks about, whose content the agent reads with the question */
   askGoal: (workspaceId: string, goalId: string, operationId: string, message: string, lessonId?: string | null) => Promise<GoalExchangeDto[]>;
   retryGoalExchange: (workspaceId: string, goalId: string, exchangeId: string) => Promise<GoalExchangeDto[]>;
+  /** Stops the reply the agent is writing; the message stays to ask again. */
+  stopGoalExchange: (workspaceId: string, goalId: string, exchangeId: string) => Promise<GoalExchangeDto[]>;
   acceptGoalDefinition: (workspaceId: string, goalId: string, exchangeId: string, title: string) => Promise<GoalDto>;
   /** Accepts a proposed course: each lesson becomes a Learn work item of the goal, and nothing starts. */
   acceptGoalCourse: (workspaceId: string, goalId: string, exchangeId: string) => Promise<GoalDto>;

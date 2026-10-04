@@ -23,7 +23,7 @@ import '../../css/base.css';
 
 /** The backend as the Goal window sees it: one workspace whose agent answers when the journey says so. */
 const server = { goal: null as GoalDto | null, exchanges: [] as GoalExchangeDto[], notes: [] as GoalKnowledgeNoteDto[], asked: [] as string[], accepted: [] as string[],
-  started: [] as string[], cancelled: [] as string[], failNextAsk: false };
+  started: [] as string[], cancelled: [] as string[], stopped: [] as string[], failNextAsk: false };
 const CARD: GoalCardDto = { kind: 'RESEARCH', title: 'Read the Iceberg specification', reason: 'You start from the specification',
   scope: 'Table metadata, snapshots and manifests', pages: ['https://iceberg.apache.org/spec/'], workItemId: null, issue: null, ticket: null, module: null, reproductions: null };
 const PRACTICE: GoalCardDto = { kind: 'WORK', title: 'Fix #31252', reason: 'You learned how checkpoints reconcile actions',
@@ -55,7 +55,17 @@ const conversation: Omit<Goals, 'goals' | 'pinned'> = {
     server.exchanges = [];
     changed();
   },
-  createWork: unexpected, decideWork: unexpected, linkWork: unexpected, retry: unexpected, dismissCard: unexpected, acceptCourse: unexpected, refresh: changed,
+  createWork: unexpected, decideWork: unexpected, linkWork: unexpected, dismissCard: unexpected, acceptCourse: unexpected, refresh: changed,
+  stop: async (_goalId, exchangeId) => {
+    server.stopped.push(exchangeId);
+    server.exchanges = server.exchanges.map((exchange) => (exchange.id === exchangeId && exchange.state === 'PENDING'
+      ? { ...exchange, state: 'FAILED', failure: 'Stopped before the agent answered.' } : exchange));
+    return server.exchanges;
+  },
+  retry: async (_goalId, exchangeId) => {
+    server.exchanges = server.exchanges.map((exchange) => (exchange.id === exchangeId ? { ...exchange, state: 'PENDING', failure: null } : exchange));
+    return server.exchanges;
+  },
   openLesson: unexpected, readLesson: unexpected, finishLesson: unexpected, setTopic: unexpected,
   knowledge: async () => server.notes,
   gaps: async () => [],
@@ -156,6 +166,11 @@ export async function run(): Promise<boolean> {
     assert(server.goal !== null && asked() === 1, 'Free text starts the goal and asks its agent once');
     assert(text().includes('Thinking…') && button('Send').disabled, 'The pending answer shows and holds the next message');
     assert(composer().value === '', 'The sent message leaves the composer');
+    assert(/Thinking…\d+:\d\d/.test(text()), 'The pending reply shows how long the agent has worked');
+    button('Stop').click(); await settle(); await settle();
+    assert(server.stopped.length === 1 && text().includes('Stopped before the agent answered.') && !text().includes('Thinking…'), 'Stop ends a slow reply and keeps the message');
+    button('Ask again').click(); await settle(); await settle();
+    assert(text().includes('Thinking…') && asked() === 1, 'Ask again sends the stopped message once more');
 
     answer({ assessment: 'You want to understand the connector deeply.', proposal: null, recommendation: null, course: null,
       question: { text: 'Do you already know the Iceberg specification?', suggestions: ['Yes', 'Not yet'] } });

@@ -193,6 +193,10 @@ pending or failed reply, the user's decisions, clarifying, a started card, ready
 to conclude, the next lesson or the open work; the Goal control counts the
 proposals, courses, merged results and unadded gaps waiting for the user.
 
+Item 2 is implemented: a pending reply counts its minutes and seconds, and Stop
+fails the message as stopped at once and cancels the provider turn under the
+exchange's key, before or after it started; Ask again sends it once more.
+
 Done when: the panel says what the Goal waits on, a slow reply can be stopped
 and retried, a Goal can use its own model, guidance can pause, and a failed
 attempt or a requested change brings recovery guidance without the user asking.

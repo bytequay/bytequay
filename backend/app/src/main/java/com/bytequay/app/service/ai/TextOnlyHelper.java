@@ -26,6 +26,7 @@ import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
+import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.google.common.collect.ImmutableList;
@@ -37,9 +38,12 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static java.util.Objects.requireNonNull;
 
@@ -52,6 +56,30 @@ public class TextOnlyHelper
 
     private final AgentDriverRegistry drivers;
     private final AgentResourceService resources;
+    private final Map<String, Running> running = new ConcurrentHashMap<>();
+
+    /** A turn answering under a key, which {@link #cancel} stops from another thread whether it started yet or not. */
+    private static final class Running
+    {
+        private RunningTurn turn;
+        private boolean cancelled;
+
+        synchronized void started(RunningTurn started)
+        {
+            turn = started;
+            if (cancelled) {
+                started.cancel();
+            }
+        }
+
+        synchronized void cancel()
+        {
+            cancelled = true;
+            if (turn != null) {
+                turn.cancel();
+            }
+        }
+    }
 
     public TextOnlyHelper(AgentDriverRegistry drivers, AgentResourceService resources)
     {
@@ -66,15 +94,39 @@ public class TextOnlyHelper
      */
     public String answer(AgentModelSetting model, String prompt, String managedInstructions, String failure)
     {
-        return answer(model, prompt, managedInstructions, failure, MAXIMUM_RUNTIME);
+        return answer(model, prompt, managedInstructions, failure, MAXIMUM_RUNTIME, UUID.randomUUID().toString());
     }
 
     /**
      * Returns the model's final answer to {@code prompt}, given as long as the answer needs.
      *
      * @param maximumRuntime when the turn stops unanswered
+     * @param key what {@link #cancel} names to stop this answer
      */
-    public String answer(AgentModelSetting model, String prompt, String managedInstructions, String failure, Duration maximumRuntime)
+    public String answer(AgentModelSetting model, String prompt, String managedInstructions, String failure, Duration maximumRuntime, String key)
+    {
+        Running current = new Running();
+        if (running.putIfAbsent(key, current) != null) {
+            throw new IllegalStateException("An answer is already running for " + key);
+        }
+        try {
+            return answer(model, prompt, managedInstructions, failure, maximumRuntime, current);
+        }
+        finally {
+            running.remove(key, current);
+        }
+    }
+
+    /** Stops the answer running under the key; it ends cancelled, and its caller is told the model could not answer. */
+    public void cancel(String key)
+    {
+        Running current = running.get(key);
+        if (current != null) {
+            current.cancel();
+        }
+    }
+
+    private String answer(AgentModelSetting model, String prompt, String managedInstructions, String failure, Duration maximumRuntime, Running current)
     {
         TaskId taskId = TaskId.random();
         boolean processMayBeRunning = false;
@@ -98,14 +150,13 @@ public class TextOnlyHelper
                     managedInstructions);
             processMayBeRunning = true;
             session = driver.open(context, event -> {});
-            AgentTurnResult result = session.start(new AgentTurnCommand(
-                            TaskId.random().toString(),
-                            prompt,
-                            ImmutableList.of(),
-                            maximumRuntime))
-                    .completion()
-                    .toCompletableFuture()
-                    .join();
+            RunningTurn turn = session.start(new AgentTurnCommand(
+                    TaskId.random().toString(),
+                    prompt,
+                    ImmutableList.of(),
+                    maximumRuntime));
+            current.started(turn);
+            AgentTurnResult result = turn.completion().toCompletableFuture().join();
             if (!closeSession(session, taskId)) {
                 session = null;
                 throw new AgentUnavailableException("The model provider could not be verified stopped.");

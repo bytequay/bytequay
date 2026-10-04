@@ -37,7 +37,7 @@ const goals: Goals = { goals: [goal], pinned: goal, workItems: [], error: null, 
   remove: async (goalId) => { if (deleteFails) throw new Error('Deletion unavailable'); deleted.push(goalId); },
   add: async () => {}, removeItem: async () => {}, search: async () => [],
   createWork: unexpected, decideWork: unexpected, linkWork: unexpected,
-  start: unexpected, exchanges: async () => [], ask: unexpected, retry: unexpected, accept: unexpected,
+  start: unexpected, exchanges: async () => [], ask: unexpected, retry: unexpected, stop: unexpected, accept: unexpected,
   acceptCourse: unexpected, startCard: unexpected, dismissCard: unexpected, knowledge: async () => [], gaps: async () => [], addGap: unexpected,
   fileIssue: unexpected, refresh: () => {},
   openLesson: unexpected, readLesson: unexpected, finishLesson: unexpected, setTopic: unexpected };

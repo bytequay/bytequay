@@ -447,6 +447,27 @@ class TestGoalConversationService
     }
 
     @Test
+    void stoppingASlowReplyCancelsItsTurnAndLeavesTheMessageToAskAgain()
+    {
+        GoalView goal = goals.create("workspace", "Delta Lake", "");
+        service.ask("workspace", goal.id(), "op-1", "Reads first");
+        assertThat(service.stop("workspace", goal.id(), "op-1")).singleElement().satisfies(stopped -> {
+            assertThat(stopped.state()).isEqualTo(GoalExchange.State.FAILED);
+            assertThat(stopped.failure()).contains(GoalConversationService.STOPPED);
+        });
+        verify(planner).cancel("op-1");
+        doReturn(QUESTION).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        assertThat(exchanges.list(goal.id()).getFirst().state()).as("the stopped turn's late answer is not saved").isEqualTo(GoalExchange.State.FAILED);
+
+        service.stop("workspace", goal.id(), "op-1");
+        verify(planner, times(1)).cancel("op-1");
+        service.retry("workspace", goal.id(), "op-1");
+        queued.removeFirst().run();
+        assertThat(exchanges.list(goal.id()).getFirst().reply()).as("Ask again sends it once more").contains(QUESTION);
+    }
+
+    @Test
     void theAgentNamesAGoalItsFirstWordsStartedButNeverOverANameTheUserChose()
     {
         GoalView started = service.start("workspace", "op-1", "I want to become the Trino engine execution and scheduler master");

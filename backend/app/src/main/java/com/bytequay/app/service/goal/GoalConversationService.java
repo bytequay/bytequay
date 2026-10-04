@@ -66,6 +66,7 @@ public class GoalConversationService
 {
     static final int MAX_TITLE = 120;
     static final String INTERRUPTED = "ByteQuay stopped before the agent answered.";
+    static final String STOPPED = "Stopped before the agent answered.";
     // An accepted result repeats the criteria and every merged PR; the agent needs its gist.
     private static final int MAX_DECISION = 600;
     private static final Logger log = LoggerFactory.getLogger(GoalConversationService.class);
@@ -185,6 +186,28 @@ public class GoalConversationService
             exchanges.save(exchange);
         }
         dispatch(exchange);
+    }
+
+    /**
+     * Stops the reply the agent is writing: the message fails as stopped, so Ask again can send it again, and the model's turn is cancelled.
+     * A late answer is never saved, since only the request a job was given is settled. Stopping a settled message changes nothing.
+     */
+    public List<GoalExchange> stop(String workspaceId, String goalId, String exchangeId)
+    {
+        boolean stopped = false;
+        synchronized (writes) {
+            goal(workspaceId, goalId);
+            GoalExchange exchange = exchanges.find(exchangeId).filter(found -> found.goalId().equals(goalId))
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
+            if (exchange.state() == GoalExchange.State.PENDING) {
+                exchanges.save(exchange.failed(exchange.model(), STOPPED, clock.instant()));
+                stopped = true;
+            }
+        }
+        if (stopped) {
+            planner.cancel(exchangeId);
+        }
+        return exchanges.list(goalId);
     }
 
     /** Asks again for the goal's last message after it failed or was interrupted. */

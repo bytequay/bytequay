@@ -197,7 +197,7 @@ public class GoalPlanner
     public GoalLesson.Content lesson(AgentModelSetting model, GoalView goal, WorkItemView lesson, String part, List<GoalKnowledgeNote> saved)
     {
         WorkflowAgentTasks.requireReady(drivers, new AgentLaneId(model.configId()), AgentPermissionPolicy.AUTO, Optional.of(model.model()));
-        return parse(helper.answer(model, lessonPrompt(goal, lesson, part, saved), "", FAILURE, LESSON_RUNTIME), GoalLesson.Content.class);
+        return parse(helper.answer(model, lessonPrompt(goal, lesson, part, saved), "", FAILURE, LESSON_RUNTIME, "lesson:" + lesson.id()), GoalLesson.Content.class);
     }
 
     String lessonPrompt(GoalView goal, WorkItemView lesson, String part, List<GoalKnowledgeNote> saved)
@@ -220,7 +220,13 @@ public class GoalPlanner
     public GoalExchange.Reply answer(AgentModelSetting model, GoalView goal, List<GoalExchange> earlier, GoalExchange current)
     {
         WorkflowAgentTasks.requireReady(drivers, new AgentLaneId(model.configId()), AgentPermissionPolicy.AUTO, Optional.of(model.model()));
-        return parse(helper.answer(model, prompt(goal, earlier, current), "", FAILURE, REPLY_RUNTIME));
+        return parse(helper.answer(model, prompt(goal, earlier, current), "", FAILURE, REPLY_RUNTIME, current.id()));
+    }
+
+    /** Stops the answer the agent is writing to this exchange. */
+    public void cancel(String exchangeId)
+    {
+        helper.cancel(exchangeId);
     }
 
     String prompt(GoalView goal, List<GoalExchange> earlier, GoalExchange current)

@@ -944,7 +944,7 @@ button.goal-tile:hover {
 }
 .goal-thread__agent { font-size: 12.5px; line-height: 18px; overflow-wrap: anywhere; }
 .goal-thread__agent p { margin: 0 0 6px; }
-.goal-thread__agent.is-pending { color: #57606a; }
+.goal-thread__agent.is-pending { display: flex; align-items: baseline; gap: 6px; color: #57606a; }
 .goal-thread__agent.is-failed { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; color: #cf222e; }
 .goal-thread__question { color: var(--text-1); }
 .goal-definition { display: grid; grid-template-columns: max-content 1fr; gap: 4px 10px; margin: 0; font-size: 12.5px; line-height: 18px; }

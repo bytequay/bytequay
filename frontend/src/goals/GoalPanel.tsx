@@ -19,7 +19,7 @@ import { GoalIcon, SourceIcon } from '../cards/Card';
 import MarkdownBody from '../pulls/MarkdownBody';
 import { relativeTime } from '../relativeTime';
 import type {
-  GoalCourseDraftDto, GoalDto, GoalGapDto, GoalItemDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalProposalDto, GoalRecommendationDto, GoalTopicDto, TopicLevel, WorkItemDto, WorkItemDecision,
+  GoalCourseDraftDto, GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalProposalDto, GoalRecommendationDto, GoalTopicDto, TopicLevel, WorkItemDto, WorkItemDecision,
   CreateWorkItem, CompletionRule, WorkItemKind,
 } from './contracts';
 import {
@@ -151,7 +151,8 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
       {lessonItem !== undefined && goal !== null ? <LessonView key={lessonItem.id} goal={goal} item={lessonItem} repository={props.repository}
         conversation={props.conversation} onBack={() => props.onLesson(null)} />
         : item !== undefined ? <WorkDetails key={item.id} {...props} item={item} onBack={() => setSelected(null)} />
-        : view === 'guide' ? <GoalGuide key={goal?.id ?? 'next'} goal={goal} repository={props.repository} conversation={props.conversation} onStart={props.onStart} onOpenTask={props.onOpenTask}
+        : view === 'guide' ? <GoalGuide key={goal?.id ?? 'next'} goal={goal} repository={props.repository} conversation={props.conversation} now={props.now} onStart={props.onStart}
+          onOpenTask={props.onOpenTask}
           onLesson={props.onLesson} onBack={props.onBack} onStartIssue={props.onStartIssue} onStartTicket={props.onStartTicket} onSpecCheck={props.onSpecCheck}
           onFileIssue={props.onFileIssue} onReview={setSelected} />
           : goal === null ? <><NoGoal onCreate={props.onCreate} />{props.workItems.map((saved) => <button type="button" className="goal-work-card" key={saved.id} onClick={() => setSelected(saved.id)}>{saved.title} · {saved.state.toLowerCase()}</button>)}</> : <GoalWork {...props} goal={goal} onSelect={setSelected} />}
@@ -232,9 +233,9 @@ function GoalTitle({ goal, onRename }: { goal: GoalDto; onRename: GoalPanelProps
  * The agent's side of the goal: "What do you want to achieve?" while there is nothing to go on, then the conversation, the
  * question's suggested answers and a definition to accept. The opening is written locally; only a message asks the model.
  */
-function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLesson, onBack, onStartIssue, onStartTicket, onSpecCheck, onFileIssue, onReview }:
-  Pick<GoalPanelProps, 'goal' | 'repository' | 'conversation' | 'onStart' | 'onOpenTask' | 'onLesson' | 'onBack' | 'onStartIssue' | 'onStartTicket' | 'onSpecCheck'
-    | 'onFileIssue'> & { onReview: (workItemId: string) => void }): React.JSX.Element {
+function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, onLesson, onBack, onStartIssue, onStartTicket, onSpecCheck, onFileIssue, onReview }:
+  Pick<GoalPanelProps, 'goal' | 'repository' | 'conversation' | 'now' | 'onStart' | 'onOpenTask' | 'onLesson' | 'onBack' | 'onStartIssue' | 'onStartTicket'
+    | 'onSpecCheck' | 'onFileIssue'> & { onReview: (workItemId: string) => void }): React.JSX.Element {
   const { exchanges } = conversation;
   const [error, setError] = useState<string | null>(null);
   const last = exchanges.at(-1);
@@ -276,7 +277,7 @@ function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLess
         <ol className="goal-thread" aria-label="Conversation with the goal's agent">
           {exchanges.map((exchange) => <li key={exchange.id} className="goal-thread__turn">
             <div className={exchange.automatic ? 'goal-thread__event' : 'goal-thread__user'}>{exchange.message}</div>
-            {exchange.state === 'PENDING' && <div className="goal-thread__agent is-pending" role="status">Thinking…</div>}
+            {exchange.state === 'PENDING' && <Pending exchange={exchange} now={now} onStop={conversation.stop} />}
             {exchange.state === 'FAILED' && <div className="goal-thread__agent is-failed">
               <span>{exchange.failure}</span>
               {exchange === last && <button type="button" className="goal-link" onClick={() => {
@@ -374,6 +375,34 @@ function Started({ goal, card, onOpenTask, onLesson, onStartIssue, onStartTicket
   );
 }
 
+/** A reply the agent is writing: how long it has worked, and Stop, after which the message can be asked again. */
+function Pending({ exchange, now, onStop }: { exchange: GoalExchangeDto; now?: number; onStop: (exchangeId: string) => Promise<void> }): React.JSX.Element {
+  const clock = useNow(now === undefined);
+  const [stopping, setStopping] = useState(false);
+  const seconds = Math.max(0, Math.floor(((now ?? clock) - Date.parse(exchange.askedAt)) / 1_000));
+  return (
+    <div className="goal-thread__agent is-pending">
+      <span role="status">Thinking…</span>
+      <span className="goal-muted">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}</span>
+      <button type="button" className="goal-link" disabled={stopping} onClick={() => {
+        setStopping(true);
+        void onStop(exchange.id).catch(() => setStopping(false));
+      }}>Stop</button>
+    </div>
+  );
+}
+
+/** The current time, read again every second while {@code ticking}. */
+function useNow(ticking: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!ticking) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [ticking]);
+  return now;
+}
+
 /**
  * One lesson in the Goal window: written once from the goal's notes, its explanation, exercise and check, and questions about it that the
  * agent answers with the lesson in view. Done is the user's decision.
@@ -429,7 +458,7 @@ function LessonView({ goal, item, repository, conversation, onBack }: {
         }}>{busy ? 'Saving…' : 'Mark lesson done'}</button>}
       {questions.length > 0 && <ol className="goal-thread" aria-label="Questions about this lesson">{questions.map((exchange) => <li key={exchange.id} className="goal-thread__turn">
         <div className="goal-thread__user">{exchange.message}</div>
-        {exchange.state === 'PENDING' && <div className="goal-thread__agent is-pending" role="status">Thinking…</div>}
+        {exchange.state === 'PENDING' && <Pending exchange={exchange} onStop={conversation.stop} />}
         {exchange.state === 'FAILED' && <div className="goal-thread__agent is-failed">{exchange.failure}</div>}
         {exchange.reply !== null && <div className="goal-thread__agent"><p>{exchange.reply.assessment}</p></div>}
       </li>)}</ol>}

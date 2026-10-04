@@ -74,6 +74,9 @@ Accepting a proposal saves its title, objective, success
 definition, starting knowledge and constraints, and is refused once the Goal's
 text changed after the request was built. One exchange per Goal and two across
 the app run at a time; a request still pending at startup is marked interrupted.
+A reply may take ten minutes and a lesson twenty; a pending reply shows how long
+the agent has worked, and Stop cancels the model's turn and leaves the message
+to ask again, its late answer never saved.
 
 Once a definition is accepted, ByteQuay tells the agent, and its answer may
 recommend a research card: a scope and up to eight https pages. Cards float

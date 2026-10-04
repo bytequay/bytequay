@@ -160,7 +160,8 @@ class TestGoalPlanner
                 Optional.of(new GoalCourse("op-5", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1"))), NOW)),
                 ImmutableList.of(new WorkItemView("lesson-1", "workspace", Optional.of("goal-1"), "What a table is", WorkItem.Kind.LEARN, "Explain metadata",
                         WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.DONE, 2, ImmutableList.of(), ImmutableList.of(), NOW, NOW)),
-                ImmutableList.of(new GoalRecommendation("card-1", "goal-1", "workspace", CARD, GoalRecommendation.State.SHOWN, Optional.empty(), "op-0", NOW, NOW)), ImmutableList.of(), NOW, NOW);
+                ImmutableList.of(new GoalRecommendation("card-1", "goal-1", "workspace", CARD, GoalRecommendation.State.SHOWN, Optional.empty(),
+                        Optional.empty(), "op-0", NOW, NOW)), ImmutableList.of(), NOW, NOW);
         GoalExchange.Reply reply = new GoalExchange.Reply("You want reads first.", Optional.of(new GoalExchange.Question("Which area?", ImmutableList.of())), Optional.empty(),
                 Optional.empty(), Optional.empty(), ImmutableList.of());
         ImmutableList<GoalExchange> earlier = IntStream.range(0, GoalPlanner.MAX_EARLIER + 2)

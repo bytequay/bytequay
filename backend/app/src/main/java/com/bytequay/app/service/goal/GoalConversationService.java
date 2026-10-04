@@ -13,12 +13,15 @@
  */
 package com.bytequay.app.service.goal;
 
+import com.bytequay.app.context.ContextText;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalExchange;
+import com.bytequay.core.domain.GoalItem;
+import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.GoalTopic;
 import com.bytequay.core.domain.WorkItem;
@@ -64,6 +67,8 @@ public class GoalConversationService
 {
     static final int MAX_TITLE = 120;
     static final String INTERRUPTED = "ByteQuay stopped before the agent answered.";
+    // An accepted result repeats the criteria and every merged PR; the agent needs its gist.
+    private static final int MAX_DECISION = 600;
     private static final Logger log = LoggerFactory.getLogger(GoalConversationService.class);
 
     private final GoalService goals;
@@ -245,8 +250,8 @@ public class GoalConversationService
     }
 
     /**
-     * Start on a card: research begins its run; a work card is marked started while the composer opens with its instruction, and the task
-     * starts only when the user sends it.
+     * Start on a card: research begins its run; a work card makes its issue the Goal's work while the composer opens with its instruction,
+     * and the task starts only when the user sends it, as that work's attempt.
      */
     public GoalRecommendation startCard(String workspaceId, String goalId, String recommendationId)
     {
@@ -256,17 +261,62 @@ public class GoalConversationService
             return research.getObject().start(workspaceId, goalId, recommendationId);
         }
         checkArgument(card.card().kind() == GoalRecommendation.Kind.WORK, "A lesson card opens its lesson.");
+        if (card.state() == GoalRecommendation.State.STARTED) {
+            return card;
+        }
+        requireShown(card);
+        String repository = workspaces.findById(workspaceId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Workspace not found"))
+                .monitoredRepository().fullName();
+        WorkItemView practice = work.adopt(workspaceId, goalId, UUID.nameUUIDFromBytes(("practice:" + card.id()).getBytes(UTF_8)).toString(), card.card().title(),
+                card.card().scope(), GoalItemKind.ISSUE, GoalItem.numberedKey(repository, card.card().issue().orElseThrow()));
         synchronized (writes) {
             GoalRecommendation current = recommendations.find(recommendationId).orElseThrow();
             if (current.state() == GoalRecommendation.State.STARTED) {
                 return current;
             }
-            if (current.state() != GoalRecommendation.State.SHOWN) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "This card was already finished or dismissed.");
-            }
-            GoalRecommendation started = current.started(Optional.empty(), clock.instant());
+            requireShown(current);
+            GoalRecommendation started = current.practicing(practice.id(), clock.instant());
             recommendations.save(started);
             return started;
+        }
+    }
+
+    /**
+     * A decision on a Goal's work: a work card settles once the work it became is done or dropped, which lets the agent recommend the next
+     * practice, and the agent hears what the user decided. A finished lesson tells the agent itself, naming the lesson.
+     */
+    @EventListener
+    public void decided(WorkItemDecided decision)
+    {
+        try {
+            if (decision.action() != WorkItemCommand.Action.REOPEN) {
+                synchronized (writes) {
+                    recommendations.list(decision.goalId()).stream()
+                            .filter(card -> card.state() == GoalRecommendation.State.STARTED && card.workItemId().filter(decision.workItemId()::equals).isPresent())
+                            .forEach(card -> recommendations.save(card.done(clock.instant())));
+                }
+            }
+            if (decision.kind() != WorkItem.Kind.LEARN) {
+                String what = switch (decision.action()) {
+                    case ACCEPT -> "accepted the result of";
+                    case DROP -> "dropped";
+                    case REOPEN -> "reopened";
+                    case EDIT, BEGIN, MOVE -> throw new IllegalArgumentException("Not a decision to report: " + decision.action());
+                };
+                tell(decision.workspaceId(), decision.goalId(), "decided:" + decision.operationId(),
+                        "The user " + what + " \"" + decision.title() + "\": " + ContextText.excerpt(decision.detail(), MAX_DECISION));
+            }
+        }
+        catch (RuntimeException failure) {
+            // The decision is saved; the agent reads the work's state with its next request.
+            log.warn("Goal {} was not told about work item {}", decision.goalId(), decision.workItemId(), failure);
+        }
+    }
+
+    private static void requireShown(GoalRecommendation card)
+    {
+        if (card.state() != GoalRecommendation.State.SHOWN) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This card was already finished or dismissed.");
         }
     }
 
@@ -392,7 +442,7 @@ public class GoalConversationService
         if (!waiting && !dismissed) {
             Instant now = clock.instant();
             recommendations.save(new GoalRecommendation("card-" + exchange.id(), goal.id(), goal.workspaceId(), card, GoalRecommendation.State.SHOWN, Optional.empty(),
-                    exchange.id(), now, now));
+                    Optional.empty(), exchange.id(), now, now));
         }
     }
 

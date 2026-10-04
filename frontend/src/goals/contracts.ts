@@ -196,6 +196,8 @@ export type GoalRecommendationDto = {
   state: 'SHOWN' | 'STARTED' | 'DONE' | 'DISMISSED';
   /** The run Start began. */
   taskId: string | null;
+  /** The Goal work a work card's Start made of its issue; the card stays started until that work is done or dropped. */
+  workItemId: string | null;
   createdAt: string;
 };
 
@@ -230,6 +232,7 @@ export function parseGoalRecommendation(value: unknown): GoalRecommendationDto {
     card: parseCard(recommendation.card),
     state: oneOf(recommendation.state, ['SHOWN', 'STARTED', 'DONE', 'DISMISSED'] as const, 'goal recommendation state'),
     taskId: optionalText(recommendation.taskId),
+    workItemId: optionalText(recommendation.workItemId),
     createdAt: text(recommendation.createdAt, 'goal recommendation time'),
   };
 }

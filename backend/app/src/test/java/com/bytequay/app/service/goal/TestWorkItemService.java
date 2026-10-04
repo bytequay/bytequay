@@ -32,6 +32,8 @@ import org.mockito.MockMakers;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -58,7 +60,8 @@ class TestWorkItemService
             return work.run();
         }
     };
-    private final WorkItemService service = new WorkItemService(store, goals, workspaces, references, transactions, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final List<Object> published = new ArrayList<>();
+    private final WorkItemService service = new WorkItemService(store, goals, workspaces, references, transactions, published::add, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
     void setUp()
@@ -91,6 +94,55 @@ class TestWorkItemService
         assertThat(retry.links()).hasSize(3);
         assertThat(retry.state()).isEqualTo(WorkItem.State.WORKING);
         assertThat(retry.revision()).isEqualTo(first.revision());
+    }
+
+    @Test
+    void aRecommendedIssueBecomesTheGoalsWorkOnceAndConcludedOrOtherGoalsWorkIsNotTakenOver()
+    {
+        WorkItemLink issue = link(GoalItemKind.ISSUE, "org/repo#31252", "ISSUE:github.com:42");
+        when(references.requireLink("workspace", GoalItemKind.ISSUE, "org/repo#31252")).thenReturn(issue);
+        String id = UUID.randomUUID().toString();
+        WorkItemView adopted = service.adopt("workspace", "goal", id, "Fix #31252", "Key checkpoint actions by path and deletion vector", GoalItemKind.ISSUE,
+                "org/repo#31252");
+        assertThat(adopted.id()).isEqualTo(id);
+        assertThat(adopted.goalId()).contains("goal");
+        assertThat(adopted.kind()).isEqualTo(WorkItem.Kind.DEVELOP);
+        assertThat(adopted.state()).as("the task starts only when the user sends the composer").isEqualTo(WorkItem.State.PLANNED);
+        assertThat(adopted.completionRule()).isEqualTo(WorkItem.CompletionRule.MERGED_DELIVERY);
+        assertThat(adopted.acceptanceCriteria()).isEqualTo("Key checkpoint actions by path and deletion vector");
+        assertThat(service.adopt("workspace", "goal", UUID.randomUUID().toString(), "Fix #31252", "Another wording", GoalItemKind.ISSUE, "org/repo#31252"))
+                .as("the source's work is found again, never duplicated").isEqualTo(adopted);
+        assertThat(service.list("workspace")).hasSize(1);
+
+        goals.save(new Goal("goal-2", "workspace", "Another objective", "", false, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Optional.empty(),
+                NOW, NOW));
+        assertThatThrownBy(() -> service.adopt("workspace", "goal-2", UUID.randomUUID().toString(), "Fix #31252", "Fix it", GoalItemKind.ISSUE, "org/repo#31252"))
+                .hasMessageContaining("another Goal");
+        service.change("workspace", id, decision(adopted, WorkItemCommand.Action.DROP, "Not now"));
+        assertThatThrownBy(() -> service.adopt("workspace", "goal", UUID.randomUUID().toString(), "Fix #31252", "Fix it", GoalItemKind.ISSUE, "org/repo#31252"))
+                .hasMessageContaining("Reopen");
+    }
+
+    @Test
+    void aDecisionOnGoalWorkIsPublishedOnceButNotItsReplayOrWorkOutsideAGoal()
+    {
+        String id = UUID.randomUUID().toString();
+        WorkItemView created = service.create("workspace", id, Optional.of("goal"), "Fix the checkpoint", WorkItem.Kind.DEVELOP, "Rows survive",
+                WorkItem.CompletionRule.ACCEPTED_RESULT);
+        WorkItemView edited = service.change("workspace", id, new WorkItemCommand(UUID.randomUUID().toString(), created.revision(), WorkItemCommand.Action.EDIT,
+                Optional.empty(), Optional.of("No rows lost"), Optional.empty(), Optional.empty(), ""));
+        assertThat(published).as("editing the scope is no decision to report").isEmpty();
+        WorkItemCommand accept = decision(edited, WorkItemCommand.Action.ACCEPT, "The new test passes");
+        service.change("workspace", id, accept);
+        service.change("workspace", id, accept);
+        assertThat(published).singleElement().isEqualTo(new WorkItemDecided("workspace", "goal", id, "Fix the checkpoint", WorkItem.Kind.DEVELOP,
+                WorkItemCommand.Action.ACCEPT, accept.operationId(), "User accepted all criteria: No rows lost\nThe new test passes"));
+
+        String loose = UUID.randomUUID().toString();
+        WorkItemView outside = service.create("workspace", loose, Optional.empty(), "Tidy imports", WorkItem.Kind.DEVELOP, "Imports sorted",
+                WorkItem.CompletionRule.ACCEPTED_RESULT);
+        service.change("workspace", loose, decision(outside, WorkItemCommand.Action.DROP, "Not needed"));
+        assertThat(published).hasSize(1);
     }
 
     @Test

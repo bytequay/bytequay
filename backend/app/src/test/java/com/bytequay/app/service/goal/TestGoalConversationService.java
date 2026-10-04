@@ -19,8 +19,10 @@ import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalExchange;
+import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.GoalTopic;
+import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.Workspace;
@@ -103,6 +105,7 @@ class TestGoalConversationService
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
         when(workspace.monitoredRepositoryId()).thenReturn(1L);
+        when(workspace.monitoredRepository()).thenReturn(RepoRef.of("trinodb", "trino"));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
         beans.registerSingleton("goalResearchService", research);
         when(work.list("workspace")).thenReturn(ImmutableList.of());
@@ -284,7 +287,7 @@ class TestGoalConversationService
     }
 
     @Test
-    void aWorkCardNamesAnOpenIssueAndStartWaitsForTheComposer()
+    void aWorkCardNamesAnOpenIssueAndStartMakesItTheGoalsWorkUntilTheUserDecides()
     {
         GoalView goal = goals.create("workspace", "Delta Lake", "");
         service.ask("workspace", goal.id(), "op-1", "Reads first");
@@ -303,11 +306,40 @@ class TestGoalConversationService
         GoalRecommendation card = cards.list(goal.id()).getFirst();
         assertThat(card.card().issue()).contains(31252);
 
+        WorkItemView practice = new WorkItemView("work-1", "workspace", Optional.of(goal.id()), "Fix #31252", WorkItem.Kind.DEVELOP,
+                "Key add and remove actions by path and deletion vector.", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(),
+                ImmutableList.of(), Instant.EPOCH, Instant.EPOCH);
+        when(work.adopt(eq("workspace"), eq(goal.id()), any(), eq("Fix #31252"), eq("Key add and remove actions by path and deletion vector."), eq(GoalItemKind.ISSUE),
+                eq("trinodb/trino#31252"))).thenReturn(practice);
         GoalRecommendation started = service.startCard("workspace", goal.id(), card.id());
         assertThat(started.state()).isEqualTo(GoalRecommendation.State.STARTED);
-        assertThat(started.taskId()).as("the task starts only when the user sends the composer").isEmpty();
+        assertThat(started.workItemId()).as("the issue became the goal's work, whose task the user sends").contains("work-1");
+        assertThat(started.taskId()).isEmpty();
         assertThat(service.startCard("workspace", goal.id(), card.id())).isEqualTo(started);
+        verify(work, times(1)).adopt(any(), any(), any(), any(), any(), any(), any());
         verifyNoInteractions(research);
+
+        service.ask("workspace", goal.id(), "op-3", "Anything else to practice?");
+        queued.removeFirst().run();
+        assertThat(cards.list(goal.id())).as("no other practice floats while this one is open").hasSize(1);
+
+        WorkItemDecided accepted = new WorkItemDecided("workspace", goal.id(), "work-1", "Fix #31252", WorkItem.Kind.DEVELOP, WorkItemCommand.Action.ACCEPT,
+                "decision-1", "User accepted all criteria: Rows survive a checkpoint");
+        service.decided(accepted);
+        service.decided(accepted);
+        assertThat(cards.find(card.id())).map(GoalRecommendation::state).contains(GoalRecommendation.State.DONE);
+        assertThat(exchanges.list(goal.id())).filteredOn(exchange -> exchange.message().startsWith("The user accepted the result")).singleElement()
+                .satisfies(told -> {
+                    assertThat(told.automatic()).isTrue();
+                    assertThat(told.message()).isEqualTo("The user accepted the result of \"Fix #31252\": User accepted all criteria: Rows survive a checkpoint");
+                });
+        queued.removeFirst().run();
+        assertThat(cards.list(goal.id())).as("the next practice may float once the last one is decided").hasSize(2);
+
+        int told = exchanges.list(goal.id()).size();
+        service.decided(new WorkItemDecided("workspace", goal.id(), "lesson-1", "What a table is", WorkItem.Kind.LEARN, WorkItemCommand.Action.ACCEPT, "decision-2",
+                "Finished the lesson."));
+        assertThat(exchanges.list(goal.id())).as("a finished lesson tells the agent itself").hasSize(told);
     }
 
     @Test

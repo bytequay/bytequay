@@ -23,6 +23,7 @@ import com.bytequay.core.store.GoalStore;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -34,6 +35,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.bytequay.core.domain.Checks.checkText;
@@ -50,15 +52,18 @@ public class WorkItemService
     private final WorkspaceStore workspaces;
     private final GoalReferenceReader references;
     private final AgentUnitOfWork unitOfWork;
+    private final ApplicationEventPublisher events;
     private final Clock clock;
 
-    public WorkItemService(WorkItemStore items, GoalStore goals, WorkspaceStore workspaces, GoalReferenceReader references, AgentUnitOfWork unitOfWork, Clock clock)
+    public WorkItemService(WorkItemStore items, GoalStore goals, WorkspaceStore workspaces, GoalReferenceReader references, AgentUnitOfWork unitOfWork,
+            ApplicationEventPublisher events, Clock clock)
     {
         this.items = requireNonNull(items, "items is null");
         this.goals = requireNonNull(goals, "goals is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.references = requireNonNull(references, "references is null");
         this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
+        this.events = requireNonNull(events, "events is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -104,6 +109,40 @@ public class WorkItemService
                 throw conflict("This work item belongs to another Goal. Move it explicitly from its work-item details.");
             }
             return view(saveLinks(item, Optional.of(goalId), links, "Linked to Goal"));
+        });
+    }
+
+    /**
+     * Makes a recommended source the Goal's work: the work item that already owns the source joins the Goal, or a new one takes the card's
+     * title and criteria under merged delivery. The task the user then sends for the source becomes its attempt through the existing
+     * admission. Starting the same card again changes nothing.
+     */
+    public WorkItemView adopt(String workspaceId, String goalId, String id, String title, String criteria, GoalItemKind kind, String key)
+    {
+        requireGoal(workspaceId, Optional.of(goalId));
+        UUID.fromString(id);
+        String name = checkText(title, "title", 500).trim();
+        checkText(criteria, "acceptanceCriteria");
+        WorkItemLink requested = references.requireLink(workspaceId, kind, key);
+        List<WorkItemLink> links = references.related(workspaceId, requested);
+        return unitOfWork.execute(() -> {
+            Optional<WorkItem> owner = findOwner(workspaceId, links);
+            if (owner.isPresent()) {
+                WorkItem item = owner.orElseThrow();
+                requireStartable(item, workspaceId);
+                if (item.goalId().filter(other -> !other.equals(goalId)).isPresent()) {
+                    throw conflict("This work belongs to another Goal. Move it explicitly from its work-item details.");
+                }
+                return view(saveLinks(item, Optional.of(goalId), links, "Recommended as practice for the Goal"));
+            }
+            Instant now = clock.instant();
+            WorkItem.CompletionRule rule = WorkItem.CompletionRule.MERGED_DELIVERY;
+            WorkItem.State state = links.stream().anyMatch(link -> link.reference().kind() == GoalItemKind.TASK) ? WorkItem.State.WORKING : WorkItem.State.PLANNED;
+            WorkItem item = new WorkItem(id, workspaceId, Optional.of(goalId), name, WorkItem.Kind.DEVELOP, criteria.trim(), rule, state, 0, links,
+                    ImmutableList.of(new WorkItemEvent(id, requested.identity(), "CREATED",
+                            "Practice accepted: " + name + "\nSuccess: " + criteria.trim() + "\nCompletion: " + completionText(rule), now)), now, now);
+            items.insert(item);
+            return view(item);
         });
     }
 
@@ -182,7 +221,8 @@ public class WorkItemService
 
     public WorkItemView change(String workspaceId, String id, WorkItemCommand command)
     {
-        return unitOfWork.execute(() -> {
+        AtomicReference<WorkItemDecided> decided = new AtomicReference<>();
+        WorkItemView changed = unitOfWork.execute(() -> {
             WorkItem item = requireItem(workspaceId, id);
             Optional<WorkItemEvent> replay = item.history().stream().filter(event -> event.operationId().equals(command.operationId())).findFirst();
             if (replay.isPresent()) {
@@ -250,8 +290,20 @@ public class WorkItemService
                     ImmutableList.<WorkItemEvent>builder().addAll(item.history())
                             .add(new WorkItemEvent(command.operationId(), command.toString(), command.action().name(), detail, now)).build(), item.createdAt(), now);
             update(updated, item.revision());
+            boolean concluding = switch (command.action()) {
+                case ACCEPT, DROP, REOPEN -> true;
+                case EDIT, BEGIN, MOVE -> false;
+            };
+            if (concluding && goalId.isPresent()) {
+                decided.set(new WorkItemDecided(workspaceId, goalId.orElseThrow(), id, title, item.kind(), command.action(), command.operationId(), detail));
+            }
             return view(updated);
         });
+        // Published after the decision is saved, and only for a new one, never its replay.
+        if (decided.get() != null) {
+            events.publishEvent(decided.get());
+        }
+        return changed;
     }
 
     private Optional<WorkItem> findOwner(String workspaceId, List<WorkItemLink> links)

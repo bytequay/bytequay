@@ -95,10 +95,13 @@ Start on a lesson card opens the lesson.
 Once the Goal is defined, the agent also sees the first page of the workspace's
 open issues from the local store and may recommend one as a Practice card, with
 the instruction a developer would give a coding agent for it. A card naming an
-issue the store does not hold open is dropped. Start opens that issue's ordinary
-composer with the instruction filled in; the task, its work item and its source
-snapshot are created only when the user sends it, through the existing issue
-admission.
+issue the store does not hold open is dropped. Start makes the issue a Develop
+work item of the Goal, with the card's scope as its criteria under merged
+delivery, and opens that issue's ordinary composer with the instruction filled
+in; the task and its source snapshot are created only when the user sends it,
+through the existing issue admission, as that work item's attempt. The card
+stays started, and no other Practice card floats, until the work is done or
+dropped; the agent hears each accept, drop or reopen of the Goal's work.
 
 When a turn of an interactive task completes and the task belongs to a Goal's
 work item, its final answer is recorded once in the item's history as a receipt,

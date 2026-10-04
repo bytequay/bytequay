@@ -56,9 +56,10 @@ const conversation: Omit<Goals, 'goals' | 'pinned'> = {
   startCard: async (_goalId, recommendationId) => {
     server.started.push(recommendationId);
     const card = server.goal.recommendations.find((candidate) => candidate.id === recommendationId);
-    const running: GoalRecommendationDto = { ...card, state: 'STARTED', taskId: card.card.kind === 'RESEARCH' ? 'task-research' : null };
-    setCards(server.goal.recommendations.map((candidate) => (candidate.id === recommendationId ? running : candidate)).filter((candidate) => candidate.card.kind !== 'WORK'
-      || candidate.state === 'SHOWN'));
+    // Research begins its run; a work card's issue becomes the goal's work, whose task the user sends from the composer.
+    const running: GoalRecommendationDto = { ...card, state: 'STARTED', taskId: card.card.kind === 'RESEARCH' ? 'task-research' : null,
+      workItemId: card.card.kind === 'WORK' ? 'work-1' : null };
+    setCards(server.goal.recommendations.map((candidate) => (candidate.id === recommendationId ? running : candidate)));
     changed();
     return running;
   },
@@ -122,6 +123,7 @@ function text(): string {
 }
 const asked = (): number => server.asked.length;
 const starts = (): number => server.started.length;
+const composers = (): number => started.length;
 
 /** Waits for the open conversation's next read while its agent answers. */
 async function nextRead(): Promise<void> {
@@ -181,7 +183,7 @@ export async function run(): Promise<boolean> {
 
     // The agent judges research is the next step; the backend floats its card when it saves the answer.
     answer({ assessment: 'Read the specification before the connector.', question: null, proposal: null, recommendation: CARD, course: null });
-    setCards([{ id: 'card-1', goalId: 'goal', card: CARD, state: 'SHOWN', taskId: null, createdAt: NOW }]);
+    setCards([{ id: 'card-1', goalId: 'goal', card: CARD, state: 'SHOWN', taskId: null, workItemId: null, createdAt: NOW }]);
     await nextRead(); await settle();
     const card = document.querySelector('.goal-cards .goal-rec');
     assert(card !== null && card.textContent?.includes('Read the Iceberg specification') === true, 'The recommended research floats under the Goal control');
@@ -191,13 +193,16 @@ export async function run(): Promise<boolean> {
     assert(text().includes('Researching: Read the Iceberg specification'), 'The Goal window shows the running research');
 
     // Later the agent judges the user ready to practice on a real gap.
-    setCards([...server.goal.recommendations, { id: 'card-2', goalId: 'goal', card: PRACTICE, state: 'SHOWN', taskId: null, createdAt: NOW }]);
+    setCards([...server.goal.recommendations, { id: 'card-2', goalId: 'goal', card: PRACTICE, state: 'SHOWN', taskId: null, workItemId: null, createdAt: NOW }]);
     changed(); await settle();
     const practice = document.querySelector('.goal-cards .goal-rec');
     assert(practice !== null && practice.textContent?.includes('Practice') === true && practice.textContent.includes('Fix #31252'), 'A practice card floats with its kind');
     [...practice.querySelectorAll('button')].find((candidate) => candidate.textContent === 'Start')?.click(); await settle(); await settle();
-    assert(started.length === 1 && started[0].issue === 31252 && started[0].instruction.startsWith('Key checkpoint add and remove actions'),
+    assert(composers() === 1 && started[0].issue === 31252 && started[0].instruction.startsWith('Key checkpoint add and remove actions'),
       'Start opens the issue composer with the prepared instruction');
+    assert(text().includes('Practicing: Fix #31252') && !text().includes('Researching: Fix #31252'), 'The started practice shows as practice, not research');
+    button('Open the composer').click(); await settle();
+    assert(composers() === 2 && started[1].issue === 31252, 'Until its task is sent, the practice leads back to the prepared composer');
 
     // The user cancels the goal and starts the next one by saying what they want.
     button('Cancel goal').click(); await settle();

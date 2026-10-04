@@ -112,7 +112,7 @@ function panel(props: Partial<GoalPanelProps>): string {
     <GoalPanel mode="window" view="work" onView={() => {}} conversation={NO_CONVERSATION} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
       repository="trinodb/trino" goals={[GOAL, { ...GOAL, id: 'goal-2', pinned: false }]} goal={GOAL}
       needsYou={new Set(['PULL_REQUEST trinodb/trino#30925'])} now={Date.parse('2026-09-27T12:00:00Z')}
-      onClose={() => {}} onExpand={() => {}} onSwitch={() => {}} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onDelete={async () => {}}
+      onClose={() => {}} onExpand={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onDelete={async () => {}}
       workItems={GOAL.items} onCreateWork={async () => GOAL.items[0]} onDecide={async () => GOAL.items[0]} onLink={async () => GOAL.items[0]} onAdd={async () => {}} onOpenItem={() => {}} search={async () => []} {...props} />);
 }
 
@@ -155,7 +155,7 @@ const COURSE: GoalExchangeDto = { ...ASKED, id: 'op-3', message: 'The research r
   assessment: 'Here is a course from the notes.', question: null, proposal: null, recommendation: null,
   course: { parts: [{ title: 'Iceberg tables', lessons: [{ title: 'What a table is', outcome: 'Explain metadata, snapshots and manifests' }] }] },
 } };
-const CARD: GoalRecommendationDto = { id: 'card-1', goalId: 'goal-1', state: 'SHOWN', taskId: null, createdAt: '2026-10-03T10:00:00Z',
+const CARD: GoalRecommendationDto = { id: 'card-1', goalId: 'goal-1', state: 'SHOWN', taskId: null, workItemId: null, createdAt: '2026-10-03T10:00:00Z',
   card: { kind: 'RESEARCH', title: 'Read the Iceberg specification', reason: 'You start from the specification', scope: 'Snapshots and manifests',
     pages: ['https://iceberg.apache.org/spec/'], workItemId: null, issue: null } };
 const NOTE: GoalKnowledgeNoteDto = { id: 'note-1', topic: 'Manifest lists', body: 'A snapshot lists its manifests in one manifest list.', savedAt: '2026-10-03T10:00:00Z',
@@ -182,6 +182,7 @@ describe('goal guidance', () => {
     expect(() => parseGoalRecommendation({ ...CARD, card: { ...CARD.card, kind: 'TASK' } })).toThrow('Malformed goal card kind');
     expect(parseGoalKnowledgeNote(JSON.parse(JSON.stringify({ ...NOTE, goalId: 'goal-1', taskId: 'task-1' })))).toEqual(NOTE);
     expect(parseGoal(JSON.parse(JSON.stringify({ ...GOAL, recommendations: [CARD] }))).recommendations).toEqual([CARD]);
+    expect(parseGoalRecommendation({ ...CARD, state: 'STARTED', workItemId: 'work-9' }).workItemId).toBe('work-9');
     expect(sourceUrl(NOTE.sources[0])).toBe('https://iceberg.apache.org/spec/#manifest-lists');
     expect(sourceUrl(NOTE.sources[1])).toBe(`https://github.com/apache/iceberg/blob/${'c'.repeat(40)}/core/src/main/java/org/apache/iceberg/ManifestLists.java`);
   });
@@ -195,6 +196,23 @@ describe('goal guidance', () => {
     expect(markup).toContain('<summary>Manifest lists</summary>');
     expect(markup).toContain(`ManifestLists.java @ ccccccc`);
     expect(markup).toContain('<div class="goal-thread__event">The research run saved 1 note: Manifest lists.</div>');
+  });
+
+  it('shows started practice as practice, leading to its task once sent and to the prepared composer until then', () => {
+    const practice: GoalRecommendationDto = { ...CARD, id: 'card-2', state: 'STARTED', workItemId: 'work-9',
+      card: { ...CARD.card, kind: 'WORK', title: 'Fix #31252', pages: [], issue: 31252 } };
+    const waiting = panel({ view: 'guide', goal: { ...GOAL, recommendations: [practice] } });
+    expect(waiting).toContain('Practicing: Fix #31252');
+    expect(waiting).not.toContain('Researching');
+    expect(waiting).toContain('>Open the composer</button>');
+    const sent = panel({ view: 'guide', goal: { ...GOAL, recommendations: [practice],
+      items: [...GOAL.items, { ...GOAL.items[0], id: 'work-9', links: [{ ...GOAL.items[0].links[0], kind: 'TASK', key: 'task-31252' }] }] } });
+    expect(sent).toContain('>Open task</button>');
+    expect(sent).not.toContain('Open the composer');
+    const lesson = panel({ view: 'guide', goal: { ...GOAL, recommendations: [{ ...CARD, state: 'STARTED',
+      card: { ...CARD.card, kind: 'LESSON', title: 'What a table is', pages: [], workItemId: 'work-0' } }] } });
+    expect(lesson).toContain('Learning: What a table is');
+    expect(lesson).toContain('>Open lesson</button>');
   });
 
   it('reads a proposed and an accepted course, and offers the course only until one is accepted', () => {

@@ -28,6 +28,7 @@ import static java.util.Objects.requireNonNull;
  * same card is not offered again.
  *
  * @param taskId the run Start began, kept once it finished; a lesson card starts no run
+ * @param workItemId the Goal work a work card's Start made of its source; the card stays started until that work is done or dropped
  * @param exchangeId the exchange whose answer recommended it
  */
 public record GoalRecommendation(
@@ -37,6 +38,7 @@ public record GoalRecommendation(
         Card card,
         State state,
         Optional<String> taskId,
+        Optional<String> workItemId,
         String exchangeId,
         Instant createdAt,
         Instant updatedAt)
@@ -65,6 +67,8 @@ public record GoalRecommendation(
         requireNonNull(state, "state is null");
         requireNonNull(taskId, "taskId is null");
         checkArgument(taskId.isEmpty() || state == State.STARTED || state == State.DONE, "only a started card has a run");
+        requireNonNull(workItemId, "workItemId is null");
+        checkArgument(workItemId.isEmpty() || card.kind() == Kind.WORK && (state == State.STARTED || state == State.DONE), "only a started work card has its work");
         checkText(exchangeId, "exchangeId");
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
@@ -72,23 +76,30 @@ public record GoalRecommendation(
 
     public GoalRecommendation started(Optional<String> task, Instant at)
     {
-        return new GoalRecommendation(id, goalId, workspaceId, card, State.STARTED, task, exchangeId, createdAt, at);
+        return new GoalRecommendation(id, goalId, workspaceId, card, State.STARTED, task, Optional.empty(), exchangeId, createdAt, at);
+    }
+
+    /** Start on a work card: its source became this Goal work, whose task the user sends from the composer. */
+    public GoalRecommendation practicing(String workItem, Instant at)
+    {
+        return new GoalRecommendation(id, goalId, workspaceId, card, State.STARTED, Optional.empty(), Optional.of(workItem), exchangeId, createdAt, at);
     }
 
     public GoalRecommendation done(Instant at)
     {
-        return new GoalRecommendation(id, goalId, workspaceId, card, State.DONE, taskId, exchangeId, createdAt, at);
+        return new GoalRecommendation(id, goalId, workspaceId, card, State.DONE, taskId, workItemId, exchangeId, createdAt, at);
     }
 
     /** A finished run completes the card; a failed one shows it again, so Start can retry. */
     public GoalRecommendation settled(boolean done, Instant at)
     {
-        return new GoalRecommendation(id, goalId, workspaceId, card, done ? State.DONE : State.SHOWN, done ? taskId : Optional.empty(), exchangeId, createdAt, at);
+        return new GoalRecommendation(id, goalId, workspaceId, card, done ? State.DONE : State.SHOWN, done ? taskId : Optional.empty(), Optional.empty(), exchangeId,
+                createdAt, at);
     }
 
     public GoalRecommendation dismissed(Instant at)
     {
-        return new GoalRecommendation(id, goalId, workspaceId, card, State.DISMISSED, Optional.empty(), exchangeId, createdAt, at);
+        return new GoalRecommendation(id, goalId, workspaceId, card, State.DISMISSED, Optional.empty(), Optional.empty(), exchangeId, createdAt, at);
     }
 
     /**

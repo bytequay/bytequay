@@ -108,7 +108,9 @@ public class GoalPlanner
             its next lesson as a LESSON card naming the lesson's id when the user is ready for it, one at a time. When the
             user is ready to practice an area, recommend one of the open issues as a WORK card naming its number: say why
             it fits what they learned, and put in scope the instruction a developer would give a coding agent for it,
-            what to change and how to check it. Never call an issue suitable that the issue data does not support.
+            what to change and how to check it. Never call an issue suitable that the issue data does not support. Start
+            on a WORK card makes the issue one of the goal's work items; recommend no other practice until that item is
+            done or dropped, and when its result is accepted, let the topics it practiced cite it as work:<id>.
 
             Keep track of what the user knows, topic by topic: from finished lessons, check answers, their questions here
             and in their private cards (recentQuestions), and the work they did. When the evidence changes a topic's level
@@ -224,7 +226,7 @@ public class GoalPlanner
                     }));
         }
         ArrayNode work = objective.putArray("workItems");
-        goal.items().stream().limit(MAX_WORK_ITEMS).forEach(item -> work.addObject()
+        goal.items().stream().limit(MAX_WORK_ITEMS).forEach(item -> work.addObject().put("id", item.id())
                 .put("title", item.title()).put("kind", item.kind().name()).put("state", item.state().name()));
         ArrayNode known = data.putArray("topics");
         topics.list(goal.id()).forEach(topic -> known.addObject().put("topic", topic.topic()).put("level", topic.level().name()).put("setByUser", topic.userSet()));

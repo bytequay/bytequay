@@ -126,6 +126,12 @@ Jira without a direct user action.
    work item. No other spec check is recommended while a gap of the last one is
    neither done, dropped nor dismissed.
 
+Progress: item 1 is implemented. Start on a Practice card adopts its issue as the
+Goal's Develop work item, so the task sent from the composer joins it, and the
+Goal window shows the practice with its task, or the composer until it is sent.
+Accepting, dropping or reopening Goal work tells the agent, and a decided practice
+settles its card.
+
 Done when: a Practice card leads to a task whose merged pull request is recorded
 on the Goal and moves the topic it practiced, after which a new card can float;
 an issue and a mapped Jira ticket can each be recommended and started; and a

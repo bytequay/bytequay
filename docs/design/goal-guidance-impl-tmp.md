@@ -451,23 +451,23 @@ work-item and Goal window Chromium journeys, and desktop packaging passed.
 - [ ] Add durable Goal exchanges and versioned proposals beside the existing Goal
   records. Save user input, objective, constraints, acceptance decisions and
   response coverage; no task transcript is used as the Goal's database.
-- [ ] Add a bounded Goal planner in `app` using the existing provider SPI and
+- [x] Add a bounded Goal planner in `app` using the existing provider SPI and
   `TEXT_ONLY` profile. Follow the naming-helper resource and verified-close
   pattern; register request/helper ownership for cancellation and restart.
-- [ ] Use the workspace Development model default, visible per-Goal override and
+- [x] Use the workspace Development model default, visible per-Goal override and
   readiness checks. Prove Codex and Claude tool-free behavior with fixtures.
-- [ ] Build bounded context from canonical plan/results and recent conversation.
+- [x] Build bounded context from canonical plan/results and recent conversation.
   Retain full user-visible history and pinned decisions; do not silently truncate
   constraints or depend on provider session memory.
 - [ ] Validate typed model replies, evidence IDs, reference ownership, proposed
   dependency cycles and size limits before saving. Invalid output leaves the
   previous plan intact and produces a retryable error.
-- [ ] Include current assessment, one consequential clarification, short suggested
+- [x] Include current assessment, one consequential clarification, short suggested
   answers and a prepared supported action in that same reply. Reuse known
   context; do not repeat answered questions or infer unprovided preferences.
 - [ ] Ask what the user already knows before proposing a course, and save the
   accepted starting knowledge with the Goal and as initial topic levels.
-- [ ] Add recommendation records and cards under the Goal control: kind, title,
+- [x] Add recommendation records and cards under the Goal control: kind, title,
   reason, Start and Not now, at most three, newest first. Nothing starts without
   Start, a dismissed card does not return unchanged, and cards of one kind do
   not stack.
@@ -481,7 +481,18 @@ work-item and Goal window Chromium journeys, and desktop packaging passed.
 - [ ] Preserve `GoalLayer` pill, pinning, floating window and expansion. Show one
   meaningful attention cue and keep drafts/selection stable across modes. Keep
   one panel mounted across resizing and expansion, hidden from interaction when closed.
-- [ ] Keep Accept plan separate from Start. Draft proposals do not affect progress.
+- [x] Keep Accept plan separate from Start. Draft proposals do not affect progress.
+
+Evidence for the checked items: `TestGoalConversationService` (a slow reply
+stopped, restart settlement, cards that float only once the Goal is defined and
+never stack or repeat a dismissed one, course acceptance), `TestTextOnlyHelper`,
+`TestModelSettingsService` for the Goal's own model, the Codex and Claude driver
+text-only session tests, `TestGoalPlanner` and the `goalGuideBrowser` and
+`goalWindowBrowser` journeys. Still partial: response coverage is not saved;
+replies cannot propose dependencies, so there are no proposed cycles to refuse;
+starting knowledge does not seed topic levels; a proposal offers Accept without
+Adjust or Skip; an empty Goal's switcher and Work view still show empty counts
+rather than directions; and the pill shows two counts, not one attention cue.
 
 Done when: opening an empty Goal or one named “Iceberg connector expertise” offers
 useful directions; a suggested answer can lead to a saved goal definition and
@@ -498,15 +509,15 @@ work items. Closing and reopening the app retains the conversation and plan.
 - [ ] Store knowledge notes with topic, sources and staleness. Mark notes stale
   when a cited specification or path moves; offer a repository-memory Remember
   through the existing capture policy.
-- [ ] Propose a course of parts and lessons from the notes and the starting
+- [x] Propose a course of parts and lessons from the notes and the starting
   knowledge. Accepted lessons become ordered Learn items with a milestone; a
   tool-free request writes and saves each lesson's explanation, exercise and check.
 - [ ] Show the open lesson in the expanded Goal window beside the conversation.
   Questions there belong to the lesson; Done stays the user's decision.
-- [ ] Recommend spec checks as cards naming the module, pages and reproduction
+- [x] Recommend spec checks as cards naming the module, pages and reproduction
   count. Start runs the existing check and Adjust opens its drawer; a reproduced
   gap becomes a proposed work item with its draft issue, which the user files.
-- [ ] Build a Goal context reader over existing issue, Jira, PR and task stores.
+- [x] Build a Goal context reader over existing issue, Jira, PR and task stores.
   Use exact monitored/mapped workspace scope and identify incomplete coverage.
 - [ ] Add deterministic eligibility and relevance filtering before a bounded model
   shortlist. Preserve high-priority items before display limits. Never suppress
@@ -522,7 +533,7 @@ work items. Closing and reopening the app retains the conversation and plan.
 - [ ] Trigger discovery as the next useful step of an active guidance request or
   meaningful source/work change. Users need not open search and formulate a new
   query. Explain insufficient coverage instead of presenting arbitrary candidates.
-- [ ] Where code has not been inspected, recommend a research run or an
+- [x] Where code has not been inspected, recommend a research run or an
   investigation card. Pass its result back to the Goal; never label a
   metadata-only assessment as code verification.
 - [ ] Extend canonical task creation with an optional work-item reference and the
@@ -533,6 +544,21 @@ work items. Closing and reopening the app retains the conversation and plan.
   need not rewrite the agent's proposed task in another input.
 - [ ] At Start, recheck source identity, role, state, work-item revision and linked
   work. Open an existing task when appropriate; preserve the draft on failure.
+
+Evidence for the checked items: `TestGoalLessonService`, `TestGoalSpecChecks`,
+`TestGoalCandidates`, `TestGoalResearchService` and the investigation-card test
+in `TestGoalConversationService`. Still partial: a research run is confined by
+its prompt and its own disposable worktree, not by a read-only tool policy;
+cited pages are never checked for staleness and no Remember is offered; a lesson
+replaces the conversation instead of sitting beside it; candidates are not kept
+by priority before the limit, and an issue with an open linked pull request is
+set aside as if it were fixed; shortlisted sources record no duplicate read,
+revision or skipped coverage; research pages accept any https address;
+conclusions are not cached by input revision, so each event costs a request;
+cards carry no prerequisites, completion criteria or uncertainty; source
+changes do not trigger discovery; a task carries no explicit work-item reference
+or Goal context; and Start rechecks neither the work item's revision nor the
+source.
 
 Done when: a research card saves sourced notes, an accepted course opens a lesson
 in the Goal window, and a spec-check card turns a reproduced gap into a proposed
@@ -548,7 +574,7 @@ already-started source cannot slip through stale recommendations.
 - [ ] Read the user's private cards from `task_discussion`, `local_review_thread`
   and `agent_review_message` in every workspace, locally. Select those on the
   Goal's topics, cite them in assessments and treat their text as reference data.
-- [ ] Pace recommendations: practice an area until it is practiced, then advance
+- [x] Pace recommendations: practice an area until it is practiced, then advance
   the course; propose the next spec check only after the last one's gaps are
   resolved or dropped; put blockers, failures and reviews first.
 - [ ] Connect task settlement and existing source refresh to idempotent factual
@@ -556,7 +582,7 @@ already-started source cannot slip through stale recommendations.
   it. Reconcile missed receipts after restart and guard linked-task retention or
   deletion until capture succeeds. Preserve missing-evidence and agent-reported
   distinctions.
-- [ ] Verify selected delivery rules through application facts. Provide explicit
+- [x] Verify selected delivery rules through application facts. Provide explicit
   result acceptance for learning and investigation, and coverage review where a
   merge does not establish the entire accepted scope.
 - [ ] Generate a concise summary from those receipts: what changed, evidence,
@@ -578,6 +604,18 @@ already-started source cannot slip through stale recommendations.
   action through the existing repository-memory policy, without a new memory engine.
 - [ ] Exercise archived Goal, task deletion, log expiry, summary failure and
   uncertain provider cleanup. Preserve receipts and user decisions in every case.
+
+Evidence for the checked items: the spec-check and blocked-lesson card tests in
+`TestGoalConversationService` and the delivery tests in `TestWorkItemService`.
+Still partial: check answers are not captured, and Goal or lesson questions
+cannot be cited; private cards are the twenty newest rather than those on the
+Goal's topics; task deletion and runtime cleanup do not wait for a receipt;
+summaries carry no insights or next recommendation; blocker changes, task starts
+and finished milestones are not reported to the agent; plan differences cover
+the course only; there is no persisted input fingerprint or quiet hours; a
+course accepted from an older revision can replace a newer one; there is no
+Remember action; and task deletion, log expiry and uncertain provider cleanup are
+not exercised.
 
 Done when: completing or merging accepted work records one supported outcome,
 updates the panel and produces a useful next proposal without manual bookkeeping.

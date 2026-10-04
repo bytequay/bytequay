@@ -109,7 +109,8 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
   }, [lesson, mode, onExpand]);
   const lessonItem = lesson === null ? undefined : goal?.items.find((value) => value.id === lesson);
   const [selected, setSelected] = useState<string | null>(null);
-  const [cancelling, setCancelling] = useState(false);
+  const [cancelling, setCancelling] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const item = props.workItems.find((value) => value.id === selected) ?? goal?.items.find((value) => value.id === selected);
   return (
@@ -121,7 +122,7 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
           <span className="goal-spacer" />
           {/* A goal started from a marked issue or ticket ends when its source is unmarked. */}
           {goal !== null && goal.source === null && (
-            <button type="button" className="goal-headbtn" title="Cancel goal" aria-label="Cancel goal" onClick={() => setCancelling(true)}>
+            <button type="button" className="goal-headbtn" title="Cancel goal" aria-label="Cancel goal" onClick={() => { setCancelling(''); setCancelError(null); }}>
               <Ban size={15} strokeWidth={1.8} aria-hidden="true" />
             </button>
           )}
@@ -152,20 +153,30 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
           onLesson={props.onLesson} onBack={props.onBack} onStartIssue={props.onStartIssue} onStartTicket={props.onStartTicket} onSpecCheck={props.onSpecCheck}
           onFileIssue={props.onFileIssue} onReview={setSelected} />
           : goal === null ? <><NoGoal onCreate={props.onCreate} />{props.workItems.map((saved) => <button type="button" className="goal-work-card" key={saved.id} onClick={() => setSelected(saved.id)}>{saved.title} · {saved.state.toLowerCase()}</button>)}</> : <GoalWork {...props} goal={goal} onSelect={setSelected} />}
-      {cancelling && goal !== null && (
+      {cancelling !== null && goal !== null && (
         <ConfirmDialog
           title="Cancel this goal?"
-          confirmLabel={busy ? 'Cancelling…' : 'Cancel goal'}
+          confirmLabel={busy ? 'Deleting…' : 'Confirm delete goal'}
           cancelLabel="Keep goal"
+          confirmDisabled={cancelling !== 'cancel'}
           busy={busy}
           destructive
           onConfirm={() => {
+            if (busy || cancelling !== 'cancel') return;
             setBusy(true);
-            void props.onDelete(goal.id).finally(() => { setBusy(false); setCancelling(false); });
+            setCancelError(null);
+            void props.onDelete(goal.id).then(() => setCancelling(null),
+              (failure: unknown) => setCancelError(failure instanceof Error ? failure.message : 'The goal could not be deleted')).finally(() => setBusy(false));
           }}
-          onCancel={() => setCancelling(false)}
+          onCancel={() => setCancelling(null)}
         >
           <p>“{goal.title}” leaves your goals. Its conversation, work items and history stay saved.</p>
+          <label className="bq-confirm-dialog__choice">
+            <span>Type <strong>cancel</strong> to confirm.</span>
+            <input type="text" value={cancelling} disabled={busy} autoComplete="off" spellCheck={false}
+              onChange={(event) => setCancelling(event.target.value)} />
+          </label>
+          {cancelError !== null && <p className="goal-guide__error" role="alert">{cancelError}</p>}
         </ConfirmDialog>
       )}
     </div>

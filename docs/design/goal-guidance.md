@@ -289,7 +289,9 @@ preserves drafts for reopening; Escape and the close button also dismiss it.
 Keep the window inside the page and respect reduced-motion preferences.
 Clicking the title renames the Goal in place; Enter or leaving the field saves
 and Escape keeps the old name. Cancel goal in the header archives a Goal the
-user started, after a confirmation, and the window returns to the opening
+user started, after the user types `cancel` in its confirmation dialog and clicks
+Confirm delete goal. The confirmation starts empty each time and stays disabled
+until the text matches exactly. The window then returns to the opening
 question; a Goal started from a marked issue or ticket ends by unmarking its
 source. New goal in the switcher asks the same question while the current Goal
 stays pinned until an answer starts the next one. The opening never asks for a

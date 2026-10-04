@@ -30,8 +30,12 @@ const goal: GoalDto = { id: 'goal', workspaceId: 'workspace', title: 'Iceberg co
   pinned: true, source: null, definition: null, revision: 0, course: null, items: [], recommendations: [], topics: [], createdAt: '', updatedAt: '' };
 const unexpected = async (): Promise<never> => { throw new Error('Unexpected write'); };
 const renamed: string[] = [];
+const deleted: string[] = [];
+let deleteFails = true;
 const goals: Goals = { goals: [goal], pinned: goal, workItems: [], error: null, create: async () => goal, pin: async () => {},
-  rename: async (_goalId, title) => { renamed.push(title); return { ...goal, title }; }, remove: async () => {}, add: async () => {}, removeItem: async () => {}, search: async () => [],
+  rename: async (_goalId, title) => { renamed.push(title); return { ...goal, title }; },
+  remove: async (goalId) => { if (deleteFails) throw new Error('Deletion unavailable'); deleted.push(goalId); },
+  add: async () => {}, removeItem: async () => {}, search: async () => [],
   createWork: unexpected, decideWork: unexpected, linkWork: unexpected,
   start: unexpected, exchanges: async () => [], ask: unexpected, retry: unexpected, accept: unexpected,
   acceptCourse: unexpected, startCard: unexpected, dismissCard: unexpected, knowledge: async () => [], gaps: async () => [], addGap: unexpected,
@@ -146,7 +150,28 @@ export async function run(): Promise<boolean> {
     button('Cancel goal').click(); await settle();
     await mouse('mouseMove', 2, 2);
     assert(!pane.hidden && document.querySelector('dialog[open]') !== null, 'A confirmation is not dismissed by mouse leave');
+    let confirmation = element<HTMLInputElement>('dialog input');
+    for (const value of ['', 'Cancel', 'cance', ' cancel', 'cancel ']) {
+      setInput(confirmation, value); await settle();
+      const confirm = button('Confirm delete goal');
+      assert(confirm.disabled, `Deletion stays disabled for ${JSON.stringify(value)}`);
+      confirm.click(); await settle();
+      assert(deleted.length === 0 && document.querySelector('dialog [role="alert"]') === null, 'Invalid confirmation never requests deletion');
+    }
+    setInput(confirmation, 'cancel'); await settle();
+    assert(!button('Confirm delete goal').disabled, 'Typing exactly cancel enables deletion');
     button('Keep goal').click(); await settle();
+    assert(deleted.length === 0 && document.querySelector('dialog[open]') === null, 'Keep goal dismisses confirmation without deleting');
+    button('Cancel goal').click(); await settle();
+    confirmation = element<HTMLInputElement>('dialog input');
+    assert(confirmation.value === '' && button('Confirm delete goal').disabled, 'Reopening requires a fresh confirmation');
+    setInput(confirmation, 'cancel'); await settle();
+    button('Confirm delete goal').click(); await settle();
+    assert(element('dialog [role="alert"]').textContent === 'Deletion unavailable' && !button('Confirm delete goal').disabled,
+      'A failed deletion keeps the confirmation open for retry');
+    deleteFails = false;
+    button('Confirm delete goal').click(); await settle();
+    assert(deleted.join() === goal.id && document.querySelector('dialog[open]') === null, 'Confirm deletes the selected goal once and closes the dialog');
     await mouse('mouseMove', 3, 3);
     await wait(1_000);
     assert(!pane.hidden && !pane.inert, 'Leaving Goal gives the pointer time to return');

@@ -236,7 +236,11 @@ export async function run(): Promise<boolean> {
 
     // The user cancels the goal and starts the next one by saying what they want.
     button('Cancel goal').click(); await settle();
-    [...document.querySelectorAll<HTMLButtonElement>('dialog[open] button')].find((candidate) => candidate.textContent?.trim() === 'Cancel goal')?.click();
+    const confirmation = document.querySelector<HTMLInputElement>('dialog[open] input');
+    assert(confirmation !== null && button('Confirm delete goal').disabled, 'Cancel goal requires typed confirmation');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(confirmation, 'cancel');
+    confirmation.dispatchEvent(new Event('input', { bubbles: true })); await settle();
+    button('Confirm delete goal').click();
     await settle(); await settle();
     assert(server.cancelled.join() === 'goal' && text().includes('What do you want to achieve?'), 'Cancel goal archives it and asks what the user wants next');
     assert(document.activeElement === composer(), 'The next question is ready for typing');

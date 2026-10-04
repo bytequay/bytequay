@@ -24,9 +24,13 @@ public interface IssueDevelopmentStore
 
     void saveGoal(IssueGoal goal);
 
+    /** The issue's current attempt; an attempt another one replaced is found only by its task. */
     Optional<IssueTask> findTask(String host, long issueId);
 
     Optional<IssueTask> findByTaskId(String taskId);
 
     void insertTask(IssueTask task);
+
+    /** Moves an attempt off its issue, so the next attempt becomes the issue's task; the retired one keeps its source. */
+    void retireTask(String taskId);
 }

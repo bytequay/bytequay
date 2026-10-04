@@ -61,7 +61,7 @@ public class SqliteIssueDevelopmentStore
     @Transactional(readOnly = true)
     public Optional<IssueTask> findTask(String host, long issueId)
     {
-        return tasks.findByHostAndIssueId(host.toLowerCase(Locale.ROOT), issueId).map(IssueTaskEntity::toDomain);
+        return tasks.findBySourceSlot(IssueTaskEntity.slot(host.toLowerCase(Locale.ROOT), issueId)).map(IssueTaskEntity::toDomain);
     }
 
     @Override
@@ -76,5 +76,15 @@ public class SqliteIssueDevelopmentStore
     public void insertTask(IssueTask task)
     {
         tasks.saveAndFlush(new IssueTaskEntity(task));
+    }
+
+    @Override
+    @Transactional
+    public void retireTask(String taskId)
+    {
+        tasks.findById(taskId).ifPresent(entity -> {
+            entity.retire();
+            tasks.saveAndFlush(entity);
+        });
     }
 }

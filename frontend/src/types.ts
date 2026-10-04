@@ -359,7 +359,13 @@ export type RepositoryMetadataDto = {
 
 export type IssueDevelopmentTaskDto = { taskId: string; workspaceId: string };
 export type IssueDevelopmentDto = { isGoal: boolean; developmentTask: IssueDevelopmentTaskDto | null };
-export type IssueTaskSourceRequest = { issueId: number; number: number; updatedAt: string };
+export type IssueTaskSourceRequest = {
+  issueId: number;
+  number: number;
+  updatedAt: string;
+  /** The issue's ended task a new attempt replaces; without it, the issue's current task opens. */
+  replaces?: string;
+};
 export type AgentIssueSourceDto = IssueTaskSourceRequest & {
   initialTurnId: string | null;
   instructions: string;

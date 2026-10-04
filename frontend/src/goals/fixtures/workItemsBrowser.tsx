@@ -121,10 +121,48 @@ async function finishedWorkKeepsItsSummary(): Promise<void> {
   finally { root.unmount(); host.remove(); }
 }
 
+async function anotherAttemptAfterAnEndedTask(): Promise<void> {
+  const host = document.createElement('div'); document.body.append(host);
+  host.style.width = '380px';
+  const root = createRoot(host);
+  const now = '2026-09-01T00:00:00Z';
+  const link = (kind: 'ISSUE' | 'TASK', key: string, state: 'IDLE' | 'ENDED'): WorkItemDto['links'][number] => ({ kind, key, label: kind === 'ISSUE' ? '#31252' : 'Task',
+    title: 'Fix the checkpoint', state, status: state === 'ENDED' ? 'Failed' : 'Idle', blocked: false, url: null, activity: null, addedAt: now });
+  const work = (task: 'IDLE' | 'ENDED'): WorkItemDto => ({ id: 'work', workspaceId: 'workspace', goalId: 'goal', title: 'Fix #31252', kind: 'DEVELOP',
+    acceptanceCriteria: 'Key actions by path and deletion vector.', completionRule: 'MERGED_DELIVERY', state: 'WORKING', revision: 2,
+    links: [link('ISSUE', 'trinodb/trino#31252', 'IDLE'), link('TASK', 'task-1', task)], history: [], createdAt: now, updatedAt: now });
+  const started: [number, string, string | undefined][] = [];
+  let show: (item: WorkItemDto) => void = () => {};
+  function Fixture(): React.JSX.Element {
+    const [item, setItem] = useState(work('IDLE'));
+    show = setItem;
+    const goal: GoalDto = { id: 'goal', workspaceId: 'workspace', title: 'Delta Lake correctness', description: '', pinned: true, paused: false, source: null,
+      definition: null, revision: 0, course: null, items: [item], recommendations: [], topics: [], createdAt: now, updatedAt: now };
+    return <GoalPanel mode="window" view="work" onView={() => {}} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
+      conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptCourse: async () => {},
+        openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {} }}
+      repository="trinodb/trino" goal={goal} goals={[goal]} workItems={[item]} needsYou={new Set()}
+      onClose={() => {}} onSwitch={() => {}} onStartIssue={(issue, instruction, replaces) => started.push([issue, instruction, replaces])} onStartTicket={() => {}}
+      onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}}
+      onSummarize={async () => {}} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
+      search={async () => []} onCreateWork={async () => item} onLink={async () => item} onDecide={async () => item} />;
+  }
+  try {
+    flushSync(() => root.render(<Fixture />)); await settle();
+    const card = host.querySelector<HTMLButtonElement>('.goal-work-card'); assert(card !== null, 'Work item card missing'); card.click(); await settle();
+    assert(![...host.querySelectorAll('button')].some((found) => found.textContent === 'Start another attempt'), 'An open task is still the attempt');
+    flushSync(() => show(work('ENDED'))); await settle();
+    button(host, 'Start another attempt').click(); await settle();
+    assert(started.length === 1 && started[0][0] === 31252 && started[0][1] === 'Key actions by path and deletion vector.' && started[0][2] === 'task-1',
+      'Another attempt opens the issue composer over the ended task');
+  }
+  finally { root.unmount(); host.remove(); }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const results: { name: string; error?: string }[] = [];
   for (const [name, scenario] of [['Accept, retry, reopen and detach retain decisions', decisionsSurviveFailure],
-    ['Finished work keeps its summary', finishedWorkKeepsItsSummary]] as const) {
+    ['Finished work keeps its summary', finishedWorkKeepsItsSummary], ['An ended task offers another attempt', anotherAttemptAfterAnEndedTask]] as const) {
     try { await scenario(); results.push({ name }); }
     catch (error) { results.push({ name, error: String(error) }); }
   }

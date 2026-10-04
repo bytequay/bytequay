@@ -332,6 +332,12 @@ work item.
    makes a retried request create nothing twice.
 2. Another attempt on a Jira ticket, the same way through the ticket composer.
 
+Progress: item 1 is implemented. The issue task row keeps the canonical source
+slot for the current attempt and a retired attempt's slot adds its task ID;
+a create request naming the ended task it replaces is admitted under the
+issue's lock, the old row is retired and the new one inserted in the task's
+creation transaction, and the work item records both attempts.
+
 Done when: a failed issue task can be followed by a new attempt without deleting
 it, both tasks show on the one work item, and an open task cannot be replaced.
 

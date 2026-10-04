@@ -21,5 +21,5 @@ import java.util.Optional;
 public interface IssueTaskJpaRepository
         extends JpaRepository<IssueTaskEntity, String>
 {
-    Optional<IssueTaskEntity> findByHostAndIssueId(String host, long issueId);
+    Optional<IssueTaskEntity> findBySourceSlot(String sourceSlot);
 }

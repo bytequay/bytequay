@@ -151,14 +151,23 @@ public class IssueDevelopmentService
                 IssueTask link = linked.orElseThrow();
                 checkArgument(link.source().number() == input.number()
                         && link.source().repo().equalsIgnoreCase(workspace.monitoredRepository().fullName()), "Issue does not belong to this workspace");
-                if (!link.taskId().equals(taskId.toString()) || metadata(input.issueId()).isGoal()) {
-                    return tasks.getInteractive(link.workspaceId(), TaskId.valueOf(link.taskId()));
+                boolean another = input.replaces().filter(link.taskId()::equals).isPresent() && !link.taskId().equals(taskId.toString());
+                if (!another) {
+                    if (!link.taskId().equals(taskId.toString()) || metadata(input.issueId()).isGoal()) {
+                        return tasks.getInteractive(link.workspaceId(), TaskId.valueOf(link.taskId()));
+                    }
+                    checkArgument(link.workspaceId().equals(workspaceId), "Task belongs to another workspace");
+                    if (link.instructions().filter(instructions::equals).isEmpty()) {
+                        throw new AgentConflictException("Task creation request changed: " + taskId);
+                    }
+                    return create.apply(link.source());
                 }
                 checkArgument(link.workspaceId().equals(workspaceId), "Task belongs to another workspace");
-                if (link.instructions().filter(instructions::equals).isEmpty()) {
-                    throw new AgentConflictException("Task creation request changed: " + taskId);
+                // An idle open task is still the issue's attempt, and a delivery still under way belongs to it.
+                AgentTask current = taskStore.find(TaskId.valueOf(link.taskId())).orElseThrow(() -> new AgentConflictException("The issue's task is gone."));
+                if (!current.state().terminal() || current.developmentContinuationUnfinished()) {
+                    throw new AgentConflictException("The issue's task has not ended. Continue it, or end it before starting another attempt.");
                 }
-                return create.apply(link.source());
             }
             RepositoryIssue cached = issue(workspace, input.number());
             checkArgument(cached.id() == input.issueId(), "Issue identity changed");
@@ -195,6 +204,9 @@ public class IssueDevelopmentService
             }
             taskStore.insert(task);
             workItems.recordAttempt(task, GoalReferenceReader.issueLink(source, clock.instant()));
+            // Another attempt takes the issue from the ended one, which keeps its source and stays the work item's earlier attempt.
+            sources.findTask(source.host(), source.issueId()).filter(previous -> !previous.taskId().equals(task.id().toString()))
+                    .ifPresent(previous -> sources.retireTask(previous.taskId()));
             sources.insertTask(new IssueTask(task.id().toString(), task.workspaceId().orElseThrow(), source, Optional.of(instructions), clock.instant()));
             return null;
         });

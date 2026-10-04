@@ -88,7 +88,7 @@ public class IssueTaskEntity
         GitHubIssueSource source = task.source();
         host = source.host();
         issueId = source.issueId();
-        sourceSlot = host + ":" + issueId;
+        sourceSlot = slot(host, issueId);
         repo = source.repo();
         number = source.number();
         url = source.url();
@@ -98,6 +98,17 @@ public class IssueTaskEntity
         instructions = task.instructions().orElse(null);
         initialContext = task.instructions().orElse("");
         createdAt = task.createdAt();
+    }
+
+    /** The slot the issue's current attempt holds; a retired attempt adds its own task id, so a later attempt can take the slot. */
+    public static String slot(String host, long issueId)
+    {
+        return host + ":" + issueId;
+    }
+
+    public void retire()
+    {
+        sourceSlot = slot(host, issueId) + ":" + id;
     }
 
     public IssueTask toDomain()

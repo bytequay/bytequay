@@ -97,7 +97,7 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
   needsYou: ReadonlySet<string>;
   onOpenTask: (taskId: string) => void;
   /** Opens the issue's task composer with an instruction the user reviews and sends. */
-  onStartIssue: (issue: number, instruction: string) => void;
+  onStartIssue: (issue: number, instruction: string, replaces?: string) => void;
   /** Shows a module's spec check on the Memory page, a new one filled with a card's choices. */
   onSpecCheck: (spec: SpecCheckRequest) => void;
   children: React.ReactNode;

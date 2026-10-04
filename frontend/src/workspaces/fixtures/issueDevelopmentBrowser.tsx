@@ -337,8 +337,31 @@ export function unmountIssueConversation(): void {
   conversationHost = null;
 }
 
+async function anotherAttempt(): Promise<void> {
+  const f = fixture();
+  f.issue = { ...f.issue, developmentTask: { taskId: 'ended-task', workspaceId: f.workspaceId } };
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  window.location.hash = '';
+  try {
+    flushSync(() => root.render(<AgentTasksView workspaceId={f.workspaceId} sourceIssueNumber={7} bridge={f.bridge} replaces="ended-task"
+      initialDraft="Retry the upload with a longer timeout." onOpenTask={() => {}} onOpenReview={() => {}} />));
+    await settle(); await settle();
+    assert(window.location.hash === '', 'Another attempt keeps the composer open over the ended task');
+    button(host, 'Send — creates the task').click(); await settle();
+    assert(f.created.length === 1 && f.created[0].issueSource?.replaces === 'ended-task' && f.created[0].message === 'Retry the upload with a longer timeout.',
+      'The new attempt names the ended task it replaces');
+    flushSync(() => root.render(<AgentTasksView key="plain" workspaceId={f.workspaceId} sourceIssueNumber={7} bridge={f.bridge}
+      onOpenTask={() => {}} onOpenReview={() => {}} />));
+    await settle(); await settle();
+    assert(window.location.hash === workspaceAgentTaskRoute(f.workspaceId, 'ended-task'), 'Without Start another attempt the issue opens its task');
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); window.location.hash = ''; }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const cases: Array<[string, () => Promise<void>]> = [
+    ['Another attempt opens the composer over an ended task and names it', anotherAttempt],
     ['Issue Goal actions, composer, replay and linked workspace navigation', issueToTask],
     ['Source refresh preserves instructions and blocks Goals without launching', refreshAndCancel],
     ['A Goal’s prepared instruction opens the issue composer without launching', preparedInstruction],

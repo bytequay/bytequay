@@ -76,6 +76,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   const [startLaunch, setStartLaunch] = useState<TaskLaunch>();
   // The instruction a Goal's work card prepared for the issue's composer.
   const [startDraft, setStartDraft] = useState<string>();
+  const [startReplaces, setStartReplaces] = useState<string>();
   // A spec check a Goal card asked the Memory page to show.
   const [specCheck, setSpecCheck] = useState<SpecCheckRequest>();
   const specShown = useCallback(() => setSpecCheck(undefined), []);
@@ -197,9 +198,10 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       goals={goals}
       needsYou={needsYou}
       onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
-      onStartIssue={(number, instruction) => {
+      onStartIssue={(number, instruction, replaces) => {
         setStartLaunch(undefined);
         setStartDraft(instruction);
+        setStartReplaces(replaces);
         window.location.hash = workspaceIssueTaskRoute(workspace.id, number);
       }}
       onSpecCheck={(spec) => {
@@ -242,7 +244,10 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         repository={monitoredRepository}
         initialIssueNumber={initialIssueNumber}
         onSelectIssue={onSelectIssue}
-        onStartDevelopment={(number, launch) => { setStartLaunch(launch); setStartDraft(undefined); window.location.hash = workspaceIssueTaskRoute(workspace.id, number); }}
+        onStartDevelopment={(number, launch) => {
+          setStartLaunch(launch); setStartDraft(undefined); setStartReplaces(undefined);
+          window.location.hash = workspaceIssueTaskRoute(workspace.id, number);
+        }}
         onViewTask={link => { window.location.hash = workspaceAgentTaskRoute(link.workspaceId, link.taskId); }}
       />;
     }
@@ -294,6 +299,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
             sourceIssueNumber={sourceIssueNumber}
             launch={sourceIssueNumber === null ? undefined : startLaunch}
             initialDraft={sourceIssueNumber === null ? undefined : startDraft}
+            replaces={sourceIssueNumber === null ? undefined : startReplaces}
             onOpenCreatedTask={task => { window.location.hash = workspaceAgentTaskRoute(task.workspaceId, task.id); }}
             headerAction={overviewOpen || zoomedCherryPick ? undefined : overviewToggle}
             onOpenReview={review => review.number === null ? openReviewWorkspace(review) : setOpenReview({ id: review.id, repo: review.repo, number: review.number })}

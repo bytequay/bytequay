@@ -155,6 +155,24 @@ class TestSqliteIssueDevelopmentStore
     }
 
     @Test
+    void aRetiredAttemptGivesItsIssueToTheNextAndKeepsItsSource()
+    {
+        GitHubIssueSource source = source(issue(43, "alice"));
+        IssueTask first = new IssueTask("task-1", "workspace-1", source, Optional.of("First accepted context"), NOW);
+        store.insertTask(first);
+        store.retireTask("task-1");
+        IssueTask second = new IssueTask("task-2", "workspace-1", source, Optional.of("Another attempt"), NOW.plusSeconds(60));
+        store.insertTask(second);
+        entityManager.clear();
+
+        assertThat(store.findTask("github.com", source.issueId())).contains(second);
+        assertThat(store.findByTaskId("task-1")).as("the earlier attempt keeps its source").contains(first);
+        assertThatThrownBy(() -> store.insertTask(new IssueTask("task-3", "workspace-1", source, Optional.empty(), NOW)))
+                .as("the issue still has one current attempt")
+                .isInstanceOf(DataAccessException.class);
+    }
+
+    @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void rollsBackTaskCreationWhenTheIssueAssociationConflicts()
     {

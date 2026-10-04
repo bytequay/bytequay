@@ -14,16 +14,22 @@
 package com.bytequay.app.agent;
 
 import java.time.Instant;
+import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** The identity and revision of the issue shown in the task composer. */
-public record IssueSourceInput(long issueId, int number, Instant updatedAt)
+/**
+ * The identity and revision of the issue shown in the task composer.
+ *
+ * @param replaces the issue's ended attempt that Start another attempt replaces; without it, the issue's current task opens
+ */
+public record IssueSourceInput(long issueId, int number, Instant updatedAt, Optional<String> replaces)
 {
     public IssueSourceInput
     {
         checkArgument(issueId > 0 && number > 0, "invalid issue identity");
         requireNonNull(updatedAt, "updatedAt is null");
+        requireNonNull(replaces, "replaces is null");
     }
 }

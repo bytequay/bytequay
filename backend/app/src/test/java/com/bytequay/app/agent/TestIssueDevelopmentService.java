@@ -18,6 +18,7 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
@@ -74,7 +75,7 @@ class TestIssueDevelopmentService
     private static final RepoRef REPO = RepoRef.of("upstream", "repo");
     private static final GitHubIssueSource SOURCE = new GitHubIssueSource("github.com", 70, REPO.fullName(), 7,
             "https://github.com/upstream/repo/issues/7", "Fix selection", "Keep selection when switching tabs", NOW);
-    private static final IssueSourceInput INPUT = new IssueSourceInput(70, 7, NOW);
+    private static final IssueSourceInput INPUT = new IssueSourceInput(70, 7, NOW, Optional.empty());
     private final IssueDevelopmentStore sources = mock(IssueDevelopmentStore.class);
     private final RepositoryIssueStore issues = mock(RepositoryIssueStore.class);
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
@@ -230,6 +231,33 @@ class TestIssueDevelopmentService
         })).isSameAs(task);
         verifyNoInteractions(github);
         verify(tasks).getInteractive("workspace", taskId);
+    }
+
+    @Test
+    void anotherAttemptReplacesOnlyAnEndedTaskAndTakesTheIssue()
+    {
+        service.persistTask(task, SOURCE, "Implement");
+        TaskId next = TaskId.random();
+        IssueSourceInput another = new IssueSourceInput(70, 7, NOW, Optional.of(taskId.toString()));
+        when(taskStore.find(taskId)).thenReturn(Optional.of(task));
+        when(task.state()).thenReturn(TaskState.OPEN);
+        assertThatThrownBy(() -> service.start("workspace", next, another, "Try again", ignored -> {
+            throw new AssertionError("an open task is still the attempt");
+        })).isInstanceOf(AgentConflictException.class).hasMessageContaining("has not ended");
+        assertThat(service.start("workspace", next, INPUT, "Try again", ignored -> {
+            throw new AssertionError("without Start another attempt the issue's task opens");
+        })).isSameAs(task);
+
+        when(task.state()).thenReturn(TaskState.FAILED);
+        AgentTask attempt = mock(AgentTask.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(attempt.id()).thenReturn(next);
+        when(attempt.workspaceId()).thenReturn(Optional.of("workspace"));
+        assertThat(service.start("workspace", next, another, "Try again", accepted -> {
+            service.persistTask(attempt, accepted, "Try again");
+            return attempt;
+        })).isSameAs(attempt);
+        verify(sources).retireTask(taskId.toString());
+        assertThat(linked.get().taskId()).as("the new attempt is the issue's task").isEqualTo(next.toString());
     }
 
     @Test

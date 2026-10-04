@@ -18,6 +18,6 @@ import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixtu
 it('retains outcome evidence and retry identity through the work-item panel in Chromium', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-work-items-', entry: 'src/goals/fixtures/workItemsBrowser.tsx',
     global: 'WorkItemTests', styles: true, charset: true, width: 420, height: 900 });
-  expect(results).toHaveLength(2);
+  expect(results).toHaveLength(3);
   expect(results.filter((result) => result.error !== undefined)).toEqual([]);
 }, 30_000);

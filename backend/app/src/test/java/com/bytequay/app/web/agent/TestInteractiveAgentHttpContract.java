@@ -126,7 +126,7 @@ class TestInteractiveAgentHttpContract
         assertThatThrownBy(() -> new InteractiveAgentHttpContract.CreateTaskRequest(
                 TaskId.random().toString(), "workspace", "Implement", "codex",
                 new InteractiveAgentHttpContract.TaskDefaults(Optional.of("model"), Optional.empty(), "AUTO"), "key", Optional.empty(),
-                Optional.of(new IssueSourceInput(7, 7, Instant.EPOCH)),
+                Optional.of(new IssueSourceInput(7, 7, Instant.EPOCH, Optional.empty())),
                 Optional.of(new JiraSourceInput("connection", "cloud", "10001", "APP-7", source.title(), source.body(), Instant.EPOCH))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("only one issue source");
     }

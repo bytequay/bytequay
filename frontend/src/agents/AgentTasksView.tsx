@@ -87,6 +87,8 @@ interface AgentTasksViewProps {
   launch?: TaskLaunch;
   /** An instruction prepared for the source issue, which the person reviews before sending. */
   initialDraft?: string;
+  /** The source issue's ended task this composer starts another attempt after; the issue's task opens otherwise. */
+  replaces?: string;
 }
 
 /** A task state reads as prose; the wire enum is never shown to the user. */
@@ -183,7 +185,7 @@ export function taskCreationCatalog(settings: ModelSettingsDto, sourceIssueNumbe
  * Everything creating a task needs: the list, the catalog, the chosen model, the draft, why
  * creation is blocked, and the create call itself — shared by the Tasks page and the Home hero.
  */
-export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpenTask, sourceIssueNumber = null, sourceJira = null, onOpenCreatedTask, initialDraft }: {
+export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpenTask, sourceIssueNumber = null, sourceJira = null, onOpenCreatedTask, initialDraft, replaces }: {
   workspaceId: string;
   sourceJira?: JiraIssue | null;
   /** A launch the caller chose; without one the workspace's Development agent decides. */
@@ -194,6 +196,8 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   onOpenCreatedTask?: (task: AgentTaskDto) => void;
   /** A prepared instruction; the issue's default text does not replace it. */
   initialDraft?: string;
+  /** The issue's ended task a new attempt replaces, which the composer does not open. */
+  replaces?: string;
 }) {
   // Home and the Tasks page remount on every tab switch; the last list paints the first frame, and
   // the mount still re-reads it.
@@ -330,7 +334,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
     try {
       const updated = await bridge().fetchWorkspaceIssue(workspaceId, sourceIssueNumber);
       if (!mountedRef.current || request !== sourceRequest.current) return;
-      if (updated.developmentTask != null) {
+      if (updated.developmentTask != null && updated.developmentTask.taskId !== replaces) {
         notifyIssueDevelopmentChanged(updated.id);
         window.location.hash = workspaceAgentTaskRoute(updated.developmentTask.workspaceId, updated.developmentTask.taskId);
         return;
@@ -346,7 +350,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       }
     }
     finally { if (mountedRef.current && request === sourceRequest.current) setSourceLoading(false); }
-  }, [bridge, sourceIssueNumber, workspaceId]);
+  }, [bridge, replaces, sourceIssueNumber, workspaceId]);
 
   useEffect(() => {
     void refreshIssue();
@@ -426,7 +430,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       serviceTier: selection.serviceTier ?? null,
       developmentAutomation: taskAutomation,
     }, images.map((image) => image.id), automationForSubmission(taskAutomation, localOnly), issue === null ? undefined : {
-      issueId: issue.id, number: issue.number, updatedAt: issue.updatedAt,
+      issueId: issue.id, number: issue.number, updatedAt: issue.updatedAt, ...(replaces === undefined ? {} : { replaces }),
     }, sourceJira === null ? undefined : {
       connectionId: sourceJira.connectionId, cloudId: sourceJira.cloudId, issueId: sourceJira.id,
       key: sourceJira.key, title: sourceJira.title, body: sourceJira.body, updatedAt: sourceJira.updatedAt,
@@ -491,7 +495,8 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       busyRef.current = false;
       setOperation(null);
     }
-  }, [applyCatalog, blocker, bridge, clearImages, draft, images, issue, sourceJira, laneId, localOnly, onOpenCreatedTask, onOpenTask, selection, submissions, taskAutomation, workspaceId]);
+  }, [applyCatalog, blocker, bridge, clearImages, draft, images, issue, sourceJira, laneId, localOnly, onOpenCreatedTask, onOpenTask, replaces, selection, submissions, taskAutomation,
+    workspaceId]);
 
   return {
     /** Everything TaskComposer needs, so a screen spreads it instead of re-listing eighteen props. */
@@ -706,10 +711,11 @@ export default function AgentTasksView({
   onOpenSettings,
   launch,
   initialDraft,
+  replaces,
 }: AgentTasksViewProps): React.JSX.Element {
   // Resolved when used, not when rendered: a static render has no window to reach.
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
-  const creation = useAgentTaskCreation({ workspaceId, initialLaunch: launch, bridge: live, onOpenTask, sourceIssueNumber, onOpenCreatedTask, initialDraft });
+  const creation = useAgentTaskCreation({ workspaceId, initialLaunch: launch, bridge: live, onOpenTask, sourceIssueNumber, onOpenCreatedTask, initialDraft, replaces });
   const { setTasks } = creation;
   const tasks = useMemo(() => freshest(creation.tasks, taskAttention.tasks), [creation.tasks, taskAttention.tasks]);
   const tasksRef = useRef(tasks);

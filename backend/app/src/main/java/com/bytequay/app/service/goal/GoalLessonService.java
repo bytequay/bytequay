@@ -138,7 +138,7 @@ public class GoalLessonService
         WorkItemView item = lesson(goal(workspaceId, goalId), lessonId);
         if (item.state() != WorkItem.State.DONE) {
             work.change(workspaceId, lessonId, new WorkItemCommand(operationId, item.revision(), WorkItemCommand.Action.ACCEPT, Optional.empty(), Optional.empty(),
-                    Optional.empty(), Optional.empty(), "Finished the lesson."));
+                    Optional.empty(), Optional.empty(), "Finished the lesson.", Optional.empty(), Optional.empty(), false));
         }
         synchronized (writes) {
             recommendations.list(goalId).stream()

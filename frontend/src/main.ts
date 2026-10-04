@@ -1845,6 +1845,8 @@ function registerIpc(): void {
     backendJson(workItemsUrl(workspaceId, `/${encodeURIComponent(itemId)}/decisions`), jsonInit('POST', command)).then(parseWorkItem));
   ipcMain.handle('work-items:link', (_event, workspaceId: string, itemId: string, expectedRevision: number, kind: GoalItemKind, key: string) =>
     backendJson(workItemsUrl(workspaceId, `/${encodeURIComponent(itemId)}/links`), jsonInit('POST', { expectedRevision, kind, key })).then(parseWorkItem));
+  ipcMain.handle('work-items:order', (_event, workspaceId: string, goalId: string, ids: string[]) =>
+    backendJson(workItemsUrl(workspaceId, '/order'), jsonInit('PUT', { goalId, ids })).then(items => parseList(items, parseWorkItem, 'work items')));
   ipcMain.handle('goals:list', (_event, workspaceId: string) =>
     backendJson(goalsUrl(workspaceId)).then(goals => parseList(goals, parseGoal, 'goals')));
   ipcMain.handle('goals:create', (_event, workspaceId: string, title: string, description: string) =>

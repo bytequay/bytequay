@@ -23,7 +23,8 @@ import '../../css/goals.css';
 
 const NOW = '2026-10-03T10:00:00Z';
 const LESSON: WorkItemDto = { id: 'lesson-1', workspaceId: 'workspace', goalId: 'goal', title: 'What a table is', kind: 'LEARN',
-  acceptanceCriteria: 'Explain metadata, snapshots and manifests', completionRule: 'ACCEPTED_RESULT', state: 'PLANNED', revision: 0, links: [], history: [],
+  acceptanceCriteria: 'Explain metadata, snapshots and manifests', completionRule: 'ACCEPTED_RESULT', state: 'PLANNED', revision: 0, priority: 'NORMAL', rank: 0,
+  blockedBy: [], links: [], history: [],
   createdAt: NOW, updatedAt: NOW };
 const server = { reads: 0, opened: 0, finished: [] as string[], asked: [] as (string | null | undefined)[] };
 const WRITTEN: GoalLessonDto = { id: 'lesson-1', state: 'READY', failure: null, content: { explanation: '## Table metadata\nA table is a tree of metadata files.',
@@ -70,7 +71,7 @@ function Fixture(): React.JSX.Element {
       <GoalPanel mode="board" view="guide" onView={() => {}} lesson={lesson} onLesson={setLesson} conversation={conversation} onStart={async () => {}}
         onOpenTask={() => {}} repository="trinodb/trino" goals={[goal]} goal={goal} needsYou={new Set()} onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false}
         onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}} onSummarize={async () => {}} onDelete={async () => {}} onAdd={async () => {}} workItems={[item]} onCreateWork={async () => item} onDecide={async () => item}
-        onLink={async () => item} onOpenItem={() => {}} search={async () => []} />
+        onOrder={async () => {}} onLink={async () => item} onOpenItem={() => {}} search={async () => []} />
     </div>
   );
 }

@@ -42,7 +42,8 @@ const GOAL: GoalDto = {
   id: 'goal-1', workspaceId: 'workspace-1', title: 'Iceberg & Delta Lake correctness for 482', description: 'Land the fixes before 482.', pinned: true, paused: false,
   source: null, definition: null, revision: 0, course: null, recommendations: [], topics: [], items: ITEMS.map((link, index): WorkItemDto => ({
     id: `work-${index}`, workspaceId: 'workspace-1', goalId: 'goal-1', title: link.title, kind: 'DEVELOP', acceptanceCriteria: 'Verified fix',
-    completionRule: 'MERGED_DELIVERY', state: index === 1 ? 'DONE' : index === 2 ? 'PLANNED' : 'WORKING', revision: 0, links: [link],
+    completionRule: 'MERGED_DELIVERY', state: index === 1 ? 'DONE' : index === 2 ? 'PLANNED' : 'WORKING', revision: 0, priority: 'NORMAL', rank: index, blockedBy: [],
+    links: [link],
     history: link.activity === null ? [] : [{ operationId: `op-${index}`, action: 'ACCEPT', detail: link.activity.text, at: link.activity.at }],
     createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-27T00:00:00Z',
   })), createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-27T00:00:00Z',
@@ -114,7 +115,7 @@ function panel(props: Partial<GoalPanelProps>): string {
       repository="trinodb/trino" goals={[GOAL, { ...GOAL, id: 'goal-2', pinned: false }]} goal={GOAL}
       needsYou={new Set(['PULL_REQUEST trinodb/trino#30925'])} now={Date.parse('2026-09-27T12:00:00Z')}
       onClose={() => {}} onExpand={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}} onSummarize={async () => {}} onDelete={async () => {}}
-      workItems={GOAL.items} onCreateWork={async () => GOAL.items[0]} onDecide={async () => GOAL.items[0]} onLink={async () => GOAL.items[0]} onAdd={async () => {}} onOpenItem={() => {}} search={async () => []} {...props} />);
+      workItems={GOAL.items} onCreateWork={async () => GOAL.items[0]} onDecide={async () => GOAL.items[0]} onOrder={async () => {}} onLink={async () => GOAL.items[0]} onAdd={async () => {}} onOpenItem={() => {}} search={async () => []} {...props} />);
 }
 
 describe('goal panel', () => {

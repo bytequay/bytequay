@@ -30,7 +30,7 @@ const GOALS_POLL_MS = 15_000;
 /** How often an open conversation reads again while its agent is answering; a local read. */
 const ANSWER_POLL_MS = 1_500;
 
-export type GoalBridge = Pick<Bridge, 'listWorkItems' | 'createWorkItem' | 'decideWorkItem' | 'linkWorkItem' | 'listGoals' | 'createGoal' | 'updateGoal' | 'deleteGoal'
+export type GoalBridge = Pick<Bridge, 'listWorkItems' | 'createWorkItem' | 'decideWorkItem' | 'linkWorkItem' | 'orderWorkItems' | 'listGoals' | 'createGoal' | 'updateGoal' | 'deleteGoal'
   | 'addGoalItem' | 'removeGoalItem' | 'searchGoalCandidates' | 'startGoal' | 'listGoalExchanges' | 'askGoal' | 'retryGoalExchange' | 'stopGoalExchange' | 'reassessGoal' | 'summarizeGoalWork' | 'acceptGoalDefinition'
   | 'acceptGoalCourse' | 'startGoalRecommendation' | 'dismissGoalRecommendation' | 'listGoalKnowledge' | 'openGoalLesson' | 'readGoalLesson' | 'finishGoalLesson'
   | 'setGoalTopic' | 'listGoalGaps' | 'addGoalGap' | 'openInAppBrowser' | 'getGoalModel' | 'setGoalModel' | 'clearGoalModel' | 'getModelSettings'>;
@@ -44,6 +44,8 @@ export type Goals = {
   createWork: (request: CreateWorkItem) => Promise<WorkItemDto>;
   decideWork: (item: WorkItemDto, command: WorkItemDecision) => Promise<WorkItemDto>;
   linkWork: (item: WorkItemDto, reference: GoalItemDto) => Promise<WorkItemDto>;
+  /** Saves the order of a goal's work, which names each of its items once. */
+  orderWork: (goalId: string, ids: string[]) => Promise<void>;
   /** The goal the workspace's pages follow; null until the workspace has one. */
   pinned: GoalDto | null;
   error: string | null;
@@ -254,6 +256,12 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
     createWork: (request) => bridge().createWorkItem(workspaceId, request).then(settleWork),
     decideWork: (item, command) => bridge().decideWorkItem(workspaceId, item.id, command).then(settleWork),
     linkWork: (item, reference) => bridge().linkWorkItem(workspaceId, item.id, item.revision, reference.kind, reference.key).then(settleWork),
+    orderWork: (goalId, ids) => bridge().orderWorkItems(workspaceId, goalId, ids).then((ordered) => {
+      const saved = new Map(ordered.map((item) => [item.id, item]));
+      setWorkItems((current) => current.map((item) => saved.get(item.id) ?? item));
+      setGoals((current) => current.map((goal) => goal.id === goalId ? { ...goal, items: goal.items.map((item) => saved.get(item.id) ?? item) } : goal));
+      announce(workspaceId);
+    }),
     pinned: goals.find((goal) => goal.pinned) ?? null,
     error,
     create: (title) => bridge().createGoal(workspaceId, title, '').then(settle),

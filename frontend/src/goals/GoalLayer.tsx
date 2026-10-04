@@ -197,6 +197,7 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
       workItems={goals.workItems}
       onCreateWork={goals.createWork}
       onDecide={goals.decideWork}
+      onOrder={goals.orderWork}
       onLink={goals.linkWork}
       onOpenItem={(item) => openGoalItem(item, workspaceId, onOpenTask)}
       onOpenTask={onOpenTask}

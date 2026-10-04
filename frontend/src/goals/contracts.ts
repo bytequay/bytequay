@@ -384,6 +384,7 @@ export function parseList<T>(value: unknown, parse: (entry: unknown) => T, what:
 export type WorkItemState = 'PLANNED' | 'WORKING' | 'DONE' | 'DROPPED';
 export type WorkItemKind = 'LEARN' | 'INVESTIGATE' | 'DEVELOP';
 export type CompletionRule = 'MERGED_DELIVERY' | 'ACCEPTED_RESULT';
+export type WorkItemPriority = 'HIGH' | 'NORMAL' | 'LOW';
 export type WorkItemDto = {
   id: string;
   workspaceId: string;
@@ -398,22 +399,33 @@ export type WorkItemDto = {
   history: { operationId: string; action: string; detail: string; at: string }[];
   createdAt: string;
   updatedAt: string;
+  priority: WorkItemPriority;
+  /** Its place in its Goal's order, lowest first; equal places keep creation order. */
+  rank: number;
+  /** The same Goal's work it waits on. */
+  blockedBy: string[];
 };
 export type CreateWorkItem = Pick<WorkItemDto, 'id' | 'goalId' | 'title' | 'kind' | 'acceptanceCriteria' | 'completionRule'>;
 export type WorkItemDecision = {
   operationId: string;
   expectedRevision: number;
-  action: 'EDIT' | 'BEGIN' | 'ACCEPT' | 'DROP' | 'REOPEN' | 'MOVE';
+  action: 'EDIT' | 'BEGIN' | 'ACCEPT' | 'DROP' | 'REOPEN' | 'MOVE' | 'PRIORITIZE' | 'BLOCK' | 'UNBLOCK';
   title?: string;
   acceptanceCriteria?: string;
   completionRule?: CompletionRule;
   goalId?: string;
   detail: string;
+  priority?: WorkItemPriority;
+  /** The work BLOCK makes this item wait on, or UNBLOCK stops it waiting on. */
+  blocker?: string;
+  /** Dropping work others wait on also stops them waiting on it. */
+  releaseDependents?: boolean;
 };
 
 export function parseWorkItem(value: unknown): WorkItemDto {
   const item = object(value, 'work item');
   if (!Number.isSafeInteger(item.revision) || (item.revision as number) < 0) throw new Error('Malformed work item revision');
+  if (!Number.isSafeInteger(item.rank)) throw new Error('Malformed work item rank');
   return {
     id: text(item.id, 'work item id'),
     workspaceId: text(item.workspaceId, 'work item workspace'),
@@ -431,5 +443,8 @@ export function parseWorkItem(value: unknown): WorkItemDto {
     }, 'work item history'),
     createdAt: text(item.createdAt, 'work item created'),
     updatedAt: text(item.updatedAt, 'work item updated'),
+    priority: oneOf(item.priority, ['HIGH', 'NORMAL', 'LOW'] as const, 'work item priority'),
+    rank: item.rank as number,
+    blockedBy: parseList(item.blockedBy, (value) => text(value, 'work item blocker'), 'work item blockers'),
   };
 }

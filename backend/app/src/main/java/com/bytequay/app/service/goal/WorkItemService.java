@@ -23,6 +23,7 @@ import com.bytequay.core.store.GoalStore;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -30,10 +31,15 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -41,6 +47,7 @@ import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
 
@@ -91,7 +98,8 @@ public class WorkItemService
             Instant now = clock.instant();
             WorkItem item = new WorkItem(id, workspaceId, goalId, name, kind, criteria, rule, WorkItem.State.PLANNED, 0, ImmutableList.of(),
                     ImmutableList.of(new WorkItemEvent(id, fingerprint, "CREATED",
-                            "Work item accepted: " + name + "\nSuccess: " + criteria + "\nCompletion: " + completionText(rule), now)), now, now);
+                            "Work item accepted: " + name + "\nSuccess: " + criteria + "\nCompletion: " + completionText(rule), now)), now, now,
+                    WorkItem.Priority.NORMAL, nextRank(workspaceId, goalId), ImmutableList.of());
             items.insert(item);
             return view(item);
         });
@@ -140,7 +148,8 @@ public class WorkItemService
             WorkItem.State state = links.stream().anyMatch(link -> link.reference().kind() == GoalItemKind.TASK) ? WorkItem.State.WORKING : WorkItem.State.PLANNED;
             WorkItem item = new WorkItem(id, workspaceId, Optional.of(goalId), name, WorkItem.Kind.DEVELOP, criteria.trim(), rule, state, 0, links,
                     ImmutableList.of(new WorkItemEvent(id, requested.identity(), "CREATED",
-                            "Practice accepted: " + name + "\nSuccess: " + criteria.trim() + "\nCompletion: " + completionText(rule), now)), now, now);
+                            "Practice accepted: " + name + "\nSuccess: " + criteria.trim() + "\nCompletion: " + completionText(rule), now)), now, now,
+                    WorkItem.Priority.NORMAL, nextRank(workspaceId, Optional.of(goalId)), ImmutableList.of());
             items.insert(item);
             return view(item);
         });
@@ -254,7 +263,7 @@ public class WorkItemService
             Instant now = clock.instant();
             WorkItem updated = new WorkItem(id, workspaceId, item.goalId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(), item.state(),
                     item.revision() + 1, item.links(), ImmutableList.<WorkItemEvent>builder().addAll(item.history())
-                            .add(new WorkItemEvent(operationId, "", action, detail, now)).build(), item.createdAt(), now);
+                            .add(new WorkItemEvent(operationId, "", action, detail, now)).build(), item.createdAt(), now, item.priority(), item.rank(), item.blockedBy());
             update(updated, item.revision());
             return null;
         });
@@ -276,6 +285,10 @@ public class WorkItemService
             String title = item.title();
             String criteria = item.acceptanceCriteria();
             WorkItem.CompletionRule rule = item.completionRule();
+            WorkItem.Priority priority = item.priority();
+            long rank = item.rank();
+            List<String> blockedBy = item.blockedBy();
+            List<WorkItem> released = ImmutableList.of();
             String detail = command.detail().trim();
             switch (command.action()) {
                 case EDIT -> {
@@ -313,6 +326,12 @@ public class WorkItemService
                 case DROP -> {
                     checkArgument(state != WorkItem.State.DROPPED, "Work is already dropped");
                     checkText(detail, "reason");
+                    // Dropped work is not done: the work waiting on it changes only through the user's decision.
+                    released = dependents(workspaceId, id);
+                    List<String> waiting = released.stream().filter(WorkItemService::open).map(WorkItem::title).collect(toImmutableList());
+                    if (!waiting.isEmpty() && !command.releaseDependents()) {
+                        throw conflict("Waiting on this work: " + String.join(", ", waiting) + ". Drop it and remove those dependencies, or keep it.");
+                    }
                     state = WorkItem.State.DROPPED;
                 }
                 case REOPEN -> {
@@ -322,18 +341,52 @@ public class WorkItemService
                 }
                 case MOVE -> {
                     requireGoal(workspaceId, command.goalId());
+                    if (!command.goalId().equals(goalId)) {
+                        requireNoDependencies(workspaceId, item);
+                        rank = nextRank(workspaceId, command.goalId());
+                    }
                     goalId = command.goalId();
                     detail = goalId.map(value -> "Moved to Goal " + value).orElse("Removed from Goal; work and history retained");
+                }
+                case PRIORITIZE -> {
+                    priority = command.priority().orElseThrow(() -> new IllegalArgumentException("priority is required"));
+                    detail = "Priority set to " + words(priority);
+                }
+                case BLOCK -> {
+                    checkArgument(open(item), "Reopen before changing what concluded work waits on");
+                    String blocker = command.blocker().orElseThrow(() -> new IllegalArgumentException("blocker is required"));
+                    WorkItem other = requireItem(workspaceId, blocker);
+                    checkArgument(!blocker.equals(id), "Work cannot wait on itself");
+                    checkArgument(goalId.isPresent() && other.goalId().equals(goalId), "Work can wait only on work of its own Goal");
+                    checkArgument(other.state() != WorkItem.State.DROPPED, "Dropped work cannot block anything");
+                    checkArgument(!waitsOn(workspaceId, blocker, id), other.title() + " already waits on this work");
+                    blockedBy = blockedBy.contains(blocker) ? blockedBy : ImmutableList.<String>builder().addAll(blockedBy).add(blocker).build();
+                    detail = "Waits on " + other.title();
+                }
+                case UNBLOCK -> {
+                    String blocker = command.blocker().orElseThrow(() -> new IllegalArgumentException("blocker is required"));
+                    checkArgument(blockedBy.contains(blocker), "This work does not wait on that item");
+                    blockedBy = blockedBy.stream().filter(value -> !value.equals(blocker)).collect(toImmutableList());
+                    detail = "No longer waits on " + items.find(blocker).map(WorkItem::title).orElse("removed work");
                 }
             }
             Instant now = clock.instant();
             WorkItem updated = new WorkItem(id, workspaceId, goalId, title, item.kind(), criteria, rule, state, item.revision() + 1, item.links(),
                     ImmutableList.<WorkItemEvent>builder().addAll(item.history())
-                            .add(new WorkItemEvent(command.operationId(), command.toString(), command.action().name(), detail, now)).build(), item.createdAt(), now);
+                            .add(new WorkItemEvent(command.operationId(), command.toString(), command.action().name(), detail, now)).build(), item.createdAt(), now,
+                    priority, rank, blockedBy);
             update(updated, item.revision());
+            for (WorkItem dependent : released) {
+                update(new WorkItem(dependent.id(), workspaceId, dependent.goalId(), dependent.title(), dependent.kind(), dependent.acceptanceCriteria(),
+                        dependent.completionRule(), dependent.state(), dependent.revision() + 1, dependent.links(), ImmutableList.<WorkItemEvent>builder()
+                                .addAll(dependent.history()).add(new WorkItemEvent(command.operationId() + ":" + dependent.id(), "", "UNBLOCK",
+                                        "No longer waits on " + title + ", which was dropped: " + detail, now)).build(),
+                        dependent.createdAt(), now, dependent.priority(), dependent.rank(), dependent.blockedBy().stream().filter(value -> !value.equals(id))
+                        .collect(toImmutableList())), dependent.revision());
+            }
             boolean concluding = switch (command.action()) {
                 case ACCEPT, DROP, REOPEN -> true;
-                case EDIT, BEGIN, MOVE -> false;
+                case EDIT, BEGIN, MOVE, PRIORITIZE, BLOCK, UNBLOCK -> false;
             };
             if (concluding && goalId.isPresent()) {
                 decided.set(new WorkItemDecided(workspaceId, goalId.orElseThrow(), id, title, item.kind(), command.action(), command.operationId(), detail));
@@ -345,6 +398,32 @@ public class WorkItemService
             events.publishEvent(decided.get());
         }
         return changed;
+    }
+
+    /** Saves the order the user gave a Goal's work, which names each of its items once. */
+    public List<WorkItemView> order(String workspaceId, String goalId, List<String> ids)
+    {
+        requireGoal(workspaceId, Optional.of(goalId));
+        return unitOfWork.execute(() -> {
+            Map<String, WorkItem> work = items.list(workspaceId).stream().filter(item -> item.goalId().filter(goalId::equals).isPresent())
+                    .collect(toImmutableMap(WorkItem::id, item -> item));
+            if (ids.size() != work.size() || !ImmutableSet.copyOf(ids).equals(work.keySet())) {
+                throw conflict("The Goal's work changed. Order it again.");
+            }
+            Instant now = clock.instant();
+            ImmutableList.Builder<WorkItemView> ordered = ImmutableList.builder();
+            for (int rank = 0; rank < ids.size(); rank++) {
+                WorkItem item = work.get(ids.get(rank));
+                if (item.rank() != rank) {
+                    WorkItem moved = new WorkItem(item.id(), workspaceId, item.goalId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(),
+                            item.state(), item.revision() + 1, item.links(), item.history(), item.createdAt(), now, item.priority(), rank, item.blockedBy());
+                    update(moved, item.revision());
+                    item = moved;
+                }
+                ordered.add(view(item));
+            }
+            return ordered.build();
+        });
     }
 
     private Optional<WorkItem> findOwner(String workspaceId, List<WorkItemLink> links)
@@ -370,7 +449,8 @@ public class WorkItemService
         String id = UUID.randomUUID().toString();
         WorkItem item = new WorkItem(id, workspaceId, Optional.empty(), source.reference().title(), WorkItem.Kind.DEVELOP, "",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(source),
-                ImmutableList.of(new WorkItemEvent(id, source.identity(), "CREATED", "Accepted work from " + source.reference().label(), now)), now, now);
+                ImmutableList.of(new WorkItemEvent(id, source.identity(), "CREATED", "Accepted work from " + source.reference().label(), now)), now, now,
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of());
         items.insert(item);
         return item;
     }
@@ -389,10 +469,16 @@ public class WorkItemService
         if (state == WorkItem.State.PLANNED && linked.stream().anyMatch(link -> link.reference().kind() == GoalItemKind.TASK)) {
             state = WorkItem.State.WORKING;
         }
+        long rank = item.rank();
+        if (!goalId.equals(item.goalId())) {
+            requireNoDependencies(item.workspaceId(), item);
+            rank = nextRank(item.workspaceId(), goalId);
+        }
         Instant now = clock.instant();
         WorkItem next = new WorkItem(item.id(), item.workspaceId(), goalId, item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(), state,
                 item.revision() + 1, linked, ImmutableList.<WorkItemEvent>builder().addAll(item.history())
-                        .add(new WorkItemEvent(UUID.randomUUID().toString(), "", "LINKED", reason, now)).build(), item.createdAt(), now);
+                        .add(new WorkItemEvent(UUID.randomUUID().toString(), "", "LINKED", reason, now)).build(), item.createdAt(), now,
+                item.priority(), rank, item.blockedBy());
         update(next, item.revision());
         return next;
     }
@@ -401,7 +487,7 @@ public class WorkItemService
     {
         List<GoalItemView> links = item.links().stream().map(link -> references.view(item.workspaceId(), link.reference())).collect(toImmutableList());
         return new WorkItemView(item.id(), item.workspaceId(), item.goalId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(),
-                item.state(), item.revision(), links, item.history(), item.createdAt(), item.updatedAt());
+                item.state(), item.revision(), links, item.history(), item.createdAt(), item.updatedAt(), item.priority(), item.rank(), item.blockedBy());
     }
 
     private WorkItem requireItem(String workspaceId, String id)
@@ -449,6 +535,54 @@ public class WorkItemService
         if (!items.update(item, expectedRevision)) {
             throw conflict("Work item changed. Refresh before applying this decision.");
         }
+    }
+
+    /** New work joins the end of its Goal's order. */
+    private long nextRank(String workspaceId, Optional<String> goalId)
+    {
+        return goalId.map(goal -> items.list(workspaceId).stream().filter(item -> item.goalId().filter(goal::equals).isPresent())
+                .mapToLong(item -> item.rank() + 1).max().orElse(0)).orElse(0L);
+    }
+
+    private List<WorkItem> dependents(String workspaceId, String id)
+    {
+        return items.list(workspaceId).stream().filter(item -> item.blockedBy().contains(id)).collect(toImmutableList());
+    }
+
+    /** Blockers stay within one Goal, so work leaves its Goal only once it waits on nothing and nothing waits on it. */
+    private void requireNoDependencies(String workspaceId, WorkItem item)
+    {
+        if (!item.blockedBy().isEmpty() || !dependents(workspaceId, item.id()).isEmpty()) {
+            throw conflict("Remove what this work waits on and what waits on it before it leaves its Goal.");
+        }
+    }
+
+    /** Whether {@code from} already waits on {@code target}, directly or through other work. */
+    private boolean waitsOn(String workspaceId, String from, String target)
+    {
+        Map<String, List<String>> blockers = items.list(workspaceId).stream().collect(toImmutableMap(WorkItem::id, WorkItem::blockedBy));
+        Deque<String> pending = new ArrayDeque<>(List.of(from));
+        Set<String> seen = new HashSet<>();
+        while (!pending.isEmpty()) {
+            String next = pending.pop();
+            if (next.equals(target)) {
+                return true;
+            }
+            if (seen.add(next)) {
+                pending.addAll(blockers.getOrDefault(next, ImmutableList.of()));
+            }
+        }
+        return false;
+    }
+
+    private static boolean open(WorkItem item)
+    {
+        return item.state() == WorkItem.State.PLANNED || item.state() == WorkItem.State.WORKING;
+    }
+
+    private static String words(WorkItem.Priority priority)
+    {
+        return priority.name().charAt(0) + priority.name().substring(1).toLowerCase(Locale.ROOT);
     }
 
     private static String completionText(WorkItem.CompletionRule rule)

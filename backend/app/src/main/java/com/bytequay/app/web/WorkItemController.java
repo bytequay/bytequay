@@ -21,6 +21,7 @@ import com.bytequay.core.domain.WorkItem;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -62,6 +63,13 @@ public class WorkItemController
         return items.change(workspaceId, itemId, command);
     }
 
+    @PutMapping("/order")
+    public List<WorkItemView> order(@PathVariable String workspaceId, @RequestBody OrderWork request)
+    {
+        checkArgument(request.goalId() != null && request.ids() != null, "goal and order are required");
+        return items.order(workspaceId, request.goalId(), request.ids());
+    }
+
     @PostMapping("/{itemId}/links")
     public WorkItemView link(@PathVariable String workspaceId, @PathVariable String itemId, @RequestBody LinkWorkItem request)
     {
@@ -72,4 +80,7 @@ public class WorkItemController
     public record CreateWorkItem(String id, Optional<String> goalId, String title, WorkItem.Kind kind, String acceptanceCriteria, WorkItem.CompletionRule completionRule) {}
 
     public record LinkWorkItem(long expectedRevision, GoalItemKind kind, String key) {}
+
+    /** Every work item of the Goal, in the order the user wants them. */
+    public record OrderWork(String goalId, List<String> ids) {}
 }

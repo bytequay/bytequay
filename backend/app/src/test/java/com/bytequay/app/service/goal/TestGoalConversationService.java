@@ -334,7 +334,7 @@ class TestGoalConversationService
     private static WorkItemView learn(String id, String goalId, WorkItem.State state)
     {
         return new WorkItemView(id, "workspace", Optional.of(goalId), id, WorkItem.Kind.LEARN, "Outcome", WorkItem.CompletionRule.ACCEPTED_RESULT, state, 1,
-                ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH);
+                ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH, WorkItem.Priority.NORMAL, 0, ImmutableList.of());
     }
 
     @Test
@@ -375,7 +375,7 @@ class TestGoalConversationService
 
         WorkItemView practice = new WorkItemView("work-1", "workspace", Optional.of(goal.id()), "Fix #31252", WorkItem.Kind.DEVELOP,
                 "Key add and remove actions by path and deletion vector.", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(),
-                ImmutableList.of(), Instant.EPOCH, Instant.EPOCH);
+                ImmutableList.of(), Instant.EPOCH, Instant.EPOCH, WorkItem.Priority.NORMAL, 0, ImmutableList.of());
         when(work.adopt(eq("workspace"), eq(goal.id()), any(), eq("Fix #31252"), eq("Key add and remove actions by path and deletion vector."), eq(GoalItemKind.ISSUE),
                 eq("trinodb/trino#31252"))).thenReturn(practice);
         GoalRecommendation started = service.startCard("workspace", goal.id(), card.id());
@@ -522,7 +522,8 @@ class TestGoalConversationService
         when(work.create("workspace", id, Optional.of(goal.id()), "Check deletion vector support", WorkItem.Kind.INVESTIGATE,
                 "Find whether the checkpoint writer keeps deletion vectors.", WorkItem.CompletionRule.ACCEPTED_RESULT)).thenReturn(new WorkItemView(id, "workspace",
                 Optional.of(goal.id()), "Check deletion vector support", WorkItem.Kind.INVESTIGATE, "Find whether the checkpoint writer keeps deletion vectors.",
-                WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH));
+                WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH,
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of()));
         GoalRecommendation started = service.startCard("workspace", goal.id(), card.id());
         assertThat(started.state()).isEqualTo(GoalRecommendation.State.STARTED);
         assertThat(started.workItemId()).as("the investigation is the goal's work, whose result the user accepts").contains(id);
@@ -555,7 +556,7 @@ class TestGoalConversationService
         when(work.adopt(eq("workspace"), eq(goal.id()), any(), eq("Fix TRINO-12"), eq("Keep rows across checkpoints."), eq(GoalItemKind.JIRA),
                 eq("connection:cloud:10412"))).thenReturn(new WorkItemView("work-2", "workspace", Optional.of(goal.id()), "Fix TRINO-12", WorkItem.Kind.DEVELOP,
                 "Keep rows across checkpoints.", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(),
-                Instant.EPOCH, Instant.EPOCH));
+                Instant.EPOCH, Instant.EPOCH, WorkItem.Priority.NORMAL, 0, ImmutableList.of()));
         assertThat(service.startCard("workspace", goal.id(), card.id()).workItemId()).contains("work-2");
     }
 
@@ -679,7 +680,7 @@ class TestGoalConversationService
     private static WorkItemView done(String id, String goalId, WorkItem.Kind kind, WorkItemEvent... history)
     {
         return new WorkItemView(id, "workspace", Optional.of(goalId), "Fix #31252", kind, "Rows survive", WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.DONE, 3,
-                ImmutableList.of(), ImmutableList.copyOf(history), Instant.EPOCH, Instant.EPOCH);
+                ImmutableList.of(), ImmutableList.copyOf(history), Instant.EPOCH, Instant.EPOCH, WorkItem.Priority.NORMAL, 0, ImmutableList.of());
     }
 
     @Test

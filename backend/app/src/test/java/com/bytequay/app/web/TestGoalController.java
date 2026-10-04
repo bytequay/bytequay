@@ -70,7 +70,7 @@ class TestGoalController
             Optional.of(new GoalSource(GoalItemKind.ISSUE, "trinodb/trino#31000")), Optional.empty(), 0, Optional.empty(), false,
             ImmutableList.of(new WorkItemView("work-1", "workspace", Optional.of("goal-1"), "Retry Iceberg commits", WorkItem.Kind.DEVELOP,
                     "", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.WORKING, 0,
-                    ImmutableList.of(MERGED), ImmutableList.of(), NOW, NOW)), ImmutableList.of(), ImmutableList.of(), NOW, NOW);
+                    ImmutableList.of(MERGED), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0, ImmutableList.of())), ImmutableList.of(), ImmutableList.of(), NOW, NOW);
 
     private final GoalService goals = mock(GoalService.class);
     private final GoalConversationService conversations = mock(GoalConversationService.class);

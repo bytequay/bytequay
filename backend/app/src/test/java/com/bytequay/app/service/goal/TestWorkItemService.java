@@ -39,6 +39,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -155,7 +156,7 @@ class TestWorkItemService
         WorkItemView created = service.create("workspace", id, Optional.of("goal"), "Fix the checkpoint", WorkItem.Kind.DEVELOP, "Rows survive",
                 WorkItem.CompletionRule.ACCEPTED_RESULT);
         WorkItemView edited = service.change("workspace", id, new WorkItemCommand(UUID.randomUUID().toString(), created.revision(), WorkItemCommand.Action.EDIT,
-                Optional.empty(), Optional.of("No rows lost"), Optional.empty(), Optional.empty(), ""));
+                Optional.empty(), Optional.of("No rows lost"), Optional.empty(), Optional.empty(), "", Optional.empty(), Optional.empty(), false));
         assertThat(published).as("editing the scope is no decision to report").isEmpty();
         WorkItemCommand accept = decision(edited, WorkItemCommand.Action.ACCEPT, "The new test passes");
         service.change("workspace", id, accept);
@@ -257,13 +258,66 @@ class TestWorkItemService
         WorkItemCommand accept = decision(first, WorkItemCommand.Action.ACCEPT, "Accepted notes");
         service.change("workspace", first.id(), accept);
         WorkItemCommand changed = new WorkItemCommand(accept.operationId(), accept.expectedRevision(), accept.action(), Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.empty(), "Different evidence");
+                Optional.empty(), "Different evidence", Optional.empty(), Optional.empty(), false);
         assertThatThrownBy(() -> service.change("workspace", first.id(), changed)).hasMessageContaining("content changed");
+    }
+
+    @Test
+    void workWaitsOnlyOnItsGoalsWorkWithoutCyclesAndADroppedBlockerReleasesItsDependentsOnlyWhenAsked()
+    {
+        WorkItemView reading = service.create("workspace", UUID.randomUUID().toString(), Optional.of("goal"), "Read the checkpoint code", WorkItem.Kind.LEARN,
+                "Explain it", WorkItem.CompletionRule.ACCEPTED_RESULT);
+        WorkItemView fixing = service.create("workspace", UUID.randomUUID().toString(), Optional.of("goal"), "Fix the checkpoint", WorkItem.Kind.DEVELOP,
+                "Rows survive", WorkItem.CompletionRule.ACCEPTED_RESULT);
+        WorkItemView loose = service.create("workspace", UUID.randomUUID().toString(), Optional.empty(), "Unrelated", WorkItem.Kind.DEVELOP, "Other",
+                WorkItem.CompletionRule.ACCEPTED_RESULT);
+        assertThat(ImmutableList.of(reading.rank(), fixing.rank())).as("new work joins the end of the order").containsExactly(0L, 1L);
+        assertThat(reading.priority()).isEqualTo(WorkItem.Priority.NORMAL);
+
+        WorkItemView high = service.change("workspace", fixing.id(), arrange(fixing, WorkItemCommand.Action.PRIORITIZE, Optional.of(WorkItem.Priority.HIGH), ""));
+        assertThat(high.priority()).isEqualTo(WorkItem.Priority.HIGH);
+        WorkItemView waiting = service.change("workspace", fixing.id(), arrange(high, WorkItemCommand.Action.BLOCK, Optional.empty(), reading.id()));
+        assertThat(waiting.blockedBy()).containsExactly(reading.id());
+        assertThat(waiting.history().getLast().detail()).isEqualTo("Waits on Read the checkpoint code");
+        assertThatThrownBy(() -> service.change("workspace", reading.id(), arrange(reading, WorkItemCommand.Action.BLOCK, Optional.empty(), fixing.id())))
+                .hasMessageContaining("already waits on this work");
+        assertThatThrownBy(() -> service.change("workspace", reading.id(), arrange(reading, WorkItemCommand.Action.BLOCK, Optional.empty(), reading.id())))
+                .hasMessageContaining("itself");
+        assertThatThrownBy(() -> service.change("workspace", reading.id(), arrange(reading, WorkItemCommand.Action.BLOCK, Optional.empty(), loose.id())))
+                .hasMessageContaining("its own Goal");
+        assertThatThrownBy(() -> service.change("workspace", reading.id(), decision(reading, WorkItemCommand.Action.MOVE, "")))
+                .as("blockers stay within one Goal").hasMessageContaining("before it leaves its Goal");
+
+        assertThat(service.order("workspace", "goal", ImmutableList.of(fixing.id(), reading.id()))).extracting(WorkItemView::id, WorkItemView::rank)
+                .containsExactly(tuple(fixing.id(), 0L), tuple(reading.id(), 1L));
+        assertThatThrownBy(() -> service.order("workspace", "goal", ImmutableList.of(fixing.id()))).hasMessageContaining("Order it again");
+
+        WorkItemView blocker = find(reading.id());
+        assertThatThrownBy(() -> service.change("workspace", reading.id(), decision(blocker, WorkItemCommand.Action.DROP, "Not needed")))
+                .as("dropped work is not done").hasMessageContaining("Waiting on this work: Fix the checkpoint");
+        WorkItemCommand dropAndRelease = new WorkItemCommand(UUID.randomUUID().toString(), blocker.revision(), WorkItemCommand.Action.DROP, Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), "Not needed", Optional.empty(), Optional.empty(), true);
+        assertThat(service.change("workspace", reading.id(), dropAndRelease).state()).isEqualTo(WorkItem.State.DROPPED);
+        WorkItemView released = find(fixing.id());
+        assertThat(released.blockedBy()).isEmpty();
+        assertThat(released.history().getLast().detail()).isEqualTo("No longer waits on Read the checkpoint code, which was dropped: Not needed");
+    }
+
+    private WorkItemView find(String id)
+    {
+        return service.list("workspace").stream().filter(item -> item.id().equals(id)).findFirst().orElseThrow();
+    }
+
+    private static WorkItemCommand arrange(WorkItemView item, WorkItemCommand.Action action, Optional<WorkItem.Priority> priority, String blocker)
+    {
+        return new WorkItemCommand(UUID.randomUUID().toString(), item.revision(), action, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), "",
+                priority, Optional.of(blocker).filter(value -> !value.isEmpty()), false);
     }
 
     private static WorkItemCommand decision(WorkItemView item, WorkItemCommand.Action action, String detail)
     {
-        return new WorkItemCommand(UUID.randomUUID().toString(), item.revision(), action, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), detail);
+        return new WorkItemCommand(UUID.randomUUID().toString(), item.revision(), action, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), detail,
+                Optional.empty(), Optional.empty(), false);
     }
 
     private static WorkItemLink link(GoalItemKind kind, String key, String identity)

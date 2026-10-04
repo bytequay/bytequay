@@ -140,7 +140,7 @@ class TestGoalDeliveries
     private static WorkItemView item(Optional<String> goalId, WorkItem.State state, List<WorkItemEvent> history, GoalItemView... links)
     {
         return new WorkItemView("work-1", "workspace", goalId, "Fix #31252", WorkItem.Kind.DEVELOP, "Rows survive a checkpoint", WorkItem.CompletionRule.MERGED_DELIVERY,
-                state, 3, ImmutableList.copyOf(links), history, NOW, NOW);
+                state, 3, ImmutableList.copyOf(links), history, NOW, NOW, WorkItem.Priority.NORMAL, 0, ImmutableList.of());
     }
 
     private static PrReviewState review(long id, String login, String state, int minutesAgo, String body)

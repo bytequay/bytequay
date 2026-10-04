@@ -130,7 +130,8 @@ class TestGoalReceipts
         WorkItemLink link = new WorkItemLink(WorkItemLink.taskIdentity(taskId.toString()), new GoalItem(GoalItemKind.TASK, taskId.toString(), "Task", "Fix #31252", NOW));
         WorkItem item = new WorkItem("work-1", "workspace", Optional.of("goal-1"), "Fix #31252", WorkItem.Kind.DEVELOP, "Rows survive a checkpoint",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.WORKING, 1, ImmutableList.of(link),
-                ImmutableList.of(new WorkItemEvent("turn:" + earlier, "", "RECEIPT", "Task turn finished: the first test", NOW)), NOW, NOW);
+                ImmutableList.of(new WorkItemEvent("turn:" + earlier, "", "RECEIPT", "Task turn finished: the first test", NOW)), NOW, NOW, WorkItem.Priority.NORMAL, 0,
+                ImmutableList.of());
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
         when(workspace.id()).thenReturn("workspace");
         when(workspaces.findAll()).thenReturn(ImmutableList.of(workspace));
@@ -171,6 +172,6 @@ class TestGoalReceipts
     private static WorkItem item(Optional<String> goalId)
     {
         return new WorkItem("work-1", "workspace", goalId, "Fix #31252", WorkItem.Kind.DEVELOP, "Rows survive a checkpoint", WorkItem.CompletionRule.MERGED_DELIVERY,
-                WorkItem.State.WORKING, 1, ImmutableList.of(), ImmutableList.of(), NOW, NOW);
+                WorkItem.State.WORKING, 1, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0, ImmutableList.of());
     }
 }

@@ -368,6 +368,14 @@ what, and the agent's next card follows the same order.
    place and blockers; the planner prefers ready work that unblocks an accepted
    step, says why, and recommends nothing blocked.
 
+Progress: item 1 is implemented. A work item saves its priority, its rank in the
+Goal's order and its blockers; new work takes the next rank. Order in the work
+details sets the priority, moves open work earlier or later by saving the whole
+Goal's order, and adds or removes what the work waits on, refusing itself, other
+Goals' work and cycles. Dropping work that open work waits on is refused unless
+the decision also releases it, which the released work's history records, and
+work with dependencies cannot leave its Goal.
+
 Done when: the user can make one item High, block another on it and see the
 blocked one leave Next until the first is done; dropping that blocker asks to
 remove the dependency; and the agent's next recommendation names ready work.

@@ -105,6 +105,15 @@ export function itemsIn(goal: GoalDto, tab: GoalTab, needsYou: ReadonlySet<strin
   return goal.items;
 }
 
+/** A goal's work in the order the user gave it; equal places keep creation order. */
+export function inOrder(items: WorkItemDto[]): WorkItemDto[] {
+  return [...items].sort((left, right) => left.rank - right.rank || Date.parse(left.createdAt) - Date.parse(right.createdAt));
+}
+
+export function isOpen(item: WorkItemDto): boolean {
+  return item.state === 'PLANNED' || item.state === 'WORKING';
+}
+
 export const STATE_GROUPS: { state: WorkItemState; label: string }[] = [
   { state: 'WORKING', label: 'Working' },
   { state: 'PLANNED', label: 'Planned' },

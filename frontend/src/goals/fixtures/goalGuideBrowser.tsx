@@ -64,7 +64,7 @@ const conversation: Omit<Goals, 'goals' | 'pinned'> = {
     server.exchanges = [];
     changed();
   },
-  createWork: unexpected, decideWork: unexpected, linkWork: unexpected, dismissCard: unexpected, acceptCourse: unexpected, refresh: changed,
+  createWork: unexpected, decideWork: unexpected, linkWork: unexpected, orderWork: unexpected, dismissCard: unexpected, acceptCourse: unexpected, refresh: changed,
   stop: async (_goalId, exchangeId) => {
     server.stopped.push(exchangeId);
     server.exchanges = server.exchanges.map((exchange) => (exchange.id === exchangeId && exchange.state === 'PENDING'
@@ -300,7 +300,8 @@ export async function run(): Promise<boolean> {
     const link = (kind: GoalItemDto['kind'], key: string, label: string, status: string): GoalItemDto => ({ kind, key, label, title: 'Key actions by path',
       state: status === 'Merged' ? 'MERGED' : 'WORKING', status, blocked: false, url: null, activity: null, addedAt: NOW });
     server.goal = { ...server.goal, items: [{ id: 'work-1', workspaceId: 'workspace', goalId: 'goal', title: 'Fix #31252', kind: 'DEVELOP',
-      acceptanceCriteria: PRACTICE.scope, completionRule: 'MERGED_DELIVERY', state: 'WORKING', revision: 2, history: [], createdAt: NOW, updatedAt: NOW,
+      acceptanceCriteria: PRACTICE.scope, completionRule: 'MERGED_DELIVERY', state: 'WORKING', revision: 2, priority: 'NORMAL', rank: 0, blockedBy: [], history: [],
+      createdAt: NOW, updatedAt: NOW,
       links: [link('ISSUE', 'trinodb/trino#31252', '#31252', 'Open'), link('TASK', 'task-1', 'Task', 'Completed'), link('PULL_REQUEST', 'trinodb/trino#31260', '#31260', 'Merged')] }] };
     changed(); await settle();
     assert(text().includes('#31260 merged') && text().includes('Open task'), 'The practice shows its task and the merged pull request');

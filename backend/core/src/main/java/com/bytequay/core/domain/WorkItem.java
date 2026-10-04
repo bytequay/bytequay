@@ -22,8 +22,14 @@ import java.util.Optional;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
+import static java.util.Objects.requireNonNullElse;
 
-/** One accepted outcome, independent of its source, execution attempts and Goal membership. */
+/**
+ * One accepted outcome, independent of its source, execution attempts and Goal membership.
+ *
+ * @param rank its place in its Goal's order, lowest first; equal places keep creation order
+ * @param blockedBy the work of the same Goal it waits on
+ */
 public record WorkItem(
         String id,
         String workspaceId,
@@ -37,7 +43,10 @@ public record WorkItem(
         List<WorkItemLink> links,
         List<WorkItemEvent> history,
         Instant createdAt,
-        Instant updatedAt)
+        Instant updatedAt,
+        Priority priority,
+        long rank,
+        List<String> blockedBy)
 {
     public WorkItem
     {
@@ -57,6 +66,11 @@ public record WorkItem(
         checkArgument(links.stream().map(WorkItemLink::identity).distinct().count() == links.size(), "duplicate work item link");
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
+        // Work saved before priorities and blockers existed reads as Normal and waiting on nothing.
+        priority = requireNonNullElse(priority, Priority.NORMAL);
+        blockedBy = blockedBy == null ? ImmutableList.of() : ImmutableList.copyOf(blockedBy);
+        checkArgument(!blockedBy.contains(id), "work cannot wait on itself");
+        checkArgument(blockedBy.stream().distinct().count() == blockedBy.size(), "duplicate blocker");
     }
 
     public enum Kind { LEARN, INVESTIGATE, DEVELOP }
@@ -64,4 +78,6 @@ public record WorkItem(
     public enum State { PLANNED, WORKING, DONE, DROPPED }
 
     public enum CompletionRule { MERGED_DELIVERY, ACCEPTED_RESULT }
+
+    public enum Priority { HIGH, NORMAL, LOW }
 }

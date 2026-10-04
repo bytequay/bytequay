@@ -35,11 +35,15 @@ public record WorkItemView(
         List<GoalItemView> links,
         List<WorkItemEvent> history,
         Instant createdAt,
-        Instant updatedAt)
+        Instant updatedAt,
+        WorkItem.Priority priority,
+        long rank,
+        List<String> blockedBy)
 {
     public WorkItemView
     {
         links = ImmutableList.copyOf(links);
         history = ImmutableList.copyOf(history);
+        blockedBy = ImmutableList.copyOf(blockedBy);
     }
 }

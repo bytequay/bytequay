@@ -33,7 +33,8 @@ async function decisionsSurviveFailure(): Promise<void> {
   const root = createRoot(host);
   const now = '2026-09-01T00:00:00Z';
   const initial: WorkItemDto = { id: 'work', workspaceId: 'workspace', goalId: 'goal', title: 'Learn the contribution flow', kind: 'LEARN',
-    acceptanceCriteria: 'Explain the contribution path', completionRule: 'ACCEPTED_RESULT', state: 'WORKING', revision: 0, links: [], history: [], createdAt: now, updatedAt: now };
+    acceptanceCriteria: 'Explain the contribution path', completionRule: 'ACCEPTED_RESULT', state: 'WORKING', revision: 0, links: [], history: [], createdAt: now, updatedAt: now,
+    priority: 'NORMAL', rank: 0, blockedBy: [] };
   const decisions: WorkItemDecision[] = [];
   let rejectFirst = true;
   function Fixture(): React.JSX.Element {
@@ -45,7 +46,7 @@ async function decisionsSurviveFailure(): Promise<void> {
         openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {} }}
       repository="org/repo" goal={goal} goals={[goal]} workItems={[item]} needsYou={new Set()}
       onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}} onSummarize={async () => {}} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
-      search={async () => []} onCreateWork={async () => item} onLink={async () => item}
+      search={async () => []} onCreateWork={async () => item} onOrder={async () => {}} onLink={async () => item}
       onDecide={async (_item, command) => {
         decisions.push(command);
         if (rejectFirst) { rejectFirst = false; throw new Error('Connection interrupted'); }
@@ -89,7 +90,7 @@ async function finishedWorkKeepsItsSummary(): Promise<void> {
   const now = '2026-09-01T00:00:00Z';
   const accepted = { operationId: 'op-9', action: 'ACCEPT', detail: 'User accepted all criteria: Rows survive', at: now };
   const finished: WorkItemDto = { id: 'work', workspaceId: 'workspace', goalId: 'goal', title: 'Fix #31252', kind: 'DEVELOP', acceptanceCriteria: 'Rows survive',
-    completionRule: 'MERGED_DELIVERY', state: 'DONE', revision: 3, links: [], history: [accepted], createdAt: now, updatedAt: now };
+    completionRule: 'MERGED_DELIVERY', state: 'DONE', revision: 3, links: [], history: [accepted], createdAt: now, updatedAt: now, priority: 'NORMAL', rank: 0, blockedBy: [] };
   const asked: string[] = [];
   let show: (item: WorkItemDto) => void = () => {};
   function Fixture(): React.JSX.Element {
@@ -103,7 +104,7 @@ async function finishedWorkKeepsItsSummary(): Promise<void> {
       repository="org/repo" goal={goal} goals={[goal]} workItems={[item]} needsYou={new Set()}
       onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}}
       onSummarize={async (summarized) => { asked.push(summarized.id); }} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
-      search={async () => []} onCreateWork={async () => item} onLink={async () => item} onDecide={async () => item} />;
+      search={async () => []} onCreateWork={async () => item} onOrder={async () => {}} onLink={async () => item} onDecide={async () => item} />;
   }
   try {
     flushSync(() => root.render(<Fixture />)); await settle();
@@ -130,7 +131,7 @@ async function anotherAttemptAfterAnEndedTask(): Promise<void> {
     title: 'Fix the checkpoint', state, status: state === 'ENDED' ? 'Failed' : 'Idle', blocked: false, url: null, activity: null, addedAt: now });
   const work = (task: 'IDLE' | 'ENDED', source = link('ISSUE', 'trinodb/trino#31252', 'IDLE')): WorkItemDto => ({ id: 'work', workspaceId: 'workspace', goalId: 'goal',
     title: 'Fix #31252', kind: 'DEVELOP',
-    acceptanceCriteria: 'Key actions by path and deletion vector.', completionRule: 'MERGED_DELIVERY', state: 'WORKING', revision: 2,
+    acceptanceCriteria: 'Key actions by path and deletion vector.', completionRule: 'MERGED_DELIVERY', state: 'WORKING', revision: 2, priority: 'NORMAL', rank: 0, blockedBy: [],
     links: [source, link('TASK', 'task-1', task)], history: [], createdAt: now, updatedAt: now });
   const started: [number, string, string | undefined][] = [];
   const tickets: [string, string, string | undefined][] = [];
@@ -148,7 +149,7 @@ async function anotherAttemptAfterAnEndedTask(): Promise<void> {
       onStartTicket={(ticket, instruction, replaces) => tickets.push([ticket, instruction, replaces])}
       onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}}
       onSummarize={async () => {}} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
-      search={async () => []} onCreateWork={async () => item} onLink={async () => item} onDecide={async () => item} />;
+      search={async () => []} onCreateWork={async () => item} onOrder={async () => {}} onLink={async () => item} onDecide={async () => item} />;
   }
   try {
     flushSync(() => root.render(<Fixture />)); await settle();
@@ -166,10 +167,81 @@ async function anotherAttemptAfterAnEndedTask(): Promise<void> {
   finally { root.unmount(); host.remove(); }
 }
 
+function choose(select: HTMLSelectElement, value: string): void {
+  Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, value);
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+async function orderAndBlockers(): Promise<void> {
+  const host = document.createElement('div'); document.body.append(host);
+  host.style.width = '380px';
+  const root = createRoot(host);
+  const now = '2026-09-01T00:00:00Z';
+  const work = (id: string, title: string, rank: number, blockedBy: string[]): WorkItemDto => ({ id, workspaceId: 'workspace', goalId: 'goal', title, kind: 'DEVELOP',
+    acceptanceCriteria: 'Rows survive a checkpoint', completionRule: 'ACCEPTED_RESULT', state: 'PLANNED', revision: 1, links: [], history: [], createdAt: now, updatedAt: now,
+    priority: 'NORMAL', rank, blockedBy });
+  const decisions: WorkItemDecision[] = [];
+  const orders: string[][] = [];
+  function Fixture(): React.JSX.Element {
+    const [items, setItems] = useState([work('read', 'Read the checkpoint code', 0, []), work('fix', 'Fix the checkpoint', 1, ['read'])]);
+    const goal: GoalDto = { id: 'goal', workspaceId: 'workspace', title: 'Delta Lake correctness', description: '', pinned: true, paused: false, source: null,
+      definition: null, revision: 0, course: null, items, recommendations: [], topics: [], createdAt: now, updatedAt: now };
+    return <GoalPanel mode="window" view="work" onView={() => {}} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
+      conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptCourse: async () => {},
+        openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {} }}
+      repository="trinodb/trino" goal={goal} goals={[goal]} workItems={items} needsYou={new Set()}
+      onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}}
+      onRename={async () => {}} onPause={async () => {}} onSummarize={async () => {}} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
+      search={async () => []} onCreateWork={async () => items[0]} onLink={async () => items[0]}
+      onOrder={async (_goalId, ids) => { orders.push(ids); setItems((current) => current.map((item) => ({ ...item, rank: ids.indexOf(item.id) }))); }}
+      onDecide={async (item, command) => {
+        decisions.push(command);
+        const updated: WorkItemDto = { ...item, revision: item.revision + 1, priority: command.priority ?? item.priority,
+          blockedBy: command.action === 'UNBLOCK' ? item.blockedBy.filter((id) => id !== command.blocker) : item.blockedBy };
+        setItems((current) => current.map((existing) => existing.id === item.id ? updated : existing));
+        return updated;
+      }} />;
+  }
+  try {
+    flushSync(() => root.render(<Fixture />)); await settle();
+    const open = async (title: string): Promise<HTMLElement> => {
+      const card = [...host.querySelectorAll<HTMLButtonElement>('.goal-work-card')].find((found) => found.textContent?.includes(title));
+      assert(card !== undefined, `Work item card missing: ${title}`); card.click(); await settle();
+      const order = host.querySelector<HTMLElement>('section[aria-label="Order"]'); assert(order !== null, 'Order section missing');
+      return order;
+    };
+    const select = (order: HTMLElement, label: string): HTMLSelectElement => {
+      const found = [...order.querySelectorAll('label')].find((candidate) => candidate.textContent?.startsWith(label))?.querySelector('select');
+      assert(found !== null && found !== undefined, `Missing select: ${label}`);
+      return found;
+    };
+    const blocker = await open('Read the checkpoint code');
+    assert(blocker.textContent?.includes('BlocksFix the checkpoint') === true, 'The blocker names the work waiting on it');
+    const reason = [...host.querySelectorAll('label')].find((candidate) => candidate.textContent?.startsWith('Result, evidence'))?.querySelector('textarea');
+    assert(reason !== null && reason !== undefined, 'Reason field missing'); changeInput(reason, 'Not needed'); await settle();
+    button(host, 'Drop and unblock 1').click(); await settle();
+    assert(decisions.at(-1)?.action === 'DROP' && decisions.at(-1)?.releaseDependents === true, 'Dropping a blocker is the decision to stop the waiting');
+    button(host, 'Back to work').click(); await settle();
+
+    const order = await open('Fix the checkpoint');
+    assert(order.textContent?.includes('Waits onRead the checkpoint code') === true, 'The details name what the work waits on');
+    choose(select(order, 'Priority'), 'HIGH'); await settle();
+    assert(decisions.at(-1)?.action === 'PRIORITIZE' && decisions.at(-1)?.priority === 'HIGH', 'Choosing High saves the priority');
+    button(host, 'Move earlier').click(); await settle();
+    assert(JSON.stringify(orders) === JSON.stringify([['fix', 'read']]), 'Move earlier saves the whole order with the work moved');
+    button(host, 'Stop waiting').click(); await settle();
+    assert(decisions.at(-1)?.action === 'UNBLOCK' && decisions.at(-1)?.blocker === 'read', 'Stop waiting removes the blocker');
+    choose(select(order, 'Waits on'), 'read'); await settle();
+    assert(decisions.at(-1)?.action === 'BLOCK' && decisions.at(-1)?.blocker === 'read', 'Choosing work makes this work wait on it');
+  }
+  finally { root.unmount(); host.remove(); }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const results: { name: string; error?: string }[] = [];
   for (const [name, scenario] of [['Accept, retry, reopen and detach retain decisions', decisionsSurviveFailure],
-    ['Finished work keeps its summary', finishedWorkKeepsItsSummary], ['An ended task offers another attempt', anotherAttemptAfterAnEndedTask]] as const) {
+    ['Finished work keeps its summary', finishedWorkKeepsItsSummary], ['An ended task offers another attempt', anotherAttemptAfterAnEndedTask],
+    ['Priority, order and blockers are decisions on the work', orderAndBlockers]] as const) {
     try { await scenario(); results.push({ name }); }
     catch (error) { results.push({ name, error: String(error) }); }
   }

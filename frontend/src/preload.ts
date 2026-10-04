@@ -168,6 +168,7 @@ const bridge: Bridge = {
   createWorkItem: (workspaceId, request) => ipcRenderer.invoke('work-items:create', workspaceId, request),
   decideWorkItem: (workspaceId, itemId, command) => ipcRenderer.invoke('work-items:decide', workspaceId, itemId, command),
   linkWorkItem: (workspaceId, itemId, revision, kind, key) => ipcRenderer.invoke('work-items:link', workspaceId, itemId, revision, kind, key),
+  orderWorkItems: (workspaceId, goalId, ids) => ipcRenderer.invoke('work-items:order', workspaceId, goalId, ids),
   listGoals: workspaceId => ipcRenderer.invoke('goals:list', workspaceId),
   createGoal: (workspaceId, title, description) => ipcRenderer.invoke('goals:create', workspaceId, title, description),
   updateGoal: (workspaceId, goalId, patch) => ipcRenderer.invoke('goals:update', workspaceId, goalId, patch),

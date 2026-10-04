@@ -20,11 +20,11 @@ import MarkdownBody from '../pulls/MarkdownBody';
 import { relativeTime } from '../relativeTime';
 import type {
   GoalCourseDraftDto, GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalProposalDto, GoalRecommendationDto, GoalTopicDto, TopicLevel, WorkItemDto, WorkItemDecision,
-  CreateWorkItem, CompletionRule, WorkItemKind,
+  CreateWorkItem, CompletionRule, WorkItemKind, WorkItemPriority,
 } from './contracts';
 import {
-  GOAL_SOURCES, STARTED_LABELS, STATE_GROUPS, addable, goalDirections, itemsIn, openCourse, openProposal, progressWidths, recentActivity, refKey, ringDash, situation,
-  sourceUrl, summarize, itemNeedsYou,
+  GOAL_SOURCES, STARTED_LABELS, STATE_GROUPS, addable, goalDirections, inOrder, isOpen, itemsIn, openCourse, openProposal, progressWidths, recentActivity, refKey, ringDash,
+  situation, sourceUrl, summarize, itemNeedsYou,
   type GoalTab,
 } from './model';
 import { AgentModelControls, type ModelChoice } from '../settings/ModelsPage';
@@ -86,6 +86,8 @@ export type GoalPanelProps = {
   workItems: WorkItemDto[];
   onCreateWork: (request: CreateWorkItem) => Promise<WorkItemDto>;
   onDecide: (item: WorkItemDto, command: WorkItemDecision) => Promise<WorkItemDto>;
+  /** Saves the order of a goal's work, which names each of its items once. */
+  onOrder: (goalId: string, ids: string[]) => Promise<void>;
   /** Writes finished work's summary again, after its acceptance did not get one. */
   onSummarize: (item: WorkItemDto) => Promise<unknown>;
   onLink: (item: WorkItemDto, reference: GoalItemDto) => Promise<WorkItemDto>;
@@ -915,10 +917,31 @@ function WorkDetails(props: GoalPanelProps & { item: WorkItemDto; onBack: () => 
   const issueNumber = issue === undefined ? undefined : Number(issue.key.slice(issue.key.lastIndexOf('#') + 1));
   const ticket = item.links.find((link) => link.kind === 'JIRA');
   const lastTask = item.links.filter((link) => link.kind === 'TASK').at(-1);
+  // The same Goal's work, in its order: what this item waits on, what waits on it and where it stands.
+  const siblings = item.goalId === null ? [] : inOrder(props.workItems.filter((other) => other.goalId === item.goalId));
+  const openSiblings = siblings.filter(isOpen);
+  const place = openSiblings.findIndex((other) => other.id === item.id);
+  const waitsOn = siblings.filter((other) => item.blockedBy.includes(other.id));
+  const waiting = siblings.filter((other) => other.blockedBy.includes(item.id));
+  const openWaiting = waiting.filter(isOpen);
+  const blockable = siblings.filter((other) => other.id !== item.id && other.state !== 'DROPPED' && !item.blockedBy.includes(other.id));
+  const failed = (failure: unknown): void => setError(failure instanceof Error ? failure.message : 'Decision was not saved');
+  const arrange = (decision: Pick<WorkItemDecision, 'action' | 'priority' | 'blocker'>): void => {
+    setBusy(true); setError(null);
+    void props.onDecide(item, { operationId: crypto.randomUUID(), expectedRevision: item.revision, detail: '', ...decision }).catch(failed).finally(() => setBusy(false));
+  };
+  const move = (by: -1 | 1): void => {
+    const neighbor = openSiblings[place + by];
+    const ids = siblings.map((other) => other.id === item.id ? neighbor.id : other.id === neighbor.id ? item.id : other.id);
+    setBusy(true); setError(null);
+    void props.onOrder(item.goalId, ids).catch(failed).finally(() => setBusy(false));
+  };
   const change = (action: WorkItemDecision['action']): void => {
     const payload = { expectedRevision: action === 'EDIT' ? draftRevision : item.revision, action, detail,
       ...(action === 'EDIT' ? { title, acceptanceCriteria: criteria, completionRule: rule } : {}),
-      ...(action === 'MOVE' && targetGoal !== '' ? { goalId: targetGoal } : {}) };
+      ...(action === 'MOVE' && targetGoal !== '' ? { goalId: targetGoal } : {}),
+      // Dropped work is not done: the button names the work that stops waiting on it.
+      ...(action === 'DROP' && openWaiting.length > 0 ? { releaseDependents: true } : {}) };
     const key = JSON.stringify(payload);
     const operationId = requests.current.get(key) ?? crypto.randomUUID();
     requests.current.set(key, operationId);
@@ -927,7 +950,7 @@ function WorkDetails(props: GoalPanelProps & { item: WorkItemDto; onBack: () => 
       if (action === 'EDIT') setDraftRevision(updated.revision);
       setDetail('');
       if (action === 'MOVE') props.onBack();
-    }).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'Decision was not saved')).finally(() => setBusy(false));
+    }).catch(failed).finally(() => setBusy(false));
   };
   return <div className="goal-panel__body goal-work-form">
     <button type="button" className="goal-link" onClick={props.onBack}>Back to work</button>
@@ -950,6 +973,26 @@ function WorkDetails(props: GoalPanelProps & { item: WorkItemDto; onBack: () => 
           void props.onSummarize(item).catch((failure: unknown) => { setSummarizing(false); setError(failure instanceof Error ? failure.message : 'The summary was not asked for'); });
         }}>Summarize</button></>}</p>}
     </section>}
+    {item.goalId !== null && <section className="goal-work-order" aria-label="Order">
+      <div className="goal-group">Order</div>
+      <div className="goal-work-actions">
+        <label>Priority<select disabled={busy} value={item.priority} onChange={(event) => arrange({ action: 'PRIORITIZE', priority: event.target.value as WorkItemPriority })}>
+          <option value="HIGH">High</option><option value="NORMAL">Normal</option><option value="LOW">Low</option>
+        </select></label>
+        {place >= 0 && <><span className="goal-muted">{place + 1} of {openSiblings.length} open</span>
+          <button type="button" className="goal-link" disabled={busy || place === 0} onClick={() => move(-1)}>Move earlier</button>
+          <button type="button" className="goal-link" disabled={busy || place === openSiblings.length - 1} onClick={() => move(1)}>Move later</button></>}
+      </div>
+      {waitsOn.map((other) => <div className="goal-result" key={other.id}><span>Waits on</span><span className="goal-result__title">{other.title}</span>
+        <span>{other.state.toLowerCase()}</span>
+        {!concluded && <button type="button" className="goal-link" disabled={busy} onClick={() => arrange({ action: 'UNBLOCK', blocker: other.id })}>Stop waiting</button>}
+      </div>)}
+      {waiting.map((other) => <div className="goal-result" key={other.id}><span>Blocks</span><span className="goal-result__title">{other.title}</span>
+        <span>{other.state.toLowerCase()}</span></div>)}
+      {!concluded && blockable.length > 0 && <label>Waits on<select disabled={busy} value="" onChange={(event) => arrange({ action: 'BLOCK', blocker: event.target.value })}>
+        <option value="">Choose work…</option>{blockable.map((other) => <option key={other.id} value={other.id}>{other.title}</option>)}
+      </select></label>}
+    </section>}
     <div className="goal-group">Sources, attempts and delivery</div>
     {item.links.map((link) => <button type="button" className="goal-result goal-work-link" key={refKey(link)} onClick={() => props.onOpenItem(link)}>
       <SourceIcon source={GOAL_SOURCES[link.kind]} /><span>{link.label}</span><span className="goal-result__title">{link.title}</span><span>{link.status}</span>
@@ -969,7 +1012,9 @@ function WorkDetails(props: GoalPanelProps & { item: WorkItemDto; onBack: () => 
       {item.state === 'PLANNED' && <button type="button" className="goal-add" disabled={busy} onClick={() => change('BEGIN')}>Mark working</button>}
       {!concluded && <button type="button" className="goal-add" disabled={busy || detail.trim() === '' || item.acceptanceCriteria.trim() === ''}
         onClick={() => change('ACCEPT')}>Accept result</button>}
-      {!concluded && <button type="button" className="goal-link" disabled={busy || detail.trim() === ''} onClick={() => change('DROP')}>Drop from scope</button>}
+      {!concluded && <button type="button" className="goal-link" disabled={busy || detail.trim() === ''} onClick={() => change('DROP')}
+        title={openWaiting.length === 0 ? undefined : `${openWaiting.map((other) => other.title).join(', ')} will stop waiting on it`}>
+        {openWaiting.length === 0 ? 'Drop from scope' : `Drop and unblock ${openWaiting.length}`}</button>}
       {concluded && <button type="button" className="goal-add" disabled={busy || detail.trim() === ''} onClick={() => change('REOPEN')}>Reopen</button>}
     </div>
     <p className="goal-muted">Accept result confirms all saved criteria are covered. Task completion and ticket closure alone do not complete this item.</p>

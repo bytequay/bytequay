@@ -21,6 +21,12 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
+/**
+ * A user's decision on one work item.
+ *
+ * @param blocker the same Goal's work that BLOCK makes this item wait on, or UNBLOCK stops it waiting on
+ * @param releaseDependents whether DROP also stops the work waiting on this item from waiting on it
+ */
 public record WorkItemCommand(
         String operationId,
         long expectedRevision,
@@ -29,7 +35,10 @@ public record WorkItemCommand(
         Optional<String> acceptanceCriteria,
         Optional<WorkItem.CompletionRule> completionRule,
         Optional<String> goalId,
-        String detail)
+        String detail,
+        Optional<WorkItem.Priority> priority,
+        Optional<String> blocker,
+        boolean releaseDependents)
 {
     public WorkItemCommand
     {
@@ -42,7 +51,9 @@ public record WorkItemCommand(
         requireNonNull(goalId, "goalId is null");
         requireNonNull(detail, "detail is null");
         checkArgument(detail.length() <= 10000, "result is too long");
+        requireNonNull(priority, "priority is null");
+        requireNonNull(blocker, "blocker is null");
     }
 
-    public enum Action { EDIT, BEGIN, ACCEPT, DROP, REOPEN, MOVE }
+    public enum Action { EDIT, BEGIN, ACCEPT, DROP, REOPEN, MOVE, PRIORITIZE, BLOCK, UNBLOCK }
 }

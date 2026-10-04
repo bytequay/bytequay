@@ -141,6 +141,16 @@ over the ended task, and sending it creates a task that becomes the source's
 task, while the ended one keeps its source and stays the work item's earlier
 attempt.
 
+Each work item of a Goal has a High, Normal or Low priority, Normal until the
+user sets one, and a place in the Goal's order: new work joins the end, and the
+user moves open work earlier or later from its details. Work may wait on other
+work of the same Goal, never on itself, another Goal's work or anything that
+waits on it. Finishing a blocker makes the work waiting on it ready without
+starting it. Dropping work that open work waits on is that decision too: Drop
+and unblock removes those dependencies, which the waiting work's history
+records. Work leaves its Goal only once it waits on nothing and nothing waits on
+it.
+
 When a question needs evidence nobody has gathered, such as whether the code
 supports a specification feature, and neither research nor a spec check fits
 it, the agent may recommend an investigation card naming what to find out.

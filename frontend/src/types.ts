@@ -1483,6 +1483,7 @@ export type Bridge = JiraBridge & {
   createWorkItem: (workspaceId: string, request: CreateWorkItem) => Promise<WorkItemDto>;
   decideWorkItem: (workspaceId: string, itemId: string, command: WorkItemDecision) => Promise<WorkItemDto>;
   linkWorkItem: (workspaceId: string, itemId: string, revision: number, kind: GoalItemKind, key: string) => Promise<WorkItemDto>;
+  orderWorkItems: (workspaceId: string, goalId: string, ids: string[]) => Promise<WorkItemDto[]>;
   listGoals: (workspaceId: string) => Promise<GoalDto[]>;
   createGoal: (workspaceId: string, title: string, description: string) => Promise<GoalDto>;
   updateGoal: (workspaceId: string, goalId: string, patch: GoalPatch) => Promise<GoalDto>;

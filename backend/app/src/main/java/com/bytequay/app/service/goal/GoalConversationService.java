@@ -431,7 +431,9 @@ public class GoalConversationService
             if (dropped && left.state() != WorkItem.State.DONE && left.state() != WorkItem.State.DROPPED) {
                 work.change(workspaceId, left.id(), new WorkItemCommand("course:" + exchangeId + ":" + left.id(), left.revision(), WorkItemCommand.Action.DROP,
                         Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                        "Left out of the revised course" + draft.reason().map(reason -> ": " + reason).orElse(".")));
+                        "Left out of the revised course" + draft.reason().map(reason -> ": " + reason).orElse("."),
+                        // Accepting the revision is the user's decision about the work that waited on the lesson.
+                        Optional.empty(), Optional.empty(), true));
             }
         }
         tellDecision(workspaceId, goalId, "course:" + exchangeId, accepted.isPresent() ? "The user accepted the revised course." : "The user accepted the course.");
@@ -520,7 +522,7 @@ public class GoalConversationService
                     case ACCEPT -> "accepted the result of";
                     case DROP -> "dropped";
                     case REOPEN -> "reopened";
-                    case EDIT, BEGIN, MOVE -> throw new IllegalArgumentException("Not a decision to report: " + decision.action());
+                    case EDIT, BEGIN, MOVE, PRIORITIZE, BLOCK, UNBLOCK -> throw new IllegalArgumentException("Not a decision to report: " + decision.action());
                 };
                 tellDecision(decision.workspaceId(), decision.goalId(), "decided:" + decision.operationId(),
                         "The user " + what + " \"" + decision.title() + "\": " + ContextText.excerpt(decision.detail(), MAX_DECISION));

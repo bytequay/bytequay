@@ -232,6 +232,14 @@ class TestGoalController
     }
 
     @Test
+    void summarizesFinishedWorkAgain()
+            throws Exception
+    {
+        mvc.perform(post("/api/workspaces/workspace/goals/goal-1/work/work-1/summary")).andExpect(status().isAccepted());
+        verify(conversations).summarize("workspace", "goal-1", "work-1");
+    }
+
+    @Test
     void updateNowAsksTheAgentToReassess()
             throws Exception
     {

@@ -160,7 +160,11 @@ list refresh, which also refreshes each open linked pull request, or a restart
 shows it; the Goal window then offers Review result, and accepting stays the
 user's decision. A review whose reviewer's latest verdict on a linked open pull
 request requests changes is recorded and told the same way, once per review, and
-the agent leads with that recovery too. Turns that finished while ByteQuay was stopped, or whose receipt
+the agent leads with that recovery too. When Goal work other than a lesson is
+accepted, a tool-free request on the Goal's model writes a short summary from
+its history, what changed, the evidence and what is left open, saved once in
+the item's history. The Work view shows it, the agent's next request reads it,
+and a failed summary leaves Summary pending with Summarize to ask again. Turns that finished while ByteQuay was stopped, or whose receipt
 was lost, are recorded at startup, after the requests it was answering are
 settled and before the startup cleanup can remove their answers; the agent hears
 once per work item what it missed.

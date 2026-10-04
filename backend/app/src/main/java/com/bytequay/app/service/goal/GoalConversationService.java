@@ -24,6 +24,7 @@ import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.GoalTopic;
 import com.bytequay.core.domain.WorkItem;
+import com.bytequay.core.domain.WorkItemEvent;
 import com.bytequay.core.store.GoalExchangeStore;
 import com.bytequay.core.store.GoalRecommendationStore;
 import com.bytequay.core.store.GoalTopicStore;
@@ -105,6 +106,7 @@ public class GoalConversationService
     private final Map<String, List<Held>> held = new HashMap<>();
     private final Set<String> told = new HashSet<>();
     private final Set<String> waking = new HashSet<>();
+    private final Set<String> summarizing = new HashSet<>();
 
     /** An event the goal's agent has not heard yet; a decision is told as soon as the agent is free. */
     private record Held(String workspaceId, String operationId, String text, boolean decision) {}
@@ -508,12 +510,57 @@ public class GoalConversationService
                 };
                 tellDecision(decision.workspaceId(), decision.goalId(), "decided:" + decision.operationId(),
                         "The user " + what + " \"" + decision.title() + "\": " + ContextText.excerpt(decision.detail(), MAX_DECISION));
+                if (decision.action() == WorkItemCommand.Action.ACCEPT) {
+                    summarize(decision.workspaceId(), decision.goalId(), decision.workItemId(), "summary:" + decision.operationId());
+                }
             }
         }
         catch (RuntimeException failure) {
             // The decision is saved; the agent reads the work's state with its next request.
             log.warn("Goal {} was not told about work item {}", decision.goalId(), decision.workItemId(), failure);
         }
+    }
+
+    /**
+     * Summarize again: writes the summary of the goal's finished work that its acceptance did not get, such as after a failed request. Work
+     * that has its summary, or whose summary is being written, is left as it is.
+     */
+    public void summarize(String workspaceId, String goalId, String workItemId)
+    {
+        WorkItemView item = goal(workspaceId, goalId).items().stream().filter(found -> found.id().equals(workItemId)).findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Work not found"));
+        if (item.state() != WorkItem.State.DONE || item.kind() == WorkItem.Kind.LEARN) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Only finished work other than a lesson has a summary.");
+        }
+        Optional<String> accepted = item.history().stream().filter(event -> event.action().equals("ACCEPT")).map(WorkItemEvent::operationId).reduce((first, second) -> second);
+        accepted.ifPresent(operation -> summarize(workspaceId, goalId, workItemId, "summary:" + operation));
+    }
+
+    /** Writes the summary off the caller's thread; a failed one records nothing, so the facts stay as they are and the user can ask again. */
+    private void summarize(String workspaceId, String goalId, String workItemId, String operationId)
+    {
+        synchronized (writes) {
+            if (!summarizing.add(workItemId)) {
+                return;
+            }
+        }
+        executor.execute(() -> {
+            try {
+                GoalView goal = goal(workspaceId, goalId);
+                WorkItemView item = goal.items().stream().filter(found -> found.id().equals(workItemId)).findFirst().orElseThrow();
+                if (item.history().stream().noneMatch(event -> event.operationId().equals(operationId))) {
+                    work.summary(workspaceId, workItemId, operationId, planner.summary(models.goalModel(goalId, workspaceId), goal, item));
+                }
+            }
+            catch (RuntimeException failure) {
+                log.info("Goal work {} was not summarized: {}", workItemId, failure.toString());
+            }
+            finally {
+                synchronized (writes) {
+                    summarizing.remove(workItemId);
+                }
+            }
+        });
     }
 
     /**

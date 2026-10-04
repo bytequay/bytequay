@@ -1494,6 +1494,8 @@ export type Bridge = JiraBridge & {
   stopGoalExchange: (workspaceId: string, goalId: string, exchangeId: string) => Promise<GoalExchangeDto[]>;
   /** Update now: asks the goal's agent to reassess the goal from its current facts, also while guidance is paused. */
   reassessGoal: (workspaceId: string, goalId: string, operationId: string) => Promise<GoalExchangeDto[]>;
+  /** Writes the summary of the goal's finished work again, after its acceptance did not get one. */
+  summarizeGoalWork: (workspaceId: string, goalId: string, workItemId: string) => Promise<void>;
   /** The model the goal's agent answers and writes lessons with; it follows the workspace's Development model until the goal has its own. */
   getGoalModel: (workspaceId: string, goalId: string) => Promise<AgentModelSettingDto>;
   setGoalModel: (workspaceId: string, goalId: string, configId: string, model: string, effort: string | null) => Promise<AgentModelSettingDto>;

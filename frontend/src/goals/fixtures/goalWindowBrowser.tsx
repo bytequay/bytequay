@@ -39,7 +39,7 @@ const goals: Goals = { goals: [goal], pinned: goal, workItems: [], error: null, 
   createWork: unexpected, decideWork: unexpected, linkWork: unexpected,
   start: unexpected, exchanges: async () => [], ask: unexpected, retry: unexpected, stop: unexpected, accept: unexpected,
   acceptCourse: unexpected, startCard: unexpected, dismissCard: unexpected, knowledge: async () => [], gaps: async () => [], addGap: unexpected,
-  fileIssue: unexpected, refresh: () => {}, model: unexpected, chooseModel: unexpected, pause: unexpected, reassess: unexpected,
+  fileIssue: unexpected, refresh: () => {}, model: unexpected, chooseModel: unexpected, pause: unexpected, reassess: unexpected, summarize: unexpected,
   openLesson: unexpected, readLesson: unexpected, finishLesson: unexpected, setTopic: unexpected };
 
 function element<T extends HTMLElement = HTMLElement>(selector: string): T {

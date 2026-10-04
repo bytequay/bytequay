@@ -1863,6 +1863,8 @@ function registerIpc(): void {
     backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/exchanges`), jsonInit('POST', { operationId, message, lessonId })).then(exchanges));
   ipcMain.handle('goals:retry', (_event, workspaceId: string, goalId: string, exchangeId: string) =>
     backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/exchanges/${encodeURIComponent(exchangeId)}/retry`), { method: 'POST' }).then(exchanges));
+  ipcMain.handle('goals:summarize', (_event, workspaceId: string, goalId: string, workItemId: string) =>
+    backendVoid(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/work/${encodeURIComponent(workItemId)}/summary`), { method: 'POST' }));
   ipcMain.handle('goals:reassess', (_event, workspaceId: string, goalId: string, operationId: string) =>
     backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/reassess`), jsonInit('POST', { operationId })).then(exchanges));
   ipcMain.handle('goals:stop', (_event, workspaceId: string, goalId: string, exchangeId: string) =>

@@ -294,6 +294,11 @@ notes say when the code they cite moved.
    or Dependency. The Guide view marks it, and the agent sees which notes are
    stale and may recommend a refresh. Pages are not checked.
 
+Progress: item 1 is implemented. Accepting Goal work other than a lesson queues
+one summary request after the agent hears the decision, keyed by the acceptance;
+the summary is a SUMMARY event in the item's history, shown above its sources
+and sent with the work item to the planner. A failed request records nothing.
+
 Done when: an accepted result carries a saved summary; an investigation card
 becomes one work item however often it is started; a filed gap issue links to
 the gap's work in one click; and a moved file marks the notes that cite it.

@@ -231,6 +231,13 @@ public class GoalController
         return conversations.followWorkspaceModel(workspaceId, goalId);
     }
 
+    @PostMapping("/{goalId}/work/{workItemId}/summary")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public void summarize(@PathVariable String workspaceId, @PathVariable String goalId, @PathVariable String workItemId)
+    {
+        conversations.summarize(workspaceId, goalId, workItemId);
+    }
+
     @GetMapping("/{goalId}/gaps")
     public List<GoalGap> gaps(@PathVariable String workspaceId, @PathVariable String goalId)
     {

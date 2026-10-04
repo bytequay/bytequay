@@ -27,6 +27,7 @@ import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.GoalTopic;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.WorkItem;
+import com.bytequay.core.domain.WorkItemEvent;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.GoalKnowledgeNoteStore;
 import com.bytequay.core.store.GoalLessonStore;
@@ -138,6 +139,27 @@ class TestGoalPlanner
                 .isInstanceOf(AgentUnavailableException.class);
         assertThatThrownBy(() -> GoalPlanner.parse("null")).isInstanceOf(AgentUnavailableException.class);
         assertThatThrownBy(() -> GoalPlanner.parse("")).isInstanceOf(AgentUnavailableException.class);
+    }
+
+    @Test
+    void aSummaryReadsTheWorksHistoryAndTheAgentSeesTheSavedOne()
+    {
+        GoalPlanner planner = new GoalPlanner(mock(AgentDriverRegistry.class), mock(TextOnlyHelper.class), mock(WorkspaceStore.class), mock(WorkspaceRelationships.class),
+                mock(GoalKnowledgeNoteStore.class), mock(GoalLessonStore.class), mock(GoalCandidates.class), mock(GoalSpecChecks.class), mock(GoalQuestions.class),
+                mock(GoalTopicStore.class));
+        WorkItemView work = new WorkItemView("work-1", "workspace", Optional.of("goal-1"), "Fix #31252", WorkItem.Kind.DEVELOP, "Rows survive a checkpoint",
+                WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.DONE, 4, ImmutableList.of(), ImmutableList.of(
+                        new WorkItemEvent("turn:1", "", "RECEIPT", "Task turn finished: the new test passes", NOW),
+                        new WorkItemEvent("op-9", "", "ACCEPT", "User accepted all criteria", NOW),
+                        new WorkItemEvent("summary:op-9", "", "SUMMARY", "What changed: actions keyed by path", NOW)), NOW, NOW);
+        GoalView goal = new GoalView("goal-1", "workspace", "Delta Lake correctness", "", true, Optional.empty(), Optional.empty(), 1, Optional.empty(), false,
+                ImmutableList.of(work), ImmutableList.of(), ImmutableList.of(), NOW, NOW);
+
+        String prompt = planner.summaryPrompt(goal, work);
+        assertThat(prompt.indexOf("untrusted reference data")).isLessThan(prompt.indexOf("<work-data>"));
+        assertThat(prompt).contains("Task turn finished: the new test passes", "\"kind\" : \"ACCEPT\"").doesNotContain("actions keyed by path");
+        assertThat(planner.prompt(goal, ImmutableList.of(), GoalExchange.ask("op", "goal-1", "workspace", "What next?", 1, NOW)))
+                .contains("\"summary\" : \"What changed: actions keyed by path\"");
     }
 
     @Test

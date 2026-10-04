@@ -26,6 +26,7 @@ import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.GoalTopic;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.WorkItem;
+import com.bytequay.core.domain.WorkItemEvent;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.GoalExchangeStore;
 import com.bytequay.core.store.GoalTopicStore;
@@ -616,6 +617,39 @@ class TestGoalConversationService
             assertThat(told.id()).isEqualTo("turn:2");
             assertThat(told.message()).isEqualTo("2 events since you last heard:\n1. A turn finished: two\n2. The user dropped \"Fix #31252\".");
         });
+    }
+
+    @Test
+    void acceptedGoalWorkGetsOneSummaryAndALessonNone()
+    {
+        GoalView goal = goals.create("workspace", "Delta Lake", "");
+        WorkItemEvent accepted = new WorkItemEvent("op-9", "", "ACCEPT", "User accepted all criteria", Instant.EPOCH);
+        when(work.list("workspace")).thenReturn(ImmutableList.of(done("work-1", goal.id(), WorkItem.Kind.DEVELOP, accepted)));
+        doThrow(new IllegalStateException("The selected model could not answer")).when(planner).summary(any(), any(), any());
+        service.decided(new WorkItemDecided("workspace", goal.id(), "work-1", "Fix #31252", WorkItem.Kind.DEVELOP, WorkItemCommand.Action.ACCEPT, "op-9",
+                "User accepted all criteria"));
+        queued.removeLast().run();
+        verify(work, never()).summary(any(), any(), any(), any());
+
+        doReturn("What changed: actions keyed by path").when(planner).summary(any(), any(), any());
+        service.summarize("workspace", goal.id(), "work-1");
+        queued.removeLast().run();
+        verify(work).summary("workspace", "work-1", "summary:op-9", "What changed: actions keyed by path");
+
+        when(work.list("workspace")).thenReturn(ImmutableList.of(done("work-1", goal.id(), WorkItem.Kind.DEVELOP, accepted,
+                new WorkItemEvent("summary:op-9", "", "SUMMARY", "What changed: actions keyed by path", Instant.EPOCH))));
+        service.summarize("workspace", goal.id(), "work-1");
+        queued.removeLast().run();
+        verify(planner, times(2)).summary(any(), any(), any());
+
+        when(work.list("workspace")).thenReturn(ImmutableList.of(done("lesson-1", goal.id(), WorkItem.Kind.LEARN, accepted)));
+        assertThatThrownBy(() -> service.summarize("workspace", goal.id(), "lesson-1")).hasMessageContaining("Only finished work other than a lesson");
+    }
+
+    private static WorkItemView done(String id, String goalId, WorkItem.Kind kind, WorkItemEvent... history)
+    {
+        return new WorkItemView(id, "workspace", Optional.of(goalId), "Fix #31252", kind, "Rows survive", WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.DONE, 3,
+                ImmutableList.of(), ImmutableList.copyOf(history), Instant.EPOCH, Instant.EPOCH);
     }
 
     @Test

@@ -181,6 +181,11 @@ class TestWorkItemService
         assertThat(item.history()).filteredOn(event -> event.action().equals("RECEIPT")).singleElement()
                 .satisfies(event -> assertThat(event.detail()).isEqualTo("Task turn finished: the new test passes"));
         assertThat(item.state()).isEqualTo(WorkItem.State.PLANNED);
+
+        service.summary("workspace", id, "summary:op-1", "What changed: nothing yet");
+        service.summary("workspace", id, "summary:op-1", "What changed: nothing yet");
+        assertThat(service.list("workspace").getFirst().history()).filteredOn(event -> event.action().equals("SUMMARY")).singleElement()
+                .satisfies(event -> assertThat(event.detail()).isEqualTo("What changed: nothing yet"));
     }
 
     @Test

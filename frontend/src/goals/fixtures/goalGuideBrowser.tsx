@@ -80,6 +80,7 @@ const conversation: Omit<Goals, 'goals' | 'pinned'> = {
   gaps: async () => [],
   addGap: unexpected,
   fileIssue: unexpected,
+  summarize: unexpected,
   pause: async (_goalId, paused) => {
     server.goal = { ...server.goal, paused };
     changed();

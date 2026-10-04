@@ -86,6 +86,8 @@ export type GoalPanelProps = {
   workItems: WorkItemDto[];
   onCreateWork: (request: CreateWorkItem) => Promise<WorkItemDto>;
   onDecide: (item: WorkItemDto, command: WorkItemDecision) => Promise<WorkItemDto>;
+  /** Writes finished work's summary again, after its acceptance did not get one. */
+  onSummarize: (item: WorkItemDto) => Promise<unknown>;
   onLink: (item: WorkItemDto, reference: GoalItemDto) => Promise<WorkItemDto>;
   onOpenItem: (item: GoalItemDto) => void;
   onOpenTask: (taskId: string) => void;
@@ -898,6 +900,11 @@ function WorkDetails(props: GoalPanelProps & { item: WorkItemDto; onBack: () => 
   const requests = useRef(new Map<string, string>());
   const candidates = useCandidates({ items: [item] }, props.search, adding);
   const concluded = item.state === 'DONE' || item.state === 'DROPPED';
+  // Finished Goal work other than a lesson keeps a summary of its latest acceptance, written once from its history.
+  const accepted = item.history.filter((event) => event.action === 'ACCEPT').at(-1);
+  const summary = accepted === undefined ? undefined : item.history.find((event) => event.operationId === `summary:${accepted.operationId}`);
+  const summarized = item.state === 'DONE' && item.kind !== 'LEARN' && item.goalId !== null && accepted !== undefined;
+  const [summarizing, setSummarizing] = useState(false);
   const change = (action: WorkItemDecision['action']): void => {
     const payload = { expectedRevision: action === 'EDIT' ? draftRevision : item.revision, action, detail,
       ...(action === 'EDIT' ? { title, acceptanceCriteria: criteria, completionRule: rule } : {}),
@@ -925,6 +932,14 @@ function WorkDetails(props: GoalPanelProps & { item: WorkItemDto; onBack: () => 
       {draftRevision !== item.revision && <button type="button" className="goal-link" disabled={busy} onClick={() => {
         setTitle(item.title); setCriteria(item.acceptanceCriteria); setRule(item.completionRule); setDraftRevision(item.revision);
       }}>Reload saved scope</button>}</div>}
+    {summarized && <section className="goal-work-summary" aria-label="Summary">
+      <div className="goal-group">Summary</div>
+      {summary !== undefined ? <MarkdownBody body={summary.detail} repository={props.repository} />
+        : <p className="goal-muted">{summarizing ? 'Writing the summary…' : 'Summary pending.'}{!summarizing && <> <button type="button" className="goal-link" onClick={() => {
+          setSummarizing(true); setError(null);
+          void props.onSummarize(item).catch((failure: unknown) => { setSummarizing(false); setError(failure instanceof Error ? failure.message : 'The summary was not asked for'); });
+        }}>Summarize</button></>}</p>}
+    </section>}
     <div className="goal-group">Sources, attempts and delivery</div>
     {item.links.map((link) => <button type="button" className="goal-result goal-work-link" key={refKey(link)} onClick={() => props.onOpenItem(link)}>
       <SourceIcon source={GOAL_SOURCES[link.kind]} /><span>{link.label}</span><span className="goal-result__title">{link.title}</span><span>{link.status}</span>
@@ -951,7 +966,7 @@ function WorkDetails(props: GoalPanelProps & { item: WorkItemDto; onBack: () => 
     </select></label>
     <button type="button" className="goal-link" disabled={busy || targetGoal === (item.goalId ?? '')} onClick={() => change('MOVE')}>Move work item</button>
     <div className="goal-group">History</div>
-    {[...item.history].reverse().map((event) => <div className="goal-work-history" key={event.operationId}>
+    {[...item.history].reverse().filter((event) => event.action !== 'SUMMARY').map((event) => <div className="goal-work-history" key={event.operationId}>
       <span className="goal-muted">{relativeTime(event.at, { now: props.now })}</span><p>{event.detail}</p>
     </div>)}
   </div>;

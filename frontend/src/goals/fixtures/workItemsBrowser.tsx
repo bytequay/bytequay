@@ -44,7 +44,7 @@ async function decisionsSurviveFailure(): Promise<void> {
       conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptCourse: async () => {},
         openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {} }}
       repository="org/repo" goal={goal} goals={[goal]} workItems={[item]} needsYou={new Set()}
-      onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
+      onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}} onSummarize={async () => {}} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
       search={async () => []} onCreateWork={async () => item} onLink={async () => item}
       onDecide={async (_item, command) => {
         decisions.push(command);
@@ -82,7 +82,51 @@ async function decisionsSurviveFailure(): Promise<void> {
   finally { root.unmount(); host.remove(); }
 }
 
+async function finishedWorkKeepsItsSummary(): Promise<void> {
+  const host = document.createElement('div'); document.body.append(host);
+  host.style.width = '380px';
+  const root = createRoot(host);
+  const now = '2026-09-01T00:00:00Z';
+  const accepted = { operationId: 'op-9', action: 'ACCEPT', detail: 'User accepted all criteria: Rows survive', at: now };
+  const finished: WorkItemDto = { id: 'work', workspaceId: 'workspace', goalId: 'goal', title: 'Fix #31252', kind: 'DEVELOP', acceptanceCriteria: 'Rows survive',
+    completionRule: 'MERGED_DELIVERY', state: 'DONE', revision: 3, links: [], history: [accepted], createdAt: now, updatedAt: now };
+  const asked: string[] = [];
+  let show: (item: WorkItemDto) => void = () => {};
+  function Fixture(): React.JSX.Element {
+    const [item, setItem] = useState(finished);
+    show = setItem;
+    const goal: GoalDto = { id: 'goal', workspaceId: 'workspace', title: 'Delta Lake correctness', description: '', pinned: true, paused: false, source: null,
+      definition: null, revision: 0, course: null, items: [item], recommendations: [], topics: [], createdAt: now, updatedAt: now };
+    return <GoalPanel mode="window" view="work" onView={() => {}} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
+      conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptCourse: async () => {},
+        openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {} }}
+      repository="org/repo" goal={goal} goals={[goal]} workItems={[item]} needsYou={new Set()}
+      onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}}
+      onSummarize={async (summarized) => { asked.push(summarized.id); }} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
+      search={async () => []} onCreateWork={async () => item} onLink={async () => item} onDecide={async () => item} />;
+  }
+  try {
+    flushSync(() => root.render(<Fixture />)); await settle();
+    const card = host.querySelector<HTMLButtonElement>('.goal-work-card'); assert(card !== null, 'Work item card missing'); card.click(); await settle();
+    assert(host.textContent?.includes('Summary pending.') === true, 'Finished work without its summary must say it is pending');
+    button(host, 'Summarize').click(); await settle();
+    assert(asked.join() === 'work' && host.textContent?.includes('Writing the summary…') === true, 'Summarize must ask once and say it is writing');
+    flushSync(() => show({ ...finished, history: [accepted, { operationId: 'summary:op-9', action: 'SUMMARY', detail: '**What changed** Actions keyed by path', at: now }] }));
+    await settle();
+    const summary = host.querySelector('.goal-work-summary');
+    assert(summary?.querySelector('strong')?.textContent === 'What changed' && summary.textContent?.includes('Actions keyed by path') === true,
+      'The saved summary must render as Markdown');
+    assert(host.textContent?.split('Actions keyed by path').length === 2, 'The summary must not repeat in the history');
+  }
+  finally { root.unmount(); host.remove(); }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  try { await decisionsSurviveFailure(); return [{ name: 'Accept, retry, reopen and detach retain decisions' }]; }
-  catch (error) { return [{ name: 'Accept, retry, reopen and detach retain decisions', error: String(error) }]; }
+  const results: { name: string; error?: string }[] = [];
+  for (const [name, scenario] of [['Accept, retry, reopen and detach retain decisions', decisionsSurviveFailure],
+    ['Finished work keeps its summary', finishedWorkKeepsItsSummary]] as const) {
+    try { await scenario(); results.push({ name }); }
+    catch (error) { results.push({ name, error: String(error) }); }
+  }
+  return results;
 }

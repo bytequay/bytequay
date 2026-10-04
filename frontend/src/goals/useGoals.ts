@@ -31,7 +31,7 @@ const GOALS_POLL_MS = 15_000;
 const ANSWER_POLL_MS = 1_500;
 
 export type GoalBridge = Pick<Bridge, 'listWorkItems' | 'createWorkItem' | 'decideWorkItem' | 'linkWorkItem' | 'listGoals' | 'createGoal' | 'updateGoal' | 'deleteGoal'
-  | 'addGoalItem' | 'removeGoalItem' | 'searchGoalCandidates' | 'startGoal' | 'listGoalExchanges' | 'askGoal' | 'retryGoalExchange' | 'stopGoalExchange' | 'reassessGoal' | 'acceptGoalDefinition'
+  | 'addGoalItem' | 'removeGoalItem' | 'searchGoalCandidates' | 'startGoal' | 'listGoalExchanges' | 'askGoal' | 'retryGoalExchange' | 'stopGoalExchange' | 'reassessGoal' | 'summarizeGoalWork' | 'acceptGoalDefinition'
   | 'acceptGoalCourse' | 'startGoalRecommendation' | 'dismissGoalRecommendation' | 'listGoalKnowledge' | 'openGoalLesson' | 'readGoalLesson' | 'finishGoalLesson'
   | 'setGoalTopic' | 'listGoalGaps' | 'addGoalGap' | 'openInAppBrowser' | 'getGoalModel' | 'setGoalModel' | 'clearGoalModel' | 'getModelSettings'>;
 
@@ -65,6 +65,8 @@ export type Goals = {
   retry: (goalId: string, exchangeId: string) => Promise<GoalExchangeDto[]>;
   stop: (goalId: string, exchangeId: string) => Promise<GoalExchangeDto[]>;
   reassess: (goalId: string, operationId: string) => Promise<GoalExchangeDto[]>;
+  /** Writes the summary of finished work again; it lands in the work's history. */
+  summarize: (goalId: string, workItemId: string) => Promise<void>;
   /** Accepts the definition an answer proposed, under the title the user kept or edited. */
   accept: (goalId: string, exchangeId: string, title: string) => Promise<GoalDto>;
   /** Accepts a proposed course: its lessons become the goal's Learn work items. */
@@ -276,6 +278,7 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
     retry: (goalId, exchangeId) => bridge().retryGoalExchange(workspaceId, goalId, exchangeId),
     stop: (goalId, exchangeId) => bridge().stopGoalExchange(workspaceId, goalId, exchangeId),
     reassess: (goalId, operationId) => bridge().reassessGoal(workspaceId, goalId, operationId),
+    summarize: (goalId, workItemId) => bridge().summarizeGoalWork(workspaceId, goalId, workItemId),
     accept: (goalId, exchangeId, title) => bridge().acceptGoalDefinition(workspaceId, goalId, exchangeId, title).then(settle),
     acceptCourse: (goalId, exchangeId) => bridge().acceptGoalCourse(workspaceId, goalId, exchangeId).then(settle),
     startCard: (goalId, recommendationId) => bridge().startGoalRecommendation(workspaceId, goalId, recommendationId).then(settleCard),

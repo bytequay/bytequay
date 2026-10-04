@@ -75,9 +75,9 @@ Every accepted agent turn carries the repository's guideline files as
 delimited reference data, read at a commit the turn cannot change.
 [Repository memory](repository-memory.md) keeps short rules and specifications
 per workspace in the `repository_memory` table, each with its sources.
-Development tasks and reviews whose workspace has memories get the matching
-ones at the start of every turn and one tool to search, read and report them; no
-agent can edit one.
+Development tasks and reviews whose workspace has memories get the titles of the
+matching ones at the start of every turn and one tool to search, read and report
+them; no agent can edit one.
 
 A [spec check](spec-check.md) compares one directory's code
 with the specifications it links and reproduces each gap with a test. It runs as

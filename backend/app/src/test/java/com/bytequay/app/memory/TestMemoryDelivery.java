@@ -95,7 +95,7 @@ class TestMemoryDelivery
         Reference first = delivery.reference(task, turn(true));
         assertThat(first.memories()).extracting(TurnMemory::id).containsExactly("m2", "m1");
         assertThat(first.text()).contains("----- BEGIN REPOSITORY MEMORY -----\n[m2] Recurring rule seen in three PRs. (PR #1 @alice · 3 PRs)\n[m1] ")
-                .contains("cite its id, such as [m2]").endsWith("----- END REPOSITORY MEMORY -----");
+                .contains("READ that memory with repository_memory").contains("cite its id, such as [m2]").endsWith("----- END REPOSITORY MEMORY -----");
         assertThat(first.guidelines()).isEmpty();
 
         write("plugin/trino-delta-lake/src/DeltaLakeWriter.java", "class DeltaLakeWriter { void finish() {} }\n");
@@ -111,7 +111,7 @@ class TestMemoryDelivery
     void aReviewGetsTheMemoryScopedToItsChangedPathsAndFlaggedMemoryWithItsFlag()
     {
         store.save(rule("m1", "workspace", "Repository rule.", ImmutableList.of()));
-        store.save(rule("m3", "workspace", "Delta writes leave cleanup to abort().", ImmutableList.of("plugin/trino-delta-lake/"))
+        store.save(rule("m3", "workspace", "Delta Lake writer cleanup", "Delta writes leave cleanup to abort().", ImmutableList.of("plugin/trino-delta-lake/"))
                 .reported(new MemoryReport("The writer cleans up in finish() now", "", "task", NOW), NOW));
         store.save(rule("m5", "workspace", "Iceberg rule", ImmutableList.of("plugin/trino-iceberg/")));
         AgentTask review = AgentTask.created(taskId, Optional.of("workspace"), false, "Review", new AgentLaneId("codex"), new RepositoryIdentity("trinodb", "trino"),
@@ -124,7 +124,8 @@ class TestMemoryDelivery
         Reference reference = delivery.reference(review, turn(true));
         assertThat(reference.memories()).extracting(TurnMemory::id).containsExactly("m3", "m1");
         assertThat(reference.memories().getFirst().line())
-                .isEqualTo("Delta writes leave cleanup to abort(). (PR #31201 @alice) Flagged: reported wrong: The writer cleans up in finish() now.");
+                .isEqualTo("Delta Lake writer cleanup (PR #31201 @alice) Flagged: reported wrong: The writer cleans up in finish() now.");
+        assertThat(reference.text()).contains("[m3] Delta Lake writer cleanup (PR #31201 @alice)").doesNotContain("leave cleanup to abort()");
 
         memories.saveSwitches("workspace", new MemorySwitches(false, true));
         assertThat(delivery.reference(review, turn(true))).isEqualTo(Reference.NONE);
@@ -164,8 +165,10 @@ class TestMemoryDelivery
         Reference reference = MemoryDelivery.reference(MemoryDelivery.select(memories.list("workspace"), ImmutableList.of()));
         assertThat(reference.memories()).hasSize(MemoryDelivery.MAX_LINES);
 
+        // Titles are short, so only long flags fill the bytes before the lines run out.
         Reference large = MemoryDelivery.reference(memories.list("workspace").stream()
-                .map(memory -> rule(memory.id(), "workspace", "x".repeat(590), ImmutableList.of())).collect(toImmutableList()));
+                .map(memory -> rule(memory.id(), "workspace", "x".repeat(590), ImmutableList.of()).reported(new MemoryReport("y".repeat(480), "", "task", NOW), NOW))
+                .collect(toImmutableList()));
         assertThat(large.memories().size()).isLessThan(MemoryDelivery.MAX_LINES);
         assertThat(large.text().getBytes(UTF_8).length).isLessThan(MemoryDelivery.MAX_BYTES + 1024);
 

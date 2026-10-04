@@ -32,9 +32,14 @@ public final class MemoryFixtures
 
     public static Memory rule(String id, String workspaceId, String text, List<String> scope, int... pullRequests)
     {
+        return rule(id, workspaceId, Memory.titleFrom(text), text, scope, pullRequests);
+    }
+
+    public static Memory rule(String id, String workspaceId, String title, String text, List<String> scope, int... pullRequests)
+    {
         List<MemorySource> sources = Arrays.stream(pullRequests.length == 0 ? new int[] {31201} : pullRequests)
                 .mapToObj(number -> pullRequestSource(number, "alice")).collect(toImmutableList());
-        return new Memory(id, workspaceId, Memory.Kind.RULE, Memory.titleFrom(text), text, scope, sources,
+        return new Memory(id, workspaceId, Memory.Kind.RULE, title, text, scope, sources,
                 new Memory.Origin(false, "Learn from my PRs", Optional.of("harvest-task")), 1, Optional.empty(), 0, 0, ImmutableList.of(),
                 NOW.plusSeconds(Long.parseLong(id.substring(1))), NOW);
     }

@@ -250,8 +250,11 @@ development turns continue without another Memory block.
 
 ## 5. Delivery and receipts
 
-**At turn start.** After the guidelines, a Memory block lists matching memories,
-one line each: `[m12] <text> (PR #31201 @alice, 3 PRs)`.
+**At turn start.** After the guidelines, a Memory block lists the titles of
+matching memories, one line each: `[m12] <title> (PR #31201 @alice, 3 PRs)`. As
+with a skill's description, the title tells the agent whether a memory applies;
+when one covers what it is changing or reviewing, the agent reads the memory's
+text and sources with READ before acting, and cites it.
 
 - **Reviews:** memories scoped to a changed path, then repository-wide ones, then
   the user's.
@@ -262,7 +265,9 @@ one line each: `[m12] <text> (PR #31201 @alice, 3 PRs)`.
   is delivered with its flag.
 
 This deliberately reverses the current rule against automatic note injection:
-memories are short, and lookup alone reached one development task.
+lookup alone reached one development task, because an agent could not see what
+was saved. Titles show it what exists without sending every rule's text, so the
+block stays short as memories accumulate.
 
 **The memory tool**, `repository_memory`, for development tasks and reviews with
 memory on, even before anything is remembered, replaces
@@ -284,7 +289,7 @@ text.
 **Receipts.**
 - A finding shows "Memory used", folded, with each rule and its source.
 - Transcripts show "Remembered" rows.
-- The turn receipt lists the memories delivered.
+- The turn receipt lists the titles delivered.
 
 **On and off.** The Memory page brings back the workspace switches for reviews
 and development; the old ones lived in the notebook phase 2 deleted. A turn reads

@@ -296,10 +296,12 @@ Guidelines never enter managed instructions or process arguments.
 
 The same port then adds a Memory block after the guidelines for an open
 interactive development task or a review whose workspace has memory switched on
-for it: the memories that match the turn, one line each with its source and any
-flag, at most forty lines and 12 KiB. A review matches its latest run's changed
-paths; a development task matches the files it changed since its worktree
-started, so its first turn gets only repository-wide memories. Path matches come
+for it: the titles of the memories that match the turn, one line each with its
+source and any flag, at most forty lines and 12 KiB. The block tells the agent to
+READ a memory with the memory tool when its title covers what it is changing or
+reviewing. A review matches its latest run's changed paths; a development task
+matches the files it changed since its worktree started, so its first turn gets
+only repository-wide memories. Path matches come
 first, longest scope first, then memories with more sources, newest first. Core
 records the delivered lines on AgentTurn beside the guideline paths, the turn
 receipt lists them, and the deliveries are counted once the provider acknowledges

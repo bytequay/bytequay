@@ -1,7 +1,7 @@
 # Agent guided goals implementation plan
 
-Status: The first seven implementation slices are complete and the eighth is in
-progress. The later items of Steps 3 to 6 below remain as listed.
+Status: The first eight implementation slices are complete. The later items of
+Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
 
@@ -413,6 +413,12 @@ evidence the agent may cite for a topic level once its starting knowledge is not
 empty, and the planner sends that id and asks for first levels; accepting a
 course whose request came before the accepted course's is refused.
 
+Items 1 and 4 are implemented: a proposed goal or course offers Adjust, which
+seeds and focuses the reply field, and Skip, which sends the agent a fixed
+message; the Goal control's two badges became one count with both named on
+hover, and an empty Goal's Work view and switcher show directions instead of
+empty counts. The eighth slice is complete.
+
 Done when: a proposal can be adjusted or skipped without accepting it, a stated
 starting knowledge sets levels the user can correct, an older course cannot
 replace a newer one, and the Goal control shows one count.
@@ -500,14 +506,14 @@ work-item and Goal window Chromium journeys, and desktop packaging passed.
   reason, Start and Not now, at most three, newest first. Nothing starts without
   Start, a dismissed card does not return unchanged, and cards of one kind do
   not stack.
-- [ ] Extend `GoalController`, main/preload bridge and `frontend/src/goals` with
+- [x] Extend `GoalController`, main/preload bridge and `frontend/src/goals` with
   suggested-answer and free-text messages, editable suggested title and Accept /
   Adjust / Skip proposal controls. An existing vague Goal receives clarification
   without requiring a separate Plan with agent prompt. Manual entry stays secondary.
-- [ ] Refactor `GoalPanel` around current situation, one primary agent intervention,
+- [x] Refactor `GoalPanel` around current situation, one primary agent intervention,
   compact path and recent result. Empty Goals show helpful directions, not 0/0,
   empty board columns and source-search instructions. Preserve current app styling.
-- [ ] Preserve `GoalLayer` pill, pinning, floating window and expansion. Show one
+- [x] Preserve `GoalLayer` pill, pinning, floating window and expansion. Show one
   meaningful attention cue and keep drafts/selection stable across modes. Keep
   one panel mounted across resizing and expansion, hidden from interaction when closed.
 - [x] Keep Accept plan separate from Start. Draft proposals do not affect progress.
@@ -517,11 +523,8 @@ stopped, restart settlement, cards that float only once the Goal is defined and
 never stack or repeat a dismissed one, course acceptance), `TestTextOnlyHelper`,
 `TestModelSettingsService` for the Goal's own model, the Codex and Claude driver
 text-only session tests, `TestGoalPlanner` and the `goalGuideBrowser` and
-`goalWindowBrowser` journeys. Still partial: response coverage is not saved;
-replies cannot propose dependencies, so there are no proposed cycles to refuse;
-a proposal offers Accept without
-Adjust or Skip; an empty Goal's switcher and Work view still show empty counts
-rather than directions; and the pill shows two counts, not one attention cue.
+`goalWindowBrowser` journeys. Still partial: response coverage is not saved, and
+replies cannot propose dependencies, so there are no proposed cycles to refuse.
 
 Done when: opening an empty Goal or one named “Iceberg connector expertise” offers
 useful directions; a suggested answer can lead to a saved goal definition and

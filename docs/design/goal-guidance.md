@@ -74,15 +74,20 @@ it as its understanding changes until a definition is accepted. A title the user
 chose stays, and a name changes no revision, so pending proposals stay valid.
 Accepting a proposal saves its title, objective, success
 definition, starting knowledge and constraints, and is refused once the Goal's
-text changed after the request was built. One exchange per Goal and two across
+text changed after the request was built. A proposed goal or course can also
+be adjusted, which starts the reply with "Adjust it: ", or skipped, which tells
+the agent the user passes on it; the next answer replaces the proposal either
+way. One exchange per Goal and two across
 the app run at a time; a request still pending at startup is marked interrupted.
 A reply may take ten minutes and a lesson twenty; a pending reply shows how long
 the agent has worked, and Stop cancels the model's turn and leaves the message
 to ask again, its late answer never saved.
 
 Once a definition is accepted, ByteQuay tells the agent, and its answer may
-recommend a research card: a scope and up to eight https pages. Cards float
-under the Goal control with Start and Not now; one of a kind waits at a time and
+recommend a research card: a scope and up to eight https pages. The Goal
+control shows one count, the work needing the user and the decisions waiting
+together, naming both on hover. Cards float under the Goal control with Start
+and Not now; one of a kind waits at a time and
 a dismissed card is not offered again. Start begins a research run as the third
 kind of the workspace's restricted run, beside spec checks and memory harvests,
 at the monitored head with the checkouts of the workspace's Dependency

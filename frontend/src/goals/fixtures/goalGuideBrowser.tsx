@@ -263,6 +263,15 @@ export async function run(): Promise<boolean> {
       title: 'Iceberg connector expert', objective: 'Explain and change the Iceberg connector', successDefinition: 'Trace a scan end to end',
       startingKnowledge: 'Knows Trino', constraints: 'Five hours a week' } });
     await nextRead();
+    button('Adjust').click(); await settle();
+    assert(composer().value === 'Adjust it: ' && document.activeElement === composer(), 'Adjust starts the reply in the field and focuses it');
+    changeInput(composer(), ''); await settle();
+    button('Skip').click(); await settle(); await settle();
+    assert(asked() === 6 && server.exchanges.at(-1)?.message === 'Skip this proposal for now.', 'Skip tells the agent the user passes on the proposal');
+    answer({ assessment: 'Start from the specification, then the connector.', question: null, recommendation: null, course: null, proposal: {
+      title: 'Iceberg connector expert', objective: 'Explain and change the Iceberg connector', successDefinition: 'Trace a scan end to end',
+      startingKnowledge: 'Knows Trino', constraints: 'Five hours a week' } });
+    await nextRead();
     const title = document.querySelector<HTMLInputElement>('.goal-proposal input');
     assert(title !== null && title.value === 'Iceberg connector expert', 'The proposal offers its title for editing');
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(title, 'Trino Iceberg connector expert');
@@ -305,7 +314,7 @@ export async function run(): Promise<boolean> {
       links: [link('ISSUE', 'trinodb/trino#31252', '#31252', 'Open'), link('TASK', 'task-1', 'Task', 'Completed'), link('PULL_REQUEST', 'trinodb/trino#31260', '#31260', 'Merged')] }] };
     changed(); await settle();
     assert(text().includes('#31260 merged') && text().includes('Open task'), 'The practice shows its task and the merged pull request');
-    assert(document.querySelector('.goal-pill__decisions')?.textContent === '1' && text().includes('Your decision: accept Fix #31252'),
+    assert(document.querySelector('.goal-pill__attention')?.textContent?.trim() === '1' && text().includes('Your decision: accept Fix #31252'),
       'The pill counts the merged result as a decision, and the window says it waits on the user');
     button('Review result').click(); await settle();
     assert(text().includes('Accept result') && text().includes('Fix #31252'), 'Review result opens the work, where the user accepts it');
@@ -322,7 +331,7 @@ export async function run(): Promise<boolean> {
     assert(document.activeElement === composer(), 'The next question is ready for typing');
     changeInput(composer(), 'Review Iceberg pull requests with confidence'); await settle();
     button('Send').click(); await settle(); await settle();
-    assert(server.goal?.title === 'Review Iceberg pull requests with confidence' && asked() === 6, 'The typed answer starts the next goal');
+    assert(server.goal?.title === 'Review Iceberg pull requests with confidence' && asked() === 7, 'The typed answer starts the next goal');
 
     // The agent recommends a spec check; Adjust opens the Spec check drawer with the card's choices instead of starting it.
     setCards([{ id: 'card-3', goalId: 'goal', card: CHECK, state: 'SHOWN', taskId: null, workItemId: null, checkId: null, createdAt: NOW }]);

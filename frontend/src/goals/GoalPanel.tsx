@@ -45,7 +45,7 @@ export function GoalRing({ goal, size = 20 }: { goal: GoalDto | null; size?: num
 
 function fraction(goal: GoalDto): string {
   const summary = summarize(goal, new Set());
-  return `${summary.finished}/${summary.total}`;
+  return summary.total === 0 ? '' : `${summary.finished}/${summary.total}`;
 }
 
 export type GoalPanelView = 'guide' | 'work';
@@ -297,10 +297,14 @@ function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, o
   const opening = goal === null || (ready && exchanges.length === 0 && goal.definition === null);
   // The answers picked belong to the question on screen; a new question starts with none.
   const [picked, setPicked] = useState<{ question: string; answers: string[] }>({ question: '', answers: [] });
+  // Adjust puts its words in the reply field; each press is a new seed, so pressing again refills it.
+  const [seed, setSeed] = useState<{ text: string } | null>(null);
+  const adjust = (): void => setSeed({ text: ADJUST_PROPOSAL });
+  const skip = (): void => say(SKIP_PROPOSAL);
   const shown = opening ? 'opening' : last?.id ?? '';
   const answers = picked.question === shown ? picked.answers : NONE_PICKED;
   const toggle = (answer: string): void => setPicked({ question: shown, answers: answers.includes(answer) ? answers.filter((value) => value !== answer) : [...answers, answer] });
-  const composer = <Composer answering={answering} focus={opening} picked={answers} onSent={() => setPicked({ question: '', answers: [] })}
+  const composer = <Composer answering={answering} focus={opening} picked={answers} seed={seed} onSent={() => setPicked({ question: '', answers: [] })}
     placeholder={answers.length > 0 ? 'Add your own words, or just send' : opening ? 'I want to…' : question === null ? 'Ask about this goal' : 'Answer in your own words'}
     onSend={send} />;
   return (
@@ -345,8 +349,10 @@ function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, o
       {conversation.gaps.length > 0 && <Gaps gaps={conversation.gaps} onAdd={conversation.addGap} onFile={onFileIssue} onReview={onReview} />}
       {conversation.notes.length > 0 && <Notes notes={conversation.notes} />}
       {goal !== null && goal.topics.length > 0 && <Known topics={goal.topics} onCorrect={conversation.correctTopic} />}
-      {open !== null && <Proposal key={open.exchangeId} proposal={open.proposal} onAccept={(title) => conversation.accept(open.exchangeId, title)} />}
-      {course !== null && <CourseProposal key={course.exchangeId} goal={goal} course={course.course} onAccept={() => conversation.acceptCourse(course.exchangeId)} />}
+      {open !== null && <Proposal key={open.exchangeId} proposal={open.proposal} answering={answering} onAccept={(title) => conversation.accept(open.exchangeId, title)}
+        onAdjust={adjust} onSkip={skip} />}
+      {course !== null && <CourseProposal key={course.exchangeId} goal={goal} course={course.course} answering={answering}
+        onAccept={() => conversation.acceptCourse(course.exchangeId)} onAdjust={adjust} onSkip={skip} />}
       {(error ?? conversation.error) !== null && <p className="goal-guide__error" role="alert">{error ?? conversation.error}</p>}
       {!opening && ready && composer}
     </div>
@@ -519,7 +525,9 @@ function LessonView({ goal, item, repository, conversation, onBack }: {
 
 /** A course the agent proposes; accepting it saves each lesson as a Learn work item and starts nothing. */
 /** A proposed course, or a revision of the accepted one: its kept lessons as they stand, its new ones marked, and the unfinished ones it drops. */
-function CourseProposal({ goal, course, onAccept }: { goal: GoalDto | null; course: GoalCourseDraftDto; onAccept: () => Promise<unknown> }): React.JSX.Element {
+function CourseProposal({ goal, course, answering, onAccept, onAdjust, onSkip }: {
+  goal: GoalDto | null; course: GoalCourseDraftDto; answering: boolean; onAccept: () => Promise<unknown>; onAdjust: () => void; onSkip: () => void;
+}): React.JSX.Element {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const accepted = goal?.course ?? null;
@@ -551,6 +559,7 @@ function CourseProposal({ goal, course, onAccept }: { goal: GoalDto | null; cour
         setBusy(true); setError(null);
         void onAccept().catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The course was not saved')).finally(() => setBusy(false));
       }}>{busy ? 'Saving…' : accepted === null ? 'Accept course' : 'Accept revision'}</button>
+      <ProposalChoices busy={busy || answering} onAdjust={onAdjust} onSkip={onSkip} />
     </section>
   );
 }
@@ -614,6 +623,8 @@ function Notes({ notes }: { notes: GoalKnowledgeNoteDto[] }): React.JSX.Element 
 const NONE_PICKED: string[] = [];
 /** What Other options sends: the agent asks the same question again with answers the user has not passed over. */
 const OTHER_OPTIONS = 'None of these fit. Show me other options.';
+const SKIP_PROPOSAL = 'Skip this proposal for now.';
+const ADJUST_PROPOSAL = 'Adjust it: ';
 
 /** Suggested answers, any number of which the user picks; Send sends them with the user's own words. */
 function Choices({ choices, picked, disabled, onToggle }: { choices: string[]; picked: string[]; disabled: boolean; onToggle: (choice: string) => void }): React.JSX.Element {
@@ -631,7 +642,17 @@ function Definition({ definition }: { definition: NonNullable<GoalDto['definitio
   );
 }
 
-function Proposal({ proposal, onAccept }: { proposal: GoalProposalDto; onAccept: (title: string) => Promise<unknown> }): React.JSX.Element {
+/** Besides accepting it, the user can tell the agent what to change, or pass on the proposal; the next answer replaces it either way. */
+function ProposalChoices({ busy, onAdjust, onSkip }: { busy: boolean; onAdjust: () => void; onSkip: () => void }): React.JSX.Element {
+  return <>
+    <button type="button" className="goal-link" disabled={busy} onClick={onAdjust}>Adjust</button>
+    <button type="button" className="goal-link" disabled={busy} onClick={onSkip}>Skip</button>
+  </>;
+}
+
+function Proposal({ proposal, answering, onAccept, onAdjust, onSkip }: {
+  proposal: GoalProposalDto; answering: boolean; onAccept: (title: string) => Promise<unknown>; onAdjust: () => void; onSkip: () => void;
+}): React.JSX.Element {
   const [title, setTitle] = useState(proposal.title);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -650,6 +671,7 @@ function Proposal({ proposal, onAccept }: { proposal: GoalProposalDto; onAccept:
         setBusy(true); setError(null);
         void onAccept(title.trim()).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The goal was not saved')).finally(() => setBusy(false));
       }}>{busy ? 'Saving…' : 'Accept goal'}</button>
+      <ProposalChoices busy={busy || answering} onAdjust={onAdjust} onSkip={onSkip} />
     </section>
   );
 }
@@ -660,15 +682,23 @@ function Proposal({ proposal, onAccept }: { proposal: GoalProposalDto; onAccept:
  *
  * @param focus whether the field takes focus as it appears and when the window opens, as for the opening question
  */
-function Composer({ answering, focus = false, picked = NONE_PICKED, placeholder, onSend, onSent }: {
+function Composer({ answering, focus = false, picked = NONE_PICKED, seed = null, placeholder, onSend, onSent }: {
   answering: boolean;
   focus?: boolean;
   picked?: string[];
+  /** Words to start the reply with, such as Adjust's, which take the field and its focus. */
+  seed?: { text: string } | null;
   placeholder: string;
   onSend: (operationId: string, message: string) => Promise<unknown>;
   onSent?: () => void;
 }): React.JSX.Element {
   const [draft, setDraft] = useState('');
+  const field = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (seed === null) return;
+    setDraft(seed.text);
+    field.current?.focus();
+  }, [seed]);
   const attempt = useRef<{ message: string; operation: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -683,7 +713,8 @@ function Composer({ answering, focus = false, picked = NONE_PICKED, placeholder,
   };
   return (
     <form className="goal-composer" onSubmit={(event) => { event.preventDefault(); submit(); }}>
-      <textarea aria-label="Message the goal's agent" rows={2} maxLength={4000} value={draft} placeholder={placeholder} autoFocus={focus} data-goal-focus={focus || undefined}
+      <textarea ref={field} aria-label="Message the goal's agent" rows={2} maxLength={4000} value={draft} placeholder={placeholder} autoFocus={focus}
+        data-goal-focus={focus || undefined}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); } }} />
       {error !== null && <p className="goal-guide__error" role="alert">{error}</p>}
@@ -829,18 +860,22 @@ function GoalWork(props: GoalPanelProps & { goal: GoalDto; onSelect: (id: string
   const shown = goal.items.filter((item) => (!needsOnly || itemNeedsYou(item, needsYou)) && (priority === 'ANY' || item.priority === priority)
     && (source === 'ANY' || sourceOf(item) === source));
   const views = WORK_VIEWS.map((entry) => ({ ...entry, rows: workIn(shown, entry.view, goal.items) }));
+  const empty = goal.items.length === 0;
   const activity = recentActivity(goal);
   return <div className={`goal-panel__body${mode === 'board' ? ' is-board' : ''}`}>
-    <Stats goal={goal} needsYou={needsYou} onNeeds={() => setNeedsOnly((value) => !value)} onBlocked={() => setView('blocked')} />
+    {!empty && <Stats goal={goal} needsYou={needsYou} onNeeds={() => setNeedsOnly((value) => !value)} onBlocked={() => setView('blocked')} />}
+    {empty && <div><div className="goal-guide__ask">No work yet</div>
+      <div className="goal-guide__hint">Ask the agent in Guide what to work on first, create a work item, or add an issue, ticket or task you already have. Each
+        outcome counts once.</div></div>}
     <div className="goal-tabsrow">
-      {mode !== 'board' && <div className="goal-tabs" role="tablist" aria-label="Goal work">
+      {!empty && mode !== 'board' && <div className="goal-tabs" role="tablist" aria-label="Goal work">
         {views.map((entry) => <button type="button" role="tab" aria-selected={view === entry.view} key={entry.view} title={entry.hint}
           className={`goal-tab${view === entry.view ? ' is-active' : ''}`} onClick={() => setView(entry.view)}>{`${entry.label} ${entry.rows.length}`}</button>)}
       </div>}
       <button type="button" className="goal-add" onClick={() => setCreating((value) => !value)}>New work item</button>
       <button type="button" className="goal-add" onClick={() => setAdding((value) => !value)}>Add existing</button>
     </div>
-    <div className="goal-filters">
+    {!empty && <div className="goal-filters">
       <select aria-label="Priority" value={priority} onChange={(event) => setPriority(event.target.value as WorkItemPriority | 'ANY')}>
         <option value="ANY">Any priority</option><option value="HIGH">High</option><option value="NORMAL">Normal</option><option value="LOW">Low</option>
       </select>
@@ -848,7 +883,7 @@ function GoalWork(props: GoalPanelProps & { goal: GoalDto; onSelect: (id: string
         <option value="ANY">Any source</option><option value="issue">Issues</option><option value="jira">Jira tickets</option><option value="none">No source</option>
       </select>
       {needsOnly && <button type="button" className="goal-link" onClick={() => setNeedsOnly(false)}>Show all, not only what needs you</button>}
-    </div>
+    </div>}
     {error !== null && <p role="alert">{error}</p>}
     {creating && <NewWork goal={goal} onCreate={props.onCreateWork} onDone={(item) => { setCreating(false); onSelect(item.id); }} />}
     {adding && <div className="goal-search">
@@ -864,14 +899,13 @@ function GoalWork(props: GoalPanelProps & { goal: GoalDto; onSelect: (id: string
         }}>{item.goalId === null ? 'Add work item' : 'Move here'}</button>
       </div>)}
     </div>}
-    <div className={mode === 'board' ? 'goal-columns' : 'goal-work-list'}>
+    {!empty && <div className={mode === 'board' ? 'goal-columns' : 'goal-work-list'}>
       {views.filter((entry) => mode === 'board' || entry.view === view).map((entry) => <div className={mode === 'board' ? 'goal-column' : 'goal-work-group'} key={entry.view}>
         {mode === 'board' && <div className="goal-group" title={entry.hint}><span className="goal-group__label">{entry.label}</span>
           <span className="goal-group__count">{entry.rows.length}</span></div>}
         {entry.rows.map((item) => <WorkCard key={item.id} item={item} all={goal.items} needsYou={needsYou} onSelect={onSelect} />)}
       </div>)}
-    </div>
-    {goal.items.length === 0 && <p className="goal-muted">Create a piece of work or add an existing source. Each outcome counts once.</p>}
+    </div>}
     {activity.length > 0 && <div><div className="goal-group">Recent decisions</div>{activity.map(({ item, text, at }, index) =>
       <div className="goal-activity__row" key={`${item.id}-${index}`}><span className="goal-activity__text">{text}</span><span>{relativeTime(at, { now: props.now })}</span></div>)}</div>}
   </div>;

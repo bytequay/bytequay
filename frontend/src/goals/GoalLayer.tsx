@@ -211,6 +211,8 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
   const summary = goal === null ? null : summarize(goal, needsYou);
   // The pinned goal's own conversation, unless the window shows another goal's question; its decisions only count once it was read.
   const decisions = goal === null || drafting ? 0 : situation(goal, conversation.exchanges, conversation.gaps).decisions;
+  const needs = summary?.needs ?? 0;
+  const attention = needs + decisions;
 
   return (
     <div className="goal-layer">
@@ -273,8 +275,10 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
           <GoalRing goal={goal} />
           <span className="goal-pill__title">{goal === null ? 'Goal' : goal.title}</span>
           {summary !== null && summary.total > 0 && <span className="goal-mono">{summary.finished}/{summary.total}</span>}
-          {summary !== null && summary.needs > 0 && <span className="goal-pill__needs" title="Needs you">{summary.needs}</span>}
-          {decisions > 0 && <span className="goal-pill__decisions" title={decisions === 1 ? 'A decision waits for you' : `${decisions} decisions wait for you`}>{decisions}</span>}
+          {/* One count asks for attention: the work needing the user and the decisions waiting, both named on hover. */}
+          {attention > 0 && <span className="goal-pill__attention" title={[needs === 0 ? null : needs === 1 ? 'One item needs you' : `${needs} items need you`,
+            decisions === 0 ? null : decisions === 1 ? 'A decision waits for you' : `${decisions} decisions wait for you`].filter((part) => part !== null).join(' · ')}>
+            {attention}</span>}
         </button>
         {goal !== null && shown.length > 0 && (
           <div className="goal-cards" role="region" aria-label="Recommended next steps"

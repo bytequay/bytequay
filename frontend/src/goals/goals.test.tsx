@@ -152,6 +152,13 @@ describe('goal panel', () => {
     expect(markup).toContain('#30702 title');
   });
 
+  it('gives an empty goal directions instead of empty counts', () => {
+    const markup = panel({ goal: { ...GOAL, items: [] }, goals: [{ ...GOAL, items: [] }] });
+    expect(markup).toContain('No work yet');
+    expect(markup).not.toContain('of 0 done');
+    expect(markup).not.toContain('role="tablist" aria-label="Goal work"');
+  });
+
   it('offers a first goal where the workspace has none', () => {
     const markup = panel({ goals: [], goal: null });
     expect(markup).toContain('No goal yet');

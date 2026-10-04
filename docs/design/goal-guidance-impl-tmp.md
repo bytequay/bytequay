@@ -1,7 +1,7 @@
 # Agent guided goals implementation plan
 
-Status: The first six implementation slices are complete. The later items of
-Steps 3 to 6 below remain as listed.
+Status: The first six implementation slices are complete and the seventh is in
+progress. The later items of Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
 
@@ -344,6 +344,33 @@ complete.
 
 Done when: a failed issue task can be followed by a new attempt without deleting
 it, both tasks show on the one work item, and an open task cannot be replaced.
+
+## Seventh implementation slice
+
+Put a Goal's work in order: the user sees what to do next and what waits on
+what, and the agent's next card follows the same order.
+
+1. Priority, order and blockers. A work item has a High, Normal or Low local
+   priority, Normal until the user sets one, a place in its Goal's order and
+   blockers among the same Goal's work. New work joins the end of the order, so
+   an accepted course keeps its lesson order, and the user moves open work up or
+   down. A blocker cannot be the item itself, another Goal's work or part of a
+   cycle. Finishing a blocker makes its dependents ready without starting them;
+   dropping work that open items wait on requires removing those dependencies in
+   the same decision, which the dependents' history records.
+2. Next, Working, Blocked and Done views. The Work view opens on Next: planned
+   work with no open blocker, by priority, then work that unblocks others, then
+   order, each saying why it is there. Blocked lists work waiting on an open
+   blocker or on a source that reports itself blocked, with what it waits on.
+   A ticket's own Jira priority shows beside its link, never mapped. Filters
+   narrow each view by priority and by source.
+3. The agent follows the order. Each request carries every item's priority,
+   place and blockers; the planner prefers ready work that unblocks an accepted
+   step, says why, and recommends nothing blocked.
+
+Done when: the user can make one item High, block another on it and see the
+blocked one leave Next until the first is done; dropping that blocker asks to
+remove the dependency; and the agent's next recommendation names ready work.
 
 The following steps retain the full identity, source, recovery and verification
 requirements.

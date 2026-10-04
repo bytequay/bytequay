@@ -85,9 +85,14 @@ export function GoalWindow({ anchor, open, onClose, children }: {
 
   useEffect(() => {
     if (!open || covered) return;
+    let timer: number | undefined;
+    const cancelClose = (): void => { window.clearTimeout(timer); timer = undefined; };
     const leave = (event: PointerEvent): void => {
       // A drag, native resize, text selection or confirmation must finish before auto-close.
-      if (event.buttons !== 0 || drag.current !== null || document.querySelector('dialog[open]') !== null) return;
+      if (event.buttons !== 0 || drag.current !== null || document.querySelector('dialog[open]') !== null) {
+        cancelClose();
+        return;
+      }
       if (event.type === 'pointerout' && event.relatedTarget !== null) return;
       const inside = [ref.current, anchor.current].some(element => {
         if (element === null) return false;
@@ -99,11 +104,25 @@ export function GoalWindow({ anchor, open, onClose, children }: {
         return event.clientX >= left - 6 && event.clientX <= left + element.offsetWidth + 6
           && event.clientY >= top - 6 && event.clientY <= top + element.offsetHeight + 6;
       });
-      if (!inside || event.type === 'pointerout') closeWindow();
+      if (inside && event.type !== 'pointerout') cancelClose();
+      else if (timer === undefined) {
+        timer = window.setTimeout(() => {
+          timer = undefined;
+          if (drag.current === null && document.querySelector('dialog[open]') === null) closeWindow();
+        }, 1_500);
+      }
     };
+    document.addEventListener('pointerdown', cancelClose);
     document.addEventListener('pointermove', leave);
+    document.addEventListener('pointerover', leave);
     document.addEventListener('pointerout', leave);
-    return () => { document.removeEventListener('pointermove', leave); document.removeEventListener('pointerout', leave); };
+    return () => {
+      cancelClose();
+      document.removeEventListener('pointerdown', cancelClose);
+      document.removeEventListener('pointermove', leave);
+      document.removeEventListener('pointerover', leave);
+      document.removeEventListener('pointerout', leave);
+    };
   }, [anchor, covered, open, closeWindow]);
 
   const finishDrag = (): void => { drag.current = null; setMoving(false); };

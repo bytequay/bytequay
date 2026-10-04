@@ -283,10 +283,10 @@ Enhance the current Goal surface in place. Preserve its floating control,
 pinning, Goal switcher, workspace navigation and expansion. Clicking the control
 zooms a floating window out from it without narrowing the underlying page. The
 header drags the window, its bottom-right corner resizes it, and expansion uses
-the same panel. Leaving the control/window area closes it automatically, except
-during a drag, resize or confirmation. Closing preserves drafts for reopening;
-Escape and the close button also dismiss it. Keep the window inside the page
-and respect reduced-motion preferences.
+the same panel. Leaving the control/window area closes it after 1.5 seconds unless
+the pointer returns, except during a drag, resize or confirmation. Closing
+preserves drafts for reopening; Escape and the close button also dismiss it.
+Keep the window inside the page and respect reduced-motion preferences.
 Clicking the title renames the Goal in place; Enter or leaving the field saves
 and Escape keeps the old name. Cancel goal in the header archives a Goal the
 user started, after a confirmation, and the window returns to the opening

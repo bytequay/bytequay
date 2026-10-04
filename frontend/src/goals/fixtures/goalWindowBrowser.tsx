@@ -59,6 +59,10 @@ async function mouse(type: string, x: number, y: number, down = false): Promise<
   await window.goalMouse({ type, x: Math.round(x), y: Math.round(y), button: 'left', clickCount: 1, modifiers: down ? ['leftButtonDown'] : [] });
   await settle();
 }
+async function wait(milliseconds: number): Promise<void> {
+  await new Promise(resolve => window.setTimeout(resolve, milliseconds));
+  await settle();
+}
 async function drag(from: { x: number; y: number }, dx: number, dy: number): Promise<void> {
   await mouse('mouseMove', from.x, from.y);
   await mouse('mouseDown', from.x, from.y, true);
@@ -144,13 +148,29 @@ export async function run(): Promise<boolean> {
     assert(!pane.hidden && document.querySelector('dialog[open]') !== null, 'A confirmation is not dismissed by mouse leave');
     button('Keep goal').click(); await settle();
     await mouse('mouseMove', 3, 3);
-    assert(pane.hidden && pane.inert, 'Leaving Goal closes it and removes keyboard access');
+    await wait(1_000);
+    assert(!pane.hidden && !pane.inert, 'Leaving Goal gives the pointer time to return');
+    await mouse('mouseMove', resized.left + 40, resized.top + 40);
+    await wait(1_600);
+    assert(!pane.hidden, 'Returning to Goal cancels the pending close');
+    await mouse('mouseMove', 3, 3);
+    await mouse('mouseMove', pill.left + pill.width / 2, pill.top + pill.height / 2);
+    await wait(1_600);
+    assert(!pane.hidden, 'Returning to the Goal pill also cancels the pending close');
+    await mouse('mouseMove', 3, 3);
+    await wait(1_000);
+    assert(!pane.hidden, 'A later departure gets a fresh delay');
+    await mouse('mouseMove', 4, 4);
+    await wait(600);
+    assert(pane.hidden && pane.inert, 'Staying outside Goal closes it after 1.5 seconds even while the pointer moves');
     pane = await open();
     assert(element<HTMLTextAreaElement>('.goal-work-form textarea').value === 'Keep this draft', 'Reopening preserves an unsaved draft');
 
+    await mouse('mouseMove', 5, 5);
     render('home', true); await settle();
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await mouse('mouseMove', 4, 4);
+    await wait(1_600);
     assert(!pane.hidden && pane.inert, 'A covering layer owns Escape and pointer dismissal');
     render(); await settle();
     element('.goal-switch').focus();
@@ -170,7 +190,9 @@ export async function run(): Promise<boolean> {
     button('Close the goal').click(); await settle();
     element<HTMLButtonElement>('.goal-pill').click(); await settle();
     await mouse('mouseMove', 600, 100);
-    assert(pane.hidden, 'Leaving during the opening animation also dismisses Goal');
+    assert(!pane.hidden, 'Leaving during the opening animation also gets the delay');
+    await wait(1_600);
+    assert(pane.hidden, 'Staying outside during the opening animation dismisses Goal after the delay');
     return true;
   }
   finally { flushSync(() => root.unmount()); host.remove(); }

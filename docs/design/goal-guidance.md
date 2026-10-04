@@ -63,7 +63,10 @@ Development model, rebuilt from the Goal, its accepted definition, its work
 items and its recent exchanges. The reply must be one JSON object with an
 assessment, at most one question with up to four suggested answers, and an
 optional proposed definition; anything else fails the exchange, which the user
-can ask again. Accepting a proposal saves its title, objective, success
+can ask again. The user picks any number of the directions or suggested
+answers, and Send sends them, one per line, before their own words; Other
+options asks the same question again with answers they have not passed over.
+Accepting a proposal saves its title, objective, success
 definition, starting knowledge and constraints, and is refused once the Goal's
 text changed after the request was built. One exchange per Goal and two across
 the app run at a time; a request still pending at startup is marked interrupted.

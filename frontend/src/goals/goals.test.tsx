@@ -342,7 +342,8 @@ describe('goal guidance', () => {
 
     const asked = panel({ view: 'guide', conversation: conversation([ASKED]) });
     expect(asked).toContain('Do you already know the Iceberg specification?');
-    expect(asked).toContain('>Not yet</button>');
+    expect(asked).toContain('aria-pressed="false">Not yet</button>');
+    expect(asked).toContain('>Other options</button>');
     expect(asked).not.toContain('Proposed goal');
 
     const proposed = panel({ view: 'guide', conversation: conversation([ASKED, PROPOSED]) });

@@ -230,14 +230,20 @@ function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLess
   const open = openProposal(goal, exchanges);
   const course = openCourse(goal, exchanges);
   const send = (operationId: string, message: string): Promise<unknown> => (goal === null ? onStart(operationId, message) : conversation.ask(operationId, message));
-  const pick = (answer: string): void => {
+  const say = (message: string): void => {
     setError(null);
-    void send(crypto.randomUUID(), answer).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The answer was not sent'));
+    void send(crypto.randomUUID(), message).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The message was not sent'));
   };
   // Until a goal's conversation is read, neither the opening nor the thread shows, so a goal that has begun never flashes its opening question.
   const ready = goal === null || conversation.loaded;
   const opening = goal === null || (ready && exchanges.length === 0 && goal.definition === null);
-  const composer = <Composer answering={answering} focus={opening} placeholder={opening ? 'I want to…' : question === null ? 'Ask about this goal' : 'Answer in your own words'}
+  // The answers picked belong to the question on screen; a new question starts with none.
+  const [picked, setPicked] = useState<{ question: string; answers: string[] }>({ question: '', answers: [] });
+  const shown = opening ? 'opening' : last?.id ?? '';
+  const answers = picked.question === shown ? picked.answers : NONE_PICKED;
+  const toggle = (answer: string): void => setPicked({ question: shown, answers: answers.includes(answer) ? answers.filter((value) => value !== answer) : [...answers, answer] });
+  const composer = <Composer answering={answering} focus={opening} picked={answers} onSent={() => setPicked({ question: '', answers: [] })}
+    placeholder={answers.length > 0 ? 'Add your own words, or just send' : opening ? 'I want to…' : question === null ? 'Ask about this goal' : 'Answer in your own words'}
     onSend={send} />;
   return (
     <div className="goal-panel__body goal-guide">
@@ -248,9 +254,10 @@ function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLess
           {onBack !== undefined && <button type="button" className="goal-link goal-guide__back" onClick={onBack}>Back to the current goal</button>}
           {/* The goal's own title is never the question: a name alone says little about what the user wants. */}
           <div className="goal-guide__ask">What do you want to achieve?</div>
-          <div className="goal-guide__hint">Say it in your own words, or pick a direction. The agent asks what it needs, then proposes a goal for you to accept.</div>
+          <div className="goal-guide__hint">Say it in your own words, pick any directions below, or both, then send. The agent asks what it needs, then proposes a goal
+            for you to accept.</div>
           {composer}
-          <Choices choices={goalDirections(repository)} onPick={pick} />
+          <Choices choices={goalDirections(repository)} picked={answers} disabled={answering} onToggle={toggle} />
         </div>
       ) : (
         <ol className="goal-thread" aria-label="Conversation with the goal's agent">
@@ -271,7 +278,10 @@ function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLess
           </li>)}
         </ol>
       )}
-      {question !== null && question.suggestions.length > 0 && <Choices choices={question.suggestions} onPick={pick} />}
+      {question !== null && question.suggestions.length > 0 && <>
+        <Choices choices={question.suggestions} picked={answers} disabled={answering} onToggle={toggle} />
+        <button type="button" className="goal-link goal-guide__other" disabled={answering} onClick={() => say(OTHER_OPTIONS)}>Other options</button>
+      </>}
       {goal?.recommendations.filter((card) => card.state === 'STARTED').map((card) => <Started key={card.id} goal={goal} card={card} onOpenTask={onOpenTask}
         onLesson={onLesson} onStartIssue={onStartIssue} onStartTicket={onStartTicket} onSpecCheck={onSpecCheck} onReview={onReview} />)}
       {conversation.gaps.length > 0 && <Gaps gaps={conversation.gaps} onAdd={conversation.addGap} onFile={onFileIssue} onReview={onReview} />}
@@ -495,8 +505,14 @@ function Notes({ notes }: { notes: GoalKnowledgeNoteDto[] }): React.JSX.Element 
   );
 }
 
-function Choices({ choices, onPick }: { choices: string[]; onPick: (choice: string) => void }): React.JSX.Element {
-  return <div className="goal-choices">{choices.map((choice) => <button type="button" className="goal-choice" key={choice} onClick={() => onPick(choice)}>{choice}</button>)}</div>;
+const NONE_PICKED: string[] = [];
+/** What Other options sends: the agent asks the same question again with answers the user has not passed over. */
+const OTHER_OPTIONS = 'None of these fit. Show me other options.';
+
+/** Suggested answers, any number of which the user picks; Send sends them with the user's own words. */
+function Choices({ choices, picked, disabled, onToggle }: { choices: string[]; picked: string[]; disabled: boolean; onToggle: (choice: string) => void }): React.JSX.Element {
+  return <div className="goal-choices">{choices.map((choice) => <button type="button" className="goal-choice" key={choice} aria-pressed={picked.includes(choice)}
+    disabled={disabled} onClick={() => onToggle(choice)}>{choice}</button>)}</div>;
 }
 
 function Definition({ definition }: { definition: NonNullable<GoalDto['definition']> }): React.JSX.Element {
@@ -533,25 +549,30 @@ function Proposal({ proposal, onAccept }: { proposal: GoalProposalDto; onAccept:
 }
 
 /**
- * The user's own words to the agent; a resend after a lost answer keeps its operation, so the agent is asked once.
+ * The user's own words to the agent, after the suggested answers they picked, one per line. Resending the same message after a lost answer
+ * keeps its operation, so the agent is asked once.
  *
  * @param focus whether the field takes focus as it appears and when the window opens, as for the opening question
  */
-function Composer({ answering, focus = false, placeholder, onSend }: {
+function Composer({ answering, focus = false, picked = NONE_PICKED, placeholder, onSend, onSent }: {
   answering: boolean;
   focus?: boolean;
+  picked?: string[];
   placeholder: string;
   onSend: (operationId: string, message: string) => Promise<unknown>;
+  onSent?: () => void;
 }): React.JSX.Element {
   const [draft, setDraft] = useState('');
-  const [operation, setOperation] = useState(() => crypto.randomUUID());
+  const attempt = useRef<{ message: string; operation: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submit = (): void => {
-    const message = draft.trim();
+    const message = [...picked, draft.trim()].filter((part) => part !== '').join('\n');
     if (message === '' || busy || answering) return;
+    const operation = attempt.current?.message === message ? attempt.current.operation : crypto.randomUUID();
+    attempt.current = { message, operation };
     setBusy(true); setError(null);
-    void onSend(operation, message).then(() => { setDraft(''); setOperation(crypto.randomUUID()); },
+    void onSend(operation, message).then(() => { setDraft(''); attempt.current = null; onSent?.(); },
       (failure: unknown) => setError(failure instanceof Error ? failure.message : 'The message was not sent')).finally(() => setBusy(false));
   };
   return (
@@ -560,7 +581,7 @@ function Composer({ answering, focus = false, placeholder, onSend }: {
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); } }} />
       {error !== null && <p className="goal-guide__error" role="alert">{error}</p>}
-      <button type="submit" className="goal-add" disabled={busy || answering || draft.trim() === ''}>{busy ? 'Sending…' : 'Send'}</button>
+      <button type="submit" className="goal-add" disabled={busy || answering || (draft.trim() === '' && picked.length === 0)}>{busy ? 'Sending…' : 'Send'}</button>
     </form>
   );
 }

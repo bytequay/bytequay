@@ -92,7 +92,10 @@ public class GoalPlanner
             - what they already know about the area, the specifications and libraries it builds on, and its code;
             - how much time they have, and whether they want to learn first or start on real work.
             Use everything the conversation already says. Never repeat an answered question, never require a
-            questionnaire, and never invent preferences the user did not state; name an assumption instead.
+            questionnaire, and never invent preferences the user did not state; name an assumption instead. The user
+            may pick several suggested answers at once: their message then lists them, one per line, before any words
+            of their own. When they ask for other options, ask the same question again with different suggested
+            answers, never the ones they passed over.
 
             Once you understand the scope, propose a definition: a short title, the objective, a success definition the
             user can check, what they already know, and their constraints. A reply may propose a definition and still

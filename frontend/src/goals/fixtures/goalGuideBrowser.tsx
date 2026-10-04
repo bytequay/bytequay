@@ -172,8 +172,19 @@ export async function run(): Promise<boolean> {
     answer({ assessment: 'You can spend five hours a week.', proposal: null, recommendation: null, course: null,
       question: { text: 'Do you want to learn first or start on real work?', suggestions: ['Learn first', 'Real work first'] } });
     await nextRead();
-    button('Learn first').click(); await settle(); await settle();
-    assert(asked() === 4 && server.exchanges.at(-1)?.message === 'Learn first', 'A suggested answer is sent as the user\'s reply');
+    button('Other options').click(); await settle(); await settle();
+    assert(asked() === 4 && server.exchanges.at(-1)?.message === 'None of these fit. Show me other options.', 'Other options asks the agent for different answers');
+    answer({ assessment: 'Here are other ways to spend the time.', proposal: null, recommendation: null, course: null,
+      question: { text: 'Do you want to learn first or start on real work?', suggestions: ['Learn first', 'Read pull requests first', 'One evening of each'] } });
+    await nextRead();
+    button('Learn first').click(); await settle();
+    button('Read pull requests first').click(); await settle();
+    button('Read pull requests first').click(); await settle();
+    assert(asked() === 4 && button('Learn first').getAttribute('aria-pressed') === 'true' && button('Read pull requests first').getAttribute('aria-pressed') === 'false',
+      'Picking answers marks them and sends nothing yet');
+    changeInput(composer(), 'Mostly the scheduler'); await settle();
+    button('Send').click(); await settle(); await settle();
+    assert(asked() === 5 && server.exchanges.at(-1)?.message === 'Learn first\nMostly the scheduler', 'Send sends the picked answers with the user\'s words');
 
     answer({ assessment: 'Start from the specification, then the connector.', question: null, recommendation: null, course: null, proposal: {
       title: 'Iceberg connector expert', objective: 'Explain and change the Iceberg connector', successDefinition: 'Trace a scan end to end',
@@ -231,7 +242,7 @@ export async function run(): Promise<boolean> {
     assert(document.activeElement === composer(), 'The next question is ready for typing');
     changeInput(composer(), 'Review Iceberg pull requests with confidence'); await settle();
     button('Send').click(); await settle(); await settle();
-    assert(server.goal?.title === 'Review Iceberg pull requests with confidence' && asked() === 5, 'The typed answer starts the next goal');
+    assert(server.goal?.title === 'Review Iceberg pull requests with confidence' && asked() === 6, 'The typed answer starts the next goal');
 
     // The agent recommends a spec check; Adjust opens the Spec check drawer with the card's choices instead of starting it.
     setCards([{ id: 'card-3', goalId: 'goal', card: CHECK, state: 'SHOWN', taskId: null, workItemId: null, checkId: null, createdAt: NOW }]);

@@ -917,6 +917,9 @@ button.goal-tile:hover {
   font: inherit; font-size: 12.5px; line-height: 17px; text-align: left; cursor: pointer;
 }
 .goal-choice:hover { background: #f6f8fa; }
+.goal-choice[aria-pressed="true"] { border-color: #0969da; background: #ddf4ff; }
+.goal-choice:disabled { cursor: default; opacity: 0.6; }
+.goal-guide__other { align-self: flex-start; margin-top: -6px; }
 .goal-thread { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
 .goal-thread__turn { display: grid; gap: 6px; }
 .goal-thread__user {

@@ -1,8 +1,8 @@
 # Agent guided goals implementation plan
 
-Status: The first, second and third implementation slices are complete. The
-later items of Steps 3 to 6 below remain as listed. The
-[Goal guidance design](goal-guidance.md) owns the product and behavior contract;
+Status: The first, second and third implementation slices are complete and the
+fourth is in progress. The later items of Steps 3 to 6 below remain as listed.
+The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
 
 The first useful release must help an unsure user clarify a goal, learn through a
@@ -215,6 +215,41 @@ first.
 Done when: the panel says what the Goal waits on, a slow reply can be stopped
 and retried, a Goal can use its own model, guidance can pause, and a failed
 attempt or a requested change brings recovery guidance without the user asking.
+
+## Fourth implementation slice
+
+Keep the path current as work moves: a practice card floats only for a source
+that is still open and unclaimed, the course changes with what the user learns,
+and a busy task no longer costs a Goal request per turn.
+
+1. Ready practice only. Before a Practice card floats, ByteQuay reads its source
+   again: an issue's state and the pull requests linked to close it through one
+   GitHub read, a Jira ticket through the existing ticket refresh. A closed
+   issue, an issue with an open or merged linked pull request, or a ticket in a
+   done status is set aside as dismissed, so the candidates leave it out, and
+   the agent is told why and asked for another. When the read fails, the card
+   floats from the cached candidate as before.
+2. Course changes. With a course accepted, the agent may propose a revised
+   course with a one-line reason: each lesson keeps an existing lesson by its id
+   or is new, and every finished lesson stays. The Goal window shows the
+   revision against the current course; accepting it creates the new lessons as
+   Learn work items, saves the new parts and order, and drops each removed
+   unfinished lesson with the reason. Nothing changes until the user accepts. A
+   revision that leaves out a finished lesson or names an unknown one fails the
+   reply, which the user can ask again.
+3. Events wait instead of vanishing. Background events, such as task turns,
+   merges, reviews and finished research runs and checks, are held while the
+   agent answers and until five minutes after the Goal's last automatic
+   exchange, then told together in one exchange. The user's decisions, such as
+   an accepted definition or course, a finished lesson or decided work, reach
+   the agent as soon as it is free; the user's own messages and Update now are
+   never held. Held events live in memory: after a restart the next request
+   still reads the recorded facts. A paused Goal holds nothing.
+
+Done when: no practice card floats for a closed or already fixed issue or a done
+ticket; an accepted course can be revised without losing finished lessons; and
+a task that ends ten turns in a minute brings at most two Goal exchanges, while
+an acceptance made during an answer is still told.
 
 The following steps retain the full identity, source, recovery and verification
 requirements.

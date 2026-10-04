@@ -103,7 +103,7 @@ describe('goal model', () => {
   });
 });
 
-const NO_CONVERSATION: GoalConversation = { exchanges: [], notes: [], error: null, ask: async () => {}, retry: async () => {}, accept: async () => {},
+const NO_CONVERSATION: GoalConversation = { loaded: true, exchanges: [], notes: [], error: null, ask: async () => {}, retry: async () => {}, accept: async () => {},
   acceptCourse: async () => {}, openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {},
   correctTopic: async () => {} };
 
@@ -112,7 +112,7 @@ function panel(props: Partial<GoalPanelProps>): string {
     <GoalPanel mode="window" view="work" onView={() => {}} conversation={NO_CONVERSATION} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
       repository="trinodb/trino" goals={[GOAL, { ...GOAL, id: 'goal-2', pinned: false }]} goal={GOAL}
       needsYou={new Set(['PULL_REQUEST trinodb/trino#30925'])} now={Date.parse('2026-09-27T12:00:00Z')}
-      onClose={() => {}} onExpand={() => {}} onSwitch={() => {}} onCreate={async () => {}} onDelete={async () => {}}
+      onClose={() => {}} onExpand={() => {}} onSwitch={() => {}} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onDelete={async () => {}}
       workItems={GOAL.items} onCreateWork={async () => GOAL.items[0]} onDecide={async () => GOAL.items[0]} onLink={async () => GOAL.items[0]} onAdd={async () => {}} onOpenItem={() => {}} search={async () => []} {...props} />);
 }
 
@@ -254,8 +254,33 @@ describe('goal guidance', () => {
     expect(empty).toContain('Review trino pull requests with confidence');
     expect(empty).toContain('aria-label="Message the goal&#x27;s agent"');
     expect(empty).not.toContain('No goal yet');
-    const vague = panel({ view: 'guide', goal: { ...GOAL, items: [] } });
-    expect(vague).toContain('What does “Iceberg &amp; Delta Lake correctness for 482” mean to you?');
+    // A goal named before its conversation gets the same question, never its own title back.
+    const named = panel({ view: 'guide', goal: { ...GOAL, items: [] } });
+    expect(named).toContain('What do you want to achieve?');
+    expect(named).not.toContain('mean to you');
+    // The answer is typed right under the question, ahead of the directions.
+    const ask = named.indexOf('What do you want to achieve?');
+    const field = named.indexOf('placeholder="I want to…"');
+    expect(ask).toBeGreaterThan(-1);
+    expect(field).toBeGreaterThan(ask);
+    expect(named.indexOf('Review trino pull requests with confidence')).toBeGreaterThan(field);
+    expect(named).toContain('data-goal-focus="true"');
+    // A conversation not yet read may have begun, so it shows neither the question nor a field.
+    const unread = panel({ view: 'guide', goal: { ...GOAL, items: [] }, conversation: { ...NO_CONVERSATION, loaded: false } });
+    expect(unread).not.toContain('What do you want to achieve?');
+    expect(unread).not.toContain('<textarea');
+  });
+
+  it('renames the goal in place, cancels a goal of its own and asks for the next one over the current', () => {
+    const shown = panel({ view: 'guide' });
+    expect(shown).toContain('<button type="button" class="goal-panel__title" title="Rename">Iceberg &amp; Delta Lake correctness for 482</button>');
+    expect(shown).toContain('aria-label="Cancel goal"');
+    expect(panel({ view: 'guide', goal: { ...GOAL, source: { kind: 'ISSUE', key: 'trinodb/trino#31302' } } })).not.toContain('aria-label="Cancel goal"');
+    const next = panel({ view: 'guide', goal: null, onBack: () => {} });
+    expect(next).toContain('What do you want to achieve?');
+    expect(next).toContain('>Back to the current goal</button>');
+    expect(next).not.toContain('role="tablist"');
+    expect(next).not.toContain('goal-switch__pos');
   });
 
   it('shows the conversation, the question’s answers and a definition to accept', () => {

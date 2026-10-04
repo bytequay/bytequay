@@ -22,7 +22,7 @@ import '../../css/base.css';
 
 /** The backend as the Goal window sees it: one workspace whose agent answers when the journey says so. */
 const server = { goal: null as GoalDto | null, exchanges: [] as GoalExchangeDto[], notes: [] as GoalKnowledgeNoteDto[], asked: [] as string[], accepted: [] as string[],
-  started: [] as string[], failNextAsk: false };
+  started: [] as string[], cancelled: [] as string[], failNextAsk: false };
 const CARD: GoalCardDto = { kind: 'RESEARCH', title: 'Read the Iceberg specification', reason: 'You start from the specification',
   scope: 'Table metadata, snapshots and manifests', pages: ['https://iceberg.apache.org/spec/'], workItemId: null, issue: null };
 const PRACTICE: GoalCardDto = { kind: 'WORK', title: 'Fix #31252', reason: 'You learned how checkpoints reconcile actions',
@@ -43,7 +43,13 @@ function answer(reply: GoalExchangeDto['reply']): void {
   server.exchanges = server.exchanges.map((exchange) => (exchange.state === 'PENDING' ? { ...exchange, state: 'ANSWERED', reply } : exchange));
 }
 const conversation: Omit<Goals, 'goals' | 'pinned'> = {
-  workItems: [], error: null, create: unexpected, pin: async () => {}, remove: unexpected, add: unexpected, removeItem: unexpected, search: async () => [],
+  workItems: [], error: null, create: unexpected, pin: async () => {}, rename: unexpected, add: unexpected, removeItem: unexpected, search: async () => [],
+  remove: async (goalId) => {
+    server.cancelled.push(goalId);
+    server.goal = null;
+    server.exchanges = [];
+    changed();
+  },
   createWork: unexpected, decideWork: unexpected, linkWork: unexpected, retry: unexpected, dismissCard: unexpected, acceptCourse: unexpected, refresh: changed,
   openLesson: unexpected, readLesson: unexpected, finishLesson: unexpected, setTopic: unexpected,
   knowledge: async () => server.notes,
@@ -132,6 +138,7 @@ export async function run(): Promise<boolean> {
     flushSync(() => root.render(<Fixture />)); await settle();
     document.querySelector<HTMLButtonElement>('.goal-pill')?.click(); await settle();
     assert(text().includes('What do you want to achieve?'), 'An empty workspace opens on what the user wants to achieve');
+    assert(document.activeElement === composer(), 'The question is ready for typing');
     assert(document.querySelectorAll('.goal-choice').length === 3, 'Three directions are offered without a model call');
 
     changeInput(composer(), 'I want to become an Iceberg connector expert'); await settle();
@@ -191,6 +198,16 @@ export async function run(): Promise<boolean> {
     [...practice.querySelectorAll('button')].find((candidate) => candidate.textContent === 'Start')?.click(); await settle(); await settle();
     assert(started.length === 1 && started[0].issue === 31252 && started[0].instruction.startsWith('Key checkpoint add and remove actions'),
       'Start opens the issue composer with the prepared instruction');
+
+    // The user cancels the goal and starts the next one by saying what they want.
+    button('Cancel goal').click(); await settle();
+    [...document.querySelectorAll<HTMLButtonElement>('dialog[open] button')].find((candidate) => candidate.textContent?.trim() === 'Cancel goal')?.click();
+    await settle(); await settle();
+    assert(server.cancelled.join() === 'goal' && text().includes('What do you want to achieve?'), 'Cancel goal archives it and asks what the user wants next');
+    assert(document.activeElement === composer(), 'The next question is ready for typing');
+    changeInput(composer(), 'Review Iceberg pull requests with confidence'); await settle();
+    button('Send').click(); await settle(); await settle();
+    assert(server.goal?.title === 'Review Iceberg pull requests with confidence' && asked() === 5, 'The typed answer starts the next goal');
     return true;
   }
   finally { flushSync(() => root.unmount()); host.remove(); }

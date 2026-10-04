@@ -29,8 +29,9 @@ declare global {
 const goal: GoalDto = { id: 'goal', workspaceId: 'workspace', title: 'Iceberg connector expertise', description: 'Learn, investigate and contribute.',
   pinned: true, source: null, definition: null, revision: 0, course: null, items: [], recommendations: [], topics: [], createdAt: '', updatedAt: '' };
 const unexpected = async (): Promise<never> => { throw new Error('Unexpected write'); };
+const renamed: string[] = [];
 const goals: Goals = { goals: [goal], pinned: goal, workItems: [], error: null, create: async () => goal, pin: async () => {},
-  remove: async () => {}, add: async () => {}, removeItem: async () => {}, search: async () => [],
+  rename: async (_goalId, title) => { renamed.push(title); return { ...goal, title }; }, remove: async () => {}, add: async () => {}, removeItem: async () => {}, search: async () => [],
   createWork: unexpected, decideWork: unexpected, linkWork: unexpected,
   start: unexpected, exchanges: async () => [], ask: unexpected, retry: unexpected, accept: unexpected,
   acceptCourse: unexpected, startCard: unexpected, dismissCard: unexpected, knowledge: async () => [], refresh: () => {},
@@ -45,6 +46,13 @@ function button(label: string): HTMLButtonElement {
   const found = [...document.querySelectorAll('button')].find(value => value.getAttribute('aria-label') === label || value.textContent?.trim() === label);
   assert(found !== undefined, `Missing button ${label}`);
   return found;
+}
+function setInput(input: HTMLInputElement, value: string): void {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+function press(target: Element, key: string): void {
+  target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
 }
 async function mouse(type: string, x: number, y: number, down = false): Promise<void> {
   await window.goalMouse({ type, x: Math.round(x), y: Math.round(y), button: 'left', clickCount: 1, modifiers: down ? ['leftButtonDown'] : [] });
@@ -81,6 +89,7 @@ export async function run(): Promise<boolean> {
     assert(document.querySelector('.goal-window') === null, 'Wide Home starts with the Goal pill');
     const pageWidth = element('main').getBoundingClientRect().width;
     let pane = await open();
+    assert(document.activeElement === element('.goal-composer textarea'), 'A goal without a conversation opens ready for typing');
     assert(element('main').getBoundingClientRect().width === pageWidth, 'Opening Goal does not squeeze the page');
     assert(document.querySelectorAll('[role="dialog"]').length === 1, 'Only one Goal panel exists');
     assert(getComputedStyle(pane).getPropertyValue('-webkit-app-region') === 'no-drag', 'Goal drag does not move the desktop window');
@@ -96,7 +105,29 @@ export async function run(): Promise<boolean> {
     const resized = pane.getBoundingClientRect();
     assert(resized.width > moved.width + 100 && resized.height > moved.height + 40 && !pane.hidden, 'Native grip enlarges the open window');
 
-    assert(pane.textContent?.includes('What does “Iceberg connector expertise” mean to you?') === true, 'A goal without a conversation opens on its question');
+    assert(pane.textContent?.includes('What do you want to achieve?') === true && pane.textContent.includes('mean to you') === false,
+      'A goal without a conversation asks what the user wants, not about its title');
+
+    element<HTMLButtonElement>('button.goal-panel__title').click(); await settle();
+    let name = element<HTMLInputElement>('input.goal-panel__title');
+    assert(document.activeElement === name && name.value === 'Iceberg connector expertise', 'Clicking the title edits it in place');
+    setInput(name, 'Trino Iceberg connector expert'); await settle();
+    press(name, 'Escape'); await settle();
+    assert(renamed.length === 0 && !pane.hidden && document.querySelector('input.goal-panel__title') === null, 'Escape keeps the name and the window');
+    element<HTMLButtonElement>('button.goal-panel__title').click(); await settle();
+    name = element<HTMLInputElement>('input.goal-panel__title');
+    setInput(name, 'Trino Iceberg connector expert'); await settle();
+    press(name, 'Enter'); await settle(); await settle();
+    assert(renamed.join() === 'Trino Iceberg connector expert' && document.querySelector('input.goal-panel__title') === null, 'Enter saves the new name once');
+
+    element<HTMLButtonElement>('.goal-switch').click(); await settle();
+    button('New goal').click(); await settle();
+    assert(document.querySelector('.goal-panel__title') === null && pane.textContent?.includes('What do you want to achieve?') === true
+      && element('.goal-pill').textContent?.includes('Iceberg connector expertise') === true, 'New goal asks what the user wants while the pill keeps the current goal');
+    assert(document.activeElement === element('.goal-composer textarea'), 'New goal is ready for typing');
+    button('Back to the current goal').click(); await settle();
+    assert(element('.goal-panel__title').textContent === 'Iceberg connector expertise', 'Back returns to the current goal');
+
     button('Work').click(); await settle();
     button('New work item').click(); await settle();
     changeInput(element<HTMLTextAreaElement>('.goal-work-form textarea'), 'Keep this draft'); await settle();
@@ -107,11 +138,10 @@ export async function run(): Promise<boolean> {
     button('Restore goal window').click(); await settle();
     assert(Math.abs(pane.getBoundingClientRect().width - resized.width) < 2, 'Restore remembers the resized window');
 
-    element<HTMLButtonElement>('.goal-switch').click(); await settle();
-    button('Archive this goal').click(); await settle();
+    button('Cancel goal').click(); await settle();
     await mouse('mouseMove', 2, 2);
     assert(!pane.hidden && document.querySelector('dialog[open]') !== null, 'A confirmation is not dismissed by mouse leave');
-    button('Cancel').click(); await settle();
+    button('Keep goal').click(); await settle();
     await mouse('mouseMove', 3, 3);
     assert(pane.hidden && pane.inert, 'Leaving Goal closes it and removes keyboard access');
     pane = await open();

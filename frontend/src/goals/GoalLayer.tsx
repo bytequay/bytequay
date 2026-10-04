@@ -103,6 +103,8 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
   const [view, setView] = useState<GoalPanelView>('guide');
   // The lesson open in the Goal window, if any.
   const [lesson, setLesson] = useState<string | null>(null);
+  // New goal asks what the user wants to achieve over the current goal, which stays pinned until an answer starts the next.
+  const [drafting, setDrafting] = useState(false);
   const dragged = useRef(false);
   // The last spot a drag reached, which a release can report before the move that set it renders.
   const dropped = useRef<PillPosition | null>(null);
@@ -113,6 +115,7 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
     setOpened(false);
     setVisited(false);
     setLesson(null);
+    setDrafting(false);
   }, [page, workspaceId]);
 
   // Placed again whenever the page or its composer changes size, so a growing draft never slides under the pill.
@@ -150,8 +153,9 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
   }, [close, covered, opened, open]);
 
   const goal = goals.pinned;
+  const shownGoal = drafting ? null : goal;
   const cards = goal?.recommendations ?? [];
-  const conversation = useGoalConversation(goals, goal?.id ?? null, visited, cards.map((card) => `${card.id}:${card.state}`).join(','));
+  const conversation = useGoalConversation(goals, shownGoal?.id ?? null, visited, cards.map((card) => `${card.id}:${card.state}`).join(','));
   const shown = cards.filter((card) => card.state === 'SHOWN').slice(0, MAX_CARDS);
   const panel = (full: boolean, toggle: () => void, onClose: () => void) => (
     <GoalPanel
@@ -161,15 +165,18 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
       lesson={lesson}
       onLesson={setLesson}
       conversation={conversation}
-      onStart={(operationId, message) => goals.start(operationId, message)}
+      onStart={(operationId, message) => goals.start(operationId, message).then(() => setDrafting(false))}
       repository={repository}
       goals={goals.goals}
-      goal={goal}
+      goal={shownGoal}
       needsYou={needsYou}
       onClose={onClose}
       onExpand={toggle}
-      onSwitch={(goalId) => { void goals.pin(goalId).catch(() => {}); }}
+      onSwitch={(goalId) => { setDrafting(false); void goals.pin(goalId).catch(() => {}); }}
+      onNew={() => { setLesson(null); setView('guide'); setDrafting(true); }}
+      onBack={drafting && goal !== null ? () => setDrafting(false) : undefined}
       onCreate={(title) => goals.create(title).then((created) => goals.pin(created.id))}
+      onRename={goals.rename}
       onDelete={(goalId) => goals.remove(goalId)}
       onAdd={(item) => (goal === null ? Promise.resolve() : goals.add(goal.id, item.kind, item.key))}
       workItems={goals.workItems}
@@ -249,11 +256,12 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
         {goal !== null && shown.length > 0 && (
           <div className="goal-cards" role="region" aria-label="Recommended next steps"
             style={position.bottom > ROOM_BELOW ? { right: position.right, top: `calc(100% - ${position.bottom - 6}px)` } : { right: position.right, bottom: position.bottom + 44 }}>
-            {shown.map((card) => <RecommendationCard key={card.id} card={card} onOpen={open}
+            {shown.map((card) => <RecommendationCard key={card.id} card={card} onOpen={() => { setDrafting(false); open(); }}
               onStart={() => (card.card.workItemId !== null ? goals.openLesson(goal.id, card.card.workItemId).then(() => {
                 // Start on a lesson card opens the lesson in the Goal window.
                 setLesson(card.card.workItemId);
                 setView('guide');
+                setDrafting(false);
                 open();
                 goals.refresh();
               }) : goals.startCard(goal.id, card.id).then(() => {

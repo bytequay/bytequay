@@ -13,7 +13,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronDown, Maximize2, Minimize2, Plus, Search, Trash2, X } from 'lucide-react';
+import { Ban, ChevronDown, Maximize2, Minimize2, Plus, Search, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { GoalIcon, SourceIcon } from '../cards/Card';
 import MarkdownBody from '../pulls/MarkdownBody';
@@ -69,7 +69,12 @@ export type GoalPanelProps = {
   onExpand?: () => void;
   /** Shows another goal, which also makes it the one the pages follow. */
   onSwitch: (goalId: string) => void;
+  /** Asks what the user wants to achieve; the answer starts another goal, and the current one stays until then. */
+  onNew: () => void;
+  /** Present while that question shows over the current goal; returns to it. */
+  onBack?: () => void;
   onCreate: (title: string) => Promise<unknown>;
+  onRename: (goalId: string, title: string) => Promise<unknown>;
   onDelete: (goalId: string) => Promise<unknown>;
   onAdd: (item: GoalItemDto) => Promise<unknown>;
   workItems: WorkItemDto[];
@@ -94,6 +99,8 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
   }, [lesson, mode, onExpand]);
   const lessonItem = lesson === null ? undefined : goal?.items.find((value) => value.id === lesson);
   const [selected, setSelected] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [busy, setBusy] = useState(false);
   const item = props.workItems.find((value) => value.id === selected) ?? goal?.items.find((value) => value.id === selected);
   return (
     <div className={`goal-panel is-${mode}`} role="dialog" aria-label={goal === null ? 'Goal' : `Goal: ${goal.title}`}>
@@ -102,6 +109,12 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
           <GoalSwitcher {...props} />
           {goal?.pinned && <span className="goal-pinned">Pinned</span>}
           <span className="goal-spacer" />
+          {/* A goal started from a marked issue or ticket ends when its source is unmarked. */}
+          {goal !== null && goal.source === null && (
+            <button type="button" className="goal-headbtn" title="Cancel goal" aria-label="Cancel goal" onClick={() => setCancelling(true)}>
+              <Ban size={15} strokeWidth={1.8} aria-hidden="true" />
+            </button>
+          )}
           {onExpand !== undefined && (
             <button type="button" className="goal-headbtn" title={mode === 'board' ? 'Restore window size' : 'Expand goal'} aria-label={mode === 'board' ? 'Restore goal window' : 'Expand goal'} onClick={onExpand}>
               {mode === 'board' ? <Minimize2 size={15} strokeWidth={1.8} aria-hidden="true" /> : <Maximize2 size={15} strokeWidth={1.8} aria-hidden="true" />}
@@ -113,22 +126,81 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
         </div>
         {goal !== null && (
           <>
-            <div className="goal-panel__title">{goal.title}</div>
+            <GoalTitle key={goal.id} goal={goal} onRename={props.onRename} />
             {goal.description !== '' && <div className="goal-panel__desc">{goal.description}</div>}
           </>
         )}
-        <div className="goal-tabs goal-panel__views" role="tablist" aria-label="Goal views">
+        {props.onBack === undefined && <div className="goal-tabs goal-panel__views" role="tablist" aria-label="Goal views">
           {(['guide', 'work'] as const).map((value) => <button type="button" role="tab" aria-selected={view === value} key={value}
             className={`goal-tab${view === value ? ' is-active' : ''}`} onClick={() => { setSelected(null); props.onView(value); }}>{value === 'guide' ? 'Guide' : 'Work'}</button>)}
-        </div>
+        </div>}
       </div>
       {lessonItem !== undefined && goal !== null ? <LessonView key={lessonItem.id} goal={goal} item={lessonItem} repository={props.repository}
         conversation={props.conversation} onBack={() => props.onLesson(null)} />
         : item !== undefined ? <WorkDetails key={item.id} {...props} item={item} onBack={() => setSelected(null)} />
-        : view === 'guide' ? <GoalGuide goal={goal} repository={props.repository} conversation={props.conversation} onStart={props.onStart} onOpenTask={props.onOpenTask}
-          onLesson={props.onLesson} />
+        : view === 'guide' ? <GoalGuide key={goal?.id ?? 'next'} goal={goal} repository={props.repository} conversation={props.conversation} onStart={props.onStart} onOpenTask={props.onOpenTask}
+          onLesson={props.onLesson} onBack={props.onBack} />
           : goal === null ? <><NoGoal onCreate={props.onCreate} />{props.workItems.map((saved) => <button type="button" className="goal-work-card" key={saved.id} onClick={() => setSelected(saved.id)}>{saved.title} · {saved.state.toLowerCase()}</button>)}</> : <GoalWork {...props} goal={goal} onSelect={setSelected} />}
+      {cancelling && goal !== null && (
+        <ConfirmDialog
+          title="Cancel this goal?"
+          confirmLabel={busy ? 'Cancelling…' : 'Cancel goal'}
+          cancelLabel="Keep goal"
+          busy={busy}
+          destructive
+          onConfirm={() => {
+            setBusy(true);
+            void props.onDelete(goal.id).finally(() => { setBusy(false); setCancelling(false); });
+          }}
+          onCancel={() => setCancelling(false)}
+        >
+          <p>“{goal.title}” leaves your goals. Its conversation, work items and history stay saved.</p>
+        </ConfirmDialog>
+      )}
     </div>
+  );
+}
+
+/** The goal's name, renamed in place: a click edits it, Enter or leaving the field saves, and Escape keeps the old name. */
+function GoalTitle({ goal, onRename }: { goal: GoalDto; onRename: GoalPanelProps['onRename'] }): React.JSX.Element {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // The field can lose focus as it closes; that blur must not save again or undo an Escape.
+  const closed = useRef(false);
+  if (draft === null) {
+    return <button type="button" className="goal-panel__title" title="Rename" onClick={() => { closed.current = false; setError(null); setDraft(goal.title); }}>{goal.title}</button>;
+  }
+  const save = (): void => {
+    const title = draft.trim();
+    if (closed.current || busy) return;
+    if (title === '' || title === goal.title) {
+      closed.current = true;
+      setDraft(null);
+      return;
+    }
+    setBusy(true); setError(null);
+    void onRename(goal.id, title).then(() => { closed.current = true; setDraft(null); },
+      (failure: unknown) => setError(failure instanceof Error ? failure.message : 'The name was not saved')).finally(() => setBusy(false));
+  };
+  return (
+    <>
+      <input className="goal-panel__title" aria-label="Goal name" autoFocus maxLength={500} value={draft} readOnly={busy}
+        onChange={(event) => setDraft(event.target.value)} onBlur={save}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+            event.preventDefault();
+            save();
+          }
+          else if (event.key === 'Escape') {
+            // Handled here, so the window stays open.
+            event.preventDefault();
+            closed.current = true;
+            setDraft(null);
+          }
+        }} />
+      {error !== null && <p className="goal-guide__error" role="alert">{error}</p>}
+    </>
   );
 }
 
@@ -136,8 +208,8 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
  * The agent's side of the goal: "What do you want to achieve?" while there is nothing to go on, then the conversation, the
  * question's suggested answers and a definition to accept. The opening is written locally; only a message asks the model.
  */
-function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLesson }: Pick<GoalPanelProps, 'goal' | 'repository' | 'conversation' | 'onStart' | 'onOpenTask'
-  | 'onLesson'>): React.JSX.Element {
+function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLesson, onBack }: Pick<GoalPanelProps, 'goal' | 'repository' | 'conversation' | 'onStart'
+  | 'onOpenTask' | 'onLesson' | 'onBack'>): React.JSX.Element {
   const { exchanges } = conversation;
   const [error, setError] = useState<string | null>(null);
   const last = exchanges.at(-1);
@@ -150,15 +222,22 @@ function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLess
     setError(null);
     void send(crypto.randomUUID(), answer).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The answer was not sent'));
   };
-  const opening = goal === null || (exchanges.length === 0 && goal.definition === null);
+  // Until a goal's conversation is read, neither the opening nor the thread shows, so a goal that has begun never flashes its opening question.
+  const ready = goal === null || conversation.loaded;
+  const opening = goal === null || (ready && exchanges.length === 0 && goal.definition === null);
+  const composer = <Composer answering={answering} focus={opening} placeholder={opening ? 'I want to…' : question === null ? 'Ask about this goal' : 'Answer in your own words'}
+    onSend={send} />;
   return (
     <div className="goal-panel__body goal-guide">
       {goal?.definition != null && <Definition definition={goal.definition} />}
       {goal?.course != null && <Course goal={goal} onLesson={onLesson} />}
       {opening ? (
         <div className="goal-guide__opening">
-          <div className="goal-guide__ask">{goal === null ? 'What do you want to achieve?' : `What does “${goal.title}” mean to you?`}</div>
-          <div className="goal-guide__hint">Pick a direction or say it in your own words. The agent asks what it needs, then proposes a goal for you to accept.</div>
+          {onBack !== undefined && <button type="button" className="goal-link goal-guide__back" onClick={onBack}>Back to the current goal</button>}
+          {/* The goal's own title is never the question: a name alone says little about what the user wants. */}
+          <div className="goal-guide__ask">What do you want to achieve?</div>
+          <div className="goal-guide__hint">Say it in your own words, or pick a direction. The agent asks what it needs, then proposes a goal for you to accept.</div>
+          {composer}
           <Choices choices={goalDirections(repository)} onPick={pick} />
         </div>
       ) : (
@@ -190,7 +269,7 @@ function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLess
       {open !== null && <Proposal key={open.exchangeId} proposal={open.proposal} onAccept={(title) => conversation.accept(open.exchangeId, title)} />}
       {course !== null && <CourseProposal key={course.exchangeId} course={course.course} onAccept={() => conversation.acceptCourse(course.exchangeId)} />}
       {(error ?? conversation.error) !== null && <p className="goal-guide__error" role="alert">{error ?? conversation.error}</p>}
-      <Composer answering={answering} placeholder={goal === null ? 'I want to…' : question === null ? 'Ask about this goal' : 'Answer in your own words'} onSend={send} />
+      {!opening && ready && composer}
     </div>
   );
 }
@@ -374,8 +453,17 @@ function Proposal({ proposal, onAccept }: { proposal: GoalProposalDto; onAccept:
   );
 }
 
-/** The user's own words to the agent; a resend after a lost answer keeps its operation, so the agent is asked once. */
-function Composer({ answering, placeholder, onSend }: { answering: boolean; placeholder: string; onSend: (operationId: string, message: string) => Promise<unknown> }): React.JSX.Element {
+/**
+ * The user's own words to the agent; a resend after a lost answer keeps its operation, so the agent is asked once.
+ *
+ * @param focus whether the field takes focus as it appears and when the window opens, as for the opening question
+ */
+function Composer({ answering, focus = false, placeholder, onSend }: {
+  answering: boolean;
+  focus?: boolean;
+  placeholder: string;
+  onSend: (operationId: string, message: string) => Promise<unknown>;
+}): React.JSX.Element {
   const [draft, setDraft] = useState('');
   const [operation, setOperation] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
@@ -389,7 +477,7 @@ function Composer({ answering, placeholder, onSend }: { answering: boolean; plac
   };
   return (
     <form className="goal-composer" onSubmit={(event) => { event.preventDefault(); submit(); }}>
-      <textarea aria-label="Message the goal's agent" rows={2} maxLength={4000} value={draft} placeholder={placeholder}
+      <textarea aria-label="Message the goal's agent" rows={2} maxLength={4000} value={draft} placeholder={placeholder} autoFocus={focus} data-goal-focus={focus || undefined}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); } }} />
       {error !== null && <p className="goal-guide__error" role="alert">{error}</p>}
@@ -398,18 +486,15 @@ function Composer({ answering, placeholder, onSend }: { answering: boolean; plac
   );
 }
 
-function GoalSwitcher({ goals, goal, repository, onSwitch, onCreate, onDelete }: GoalPanelProps): React.JSX.Element {
+function GoalSwitcher({ goals, goal, repository, onSwitch, onNew }: GoalPanelProps): React.JSX.Element {
   const [open, setOpen] = useState(false);
-  const [naming, setNaming] = useState(false);
-  const [confirm, setConfirm] = useState(false);
-  const [busy, setBusy] = useState(false);
   const position = goal === null ? 0 : goals.findIndex((candidate) => candidate.id === goal.id) + 1;
   return (
     <>
-      <button type="button" className="goal-switch" aria-expanded={open} onClick={() => { setOpen((value) => !value); setNaming(false); }}>
+      <button type="button" className="goal-switch" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
         <GoalIcon />
         <span className="goal-switch__label">GOAL</span>
-        {goals.length > 0 && <span className="goal-switch__pos">{position} of {goals.length}</span>}
+        {position > 0 && <span className="goal-switch__pos">{position} of {goals.length}</span>}
         <ChevronDown size={11} strokeWidth={2.4} aria-hidden="true" />
       </button>
       {open && (
@@ -425,37 +510,10 @@ function GoalSwitcher({ goals, goal, repository, onSwitch, onCreate, onDelete }:
             </button>
           ))}
           {goals.length > 0 && <div className="goal-menu__rule" />}
-          {naming ? (
-            <NameInput busy={busy} onCancel={() => setNaming(false)} onSubmit={(title) => {
-              setBusy(true);
-              void onCreate(title).then(() => { setNaming(false); setOpen(false); }, () => {}).finally(() => setBusy(false));
-            }} />
-          ) : (
-            <button type="button" role="menuitem" className="goal-menu__action" onClick={() => setNaming(true)}>
-              <Plus size={14} strokeWidth={2} aria-hidden="true" />New goal
-            </button>
-          )}
-          {goal !== null && goal.source === null && (
-            <button type="button" role="menuitem" className="goal-menu__action is-danger" onClick={() => { setOpen(false); setConfirm(true); }}>
-              <Trash2 size={14} strokeWidth={1.8} aria-hidden="true" />Archive this goal
-            </button>
-          )}
+          <button type="button" role="menuitem" className="goal-menu__action" onClick={() => { setOpen(false); onNew(); }}>
+            <Plus size={14} strokeWidth={2} aria-hidden="true" />New goal
+          </button>
         </div>
-      )}
-      {confirm && goal !== null && (
-        <ConfirmDialog
-          title="Archive this goal?"
-          confirmLabel={busy ? 'Archiving…' : 'Archive goal'}
-          busy={busy}
-          destructive
-          onConfirm={() => {
-            setBusy(true);
-            void onDelete(goal.id).finally(() => { setBusy(false); setConfirm(false); });
-          }}
-          onCancel={() => setConfirm(false)}
-        >
-          <p>“{goal.title}” leaves the active Goal list. Its work items, decisions and history remain saved.</p>
-        </ConfirmDialog>
       )}
     </>
   );

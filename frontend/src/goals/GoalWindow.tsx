@@ -62,7 +62,7 @@ export function GoalWindow({ anchor, open, onClose, children }: {
       '--goal-zoom-scale-x': source.width / next.width,
       '--goal-zoom-scale-y': source.height / next.height,
     } as CSSProperties);
-    element.querySelector<HTMLElement>('button')?.focus({ preventScroll: true });
+    (element.querySelector<HTMLElement>('[data-goal-focus]') ?? element.querySelector<HTMLElement>('button'))?.focus({ preventScroll: true });
   }, [anchor, open]);
 
   useLayoutEffect(() => {

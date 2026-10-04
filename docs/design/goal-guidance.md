@@ -249,6 +249,14 @@ the same panel. Leaving the control/window area closes it automatically, except
 during a drag, resize or confirmation. Closing preserves drafts for reopening;
 Escape and the close button also dismiss it. Keep the window inside the page
 and respect reduced-motion preferences.
+Clicking the title renames the Goal in place; Enter or leaving the field saves
+and Escape keeps the old name. Cancel goal in the header archives a Goal the
+user started, after a confirmation, and the window returns to the opening
+question; a Goal started from a marked issue or ticket ends by unmarking its
+source. New goal in the switcher asks the same question while the current Goal
+stays pinned until an answer starts the next one. The opening never asks for a
+name and never turns an existing title into the question; its answer field sits
+under the question and takes focus.
 The default view is guidance, with Work and History as secondary inspection
 views. A user should understand the current situation and useful next action
 before opening a transcript, search box or board. Both Home surfaces open this

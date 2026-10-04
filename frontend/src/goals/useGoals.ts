@@ -45,6 +45,8 @@ export type Goals = {
   create: (title: string) => Promise<GoalDto>;
   /** Makes the goal the one the pages follow. */
   pin: (goalId: string) => Promise<void>;
+  rename: (goalId: string, title: string) => Promise<GoalDto>;
+  /** Archives the goal; its work and history stay saved. */
   remove: (goalId: string) => Promise<void>;
   add: (goalId: string, kind: GoalItemKind, key: string) => Promise<void>;
   removeItem: (goalId: string, kind: GoalItemKind, key: string) => Promise<void>;
@@ -78,6 +80,8 @@ const NO_NOTES: GoalKnowledgeNoteDto[] = [];
 
 /** A goal's conversation with its agent, as the panel shows it. */
 export type GoalConversation = {
+  /** Whether the goal's conversation has been read; until then nobody knows whether it has begun. */
+  loaded: boolean;
   exchanges: GoalExchangeDto[];
   /** What the goal's research runs saved. */
   notes: GoalKnowledgeNoteDto[];
@@ -222,6 +226,7 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
     error,
     create: (title) => bridge().createGoal(workspaceId, title, '').then(settle),
     pin: (goalId) => bridge().updateGoal(workspaceId, goalId, { pinned: true }).then(() => announce(workspaceId)),
+    rename: (goalId, title) => bridge().updateGoal(workspaceId, goalId, { title }).then(settle),
     remove: (goalId) => bridge().deleteGoal(workspaceId, goalId).then(() => {
       setGoals((current) => current.filter((goal) => goal.id !== goalId));
       announce(workspaceId);
@@ -296,6 +301,7 @@ export function useGoalConversation(goals: Goals, goalId: string | null, shown: 
   return useMemo(() => {
     const show = (found: GoalExchangeDto[]): void => { if (goalId !== null) setRead((last) => ({ goalId, exchanges: found, notes: last?.goalId === goalId ? last.notes : [] })); };
     return {
+      loaded: goalId === null || current !== null,
       exchanges,
       notes,
       error,
@@ -311,5 +317,5 @@ export function useGoalConversation(goals: Goals, goalId: string | null, shown: 
         : goals.finishLesson(goalId, lessonId, operationId).then(() => goals.exchanges(goalId)).then(show)),
       correctTopic: (topic, level) => (goalId === null ? Promise.resolve() : goals.setTopic(goalId, topic, level).then(() => {})),
     };
-  }, [error, exchanges, goalId, goals, notes, openOne, readOne]);
+  }, [current, error, exchanges, goalId, goals, notes, openOne, readOne]);
 }

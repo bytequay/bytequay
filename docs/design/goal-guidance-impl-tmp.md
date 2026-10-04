@@ -61,7 +61,10 @@ panel, renamed manual buttons or an unconnected chat box does not complete it.
 
 Progress: items 1 and 2 are implemented. The Guide view is the panel's default
 and opens on "what do you want to achieve?" with three local directions; free
-text or a suggested answer starts the Goal. Durable Goal exchanges record the
+text or a suggested answer starts the Goal. A Goal without a conversation gets
+the same question rather than its title, with the focused answer field under it.
+New goal in the switcher asks it over the current Goal, Cancel goal archives a
+user-started Goal and returns to it, and the title renames in place. Durable Goal exchanges record the
 message, input revision, model, validated reply or failure. The reply carries an
 assessment, one question with suggested answers and an optional definition;
 accepting it saves the title, objective, success definition, starting knowledge

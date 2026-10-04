@@ -28,6 +28,7 @@ import { LayerCovered } from '../Zoom';
 import { zoomReference } from '../githubReference';
 import PinButton from '../home/PinButton';
 import CopyLinkButton from '../CopyLinkButton';
+import { useRecentTouch } from '../recent/useRecentTouch';
 import { completeAttentionVisit, recordAttentionAction, useAttentionVisit } from '../home/useAttentionVisit';
 import { jiraAttentionItem } from './attention';
 import { JIRA_CHANGED, jiraAccountLabel, jiraSiteDomain, jiraIssueKey, jiraIssueLocation, jiraLocation, jiraRoute, notifyJiraChanged, type JiraBoard, type JiraComment, type JiraConnection, type JiraField, type JiraIssue, type JiraIssueDetail, type JiraIssuePage, type JiraLinkType, type JiraLocation, type JiraRelatedIssue, type JiraSite, type JiraSprint, type JiraStatus, type JiraUser } from './contracts';
@@ -622,6 +623,7 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
   }, [busy, editing, assigningWorkspace, location, menu]);
   const covered = useContext(LayerCovered);
   const wasCovered = useRef(covered);
+  useRecentTouch(issue && issue.id === location.issueId && !covered ? { type: 'JIRA', location } : null);
   useEffect(() => {
     if (wasCovered.current === covered) return;
     wasCovered.current = covered;

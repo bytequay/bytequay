@@ -1274,7 +1274,7 @@ export type GitWorktreeStatusDto = {
 
 /* ── Recent ─────────────────────────────────────────────────────────────── */
 
-export type RecentItemType = 'PULL_REQUEST' | 'ISSUE' | 'TASK' | 'COMMIT';
+export type RecentItemType = 'PULL_REQUEST' | 'ISSUE' | 'JIRA' | 'TASK' | 'COMMIT';
 
 export type RecentReason =
   | 'READ'

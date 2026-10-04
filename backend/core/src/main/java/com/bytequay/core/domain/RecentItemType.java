@@ -20,6 +20,7 @@ public enum RecentItemType
 {
     PULL_REQUEST,
     ISSUE,
+    JIRA,
     TASK,
     COMMIT;
 
@@ -29,6 +30,7 @@ public enum RecentItemType
         return switch (this) {
             case PULL_REQUEST -> "pr";
             case ISSUE -> "issue";
+            case JIRA -> "jira";
             case TASK -> "task";
             case COMMIT -> "commit";
         };

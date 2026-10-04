@@ -243,6 +243,7 @@ function ItemRow({ row, change, active, onHover, onOpen }: {
       {/* Metadata only on the active row — the list has to stay scannable. */}
       {active && (
         <span className="rc-item__meta">
+          {row.type === 'JIRA' && <><span>{row.subtitle}</span><span className="rc-row__sep">·</span></>}
           {row.number !== null && <code>#{row.number}</code>}
           {row.number !== null && <span className="rc-row__sep">·</span>}
           {row.reasonLabel.toLowerCase()} {relativeTime(row.touchedAt)}

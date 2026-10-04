@@ -371,6 +371,7 @@ public class RecentServiceImpl
         double score = 0;
         String title = lower(touch.title());
         String repo = lower(touch.repo());
+        String subtitle = lower(touch.subtitle());
         String body = lower(store.findTextByItemKey(touch.itemKey()).stream()
                 .map(RecentText::body)
                 .reduce("", (left, right) -> left + "\n" + right));
@@ -385,6 +386,9 @@ public class RecentServiceImpl
             }
             if (repo.contains(token)) {
                 tokenScore += 1;
+            }
+            if (touch.type() == RecentItemType.JIRA && subtitle.contains(token)) {
+                tokenScore += 3;
             }
             if (body.contains(token)) {
                 tokenScore += 2;

@@ -19,6 +19,7 @@ import type { RecentFilterQuery, RecentRowDto } from '../../types';
 import RecentPage from '../RecentPage';
 import { isoDay, parseDay, shiftDay } from '../model';
 import { recentItemTarget } from '../routes';
+import { useRecentTouch } from '../useRecentTouch';
 import { assert, settle } from '../../fixtures/harness';
 
 type DayPage = Awaited<ReturnType<Window['bridge']['fetchRecent']>>;
@@ -80,6 +81,53 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
     finally { view.dispose(); }
   };
+  await check('filters tickets and toggles back to all items', async view => {
+    await view.resolve(0, dayPage(today, 1));
+    await view.click('Tickets');
+    assert(view.requests[1].query.types?.join() === 'JIRA', 'Tickets must request the Jira type');
+    const page = dayPage(today, 1);
+    page.rows[0] = { ...page.rows[0], type: 'JIRA', itemKey: 'jira:cloud:1001', number: null, repo: null, subtitle: 'ENG-7 · example.atlassian.net' };
+    await view.resolve(1, page);
+    assert(view.host.textContent?.includes('ENG-7 · example.atlassian.net'), 'The ticket key and site must be visible');
+    await view.click('Tickets');
+    assert(!view.requests[2].query.types?.length, 'Toggling Tickets off must request every type');
+  });
+  await check('records the ticket being left and stops dwell while covered', async () => {
+    const reports: Array<{ id: string; seconds: number }> = [];
+    Object.defineProperty(window, 'bridge', { configurable: true, value: {
+      recordJiraRecentTouch: async (location: { issueId: string }, seconds: number) => { reports.push({ id: location.issueId, seconds }); },
+    } });
+    const originalTimeout = window.setTimeout;
+    const originalNow = Date.now;
+    let now = 0;
+    let threshold: (() => void) | null = null;
+    window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+      if (timeout === 20_000 && typeof handler === 'function') { threshold = () => handler(); return 0; }
+      return originalTimeout(handler, timeout, ...args);
+    }) as typeof window.setTimeout;
+    Date.now = () => now;
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    function Visit({ id }: { id: string | null }): null {
+      useRecentTouch(id === null ? null : { type: 'JIRA', location: { connectionId: 'connection', cloudId: 'cloud', issueId: id } });
+      return null;
+    }
+    const render = (id: string | null) => flushSync(() => root.render(<Visit id={id} />));
+    const reachThreshold = () => { assert(threshold !== null, 'A visible ticket needs a dwell timer'); threshold(); };
+    try {
+      render('1001');
+      now = 20_000; reachThreshold();
+      now = 65_000; render('1002');
+      assert(JSON.stringify(reports) === JSON.stringify([{ id: '1001', seconds: 20 }, { id: '1001', seconds: 65 }]), 'Leaving a ticket must not assign its time to the next ticket');
+      now = 70_000; render(null);
+      assert(reports.length === 2, 'A short visit must not be recorded');
+      render('1002');
+      now = 90_000; reachThreshold();
+      now = 100_000; render(null);
+      assert(reports.at(-1)?.id === '1002' && reports.at(-1)?.seconds === 30, 'Covering a ticket must finish its own visit');
+    }
+    finally { flushSync(() => root.unmount()); window.setTimeout = originalTimeout; Date.now = originalNow; }
+  });
   await check('opens the prompted task from the expanded thread action', async view => {
     const page = dayPage(today, 1);
     const taskId = '622f3ef2-b16a-4b86-9ac7-92e3f80bbc81';

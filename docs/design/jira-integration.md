@@ -117,6 +117,14 @@ tooltips and selected Goal styling. The task transcript shows a compact source
 request card; the source attachment sits above the composer with issue details
 on hover. No raw generated instruction block is rendered as the user's prompt.
 
+Recent includes tickets read for at least 20 seconds and successful ticket edits
+and comments. Its Tickets filter, local search and comment text search reuse the
+existing Recent retention and daily grouping. Rows display the ticket key and
+site, retain the explicit workspace assignment, and use cloud/issue IDs for
+identity across connections. Opening a row uses a connected account for that
+site and the immutable issue ID; a disconnected site opens the saved Jira link.
+Background refreshes do not record a visit.
+
 Jira sources are distinct from GitHub sources. Their identity is `(cloudId,
 issueId)`, never the mutable issue key. Display includes the familiar key and
 site. A Jira ticket may belong to any explicitly selected repository workspace.

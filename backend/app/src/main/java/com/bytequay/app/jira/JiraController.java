@@ -168,6 +168,13 @@ public class JiraController
         return jira.refreshDetail(connectionId, cloudId, issueId, automatic);
     }
 
+    @PostMapping(ISSUE + "/recent")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void recent(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId, @RequestBody Read request)
+    {
+        jira.recordRead(connectionId, cloudId, issueId, request.dwellSeconds());
+    }
+
     @PatchMapping(ISSUE)
     public JiraDtos.Detail update(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId, @RequestBody Edit request)
     {
@@ -246,6 +253,8 @@ public class JiraController
     }
 
     public record Config(boolean configured) {}
+
+    public record Read(int dwellSeconds) {}
 
     public record Token(String siteUrl, String email, String token)
     {

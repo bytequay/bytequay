@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, Check, ChevronDown, ChevronLeft, ChevronRight, CircleDot, Copy, GitPullRequest, Sparkles } from 'lucide-react';
 import Avatar from '../Avatar';
 import RepoAvatar from '../RepoAvatar';
+import JiraIcon from '../jira/JiraIcon';
 import type {
   RecentChangeDto,
   RecentItemType,
@@ -68,8 +69,6 @@ export default function RecentPage({ active = true, onOpenRow }: {
 }) {
   const today = isoDay(new Date());
   const [range, setRange] = useState<RangeKey>('last7');
-  // One type at a time: All, PRs, or Issues. The chips are a single choice,
-  // not a set — combining them says the same thing as All.
   const [type, setType] = useState<RecentItemType | null>(null);
   const [action, setAction] = useState<RecentReason | ''>('');
   const [workspace, setWorkspace] = useState<string>('');
@@ -335,6 +334,8 @@ export default function RecentPage({ active = true, onOpenRow }: {
               onClick={() => pickType('PULL_REQUEST')}><GitPullRequest aria-hidden="true" /> PRs</button>
             <button type="button" className="bq-button" aria-pressed={type === 'ISSUE'}
               onClick={() => pickType('ISSUE')}><CircleDot aria-hidden="true" /> Issues</button>
+            <button type="button" className="bq-button" aria-pressed={type === 'JIRA'}
+              onClick={() => pickType('JIRA')}><JiraIcon /> Tickets</button>
           </div>
           <span className="rc-menu-anchor">
             <button type="button" className="bq-button" aria-pressed={action !== ''}
@@ -428,6 +429,7 @@ export function Row({ row, change, open, onToggle, onOpen }: {
       <span className="rc-row__meta">
         {repo && <RepoAvatar owner={repo.owner} repo={repo.name} size={14} radius={4} />}
         {row.repo}
+        {row.type === 'JIRA' && row.subtitle}
         {(row.mine || author) && <span className="rc-row__sep">·</span>}
         {author && <Avatar login={author} size={14} />}
         {(row.mine || author) && <span>{row.mine ? 'yours' : author}</span>}

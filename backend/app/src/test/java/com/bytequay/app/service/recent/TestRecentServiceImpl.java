@@ -20,6 +20,8 @@ import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.app.jira.JiraDtos;
+import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.core.domain.PrCheckRunState;
@@ -36,7 +38,9 @@ import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrViewStateStore;
+import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.RecentStore;
+import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -364,6 +368,44 @@ class TestRecentServiceImpl
     void ignoresADwellShorterThanTheThreshold()
     {
         assertThat(RecentService.DWELL_THRESHOLD).isEqualTo(Duration.ofSeconds(20));
+    }
+
+    @Test
+    void recordsAndFindsTicketsByStableIdentityKeyAndWorkspace()
+    {
+        RecentTouchRecorder writer = new RecentTouchRecorder(store, mock(PullRequestStore.class), details,
+                mock(RepositoryIssueStore.class), workspaces, credentials, CLOCK);
+        JiraIssue ticket = jiraTicket("cloud-one", Optional.of(new JiraDtos.WorkspaceLink("ws-1", "Workspace")));
+        writer.jiraRead(ticket, 19);
+        assertThat(service.stream(everything(), null).rows()).isEmpty();
+        writer.jiraRead(ticket, 20);
+        writer.jiraRead(ticket, 125);
+        assertThat(service.stream(typed(RecentItemType.JIRA), null).rows()).singleElement().satisfies(row -> {
+            assertThat(row.itemKey()).isEqualTo("jira:cloud-one:1001");
+            assertThat(row.reasonLabel()).isEqualTo("Read 2m");
+            assertThat(row.subtitle()).isEqualTo("ENG-7 · example.atlassian.net");
+            assertThat(row.number()).isNull();
+        });
+        assertThat(service.search("ENG-7", 10)).hasSize(1);
+        assertThat(service.stream(narrowed("ENG-7"), null).rows()).hasSize(1);
+        writer.jiraAction(ticket, RecentReason.COMMENTED, 0);
+        writer.wroteOnJira(ticket, "5", "The catalog is fresh now.");
+        writer.wroteOnJira(ticket, "5", "The catalog is consistent now.");
+        writer.jiraRead(ticket, 60);
+        assertThat(service.stream(action(RecentReason.COMMENTED), null).rows()).hasSize(1);
+        assertThat(service.words("consistent", 10)).singleElement().satisfies(hit -> assertThat(hit.itemKey()).isEqualTo("jira:cloud-one:1001"));
+        assertThat(service.words("fresh", 10)).isEmpty();
+        writer.jiraRead(jiraTicket("cloud-two", Optional.empty()), 20);
+        assertThat(service.stream(typed(RecentItemType.JIRA), null).rows()).hasSize(2);
+        assertThat(service.stream(new RecentFilter(TODAY.minusDays(13), TODAY, ImmutableSet.of(), null, "ws-1", false, null), null).rows())
+                .extracting(RecentRow::itemKey).containsExactly("jira:cloud-one:1001");
+    }
+
+    private static JiraIssue jiraTicket(String cloudId, Optional<JiraDtos.WorkspaceLink> workspace)
+    {
+        return new JiraIssue("connection", cloudId, "1001", "ENG-7", "https://example.atlassian.net/browse/ENG-7", "Repair catalog refresh", "", "Task",
+                new JiraDtos.Status("1", "Open", "new"), Optional.empty(), ImmutableList.of(), Optional.empty(), Optional.empty(), false, false,
+                NOW, Optional.empty(), Optional.empty(), ImmutableList.of(), false, Optional.empty(), workspace);
     }
 
     private static RecentFilter everything()

@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import type { ZoomedReference } from '../githubReference';
+import type { JiraConnection } from '../jira/contracts';
 import type { RecentRowDto } from '../types';
 import { workspaceAgentTaskRoute, workspaceRoute } from '../workspaces/model';
 import { splitRepo } from './model';
@@ -21,7 +22,13 @@ import { splitRepo } from './model';
  * issue zooms over the page, so reading it never loses your place in Recent; a task or commit is a
  * route to its page.
  */
-export function recentItemTarget(item: Pick<RecentRowDto, 'type' | 'itemKey' | 'workspaceId'>): ZoomedReference | string | null {
+export function recentItemTarget(item: Pick<RecentRowDto, 'type' | 'itemKey' | 'workspaceId'>, connections: JiraConnection[] = []): ZoomedReference | string | null {
+  if (item.type === 'JIRA') {
+    const reference = /^jira:([^:]+):([0-9]+)$/.exec(item.itemKey);
+    if (!reference) return null;
+    const connection = connections.find(candidate => candidate.state === 'connected' && candidate.sites.some(site => site.id === reference[1]));
+    return connection ? { kind: 'jira', connectionId: connection.id, cloudId: reference[1], issueId: reference[2] } : null;
+  }
   if (item.type === 'TASK') {
     const taskId = /^task:(.+)$/.exec(item.itemKey)?.[1];
     return taskId && item.workspaceId ? workspaceAgentTaskRoute(item.workspaceId, taskId) : null;

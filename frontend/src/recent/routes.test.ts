@@ -14,8 +14,19 @@
 import { describe, expect, it } from 'vitest';
 import { workspaceLocationFromRoute } from '../workspaces/model';
 import { recentItemTarget } from './routes';
+import type { JiraConnection } from '../jira/contracts';
+import type { RecentRowDto } from '../types';
 
 describe('Recent navigation', () => {
+  it('reopens tickets by cloud and immutable issue id using a current connection', () => {
+    const connection: JiraConnection = { id: 'new-connection', authType: 'api_token', tokenEmail: null, state: 'connected', account: null,
+      sites: [{ id: 'cloud-one', name: 'Site', url: 'https://example.atlassian.net' }], authorizationUrl: null, pairingCode: null, error: null, duplicateOf: null };
+    const item: Pick<RecentRowDto, 'type' | 'itemKey' | 'workspaceId'> = { type: 'JIRA', itemKey: 'jira:cloud-one:1001', workspaceId: null };
+    expect(recentItemTarget(item, [connection])).toEqual({ kind: 'jira', connectionId: 'new-connection', cloudId: 'cloud-one', issueId: '1001' });
+    expect(recentItemTarget({ ...item, itemKey: 'jira:cloud-two:1001' }, [connection])).toBeNull();
+    expect(recentItemTarget(item, [{ ...connection, state: 'error' }])).toBeNull();
+    expect(recentItemTarget({ ...item, itemKey: 'jira:cloud-one:ENG-7' }, [connection])).toBeNull();
+  });
   it('opens the exact task conversation from its item key and workspace', () => {
     const taskId = '622f3ef2-b16a-4b86-9ac7-92e3f80bbc81';
     const route = recentItemTarget({ type: 'TASK', itemKey: `task:${taskId}`, workspaceId: 'workspace/one' });

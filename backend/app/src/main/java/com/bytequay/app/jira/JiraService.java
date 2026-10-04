@@ -15,11 +15,13 @@ package com.bytequay.app.jira;
 
 import com.bytequay.app.agent.JiraIssueLocks;
 import com.bytequay.app.service.goal.GoalService;
+import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalSource;
+import com.bytequay.core.domain.RecentReason;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.store.JiraIssueTaskStore;
 import com.bytequay.core.store.WorkItemStore;
@@ -72,10 +74,11 @@ public class JiraService
     private final ObjectProvider<GoalService> goals;
     private final JiraActivityLog activity;
     private final WorkItemStore workItems;
+    private final RecentTouchRecorder recent;
     private final ExecutorService reads = Executors.newVirtualThreadPerTaskExecutor();
 
     public JiraService(JiraConnections connections, JiraCache cache, JiraIssueTaskStore tasks, WorkspaceStore workspaces, ObjectProvider<AppSettingsService> appSettings,
-            ObjectProvider<GoalService> goals, JiraActivityLog activity, WorkItemStore workItems)
+            ObjectProvider<GoalService> goals, JiraActivityLog activity, WorkItemStore workItems, RecentTouchRecorder recent)
     {
         this.connections = requireNonNull(connections, "connections is null");
         this.cache = requireNonNull(cache, "cache is null");
@@ -87,6 +90,7 @@ public class JiraService
         this.goals = requireNonNull(goals, "goals is null");
         this.activity = requireNonNull(activity, "activity is null");
         this.workItems = requireNonNull(workItems, "workItems is null");
+        this.recent = requireNonNull(recent, "recent is null");
     }
 
     public List<JiraDtos.Board> boards(String connectionId, String cloudId, boolean refresh)
@@ -189,6 +193,11 @@ public class JiraService
     {
         return metadata(cache.read(issueKey(connectionId, cloudId, issueId), JiraIssue.class)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Ticket is not cached. Refresh it in Jira first.")));
+    }
+
+    public void recordRead(String connectionId, String cloudId, String issueId, int dwellSeconds)
+    {
+        recent.jiraRead(issue(connectionId, cloudId, issueId), dwellSeconds);
     }
 
     public JiraIssue refreshIssue(String connectionId, String cloudId, String issueId)
@@ -361,7 +370,7 @@ public class JiraService
                 }
                 throw e;
             }
-            return afterWrite(connectionId, cloudId, issueId);
+            return afterWrite(connectionId, cloudId, issueId, RecentReason.EDITED);
         });
     }
 
@@ -384,7 +393,7 @@ public class JiraService
             // Jira reads a created link's inwardIssue with the outward description: inward A, outward B and Blocks mean "A blocks B".
             write(connectionId, cloudId, "/rest/api/3/issueLink", "POST", ImmutableMap.of("type", ImmutableMap.of("id", typeId),
                     "inwardIssue", outward ? self : other, "outwardIssue", outward ? other : self));
-            return afterWrite(connectionId, cloudId, issueId);
+            return afterWrite(connectionId, cloudId, issueId, RecentReason.EDITED);
         });
     }
 
@@ -396,7 +405,7 @@ public class JiraService
             checkArgument(!fields.isEmpty() && ImmutableList.of("summary", "labels", "assignee", "priority", "duedate").containsAll(fields.keySet()), "Unsupported Jira field");
             Map<String, Object> values = fieldValues(fields, allowed, false);
             write(connectionId, cloudId, issuePath(issueId), "PUT", ImmutableMap.of("fields", values));
-            return afterWrite(connectionId, cloudId, issueId);
+            return afterWrite(connectionId, cloudId, issueId, RecentReason.EDITED);
         });
     }
 
@@ -409,7 +418,7 @@ public class JiraService
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "This transition is no longer available. Refresh the ticket."));
             Map<String, Object> values = fieldValues(fields, JiraMapping.fields(transition.path("fields")), true);
             write(connectionId, cloudId, issuePath(issueId) + "/transitions", "POST", ImmutableMap.of("transition", ImmutableMap.of("id", transitionId), "fields", values));
-            return afterWrite(connectionId, cloudId, issueId);
+            return afterWrite(connectionId, cloudId, issueId, RecentReason.EDITED);
         });
     }
 
@@ -420,7 +429,7 @@ public class JiraService
             checkArgument(sprintId.map(id -> id > 0).orElse(true), "Invalid sprint id");
             String path = sprintId.map(id -> "/rest/agile/1.0/sprint/" + id + "/issue").orElse("/rest/agile/1.0/backlog/issue");
             write(connectionId, cloudId, path, "POST", ImmutableMap.of("issues", ImmutableList.of(issue.key())));
-            return afterWrite(connectionId, cloudId, issueId);
+            return afterWrite(connectionId, cloudId, issueId, RecentReason.EDITED);
         });
     }
 
@@ -438,7 +447,7 @@ public class JiraService
                     throw new ResponseStatusException(HttpStatus.CONFLICT,
                             "The previous send has an unknown result. Refresh comments and check Jira before composing another message.");
                 }
-                return afterWrite(connectionId, cloudId, issueId);
+                return afterWrite(connectionId, cloudId, issueId, RecentReason.COMMENTED);
             }
             issue(connectionId, cloudId, issueId);
             connections.site(connectionId, cloudId);
@@ -450,7 +459,8 @@ public class JiraService
             parentId.ifPresent(id -> request.put("parentId", id));
             JsonNode created = write(connectionId, cloudId, issuePath(issueId) + "/comment", "POST", request.buildOrThrow());
             cache.write(key, new CommentAttempt(body, true));
-            JiraDtos.Detail detail = afterWrite(connectionId, cloudId, issueId);
+            JiraDtos.Detail detail = afterWrite(connectionId, cloudId, issueId, RecentReason.COMMENTED);
+            recent.wroteOnJira(detail.issue(), created.path("id").asText(operationId), body);
             if (parentId.isPresent() && !parentId.equals(JiraMapping.text(created, "parentId"))) {
                 return new JiraDtos.Detail(detail.issue(), detail.comments(), detail.transitions(), detail.editableFields(), detail.assignees(), detail.fetchedAt(),
                         Optional.of("Jira saved your reply as a new comment instead of a reply."), detail.commentsTruncated(), detail.hierarchyLevel(),
@@ -479,7 +489,9 @@ public class JiraService
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "This comment has formatting ByteQuay cannot edit. Edit it in Jira.");
             }
             write(connectionId, cloudId, path, "PUT", ImmutableMap.of("body", JiraMapping.document(body, JiraMapping.mentions(current))));
-            return afterWrite(connectionId, cloudId, issueId);
+            JiraDtos.Detail detail = afterWrite(connectionId, cloudId, issueId, RecentReason.COMMENTED);
+            recent.wroteOnJira(detail.issue(), commentId, body);
+            return detail;
         });
     }
 
@@ -576,18 +588,21 @@ public class JiraService
         }
     }
 
-    private JiraDtos.Detail afterWrite(String connectionId, String cloudId, String issueId)
+    private JiraDtos.Detail afterWrite(String connectionId, String cloudId, String issueId, RecentReason reason)
     {
+        JiraDtos.Detail result;
         try {
-            return refreshDetail(connectionId, cloudId, issueId);
+            result = refreshDetail(connectionId, cloudId, issueId);
         }
         catch (RuntimeException ignored) {
             JiraDtos.Detail saved = detail(connectionId, cloudId, issueId, false);
-            return new JiraDtos.Detail(saved.issue(), saved.comments(), ImmutableList.of(), ImmutableList.of(), saved.assignees(), saved.fetchedAt(),
+            result = new JiraDtos.Detail(saved.issue(), saved.comments(), ImmutableList.of(), ImmutableList.of(), saved.assignees(), saved.fetchedAt(),
                     Optional.of("Saved to Jira, but refreshing failed. Refresh before making another change."), saved.commentsTruncated(), saved.hierarchyLevel(),
                     saved.children(), saved.childrenTruncated(), saved.links(), saved.richTextFields(), saved.project(), saved.reporter(), saved.peopleFields(),
                     saved.teamFields());
         }
+        recent.jiraAction(result.issue(), reason, 0);
+        return result;
     }
 
     private JiraIssue fresh(String connectionId, String cloudId, String issueId, Instant expected)

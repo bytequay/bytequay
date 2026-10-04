@@ -24,6 +24,6 @@ it('preserves Recent across navigation and loads pages without redundant request
     width: 1100,
     height: 600,
   });
-  expect(results).toHaveLength(8);
+  expect(results).toHaveLength(10);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, 30_000);

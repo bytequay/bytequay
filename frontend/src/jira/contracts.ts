@@ -82,6 +82,7 @@ export type JiraBridge = {
   listJiraSprints: (connectionId: string, cloudId: string, boardId: number, refresh?: boolean) => Promise<JiraSprint[]>;
   listJiraIssues: (query: JiraQuery, refresh?: boolean) => Promise<JiraIssuePage>;
   getJiraIssue: (location: JiraLocation, refresh?: boolean, automatic?: boolean) => Promise<JiraIssueDetail>;
+  recordJiraRecentTouch: (location: JiraLocation, dwellSeconds: number) => Promise<void>;
   /** Looks up the ticket a link's key names now; everything after uses the returned issue id. */
   refreshJiraIssueByKey: (connectionId: string, cloudId: string, key: string) => Promise<JiraIssue>;
   updateJiraIssue: (location: JiraLocation, fields: Record<string, unknown>, expectedUpdatedAt: string) => Promise<JiraIssueDetail>;

@@ -13,6 +13,7 @@
  */
 import { CircleDot, GitCommitHorizontal, GitPullRequest, SquareCheck, type LucideIcon } from 'lucide-react';
 import type { RecentItemType, RecentReason, RecentRowDto } from '../types';
+import JiraIcon from '../jira/JiraIcon';
 
 /** Fixed by the backend's retention sweep; the calendar greys everything older. */
 export const RETENTION_DAYS = 14;
@@ -26,9 +27,10 @@ export const RANGE_OPTIONS: Array<{ key: RangeKey; label: string; days: number; 
   { key: 'last14', label: 'Last 14 days', days: RETENTION_DAYS, offset: 0 },
 ];
 
-export const TYPE_ICON: Record<RecentItemType, LucideIcon> = {
+export const TYPE_ICON: Record<RecentItemType, LucideIcon | typeof JiraIcon> = {
   PULL_REQUEST: GitPullRequest,
   ISSUE: CircleDot,
+  JIRA: JiraIcon,
   TASK: SquareCheck,
   COMMIT: GitCommitHorizontal,
 };
@@ -103,7 +105,7 @@ export function reasonTone(reason: RecentReason): 'green' | 'purple' | 'amber' |
 /** Glyph colour carries role: purple is mine, green is theirs. */
 export function roleTone(row: Pick<RecentRowDto, 'type' | 'mine'>): 'mine' | 'theirs' | 'own' {
   if (row.type === 'COMMIT') return 'own';
-  if (row.type === 'TASK') return 'mine';
+  if (row.type === 'TASK' || row.type === 'JIRA') return 'mine';
   return row.mine ? 'mine' : 'theirs';
 }
 

@@ -97,6 +97,7 @@ function installBridge() {
     listJiraBoards: async () => [{ id: 828, name: 'Connectors', type: 'scrum' }],
     listJiraSprints: async () => [{ id: 11, name: 'Connector reliability', state: 'active', startDate: null, endDate: null }],
     listJiraIssues: async () => ({ issues: [ticket], fetchedAt: ticket.updatedAt, error: null, partial: false }),
+    recordJiraRecentTouch: async () => {},
     getJiraIssue: async () => detail(),
     commentJiraIssue: async (_location: unknown, body: string) => {
       posted.push(body);

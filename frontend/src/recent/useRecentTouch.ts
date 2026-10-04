@@ -13,13 +13,14 @@
  */
 import { useCallback, useEffect, useRef } from 'react';
 import type { RecentItemType } from '../types';
+import type { JiraLocation } from '../jira/contracts';
 
 type RecentTarget = {
-  type: RecentItemType;
+  type: Exclude<RecentItemType, 'JIRA'>;
   repo: string;
   number: number;
   workspaceId?: string | null;
-};
+} | { type: 'JIRA'; location: JiraLocation };
 
 /**
  * The threshold the backend enforces. Mirrored here only to know when the
@@ -28,14 +29,17 @@ type RecentTarget = {
 const DWELL_SECONDS = 20;
 
 function report(target: RecentTarget, signal: 'DWELL' | 'DIFF_OPENED', dwellSeconds: number) {
-  void window.bridge.recordRecentTouch({
-    type: target.type,
-    repo: target.repo,
-    number: target.number,
-    workspaceId: target.workspaceId ?? null,
-    signal,
-    dwellSeconds,
-  }).catch(() => {
+  const pending = target.type === 'JIRA'
+    ? window.bridge.recordJiraRecentTouch(target.location, dwellSeconds)
+    : window.bridge.recordRecentTouch({
+      type: target.type,
+      repo: target.repo,
+      number: target.number,
+      workspaceId: target.workspaceId ?? null,
+      signal,
+      dwellSeconds,
+    });
+  void pending.catch(() => {
     // Recent is a convenience. A failed report is never worth a visible error.
   });
 }
@@ -47,22 +51,26 @@ function report(target: RecentTarget, signal: 'DWELL' | 'DIFF_OPENED', dwellSeco
  * count on the badge is the real one.
  */
 export function useRecentTouch(target: RecentTarget | null) {
-  const key = target ? `${target.type}:${target.repo}#${target.number}` : null;
+  const key = target?.type === 'JIRA'
+    ? `jira:${target.location.connectionId}:${target.location.cloudId}:${target.location.issueId}`
+    : target ? `${target.type}:${target.repo}#${target.number}` : null;
   const current = useRef(target);
   current.current = target;
 
   useEffect(() => {
     if (!key) return;
+    // Capture this visit: the ref already points at the next item when cleanup runs.
+    const visited = current.current;
     const openedAt = Date.now();
     let reached = false;
     const timer = window.setTimeout(() => {
       reached = true;
-      if (current.current) report(current.current, 'DWELL', DWELL_SECONDS);
+      if (visited) report(visited, 'DWELL', DWELL_SECONDS);
     }, DWELL_SECONDS * 1000);
     return () => {
       window.clearTimeout(timer);
       const seconds = Math.round((Date.now() - openedAt) / 1000);
-      if (reached && current.current) report(current.current, 'DWELL', seconds);
+      if (reached && visited) report(visited, 'DWELL', seconds);
     };
   }, [key]);
 

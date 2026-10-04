@@ -14,11 +14,13 @@
 package com.bytequay.app.jira;
 
 import com.bytequay.app.service.goal.GoalService;
+import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalSource;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.JiraIssueTask;
+import com.bytequay.core.domain.RecentReason;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemLink;
@@ -78,8 +80,9 @@ class TestJiraService
     private final GoalService goals = mock(GoalService.class);
     private final ObjectProvider<GoalService> goalsProvider = mock(ObjectProvider.class);
     private final JiraCache cache = new JiraCache(settings, mapper);
+    private final RecentTouchRecorder recent = mock(RecentTouchRecorder.class);
     private final WorkItemStore workItems = mock(WorkItemStore.class);
-    private final JiraService jira = new JiraService(remote, cache, tasks, workspaces, settingsProvider, goalsProvider, new JiraActivityLog(cache), workItems);
+    private final JiraService jira = new JiraService(remote, cache, tasks, workspaces, settingsProvider, goalsProvider, new JiraActivityLog(cache), workItems, recent);
     private final Map<String, String> saved = new HashMap<>();
 
     @BeforeEach
@@ -199,7 +202,7 @@ class TestJiraService
         verifyNoInteractions(remote);
         assertThat(jira.refreshIssue("connection", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
         JiraCache reopenedCache = new JiraCache(settings, mapper);
-        JiraService reopened = new JiraService(remote, reopenedCache, tasks, workspaces, settingsProvider, goalsProvider, new JiraActivityLog(reopenedCache), workItems);
+        JiraService reopened = new JiraService(remote, reopenedCache, tasks, workspaces, settingsProvider, goalsProvider, new JiraActivityLog(reopenedCache), workItems, recent);
         assertThat(reopened.issue("other", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace("workspace", "Renamed")));
         assertThat(reopened.issue("other", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "Renamed"));
@@ -448,17 +451,30 @@ class TestJiraService
     }
 
     @Test
+    void recordsTicketReadsFromCacheWithoutFetchingJira()
+            throws Exception
+    {
+        JiraIssue cached = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", ticket());
+        saved.put("jira.connection.cloud.issue.1001", mapper.writeValueAsString(cached));
+        jira.recordRead("connection", "cloud", "1001", 65);
+        verify(recent).jiraRead(cached, 65);
+        verifyNoInteractions(remote);
+    }
+
+    @Test
     void staleEditNeverSendsMutation()
     {
         assertThatThrownBy(() -> jira.update("connection", "cloud", "1001", UPDATED.minusSeconds(1), ImmutableMap.of("assignee", "alice")))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("409");
         verify(remote, never()).request(anyString(), anyString(), anyString(), eq("PUT"), any());
+        verifyNoInteractions(recent);
     }
 
     @Test
     void assigneeUsesAccountIdEvenWhenEditMetadataContainsUserChoices()
     {
         jira.update("connection", "cloud", "1001", UPDATED, ImmutableMap.of("assignee", "alice"));
+        verify(recent).jiraAction(argThat(issue -> issue.id().equals("1001")), eq(RecentReason.EDITED), eq(0));
         verify(remote).request("connection", "cloud", "/rest/api/3/issue/1001", "PUT",
                 Optional.of(ImmutableMap.of("fields", ImmutableMap.of("assignee", ImmutableMap.of("accountId", "alice")))));
     }
@@ -488,6 +504,7 @@ class TestJiraService
         assertThatThrownBy(() -> jira.comment("replacement", "cloud", "1001", "Please check", "operation-123456789", Optional.empty()))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("unknown result");
         verify(remote, never()).request(eq("replacement"), anyString(), anyString(), eq("POST"), any());
+        verifyNoInteractions(recent);
     }
 
     @Test
@@ -499,6 +516,7 @@ class TestJiraService
                 .thenReturn(json("{\"id\":\"9\",\"parentId\":\"5\"}"), json("{\"id\":\"10\"}"));
 
         assertThat(jira.comment("connection", "cloud", "1001", "Agreed", "operation-reply-000001", Optional.of("5")).error()).isEmpty();
+        verify(recent).wroteOnJira(argThat(issue -> issue.id().equals("1001")), eq("9"), eq("Agreed"));
         verify(remote).request(eq("connection"), eq("cloud"), eq("/rest/api/3/issue/1001/comment"), eq("POST"),
                 argThat(body -> body.orElseThrow() instanceof Map<?, ?> request && "5".equals(request.get("parentId"))));
         assertThat(jira.comment("connection", "cloud", "1001", "Agreed", "operation-reply-000002", Optional.of("5")).error())
@@ -517,6 +535,7 @@ class TestJiraService
         doReturn(json(own)).when(remote).request("connection", "cloud", "/rest/api/3/issue/1001/comment/5", "GET", Optional.empty());
 
         jira.editComment("connection", "cloud", "1001", "5", "@Alex Kim fixed now", "U1");
+        verify(recent).wroteOnJira(argThat(issue -> issue.id().equals("1001")), eq("5"), eq("@Alex Kim fixed now"));
         List<Map<String, Object>> edited = ImmutableList.of(ImmutableMap.of("type", "mention", "attrs", ImmutableMap.of("id", "alex", "text", "@Alex Kim")),
                 ImmutableMap.of("type", "text", "text", " fixed now"));
         verify(remote).request("connection", "cloud", "/rest/api/3/issue/1001/comment/5", "PUT", Optional.of(ImmutableMap.of("body",

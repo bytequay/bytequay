@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.recent;
 
+import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.RecentItemType;
 import com.bytequay.core.domain.RecentReason;
@@ -31,6 +32,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.net.URI;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -90,6 +92,33 @@ public class RecentTouchRecorder
         guard(() -> issueItem(workspaceId, number).ifPresent(item -> save(item, reason, 0)));
     }
 
+    public void jiraRead(JiraIssue issue, int dwellSeconds)
+    {
+        if (dwellSeconds >= DWELL_THRESHOLD.toSeconds()) {
+            jiraAction(issue, RecentReason.READ, dwellSeconds / 60);
+        }
+    }
+
+    public void jiraAction(JiraIssue issue, RecentReason reason, int count)
+    {
+        guard(() -> save(jiraItem(issue), reason, count));
+    }
+
+    public void wroteOnJira(JiraIssue issue, String commentId, String body)
+    {
+        guard(() -> {
+            Item item = jiraItem(issue);
+            write(item, RecentTextKind.COMMENT, item.itemKey() + ":comment:" + commentId, body, clock.instant());
+        });
+    }
+
+    private static Item jiraItem(JiraIssue issue)
+    {
+        return new Item(RecentItemType.JIRA, "jira:" + issue.cloudId() + ":" + issue.id(), null, issue.title(), null,
+                issue.workspace().map(workspace -> workspace.id()).orElse(null), issue.url(), false, null,
+                issue.key() + " · " + URI.create(issue.url()).getHost());
+    }
+
     /** Records a task the user prompted. Tasks carry no repository number of their own. */
     public void taskPrompted(String taskId, String requestId, String prompt, String repo, String lane)
     {
@@ -143,7 +172,7 @@ public class RecentTouchRecorder
             Optional<Item> item = switch (touch.type()) {
                 case PULL_REQUEST -> pullRequestItem(touch.repo(), touch.number(), touch.workspaceId());
                 case ISSUE -> issueItem(touch.workspaceId(), touch.number());
-                case TASK, COMMIT -> Optional.empty();
+                case JIRA, TASK, COMMIT -> Optional.empty();
             };
             // Opening a diff is intent, and it is worth more than the minute
             // count that a glance happens to have accumulated.
@@ -171,7 +200,7 @@ public class RecentTouchRecorder
             Optional<Item> item = switch (type) {
                 case PULL_REQUEST -> pullRequestItem(repo, number, workspaceId);
                 case ISSUE -> issueItem(workspaceId, number);
-                case TASK, COMMIT -> Optional.empty();
+                case JIRA, TASK, COMMIT -> Optional.empty();
             };
             item.ifPresent(resolved -> {
                 String id = resolved.itemKey() + ":draft";

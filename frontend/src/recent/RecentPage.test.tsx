@@ -69,6 +69,13 @@ describe('a stream row', () => {
     expect(markup).not.toContain('alt="a1b2c3d"');
   });
 
+  it('shows a ticket key and site without a GitHub number or avatar', () => {
+    const markup = render({ row: { ...row, type: 'JIRA', number: null, repo: null, mine: false, subtitle: 'ENG-7 · example.atlassian.net' } });
+    expect(markup).toContain('ENG-7 · example.atlassian.net');
+    expect(markup).not.toContain('rc-row__number');
+    expect(markup).not.toContain('<img');
+  });
+
   it('leads with what changed when something moved since the last look', () => {
     const markup = render({
       change: {

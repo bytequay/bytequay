@@ -16,7 +16,7 @@ import AppSidebar, { type AppPage } from './AppSidebar';
 import BrowserRail from './BrowserRail';
 import FindBar from './FindBar';
 import JiraScreen, { JiraTicketLayer } from './jira/JiraScreen';
-import { JIRA_CHANGED, anyJiraConnected } from './jira/contracts';
+import { JIRA_CHANGED, anyJiraConnected, type JiraConnection } from './jira/contracts';
 import HomePage from './home/HomePage';
 import TeamsPage from './teams/TeamsPage';
 import { loadHandled } from './home/attention';
@@ -360,16 +360,20 @@ export default function App() {
     if (current) navigateTo(workspaceIssueRoute(current.id, number), mode);
   }, [navigateTo]);
 
-  const openRecentItem = (item: Pick<RecentRowDto, 'type' | 'itemKey' | 'workspaceId'>, textId: string | null) => {
+  const openRecentItem = async (item: Pick<RecentRowDto, 'type' | 'itemKey' | 'workspaceId' | 'htmlUrl'>, textId: string | null) => {
     setPaletteOpen(false);
-    const target = recentItemTarget(item);
-    if (target === null) return;
+    const connections = item.type === 'JIRA' ? await window.bridge.listJiraConnections().catch((): JiraConnection[] => []) : [];
+    const target = recentItemTarget(item, connections);
+    if (target === null) {
+      if (item.type === 'JIRA' && item.htmlUrl) await window.bridge.openInAppBrowser(item.htmlUrl);
+      return;
+    }
     if (typeof target === 'string') window.location.hash = target;
     else zoomReference(target);
     if (item.type === 'PULL_REQUEST') scrollToWrittenText(textId);
   };
-  const openRecentRow = (row: RecentRowDto) => openRecentItem(row, row.textId);
-  const openRecentWordHit = (hit: RecentWordHitDto) => openRecentItem(hit, hit.id);
+  const openRecentRow = (row: RecentRowDto) => { void openRecentItem(row, row.textId); };
+  const openRecentWordHit = (hit: RecentWordHitDto) => { void openRecentItem(hit, hit.id); };
 
   // A bare `#/settings` reopens whichever page was last open.
   const settingsPage = page === 'settings' ? settingsSection ?? readLastSection() : null;
